@@ -130,7 +130,7 @@ static void hierarchy_node(Editor& ed, Entity e, const std::string& filter, bool
 }
 
 void Editor::draw_hierarchy() {
-    if (!ImGui::Begin("Hierarchy", &showHierarchy_)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Hierarchy")) { ImGui::End(); return; }
     World& w = world();
     const bool editing = play_ == PlayState::Edit;
     ImGui::SetNextItemWidth(-62);

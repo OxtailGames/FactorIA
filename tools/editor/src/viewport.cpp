@@ -147,7 +147,7 @@ Entity Editor::pick_at(Vec2 design) {
 
 void Editor::draw_viewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    const bool open = ImGui::Begin("Viewport", &showViewport_, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    const bool open = ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (!open) {
         vpHovered_ = vpFocused_ = false;
@@ -169,7 +169,12 @@ void Editor::draw_viewport() {
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const ImVec2 imgMin(std::floor(start.x + (avail.x - sz.x) * 0.5f), std::floor(start.y + (avail.y - sz.y) * 0.5f));
     ImGui::SetCursorScreenPos(imgMin);
+    // The renderer's offscreen target is stored bottom-up on GL backends; flip so the image is upright.
+#if defined(SOKOL_GLCORE) || defined(SOKOL_GLES3)
+    ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz, ImVec2(0, 1), ImVec2(1, 0));
+#else
     ImGui::Image(ImTextureRef(ImTextureID(ui::texture_from_view(r->game_target_view_id(), true))), sz);
+#endif
     ImGui::SetCursorScreenPos(imgMin);
     ImGui::InvisibleButton("##viewport_hit", sz,
                            ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);

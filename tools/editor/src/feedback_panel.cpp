@@ -32,12 +32,12 @@ ImVec4 severity_color(const std::string& s) {
 }  // namespace
 
 void Editor::draw_feedback_panel() {
-    if (!ImGui::Begin("Engine Feedback", &showFeedback_)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Engine Feedback")) { ImGui::End(); return; }
     const std::string path = fs::join(projectDir_, engine_->project().feedbackFile);
     // (Re)load when the file changed on disk (AIs append to it while the editor is open).
     if (time_ - feedbackPolled_ > 1.0) {
         feedbackPolled_ = time_;
-        const std::int64_t mt = fs::modified_time(path);
+        const std::int64_t mt = fs::modified_time(engine_->project().feedbackFile);
         if (mt != feedbackMtime_) {
             feedbackMtime_ = mt;
             if (mt < 0) {
@@ -136,7 +136,7 @@ void Editor::draw_feedback_panel() {
         if (combo_strings("status##detail", &cur, st, false) && st[size_t(cur)] != curStatus) {
             if (auto r = update_feedback_entry(feedbackDoc_, fbSelected_, st[size_t(cur)], ""); !r) notify(r.error().to_string(), 2);
             else if (auto s = save_feedback(path, feedbackDoc_); !s) notify(s.error().to_string(), 2);
-            feedbackMtime_ = fs::modified_time(path);
+            feedbackMtime_ = fs::modified_time(engine_->project().feedbackFile);
         }
         ImGui::SetItemTooltip("Change the status of this entry (saved immediately)");
         break;

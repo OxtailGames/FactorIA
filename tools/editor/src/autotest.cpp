@@ -59,6 +59,13 @@ void Editor::autotest_pre_frame() {
         select_id("player");
         at_check(!selected().is_null(), "select entity 'player'");
         at_check(w.entity_count() > 3, "scene loaded with entities");
+    } else if (f == 9) {
+        Entity pl = w.find_by_id("player");
+        Vec2 d = engine_->renderer()->world_to_screen(w.world_position(pl));
+        Entity hit = pick_at(d);
+        at_check(hit == pl, "viewport picking: click on the player's design position selects it");
+        Entity none = pick_at(Vec2{4, 4});  // top-left corner: sky/ground only, never the player
+        at_check(none != pl, "picking elsewhere does not select the player");
     } else if (f == 10) {
         atOriginalPos_ = player_pos();
         at_check(apply_field_by_name("player", "Transform", "position", Json::array({atOriginalPos_.x + 40, atOriginalPos_.y, atOriginalPos_.z})),
@@ -111,6 +118,11 @@ void Editor::autotest_pre_frame() {
         run_console_line("scene.list_entities {}");
         run_console_line("no.such_command {}");
         at_check(true, "console commands executed");
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            for (auto& st : aiStatus_) FA_INFO("autotest", "ai provider {}: available={} ({})", st.name, st.available, st.detail);
+            at_check(aiDetected_.load(), "AI providers detected in the background");
+        }
         select_id("player");
     } else if (f == 62) {
         atPendingShots_.push_back(out + "editor_main.png");

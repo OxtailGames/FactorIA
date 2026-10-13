@@ -1,1 +1,1462 @@
-{}
+{
+ "modules": [
+  {
+   "name": "factoria",
+   "doc": "Gameplay scripting API: behaviours, entities, world, input, audio, physics, math.",
+   "items": [
+    {
+     "kind": "alias",
+     "name": "Vec2Like",
+     "type": "Vec2 | { x: number; y: number } | readonly [number, number]",
+     "doc": "Anything accepted where a 2D vector is expected: vec2(), {x, y} or [x, y]."
+    },
+    {
+     "kind": "alias",
+     "name": "Vec3Like",
+     "type": "Vec3 | Vec2 | { x: number; y: number; z?: number } | readonly number[]",
+     "doc": "Anything accepted where a 3D vector is expected (z defaults to unchanged/0)."
+    },
+    {
+     "kind": "alias",
+     "name": "ColorLike",
+     "type": "Color | { r: number; g: number; b: number; a?: number } | readonly number[] | string",
+     "doc": "A color: color(), {r,g,b,a}, [r,g,b,a] (0..1) or \"#rrggbb\"."
+    },
+    {
+     "kind": "alias",
+     "name": "RectLike",
+     "type": "Rect | { x: number; y: number; w: number; h: number } | readonly number[]",
+     "doc": "A rectangle {x, y, w, h}."
+    },
+    {
+     "kind": "alias",
+     "name": "EntityLike",
+     "type": "Entity | string | null",
+     "doc": "An entity, its id string, or null."
+    },
+    {
+     "kind": "alias",
+     "name": "Json",
+     "type": "any",
+     "doc": "Plain JSON data (objects, arrays, numbers, strings, booleans, null)."
+    },
+    {
+     "kind": "class",
+     "name": "Vec2",
+     "doc": "2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.",
+     "ctor": "x?: number, y?: number",
+     "members": [
+      {
+       "sig": "x: number",
+       "doc": ""
+      },
+      {
+       "sig": "y: number",
+       "doc": ""
+      },
+      {
+       "sig": "set(x: number, y: number): this",
+       "doc": "Sets both components (writes through on live views)."
+      },
+      {
+       "sig": "copy(v: Vec2Like): this",
+       "doc": "Copies another vector into this one."
+      },
+      {
+       "sig": "add(v: Vec2Like): Vec2",
+       "doc": "Component-wise sum (new vector)."
+      },
+      {
+       "sig": "sub(v: Vec2Like): Vec2",
+       "doc": "Component-wise difference."
+      },
+      {
+       "sig": "mul(v: Vec2Like | number): Vec2",
+       "doc": "Multiply by a vector (component-wise) or a scalar."
+      },
+      {
+       "sig": "scale(s: number): Vec2",
+       "doc": "Multiply by a scalar."
+      },
+      {
+       "sig": "div(v: Vec2Like | number): Vec2",
+       "doc": "Divide by a vector or a scalar."
+      },
+      {
+       "sig": "dot(v: Vec2Like): number",
+       "doc": "Dot product."
+      },
+      {
+       "sig": "cross(v: Vec2Like): number",
+       "doc": "2D cross product (z of the 3D cross)."
+      },
+      {
+       "sig": "length(): number",
+       "doc": "Euclidean length."
+      },
+      {
+       "sig": "lengthSq(): number",
+       "doc": "Squared length."
+      },
+      {
+       "sig": "normalized(): Vec2",
+       "doc": "Unit vector (zero stays zero)."
+      },
+      {
+       "sig": "distance(v: Vec2Like): number",
+       "doc": "Distance to another point."
+      },
+      {
+       "sig": "lerp(v: Vec2Like, t: number): Vec2",
+       "doc": "Linear interpolation."
+      },
+      {
+       "sig": "clone(): Vec2",
+       "doc": "Plain copy (detaches a live view)."
+      },
+      {
+       "sig": "equals(v: Vec2Like, eps?: number): boolean",
+       "doc": "Approximate equality."
+      },
+      {
+       "sig": "angle(): number",
+       "doc": "Angle in degrees (atan2(y, x))."
+      },
+      {
+       "sig": "rotated(deg: number): Vec2",
+       "doc": "Rotated counter-clockwise by degrees."
+      },
+      {
+       "sig": "toArray(): [number, number]",
+       "doc": ""
+      },
+      {
+       "sig": "toJSON(): [number, number]",
+       "doc": ""
+      }
+     ],
+     "statics": [
+      {
+       "sig": "fromAngle(deg: number): Vec2",
+       "doc": "Unit vector pointing at the angle (degrees)."
+      },
+      {
+       "sig": "readonly zero: Vec2",
+       "doc": ""
+      },
+      {
+       "sig": "readonly one: Vec2",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "Vec3",
+     "doc": "3D vector value (live view when it comes from a component field).",
+     "ctor": "x?: number, y?: number, z?: number",
+     "members": [
+      {
+       "sig": "x: number",
+       "doc": ""
+      },
+      {
+       "sig": "y: number",
+       "doc": ""
+      },
+      {
+       "sig": "z: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly xy: Vec2",
+       "doc": "x and y as a Vec2."
+      },
+      {
+       "sig": "set(x: number, y: number, z: number): this",
+       "doc": ""
+      },
+      {
+       "sig": "copy(v: Vec3Like): this",
+       "doc": ""
+      },
+      {
+       "sig": "add(v: Vec3Like): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "sub(v: Vec3Like): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "mul(v: Vec3Like | number): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "scale(s: number): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "div(v: Vec3Like | number): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "dot(v: Vec3Like): number",
+       "doc": ""
+      },
+      {
+       "sig": "cross(v: Vec3Like): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "length(): number",
+       "doc": ""
+      },
+      {
+       "sig": "lengthSq(): number",
+       "doc": ""
+      },
+      {
+       "sig": "normalized(): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "distance(v: Vec3Like): number",
+       "doc": ""
+      },
+      {
+       "sig": "lerp(v: Vec3Like, t: number): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "clone(): Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "equals(v: Vec3Like, eps?: number): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "toArray(): [number, number, number]",
+       "doc": ""
+      },
+      {
+       "sig": "toJSON(): [number, number, number]",
+       "doc": ""
+      }
+     ],
+     "statics": [
+      {
+       "sig": "readonly zero: Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "readonly one: Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "readonly up: Vec3",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "Color",
+     "doc": "RGBA color, components 0..1.",
+     "ctor": "r?: number, g?: number, b?: number, a?: number",
+     "members": [
+      {
+       "sig": "r: number",
+       "doc": ""
+      },
+      {
+       "sig": "g: number",
+       "doc": ""
+      },
+      {
+       "sig": "b: number",
+       "doc": ""
+      },
+      {
+       "sig": "a: number",
+       "doc": ""
+      },
+      {
+       "sig": "set(r: number, g: number, b: number, a?: number): this",
+       "doc": ""
+      },
+      {
+       "sig": "copy(c: ColorLike): this",
+       "doc": ""
+      },
+      {
+       "sig": "clone(): Color",
+       "doc": ""
+      },
+      {
+       "sig": "withAlpha(a: number): Color",
+       "doc": ""
+      },
+      {
+       "sig": "lerp(c: Color, t: number): Color",
+       "doc": ""
+      },
+      {
+       "sig": "mul(c: Color | number): Color",
+       "doc": ""
+      },
+      {
+       "sig": "equals(c: Color, eps?: number): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "toHex(): string",
+       "doc": ""
+      },
+      {
+       "sig": "toArray(): [number, number, number, number]",
+       "doc": ""
+      },
+      {
+       "sig": "toJSON(): [number, number, number, number]",
+       "doc": ""
+      }
+     ],
+     "statics": [
+      {
+       "sig": "hex(s: string): Color",
+       "doc": "Parses \"#rgb\", \"#rrggbb\", \"#rrggbbaa\" or a color name."
+      },
+      {
+       "sig": "readonly white: Color",
+       "doc": ""
+      },
+      {
+       "sig": "readonly black: Color",
+       "doc": ""
+      },
+      {
+       "sig": "readonly red: Color",
+       "doc": ""
+      },
+      {
+       "sig": "readonly green: Color",
+       "doc": ""
+      },
+      {
+       "sig": "readonly blue: Color",
+       "doc": ""
+      },
+      {
+       "sig": "readonly clear: Color",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "Rect",
+     "doc": "Axis-aligned rectangle; (x, y) is the minimum corner.",
+     "members": [
+      {
+       "sig": "x: number",
+       "doc": ""
+      },
+      {
+       "sig": "y: number",
+       "doc": ""
+      },
+      {
+       "sig": "w: number",
+       "doc": ""
+      },
+      {
+       "sig": "h: number",
+       "doc": ""
+      },
+      {
+       "sig": "contains(p: Vec2Like): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "toArray(): [number, number, number, number]",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TimerHandle",
+     "doc": "Returned by this.after / this.every.",
+     "members": [
+      {
+       "sig": "cancel(): void",
+       "doc": "Stops the timer."
+      },
+      {
+       "sig": "readonly active: boolean",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "CollisionInfo",
+     "doc": "Second argument of onCollisionEnter.",
+     "members": [
+      {
+       "sig": "point: Vec2 | Vec3",
+       "doc": "Contact point (Vec2 in 2D games)."
+      },
+      {
+       "sig": "normal: Vec2 | Vec3",
+       "doc": "Contact normal pointing from this entity toward the other."
+      },
+      {
+       "sig": "impulse: number",
+       "doc": "Approximate impact strength."
+      }
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "Entity",
+     "doc": "An entity handle. Properties read/write engine memory directly; using an entity after it was destroyed throws (check .alive).",
+     "members": [
+      {
+       "sig": "id: string",
+       "doc": "Stable unique id (assignable; keeps lookups consistent)."
+      },
+      {
+       "sig": "name: string",
+       "doc": ""
+      },
+      {
+       "sig": "tags: string[]",
+       "doc": ""
+      },
+      {
+       "sig": "active: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "readonly activeInHierarchy: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "readonly alive: boolean",
+       "doc": "False once the entity was destroyed."
+      },
+      {
+       "sig": "readonly transform: Components[\"Transform\"]",
+       "doc": "Transform view (position, rotation, scale)."
+      },
+      {
+       "sig": "position: Vec3",
+       "doc": "Shortcut for transform.position (live view; assignable with vec2/vec3/[x,y])."
+      },
+      {
+       "sig": "worldPosition: Vec3",
+       "doc": "World-space position (get/set)."
+      },
+      {
+       "sig": "get<K extends keyof Components>(name: K): Components[K] | null",
+       "doc": "Live view of a component, or null if the entity lacks it."
+      },
+      {
+       "sig": "has(name: keyof Components): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "add<K extends keyof Components>(name: K, fields?: ComponentInit[K]): Components[K]",
+       "doc": "Adds (or returns) a component and applies fields."
+      },
+      {
+       "sig": "set<K extends keyof Components>(name: K, fields: ComponentInit[K]): Components[K]",
+       "doc": "Patches component fields (adds the component if missing)."
+      },
+      {
+       "sig": "remove(name: keyof Components): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "components(): string[]",
+       "doc": "Names of the components on this entity."
+      },
+      {
+       "sig": "destroy(): void",
+       "doc": "Destroys the entity (and children) at the end of the frame."
+      },
+      {
+       "sig": "readonly parent: Entity | null",
+       "doc": ""
+      },
+      {
+       "sig": "readonly children: Entity[]",
+       "doc": ""
+      },
+      {
+       "sig": "setParent(parent: EntityLike, keepWorld?: boolean): void",
+       "doc": ""
+      },
+      {
+       "sig": "hasTag(tag: string): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "addTag(tag: string): void",
+       "doc": ""
+      },
+      {
+       "sig": "removeTag(tag: string): void",
+       "doc": ""
+      },
+      {
+       "sig": "readonly behaviour: Behaviour | null",
+       "doc": "The script instance attached to this entity."
+      },
+      {
+       "sig": "send(method: string, ...args: any[]): any",
+       "doc": "Calls behaviour[method](...args) if it exists."
+      },
+      {
+       "sig": "isGrounded(): boolean",
+       "doc": "2D physics: touching ground below."
+      },
+      {
+       "sig": "toJSON(): Json",
+       "doc": "Entity JSON as in scene files."
+      }
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "Behaviour",
+     "doc": "Base class of gameplay scripts. Export a subclass as the default export of a module in scripts/ and attach it with the Script component. Class fields are defaults overridable from Script.props.",
+     "members": [
+      {
+       "sig": "readonly entity: Entity",
+       "doc": "The owning entity."
+      },
+      {
+       "sig": "readonly world: WorldAPI",
+       "doc": ""
+      },
+      {
+       "sig": "enabled: boolean",
+       "doc": "false skips update callbacks."
+      },
+      {
+       "sig": "after(seconds: number, fn: () => void): TimerHandle",
+       "doc": "One-shot timer (scaled game time); cancelled automatically on destroy."
+      },
+      {
+       "sig": "every(seconds: number, fn: () => void): TimerHandle",
+       "doc": "Repeating timer."
+      },
+      {
+       "sig": "on(name: string, fn: (data: any, source: Entity | null) => void): () => void",
+       "doc": "Subscribe to world events for this behaviour; returns unsubscribe."
+      },
+      {
+       "sig": "onStart?(): void",
+       "doc": "Once, before the first update (props already applied)."
+      },
+      {
+       "sig": "onUpdate?(dt: number): void",
+       "doc": "Every frame; dt in seconds scaled by time.scale."
+      },
+      {
+       "sig": "onFixedUpdate?(dt: number): void",
+       "doc": "Every fixed step, before physics."
+      },
+      {
+       "sig": "onLateUpdate?(dt: number): void",
+       "doc": "After all updates."
+      },
+      {
+       "sig": "onDestroy?(): void",
+       "doc": "Before the entity is removed."
+      },
+      {
+       "sig": "onCollisionEnter?(other: Entity, info: CollisionInfo): void",
+       "doc": ""
+      },
+      {
+       "sig": "onCollisionExit?(other: Entity): void",
+       "doc": ""
+      },
+      {
+       "sig": "onTriggerEnter?(other: Entity): void",
+       "doc": ""
+      },
+      {
+       "sig": "onTriggerExit?(other: Entity): void",
+       "doc": ""
+      },
+      {
+       "sig": "onEvent?(name: string, data: any, source: Entity | null): void",
+       "doc": "Any world.emit event."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "RayHit",
+     "doc": "Result of a raycast.",
+     "generics": "V = Vec2 | Vec3",
+     "members": [
+      {
+       "sig": "entity: Entity",
+       "doc": ""
+      },
+      {
+       "sig": "point: V",
+       "doc": ""
+      },
+      {
+       "sig": "normal: V",
+       "doc": ""
+      },
+      {
+       "sig": "distance: number",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WorldAPI",
+     "doc": "Entity lookup, spawning and events.",
+     "members": [
+      {
+       "sig": "find(idOrName: string): Entity | null",
+       "doc": "Finds by stable id first, then by name."
+      },
+      {
+       "sig": "findAll(name: string): Entity[]",
+       "doc": ""
+      },
+      {
+       "sig": "findByTag(tag: string): Entity[]",
+       "doc": ""
+      },
+      {
+       "sig": "entities(): Entity[]",
+       "doc": "All alive entities in creation order."
+      },
+      {
+       "sig": "spawn(entityJson: Json, opts?: { parent?: Entity }): Entity",
+       "doc": "Creates an entity from scene-file JSON ({ name, tags, components })."
+      },
+      {
+       "sig": "spawnPrefab(path: string, opts?: { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; overrides?: Json }): Entity",
+       "doc": "Instantiates a prefab file."
+      },
+      {
+       "sig": "emit(name: string, data?: any, source?: Entity): void",
+       "doc": "Queue a game event; delivered to onEvent and world.on listeners."
+      },
+      {
+       "sig": "on(name: string, fn: (data: any, source: Entity | null) => void): () => void",
+       "doc": "Subscribe to an event; returns unsubscribe."
+      },
+      {
+       "sig": "readonly settings: Components[\"SceneSettings\"]",
+       "doc": "Scene settings (gravity2D, ambientLight, ...)."
+      },
+      {
+       "sig": "readonly time: number",
+       "doc": "Simulated seconds since the scene started."
+      },
+      {
+       "sig": "readonly frame: number",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MouseAPI",
+     "doc": "Mouse state (design-resolution pixels, top-left origin).",
+     "members": [
+      {
+       "sig": "readonly position: Vec2",
+       "doc": ""
+      },
+      {
+       "sig": "readonly world: Vec3",
+       "doc": "Position in world coordinates through the main camera."
+      },
+      {
+       "sig": "readonly delta: Vec2",
+       "doc": ""
+      },
+      {
+       "sig": "readonly wheel: number",
+       "doc": ""
+      },
+      {
+       "sig": "down(button?: \"left\" | \"right\" | \"middle\"): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "pressed(button?: \"left\" | \"right\" | \"middle\"): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "released(button?: \"left\" | \"right\" | \"middle\"): boolean",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TouchInfo",
+     "members": [
+      {
+       "sig": "id: number",
+       "doc": ""
+      },
+      {
+       "sig": "position: Vec2",
+       "doc": ""
+      },
+      {
+       "sig": "world: Vec3",
+       "doc": ""
+      },
+      {
+       "sig": "pressed: boolean",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "InputAPI",
+     "doc": "Input through named actions (factoria.json input.actions) or raw keys.",
+     "members": [
+      {
+       "sig": "down(action: string): boolean",
+       "doc": "Action held. Unknown actions throw with a suggestion."
+      },
+      {
+       "sig": "pressed(action: string): boolean",
+       "doc": "Went down this frame."
+      },
+      {
+       "sig": "released(action: string): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "axis(negative: string, positive: string): number",
+       "doc": "-1..1 from two actions."
+      },
+      {
+       "sig": "vector(left: string, right: string, down: string, up: string): Vec2",
+       "doc": "Normalized 2D vector from four actions (+Y up)."
+      },
+      {
+       "sig": "keyDown(key: string): boolean",
+       "doc": "Raw key by name (\"Space\", \"A\", \"Escape\"...)."
+      },
+      {
+       "sig": "keyPressed(key: string): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "keyReleased(key: string): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "readonly mouse: MouseAPI",
+       "doc": ""
+      },
+      {
+       "sig": "readonly touches: TouchInfo[]",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "PlayOptions",
+     "members": [
+      {
+       "sig": "volume?: number",
+       "doc": ""
+      },
+      {
+       "sig": "pitch?: number",
+       "doc": ""
+      },
+      {
+       "sig": "pan?: number",
+       "doc": ""
+      },
+      {
+       "sig": "loop?: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "bus?: \"sfx\" | \"music\" | \"ui\"",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "AudioAPI",
+     "doc": "Sound playback.",
+     "members": [
+      {
+       "sig": "play(path: string, opts?: PlayOptions): number",
+       "doc": "Plays a clip, returns a voice id."
+      },
+      {
+       "sig": "stop(voice: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "stopAll(): void",
+       "doc": ""
+      },
+      {
+       "sig": "music(path: string, opts?: { volume?: number; fade?: number }): void",
+       "doc": "Starts looping background music."
+      },
+      {
+       "sig": "stopMusic(fade?: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "setVolume(bus: \"master\" | \"sfx\" | \"music\" | \"ui\", volume: number): void",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "PhysicsAPI",
+     "doc": "Queries and direct body control.",
+     "members": [
+      {
+       "sig": "raycast(from: Vec3, to: Vec3, opts?: { mask?: number }): RayHit<Vec3> | null",
+       "doc": "3D raycast between two points (when given Vec3)."
+      },
+      {
+       "sig": "raycast(from: Vec2Like, to: Vec2Like, opts?: { mask?: number }): RayHit<Vec2> | null",
+       "doc": "2D raycast between two points (when given Vec2)."
+      },
+      {
+       "sig": "raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: { mask?: number }): RayHit<Vec3> | null",
+       "doc": ""
+      },
+      {
+       "sig": "overlapCircle(center: Vec2Like, radius: number, opts?: { mask?: number }): Entity[]",
+       "doc": ""
+      },
+      {
+       "sig": "overlapBox(rect: RectLike, opts?: { mask?: number }): Entity[]",
+       "doc": ""
+      },
+      {
+       "sig": "overlapSphere(center: Vec3Like, radius: number, opts?: { mask?: number }): Entity[]",
+       "doc": ""
+      },
+      {
+       "sig": "applyImpulse(entity: Entity, v: Vec3Like): void",
+       "doc": ""
+      },
+      {
+       "sig": "applyForce(entity: Entity, v: Vec3Like): void",
+       "doc": ""
+      },
+      {
+       "sig": "setVelocity(entity: Entity, v: Vec3Like): void",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TimeAPI",
+     "doc": "Game clock.",
+     "members": [
+      {
+       "sig": "readonly dt: number",
+       "doc": "Seconds of the current frame (scaled)."
+      },
+      {
+       "sig": "readonly fixedDt: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly elapsed: number",
+       "doc": "Simulated seconds since scene start."
+      },
+      {
+       "sig": "readonly frame: number",
+       "doc": ""
+      },
+      {
+       "sig": "scale: number",
+       "doc": "Time scale for gameplay; 0 pauses behaviours."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "CameraAPI",
+     "doc": "Main camera helpers.",
+     "members": [
+      {
+       "sig": "readonly main: Entity | null",
+       "doc": "The primary camera entity."
+      },
+      {
+       "sig": "worldToScreen(v: Vec3Like): Vec2",
+       "doc": ""
+      },
+      {
+       "sig": "screenToWorld(v: Vec2Like, depth?: number): Vec3",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "DebugAPI",
+     "doc": "Immediate-mode debug drawing (one frame).",
+     "members": [
+      {
+       "sig": "line(a: Vec3Like, b: Vec3Like, color?: ColorLike): void",
+       "doc": ""
+      },
+      {
+       "sig": "rect(x: number, y: number, w: number, h: number, color?: ColorLike): void",
+       "doc": ""
+      },
+      {
+       "sig": "circle(center: Vec2Like, radius: number, color?: ColorLike): void",
+       "doc": ""
+      },
+      {
+       "sig": "text(screenPos: Vec2Like, text: string, color?: ColorLike): void",
+       "doc": ""
+      },
+      {
+       "sig": "box(center: Vec3Like, size: Vec3Like, color?: ColorLike): void",
+       "doc": ""
+      },
+      {
+       "sig": "sphere(center: Vec3Like, radius: number, color?: ColorLike): void",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "SceneAPI",
+     "members": [
+      {
+       "sig": "load(path: string): void",
+       "doc": "Deferred to the end of the frame."
+      },
+      {
+       "sig": "reload(): void",
+       "doc": ""
+      },
+      {
+       "sig": "readonly current: string",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "GameAPI",
+     "members": [
+      {
+       "sig": "quit(): void",
+       "doc": ""
+      },
+      {
+       "sig": "paused: boolean",
+       "doc": "True while time.scale is 0."
+      },
+      {
+       "sig": "readonly project: Readonly<Json>",
+       "doc": "factoria.json contents."
+      },
+      {
+       "sig": "readonly screenSize: Vec2",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "StorageAPI",
+     "doc": "Persistent JSON save data.",
+     "members": [
+      {
+       "sig": "get<T = any>(key: string, fallback?: T): T",
+       "doc": ""
+      },
+      {
+       "sig": "set(key: string, value: Json): void",
+       "doc": ""
+      },
+      {
+       "sig": "remove(key: string): void",
+       "doc": ""
+      },
+      {
+       "sig": "keys(): string[]",
+       "doc": ""
+      },
+      {
+       "sig": "clear(): void",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "RngAPI",
+     "doc": "Deterministic random numbers (seeded per run). Math.random is routed here too.",
+     "members": [
+      {
+       "sig": "float(): number",
+       "doc": "[0, 1)."
+      },
+      {
+       "sig": "range(min: number, max: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "int(min: number, max: number): number",
+       "doc": "Inclusive."
+      },
+      {
+       "sig": "chance(p?: number): boolean",
+       "doc": ""
+      },
+      {
+       "sig": "pick<T>(items: readonly T[]): T | undefined",
+       "doc": ""
+      },
+      {
+       "sig": "shuffle<T>(items: readonly T[]): T[]",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "MathAPI",
+     "members": [
+      {
+       "sig": "clamp(v: number, min: number, max: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "lerp(a: number, b: number, t: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "inverseLerp(a: number, b: number, v: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "remap(v: number, a0: number, a1: number, b0: number, b1: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "damp(current: number, target: number, smoothing: number, dt: number): number",
+       "doc": "Frame-rate independent smoothing."
+      },
+      {
+       "sig": "moveTowards(current: number, target: number, maxDelta: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "approach(current: number, target: number, maxDelta: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "sign(v: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "degToRad(deg: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "radToDeg(rad: number): number",
+       "doc": ""
+      },
+      {
+       "sig": "wrapAngle(deg: number): number",
+       "doc": "Wraps to (-180, 180]."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "CommandInfoJS",
+     "members": [
+      {
+       "sig": "name: string",
+       "doc": ""
+      },
+      {
+       "sig": "summary: string",
+       "doc": ""
+      },
+      {
+       "sig": "description: string",
+       "doc": ""
+      },
+      {
+       "sig": "inputSchema: Json",
+       "doc": ""
+      },
+      {
+       "sig": "readOnly: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "category: string",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "FaAPI",
+     "doc": "Engine commands (the same ones MCP exposes).",
+     "members": [
+      {
+       "sig": "call(name: string, args?: Json): any",
+       "doc": "Runs a command; throws an Error with message and hint on failure."
+      },
+      {
+       "sig": "commands(): CommandInfoJS[]",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "const",
+     "name": "world",
+     "type": "WorldAPI",
+     "doc": "The world."
+    },
+    {
+     "kind": "const",
+     "name": "input",
+     "type": "InputAPI",
+     "doc": "Input."
+    },
+    {
+     "kind": "const",
+     "name": "audio",
+     "type": "AudioAPI",
+     "doc": "Audio."
+    },
+    {
+     "kind": "const",
+     "name": "physics",
+     "type": "PhysicsAPI",
+     "doc": "Physics."
+    },
+    {
+     "kind": "const",
+     "name": "time",
+     "type": "TimeAPI",
+     "doc": "Game clock."
+    },
+    {
+     "kind": "const",
+     "name": "camera",
+     "type": "CameraAPI",
+     "doc": "Camera helpers."
+    },
+    {
+     "kind": "const",
+     "name": "debug",
+     "type": "DebugAPI",
+     "doc": "Debug drawing."
+    },
+    {
+     "kind": "const",
+     "name": "scene",
+     "type": "SceneAPI",
+     "doc": "Scene control."
+    },
+    {
+     "kind": "const",
+     "name": "game",
+     "type": "GameAPI",
+     "doc": "Game control."
+    },
+    {
+     "kind": "const",
+     "name": "storage",
+     "type": "StorageAPI",
+     "doc": "Save data."
+    },
+    {
+     "kind": "const",
+     "name": "rng",
+     "type": "RngAPI",
+     "doc": "Deterministic RNG."
+    },
+    {
+     "kind": "const",
+     "name": "fa",
+     "type": "FaAPI",
+     "doc": "Engine commands."
+    },
+    {
+     "kind": "const",
+     "name": "math",
+     "type": "MathAPI",
+     "doc": "Math helpers."
+    },
+    {
+     "kind": "function",
+     "sig": "vec2(x?: number | Vec2Like, y?: number): Vec2",
+     "doc": "Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3)."
+    },
+    {
+     "kind": "function",
+     "sig": "vec3(x?: number | Vec3Like, y?: number, z?: number): Vec3",
+     "doc": "Creates a Vec3."
+    },
+    {
+     "kind": "function",
+     "sig": "color(r?: number | ColorLike, g?: number, b?: number, a?: number): Color",
+     "doc": "Creates a Color from components 0..1 or \"#rrggbb\"."
+    }
+   ]
+  },
+  {
+   "name": "factoria:test",
+   "doc": "Test API for tests/*.test.js, run headless by `factoria test`.",
+   "items": [
+    {
+     "kind": "interface",
+     "name": "Expectation",
+     "doc": "Matchers returned by expect().",
+     "members": [
+      {
+       "sig": "toBe(expected: unknown): void",
+       "doc": "Strict equality (Object.is)."
+      },
+      {
+       "sig": "toEqual(expected: unknown): void",
+       "doc": "Deep equality (vectors compared by value)."
+      },
+      {
+       "sig": "toBeCloseTo(expected: number, digits?: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeGreaterThan(n: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeGreaterThanOrEqual(n: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeLessThan(n: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeLessThanOrEqual(n: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeTruthy(): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeFalsy(): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeNull(): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeUndefined(): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeDefined(): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeNaN(): void",
+       "doc": ""
+      },
+      {
+       "sig": "toContain(item: unknown): void",
+       "doc": ""
+      },
+      {
+       "sig": "toHaveLength(n: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "toMatch(pattern: string | RegExp): void",
+       "doc": ""
+      },
+      {
+       "sig": "toBeInstanceOf(cls: Function): void",
+       "doc": ""
+      },
+      {
+       "sig": "toThrow(expected?: string | RegExp | Function): void",
+       "doc": ""
+      },
+      {
+       "sig": "readonly not: Expectation",
+       "doc": "Negates the matcher."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TestFn",
+     "members": [
+      {
+       "sig": "(name: string, fn: () => void | Promise<void>): void",
+       "doc": ""
+      },
+      {
+       "sig": "skip(name: string, fn: () => void | Promise<void>): void",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "DescribeFn",
+     "members": [
+      {
+       "sig": "(name: string, fn: () => void): void",
+       "doc": ""
+      },
+      {
+       "sig": "skip(name: string, fn: () => void): void",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TestGame",
+     "doc": "Drives the running game from a test.",
+     "members": [
+      {
+       "sig": "load(path: string): void",
+       "doc": "Loads a scene immediately (reseeds the RNG)."
+      },
+      {
+       "sig": "step(frames?: number): void",
+       "doc": "Simulates frames at the fixed rate."
+      },
+      {
+       "sig": "press(action: string): void",
+       "doc": "Holds an action down until release()."
+      },
+      {
+       "sig": "release(action: string): void",
+       "doc": ""
+      },
+      {
+       "sig": "tap(action: string): void",
+       "doc": "Press for one frame, then release."
+      },
+      {
+       "sig": "keyDown(key: string): void",
+       "doc": ""
+      },
+      {
+       "sig": "keyUp(key: string): void",
+       "doc": ""
+      },
+      {
+       "sig": "mouseMove(screenPos: Vec2Like): void",
+       "doc": ""
+      },
+      {
+       "sig": "click(screenPos: Vec2Like, button?: \"left\" | \"right\" | \"middle\"): void",
+       "doc": ""
+      },
+      {
+       "sig": "find(idOrName: string): Entity | null",
+       "doc": ""
+      },
+      {
+       "sig": "readonly world: WorldAPI",
+       "doc": ""
+      },
+      {
+       "sig": "readonly time: TimeAPI",
+       "doc": ""
+      },
+      {
+       "sig": "screenshot(path: string): void",
+       "doc": "Saves a PNG of the game (needs graphics)."
+      },
+      {
+       "sig": "state(): Json",
+       "doc": "JSON dump of the game state."
+      }
+     ]
+    },
+    {
+     "kind": "const",
+     "name": "test",
+     "type": "TestFn",
+     "doc": "Declares a test."
+    },
+    {
+     "kind": "const",
+     "name": "describe",
+     "type": "DescribeFn",
+     "doc": "Groups tests."
+    },
+    {
+     "kind": "function",
+     "sig": "expect(value: unknown): Expectation",
+     "doc": "Starts an assertion."
+    },
+    {
+     "kind": "function",
+     "sig": "beforeEach(fn: () => void): void",
+     "doc": "Runs before each test of the enclosing describe()."
+    },
+    {
+     "kind": "function",
+     "sig": "afterEach(fn: () => void): void",
+     "doc": "Runs after each test of the enclosing describe()."
+    },
+    {
+     "kind": "const",
+     "name": "game",
+     "type": "TestGame",
+     "doc": "The game under test."
+    }
+   ]
+  }
+ ]
+}

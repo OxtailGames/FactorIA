@@ -23,6 +23,8 @@
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
 #include "fa/ai/session.h"
+#include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/editor/editor.h"
 #include "fa/runtime/engine.h"
@@ -128,6 +130,8 @@ public:
     const std::string& project_dir() const { return projectDir_; }
     const std::string& scene_path() const { return scenePath_; }
     bool open_scene(const std::string& path);
+    void sync_scene_path();
+    void install_command_overrides();
     bool save_scene_now();
     void reload_scene_from_disk();
     void restore_scene(const Json& snapshot);
