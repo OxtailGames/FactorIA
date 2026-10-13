@@ -46,8 +46,7 @@ const char* kScene = R"({
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name, const char* project = kProject, const char* scene = kScene) {
-        dir = stdfs::temp_directory_path() / ("fa_runtime_test_" + name);
-        stdfs::remove_all(dir);
+        dir = fs::make_temp_dir("fa_runtime_test_" + name);
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", project);
         if (scene) write("scenes/main.scene.json", scene);

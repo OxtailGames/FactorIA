@@ -1,10 +1,17 @@
 #include "fa/core/fs.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <fstream>
 #include <mutex>
 #include <system_error>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "fa/core/strings.h"
 #include "fs_internal.h"
@@ -80,6 +87,21 @@ void set_user_dir(const stdfs::path& dir) {
     std::lock_guard<std::mutex> lock(state().mutex);
     state().userDir = dir;
     state().userDirSet = true;
+}
+
+stdfs::path make_temp_dir(std::string_view prefix) {
+    static std::atomic<unsigned> counter{0};
+#ifdef _WIN32
+    const long long pid = _getpid();
+#else
+    const long long pid = static_cast<long long>(::getpid());
+#endif
+    stdfs::path dir = stdfs::temp_directory_path() /
+                      (std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++));
+    std::error_code ec;
+    stdfs::remove_all(dir, ec);  // a leftover of an earlier process that had the same id
+    stdfs::create_directories(dir, ec);
+    return dir;
 }
 
 const stdfs::path& user_dir() {

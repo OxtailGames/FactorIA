@@ -180,3 +180,15 @@ TEST_CASE("image: png roundtrip, flip and diff") {
     CHECK(!bad.ok());
     CHECK(!load_image("out/missing.png").ok());
 }
+
+TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
+    const stdfs::path a = fs::make_temp_dir("fa_test_tmp");
+    const stdfs::path b = fs::make_temp_dir("fa_test_tmp");
+    CHECK(a != b);
+    CHECK(stdfs::is_directory(a));
+    CHECK(stdfs::is_empty(a));
+    CHECK(a.filename().string().rfind("fa_test_tmp_", 0) == 0);
+    CHECK(stdfs::equivalent(a.parent_path(), stdfs::temp_directory_path()));  // temp path may end in a separator (Windows)
+    stdfs::remove_all(a);
+    stdfs::remove_all(b);
+}

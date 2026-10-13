@@ -9,6 +9,7 @@
 #include "fa/mcp/server.h"
 #include "fa/mcp/transport.h"
 #include "fa/tooling/tooling.h"
+#include "fa/core/fs.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -18,9 +19,7 @@ namespace {
 struct TempDir {
     stdfs::path path;
     TempDir() {
-        path = stdfs::temp_directory_path() / ("fa_mcp_test_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
-        stdfs::remove_all(path);
-        stdfs::create_directories(path);
+        path = fa::fs::make_temp_dir("fa_mcp_test");
     }
     ~TempDir() {
         std::error_code ec;

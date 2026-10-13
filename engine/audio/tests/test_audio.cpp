@@ -72,9 +72,7 @@ struct Fixture {
     std::filesystem::path dir;
     Audio audio;
     Fixture() {
-        dir = std::filesystem::temp_directory_path() / "factoria_audio_test";
-        std::filesystem::remove_all(dir);
-        std::filesystem::create_directories(dir);
+        dir = fs::make_temp_dir("factoria_audio_test");
         fs::set_project_root(dir);
         write_sine_wav(dir / "sounds/sine.wav", 1.0);
         std::string err;

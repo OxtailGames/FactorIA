@@ -30,6 +30,11 @@ const std::filesystem::path& project_root();
 void set_user_dir(const std::filesystem::path& dir);
 const std::filesystem::path& user_dir();
 
+// Creates a fresh, empty scratch directory under the system temp folder, named <prefix>_<process id>_<n>. Unique per
+// process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
+// share one. The caller removes it when done.
+std::filesystem::path make_temp_dir(std::string_view prefix);
+
 // Platform backends (called once by fa_platform at startup on mobile).
 void set_android_asset_manager(void* aassetManager);
 
