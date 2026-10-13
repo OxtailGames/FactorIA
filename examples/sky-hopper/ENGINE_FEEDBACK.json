@@ -327,10 +327,12 @@
       ],
       "suggestion": "Tilemap object layer or 'scene.import_ascii' / 'tilemap.paint' commands; tile-to-prefab mapping.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no tilemap object layer or ASCII/prefab import command."
-      ]
+        "Still open after e2b0090: no tilemap object layer or ASCII/prefab import command.",
+        "Fixed in ae8bb15: scene.import_ascii {rows, legend, tilemap, position, anchor, save} builds the Tilemap and spawns prefabs (coins, enemies, a player spawn with a fixed id) at the cell centres, tagged tilemap:<entity>; re-importing replaces them. tools/generate_level.js can be replaced by one call with the level's ASCII rows (AI_GUIDE 9.8)."
+      ],
+      "engineIssue": "ae8bb15"
     },
     {
       "id": "FB-0015",
@@ -347,10 +349,12 @@
       "workaround": "Checked --record-audio output non-empty; no assertion in tests.",
       "suggestion": "Add game.audioLog() / expect(audio).toHavePlayed(path) in tests.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no audio log / assertion in the test harness."
-      ]
+        "Still open after e2b0090: no audio log / assertion in the test harness.",
+        "Fixed in ebb054d: game.audioLog() lists every sound played since the test started ({frame, path, volume, bus, source, ok}); assert with expect(game.audioLog()).toContainPlayed(\"jump.wav\", { times: 1 }) (alias toHavePlayed). MCP/CLI agents use the audio.log command. tests/platformer.test.js now asserts the jump, coin, stomp, hurt and win sounds."
+      ],
+      "engineIssue": "ebb054d"
     },
     {
       "id": "FB-0016",

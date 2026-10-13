@@ -1,43 +1,12 @@
 # Engine feedback report
 
-Status: 55 entries reported by the four example games; 52 verified fixed-in-engine, 3 open (below).
+Status: 55 entries reported by the four example games; all 55 verified fixed-in-engine, 0 open.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 
-3 entries from 4 project(s), 3 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-## 1. Tilemap has no per-tile entity hooks (coins/enemies/spawn must be separate entities)
-
-- **Category:** scene
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0014
-- **Suggestion:** Tilemap object layer or 'scene.import_ascii' / 'tilemap.paint' commands; tile-to-prefab mapping.
-- **Workarounds seen:**
-  - Scene generation scripts (scratch + tools/generate_level.js).
-
-## 2. No additive blend mode / glow for neon looks
-
-- **Category:** rendering-2d
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0008
-- **Suggestion:** Add blendMode (alpha|additive) on Sprite/ParticleEmitter/Shape2D and a simple bloom camera option.
-- **Workarounds seen:**
-  - Generated blurred white glow PNGs (assets/img/glow_*.png) tinted via Sprite.color.
-
-## 3. No way to verify audio events in tests
-
-- **Category:** audio
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0015
-- **Suggestion:** Add game.audioLog() / expect(audio).toHavePlayed(path) in tests.
-- **Workarounds seen:**
-  - Checked --record-audio output non-empty; no assertion in tests.
+_No open feedback entries._
 
 # Next engine milestones
 
@@ -45,6 +14,10 @@ Hand-written triage section (the ranked list above is generated; regenerate it w
 `feedback/README.md` and keep this section). Triage date 2026-10-13, against commit `e2b0090`: of the 55
 entries from the four example games, the engine already fixed most; the work packages below cover what is left,
 plus two packages for gaps seen while verifying that no game has hit yet (marked *proactive*).
+
+Re-triage 2026-10-13, after `40b049c`: the last three open entries are fixed (SH/FB-0015 in `ebb054d`,
+SH/FB-0014 in `ae8bb15`, NS/FB-0008 in `40b049c`). M1-M4 are done; M5 is the only package left and no game has
+reported its gaps yet.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
@@ -82,8 +55,9 @@ Acceptance criteria:
 - `factoria test` prints `console.log` from tests under the failing/passing test without `--log-level info`.
 - Test harness exposes `game.audioLog()` (list of `{frame, path, volume, bus}`) and
   `expect(game.audioLog()).toContainPlayed(path)`; a test plays a sound from a behaviour and asserts it.
+  Done in `ebb054d` (plus the `audio.log` command for MCP/CLI agents; Sky Hopper's tests assert its sounds).
 
-## M3. 2D level authoring and cameras (M)
+## M3. 2D level authoring and cameras (M) — DONE (`ae8bb15`)
 
 Closes: SH/FB-0004, SH/FB-0014 (and removes the hand-made Python/JS level builders in sky-hopper).
 
@@ -96,7 +70,13 @@ Acceptance criteria:
   spawned entities; round-trips through scene JSON. Test: a 10x6 ASCII level yields the expected tile ids,
   3 coins, 1 player spawn; `factoria validate` checks the legend.
 
-## M4. Post-processing and glow (M)
+Outcome: the object layer shipped as the `scene.import_ascii` command (rows + legend -> Tilemap + prefabs at cell
+centres, tagged `tilemap:<entity>` so re-imports replace them; `save` writes the scene). The legend is not stored
+in the scene, so `factoria validate` checks the Tilemap data instead (tiles vs width*height, rows, solidTiles,
+tile indices vs the tileset image); the command itself rejects bad legends with row/column and suggestions.
+`CameraFollow2D` was not built: SH/FB-0004 was closed by the AI_GUIDE 9.6 "Camera follow with level bounds" recipe.
+
+## M4. Post-processing and glow (M) — DONE (`40b049c`)
 
 Closes: NS/FB-0008 (additive blend already shipped in e2b0090; this is the bloom half).
 
@@ -106,6 +86,12 @@ Acceptance criteria:
   and none when off (`factoria run --headless --screenshot-at`, compare against pixel counts); cost under
   2 ms/frame at 1280x720 on llvmpipe.
 - Documented in COMPONENTS.md and AI_GUIDE (neon recipe: additive + bloom, no hand-blurred sprites).
+
+Outcome: flat fields `Camera.bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius` (reflection has no nested
+structs); AI_GUIDE 9.20. The cost target was missed: about 5 ms per drawn frame at 1280x720 on llvmpipe, because
+the bright-pass read and the full-screen add are each ~1.5-2 ms on the software renderer. Headless tests only
+draw for screenshots, so they do not pay it. Only the GL backend was run; D3D11, Metal and GLES3 compile the same
+sokol-shdc shaders and fall back to "no bloom" with one error if creation fails.
 
 ## M5. 3D physics 2.0 and gamepad input (L, *proactive*, no game reported these yet)
 

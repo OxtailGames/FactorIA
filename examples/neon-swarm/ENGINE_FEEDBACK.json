@@ -194,10 +194,12 @@
       ],
       "suggestion": "Add blendMode (alpha|additive) on Sprite/ParticleEmitter/Shape2D and a simple bloom camera option.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Partly fixed in e2b0090: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow."
-      ]
+        "Partly fixed in e2b0090: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow.",
+        "Fixed in 40b049c (bloom half; additive blend shipped in e2b0090): set \"bloom\": true on the Camera (bloomThreshold, bloomIntensity, bloomRadius) over a dark clearColor and use \"blend\": \"additive\" on the bright Sprites/Shapes/particles (AI_GUIDE 9.20). The hand-blurred glow PNGs are no longer needed."
+      ],
+      "engineIssue": "40b049c"
     },
     {
       "id": "FB-0009",
