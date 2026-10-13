@@ -18,6 +18,11 @@ target_include_directories(fa_ext_drlibs SYSTEM INTERFACE ${FA_EXT}/dr_libs)
 
 add_library(fa_ext_doctest INTERFACE)
 target_include_directories(fa_ext_doctest SYSTEM INTERFACE ${FA_EXT}/doctest)
+# MSVC's operator<<(ostream, string_view) needs a complete std::ostream; doctest only forward-declares it,
+# so CHECK(string_view == ...) fails to compile unless <ostream> is included first.
+if(MSVC)
+    target_compile_options(fa_ext_doctest INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:/FIostream>")
+endif()
 
 # sokol headers + the graphics backend selected per platform.
 # The single implementation translation unit lives in engine/platform.

@@ -63,7 +63,8 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const auto& rep = r.value();
         std::string root = tmp.sub("out/space-dodge-") + platform;
-        CHECK(stdfs::path(rep.outputDir) == stdfs::path(root));
+        // Compare canonical paths: macOS temp dirs are symlinked (/var -> /private/var).
+        CHECK(stdfs::weakly_canonical(rep.outputDir) == stdfs::weakly_canonical(root));
         std::string game = root + "/game";
         std::string exe = root + "/space-dodge" + (std::string(platform) == "windows" ? ".exe" : "");
         if (std::string(platform) == "macos") {
