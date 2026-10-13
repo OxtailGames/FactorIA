@@ -1,0 +1,28 @@
+# build output
+/build/
+/build-*/
+/out/
+/.cache/
+compile_commands.json
+
+# per-project runtime data (screenshots, logs, saves) inside games/examples
+.factoria/
+
+# IDEs / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Android / iOS build products
+platforms/android/.gradle/
+platforms/android/**/build/
+platforms/android/local.properties
+*.xcodeproj/xcuserdata/
+DerivedData/
+
+# secrets — AI provider keys must never be committed
+.env
+*.key
+ai.local.json
