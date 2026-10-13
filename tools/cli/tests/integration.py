@@ -243,6 +243,24 @@ def test_template(tmp, template):
     code, out, err = run(["call", "scene.spawn", '{"components":{"Transform2D":{"position":[1,2]}}}', "--project", proj])
     check(code == 1 and "Transform" in (out + err), "scene.spawn with an unknown component exits 1 with a did-you-mean")
 
+    # ASCII level import: ONE call writes the tilemap and its objects into the scene file; validate accepts it
+    os.makedirs(os.path.join(proj, "prefabs"), exist_ok=True)
+    with open(os.path.join(proj, "prefabs", "probe_gem.prefab.json"), "w") as f:
+        json.dump({"format": "factoria.prefab/1", "entity": {"name": "Coin", "tags": ["coin"],
+                   "components": {"Shape2D": {"shape": "circle", "size": [12, 12]}}}}, f)
+    level = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}}, "save": True}
+    code, res, err = jrun(["call", "scene.import_ascii", json.dumps(level), "--project", proj])
+    check(code == 0 and res is not None and res["width"] == 4 and res["height"] == 3 and res["tileCount"] == 4
+          and [o["id"] for o in res["spawned"]] == ["probe_gem_1", "probe_gem_2"] and res["spawned"][0]["position"] == [24.0, -24.0]
+          and res.get("saved"), "call scene.import_ascii (save) builds the level in one call")
+    code, rep, err = jrun(["validate", proj, "--json"])
+    check(code == 0 and rep is not None and rep.get("ok") is True, "validate accepts the imported level")
+    code, res, err = jrun(["call", "scene.import_ascii", json.dumps(level), "--project", proj])
+    check(code == 0 and res is not None and res["removed"] == ["probe_gem_1", "probe_gem_2"] and res["created"] is False,
+          "re-importing replaces the objects of the previous import")
+    code, out, err = run(["call", "scene.import_ascii", json.dumps({"rows": ["..x"], "legend": {"#": 0}}), "--project", proj])
+    check(code == 1 and "'x'" in err and "row 0, column 2" in err and "hint:" in err, "scene.import_ascii unknown glyph: row, column and hint")
+
     # Script.props typos are validate warnings
     scene_path = os.path.join(proj, "scenes", "main.scene.json")
     scene = json.load(open(scene_path))

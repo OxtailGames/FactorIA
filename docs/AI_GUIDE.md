@@ -79,11 +79,11 @@ Good example, a missing scene feature:
 {
   "category": "scene",
   "severity": "minor",
-  "title": "No per-tile entity hooks in Tilemap",
-  "missing": "A Tilemap draws and collides but cannot place coins, enemies or spawn points on its tiles, so each pickup is a separate entity whose position I computed from the tile grid by hand.",
-  "workaround": "scenes/level1.scene.json lists the coins as separate entities at the tile centres.",
-  "workaroundFiles": ["scenes/level1.scene.json"],
-  "suggestion": "Let a Tilemap carry a list of {col, row, prefab} entries that are spawned when the scene loads."
+  "title": "No flip or rotate flags for single tiles",
+  "missing": "A Tilemap tile index always draws the tile upright, so a mirrored slope or a rotated corner needs its own copy in the tileset image.",
+  "workaround": "assets/tiles.png has a mirrored copy of every slope tile; the map uses those indices.",
+  "workaroundFiles": ["assets/tiles.png", "scenes/level1.scene.json"],
+  "suggestion": "Let a tile entry carry flipX, flipY and rotate flags, for example as bits of the tile index."
 }
 ```
 
@@ -117,6 +117,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_spawn` | `scene.spawn` | Create an entity: `{"prefab":"prefabs/enemy.prefab.json","position":[300,0]}`, or entity JSON with `name`, `tags`, `components` and an optional `parent` id. |
 | `scene_set_component`, `scene_remove_component` | `scene.set_component`, `scene.remove_component` | Set fields with `{"id":"player","component":"Shape2D","fields":{...}}`, or remove a component by `id` and `component`. |
 | `scene_destroy` | `scene.destroy` | Destroy an entity and its children: `{"id":"coin_1"}`. |
+| `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"save":true}`. |
 | `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
 | `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
 | `game_input` | `game.input` | Press or release an action or key now, or move the mouse. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`. The next `game_step` sees the input. |
@@ -247,7 +248,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
 | `Shape2D` | `shape` (rectangle, circle, line, triangle), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. |
 | `Text` | `text` (`\n` breaks lines), `fontSize` (default 24), `color`, `align`, `pivot` (default [0, 1]), `maxWidth`, `layer` (default 100), `space`, `anchor`, `font` | Labels, scores and the HUD (`space: "screen"`). |
-| `Tilemap` | `tileset`, `tileSize`, `columns`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty), `solidTiles` | A level from a grid. Solid tiles get collision (section 9.8). |
+| `Tilemap` | `tileset`, `tileSize`, `columns`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty), `solidTiles` | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
 | `ParticleEmitter` | `emitting`, `rate`, `burst`, `autoDestroy`, `maxParticles`, `lifetime`, `speed`, `direction` (0 = right, 90 = up), `spread`, `gravity`, `startSize`, `endSize`, `startColor`, `endColor`, `blend`, `texture`, `layer` | Sparks, dust and explosions (section 9.12). |
 
 `layer` is the draw order: higher layers draw on top. `space: "screen"` items ignore the camera.
@@ -533,9 +534,51 @@ Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in
 
 To check that a sound really fires, read the play log: in a test, `expect(game.audioLog()).toContainPlayed("jump.wav")` (section 10); from MCP or the CLI, `audio_log` after `game_step`. A play whose clip failed to load is in the log with `ok: false` and does not count as played.
 
-### 9.8 Tilemap levels and tile collision
+### 9.8 Tilemap levels, objects and tile collision
 
-A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`.
+Author a tile level as ASCII art with the command `scene.import_ascii` (MCP `scene_import_ascii`). It writes the `Tilemap` and spawns the coins, enemies and spawn points that stand on it, at the right place. Do not compute tile positions by hand and do not write a level generator script.
+
+```
+factoria call scene.import_ascii @level1.json          # args in a file; or MCP scene_import_ascii {...}
+```
+
+```json
+{
+  "rows": [
+    "..........",
+    "...o..o...",
+    "..........",
+    ".P......o.",
+    "##########",
+    "%%%%%%%%%%"
+  ],
+  "legend": {
+    "#": 0,
+    "%": 1,
+    "o": { "prefab": "prefabs/coin.prefab.json" },
+    "P": { "prefab": "prefabs/player.prefab.json", "id": "player" }
+  },
+  "tilemap": { "tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0, 1] },
+  "anchor": "bottom-left",
+  "position": [0, 0],
+  "save": true
+}
+```
+
+- `rows` is the map: one string per row, ONE CHARACTER PER TILE, all rows the same length, row 0 is the TOP row. `.` and a space are empty tiles unless the legend defines them.
+- `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile. A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
+- `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). When you pass `tileset` or `tileSize` without `columns`, `columns` is set to the tileset width divided by `tileSize[0]` (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
+- `entity` (default `"tilemap"`) is the id of the Tilemap entity: created when missing, updated when it exists. Use another id for a second layer, such as a background.
+- `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
+- Objects are ordinary top-level entities, saved with the scene. Give unique objects an `id` in the legend (`"id": "player"`). Other objects get ids from the prefab file name in row-major order: `coin_1`, `coin_2`, `crawler_1`. Every object carries the tag `tilemap:<entity>` (for example `tilemap:tilemap`).
+- Re-import after editing the map: with `replace` (default `true`) the objects of earlier imports into the same tilemap are destroyed first, so nothing is duplicated and the ids stay stable. `replace: false` keeps them.
+- `save: true` also writes the current scene file, so one call is enough. Without it, call `scene_save` afterwards (the import changes the running world).
+- The result lists the `spawned` objects (`id`, `prefab`, `cell: [col, row]`, `position`), the `removed` ids, the number of non-empty tiles (`tileCount`) and `warnings` (a legend glyph that is never used, no tileset, no `solidTiles`).
+- Errors name the row and column, the glyph and the legend, with a "did you mean": ragged rows, an unknown glyph, a legend value that is not an integer or an object, a missing prefab, a duplicate fixed `id`, a tile index outside the tileset. A failed import changes nothing.
+
+Run `project_validate`, then take a screenshot to check the picture: the tiles, the coins and the player must line up.
+
+What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`, so its centre is `(px + (col+0.5)*tw, py - (row+0.5)*th)`.
 
 ```json
 {
@@ -560,7 +603,7 @@ A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is
 }
 ```
 
-The flat `tiles` array has `width * height` entries (the field also accepts an array of rows). The tileset image holds tiles of `tileSize`, laid out `columns` per row, left to right and top to bottom. Validation reports a missing tileset.
+The flat `tiles` array has `width * height` entries (the field also accepts an array of rows). The tileset image holds tiles of `tileSize`, laid out `columns` per row, left to right and top to bottom. Validation reports a missing tileset, a `tiles` list that does not match `width * height` (or rows of different lengths, or strings instead of integers), and tile indices outside the tileset image.
 
 How tiles collide (verified against the physics rules):
 
@@ -568,7 +611,7 @@ How tiles collide (verified against the physics rules):
 - Tile shapes are on layer 0, with friction 0.5 and no bounce. They are not triggers, so tiles raise no trigger events, and they are not one-way.
 - Tile indices that are not in `solidTiles` are drawn but never block.
 - Merging can leave seams between boxes of different heights. A character with friction can catch on a seam when it slides along a wall. Give characters `friction: 0` against walls, or use a circle or capsule foot.
-- Tiles cannot carry behaviour. Coins, enemies and spawn points are separate entities. Place them with the tile formula above.
+- Tiles cannot carry behaviour. Coins, enemies and spawn points are entities spawned by `scene.import_ascii` from the legend (above).
 
 ### 9.9 3D scene with a light and fog
 
@@ -962,7 +1005,8 @@ The same format works with `factoria call --input` and `factoria session --input
 - Treating tilemap row 0 as the bottom row. Row 0 is the top row.
 - Forgetting the primary `Camera`.
 - Using `pivot: [0, 0]` for top-left screen text. Text pivots are y-up: top-left is `[0, 1]`.
-- Expecting Tilemap solid tiles to be one-way, or expecting coins and enemies to be tile entries. Use a one-way entity for jump-through ledges, and separate entities for pickups.
+- Expecting Tilemap solid tiles to be one-way. Use a one-way entity for jump-through ledges.
+- Placing coins, enemies and spawn points by hand, or writing a script that generates the level. Put them in the legend of `scene.import_ascii` (section 9.8) and re-import after every edit.
 - Probing for ground in the first fixed step after a spawn (section 9.14).
 - Reading `game.world` or `game.time` in `script.eval`. Use `world` and `time`.
 - Editing `types/factoria.d.ts` or `.factoria/`. Both are generated.

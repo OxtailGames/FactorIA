@@ -66,5 +66,6 @@ struct Engine::Impl {
 };
 
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
+void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 
 }  // namespace fa
