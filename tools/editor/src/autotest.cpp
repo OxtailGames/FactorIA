@@ -107,7 +107,10 @@ void Editor::autotest_pre_frame() {
         at_check(w.frame() > 0 || engine_->frame_index() > 10, "game simulated while playing");
         pause();
         at_check(play_state() == PlayState::Paused, "Pause");
+        atStepFrame_ = engine_->frame_index();
         step_once();
+    } else if (f == 52) {
+        at_check(engine_->frame_index() == atStepFrame_ + 1, "Step advances exactly one frame");
         stop();
         at_check(play_state() == PlayState::Edit, "Stop returns to edit mode");
         at_check(near(player_pos(), atOriginalPos_) || true, "scene restored after stop");
@@ -137,9 +140,11 @@ void Editor::autotest_pre_frame() {
         in.title = "Editor autotest sample entry";
         in.missing = "Autotest: nothing is actually missing.";
         in.workaround = "None needed.";
-        add_feedback_entry_to_file(fs::join(projectDir_, engine_->project().feedbackFile), in, projectName_);
+        (void)add_feedback_entry_to_file(fs::join(projectDir_, engine_->project().feedbackFile), in, projectName_);
         feedbackPolled_ = -10;
-        feedbackMtime_ = -2;
+        feedbackMtime_ = INT64_MIN;
+        FA_INFO("autotest", "feedbackFile='{}' mtime={} exists={}", engine_->project().feedbackFile,
+                fs::modified_time(engine_->project().feedbackFile), fs::exists(engine_->project().feedbackFile));
         pendingFocus_ = "Engine Feedback";
     } else if (f == 80) {
         atPendingShots_.push_back(out + "editor_feedback.png");
@@ -149,7 +154,7 @@ void Editor::autotest_pre_frame() {
         hierFilter_ = "";
     } else if (f == 90) {
         Json report = Json::object({{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}});
-        save_json_file(out + "autotest_result.json", report);
+        (void)save_json_file(out + "autotest_result.json", report);
         FA_INFO("autotest", "finished: {} failure(s)", atFailures_.size());
         sapp_request_quit();
     } else if (f > 600) {

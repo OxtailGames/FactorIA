@@ -453,7 +453,11 @@ Audio& Engine::audio() { return impl_->audio; }
 Physics& Engine::physics() { return impl_->physics; }
 Renderer* Engine::renderer() { return impl_->renderer.get(); }
 CommandRegistry& Engine::commands() { return impl_->commands; }
-Json Engine::project_settings() const { return impl_->project.to_json(); }
+Json Engine::project_settings() const {
+    Json j = impl_->project.to_json();
+    j["seed"] = impl_->cfg.seed;  // the effective run seed (scripts reseed test files with it)
+    return j;
+}
 double Engine::fixed_dt() const { return impl_->fixedDt; }
 
 void Engine::request_scene_change(std::string_view scenePath) {

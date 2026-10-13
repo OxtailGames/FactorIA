@@ -7,6 +7,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -221,6 +222,7 @@ public:
     bool uiUp_ = false;
     bool dirty_ = false;
     PlayState play_ = PlayState::Edit;
+    int stepPending_ = 0;
     Json playSnapshot_;
     std::string selectedId_;
     std::vector<Json> undo_, redo_;
@@ -304,7 +306,7 @@ public:
     // feedback panel
     Json feedbackDoc_;
     std::string feedbackError_;
-    std::int64_t feedbackMtime_ = -2;
+    std::int64_t feedbackMtime_ = INT64_MIN;
     double feedbackPolled_ = -10;
     int fbStatus_ = 0, fbCategory_ = 0, fbSeverity_ = 0;
     std::string fbSelected_;
@@ -346,6 +348,7 @@ public:
     std::thread atThread_;
     std::shared_ptr<CommandResult> atMarshalResult_;
     Vec3 atOriginalPos_{};
+    std::uint64_t atStepFrame_ = 0;
     void at_check(bool cond, const std::string& what);
     void save_screenshot_now(const std::string& path);
 };

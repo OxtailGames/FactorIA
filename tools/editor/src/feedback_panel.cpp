@@ -37,10 +37,11 @@ void Editor::draw_feedback_panel() {
     // (Re)load when the file changed on disk (AIs append to it while the editor is open).
     if (time_ - feedbackPolled_ > 1.0) {
         feedbackPolled_ = time_;
-        const std::int64_t mt = fs::modified_time(engine_->project().feedbackFile);
+        const bool exists = fs::exists(engine_->project().feedbackFile);
+        const std::int64_t mt = exists ? fs::modified_time(engine_->project().feedbackFile) : 0;
         if (mt != feedbackMtime_) {
             feedbackMtime_ = mt;
-            if (mt < 0) {
+            if (!exists) {
                 feedbackDoc_ = Json();
                 feedbackError_.clear();
             } else if (auto r = load_feedback(path)) {
@@ -60,7 +61,7 @@ void Editor::draw_feedback_panel() {
         if (ImGui::Button("Create ENGINE_FEEDBACK.json")) {
             Json doc = create_empty_feedback(projectName_);
             if (auto r = save_feedback(path, doc); !r) notify(r.error().to_string(), 2);
-            feedbackMtime_ = -2;
+            feedbackMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
         }
         ImGui::End();
@@ -176,7 +177,7 @@ void Editor::draw_feedback_panel() {
                 fbNewMissing_.clear();
                 fbNewWorkaround_.clear();
                 fbNewSuggestion_.clear();
-                feedbackMtime_ = -2;
+                feedbackMtime_ = INT64_MIN;
                 feedbackPolled_ = -10;
             } else {
                 fbMessage_ = r.error().to_string();
