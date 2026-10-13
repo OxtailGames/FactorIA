@@ -1,0 +1,54 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Splitter",
+    "tags": [
+      "enemy",
+      "splitter"
+    ],
+    "components": {
+      "Transform": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Sprite": {
+        "texture": "assets/img/glow_circle.png",
+        "size": [
+          60.0,
+          60.0
+        ],
+        "color": [
+          0.6,
+          0.3,
+          1,
+          1
+        ],
+        "layer": 5,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "kinematic"
+      },
+      "Collider2D": {
+        "shape": "circle",
+        "radius": 24.0,
+        "isTrigger": false,
+        "layer": 2,
+        "mask": 2
+      },
+      "Script": {
+        "path": "scripts/enemy.js",
+        "props": {
+          "kind": "splitter",
+          "speed": 80,
+          "hp": 4,
+          "points": 150,
+          "radius": 24
+        }
+      }
+    }
+  }
+}

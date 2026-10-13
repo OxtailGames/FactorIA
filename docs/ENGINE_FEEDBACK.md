@@ -1,0 +1,59 @@
+# ENGINE_FEEDBACK.json
+
+Every FactorIA game keeps an `ENGINE_FEEDBACK.json` at its root. AIs (and people) record there what the
+engine lacked and how they worked around it. Engine developers merge many projects' files into a ranked
+list of what to build next. `factoria validate` fails if the file is missing or invalid.
+
+## When to write an entry
+
+Immediately, whenever the engine lacked a feature, had a bug, gave a misleading error, or a doc was wrong
+or missing, AND you built a workaround or dropped the feature. Do not wait until the end of the task.
+Duplicates are harmless: a report similar to an open entry is merged into it.
+
+## How
+
+| Way | Use |
+|---|---|
+| Command `feedback.report` (MCP tool `feedback_report`, CLI `factoria call feedback.report '{...}'`) | Preferred: assigns id and date, merges duplicates |
+| `feedback.list`, `feedback.update` | Inspect entries; engine developers change `status` / `engineIssue` |
+| Edit the JSON | Allowed; keep it valid against `schemas/engine-feedback.schema.json` |
+
+```json
+{
+  "category": "physics",
+  "severity": "major",
+  "title": "No one-way platforms",
+  "missing": "Collider2D has no one-way option, so the player cannot jump up through platforms.",
+  "workaround": "scripts/one_way.js disables the platform collider while the player moves upward.",
+  "workaroundFiles": ["scripts/one_way.js"],
+  "suggestion": "Add Collider2D.oneWay (bool) with a configurable direction.",
+  "effort": "small"
+}
+```
+
+## Fields
+
+- `category`: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation,
+  tooling, ai-integration, docs, platform, performance, networking, other.
+- `severity`: `blocker` (could not build it), `major` (big or fragile workaround), `minor` (small
+  workaround), `nice-to-have`.
+- `title`: short noun phrase; reuse the same wording for the same gap.
+- `missing`, `workaround`: required. `workaroundFiles`, `suggestion`, `effort` (small/medium/large),
+  `reporter` ({kind, agent, model}): optional.
+- Maintained automatically: `id` (FB-0001...), `date` (UTC), `occurrences`, `notes` (one line per merged
+  report: `date: workaround`), `status` (open, fixed-in-engine, wont-fix, duplicate), `engineIssue`.
+
+## Deduplication
+
+A new report is merged into an existing **open** entry with the same `category` and a similar `title`
+(token overlap after dropping filler words such as "no", "missing", "support", or a small edit
+distance). The entry's `occurrences` increases, the new workaround is appended to `notes`, the severity
+is raised if the new report is more severe, and the longer `suggestion` wins. The command returns
+`{id, merged: true}`.
+
+## Collecting (engine developers)
+
+`factoria feedback collect <dirs-or-files...> [--out report.md|report.json]` groups similar entries across
+projects and ranks them by `sum(occurrences) x severity weight` (blocker 8, major 4, minor 2,
+nice-to-have 1). Each group lists title, category, projects affected, total occurrences, the best
+suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.

@@ -1,0 +1,54 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Chaser",
+    "tags": [
+      "enemy",
+      "chaser"
+    ],
+    "components": {
+      "Transform": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Sprite": {
+        "texture": "assets/img/glow_diamond.png",
+        "size": [
+          44.0,
+          44.0
+        ],
+        "color": [
+          1,
+          0.2,
+          0.5,
+          1
+        ],
+        "layer": 5,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "kinematic"
+      },
+      "Collider2D": {
+        "shape": "circle",
+        "radius": 16.0,
+        "isTrigger": false,
+        "layer": 2,
+        "mask": 2
+      },
+      "Script": {
+        "path": "scripts/enemy.js",
+        "props": {
+          "kind": "chaser",
+          "speed": 120,
+          "hp": 2,
+          "points": 100,
+          "radius": 16
+        }
+      }
+    }
+  }
+}

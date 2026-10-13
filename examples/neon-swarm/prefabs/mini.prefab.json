@@ -1,0 +1,54 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Mini",
+    "tags": [
+      "enemy",
+      "chaser"
+    ],
+    "components": {
+      "Transform": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Sprite": {
+        "texture": "assets/img/glow_circle.png",
+        "size": [
+          32.0,
+          32.0
+        ],
+        "color": [
+          0.8,
+          0.5,
+          1,
+          1
+        ],
+        "layer": 5,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "kinematic"
+      },
+      "Collider2D": {
+        "shape": "circle",
+        "radius": 12.0,
+        "isTrigger": false,
+        "layer": 2,
+        "mask": 2
+      },
+      "Script": {
+        "path": "scripts/enemy.js",
+        "props": {
+          "kind": "mini",
+          "speed": 170,
+          "hp": 1,
+          "points": 50,
+          "radius": 12
+        }
+      }
+    }
+  }
+}

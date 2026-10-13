@@ -1,0 +1,1 @@
+{ "name": "2d-platformer", "description": "Side-scrolling platformer starter: physics player with run/jump, platforms, collectible coins, score HUD, follow camera, tests. Uses Shape2D only (no assets).", "dimension": "2d" }

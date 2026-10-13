@@ -1,0 +1,32 @@
+# fa_tooling: shared developer-tool logic (desktop only): project scaffolding
+# from templates/, validation, ENGINE_FEEDBACK.json handling, embedded docs,
+# API export (JSON / Markdown / TypeScript), project-sandboxed file commands.
+set(FA_TOOLING_TARGET_NAME tooling)
+add_library(fa_tooling STATIC)
+file(GLOB_RECURSE tooling_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+target_sources(fa_tooling PRIVATE ${tooling_srcs})
+target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings)
+
+# Bake docs, templates and schemas into the binary (offline AI access).
+file(GLOB_RECURSE FA_EMBED_DOCS CONFIGURE_DEPENDS ${FA_ROOT}/docs/*.md)
+# Translations (docs/i18n/<lang>/) are for humans browsing the repo; AIs get the English reference docs.
+list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
+file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
+file(GLOB_RECURSE FA_EMBED_SCHEMAS CONFIGURE_DEPENDS ${FA_ROOT}/schemas/*.json)
+set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS})
+if(FA_EMBED_ALL)
+    fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
+    target_compile_definitions(fa_tooling PRIVATE FA_HAS_EMBEDDED_FILES=1)
+endif()
+target_compile_definitions(fa_tooling PUBLIC FA_SOURCE_ROOT="${FA_ROOT}")
+
+if(FA_BUILD_TESTS)
+    file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
+    if(tooling_tests)
+        add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
+        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings)
+        target_compile_definitions(fa_test_tooling PRIVATE FA_REPO_ROOT="${FA_ROOT}")
+        add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
+    endif()
+endif()

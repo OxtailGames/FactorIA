@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FactorIA AI config (~/.factoria/ai.json)",
+  "description": "User-level AI configuration: providers (API keys or CLI agents) and the roles orchestrator/worker/fast. Lives in the user's home, NEVER inside a game project.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "defaultProvider": {
+      "type": "string",
+      "description": "Provider used by roles that do not set one. Default: anthropic."
+    },
+    "providers": {
+      "type": "object",
+      "description": "Providers by name. Built-in names (anthropic, openai, openrouter, gemini, groq, deepseek, ollama, lmstudio, claude-code, codex) exist without being listed; listing one overrides its fields.",
+      "additionalProperties": { "$ref": "#/$defs/provider" }
+    },
+    "roles": {
+      "type": "object",
+      "description": "Which provider/model plays each role. orchestrator plans and delegates, worker implements, fast does small mechanical tasks.",
+      "properties": {
+        "orchestrator": { "$ref": "#/$defs/role" },
+        "worker": { "$ref": "#/$defs/role" },
+        "fast": { "$ref": "#/$defs/role" }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "description": "Safety limits for one agent run.",
+      "properties": {
+        "maxTurns": { "type": "integer", "minimum": 1, "default": 40 },
+        "maxCostUsd": { "type": "number", "minimum": 0, "description": "0 = unlimited." },
+        "maxTotalTokens": { "type": "integer", "minimum": 0, "description": "0 = unlimited." }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "role": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "description": "Name of an entry in providers (or a built-in)." },
+        "model": { "type": "string", "description": "Model id, e.g. claude-sonnet-5-5." },
+        "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
+        "maxTokens": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "provider": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["anthropic", "openai-compatible", "claude-code", "codex", "generic-cli"]
+        },
+        "preset": {
+          "type": "string",
+          "enum": ["openai", "openrouter", "gemini", "groq", "deepseek", "ollama", "lmstudio"],
+          "description": "openai-compatible only: fills baseUrl and apiKeyEnv."
+        },
+        "baseUrl": { "type": "string", "description": "API base URL (openai-compatible: without /chat/completions)." },
+        "apiKeyEnv": { "type": "string", "description": "Name of the environment variable that holds the key." },
+        "apiKey": { "type": "string", "description": "The key itself. Prefer apiKeyEnv. Only honoured in this user-level file." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+        "defaultModel": { "type": "string" },
+        "useAntCli": { "type": "boolean", "default": true, "description": "anthropic: fall back to `ant auth print-credentials` when no key is set." },
+        "sendReasoningEffort": { "type": "boolean", "default": false, "description": "openai-compatible: send reasoning_effort (low|medium|high) from the role effort." },
+        "command": { "type": "string", "description": "CLI agents: executable name or path." },
+        "argv": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "CLI agents: argv template after the command. Placeholders: {prompt} {model} {project} {mcp_config} {project_json} {factoria_json}."
+        },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "unsetEnv": { "type": "array", "items": { "type": "string" } },
+        "factoriaCommand": { "type": "string", "description": "Command that starts FactorIA for the MCP server. Default: factoria." },
+        "pricing": {
+          "type": "object",
+          "description": "USD per 1M tokens, for cost estimates of non-Claude models.",
+          "properties": {
+            "inputPerMTok": { "type": "number", "minimum": 0 },
+            "outputPerMTok": { "type": "number", "minimum": 0 },
+            "cacheReadPerMTok": { "type": "number", "minimum": 0 },
+            "cacheWritePerMTok": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "maxRetries": { "type": "integer", "minimum": 0, "maximum": 10, "default": 5 },
+        "timeoutSeconds": { "type": "number", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

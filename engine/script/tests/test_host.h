@@ -1,0 +1,103 @@
+// Minimal ScriptHost for tests: owns world/input/audio/physics/commands, no renderer, no fa_runtime.
+#pragma once
+#include <filesystem>
+#include <fstream>
+
+#include "fa/audio/audio.h"
+#include "fa/core/fs.h"
+#include "fa/physics/physics.h"
+#include "fa/platform/input.h"
+#include "fa/scene/serialize.h"
+#include "fa/script/script.h"
+
+namespace fa::test {
+
+inline void write_file(const std::filesystem::path& root, const std::string& rel, const std::string& text) {
+    auto p = root / rel;
+    std::filesystem::create_directories(p.parent_path());
+    std::ofstream(p, std::ios::binary) << text;
+}
+
+struct TestHost : ScriptHost {
+    std::filesystem::path root;
+    World w;
+    Input in;
+    Audio au;
+    Physics ph;
+    CommandRegistry cmds;
+    Json proj = Json::object();
+    ScriptSystem scripts;
+    double fdt = 1.0 / 60.0;
+    std::string pendingScene;
+    bool quitRequested = false;
+    std::string initError;
+
+    explicit TestHost(const std::string& tag, const Json& settings = Json::object()) {
+        ensure_builtin_components();
+        root = std::filesystem::temp_directory_path() / ("fa_script_test_" + tag);
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root);
+        fs::set_project_root(root);
+        fs::set_user_dir(root / "save");
+        proj = settings;
+        if (!proj.contains("input"))
+            proj["input"] = Json::object({{"actions", Json::object({{"jump", Json::array({"Space"})},
+                                                                     {"move_left", Json::array({"A"})},
+                                                                     {"move_right", Json::array({"D"})}})}});
+        in.set_actions(proj["input"]["actions"]);
+        au.init(false, nullptr);
+        ph.init(PhysicsSettings{});
+    }
+    ~TestHost() override {
+        scripts.shutdown();
+        std::error_code ec;
+        std::filesystem::remove_all(root, ec);
+    }
+    bool start() {
+        fs::set_project_root(root);
+        return scripts.init(*this, &initError);
+    }
+    void file(const std::string& rel, const std::string& text) { write_file(root, rel, text); }
+
+    World& world() override { return w; }
+    Input& input() override { return in; }
+    Audio& audio() override { return au; }
+    Physics& physics() override { return ph; }
+    Renderer* renderer() override { return nullptr; }
+    CommandRegistry& commands() override { return cmds; }
+    Json project_settings() const override { return proj; }
+    double fixed_dt() const override { return fdt; }
+    void request_scene_change(std::string_view p) override { pendingScene = std::string(p); }
+    void request_quit() override { quitRequested = true; }
+    bool screenshot(std::string_view, std::string* e) override { if (e) *e = "no renderer"; return false; }
+    std::string load_scene_now(std::string_view p) override {
+        LoadReport r = load_scene_file(w, p);
+        ph.reset();
+        w.reset_clock();
+        scripts.on_scene_loaded();
+        return r.ok() ? "" : r.summary();
+    }
+    std::string load_scene_json_now(const Json& scene, std::string_view name) override {
+        LoadReport r = load_scene(w, scene, name);
+        ph.reset();
+        w.reset_clock();
+        scripts.on_scene_loaded();
+        return r.ok() ? "" : r.summary();
+    }
+    void step_frames(int n) override {
+        for (int i = 0; i < n; ++i) {
+            float dt = static_cast<float>(fdt);
+            scripts.fixed_update(dt);
+            ph.step(w, dt);
+            scripts.dispatch_events();
+            scripts.update(dt);
+            scripts.late_update(dt);
+            w.advance_clock(fdt);
+            w.flush();
+            in.begin_frame();
+            if (!pendingScene.empty()) { std::string s = pendingScene; pendingScene.clear(); load_scene_now(s); }
+        }
+    }
+};
+
+}  // namespace fa::test

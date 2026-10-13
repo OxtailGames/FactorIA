@@ -1,0 +1,667 @@
+// Texture + mesh caches, procedural primitives and glTF loading.
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <format>
+
+#include <cgltf.h>
+
+#include "fa/core/fs.h"
+#include "fa/core/log.h"
+#include "fa/core/strings.h"
+#include "render_internal.h"
+
+namespace fa::render {
+
+// ---------------------------------------------------------------------------
+// Procedural primitives
+// ---------------------------------------------------------------------------
+namespace {
+
+void add_face(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, Vec3 n, Vec3 r, Vec3 u, Vec3 center, float half) {
+    auto base = std::uint32_t(v.size());
+    const Vec2 uvs[4] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+    const float sx[4] = {-1, 1, 1, -1}, sy[4] = {-1, -1, 1, 1};
+    for (int i = 0; i < 4; ++i) {
+        Vec3 p = center + r * (sx[i] * half) + u * (sy[i] * half);
+        v.push_back({p.x, p.y, p.z, n.x, n.y, n.z, uvs[i].x, uvs[i].y});
+    }
+    idx.insert(idx.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+}
+
+// Makes every triangle counter-clockwise when seen from the side its vertex normals point to.
+void fix_winding(const std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx) {
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        const MeshVertex &a = v[idx[i]], &b = v[idx[i + 1]], &c = v[idx[i + 2]];
+        Vec3 pa{a.px, a.py, a.pz}, pb{b.px, b.py, b.pz}, pc{c.px, c.py, c.pz};
+        Vec3 fn = cross(pb - pa, pc - pa);
+        Vec3 vn{a.nx + b.nx + c.nx, a.ny + b.ny + c.ny, a.nz + b.nz + c.nz};
+        if (dot(fn, vn) < 0.0f) std::swap(idx[i + 1], idx[i + 2]);
+    }
+}
+
+void add_revolved(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int segments,
+                  const std::vector<Vec3>& rings /* x = radius, y = height, z = v coordinate */,
+                  const std::vector<Vec2>& ringNormals /* x = radial, y = vertical */) {
+    auto base = std::uint32_t(v.size());
+    for (std::size_t r = 0; r < rings.size(); ++r) {
+        for (int s = 0; s <= segments; ++s) {
+            float a = float(s) / float(segments) * kTau;
+            float ca = std::cos(a), sa = std::sin(a);
+            Vec3 n = normalize(Vec3{ringNormals[r].x * ca, ringNormals[r].y, ringNormals[r].x * sa});
+            v.push_back({rings[r].x * ca, rings[r].y, rings[r].x * sa, n.x, n.y, n.z, float(s) / float(segments), rings[r].z});
+        }
+    }
+    for (std::size_t r = 0; r + 1 < rings.size(); ++r) {
+        for (int s = 0; s < segments; ++s) {
+            std::uint32_t a = base + std::uint32_t(r) * (segments + 1) + s;
+            std::uint32_t b = a + segments + 1;
+            idx.insert(idx.end(), {a, b, a + 1, a + 1, b, b + 1});
+        }
+    }
+}
+
+void add_disc(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int segments, float radius, float y, float ny) {
+    auto base = std::uint32_t(v.size());
+    v.push_back({0, y, 0, 0, ny, 0, 0.5f, 0.5f});
+    for (int s = 0; s <= segments; ++s) {
+        float a = float(s) / float(segments) * kTau;
+        float ca = std::cos(a), sa = std::sin(a);
+        v.push_back({radius * ca, y, radius * sa, 0, ny, 0, 0.5f + 0.5f * ca, 0.5f + 0.5f * sa});
+    }
+    for (int s = 0; s < segments; ++s) idx.insert(idx.end(), {base, base + 1 + std::uint32_t(s), base + 2 + std::uint32_t(s)});
+}
+
+}  // namespace
+
+bool build_primitive(const std::string& rawName, std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx) {
+    std::string name = to_lower(rawName);
+    v.clear();
+    idx.clear();
+    const float h = 0.5f;
+    if (name == "cube") {
+        add_face(v, idx, {0, 0, 1}, {1, 0, 0}, {0, 1, 0}, {0, 0, h}, h);
+        add_face(v, idx, {0, 0, -1}, {-1, 0, 0}, {0, 1, 0}, {0, 0, -h}, h);
+        add_face(v, idx, {1, 0, 0}, {0, 0, -1}, {0, 1, 0}, {h, 0, 0}, h);
+        add_face(v, idx, {-1, 0, 0}, {0, 0, 1}, {0, 1, 0}, {-h, 0, 0}, h);
+        add_face(v, idx, {0, 1, 0}, {1, 0, 0}, {0, 0, -1}, {0, h, 0}, h);
+        add_face(v, idx, {0, -1, 0}, {1, 0, 0}, {0, 0, 1}, {0, -h, 0}, h);
+    } else if (name == "plane") {
+        add_face(v, idx, {0, 1, 0}, {1, 0, 0}, {0, 0, -1}, {0, 0, 0}, h);
+    } else if (name == "quad") {
+        add_face(v, idx, {0, 0, 1}, {1, 0, 0}, {0, 1, 0}, {0, 0, 0}, h);
+    } else if (name == "sphere") {
+        const int seg = 32, rings = 16;
+        std::vector<Vec3> r;
+        std::vector<Vec2> n;
+        for (int i = 0; i <= rings; ++i) {
+            float t = float(i) / float(rings) * kPi;
+            r.push_back({std::sin(t) * h, std::cos(t) * h, float(i) / float(rings)});
+            n.push_back({std::sin(t), std::cos(t)});
+        }
+        add_revolved(v, idx, seg, r, n);
+    } else if (name == "cylinder") {
+        const int seg = 32;
+        add_revolved(v, idx, seg, {{h, h, 0.0f}, {h, -h, 1.0f}}, {{1, 0}, {1, 0}});
+        add_disc(v, idx, seg, h, h, 1.0f);
+        add_disc(v, idx, seg, h, -h, -1.0f);
+    } else if (name == "capsule") {
+        const int seg = 32, half = 8;
+        std::vector<Vec3> r;
+        std::vector<Vec2> n;
+        for (int i = 0; i <= half; ++i) {  // top hemisphere
+            float t = float(i) / float(half) * (kPi * 0.5f);
+            r.push_back({std::sin(t) * h, std::cos(t) * h + 0.5f, float(i) / float(2 * half + 2)});
+            n.push_back({std::sin(t), std::cos(t)});
+        }
+        for (int i = 0; i <= half; ++i) {  // bottom hemisphere
+            float t = kPi * 0.5f + float(i) / float(half) * (kPi * 0.5f);
+            r.push_back({std::sin(t) * h, std::cos(t) * h - 0.5f, float(half + 1 + i) / float(2 * half + 2)});
+            n.push_back({std::sin(t), std::cos(t)});
+        }
+        add_revolved(v, idx, seg, r, n);
+    } else if (name == "cone") {
+        const int seg = 32;
+        float slope = h / 1.0f;  // radius / height
+        Vec2 sn = {1.0f, slope};
+        add_revolved(v, idx, seg, {{0.0f, h, 0.0f}, {h, -h, 1.0f}}, {sn, sn});
+        add_disc(v, idx, seg, h, -h, -1.0f);
+    } else {
+        return false;
+    }
+    fix_winding(v, idx);
+    return true;
+}
+
+namespace {
+
+void compute_bounds(const std::vector<MeshVertex>& v, Vec3& bmin, Vec3& bmax) {
+    bmin = {1e30f, 1e30f, 1e30f};
+    bmax = {-1e30f, -1e30f, -1e30f};
+    for (const auto& x : v) {
+        bmin = min(bmin, Vec3{x.px, x.py, x.pz});
+        bmax = max(bmax, Vec3{x.px, x.py, x.pz});
+    }
+    if (v.empty()) bmin = bmax = {0, 0, 0};
+}
+
+SubMesh upload_submesh(const std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx, const char* label) {
+    SubMesh m;
+    sg_buffer_desc vb{};
+    vb.data = {v.data(), v.size() * sizeof(MeshVertex)};
+    vb.label = label;
+    m.vb = sg_make_buffer(&vb);
+    sg_buffer_desc ib{};
+    ib.usage.index_buffer = true;
+    ib.usage.vertex_buffer = false;
+    ib.data = {idx.data(), idx.size() * sizeof(std::uint32_t)};
+    ib.label = label;
+    m.ib = sg_make_buffer(&ib);
+    m.vertexCount = int(v.size());
+    m.indexCount = int(idx.size());
+    compute_bounds(v, m.bmin, m.bmax);
+    return m;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// glTF loader
+// ---------------------------------------------------------------------------
+class MeshLoader {
+public:
+    MeshLoader(Assets& assets) : assets_(assets) {}
+
+    bool load(const std::string& path, MeshAsset& out, std::string& error) {
+        auto bytes = fs::read_bytes(path);
+        if (!bytes) {
+            error = bytes.error().message;
+            return false;
+        }
+        cgltf_options opts{};
+        opts.file.read = &MeshLoader::file_read;
+        opts.file.release = &MeshLoader::file_release;
+        cgltf_data* data = nullptr;
+        cgltf_result r = cgltf_parse(&opts, bytes->data(), bytes->size(), &data);
+        if (r != cgltf_result_success) {
+            error = std::format("cgltf could not parse '{}' (error code {}). The file must be a valid glTF 2.0 (.gltf or .glb) file.", path, int(r));
+            return false;
+        }
+        struct Guard { cgltf_data* d; ~Guard() { cgltf_free(d); } } guard{data};
+        r = cgltf_load_buffers(&opts, data, path.c_str());
+        if (r != cgltf_result_success) {
+            error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit next to the .gltf and be inside the project.", path, int(r));
+            return false;
+        }
+        std::string dir = fs::parent(path);
+        out.bmin = {1e30f, 1e30f, 1e30f};
+        out.bmax = {-1e30f, -1e30f, -1e30f};
+        for (cgltf_size ni = 0; ni < data->nodes_count; ++ni) {
+            const cgltf_node& node = data->nodes[ni];
+            if (!node.mesh) continue;
+            Mat4 world;
+            cgltf_node_transform_world(&node, world.m);
+            Mat4 normalMat = world.inverse().transposed();
+            for (cgltf_size pi = 0; pi < node.mesh->primitives_count; ++pi) {
+                const cgltf_primitive& prim = node.mesh->primitives[pi];
+                if (prim.type != cgltf_primitive_type_triangles) {
+                    FA_WARN("render", "{}: mesh '{}' primitive {} uses a non-triangle mode; skipped", path,
+                            node.mesh->name ? node.mesh->name : "?", pi);
+                    continue;
+                }
+                std::vector<MeshVertex> verts;
+                std::vector<std::uint32_t> idx;
+                if (!read_primitive(prim, world, normalMat, verts, idx)) continue;
+                SubMesh sm = upload_submesh(verts, idx, path.c_str());
+                apply_material(prim.material, dir, data, sm);
+                out.bmin = min(out.bmin, sm.bmin);
+                out.bmax = max(out.bmax, sm.bmax);
+                out.parts.push_back(sm);
+            }
+        }
+        if (out.parts.empty()) {
+            error = std::format("'{}' contains no triangle meshes", path);
+            return false;
+        }
+        return true;
+    }
+
+private:
+    static cgltf_result file_read(const cgltf_memory_options*, const cgltf_file_options*, const char* path,
+                                  cgltf_size* size, void** data) {
+        auto bytes = fs::read_bytes(path);
+        if (!bytes) return cgltf_result_file_not_found;
+        void* mem = std::malloc(bytes->size() ? bytes->size() : 1);
+        if (!mem) return cgltf_result_out_of_memory;
+        std::memcpy(mem, bytes->data(), bytes->size());
+        *size = bytes->size();
+        *data = mem;
+        return cgltf_result_success;
+    }
+    static void file_release(const cgltf_memory_options*, const cgltf_file_options*, void* data, cgltf_size) {
+        std::free(data);
+    }
+
+    bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
+                        std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
+        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr;
+        for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
+            const cgltf_attribute& at = prim.attributes[a];
+            if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
+            else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
+            else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
+        }
+        if (!pos) return false;
+        verts.resize(pos->count);
+        for (cgltf_size i = 0; i < pos->count; ++i) {
+            float p[3] = {0, 0, 0};
+            cgltf_accessor_read_float(pos, i, p, 3);
+            Vec3 wp = world.transform_point({p[0], p[1], p[2]});
+            MeshVertex& v = verts[i];
+            v.px = wp.x; v.py = wp.y; v.pz = wp.z;
+            float n[3] = {0, 1, 0};
+            if (nrm) cgltf_accessor_read_float(nrm, i, n, 3);
+            Vec3 wn = normalize(normalMat.transform_dir({n[0], n[1], n[2]}));
+            v.nx = wn.x; v.ny = wn.y; v.nz = wn.z;
+            float t[2] = {0, 0};
+            if (uv) cgltf_accessor_read_float(uv, i, t, 2);
+            v.u = t[0]; v.v = t[1];
+        }
+        if (prim.indices) {
+            idx.resize(prim.indices->count);
+            for (cgltf_size i = 0; i < prim.indices->count; ++i) idx[i] = std::uint32_t(cgltf_accessor_read_index(prim.indices, i));
+        } else {
+            idx.resize(pos->count);
+            for (cgltf_size i = 0; i < pos->count; ++i) idx[i] = std::uint32_t(i);
+        }
+        // Negative-determinant node transforms mirror the mesh: flip winding to keep faces outward.
+        Vec3 c0{world.at(0, 0), world.at(0, 1), world.at(0, 2)};
+        Vec3 c1{world.at(1, 0), world.at(1, 1), world.at(1, 2)};
+        Vec3 c2{world.at(2, 0), world.at(2, 1), world.at(2, 2)};
+        if (dot(cross(c0, c1), c2) < 0.0f)
+            for (std::size_t i = 0; i + 2 < idx.size(); i += 3) std::swap(idx[i + 1], idx[i + 2]);
+        if (!nrm) generate_normals(verts, idx);
+        return !idx.empty();
+    }
+
+    static void generate_normals(std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx) {
+        for (auto& x : v) x.nx = x.ny = x.nz = 0;
+        for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+            MeshVertex &a = v[idx[i]], &b = v[idx[i + 1]], &c = v[idx[i + 2]];
+            Vec3 n = cross(Vec3{b.px - a.px, b.py - a.py, b.pz - a.pz}, Vec3{c.px - a.px, c.py - a.py, c.pz - a.pz});
+            for (MeshVertex* m : {&a, &b, &c}) { m->nx += n.x; m->ny += n.y; m->nz += n.z; }
+        }
+        for (auto& x : v) {
+            Vec3 n = normalize(Vec3{x.nx, x.ny, x.nz});
+            if (length_sq(n) < 0.5f) n = {0, 1, 0};
+            x.nx = n.x; x.ny = n.y; x.nz = n.z;
+        }
+    }
+
+    void apply_material(const cgltf_material* mat, const std::string& dir, const cgltf_data* data, SubMesh& sm) {
+        if (!mat) return;
+        sm.doubleSided = mat->double_sided;
+        sm.blended = mat->alpha_mode == cgltf_alpha_mode_blend;
+        if (mat->has_pbr_metallic_roughness) {
+            const auto& pbr = mat->pbr_metallic_roughness;
+            sm.baseColor = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2], pbr.base_color_factor[3]};
+            const cgltf_texture* tex = pbr.base_color_texture.texture;
+            if (tex && tex->image) sm.texture = image_texture(*tex->image, dir, data);
+        }
+    }
+
+    TextureAsset* image_texture(const cgltf_image& img, const std::string& dir, const cgltf_data* data) {
+        if (img.buffer_view) {
+            const auto* base = static_cast<const std::uint8_t*>(img.buffer_view->buffer->data);
+            auto decoded = decode_image(base + img.buffer_view->offset, img.buffer_view->size);
+            std::string name = std::format("<gltf-embedded:{}>", img.name ? img.name : "image");
+            if (!decoded) {
+                assets_.note_failure("texture", name, decoded.error().message, decoded.error().hint);
+                return assets_.texture("<missing-embedded-image>");
+            }
+            return assets_.make_texture(name, *decoded, true);
+        }
+        if (img.uri) {
+            std::string uri = img.uri;
+            if (uri.rfind("data:", 0) == 0) {
+                auto comma = uri.find(',');
+                if (comma != std::string::npos) {
+                    auto raw = base64_decode(std::string_view(uri).substr(comma + 1));
+                    auto decoded = decode_image(raw.data(), raw.size());
+                    if (decoded) return assets_.make_texture("<gltf-data-uri>", *decoded, true);
+                }
+                return assets_.texture("<missing-embedded-image>");
+            }
+            std::vector<char> buf(uri.begin(), uri.end());
+            buf.push_back('\0');
+            cgltf_decode_uri(buf.data());
+            uri = buf.data();
+            return assets_.texture(dir.empty() ? uri : fs::join(dir, uri));
+        }
+        (void)data;
+        return nullptr;
+    }
+
+    Assets& assets_;
+};
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+Assets::Assets(Gpu& gpu) : gpu_(gpu) {
+    Image white;
+    white.width = white.height = 1;
+    white.rgba = {255, 255, 255, 255};
+    white_ = std::make_unique<TextureAsset>();
+    white_->path = "<white>";
+    upload_texture(*white_, white, false);
+
+    // Magenta/black checker for missing textures.
+    Image chk;
+    chk.width = chk.height = 32;
+    chk.rgba.resize(32 * 32 * 4);
+    for (int y = 0; y < 32; ++y) {
+        for (int x = 0; x < 32; ++x) {
+            bool on = ((x / 8) + (y / 8)) % 2 == 0;
+            std::uint8_t* p = &chk.rgba[(std::size_t(y) * 32 + x) * 4];
+            p[0] = on ? 255 : 0; p[1] = 0; p[2] = on ? 255 : 0; p[3] = 255;
+        }
+    }
+    placeholderTex_ = std::make_unique<TextureAsset>();
+    placeholderTex_->path = "<missing>";
+    placeholderTex_->placeholder = true;
+    upload_texture(*placeholderTex_, chk, false);
+
+    std::vector<MeshVertex> v;
+    std::vector<std::uint32_t> idx;
+    build_primitive("cube", v, idx);
+    placeholderMesh_ = std::make_unique<MeshAsset>();
+    placeholderMesh_->key = "<missing>";
+    placeholderMesh_->placeholder = true;
+    SubMesh sm = upload_submesh(v, idx, "placeholder-cube");
+    sm.texture = placeholderTex_.get();
+    placeholderMesh_->bmin = sm.bmin;
+    placeholderMesh_->bmax = sm.bmax;
+    placeholderMesh_->parts.push_back(sm);
+}
+
+Assets::~Assets() {
+    clear();
+    destroy_texture(*white_);
+    destroy_texture(*placeholderTex_);
+    destroy_mesh(*placeholderMesh_);
+}
+
+void Assets::destroy_texture(TextureAsset& t) {
+    if (t.view.id) sg_destroy_view(t.view);
+    if (t.image.id) sg_destroy_image(t.image);
+    t.view = {};
+    t.image = {};
+}
+
+void Assets::destroy_mesh(MeshAsset& m) {
+    for (auto& p : m.parts) {
+        sg_destroy_buffer(p.vb);
+        sg_destroy_buffer(p.ib);
+    }
+    m.parts.clear();
+}
+
+void Assets::clear() {
+    for (auto& [k, t] : textures_) destroy_texture(*t);
+    textures_.clear();
+    for (auto& t : anonymous_) destroy_texture(*t);
+    anonymous_.clear();
+    for (auto& [k, m] : meshes_) destroy_mesh(*m);
+    meshes_.clear();
+    failures_.clear();
+    meshSources_.clear();
+}
+
+TextureAsset* Assets::white() { return white_.get(); }
+
+void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
+    std::vector<std::vector<std::uint8_t>> chain;
+    std::vector<std::pair<int, int>> dims;
+    dims.push_back({img.width, img.height});
+    const std::uint8_t* level0 = img.rgba.data();
+    if (mips) {
+        int w = img.width, h = img.height;
+        std::vector<std::uint8_t> prev(img.rgba);
+        while ((w > 1 || h > 1) && dims.size() < 16) {
+            int nw = std::max(1, w / 2), nh = std::max(1, h / 2);
+            std::vector<std::uint8_t> next(std::size_t(nw) * nh * 4);
+            for (int y = 0; y < nh; ++y) {
+                for (int x = 0; x < nw; ++x) {
+                    int x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
+                    int y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
+                    for (int c = 0; c < 4; ++c) {
+                        int s = prev[(std::size_t(y0) * w + x0) * 4 + c] + prev[(std::size_t(y0) * w + x1) * 4 + c] +
+                                prev[(std::size_t(y1) * w + x0) * 4 + c] + prev[(std::size_t(y1) * w + x1) * 4 + c];
+                        next[(std::size_t(y) * nw + x) * 4 + c] = std::uint8_t((s + 2) / 4);
+                    }
+                }
+            }
+            chain.push_back(next);
+            dims.push_back({nw, nh});
+            prev = std::move(next);
+            w = nw;
+            h = nh;
+        }
+    }
+    sg_image_desc d{};
+    d.width = img.width;
+    d.height = img.height;
+    d.pixel_format = SG_PIXELFORMAT_RGBA8;
+    d.num_mipmaps = int(dims.size());
+    d.data.mip_levels[0] = {level0, std::size_t(img.width) * img.height * 4};
+    for (std::size_t i = 1; i < dims.size(); ++i) d.data.mip_levels[i] = {chain[i - 1].data(), chain[i - 1].size()};
+    d.label = t.path.c_str();
+    t.image = sg_make_image(&d);
+    sg_view_desc vd{};
+    vd.texture.image = t.image;
+    vd.label = t.path.c_str();
+    t.view = sg_make_view(&vd);
+    t.width = img.width;
+    t.height = img.height;
+}
+
+TextureAsset* Assets::make_texture(const std::string& name, const Image& img, bool mips) {
+    auto t = std::make_unique<TextureAsset>();
+    t->path = name;
+    upload_texture(*t, img, mips);
+    anonymous_.push_back(std::move(t));
+    return anonymous_.back().get();
+}
+
+std::string Assets::missing_hint(const std::string& path, std::string_view ext) const {
+    std::vector<std::string> candidates = fs::list("assets", true, ext);
+    std::string parent = fs::parent(path);
+    if (!parent.empty() && parent != "assets") {
+        auto local = fs::list(parent, false, ext);
+        candidates.insert(candidates.end(), local.begin(), local.end());
+    }
+    std::string best = closest_match(path, candidates);
+    std::string root = fs::project_root().generic_string();
+    std::string msg = std::format("file not found: {} (project root is {}).", path, root);
+    if (!best.empty()) msg += std::format(" Did you mean {}?", best);
+    else if (candidates.empty()) msg += std::format(" No {} files exist under assets/; put the file in <project>/assets/ and reference it as assets/<name>.", ext.empty() ? "asset" : std::string(ext));
+    else msg += " Existing files: " + did_you_mean(path, candidates, 8);
+    return msg;
+}
+
+void Assets::note_failure(const std::string& kind, const std::string& path, const std::string& message, const std::string& hint) {
+    if (failure_logged(kind, path)) return;
+    failures_.push_back({kind, path, message, hint});
+    FA_ERROR("render", "{}{}{}", message, hint.empty() ? "" : " Hint: ", hint);
+}
+
+bool Assets::failure_logged(const std::string& kind, const std::string& path) const {
+    for (const auto& f : failures_)
+        if (f.kind == kind && f.path == path) return true;
+    return false;
+}
+
+TextureAsset* Assets::load_texture(const std::string& path) {
+    auto& slot = textures_[path];
+    if (!slot) slot = std::make_unique<TextureAsset>();
+    TextureAsset& t = *slot;
+    t.path = path;
+    destroy_texture(t);
+    t.placeholder = false;
+    if (!fs::exists(path)) {
+        std::string msg = "texture " + missing_hint(path, fs::extension(path));
+        // One error per path, even across reloads.
+        note_failure("texture", path, msg, "");
+        t.placeholder = true;
+        t.image = placeholderTex_->image;  // shared handles; never destroyed through this asset
+        t.view = placeholderTex_->view;
+        t.width = placeholderTex_->width;
+        t.height = placeholderTex_->height;
+        return &t;
+    }
+    auto img = load_image(path);
+    if (!img) {
+        note_failure("texture", path, std::format("texture '{}' could not be loaded: {}", path, img.error().message), img.error().hint);
+        t.placeholder = true;
+        t.image = placeholderTex_->image;
+        t.view = placeholderTex_->view;
+        t.width = placeholderTex_->width;
+        t.height = placeholderTex_->height;
+        return &t;
+    }
+    // Successful (re)load clears an older failure record.
+    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                   [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
+                    failures_.end());
+    upload_texture(t, *img, true);
+    return &t;
+}
+
+TextureAsset* Assets::texture(const std::string& path) {
+    if (path.empty()) return white_.get();
+    std::string key = fs::normalize(path);
+    if (key.empty()) key = path;
+    auto it = textures_.find(key);
+    if (it != textures_.end()) return it->second.get();
+    return load_texture(key);
+}
+
+bool Assets::has_loaded(const std::string& path) const {
+    return textures_.count(path) || meshes_.count(path);
+}
+
+MeshAsset* Assets::load_mesh(const std::string& name) {
+    auto& slot = meshes_[name];
+    if (!slot) slot = std::make_unique<MeshAsset>();
+    MeshAsset& m = *slot;
+    destroy_mesh(m);
+    m.key = name;
+    m.placeholder = false;
+    std::vector<MeshVertex> v;
+    std::vector<std::uint32_t> idx;
+    if (build_primitive(name, v, idx)) {
+        SubMesh sm = upload_submesh(v, idx, name.c_str());
+        m.bmin = sm.bmin;
+        m.bmax = sm.bmax;
+        m.parts.push_back(sm);
+        return &m;
+    }
+    // A glTF/GLB asset path.
+    static const char* kPrimitives = "cube, sphere, plane, cylinder, capsule, cone, quad";
+    std::string ext = fs::extension(name);
+    if (ext != ".gltf" && ext != ".glb") {
+        std::vector<std::string> names = {"cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad"};
+        note_failure("mesh", name,
+                     std::format("unknown mesh '{}'. {} Or use the path of a .gltf/.glb file (primitives: {}).", name,
+                                 did_you_mean(name, names), kPrimitives),
+                     "");
+        m.placeholder = true;
+        m.parts = placeholderMesh_->parts;  // shared GPU handles
+        m.bmin = placeholderMesh_->bmin;
+        m.bmax = placeholderMesh_->bmax;
+        meshSources_.erase(name);
+        return &m;
+    }
+    meshSources_[name] = name;
+    std::string path = fs::normalize(name);
+    std::string error;
+    bool ok = false;
+    if (!fs::exists(path)) {
+        error = "mesh " + missing_hint(path, ext);
+    } else {
+        MeshLoader loader(*this);
+        MeshAsset tmp;
+        ok = loader.load(path, tmp, error);
+        if (ok) {
+            m.parts = std::move(tmp.parts);
+            m.bmin = tmp.bmin;
+            m.bmax = tmp.bmax;
+        } else {
+            error = "mesh " + error;
+        }
+    }
+    if (!ok) {
+        note_failure("mesh", name, error, "");
+        m.placeholder = true;
+        m.parts = placeholderMesh_->parts;
+        m.bmin = placeholderMesh_->bmin;
+        m.bmax = placeholderMesh_->bmax;
+    }
+    return &m;
+}
+
+MeshAsset* Assets::mesh(const std::string& name) {
+    std::string key = name.empty() ? std::string("cube") : name;
+    auto it = meshes_.find(key);
+    if (it != meshes_.end()) return it->second.get();
+    return load_mesh(key);
+}
+
+void Assets::reload(const std::string& pathIn) {
+    std::string path = fs::normalize(pathIn);
+    if (path.empty()) path = pathIn;
+    auto t = textures_.find(path);
+    if (t != textures_.end()) {
+        // Placeholder-shared handles must not be destroyed: load_texture() handles that via destroy_texture,
+        // so detach them first.
+        if (t->second->placeholder) {
+            t->second->image = {};
+            t->second->view = {};
+        }
+        load_texture(path);
+    }
+    auto m = meshes_.find(path);
+    if (m != meshes_.end()) {
+        if (m->second->placeholder) m->second->parts.clear();  // shared handles
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "mesh" && f.path == path; }),
+                        failures_.end());
+        load_mesh(path);
+    }
+    // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).
+}
+
+Json Assets::report() const {
+    Json j = Json::object();
+    Json tex = Json::array();
+    for (const auto& [k, t] : textures_) {
+        if (t->placeholder) continue;
+        tex.push_back({{"path", k}, {"width", t->width}, {"height", t->height}});
+    }
+    Json meshes = Json::array();
+    for (const auto& [k, m] : meshes_) {
+        if (m->placeholder) continue;
+        int tris = 0;
+        for (const auto& p : m->parts) tris += p.indexCount / 3;
+        meshes.push_back({{"mesh", k}, {"triangles", tris}, {"parts", m->parts.size()}});
+    }
+    Json fails = Json::array();
+    for (const auto& f : failures_) fails.push_back({{"kind", f.kind}, {"path", f.path}, {"message", f.message}, {"hint", f.hint}});
+    j["textures"] = tex;
+    j["meshes"] = meshes;
+    j["failures"] = fails;
+    return j;
+}
+
+}  // namespace fa::render

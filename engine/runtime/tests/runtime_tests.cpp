@@ -1,0 +1,543 @@
+#include <doctest.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+
+#include "fa/core/fs.h"
+#include "fa/core/image.h"
+#include "fa/core/log.h"
+#include "fa/runtime/engine.h"
+#include "fa/runtime/project.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+
+namespace {
+
+const char* kProject = R"({
+  "format": "factoria.project/1",
+  "name": "Runtime Test",
+  "id": "com.example.runtimetest",
+  "mainScene": "scenes/main.scene.json",
+  "display": { "width": 320, "height": 180, "scaleMode": "pixelPerfect" },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "input": { "actions": { "jump": ["Space", "W"], "fire": ["MouseLeft"] } }
+})";
+
+const char* kScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "name": "Camera", "components": { "Camera": { "clearColor": "#203040" } } },
+    { "id": "ground", "name": "Ground", "tags": ["solid"],
+      "components": { "Transform": { "position": [0, -70, 0] },
+                      "Shape2D": { "size": [300, 20], "color": "#40a040" },
+                      "RigidBody2D": { "type": "static" },
+                      "Collider2D": { "size": [300, 20] } } },
+    { "id": "ball", "name": "Ball", "tags": ["dynamic"],
+      "components": { "Transform": { "position": [0, 60, 0] },
+                      "Shape2D": { "shape": "circle", "size": [20, 20], "color": "#e0a020" },
+                      "RigidBody2D": {},
+                      "Collider2D": { "shape": "circle", "radius": 10, "restitution": 0.2 } } }
+  ]
+})";
+
+struct TempProject {
+    stdfs::path dir;
+    explicit TempProject(const std::string& name, const char* project = kProject, const char* scene = kScene) {
+        dir = stdfs::temp_directory_path() / ("fa_runtime_test_" + name);
+        stdfs::remove_all(dir);
+        stdfs::create_directories(dir / "scenes");
+        write("factoria.json", project);
+        if (scene) write("scenes/main.scene.json", scene);
+    }
+    ~TempProject() {
+        std::error_code ec;
+        stdfs::remove_all(dir, ec);
+    }
+    void write(const std::string& rel, const std::string& text) const {
+        stdfs::create_directories((dir / rel).parent_path());
+        std::ofstream(dir / rel, std::ios::binary) << text;
+    }
+    std::string path() const { return dir.generic_string(); }
+};
+
+EngineConfig headless_cfg(const TempProject& p) {
+    EngineConfig c;
+    c.projectDir = p.path();
+    c.headless = true;
+    c.hotReload = false;
+    return c;
+}
+
+double entity_y(const Json& state, const std::string& id) {
+    for (const Json& e : state["entities"])
+        if (e["id"] == id) return e["components"]["Transform"]["position"][1].get<double>();
+    return -1e9;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------- project --
+TEST_CASE("project: defaults, scale modes, round trip") {
+    TempProject p("proj_defaults", R"({"name":"Min"})", nullptr);
+    auto r = load_project(p.path());
+    REQUIRE(r.ok());
+    CHECK(r->name == "Min");
+    CHECK(r->width == 1280);
+    CHECK(r->scaleMode == ScaleMode::Fit);
+    CHECK(r->fixedHz == 60.0);
+
+    for (auto [text, mode] : {std::pair{"fit", ScaleMode::Fit}, {"STRETCH", ScaleMode::Stretch}, {"Expand", ScaleMode::Expand},
+                              {"pixel-perfect", ScaleMode::PixelPerfect}, {"pixelPerfect", ScaleMode::PixelPerfect}}) {
+        ScaleMode m;
+        CHECK(parse_scale_mode(text, m));
+        CHECK(m == mode);
+    }
+    ScaleMode m;
+    CHECK_FALSE(parse_scale_mode("zoom", m));
+    CHECK(std::string(scale_mode_name(ScaleMode::PixelPerfect)) == "pixel-perfect");
+
+    TempProject q("proj_roundtrip");
+    auto s = load_project(q.path());
+    REQUIRE(s.ok());
+    CHECK(s->scaleMode == ScaleMode::PixelPerfect);
+    CHECK(s->width == 320);
+    CHECK(s->inputActions.contains("jump"));
+    s->raw["custom"] = 42;
+    s->name = "Renamed";
+    REQUIRE(save_project(q.path(), *s).ok());
+    auto s2 = load_project(q.path());
+    REQUIRE(s2.ok());
+    CHECK(s2->name == "Renamed");
+    CHECK(s2->raw["custom"] == 42);
+    CHECK(s2->to_json()["display"]["scaleMode"] == "pixel-perfect");
+}
+
+TEST_CASE("project: errors name the field and give a hint") {
+    {
+        TempProject p("proj_err1", R"({"name":"x","display":{"width":"wide"}})", nullptr);
+        auto r = load_project(p.path());
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/display/width") != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    {
+        TempProject p("proj_err2", R"({"name":"x","display":{"scaleMode":"zoom"}})", nullptr);
+        auto r = load_project(p.path());
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("scaleMode") != std::string::npos);
+        CHECK(r.error().hint.find("pixel-perfect") != std::string::npos);
+    }
+    {
+        TempProject p("proj_err3", R"({"name":"x","input":{"actions":{"jump":"Space"}}})", nullptr);
+        auto r = load_project(p.path());
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/input/actions/jump") != std::string::npos);
+    }
+    {
+        TempProject p("proj_err4", "{ not json", nullptr);
+        CHECK_FALSE(load_project(p.path()).ok());
+    }
+    CHECK_FALSE(load_project((stdfs::temp_directory_path() / "fa_does_not_exist_xyz").generic_string()).ok());
+}
+
+TEST_CASE("project: find_project_root walks up; schema matches schemas/project.schema.json") {
+    TempProject p("proj_root");
+    stdfs::create_directories(p.dir / "a" / "b");
+    CHECK(stdfs::path(find_project_root((p.dir / "a" / "b").generic_string())) == p.dir);
+    CHECK(find_project_root(stdfs::temp_directory_path().root_path().generic_string()).empty());
+#ifdef FA_REPO_ROOT
+    auto onDisk = load_json_file(std::string(FA_REPO_ROOT) + "/schemas/project.schema.json");
+    REQUIRE(onDisk.ok());
+    CHECK(onDisk.value() == project_json_schema());
+#endif
+}
+
+// ----------------------------------------------------------------- engine --
+TEST_CASE("engine: headless init, physics falls and rests on the ground") {
+    TempProject p("engine_basic");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    REQUIRE(e.renderer() != nullptr);
+    CHECK(e.world().entity_count() == 3);
+    CHECK(e.frame_index() == 0);
+    double y0 = entity_y(e.state(), "ball");
+    e.step(120);
+    CHECK(e.frame_index() == 120);
+    Json s = e.state();
+    double y1 = entity_y(s, "ball");
+    CHECK(y1 < y0 - 50);
+    CHECK(y1 > -70);  // resting above the ground, not tunnelled through
+    CHECK(s["time"].get<double>() == doctest::Approx(2.0).epsilon(0.01));
+    CHECK(s["scene"] == "scenes/main.scene.json");
+    CHECK(s["renderStats"].is_object());
+    CHECK(s["scriptErrors"].empty());
+    e.shutdown();
+}
+
+TEST_CASE("engine: step is deterministic across engines with the same seed") {
+    TempProject p("engine_determinism");
+    Json a, b;
+    for (Json* out : {&a, &b}) {
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+        e.step(90);
+        *out = e.state();
+        e.shutdown();
+    }
+    CHECK(dump_json(a) == dump_json(b));
+}
+
+TEST_CASE("engine: input actions, edges and replay-style injection") {
+    TempProject p("engine_input");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto r = e.commands().call("game.input", Json::parse(R"({"press":["jump"]})"));
+    REQUIRE(r.ok);
+    CHECK(e.input().action_down("jump"));
+    CHECK(e.input().action_pressed("jump"));  // edge survives until the first frame ends
+    e.step(1);
+    CHECK(e.input().action_down("jump"));
+    CHECK_FALSE(e.input().action_pressed("jump"));  // begin_frame at the END of the frame cleared the edge
+    r = e.commands().call("game.step", Json::parse(R"({"frames":2,"release":["jump"]})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(e.input().action_down("jump"));
+    auto bad = e.commands().call("game.input", Json::parse(R"({"press":["jumpp"]})"));
+    CHECK_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("jump") != std::string::npos);
+    e.shutdown();
+}
+
+TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)") {
+    TempProject p("engine_commands");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+
+    for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
+                             "scene.destroy", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
+                             "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
+                             "game.pause", "game.resume", "script.eval", "script.errors", "project.test", "physics.raycast",
+                             "api.components", "api.commands", "api.scripting", "assets.list"}) {
+        INFO(name);
+        const CommandInfo* info = c.info(name);
+        REQUIRE(info != nullptr);
+        CHECK_FALSE(info->summary.empty());
+        CHECK(info->description.find("Example") != std::string::npos);
+        CHECK_FALSE(info->category.empty());
+    }
+
+    auto r = c.call("scene.list_entities", Json::parse(R"({"tag":"dynamic"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["total"] == 1);
+    CHECK(r.result["entities"][0]["id"] == "ball");
+
+    r = c.call("scene.spawn", Json::parse(R"({"name":"Box","components":{"Shape2D":{"size":[40,40],"color":"red"}},"position":[50,10]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    std::string id = r.result["id"];
+    r = c.call("scene.get_entity", Json::parse(R"({"id":")" + id + R"("})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["components"]["Transform"]["position"][0] == 50);
+    CHECK(r.result["components"]["Shape2D"].contains("thickness"));  // defaults included
+
+    r = c.call("scene.set_component", Json::parse(R"({"id":")" + id + R"(","component":"transform","fields":{"position":[7,8,0]}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["value"]["position"][0] == 7);
+    r = c.call("scene.set_component", Json::parse(R"({"id":")" + id + R"(","component":"Sprit","fields":{}})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("Sprite") != std::string::npos);
+    r = c.call("scene.set_component", Json::parse(R"({"id":")" + id + R"(","component":"Shape2D","fields":{"sizee":[1,1]}})"));
+    CHECK_FALSE(r.ok);
+
+    r = c.call("scene.get_entity", Json::parse(R"({"id":"bal"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("ball") != std::string::npos);  // did you mean
+    CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+
+    r = c.call("scene.remove_component", Json::parse(R"({"id":")" + id + R"(","component":"Shape2D"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["removed"] == true);
+
+    r = c.call("scene.destroy", Json::parse(R"({"id":")" + id + R"("})"));
+    REQUIRE(r.ok);
+    CHECK_FALSE(c.call("scene.get_entity", Json::parse(R"({"id":")" + id + R"("})")).ok);
+
+    r = c.call("game.step", Json::parse(R"({"frames":30})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["frame"] == 30);
+
+    // state filters
+    r = c.call("game.state", Json::parse(R"({"entities":["ball","nope"],"components":["Transform"]})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["entities"].size() == 1);
+    CHECK(r.result["entities"][0]["components"].size() == 1);
+    CHECK(r.result["missingEntities"][0] == "nope");
+    r = c.call("game.state", Json::parse(R"({"maxEntities":1})"));
+    CHECK(r.result["entities"].size() == 1);
+    CHECK(r.result["truncated"] == true);
+
+    r = c.call("physics.raycast", Json::parse(R"({"from":[0,100],"to":[0,-100]})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["hit"] == true);
+
+    // screenshot
+    std::string shot = (p.dir / "shots" / "a.png").generic_string();
+    r = c.call("game.screenshot", Json{{"path", shot}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["$image"]["mimeType"] == "image/png");
+    CHECK(r.result["$image"]["path"] == shot);
+    CHECK(r.result["width"] == 320);
+    auto img = load_image(shot);
+    REQUIRE(img.ok());
+    CHECK(img->width == 320);
+    CHECK(img->height == 180);
+    // The clear color (#203040) shows in the corner.
+    Color px = img->pixel(2, 2);
+    CHECK(px.b > px.r);
+    r = c.call("game.screenshot", Json::object());  // default path under .factoria/screenshots
+    REQUIRE(r.ok);
+    CHECK(stdfs::exists(r.result["path"].get<std::string>()));
+
+    // scene save / reload / load
+    r = c.call("scene.save", Json{{"path", "scenes/saved.scene.json"}});
+    REQUIRE(r.ok);
+    CHECK(stdfs::exists(p.dir / "scenes/saved.scene.json"));
+    r = c.call("scene.reload", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["ok"] == true);
+    CHECK(entity_y(e.state(), "ball") == doctest::Approx(60.0));
+    r = c.call("scene.load", Json{{"path", "scenes/mian.scene.json"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("main.scene.json") != std::string::npos);
+
+    CHECK(c.call("assets.list", Json::object()).ok);
+    CHECK(c.call("api.components", Json::object()).ok);
+    CHECK(c.call("game.logs", Json{{"minLevel", "info"}}).ok);
+    CHECK(c.call("game.pause", Json::object()).ok);
+    CHECK(e.paused());
+    CHECK(c.call("game.resume", Json::object()).ok);
+    CHECK_FALSE(e.paused());
+    e.shutdown();
+}
+
+TEST_CASE("engine: scene load errors are surfaced, init still succeeds") {
+    TempProject p("engine_badscene", kProject,
+                  R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"Sprit":{}}},{"id":"b"}]})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    Json s = e.state();
+    REQUIRE(s["sceneIssues"].size() >= 1);
+    CHECK(s["sceneIssues"][0].get<std::string>().find("Sprit") != std::string::npos);
+    CHECK(e.world().entity_count() >= 1);
+    auto r = e.commands().call("script.errors", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["sceneIssues"].size() >= 1);
+    e.shutdown();
+
+    // Missing start scene.
+    TempProject q("engine_noscene", kProject, nullptr);
+    Engine e2;
+    REQUIRE_MESSAGE(e2.init(headless_cfg(q), nullptr, &err), err);
+    CHECK(e2.state()["sceneIssues"].size() == 1);
+    e2.shutdown();
+
+    // Missing project file: init fails with a teaching error.
+    EngineConfig c;
+    c.projectDir = (stdfs::temp_directory_path() / "fa_no_such_project_dir").generic_string();
+    c.headless = true;
+    Engine e3;
+    CHECK_FALSE(e3.init(c, nullptr, &err));
+    CHECK(err.find("factoria.json") != std::string::npos);
+}
+
+TEST_CASE("engine: graphics=false runs pure logic and reports screenshot unavailability") {
+    TempProject p("engine_nogfx");
+    EngineConfig c = headless_cfg(p);
+    c.graphics = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    CHECK(e.renderer() == nullptr);
+    e.step(120);
+    CHECK(entity_y(e.state(), "ball") < 0);
+    auto r = e.commands().call("game.screenshot", Json::object());
+    REQUIRE_FALSE(r.ok);
+    CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+    CHECK(e.state()["renderStats"].is_null());
+    e.shutdown();
+}
+
+TEST_CASE("run_headless: replay, screenshots, state dump, report, exit codes") {
+    TempProject p("run_headless");
+    p.write("replay.json", R"({"frames":{"1":{"press":["jump"],"mouse":{"position":[10,20],"left":true}},
+                                          "3":{"keys":{"A":true}},"5":{"release":["jump"]}, "6":{"press":["bogus"]}}})");
+    EngineConfig c = headless_cfg(p);
+    HeadlessRunOptions o;
+    o.frames = 4;
+    o.inputReplayPath = (p.dir / "replay.json").generic_string();
+    o.screenshotFrames = {0, 3};
+    o.screenshotPattern = (p.dir / "out" / "f_{frame}.png").generic_string();
+    o.stateOutPath = (p.dir / "out" / "state.json").generic_string();
+    Json report;
+    int rc = run_headless(c, o, &report);
+    CHECK(rc == 0);
+    CHECK(report["frames"] == 4);
+    CHECK(report["exitCode"] == 0);
+    REQUIRE(report["screenshots"].size() == 2);
+    CHECK(stdfs::exists(p.dir / "out" / "f_0.png"));
+    CHECK(stdfs::exists(p.dir / "out" / "f_3.png"));
+    auto st = load_json_file(o.stateOutPath);
+    REQUIRE(st.ok());
+    CHECK(st.value()["frame"] == 4);
+    const Json& in = st.value()["input"];
+    auto has = [](const Json& arr, const char* n) { return std::find(arr.begin(), arr.end(), Json(n)) != arr.end(); };
+    CHECK(has(in["actionsDown"], "jump"));  // pressed at frame 1, still held (release is at frame 5)
+    CHECK(has(in["actionsDown"], "fire"));  // MouseLeft is bound to "fire"
+    CHECK(in["keysDown"][0] == "A");
+    CHECK(in["mouse"]["position"][0] == 10);
+
+    // The replay is also valid beyond the run length; unknown names are reported as problems.
+    o.frames = 8;
+    o.screenshotFrames.clear();
+    rc = run_headless(c, o, &report);
+    CHECK(rc == 0);
+    REQUIRE(report.contains("problems"));
+    CHECK(report["problems"][0].get<std::string>().find("bogus") != std::string::npos);
+
+    // Misspelled fields, keys and action names warn with did-you-mean instead of being silently ignored.
+    p.write("typo.json", R"({"frames":{"0":{"pres":["jump"]},"1":{"press":["jmup"],"keys":{"Spacee":true},"mouse":{"lft":true}},
+                                          "2":{"release":"jump"}}})");
+    o.frames = 4;
+    o.inputReplayPath = (p.dir / "typo.json").generic_string();
+    rc = run_headless(c, o, &report);
+    CHECK(rc == 0);
+    REQUIRE(report.contains("problems"));
+    std::string all;
+    for (const auto& pr : report["problems"]) all += pr.get<std::string>() + "\n";
+    CHECK(all.find("replay frame 0: unknown field 'pres'") != std::string::npos);
+    CHECK(all.find("Did you mean 'press'") != std::string::npos);
+    CHECK(all.find("replay frame 1: Unknown input 'jmup'") != std::string::npos);
+    CHECK(all.find("Did you mean 'jump'") != std::string::npos);
+    CHECK(all.find("unknown key 'Spacee'") != std::string::npos);
+    CHECK(all.find("unknown mouse field 'lft'") != std::string::npos);
+    CHECK(all.find("replay frame 2: 'release' must be an array") != std::string::npos);
+
+    // Bad scene -> non-zero exit unless failOnScriptError is off.
+    TempProject q("run_headless_bad", kProject, R"({"entities":[{"components":{"Nope":{}}}]})");
+    c = headless_cfg(q);
+    HeadlessRunOptions o2;
+    o2.frames = 2;
+    CHECK(run_headless(c, o2, &report) == 1);
+    CHECK(report["sceneErrors"].size() >= 1);
+    o2.failOnScriptError = false;
+    CHECK(run_headless(c, o2, &report) == 0);
+
+    // Init failure.
+    c.projectDir = (stdfs::temp_directory_path() / "fa_no_such_project_dir").generic_string();
+    CHECK(run_headless(c, o2, &report) == 2);
+    CHECK(report.contains("error"));
+}
+
+TEST_CASE("make_app_desc: title and size come from the project") {
+    TempProject p("app_desc");
+    EngineConfig c;
+    c.projectDir = p.path();
+    AppDesc d = make_app_desc(c);
+    CHECK(d.title == "Runtime Test");
+    CHECK(d.width == 320);
+    CHECK(d.height == 180);
+    CHECK(d.input != nullptr);
+    CHECK(static_cast<bool>(d.init));
+    CHECK(static_cast<bool>(d.frame));
+    CHECK(static_cast<bool>(d.event));
+}
+
+// ------------------------------------------------------- render on demand --
+namespace {
+const char* kSceneWithEmitter = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "name": "Camera", "components": { "Camera": { "clearColor": "#203040" } } },
+    { "id": "ball", "name": "Ball", "tags": ["dynamic"],
+      "components": { "Transform": { "position": [0, 60, 0] },
+                      "Shape2D": { "shape": "circle", "size": [20, 20], "color": "#e0a020" },
+                      "RigidBody2D": {}, "Collider2D": { "shape": "circle", "radius": 10 } } },
+    { "id": "sparks", "components": { "Transform": { "position": [40, 0, 0] },
+                      "ParticleEmitter": { "emitting": true, "rate": 40 } } }
+  ]
+})";
+}  // namespace
+
+TEST_CASE("engine: a screenshot at frame N is pixel-identical in Always and OnDemand render modes") {
+    TempProject p("render_modes", kProject, kSceneWithEmitter);
+    Image shots[2];
+    int i = 0;
+    for (RenderMode mode : {RenderMode::Always, RenderMode::OnDemand}) {
+        EngineConfig cfg = headless_cfg(p);
+        cfg.renderMode = mode;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+        REQUIRE(e.renderer() != nullptr);
+        e.step(45);
+        CHECK(e.render_pending() == (mode == RenderMode::OnDemand));
+        std::string path = (p.dir / ("shot" + std::to_string(i) + ".png")).generic_string();
+        REQUIRE_MESSAGE(e.screenshot(path, &err), err);
+        CHECK_FALSE(e.render_pending());
+        auto img = load_image(path);
+        REQUIRE(img.ok());
+        shots[i] = img.value();
+        e.shutdown();
+        ++i;
+    }
+    REQUIRE(shots[0].width == shots[1].width);
+    REQUIRE(shots[0].height == shots[1].height);
+    CHECK(shots[0].rgba == shots[1].rgba);
+}
+
+TEST_CASE("engine: OnDemand simulates every frame but does not draw until asked") {
+    TempProject p("render_ondemand");
+    EngineConfig cfg = headless_cfg(p);
+    cfg.renderMode = RenderMode::OnDemand;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    double y0 = entity_y(e.state(), "ball");
+    e.step(30);
+    CHECK(entity_y(e.state(), "ball") < y0);  // physics ran
+    CHECK(e.render_pending());
+    CHECK(e.state()["renderedFrame"].get<int>() == 0);
+    e.render_now();
+    CHECK_FALSE(e.render_pending());
+    CHECK(e.state()["renderedFrame"].get<int>() == 29);
+}
+
+TEST_CASE("engine: load_scene_json replaces the world but keeps the current scene path") {
+    TempProject p("load_scene_json");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    REQUIRE(e.world().entity_count() == 3);
+    Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"only","components":{"Transform":{"position":[1,2,0]}}}]})");
+    REQUIRE_MESSAGE(e.load_scene_json(scene, "snapshot", &err), err);
+    CHECK(e.world().entity_count() == 1);
+    CHECK(e.world().scene_path() == "scenes/main.scene.json");
+    CHECK(e.state()["scene"] == "scenes/main.scene.json");
+    CHECK(e.load_scene_json_now(scene, "snapshot").empty());
+    // Errors are reported, the path still does not change.
+    Json bad = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"x","components":{"Nope":{}}}]})");
+    CHECK_FALSE(e.load_scene_json(bad, "bad-snapshot", &err));
+    CHECK(err.find("Nope") != std::string::npos);
+    CHECK(e.state()["scene"] == "scenes/main.scene.json");
+    // scene.reload still reloads the file on disk.
+    auto r = e.commands().call("scene.reload", Json::object());
+    REQUIRE(r.ok);
+    CHECK(e.world().entity_count() == 3);
+}
