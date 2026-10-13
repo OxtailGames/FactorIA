@@ -3,6 +3,17 @@
 fa_add_module(platform
     DEPS fa_core fa_ext_sokol)
 
+# sokol is third-party code: silence warnings in its implementation TU.
+if(MSVC)
+    set_source_files_properties(src/sokol_impl.c PROPERTIES COMPILE_OPTIONS "/w")
+else()
+    set_source_files_properties(src/sokol_impl.c PROPERTIES COMPILE_OPTIONS "-w")
+endif()
+if(APPLE)
+    set_source_files_properties(src/sokol_impl_apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-w")
+    set_source_files_properties(src/headless_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+endif()
+
 if(FA_PLATFORM STREQUAL "linux")
     find_package(X11 REQUIRED)
     # GL for the window (GLX via sokol_app), EGL for headless rendering.

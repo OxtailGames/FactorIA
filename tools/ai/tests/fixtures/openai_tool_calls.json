@@ -1,0 +1,15 @@
+{
+  "id": "chatcmpl-1", "object": "chat.completion", "model": "my-model",
+  "choices": [{
+    "index": 0,
+    "finish_reason": "tool_calls",
+    "message": {
+      "role": "assistant", "content": null, "refusal": null, "annotations": [],
+      "tool_calls": [
+        {"id": "call_1", "type": "function", "function": {"name": "scene_list_entities", "arguments": "{\"limit\": 3}"}},
+        {"id": "call_2", "type": "function", "function": {"name": "project_validate", "arguments": "{}"}}
+      ]
+    }
+  }],
+  "usage": {"prompt_tokens": 500, "completion_tokens": 40, "prompt_tokens_details": {"cached_tokens": 100}}
+}

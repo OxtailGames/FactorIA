@@ -1,0 +1,20 @@
+data: {"id":"c1","model":"my-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"content":"Checking "},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"content":"now."},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"scene_list_entities","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"limit\":"}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" 3}"}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"project_validate","arguments":"{}"}}]},"finish_reason":null}]}
+
+data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"c1","choices":[],"usage":{"prompt_tokens":500,"completion_tokens":40}}
+
+data: [DONE]
+

@@ -1,0 +1,194 @@
+#include <doctest.h>
+
+#include <filesystem>
+
+#include "fa/core/json_schema.h"
+#include "fa/tooling/docs.h"
+#include "fa/tooling/feedback.h"
+#include "fa/tooling/mcp_config.h"
+#include "fa/tooling/scaffold.h"
+#include "fa/tooling/validate.h"
+#include "test_helpers.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+
+TEST_CASE("scaffold: templates are listed with descriptions") {
+    auto t = list_templates();
+    std::vector<std::string> names;
+    for (auto& x : t) {
+        names.push_back(x.name);
+        CHECK_FALSE(x.description.empty());
+    }
+    CHECK(std::find(names.begin(), names.end(), "2d-empty") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "2d-platformer") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "3d-empty") != names.end());
+    CHECK(std::find(names.begin(), names.end(), "common") == names.end());
+}
+
+TEST_CASE("scaffold: every template produces a valid project") {
+    for (const char* tpl : {"2d-empty", "2d-platformer", "3d-empty"}) {
+        CAPTURE(tpl);
+        testing::TempDir tmp;
+        std::string dir = tmp.sub("My \"Cool\" Game");
+        ScaffoldOptions opt;
+        opt.name = "My \"Cool\" Game";
+        auto r = create_project(dir, tpl, opt);
+        if (!r.ok()) MESSAGE(r.error().to_string());
+        REQUIRE(r.ok());
+
+        for (const char* f : {"factoria.json", "ENGINE_FEEDBACK.json", "AGENTS.md", "CLAUDE.md", ".gitignore", "jsconfig.json",
+                              ".mcp.json", "types/factoria.d.ts", "README.md", "scenes/main.scene.json"})
+            CHECK_MESSAGE(stdfs::exists(stdfs::path(dir) / f), f);
+        CHECK(testing::read_all(stdfs::path(dir) / "AGENTS.md") == testing::read_all(stdfs::path(dir) / "CLAUDE.md"));
+        CHECK(testing::read_all(stdfs::path(dir) / ".gitignore").find(".factoria/") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "template.json"));
+
+        // No unreplaced placeholders anywhere; all JSON parses.
+        for (auto& e : stdfs::recursive_directory_iterator(dir)) {
+            if (!e.is_regular_file()) continue;
+            std::string text = testing::read_all(e.path());
+            CHECK_MESSAGE(text.find("{{") == std::string::npos, e.path().string());
+            if (e.path().extension() == ".json") {
+                auto j = parse_json(text, e.path().string());
+                CHECK_MESSAGE(j.ok(), e.path().string());
+            }
+        }
+        auto project = load_json_file(dir + "/factoria.json");
+        REQUIRE(project.ok());
+        CHECK((*project)["name"] == "My \"Cool\" Game");
+        CHECK((*project)["format"] == "factoria.project/1");
+        auto pschema = load_json_file(std::string(FA_REPO_ROOT) + "/schemas/project.schema.json");
+        REQUIRE(pschema.ok());
+        auto perrs = validate_json(*pschema, *project);
+        for (auto& e : perrs) MESSAGE(e.to_string());
+        CHECK(perrs.empty());
+
+        auto fb = load_feedback(dir + "/ENGINE_FEEDBACK.json");
+        REQUIRE(fb.ok());
+        CHECK((*fb)["entries"].empty());
+        CHECK(validate_feedback(*fb).empty());
+
+        auto mcp = load_json_file(dir + "/.mcp.json");
+        REQUIRE(mcp.ok());
+        CHECK((*mcp)["mcpServers"]["factoria"]["command"] == "factoria");
+        CHECK((*mcp)["mcpServers"]["factoria"]["args"] == Json::array({"mcp", "--project", "."}));
+
+        CHECK(stdfs::exists(stdfs::path(dir) / "tests"));
+        CHECK(stdfs::exists(stdfs::path(dir) / "tools"));
+        CHECK(stdfs::exists(stdfs::path(dir) / "scripts"));
+    }
+}
+
+TEST_CASE("scaffold: AGENTS.md is a crisp guide") {
+    std::string guide = render_agents_guide("Demo");
+    CHECK(guide.find("Demo") != std::string::npos);
+    CHECK(guide.find("feedback") != std::string::npos);
+    CHECK(guide.find("factoria validate") != std::string::npos);
+    CHECK(std::count(guide.begin(), guide.end(), '\n') < 200);
+}
+
+TEST_CASE("scaffold: refuses non-empty dir unless forced, unknown template teaches") {
+    testing::TempDir tmp;
+    testing::write_all(tmp.path / "existing.txt", "x");
+    auto r = create_project(tmp.str(), "2d-empty");
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("not empty") != std::string::npos);
+    ScaffoldOptions forced;
+    forced.force = true;
+    CHECK(create_project(tmp.str(), "2d-empty", forced).ok());
+    CHECK(stdfs::exists(tmp.path / "existing.txt"));
+
+    testing::TempDir tmp2;
+    auto bad = create_project(tmp2.sub("x"), "2d-platfromer");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("2d-platformer") != std::string::npos);
+    ScaffoldOptions badId;
+    badId.id = "not an id";
+    CHECK_FALSE(create_project(tmp2.sub("y"), "2d-empty", badId).ok());
+}
+
+TEST_CASE("scaffold: a fresh project passes structural validation") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-platformer").ok());
+    ValidateOptions opt;
+    opt.checkScenes = false;  // scene loading is covered when the scene module is linkable
+    auto report = validate_project(tmp.sub("game"), opt);
+    for (auto& e : report.errors) MESSAGE(e.to_string());
+    CHECK(report.ok);
+    CHECK(report.scriptsChecked >= 3);
+}
+
+TEST_CASE("scaffold: a fresh project's scenes load") {
+    for (const char* tpl : {"2d-empty", "2d-platformer", "3d-empty"}) {
+        CAPTURE(tpl);
+        testing::TempDir tmp;
+        REQUIRE(create_project(tmp.sub("game"), tpl).ok());
+        auto report = validate_project(tmp.sub("game"));
+        for (auto& e : report.errors) MESSAGE(e.to_string());
+        CHECK(report.ok);
+        CHECK(report.scenesChecked >= 1);
+    }
+}
+
+TEST_CASE("validate: reports missing feedback file, bad scene content and assets") {
+    testing::TempDir tmp;
+    REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
+    stdfs::remove(tmp.path / "game/ENGINE_FEEDBACK.json");
+    auto r = validate_project(tmp.sub("game"));
+    REQUIRE_FALSE(r.ok);
+    bool found = false;
+    for (auto& e : r.errors) found = found || (e.file == "ENGINE_FEEDBACK.json" && e.hint.find("factoria feedback init") != std::string::npos);
+    CHECK(found);
+
+    // Bad input binding and missing asset
+    auto p = load_json_file(tmp.sub("game/factoria.json"));
+    (*p)["input"]["actions"]["jump"] = Json::array({"Spacee"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+    auto scene = load_json_file(tmp.sub("game/scenes/main.scene.json"));
+    (*scene)["entities"][1]["components"]["Sprite"] = Json::object({{"texture", "assets/missing.png"}});
+    REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
+    auto r2 = validate_project(tmp.sub("game"));
+    bool binding = false, asset = false;
+    for (auto& e : r2.errors) {
+        binding = binding || (e.file == "factoria.json" && e.pointer.find("/input/actions/jump/0") == 0 && e.hint.find("Space") != std::string::npos);
+        asset = asset || (e.file == "scenes/main.scene.json" && e.message.find("assets/missing.png") != std::string::npos);
+    }
+    CHECK(binding);
+    CHECK(asset);
+
+    // Script hook is invoked.
+    ValidateOptions opt;
+    int calls = 0;
+    opt.scriptCheck = [&](const std::string&, const std::string& path) {
+        ++calls;
+        return std::vector<ValidationIssue>{{path, "", "syntax error", "fix it"}};
+    };
+    auto r3 = validate_project(tmp.sub("game"), opt);
+    CHECK(calls >= 1);
+    CHECK(r3.errors.size() > r2.errors.size());
+}
+
+TEST_CASE("mcp config helpers") {
+    McpClientOptions o;
+    o.projectDir = "/games/space";
+    CHECK(claude_code_mcp_config(o)["mcpServers"]["factoria"]["args"][2] == "/games/space");
+    std::string toml = codex_mcp_toml(o);
+    CHECK(toml.find("[mcp_servers.factoria]") != std::string::npos);
+    CHECK(toml.find("args = [\"mcp\", \"--project\", \"/games/space\"]") != std::string::npos);
+
+    testing::TempDir tmp;
+    testing::write_all(tmp.path / "config.toml", "model = \"x\"\n\n[mcp_servers.factoria]\ncommand = \"old\"\n\n[other]\na = 1\n");
+    REQUIRE(write_codex_mcp_config(tmp.sub("config.toml"), o).ok());
+    std::string out = testing::read_all(tmp.path / "config.toml");
+    CHECK(out.find("command = \"old\"") == std::string::npos);
+    CHECK(out.find("[other]") != std::string::npos);
+    CHECK(out.find("model = \"x\"") != std::string::npos);
+    CHECK(out.find("/games/space") != std::string::npos);
+
+    testing::write_all(tmp.path / ".mcp.json", R"({"mcpServers":{"other":{"command":"x"}}})");
+    REQUIRE(write_claude_code_mcp_config(tmp.sub(".mcp.json"), o).ok());
+    auto j = load_json_file(tmp.sub(".mcp.json"));
+    CHECK((*j)["mcpServers"].contains("other"));
+    CHECK((*j)["mcpServers"].contains("factoria"));
+}

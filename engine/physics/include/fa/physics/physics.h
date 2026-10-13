@@ -12,6 +12,29 @@
 //     5. appends CollisionEvents (begin/end, triggers) to world.events().
 // 2D units: world units (pixels) are converted with pixelsPerMeter internally,
 // so gameplay never sees meters.
+//
+// Conventions
+//   * Bodies use WORLD transforms (parents included); Transform.scale (x,y) scales colliders. Transform
+//     changes made by gameplay since the last step teleport the body (also for static colliders).
+//     Inactive entities (active_in_hierarchy == false) have their body disabled.
+//   * Collider2D.layer is the category bit (1 << layer), mask the accepted categories (-1 = all). Triggers
+//     (isTrigger) are sensors: they never collide, and are invisible to raycasts; overlap_* queries DO report
+//     them. Sensors only detect non-sensor shapes (two triggers never report each other).
+//   * Events: contact begin/end (trigger=false, impulse = approach speed in world units/s) and sensor
+//     begin/end (trigger=true; a = the trigger, b = the visitor). Tilemap tiles do not generate trigger events.
+//   * TILEMAP: Tilemap.solidTiles => static boxes (horizontal runs per row merged, equal consecutive rows
+//     merged too). The Tilemap entity's world position is the map's TOP-LEFT corner, +Y up, row 0 = top row:
+//     tile (col,row) covers x in [px + col*tw, px + (col+1)*tw], y in [py - (row+1)*th, py - row*th]
+//     (tw,th = tileSize * world scale). The renderer must draw tilemaps with the same convention.
+//   * apply_impulse/apply_force take world units (impulse / ppm is passed to Box2D); mass comes from
+//     collider area (meters^2) * density.
+//   * is_grounded2d: any touching contact whose normal points up (> 0.7) with a gap <= tolerance (pixels).
+//   * 3D: spheres + axis-aligned boxes only. Transform.rotation is IGNORED (never read or written); sizes are
+//     scaled by world scale. Semi-implicit Euler with subSteps sub-steps, positional correction, restitution
+//     (ignored below 0.5 m/s) and Coulomb friction; no continuous collision (very fast bodies can tunnel).
+//     Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a Collider3D
+//     alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger overlaps.
+//     Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
 #pragma once
 
 #include <memory>

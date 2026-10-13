@@ -57,8 +57,11 @@ struct Touch {
 
 class Input {
 public:
-    // Frame lifecycle: the engine calls begin_frame() before processing the
-    // frame's events; pressed/released edges are valid for one frame.
+    // Frame lifecycle: pressed/released edges and per-frame deltas (mouse delta,
+    // wheel, typed text) accumulate from the event feed and stay valid until the
+    // next begin_frame(). Call it ONCE PER FRAME AFTER the game has consumed the
+    // input (end of the frame), so events arriving before the next frame's
+    // update are not wiped. fa::run_app() does NOT call it for you.
     void begin_frame();
 
     // -------- event feed (platform layer, tests, injection)
@@ -100,8 +103,10 @@ public:
     // Normalized 2D vector from four actions (left, right, down, up); +Y up.
     Vec2 vector(std::string_view left, std::string_view right, std::string_view down, std::string_view up) const;
 
-    // Virtual action state (tests/AI): forces the action down/up regardless of
-    // bindings until set back to false. Produces pressed/released edges.
+    // Virtual action state (tests/AI): down=true forces the action down (in
+    // addition to real bindings) until set back to false, which releases it
+    // (the real bindings apply again). Produces pressed/released edges; a
+    // press+release between two begin_frame() calls still yields both edges.
     void set_action_override(std::string_view action, bool down);
     void clear_action_overrides();
 
@@ -119,15 +124,23 @@ private:
 
     std::array<bool, size_t(Key::Count)> keys_{};
     std::array<bool, size_t(Key::Count)> prevKeys_{};
+    std::array<bool, size_t(Key::Count)> keyPressedEdge_{};   // went down at least once since begin_frame
+    std::array<bool, size_t(Key::Count)> keyReleasedEdge_{};  // went up at least once since begin_frame
     std::array<bool, size_t(MouseButton::Count)> mouse_buttons_{};
     std::array<bool, size_t(MouseButton::Count)> prevMouse_{};
+    std::array<bool, size_t(MouseButton::Count)> mousePressedEdge_{};
+    std::array<bool, size_t(MouseButton::Count)> mouseReleasedEdge_{};
     Vec2 mouse_{}, mouseDelta_{};
     float wheel_ = 0.0f;
     std::vector<Touch> touches_;
     bool touchDown_ = false, prevTouchDown_ = false;
+    bool touchPressedEdge_ = false, touchReleasedEdge_ = false;
     std::u32string text_;
     std::unordered_map<std::string, std::vector<Binding>> actions_;
+    // Action overrides: only `true` entries are stored (setting false erases and
+    // hands control back to the bindings).
     std::unordered_map<std::string, bool> overrides_, prevOverrides_;
+    std::unordered_map<std::string, bool> overridePressedEdge_, overrideReleasedEdge_;
 };
 
 }  // namespace fa

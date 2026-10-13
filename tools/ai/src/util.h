@@ -1,6 +1,7 @@
 // Private helpers (not installed).
 #pragma once
 
+#include <cctype>
 #include <string>
 #include <string_view>
 

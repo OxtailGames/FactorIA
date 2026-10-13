@@ -1,0 +1,175 @@
+# Continuous integration. Every job uses the same CMake presets as local builds
+# (CMakePresets.json, ./scripts/build.sh), so a green run means the local
+# commands work on that platform too.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Keep only the newest run per branch or pull request.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Linux: GCC + Ninja. Tests run under Xvfb with Mesa llvmpipe, so headless
+  # GPU code gets a software OpenGL/EGL renderer.
+  linux:
+    name: Linux (Ubuntu 24.04, GCC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same package list as local development (see scripts/bootstrap-linux.sh).
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-
+
+      - name: Configure and build (linux-release)
+        run: |
+          cmake --preset linux-release
+          cmake --build --preset linux-release
+
+      - name: Test under Xvfb (Mesa llvmpipe)
+        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-output
+          path: |
+            build/**/Testing/**
+            build/**/test-output/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Windows: MSVC through the Visual Studio 2022 generator. Headless GPU code
+  # uses the D3D11 software adapter (WARP).
+  # One command per step, so a failing command fails the step (PowerShell).
+  windows:
+    name: Windows (Visual Studio 2022, MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (windows-release)
+        run: cmake --preset windows-release
+
+      - name: Build (windows-release)
+        run: cmake --build --preset windows-release
+
+      - name: Test (windows-release)
+        run: ctest --preset windows-release
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-output
+          path: |
+            build/**/Testing/**
+            build/**/test-output/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # macOS: Apple Clang + Ninja. GPU-labelled tests (Metal) are excluded with
+  # -LE gpu while hosted runners cannot run them; drop the flag once they can.
+  macos:
+    name: macOS (Apple Clang, Ninja)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and ccache
+        run: brew install ninja ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-${{ runner.os }}-macos-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-macos-
+
+      - name: Configure and build (macos-release)
+        run: |
+          cmake --preset macos-release
+          cmake --build --preset macos-release
+
+      - name: Test (macos-release, GPU tests excluded)
+        run: ctest --preset macos-release -LE gpu
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-test-output
+          path: |
+            build/**/Testing/**
+            build/**/test-output/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # iOS: compile the player for the simulator with Xcode. Code signing is off
+  # (the build only checks that the code compiles and links). No ccache here:
+  # launcher support with the Xcode generator is not reliable.
+  ios:
+    name: iOS Simulator (Xcode)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Configure (ios-simulator)
+        run: cmake --preset ios-simulator
+
+      - name: Build factoria_player (ios-simulator)
+        run: cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO
+
+  # Android: arm64-v8a player library with the preinstalled NDK on the runner.
+  android:
+    name: Android arm64 (NDK, Ninja)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-android-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-android-
+
+      # The runner image preinstalls several NDKs; the preset reads ANDROID_NDK_HOME.
+      - name: Select the preinstalled NDK
+        run: |
+          test -f "$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - name: Configure and build factoria_player (android-arm64)
+        run: |
+          cmake --preset android-arm64
+          cmake --build --preset android-arm64 --target factoria_player

@@ -1,0 +1,54 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [0.3, 0.32, 0.38, 1],
+    "gravity3D": [0, -9.81, 0],
+    "skyColor": [0.45, 0.62, 0.85, 1],
+    "horizonColor": [0.8, 0.85, 0.9, 1]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": { "position": [0, 3, 8], "rotation": [-15, 0, 0] },
+        "Camera": { "projection": "perspective", "fov": 60, "primary": true },
+        "Script": { "path": "scripts/fly_camera.js", "props": { "speed": 6 } }
+      }
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": {
+        "Transform": { "position": [0, 10, 0], "rotation": [-50, -30, 0] },
+        "Light": { "type": "directional", "intensity": 1.1, "castShadows": true }
+      }
+    },
+    {
+      "id": "floor",
+      "name": "Floor",
+      "components": {
+        "Transform": { "position": [0, 0, 0], "scale": [20, 1, 20] },
+        "MeshRenderer": { "mesh": "plane", "color": [0.35, 0.5, 0.35, 1] }
+      }
+    },
+    {
+      "id": "cube",
+      "name": "Spinning Cube",
+      "tags": ["spinner"],
+      "components": {
+        "Transform": { "position": [0, 1, 0] },
+        "MeshRenderer": { "mesh": "cube", "color": [0.9, 0.45, 0.2, 1], "metallic": 0.1, "roughness": 0.5 },
+        "Script": { "path": "scripts/spin.js", "props": { "degreesPerSecond": 45 } }
+      }
+    },
+    {
+      "id": "ball",
+      "name": "Ball",
+      "components": {
+        "Transform": { "position": [2.5, 0.5, -1] },
+        "MeshRenderer": { "mesh": "sphere", "color": [0.3, 0.55, 0.95, 1], "roughness": 0.3 }
+      }
+    }
+  ]
+}

@@ -83,6 +83,21 @@ struct TypeInfo {
     const FieldInfo* field(std::string_view fieldName) const;
 };
 
+// A default-constructed instance of a reflected type (RAII; aligned storage).
+class DefaultObject {
+public:
+    explicit DefaultObject(const TypeInfo& t);
+    ~DefaultObject();
+    DefaultObject(const DefaultObject&) = delete;
+    DefaultObject& operator=(const DefaultObject&) = delete;
+    void* get() { return p_; }
+    const void* get() const { return p_; }
+
+private:
+    const TypeInfo* t_;
+    void* p_;
+};
+
 // Generic field access (no entity references resolution — fa_scene handles Entity fields).
 Json field_to_json(const FieldInfo& f, const void* object);
 // Writes a JSON value into the field. Accepts the lenient forms from json.h and
@@ -90,7 +105,9 @@ Json field_to_json(const FieldInfo& f, const void* object);
 // expected form. Entity fields are rejected here (resolve them in fa_scene).
 Result<void> field_from_json(const FieldInfo& f, void* object, const Json& value);
 // Whole object <-> JSON object (unknown keys -> error with "did you mean" hint).
-Json object_to_json(const TypeInfo& t, const void* object, bool includeDefaults = true);
+// includeDefaults=false omits fields equal to a default-constructed instance. Runtime-only
+// fields (serialized == false) are skipped unless includeRuntime is true.
+Json object_to_json(const TypeInfo& t, const void* object, bool includeDefaults = true, bool includeRuntime = false);
 Result<void> object_patch_from_json(const TypeInfo& t, void* object, const Json& patch);
 // JSON Schema (draft 2020-12 subset) describing the type's JSON form.
 Json type_json_schema(const TypeInfo& t);

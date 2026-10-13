@@ -1,0 +1,1 @@
+{ "name": "3d-empty", "description": "Minimal 3D game: perspective camera with WASD fly controls, a lit floor and a spinning cube (primitive meshes, no assets), one test and one project tool.", "dimension": "3d" }
