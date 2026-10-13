@@ -32,8 +32,8 @@ Version 0.1, first milestone complete. All engine modules, the `factoria` CLI, t
 MCP server, the AI hub and the editor work, and four example games built by AI
 agents through the public interface are part of the test suite.
 
-CI builds and tests every push on Linux, Windows (MSVC) and macOS, and builds the
-iOS Simulator app and the Android library and APK. iOS and Android are not run on
+CI builds and tests every pull request and every push to `main` on Linux, Windows
+(MSVC) and macOS, and builds the iOS Simulator app and the Android library and APK. iOS and Android are not run on
 devices or emulators in CI yet. Open gaps and next milestones:
 [feedback/ROADMAP.md](feedback/ROADMAP.md).
 

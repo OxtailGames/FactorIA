@@ -3,11 +3,15 @@
 # commands work on that platform too.
 name: CI
 
-# All five platforms on GitHub-hosted runners, on every push and pull request
-# (standard hosted runners are free for public repositories). The same checks
-# can run locally with ./scripts/ci-local.sh (see docs/BUILDING.md).
+# All five platforms on GitHub-hosted runners (standard hosted runners are free
+# for public repositories). Runs once per change: on pull requests (every push to
+# a PR branch) and on pushes to main. Pushing to a branch without a PR does not
+# trigger a run, so PR branches are not built twice; use "Run workflow"
+# (workflow_dispatch) for those. The same checks can run locally with
+# ./scripts/ci-local.sh (see docs/BUILDING.md).
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
