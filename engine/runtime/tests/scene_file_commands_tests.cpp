@@ -62,8 +62,7 @@ void register_probe_link() {
 struct TempProject {
     stdfs::path dir;
     explicit TempProject(const std::string& name) {
-        dir = stdfs::temp_directory_path() / ("fa_filecmd_test_" + name);
-        stdfs::remove_all(dir);
+        dir = fs::make_temp_dir("fa_filecmd_test_" + name);
         stdfs::create_directories(dir / "scenes");
         write("factoria.json", kProject);
         write("scenes/main.scene.json", kScene);
