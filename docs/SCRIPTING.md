@@ -243,8 +243,8 @@ Tools hot-reload when the file changes; MCP clients are notified.
 
 **Failing a tool.** `throw new ToolError(message, hint, data?)` (from `"factoria"`) reports an *expected* failure
 (for example a check tool that found bad level data): the caller gets code `tool_error`, the message, your `hint`
-(how to fix the data, not the tool) and, if given, `data` (any JSON, appended to the message as `data: {...}` so the
-report is not lost). Any other thrown Error is a script bug: code `failed`, the message with `file:line`, and it is
+(how to fix the data, not the tool) and, if given, `data` (any JSON). `data` travels as the structured field `error.data`
+(MCP and `factoria call` print it next to the message; it is not appended to the message). Any other thrown Error is a script bug: code `failed`, the message with `file:line`, and it is
 also recorded as a script error. `ToolError` is not recorded as a script error.
 
 ## Tests (`tests/*.test.js`)

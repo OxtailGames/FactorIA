@@ -257,6 +257,11 @@ NATIVE(guardEnd) {
     return JS_UNDEFINED;
 }
 
+NATIVE(logSeq) {
+    (void)thisv; (void)argc; (void)argv;
+    return JS_NewFloat64(ctx, static_cast<double>(fa::log_last_seq()));
+}
+
 NATIVE(nowMs) {
     auto t = std::chrono::steady_clock::now().time_since_epoch();
     return JS_NewFloat64(ctx, std::chrono::duration<double, std::milli>(t).count());
@@ -1463,7 +1468,7 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(types, 0), R(timeInfo, 0),
+    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
     R(setTimeScale, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),

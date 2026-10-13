@@ -28,7 +28,7 @@
           "text": "{{PROJECT_NAME}}: move with WASD / arrows",
           "fontSize": 24,
           "color": [1, 1, 1, 1],
-          "pivot": [0, 0],
+          "pivot": [0, 1],
           "space": "screen",
           "layer": 100
         }

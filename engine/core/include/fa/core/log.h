@@ -38,6 +38,12 @@ LogLevel log_level();
 void set_log_format(LogFormat format);  // stderr format; Json = one object per line
 void set_log_frame(std::uint64_t frame);  // engine updates this every frame
 
+// Optional filter for the stderr sink only (sinks and the ring buffer are unaffected): return false to keep an entry
+// off stderr. Pass an empty function to remove it. Used to capture a category (e.g. test output) without echoing it.
+using LogFilter = std::function<bool(const LogEntry&)>;
+void set_log_stderr_filter(LogFilter filter);
+std::uint64_t log_last_seq();  // seq of the most recent entry that passed the level filter (0 = none yet)
+
 // Extra sinks (editor console, files). Returns an id for remove_log_sink.
 using LogSink = std::function<void(const LogEntry&)>;
 int add_log_sink(LogSink sink);

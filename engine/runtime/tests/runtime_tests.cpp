@@ -411,6 +411,24 @@ TEST_CASE("run_headless: replay, screenshots, state dump, report, exit codes") {
     REQUIRE(report.contains("problems"));
     CHECK(report["problems"][0].get<std::string>().find("bogus") != std::string::npos);
 
+    // Misspelled fields, keys and action names warn with did-you-mean instead of being silently ignored.
+    p.write("typo.json", R"({"frames":{"0":{"pres":["jump"]},"1":{"press":["jmup"],"keys":{"Spacee":true},"mouse":{"lft":true}},
+                                          "2":{"release":"jump"}}})");
+    o.frames = 4;
+    o.inputReplayPath = (p.dir / "typo.json").generic_string();
+    rc = run_headless(c, o, &report);
+    CHECK(rc == 0);
+    REQUIRE(report.contains("problems"));
+    std::string all;
+    for (const auto& pr : report["problems"]) all += pr.get<std::string>() + "\n";
+    CHECK(all.find("replay frame 0: unknown field 'pres'") != std::string::npos);
+    CHECK(all.find("Did you mean 'press'") != std::string::npos);
+    CHECK(all.find("replay frame 1: Unknown input 'jmup'") != std::string::npos);
+    CHECK(all.find("Did you mean 'jump'") != std::string::npos);
+    CHECK(all.find("unknown key 'Spacee'") != std::string::npos);
+    CHECK(all.find("unknown mouse field 'lft'") != std::string::npos);
+    CHECK(all.find("replay frame 2: 'release' must be an array") != std::string::npos);
+
     // Bad scene -> non-zero exit unless failOnScriptError is off.
     TempProject q("run_headless_bad", kProject, R"({"entities":[{"components":{"Nope":{}}}]})");
     c = headless_cfg(q);

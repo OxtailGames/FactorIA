@@ -31,6 +31,7 @@
 
 #include "fa/core/command.h"
 #include "fa/core/json.h"
+#include "fa/core/log.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -83,12 +84,19 @@ struct ScriptError {
     std::string to_string() const;
 };
 
+// A console.log/warn/error line (category "script", info and above) produced while a test ran.
+struct TestLogLine {
+    LogLevel level = LogLevel::Info;
+    std::string message;
+};
+
 struct TestCaseResult {
     std::string file;
     std::string name;
     bool passed = false;
     std::string message;  // failure message with expected/actual
     double milliseconds = 0.0;
+    std::vector<TestLogLine> logs;  // script output produced while this test ran (also by behaviours)
 };
 
 struct TestReport {
@@ -96,6 +104,7 @@ struct TestReport {
     int passed = 0;
     int failed = 0;
     std::vector<ScriptError> loadErrors;  // files that failed to load/compile
+    std::vector<TestLogLine> otherLogs;   // script output outside any test (file top level, load)
     bool ok() const { return failed == 0 && loadErrors.empty(); }
     Json to_json() const;
     std::string summary() const;

@@ -2,7 +2,7 @@
 
 This guide has two readers. Game-making AIs read sections A and E to add a repeatable tool to a game project. Engine developers read sections B to F to add commands, components, systems and feedback processing to FactorIA itself.
 
-Some parts are contracts that are not implemented yet. They are marked **(planned)**. The reference for the JavaScript side is `docs/SCRIPTING.md`. The reference for the frame and the built-in commands is `engine/runtime/include/fa/runtime/engine.h`.
+The examples use the APIs of this build and were checked against it. The reference for the JavaScript side is `docs/SCRIPTING.md`. The reference for the frame and the built-in commands is `engine/runtime/include/fa/runtime/engine.h`.
 
 ## Where things go
 
@@ -19,7 +19,7 @@ Every capability is registered once as a command. The same registry feeds MCP, t
 
 ## A. Project tools (`tools/*.js`)
 
-A project tool is a JavaScript module in the game's `tools/` folder. The file name is the tool name, so `tools/spawn_wave.js` becomes `project.spawn_wave` (CLI and `fa.call`) and MCP tool `project_spawn_wave`. This is the contract in `docs/SCRIPTING.md`; it is planned until the script module loads `tools/*.js` in your build.
+A project tool is a JavaScript module in the game's `tools/` folder. The file name is the tool name, so `tools/spawn_wave.js` becomes `project.spawn_wave` (CLI and `fa.call`) and MCP tool `project_spawn_wave`. This is the contract in `docs/SCRIPTING.md`.
 
 ```js
 // tools/<name>.js
@@ -43,8 +43,11 @@ export default {
 
 - **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called. The error names the field and gives a hint, such as the allowed values.
 - **Hot reload.** Saving the file reloads the tool. MCP clients receive `notifications/tools/list_changed`.
-- **Errors.** If the arguments are wrong, `throw new Error(...)` with a message that says how to fix the call, for example `"crates must be 1-200. Pass {\"crates\": 12}."` Put the fix in the message: the caller sees it, and the scripting contract does not yet define a separate hint for errors thrown by tools.
-- **Calling.** MCP: `project_<name>`. CLI: `factoria call project.<name> '<json>'` (planned). Scripts: `fa.call("project.<name>", {...})`.
+- **Errors.** Two kinds, and the caller sees them differently.
+  - An *expected* failure, such as a check that found bad level data, is `throw new ToolError(message, hint, data?)` (import it from `"factoria"`). The caller gets code `tool_error`, the message, and your `hint`, which says how to fix the data or the call. `data` is an optional object with details. It appears in the JSON error of `factoria session` and `factoria call --batch`; MCP shows only the code, message and hint, so put what a fixer needs into the hint.
+  - Any other exception is a script bug. The caller gets code `failed`, the message with `file:line`, and the error is also recorded as a script error.
+  - Arguments that break the `input` schema are refused before `run` is called, with a message that names the field.
+- **Calling.** MCP: `project_<name>`. CLI: `factoria call project.<name> '<json>'`. Scripts: `fa.call("project.<name>", {...})`.
 
 ### A.1 Level generator: writes a scene file
 
@@ -184,6 +187,34 @@ export default {
 - Say in `description` whether the tool overwrites files or changes the running game.
 - A tool does not step the simulation unless its description says so.
 - Tools can use everything in `"factoria"` and every command through `fa.call`.
+- A check that can find several problems reports all of them in one result (section A.5), not one error per run.
+
+### A.5 A check that reports every problem
+
+A `ToolError` names one failure. When the caller needs the whole list (every coin out of bounds, every broken reference), return the list as a normal result instead. Every surface shows a normal result in full, while MCP shows a thrown error only as its message and hint. Let the caller read `ok`:
+
+```js
+// tools/check_coins.js
+import { world } from "factoria";
+
+export default {
+  name: "check_coins",
+  summary: "List every coin below a height, so one run shows all of them.",
+  description: 'Example: {"minY": -300}. Read-only. Returns every coin below minY, not just the first one.',
+  input: {
+    type: "object",
+    properties: { minY: { type: "number", default: -300, description: "Coins below this height are reported." } },
+  },
+  readOnly: true,
+  run({ minY }) {
+    const coins = world.findByTag("coin");
+    const low = coins.filter((c) => c.position.y < minY).map((c) => ({ id: c.id, y: c.position.y }));
+    return { ok: low.length === 0, coins: coins.length, low };
+  },
+};
+```
+
+Use `throw new ToolError(...)` when the failure is a single fact and the hint can carry the whole fix, for example a missing scene file.
 
 ## B. C++ commands in the engine
 
@@ -203,7 +234,7 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 });
 ```
 
-- **Errors.** Throw `CommandError(code, message, hint)` (defined in `command.h`). `command.h` names the codes `not_found`, `invalid_argument`, `failed` and `unavailable`; use the one that fits. Any other exception becomes `failed`. The registry itself reports `unknown_command` (with a did-you-mean hint) and `invalid_arguments`.
+- **Errors.** Throw `CommandError(code, message, hint, data)` (defined in `command.h`; `hint` and `data` are optional). `command.h` names the codes `not_found`, `invalid_argument`, `failed` and `unavailable`; use the one that fits. Any other exception becomes `failed`. The registry itself reports `unknown_command` (with a did-you-mean hint) and `invalid_arguments`.
 - **Results.** `CommandRegistry::call` returns `CommandResult{ok, result, error}`. `error` is `{code, message, hint}`.
 - **Replacement.** `add` replaces a command with the same name.
 - **Schema keywords** are the same as in section A.
@@ -316,11 +347,11 @@ TEST_CASE("scene.find_by_tag returns the ids of tagged entities") {
 Build and run it:
 
 ```bash
-cmake --build build/dev --target fa_test_runtime
-ctest --test-dir build/dev -R runtime --output-on-failure
+cmake --build --preset linux-debug --target fa_test_runtime
+ctest --preset linux-debug -R runtime --output-on-failure
 ```
 
-After this change the command is available as MCP tool `scene_find_by_tag`, as `factoria call scene.find_by_tag '{"tag":"enemy"}'` (planned), in scripts as `fa.call("scene.find_by_tag", {tag: "enemy"})`, and to the built-in agent. Nothing else needs to change.
+After this change the command is available as MCP tool `scene_find_by_tag`, as `factoria call scene.find_by_tag '{"tag":"enemy"}'`, in scripts as `fa.call("scene.find_by_tag", {tag: "enemy"})`, and to the built-in agent. Nothing else needs to change.
 
 ## C. Adding a component
 
@@ -436,10 +467,10 @@ Once a component is registered, the engine derives these from the reflection dat
 - **Scene and prefab JSON.** Loading, saving and error messages. An unknown field name produces a message with the JSON pointer and a did-you-mean hint (`engine/scene/include/fa/scene/serialize.h`).
 - **JSON Schema.** `scene_json_schema()` and `prefab_json_schema()`, plus `type_json_schema()` for a single type.
 - **Scripts.** `entity.get("Wobble")` returns a live view of exactly the reflected fields (`docs/SCRIPTING.md`). Writing `entity.get("Wobble").amplitude = 2` writes into the engine.
-- **TypeScript typings.** `types/factoria.d.ts`, written by `factoria api --dts` (planned).
+- **TypeScript typings.** `types/factoria.d.ts`, written by `factoria api --dts` (a project gets its own copy from `factoria validate --fix-types`).
 - **Docs.** `docs_components`, `docs.components` and `factoria://docs/components`.
 - **MCP and CLI.** `scene_set_component` and `scene.set_component` can patch the field.
-- **Editor inspector.** When the editor is built (planned).
+- **Editor.** Desktop builds include the visual editor (`FA_BUILD_EDITOR`, on by default there). Start it with `factoria editor`.
 
 ## D. Adding a system to the frame loop
 
@@ -562,10 +593,10 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 
 ### Tests
 
-- C++ tests are doctest cases in `engine/<module>/tests/test_*.cpp`. `fa_add_tests(<module>)` builds them into `fa_test_<module>`. Run one module with `cmake --build build/dev --target fa_test_<module>` and `ctest --test-dir build/dev -R <module> --output-on-failure`.
-- Tests that need a GPU carry the `gpu` label (`fa_add_tests(... LABELS gpu)`). Hosts without a GPU skip them with `ctest -LE gpu`.
-- Game-level behaviour goes in `tests/*.test.js` and runs with `factoria test` (planned).
-- Rendering tests compare headless golden images in `tests/golden/*.png` with a tolerance.
+- C++ tests are doctest cases in `engine/<module>/tests/test_*.cpp`. `fa_add_tests(<module>)` builds them into `fa_test_<module>`. Run one module with `cmake --build --preset linux-debug --target fa_test_<module>` and `ctest --preset linux-debug -R <module> --output-on-failure`.
+- Tests that need a GPU carry the `gpu` label (`fa_add_tests(... LABELS gpu)`). Hosts without a GPU skip them with `ctest --preset linux-debug -LE gpu`.
+- Game-level behaviour goes in `tests/*.test.js` and runs with `factoria test`.
+- Rendering tests compare headless golden images in `engine/render/tests/golden/*.png` with a tolerance.
 - Determinism: fixed seed, fixed steps, no timing assertions.
 - A bug fix starts with a failing test.
 
@@ -577,7 +608,7 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 
 ### Rules from `CLAUDE.md`
 
-- Module order: core, scene, platform, then render, physics and audio, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
+- Module order is in `docs/ARCHITECTURE.md`: core, scene, platform, then render, physics and audio, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
 - No exceptions cross module boundaries, except `CommandError` inside command handlers. Return `fa::Result<T>` with a message and a hint.
 - No `rand()`. No wall clock in simulation.
 - Do not edit `external/`. Wrap third-party code from engine code.
@@ -589,8 +620,8 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 Each game records what the engine lacked in its `ENGINE_FEEDBACK.json` (`docs/ENGINE_FEEDBACK.md`). Engine developers merge those files to decide what to build next.
 
 ```bash
-factoria feedback collect games/ examples/ --out roadmap.md                  # (planned)
-factoria feedback collect games/ --out roadmap.json --include-closed         # (planned)
+factoria feedback collect games/ examples/ --out roadmap.md
+factoria feedback collect games/ --out roadmap.json --include-closed
 ```
 
 - **Inputs.** Files, or directories. A directory contributes its `ENGINE_FEEDBACK.json` and any below it.

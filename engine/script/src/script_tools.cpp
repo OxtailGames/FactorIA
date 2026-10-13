@@ -352,6 +352,26 @@ void Impl::reset_for_test_file() {
 TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_view nameFilter) {
     TestReport rep;
     inTestRun = true;
+    // console.log/warn/error (category "script", info and above) is captured into the report, per test. The global
+    // level is lowered to info while tests run so --log-level warn does not hide console.log; stderr keeps showing
+    // only what the caller's level allowed, minus script lines (they are in the report instead).
+    const LogLevel savedLevel = log_level();
+    std::vector<LogEntry> captured;
+    int sinkId = add_log_sink([&captured](const LogEntry& e) {
+        if (e.category == "script" && e.level >= LogLevel::Info) captured.push_back(e);
+    });
+    if (savedLevel > LogLevel::Info) set_log_level(LogLevel::Info);
+    set_log_stderr_filter([savedLevel](const LogEntry& e) { return e.category != "script" && e.level >= savedLevel; });
+    struct Restore {
+        int sink;
+        LogLevel level;
+        ~Restore() {
+            remove_log_sink(sink);
+            set_log_level(level);
+            set_log_stderr_filter({});
+        }
+    } restore{sinkId, savedLevel};
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges;  // per rep.cases entry; {0,0} = none
     // Tests never touch the real save file: in-memory storage, fresh for every test file.
     const StorageMode savedMode = storageMode;
     storageMode = StorageMode::Memory;
@@ -404,6 +424,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             c.passed = false;
             c.message = e.message;
             rep.cases.push_back(c);
+            ranges.push_back({0, 0});
             ++rep.failed;
             continue;
         }
@@ -423,7 +444,18 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             if (j.value("skipped", false)) continue;
             c.passed ? ++rep.passed : ++rep.failed;
             rep.cases.push_back(std::move(c));
+            ranges.push_back({static_cast<std::uint64_t>(j.value("seq0", 0.0)), static_cast<std::uint64_t>(j.value("seq1", 0.0))});
         }
+    }
+    for (const LogEntry& e : captured) {
+        TestLogLine line{e.level, e.message};
+        bool placed = false;
+        for (std::size_t i = 0; i < rep.cases.size() && !placed; ++i)
+            if (ranges[i].second > ranges[i].first && e.seq > ranges[i].first && e.seq <= ranges[i].second) {
+                rep.cases[i].logs.push_back(line);
+                placed = true;
+            }
+        if (!placed) rep.otherLogs.push_back(line);
     }
     reset_for_test_file();
     inTestRun = false;

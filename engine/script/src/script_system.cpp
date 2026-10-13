@@ -27,6 +27,12 @@ std::string ScriptError::to_string() const {
     return s;
 }
 
+static Json logs_json(const std::vector<TestLogLine>& logs) {
+    Json a = Json::array();
+    for (const auto& l : logs) a.push_back(Json::object({{"level", log_level_name(l.level)}, {"message", l.message}}));
+    return a;
+}
+
 Json TestReport::to_json() const {
     Json j = Json::object();
     j["ok"] = ok();
@@ -40,9 +46,11 @@ Json TestReport::to_json() const {
         o["passed"] = c.passed;
         if (!c.message.empty()) o["message"] = c.message;
         o["ms"] = std::round(c.milliseconds * 100.0) / 100.0;
+        if (!c.logs.empty()) o["logs"] = logs_json(c.logs);
         arr.push_back(std::move(o));
     }
     j["cases"] = std::move(arr);
+    if (!otherLogs.empty()) j["logs"] = logs_json(otherLogs);
     Json errs = Json::array();
     for (const auto& e : loadErrors) {
         errs.push_back(Json::object({{"file", e.file}, {"line", e.line}, {"column", e.column},

@@ -132,6 +132,8 @@ Command make_run_command() {
         for (const char* key : {"scriptErrors", "sceneErrors"})
             if (report.contains(key) && report[key].is_array())
                 for (const auto& e : report[key]) ctx.out << key << ": " << (e.is_string() ? e.get<std::string>() : e.dump()) << "\n";
+        if (report.contains("problems") && report["problems"].is_array())
+            for (const auto& pr : report["problems"]) ctx.err << "warning: " << (pr.is_string() ? pr.get<std::string>() : pr.dump()) << "\n";
         if (report.contains("error") && report["error"].is_string()) ctx.out << "error: " << report["error"].get<std::string>() << "\n";
         if (code != 0) ctx.out << "Re-run with --json for the full report.\n";
         return code == 0 ? 0 : 1;
@@ -186,7 +188,7 @@ Command make_test_command() {
     c.name = "test";
     c.summary = "Run the project's tests (tests/**/*.test.js) on a headless engine.";
     c.usage = "[project] [--filter TEXT] [--json]";
-    c.details = "Prints one line per test with failure messages (expected/actual). Exit code 1 if any test fails or a test file does not load.";
+    c.details = "Prints one line per test with failure messages (expected/actual); console.log/warn/error output of the tests and\nbehaviours is shown indented under the test (\"| ...\"), whatever --log-level is. Exit code 1 if any test fails or a test file does not load.";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"filter", "TEXT", "Only run tests whose name contains TEXT."},
@@ -213,8 +215,19 @@ Command make_test_command() {
                     << (ctx.args.has("filter") ? " matching '" + ctx.args.str("filter") + "'" : "") << ").\n";
             return 0;
         }
+        auto print_logs = [&](const std::vector<TestLogLine>& logs) {
+            for (const auto& l : logs) {
+                const char* tag = l.level >= LogLevel::Error ? "error: " : l.level == LogLevel::Warn ? "warn: " : "";
+                ctx.out << "        | " << tag << replace_all(l.message, "\n", "\n        | ") << "\n";
+            }
+        };
+        if (!rep.otherLogs.empty()) {
+            ctx.out << "  (output outside tests)\n";
+            print_logs(rep.otherLogs);
+        }
         for (const auto& t : rep.cases) {
             ctx.out << (t.passed ? "  PASS  " : "  FAIL  ") << t.file << " > " << t.name << " (" << static_cast<int>(t.milliseconds) << " ms)\n";
+            print_logs(t.logs);
             if (!t.passed && !t.message.empty()) ctx.out << "        " << replace_all(t.message, "\n", "\n        ") << "\n";
         }
         for (const auto& e : rep.loadErrors) ctx.out << "  ERROR " << e.to_string() << "\n";
