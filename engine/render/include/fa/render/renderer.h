@@ -3,6 +3,17 @@
 // window. Because the game always renders offscreen, screenshots, golden
 // tests, the editor viewport and headless runs all see exactly the same image.
 //
+// Coordinate / anchoring semantics (Sprite, Shape2D, Text, identical in both spaces):
+//   * pivot is VISUAL: (0,0) = bottom-left of the item's box, (1,1) = top-right, (0.5,0.5) = center, in
+//     world space AND screen space (screen +Y is down, but pivot [0,1] is still the visual top-left). The
+//     pivot point of the item is placed at the entity position. Defaults: Sprite/Shape2D [0.5,0.5], Text [0,1].
+//   * Shape2D pivot applies to rectangle/circle/triangle bounding boxes (circle: square of side size.x).
+//   * Screen space: position is in design pixels from the TOP-LEFT, +Y down, drawn after the world.
+//     `anchor` shifts the position by anchor * target size, e.g. anchor [1,0], pivot [1,1], position [-20,20]
+//     = top-right corner of the item 20px inside the screen corner; with Expand the target grows so HUDs stay on the edges.
+//   * Blend: Alpha, Additive (dst + src*a), Multiply (dst * mix(1, src, a)); items sort by layer as usual and
+//     batches split where the blend changes.
+//
 // Frame:
 //   renderer.begin_frame();
 //   renderer.render_world(world, dt);   // cameras, sprites, shapes, tilemaps, text,
@@ -89,7 +100,32 @@ public:
     int target_height() const;
 
     void begin_frame();
+
+    // --- Simulation / drawing split --------------------------------------------------------------
+    // update() advances everything time-based that lives in the renderer: SpriteAnimator frames and
+    // ParticleEmitter simulation (spawning, integration, autoDestroy -> world.destroy). It never draws and
+    // needs no begin_frame(). render_world() only DRAWS the current state: the image depends solely on the
+    // world + renderer state, so skipping render_world() on some frames (headless fast-forward) yields the
+    // same image as drawing every frame, provided update() ran every frame.
+    // Contract: call update(world, dt) once per simulated frame, then optionally render_world(). Code that
+    // only calls render_world(world, dt) keeps working: if update() was not called since the previous draw,
+    // render_world() calls it with `dt` itself.
+    void update(World& world, float dt);
+    // Draws the world (cameras, sprites, shapes, tilemaps, text, particles, meshes, lights, debug draw).
     void render_world(World& world, float dt);
+
+    // Immediately spawns `count` particles at the ParticleEmitter on `e` (works with emitting = false; the
+    // particles appear in the next draw, positioned at the emitter's transform). Safe to call before the
+    // emitter's first update. No-op when the entity has no (active) ParticleEmitter.
+    void emit_burst(Entity e, int count);
+
+    // Size {width, height} in design/world units of `text` laid out at `fontSize` with the same code as Text
+    // rendering (wrapping at maxWidth > 0, line height). font "" = built-in font.
+    Vec2 measure_text(std::string_view text, float fontSize, std::string_view font = {}, float maxWidth = 0) const;
+
+    // Expand support: with ScaleMode::Expand the orthographic camera keeps the design height fixed (or the
+    // design width when the target is taller than the design aspect). present() also records its mode.
+    void set_scale_mode(ScaleMode mode);
     void end_frame();
     // Windowed: blit the game target into the swapchain with the scale mode.
     void present(const GfxSwapchain& swapchain, int framebufferWidth, int framebufferHeight, ScaleMode mode);

@@ -117,6 +117,7 @@ public:
     void request_quit() override;
     void step_frames(int n) override;
     std::string load_scene_now(std::string_view scenePath) override;
+    std::string load_scene_json_now(const Json& scene, std::string_view sourceName) override;
 
     ScriptSystem& scripts();
 

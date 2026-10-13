@@ -101,6 +101,8 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     cfg.height = opt.height;
     cfg.seed = opt.seed;
     cfg.hotReload = opt.hotReload;
+    cfg.renderMode = opt.renderMode;
+    cfg.memoryStorage = opt.memoryStorage;
 
     std::string firstError;
     if (opt.gfx != Gfx::None) {
@@ -110,6 +112,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
         if (e->init(cfg, nullptr, &err)) {
             s->engine_ = std::move(e);
             s->graphics_ = true;
+            register_project_commands(*s->engine_, s->projectDir_);
             return s;
         }
         firstError = err;
@@ -129,6 +132,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     if (!firstError.empty())
         FA_WARN("cli", "No GPU available ({}); running without graphics (screenshots are disabled).", firstError);
     s->engine_ = std::move(e);
+    register_project_commands(*s->engine_, s->projectDir_);
     return s;
 }
 
@@ -162,14 +166,11 @@ void install_script_check(Engine& engine) {
 }
 
 void register_cli_commands(CommandRegistry& registry, const std::string& projectDir, Engine* engine) {
-    if (!projectDir.empty()) {
-        register_tooling_commands(registry, projectDir);
+    if (engine) {
+        if (!registry.has("project.create")) register_project_commands(*engine, projectDir);
     } else {
         register_docs_commands(registry);
         register_api_export_commands(registry);
-    }
-
-    {
         CommandInfo info;
         info.name = "project.templates";
         info.summary = "List the project templates `project.create` can start from.";
@@ -181,18 +182,16 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
                 arr.push_back(Json::object({{"name", t.name}, {"description", t.description}, {"dimension", t.dimension}}));
             return arr;
         });
-    }
-    {
-        CommandInfo info;
-        info.name = "project.create";
-        info.summary = "Create a new game project from a template.";
-        info.description =
+        CommandInfo ci;
+        ci.name = "project.create";
+        ci.summary = "Create a new game project from a template.";
+        ci.description =
             "Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, "
-            "scripts, a test, AGENTS.md and ENGINE_FEEDBACK.json. Afterwards start `factoria mcp --project <dir>` "
-            "to work on it. Example: {\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
-        info.readOnly = false;
-        info.category = "project";
-        info.inputSchema = Json::parse(R"({
+            "scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start "
+            "`factoria mcp --project <dir>` to work on it. Example: {\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
+        ci.readOnly = false;
+        ci.category = "project";
+        ci.inputSchema = Json::parse(R"({
           "type":"object","required":["dir"],
           "properties":{
             "dir":{"type":"string","description":"Target folder (created; must be empty or new)."},
@@ -200,7 +199,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
             "name":{"type":"string","description":"Display name (default: folder name)."},
             "id":{"type":"string","description":"Reverse-DNS id, e.g. com.example.mygame."}
           }})");
-        registry.add(info, [](const Json& a) {
+        registry.add(ci, [](const Json& a) {
             ScaffoldOptions o;
             o.name = a.value("name", std::string());
             o.id = a.value("id", std::string());
@@ -209,26 +208,24 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
             return r->to_json();
         });
     }
-    if (engine && !registry.has("project.test")) {
-        CommandInfo info;
-        info.name = "project.test";
-        info.summary = "Run the project's tests (tests/**/*.test.js) headless and report each case.";
-        info.description =
-            "Returns {ok, passed, failed, cases[{file,name,passed,message,milliseconds}], loadErrors[]}. "
-            "Use `filter` to run only tests whose name contains the text. Example: {\"filter\":\"jump\"}.";
-        info.category = "project";
-        info.inputSchema = Json::parse(R"({"type":"object","properties":{"filter":{"type":"string","description":"Only run tests whose name contains this text."}}})");
-        registry.add(info, [engine](const Json& a) {
-            TestReport rep = run_project_tests(*engine, a.value("filter", std::string()));
-            Json j = rep.to_json();
-            if (!j.contains("ok")) j["ok"] = rep.ok();
-            return j;
-        });
-    }
-
     ai::AiCommandOptions ao;
     ao.projectDir = [projectDir]() { return projectDir; };
     ai::register_ai_commands(registry, ao);
 }
 
-}  // namespace fa::cli
+Json run_command_json(CommandRegistry& registry, const Json& request) {
+    auto fail = [](const std::string& code, const std::string& msg, const std::string& hint) {
+        Json e = Json::object({{"code", code}, {"message", msg}});
+        if (!hint.empty()) e["hint"] = hint;
+        return Json::object({{"ok", false}, {"error", e}});
+    };
+    if (!request.is_object() || !request.contains("command") || !request["command"].is_string())
+        return fail("invalid_request", "A request must be {\"command\": \"name\", \"args\": {...}}.",
+                    "Example: {\"command\":\"game.step\",\"args\":{\"frames\":30}}");
+    Json args = request.contains("args") ? request["args"] : Json::object();
+    if (args.is_null()) args = Json::object();
+    if (!args.is_object()) return fail("invalid_request", "'args' must be a JSON object.", "");
+    CommandResult r = registry.call(request["command"].get<std::string>(), args);
+    if (!r.ok) return Json::object({{"ok", false}, {"error", r.error}});
+    return Json::object({{"ok", true}, {"result", r.result}});
+}

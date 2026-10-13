@@ -25,8 +25,19 @@ ScriptCheckHook& global_hook() {
     return h;
 }
 
+ScriptPropsCheckHook& global_props_hook() {
+    static ScriptPropsCheckHook h;
+    return h;
+}
+
+struct PropsCheck {
+    std::string file, pointer, module;
+    Json props;
+};
+
 struct Ctx {
     std::string dir;
+    std::vector<PropsCheck> propChecks;
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -90,8 +101,12 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
     if (entity.contains("components") && entity["components"].is_object()) {
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
-            if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string())
+            if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
                 scripts.insert(it.value()["path"].get<std::string>());
+                if (it.value().contains("props") && it.value()["props"].is_object() && !it.value()["props"].empty())
+                    c.propChecks.push_back({file, pointer + "/components/Script/props", it.value()["path"].get<std::string>(),
+                                            it.value()["props"]});
+            }
         }
     }
     if (entity.contains("children") && entity["children"].is_array()) {
@@ -196,6 +211,7 @@ std::string ValidationReport::to_text() const {
 }
 
 void set_script_check_hook(ScriptCheckHook hook) { global_hook() = std::move(hook); }
+void set_script_props_check_hook(ScriptPropsCheckHook hook) { global_props_hook() = std::move(hook); }
 
 ValidationReport validate_project(const std::string& projectDir, const ValidateOptions& options) {
     Ctx c;
@@ -279,6 +295,18 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         if (!hook) continue;
         for (auto& issue : hook(c.dir, s)) c.report.errors.push_back(std::move(issue));
     }
+    const ScriptPropsCheckHook& propsHook = options.propsCheck ? options.propsCheck : global_props_hook();
+    if (propsHook) {
+        for (const PropsCheck& pc : c.propChecks) {
+            if (!stdfs::exists(stdfs::path(c.dir) / pc.module)) continue;
+            for (const std::string& msg : propsHook(pc.module, pc.props))
+                c.warn(pc.file, pc.pointer, msg, "Fix the prop name, or declare the field in " + pc.module + " (props only set existing fields).");
+        }
+    }
+    if (auto dts = tooling_detail::read_file(stdfs::path(c.dir) / "types" / "factoria.d.ts");
+        dts && dts->find("(placeholder)") != std::string::npos)
+        c.warn("types/factoria.d.ts", "", "The script typings are a placeholder (everything is `any`).",
+               "Run `factoria validate --fix-types` (or `factoria api --dts --project .`) to write the real typings.");
     if (!stdfs::exists(stdfs::path(c.dir) / "AGENTS.md"))
         c.warn("AGENTS.md", "", "AGENTS.md is missing.", "AI agents rely on it; create it with `factoria new` or copy from templates/common/AGENTS.md.");
     if (!stdfs::is_directory(stdfs::path(c.dir) / "tests", ec))

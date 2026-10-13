@@ -406,12 +406,14 @@ std::string ScriptSystem::Impl::module_name_for(const std::string& path) const {
 std::string ScriptSystem::Impl::normalize_module(const std::string& base, const std::string& spec, std::string* err) {
     if (spec == "factoria" || spec == "factoria:test") return spec;
     std::string basePath = module_file(base);
+    // check_syntax compiles under the name "<syntax>/<project path>": resolve imports as for the real module.
+    const bool syntaxBase = basePath.rfind("<syntax>/", 0) == 0;
+    if (syntaxBase) basePath = basePath.substr(9);
     bool baseIsProject = !basePath.empty() && basePath[0] != '<' && basePath != "factoria" && basePath != "factoria:test";
     std::string joined;
     if (spec.rfind("./", 0) == 0 || spec.rfind("../", 0) == 0) {
         if (!baseIsProject) {
-            joined = spec.substr(spec.find('/') + 1);
-            if (spec.rfind("../", 0) == 0) joined = spec;
+            joined = spec;  // no importing module (REPL, entry): relative to the project root
         } else {
             std::string dir = fs::parent(basePath);
             joined = dir.empty() ? spec : dir + "/" + spec;
@@ -429,7 +431,7 @@ std::string ScriptSystem::Impl::normalize_module(const std::string& base, const 
     }
     std::string path = *norm;
     if (!fs::exists(path) && fs::extension(path).empty() && fs::exists(path + ".js")) path += ".js";
-    if (baseIsProject) {
+    if (baseIsProject && !syntaxBase) {
         importers[path].insert(basePath);
     }
     std::string name = module_name_for(path);
@@ -449,6 +451,22 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
         JS_ThrowReferenceError(ctx, "Cannot load module '%s'%s: %s", file.c_str(), from.c_str(),
                                text.error().to_string().c_str());
         return nullptr;
+    }
+    if (fs::extension(file) == ".json") {
+        // JSON data module: `import levels from "./levels.json"` -> default export = the parsed data.
+        Json parsed = Json::parse(*text, nullptr, false);
+        if (parsed.is_discarded()) {
+            JS_ThrowSyntaxError(ctx, "%s: invalid JSON (not a valid .json data file). Check commas, quotes and brackets; "
+                                     "`factoria validate` or any JSON linter shows the position.", file.c_str());
+            return nullptr;
+        }
+        std::string src = "export default " + *text + ";";
+        JSValue jf = JS_Eval(ctx, src.c_str(), src.size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        if (JS_IsException(jf)) return nullptr;
+        auto* jm = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(jf));
+        JS_FreeValue(ctx, jf);
+        everLoaded.insert(file);
+        return jm;
     }
     JSValue func = JS_Eval(ctx, text->c_str(), text->size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
     if (JS_IsException(func)) return nullptr;
@@ -681,6 +699,9 @@ void ScriptSystem::on_scene_loaded() {
     impl_->drop_all_behaviours();
     impl_->call_method("scene reset", "", impl_->hooks.get(), "resetScene", {});
     impl_->run_jobs();
+    // entity.behaviour exists right after a scene load; onStart runs before the first update.
+    impl_->construct_all();
+    impl_->run_jobs();
 }
 
 void ScriptSystem::update(float dt) {
@@ -736,6 +757,18 @@ void ScriptSystem::reload_tools() {
     if (impl_->initialized) impl_->reload_tools();
 }
 void ScriptSystem::set_tools_changed_callback(std::function<void()> cb) { impl_->toolsChanged = std::move(cb); }
+
+void ScriptSystem::set_storage_mode(StorageMode mode) {
+    impl_->storageMode = mode;
+    impl_->storage = Json::object();
+    impl_->storageLoaded = false;
+}
+StorageMode ScriptSystem::storage_mode() const { return impl_->storageMode; }
+
+std::vector<std::string> ScriptSystem::check_props(std::string_view modulePath, const Json& props) {
+    if (!impl_->initialized) return {"script system is not initialized"};
+    return impl_->check_props(std::string(modulePath), props);
+}
 
 Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
 std::string ScriptSystem::typescript_declarations() const { return impl_->typescript_declarations(); }

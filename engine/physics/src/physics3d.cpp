@@ -15,6 +15,7 @@ constexpr float kBounceThreshold = 0.5f;  // m/s below which restitution is igno
 constexpr float kBeginMargin = 0.01f;     // solid contact begins within this gap
 constexpr float kEndMargin = 0.05f;       // ...and ends once the gap exceeds this
 constexpr int kIterations = 2;
+constexpr float kRiderGap = 0.02f;  // a dynamic body this close above a kinematic one is carried by it
 
 const char* type_name(BodyType t) {
     switch (t) {
@@ -159,7 +160,7 @@ void Physics3D::sync(World& world) {
         Vec3 dp = pose.position - b.lastPos;
         if (std::fabs(dp.x) > 1e-4f || std::fabs(dp.y) > 1e-4f || std::fabs(dp.z) > 1e-4f || b.type == BodyType::Static) {
             const bool placed = b.lastPos.x < 1e8f;  // false right after slot reuse (forced initial placement)
-            if (placed && b.type != BodyType::Dynamic && b.seq != nextSeq_ - 1) b.pendingCarry += pose.position - b.lastPos;
+            if (placed && b.type != BodyType::Dynamic) b.pendingCarry += pose.position - b.lastPos;
             b.center = pose.position + b.offset;
             b.lastPos = pose.position;
             b.lastCenter = b.center;
@@ -186,7 +187,7 @@ void Physics3D::sync(World& world) {
     }
 }
 
-void Physics3D::solve_pair(Body& a, Body& b, const Contact& c, float, float& impact) {
+void Physics3D::solve_pair(Body& a, Body& b, const Contact& c, float, float& impact, bool carried) {
     const float ia = a.invMass, ib = b.invMass, sum = ia + ib;
     if (sum <= 0.0f) return;
     const Vec3 n = c.normal;
@@ -208,6 +209,8 @@ void Physics3D::solve_pair(Body& a, Body& b, const Contact& c, float, float& imp
     }
     if (j > 0.0f) {
         rv = b.vel - a.vel;
+        // A carried rider already moved with the platform: friction acts on its velocity relative to it.
+        if (carried) rv = b.vel;
         Vec3 vt = rv - n * dot(rv, n);
         float lt = length(vt);
         if (lt > 1e-6f) {
@@ -236,9 +239,50 @@ void Physics3D::step(World& world, float dt) {
     const int subs = std::max(settings_.subSteps, 1);
     const float h = dt / float(subs);
     std::map<PairKey, float> impacts;
+    std::vector<int> carrier(n, -1);  // per body: index of the kinematic body carrying it this sub-step
+
+    // Dynamic bodies resting on top of body k (k at its current center, optionally shifted).
+    auto find_riders = [&](std::size_t k, std::vector<std::size_t>& out) {
+        const Body& p = bodies_[k];
+        if (!p.enabled || !p.hasShape || p.trigger) return;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Body& d = bodies_[i];
+            if (i == k || d.type != BodyType::Dynamic || !d.enabled || !d.hasShape || d.trigger) continue;
+            if (!filters_pass(p, d)) continue;
+            Contact c = collide(p, d, kRiderGap);
+            if (c.hit && c.normal.y > 0.7f) out.push_back(i);
+        }
+    };
+    // Teleported static/kinematic bodies carry their riders by the same displacement (detected at the old pose).
+    for (std::size_t k = 0; k < n; ++k) {
+        Body& p = bodies_[k];
+        if (p.pendingCarry == Vec3{}) continue;
+        Vec3 dp = p.pendingCarry;
+        p.pendingCarry = {};
+        std::vector<std::size_t> riders;
+        p.center -= dp;
+        find_riders(k, riders);
+        p.center += dp;
+        for (std::size_t i : riders) bodies_[i].center += dp;
+    }
 
     auto movable = [](const Body& b) { return b.type != BodyType::Static; };
+    std::vector<std::size_t> riders;
     for (int s = 0; s < subs; ++s) {
+        std::fill(carrier.begin(), carrier.end(), -1);
+        for (std::size_t k = 0; k < n; ++k) {
+            const Body& p = bodies_[k];
+            if (p.type != BodyType::Kinematic || p.vel == Vec3{}) continue;
+            riders.clear();
+            find_riders(k, riders);
+            Vec3 disp = p.vel * h;
+            if (disp.y > 0.0f) disp.y = 0.0f;  // upward motion is delivered by the contact itself
+            for (std::size_t i : riders) {
+                if (carrier[i] >= 0) continue;
+                carrier[i] = int(k);
+                bodies_[i].center += disp;
+            }
+        }
         for (Body& b : bodies_) {
             if (!b.enabled) continue;
             if (b.type == BodyType::Dynamic) {
@@ -261,7 +305,16 @@ void Physics3D::step(World& world, float dt) {
                     Contact c = collide(a, b, 0.0f);
                     if (!c.hit || c.depth < 0.0f) continue;
                     float& impact = impacts[{a.seq, b.seq}];
-                    solve_pair(a, b, c, h, impact);
+                    const bool carried = (carrier[k] == int(i) && a.type == BodyType::Kinematic) ||
+                                         (carrier[i] == int(k) && b.type == BodyType::Kinematic);
+                    if (carrier[i] == int(k) && b.type == BodyType::Kinematic) {
+                        // keep the normal pointing from a to b: swap roles through the mirrored contact
+                        Contact m = c;
+                        m.normal = -m.normal;
+                        solve_pair(b, a, m, h, impact, carried);
+                    } else {
+                        solve_pair(a, b, c, h, impact, carried);
+                    }
                 }
             }
         }
@@ -273,6 +326,7 @@ void Physics3D::step(World& world, float dt) {
     auto& out = world.events().collisions;
     struct Begin { PairKey key; PairState st; Contact c; };
     std::vector<Begin> begins;
+    std::vector<char> supported(n, 0);  // dynamic body has solid ground (normal up) under it
     for (std::size_t i = 0; i < n; ++i) {
         const Body& a = bodies_[i];
         if (!a.enabled || !a.hasShape) continue;
@@ -289,6 +343,10 @@ void Physics3D::step(World& world, float dt) {
             Contact c = collide(a, b, margin);
             bool now = trig ? (c.hit && c.depth > 0.0f) : c.hit;
             if (!now) continue;
+            if (!trig) {
+                if (b.type == BodyType::Dynamic && c.normal.y > 0.7f) supported[k] = 1;
+                if (a.type == BodyType::Dynamic && c.normal.y < -0.7f) supported[i] = 1;
+            }
             PairState st{a.e, b.e, trig};
             cur[key] = st;
             if (!was) begins.push_back({key, st, c});
@@ -318,9 +376,26 @@ void Physics3D::step(World& world, float dt) {
     }
     touching_ = std::move(cur);
 
+    // ---- rolling: spheres on the ground spin to match their horizontal motion
+    for (std::size_t i = 0; i < n; ++i) {
+        Body& b = bodies_[i];
+        if (!b.enabled || b.type != BodyType::Dynamic || b.box || !b.hasShape || b.trigger) continue;
+        if (!b.rollWithMotion || !supported[i]) continue;
+        // axis = up x v = (vz, 0, -vx); rate = |v| / r (rad/s) -> deg/s along that axis => components (vz, 0, -vx) / r
+        const float k = degrees(1.0f) / b.radius;
+        b.angVel = {b.vel.z * k, 0.0f, -b.vel.x * k};
+    }
+
     // ---- write back
     for (Body& b : bodies_) {
         if (!b.enabled || b.type == BodyType::Static || !world.alive(b.e)) continue;
+        if (b.angVel != Vec3{}) {
+            if (Transform* t = world.get<Transform>(b.e)) t->rotation += b.angVel * dt;
+        }
+        if (RigidBody3D* rb = world.get<RigidBody3D>(b.e)) {
+            rb->angularVelocity = b.angVel;
+            b.lastAngVel = b.angVel;
+        }
         if (b.center != b.lastCenter) {
             world.set_world_position(b.e, b.center - b.offset);
             b.lastPos = world.world_position(b.e);
@@ -334,17 +409,24 @@ void Physics3D::step(World& world, float dt) {
 }
 
 // ------------------------------------------------------------- queries ----
-std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask) {
-    (void)world;
+std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt) {
     Vec3 d = normalize(dir);
     if (length_sq(d) < 0.5f) return std::nullopt;
-    const std::uint64_t qmask = mask_bits(mask);
+    const std::uint64_t qmask = mask_bits(opt.mask);
     float bestT = maxDistance;
     const Body* best = nullptr;
     Vec3 bestN;
     for (const Body& b : bodies_) {
-        if (!b.enabled || !b.hasShape || b.trigger) continue;
+        if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
+        if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
+        {   // origin inside this collider: skip it
+            Vec3 lo = b.center - b.half, hi = b.center + b.half;
+            bool inside = b.box ? (origin.x > lo.x && origin.x < hi.x && origin.y > lo.y && origin.y < hi.y &&
+                                   origin.z > lo.z && origin.z < hi.z)
+                                : length_sq(origin - b.center) < b.radius * b.radius;
+            if (inside) continue;
+        }
         float t = 0.0f;
         Vec3 nrm;
         if (b.box) {
@@ -392,6 +474,21 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
     h.normal = bestN;
     h.distance = bestT;
     return h;
+}
+
+bool Physics3D::is_touching(World& world, Entity e, Vec3 dir, float tolerance) {
+    auto it = index_.find(e.bits());
+    if (it == index_.end()) return false;
+    const Body& a = bodies_[it->second];
+    if (!a.enabled || !a.hasShape || a.trigger || length_sq(dir) < 1e-12f) return false;
+    dir = normalize(dir);
+    for (const Body& b : bodies_) {
+        if (&b == &a || !b.enabled || !b.hasShape || b.trigger || !world.alive(b.e)) continue;
+        if (!filters_pass(a, b)) continue;
+        Contact c = collide(a, b, std::max(tolerance, 0.0f));
+        if (c.hit && dot(c.normal, dir) > 0.7f) return true;
+    }
+    return false;
 }
 
 std::vector<Entity> Physics3D::overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask) {

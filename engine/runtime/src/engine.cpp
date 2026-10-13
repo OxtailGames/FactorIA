@@ -307,6 +307,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_ERROR("script", "Script system init failed: {}", serr);
         I.startupProblems.push_back("script: " + serr);
     }
+    if (config.memoryStorage) I.scripts.set_storage_mode(StorageMode::Memory);
 
     I.initialized = true;
     set_log_frame(0);
@@ -500,6 +501,10 @@ Json Engine::state(const Json& query) {
 
 
 // ScriptHost
+std::string Engine::load_scene_json_now(const Json& scene, std::string_view sourceName) {
+    std::string err;
+    return impl_->load_scene_json_impl(scene, sourceName, &err) ? std::string() : (err.empty() ? "scene load failed" : err);
+}
 World& Engine::world() { return impl_->world; }
 Input& Engine::input() { return impl_->input; }
 Audio& Engine::audio() { return impl_->audio; }
