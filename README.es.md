@@ -34,8 +34,9 @@ Versión 0.1, primer hito completado. Funcionan todos los módulos del motor, la
 de ejemplo hechos por agentes de IA solo con la interfaz pública forman parte de
 los tests.
 
-La CI compila y prueba cada push en Linux, Windows (MSVC) y macOS, y compila la app
-de iOS para el simulador y la librería y el APK de Android. iOS y Android todavía
+La CI compila y prueba cada pull request y cada push a `main` en Linux, Windows
+(MSVC) y macOS, y compila la app de iOS para el simulador y la librería y el APK de
+Android. iOS y Android todavía
 no se ejecutan en dispositivos ni emuladores en la CI. Carencias abiertas y
 próximos hitos: [feedback/ROADMAP.md](feedback/ROADMAP.md) (en inglés).
 

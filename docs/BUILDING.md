@@ -200,10 +200,17 @@ MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
 Windows PC.
 
 `.github/workflows/ci.yml` runs the full five-platform matrix (Linux, Windows/MSVC,
-macOS, iOS Simulator, Android) on GitHub-hosted runners on every push and pull
-request; standard hosted runners are free for public repositories. A newer push
-to the same branch cancels the older run. `./scripts/ci-local.sh` runs the same
-kind of checks on your own machine before you push.
+macOS, iOS Simulator, Android) on GitHub-hosted runners; standard hosted runners
+are free for public repositories. It runs once per change:
+
+- **Pull requests**: every push to a branch with an open pull request.
+- **`main`**: every push (including merged pull requests).
+- **Other branches**: no automatic run, so a PR branch is not built twice. Start
+  one by hand from the Actions tab ("Run workflow") or open a pull request.
+
+A newer push to the same pull request or branch cancels the older run.
+`./scripts/ci-local.sh` runs the same kind of checks on your own machine before
+you push.
 
 ## Troubleshooting
 
