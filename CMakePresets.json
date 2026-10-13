@@ -83,7 +83,7 @@
       "generator": "Xcode",
       "cacheVariables": {
         "CMAKE_SYSTEM_NAME": "iOS",
-        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "16.3",
         "FA_BUILD_TOOLS": "OFF",
         "FA_BUILD_TESTS": "OFF"
       }

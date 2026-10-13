@@ -2,5 +2,313 @@
   "format": "factoria.feedback/1",
   "project": "Sky Hopper",
   "engineVersion": "0.1.0",
-  "entries": []
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Script imports resolve from project root, not importing file",
+      "missing": "import { state } from \"./game_state.js\" inside scripts/player.js fails (Cannot load module 'game_state.js'); relative specifiers are resolved against the project root, which contradicts normal ES module semantics and is not documented in scripting doc.",
+      "workaround": "Used project-root paths: import ... from \"scripts/game_state.js\"",
+      "workaroundFiles": [
+        "scripts/player.js",
+        "scripts/game_state.js"
+      ],
+      "suggestion": "Resolve ./ and ../ relative to the importing module (or document the root-relative rule in docs/SCRIPTING.md and mention it in the validate hint).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Unknown Script.props only warned at runtime, not by validate",
+      "missing": "Script props not declared as class fields (props.sceneName on Level) are only reported as a WARN during run; factoria validate says OK.",
+      "workaround": "Removed the prop manually after seeing the run log.",
+      "workaroundFiles": [
+        "scripts/level.js"
+      ],
+      "suggestion": "Have validate instantiate/inspect script class fields and flag unknown props with did-you-mean.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Generated types/factoria.d.ts is a placeholder (any)",
+      "missing": "factoria new writes a placeholder d.ts where every import is 'any', so @ts-check gives no help; real typings only via 'factoria api --dts' which AGENTS.md says to regenerate but new does not run.",
+      "workaround": "Relied on docs; did not use typings.",
+      "suggestion": "factoria new should write the real generated typings.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Template docs contradict: AGENTS.md says 2D origin is screen centre, camera needs manual placement for tilemap levels",
+      "missing": "No documented recipe for a level-bounds-clamped follow camera (both axes) nor for how Camera view size relates to orthoSize/design size when the window is resized; had to write follow_camera clamp by hand.",
+      "workaround": "scripts/follow_camera.js with minX/maxX/minY/maxY props and hardcoded 1280x720 view.",
+      "workaroundFiles": [
+        "scripts/follow_camera.js"
+      ],
+      "suggestion": "Add CameraFollow2D component or camera.viewSize / game.screenSize-based bounds clamp helper; document.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "rng cannot be seeded from script or tool arguments",
+      "missing": "project.generate_level takes a seed parameter, but RngAPI has only float/range/int/chance/pick/shuffle; no rng.seed(n) or rng.fork(seed), so seed->level determinism is impossible with the engine rng.",
+      "workaround": "Implemented mulberry32 PRNG inside the tool.",
+      "workaroundFiles": [
+        "tools/generate_level.js"
+      ],
+      "suggestion": "Add rng.seed(n) and/or rng.create(seed) returning an independent generator.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "raycast starting inside a collider returns the owner at distance 0",
+      "missing": "physics.raycast from an entity's centre returned its own entity at distance 0 (normal [0,0]), so a patrol enemy turned around every tick and never moved; no option to ignore an entity or exclude self, and docs do not mention it.",
+      "workaround": "Start rays outside the own collider (offset by half width + 2 px).",
+      "workaroundFiles": [
+        "scripts/enemy.js"
+      ],
+      "suggestion": "Add raycast option {ignore: entity|id} (or auto-ignore the origin's own collider), document inside-start behaviour.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "major",
+      "title": "No built-in patrol/ledge sensing or ground/wall query helpers",
+      "missing": "Enemy AI needs wall and ledge detection; only raycast exists (returns full entity JSON incl. huge Tilemap tiles array when stringified), no shape-cast, no contact-normal query for current contacts, no isTouchingWall.",
+      "workaround": "Two raycasts per fixed step in scripts/enemy.js.",
+      "workaroundFiles": [
+        "scripts/enemy.js"
+      ],
+      "suggestion": "Add entity.isTouching(dir) / physics.shapeCast and a lighter raycast result (entity id).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "ParticleEmitter burst is silently suppressed when emitting=false; no one-shot auto-destroy",
+      "missing": "Docs say burst fires 'once when the emitter starts', but emitting:false (the natural choice for one-shot) emits nothing. Also no autoDestroy/oneShot flag, so every coin pickup needs a timer to destroy the emitter entity.",
+      "workaround": "Use emitting:true with rate:0 and burst:N, and this.after(1, destroy).",
+      "workaroundFiles": [
+        "scripts/player.js"
+      ],
+      "suggestion": "Add ParticleEmitter oneShot/destroyOnFinish and document that burst needs emitting=true (or make burst independent).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "fs.write / fs.* commands unavailable to scripts inside factoria test",
+      "missing": "A project tool that calls fa.call('fs.write') works via 'factoria call' but throws Unknown command 'fs.write' when the same tool runs inside a test (headless test engine's registry lacks fs.*). docs/extending shows fs.write for level generators.",
+      "workaround": "Added a dryRun argument returning the scene JSON; test checks the JSON and loads a committed generated file instead.",
+      "workaroundFiles": [
+        "tools/generate_level.js",
+        "tests/platformer.test.js"
+      ],
+      "suggestion": "Register fs.* in the test runtime (sandboxed to project), or provide game.writeFile / a way for tests to load a scene from JSON (game.loadJson).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "No documented cross-scene persistent state",
+      "missing": "Lives/coins must survive scene.load (which drops all entities and listeners). Docs mention only storage (persistent save data on disk) and nothing about per-session global state.",
+      "workaround": "Module-level singleton scripts/game_state.js exported object (it persists between scenes and is shared with tests).",
+      "workaroundFiles": [
+        "scripts/game_state.js"
+      ],
+      "suggestion": "Document module-singleton persistence guarantee or add game.session / world.persistent state; make hot reload semantics clear.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Tests cannot reset state between tests except by reloading scenes; module state leaks",
+      "missing": "Module-level state (above) is not reset between tests; had to call resetState() manually in each test. No beforeEach at top level documented (only inside describe).",
+      "workaround": "load() helper calls resetState().",
+      "workaroundFiles": [
+        "tests/platformer.test.js"
+      ],
+      "suggestion": "Reload project modules between test files/tests or document the isolation rules; allow top-level beforeEach.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "factoria call runs each command in a fresh process, so game.step then script.eval do not share state",
+      "missing": "CLI 'factoria call game.step' followed by 'factoria call script.eval' shows an unstepped world; only MCP keeps a session. docs/cli does not say so clearly; debugging required writing a Python MCP stdio client.",
+      "workaround": "Small Python JSON-RPC client over 'factoria mcp'.",
+      "suggestion": "Add 'factoria repl' / 'factoria call --steps N' / a --session flag, and state in call --help that it is stateless.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "nice-to-have",
+      "title": "No one-way platforms",
+      "missing": "Collider2D has no oneWay option; all brick platforms are fully solid, so the player cannot jump up through them from below (ai-guide 9.5 also notes this).",
+      "workaround": "Dropped: platforms are solid; levels designed so headroom is clear.",
+      "suggestion": "Add Collider2D oneWay field enforced by physics, also for Tilemap solid tiles (per-tile one-way list).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "Tilemap has no per-tile entity hooks (coins/enemies/spawn must be separate entities)",
+      "missing": "Levels need object placement from a map; Tilemap only holds tile indices, no object layer, and no editor/ASCII import, so I wrote an external Python ASCII->scene builder and a JS generator.",
+      "workaround": "Scene generation scripts (scratch + tools/generate_level.js).",
+      "workaroundFiles": [
+        "tools/generate_level.js"
+      ],
+      "suggestion": "Tilemap object layer or 'scene.import_ascii' / 'tilemap.paint' commands; tile-to-prefab mapping.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "audio",
+      "severity": "nice-to-have",
+      "title": "No way to verify audio events in tests",
+      "missing": "game.* test API cannot assert that audio.play was called (jump/coin/stomp/hurt sounds are untestable); only --record-audio on run.",
+      "workaround": "Checked --record-audio output non-empty; no assertion in tests.",
+      "suggestion": "Add game.audioLog() / expect(audio).toHavePlayed(path) in tests.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Tilemap collision details undocumented (ghost edges, solid tile index semantics, trigger vs tile)",
+      "missing": "Docs do not state whether tilemap colliders are merged into larger shapes (affects ghost-collision with friction 0 players), nor the physics layer/mask of tile colliders.",
+      "workaround": "Used friction 0 on characters; no issues seen in tests.",
+      "suggestion": "Document how Tilemap collision is generated.",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
 }

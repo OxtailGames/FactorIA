@@ -1,0 +1,51 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Enemy_Bullet",
+    "tags": [
+      "projectile",
+      "ebullet"
+    ],
+    "components": {
+      "Transform": {
+        "position": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Sprite": {
+        "texture": "assets/img/glow_circle.png",
+        "size": [
+          24.0,
+          24.0
+        ],
+        "color": [
+          1,
+          0.5,
+          0.1,
+          1
+        ],
+        "layer": 8,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "kinematic"
+      },
+      "Collider2D": {
+        "shape": "circle",
+        "radius": 6.0,
+        "isTrigger": true,
+        "layer": 5,
+        "mask": 24
+      },
+      "Script": {
+        "path": "scripts/bullet.js",
+        "props": {
+          "friendly": false,
+          "damage": 1
+        }
+      }
+    }
+  }
+}

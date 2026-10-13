@@ -1,54 +1,923 @@
 {
-  "format": "factoria.scene/1",
-  "settings": {
-    "ambientLight": [0.3, 0.32, 0.38, 1],
-    "gravity3D": [0, -9.81, 0],
-    "skyColor": [0.45, 0.62, 0.85, 1],
-    "horizonColor": [0.8, 0.85, 0.9, 1]
-  },
-  "entities": [
-    {
-      "id": "camera",
-      "name": "Main Camera",
-      "components": {
-        "Transform": { "position": [0, 3, 8], "rotation": [-15, 0, 0] },
-        "Camera": { "projection": "perspective", "fov": 60, "primary": true },
-        "Script": { "path": "scripts/fly_camera.js", "props": { "speed": 6 } }
-      }
+ "format": "factoria.scene/1",
+ "settings": {
+  "ambientLight": [
+   0.35,
+   0.38,
+   0.5,
+   1
+  ],
+  "gravity3D": [
+   0,
+   -20,
+   0
+  ],
+  "skyColor": [
+   0.25,
+   0.45,
+   0.85,
+   1
+  ],
+  "horizonColor": [
+   0.95,
+   0.8,
+   0.7,
+   1
+  ],
+  "fogColor": [
+   0.85,
+   0.78,
+   0.78,
+   1
+  ],
+  "fogDensity": 0.012
+ },
+ "entities": [
+  {
+   "id": "camera",
+   "name": "Main Camera",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      5,
+      9
+     ],
+     "rotation": [
+      -22,
+      0,
+      0
+     ]
     },
-    {
-      "id": "sun",
-      "name": "Sun",
-      "components": {
-        "Transform": { "position": [0, 10, 0], "rotation": [-50, -30, 0] },
-        "Light": { "type": "directional", "intensity": 1.1, "castShadows": true }
-      }
+    "Camera": {
+     "projection": "perspective",
+     "fov": 60,
+     "primary": true,
+     "farPlane": 200
     },
-    {
-      "id": "floor",
-      "name": "Floor",
-      "components": {
-        "Transform": { "position": [0, 0, 0], "scale": [20, 1, 20] },
-        "MeshRenderer": { "mesh": "plane", "color": [0.35, 0.5, 0.35, 1] }
-      }
-    },
-    {
-      "id": "cube",
-      "name": "Spinning Cube",
-      "tags": ["spinner"],
-      "components": {
-        "Transform": { "position": [0, 1, 0] },
-        "MeshRenderer": { "mesh": "cube", "color": [0.9, 0.45, 0.2, 1], "metallic": 0.1, "roughness": 0.5 },
-        "Script": { "path": "scripts/spin.js", "props": { "degreesPerSecond": 45 } }
-      }
-    },
-    {
-      "id": "ball",
-      "name": "Ball",
-      "components": {
-        "Transform": { "position": [2.5, 0.5, -1] },
-        "MeshRenderer": { "mesh": "sphere", "color": [0.3, 0.55, 0.95, 1], "roughness": 0.3 }
-      }
+    "AudioListener": {},
+    "Script": {
+     "path": "scripts/chase_camera.js",
+     "props": {
+      "target": "ball"
+     }
     }
-  ]
+   }
+  },
+  {
+   "id": "sun",
+   "name": "Sun",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      20,
+      0
+     ],
+     "rotation": [
+      -55,
+      -35,
+      0
+     ]
+    },
+    "Light": {
+     "type": "directional",
+     "intensity": 1.2,
+     "color": [
+      1,
+      0.96,
+      0.88,
+      1
+     ],
+     "castShadows": true
+    }
+   }
+  },
+  {
+   "id": "plat_start",
+   "name": "Platform start",
+   "tags": [
+    "platform"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      0
+     ],
+     "scale": [
+      8,
+      1,
+      8
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      4.0,
+      4.0
+     ],
+     "roughness": 0.8
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "plat_a",
+   "name": "Platform a",
+   "tags": [
+    "platform"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      -9
+     ],
+     "scale": [
+      6,
+      1,
+      6
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      3.0,
+      3.0
+     ],
+     "roughness": 0.8
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "plat_b",
+   "name": "Platform b",
+   "tags": [
+    "platform"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0,
+      -16
+     ],
+     "scale": [
+      6,
+      1,
+      6
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      3.0,
+      3.0
+     ],
+     "roughness": 0.8
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "plat_c",
+   "name": "Platform c",
+   "tags": [
+    "platform"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0,
+      -32
+     ],
+     "scale": [
+      6,
+      1,
+      6
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      3.0,
+      3.0
+     ],
+     "roughness": 0.8
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "plat_d",
+   "name": "Platform d",
+   "tags": [
+    "platform"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0,
+      -39
+     ],
+     "scale": [
+      6,
+      1,
+      6
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      3.0,
+      3.0
+     ],
+     "roughness": 0.8
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "plat_goal",
+   "name": "Platform goal",
+   "tags": [
+    "platform"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0,
+      -56
+     ],
+     "scale": [
+      8,
+      1,
+      8
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      4.0,
+      4.0
+     ],
+     "roughness": 0.8
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "mover_1",
+   "name": "Mover 1",
+   "tags": [
+    "mover"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0,
+      -24
+     ],
+     "scale": [
+      4,
+      1,
+      4
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      0.75,
+      0.3,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      2,
+      2
+     ]
+    },
+    "RigidBody3D": {
+     "type": "kinematic"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Script": {
+     "path": "scripts/mover.js",
+     "props": {
+      "amplitude": [
+       5,
+       0,
+       0
+      ],
+      "speed": 0.8
+     }
+    }
+   }
+  },
+  {
+   "id": "mover_2",
+   "name": "Mover 2",
+   "tags": [
+    "mover"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0,
+      -47.5
+     ],
+     "scale": [
+      4,
+      1,
+      4
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cube",
+     "color": [
+      1,
+      0.75,
+      0.3,
+      1
+     ],
+     "texture": "assets/textures/tile.png",
+     "uvScale": [
+      2,
+      2
+     ]
+    },
+    "RigidBody3D": {
+     "type": "kinematic"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      1,
+      1
+     ]
+    },
+    "Script": {
+     "path": "scripts/mover.js",
+     "props": {
+      "amplitude": [
+       0,
+       0,
+       2.5
+      ],
+      "speed": 0.7
+     }
+    }
+   }
+  },
+  {
+   "id": "checkpoint_1",
+   "name": "Checkpoint 1",
+   "tags": [
+    "checkpoint"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.52,
+      -9
+     ],
+     "scale": [
+      3,
+      0.06,
+      3
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cylinder",
+     "color": [
+      0.3,
+      1,
+      0.5,
+      1
+     ],
+     "emissive": [
+      0.1,
+      0.5,
+      0.2,
+      1
+     ],
+     "castShadows": false
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      30,
+      1
+     ],
+     "isTrigger": true,
+     "offset": [
+      0,
+      10,
+      0
+     ]
+    },
+    "Script": {
+     "path": "scripts/checkpoint.js"
+    }
+   }
+  },
+  {
+   "id": "checkpoint_2",
+   "name": "Checkpoint 2",
+   "tags": [
+    "checkpoint"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.52,
+      -32
+     ],
+     "scale": [
+      3,
+      0.06,
+      3
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cylinder",
+     "color": [
+      0.3,
+      1,
+      0.5,
+      1
+     ],
+     "emissive": [
+      0.1,
+      0.5,
+      0.2,
+      1
+     ],
+     "castShadows": false
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      30,
+      1
+     ],
+     "isTrigger": true,
+     "offset": [
+      0,
+      10,
+      0
+     ]
+    },
+    "Script": {
+     "path": "scripts/checkpoint.js"
+    }
+   }
+  },
+  {
+   "id": "checkpoint_3",
+   "name": "Checkpoint 3",
+   "tags": [
+    "checkpoint"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.52,
+      -39
+     ],
+     "scale": [
+      3,
+      0.06,
+      3
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "cylinder",
+     "color": [
+      0.3,
+      1,
+      0.5,
+      1
+     ],
+     "emissive": [
+      0.1,
+      0.5,
+      0.2,
+      1
+     ],
+     "castShadows": false
+    },
+    "RigidBody3D": {
+     "type": "static"
+    },
+    "Collider3D": {
+     "shape": "box",
+     "size": [
+      1,
+      30,
+      1
+     ],
+     "isTrigger": true,
+     "offset": [
+      0,
+      10,
+      0
+     ]
+    },
+    "Script": {
+     "path": "scripts/checkpoint.js"
+    }
+   }
+  },
+  {
+   "id": "ball",
+   "name": "Ball",
+   "tags": [
+    "player"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      1.2,
+      2
+     ]
+    },
+    "MeshRenderer": {
+     "mesh": "sphere",
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "texture": "assets/textures/ball.png",
+     "roughness": 0.35
+    },
+    "RigidBody3D": {
+     "type": "dynamic",
+     "mass": 1,
+     "linearDamping": 0.0
+    },
+    "Collider3D": {
+     "shape": "sphere",
+     "radius": 0.5,
+     "friction": 0.0,
+     "layer": 1
+    },
+    "Script": {
+     "path": "scripts/ball.js",
+     "props": {
+      "cameraId": "camera"
+     }
+    }
+   }
+  },
+  {
+   "id": "game",
+   "name": "Game Manager",
+   "components": {
+    "Script": {
+     "path": "scripts/game.js",
+     "props": {
+      "timeLimit": 90,
+      "gemCount": 8,
+      "seed": 7
+     }
+    }
+   }
+  },
+  {
+   "id": "hud_panel_l",
+   "components": {
+    "Transform": {
+     "position": [
+      137,
+      55,
+      0
+     ]
+    },
+    "Shape2D": {
+     "shape": "rectangle",
+     "size": [
+      250,
+      86
+     ],
+     "color": [
+      0,
+      0,
+      0,
+      0.45
+     ],
+     "space": "screen",
+     "layer": 90
+    }
+   }
+  },
+  {
+   "id": "hud_panel_r",
+   "components": {
+    "Transform": {
+     "position": [
+      1143,
+      55,
+      0
+     ]
+    },
+    "Shape2D": {
+     "shape": "rectangle",
+     "size": [
+      250,
+      86
+     ],
+     "color": [
+      0,
+      0,
+      0,
+      0.45
+     ],
+     "space": "screen",
+     "layer": 90
+    }
+   }
+  },
+  {
+   "id": "hud_time",
+   "name": "hud_time",
+   "components": {
+    "Transform": {
+     "position": [
+      28,
+      28,
+      0
+     ]
+    },
+    "Text": {
+     "text": "Time 90.0",
+     "fontSize": 36,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "pivot": [
+      0,
+      1
+     ],
+     "align": "left",
+     "space": "screen",
+     "layer": 101
+    }
+   }
+  },
+  {
+   "id": "hud_gems",
+   "name": "hud_gems",
+   "components": {
+    "Transform": {
+     "position": [
+      1252,
+      28,
+      0
+     ]
+    },
+    "Text": {
+     "text": "Gems 0/8",
+     "fontSize": 36,
+     "color": [
+      0.5,
+      0.95,
+      1,
+      1
+     ],
+     "pivot": [
+      1,
+      1
+     ],
+     "align": "right",
+     "space": "screen",
+     "layer": 101
+    }
+   }
+  },
+  {
+   "id": "hud_msg",
+   "name": "hud_msg",
+   "components": {
+    "Transform": {
+     "position": [
+      640,
+      300,
+      0
+     ]
+    },
+    "Text": {
+     "text": "",
+     "fontSize": 72,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "pivot": [
+      0.5,
+      0.5
+     ],
+     "align": "center",
+     "space": "screen",
+     "layer": 110
+    }
+   }
+  },
+  {
+   "id": "hud_sub",
+   "name": "hud_sub",
+   "components": {
+    "Transform": {
+     "position": [
+      640,
+      380,
+      0
+     ]
+    },
+    "Text": {
+     "text": "",
+     "fontSize": 28,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "pivot": [
+      0.5,
+      0.5
+     ],
+     "align": "center",
+     "space": "screen",
+     "layer": 110
+    }
+   }
+  },
+  {
+   "id": "overlay",
+   "components": {
+    "Transform": {
+     "position": [
+      640,
+      360,
+      0
+     ]
+    },
+    "Shape2D": {
+     "shape": "rectangle",
+     "size": [
+      1280,
+      720
+     ],
+     "color": [
+      0,
+      0,
+      0,
+      0
+     ],
+     "space": "screen",
+     "layer": 100
+    }
+   }
+  }
+ ]
 }

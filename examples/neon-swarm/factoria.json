@@ -4,18 +4,51 @@
   "id": "com.factoria.examples.neonswarm",
   "version": "0.1.0",
   "engine": "0.1.0",
-  "mainScene": "scenes/main.scene.json",
-  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
-  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "mainScene": "scenes/title.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": false
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
   "input": {
     "actions": {
-      "move_left": ["A", "Left"],
-      "move_right": ["D", "Right"],
-      "move_up": ["W", "Up"],
-      "move_down": ["S", "Down"],
-      "action": ["Space", "MouseLeft", "Touch"]
+      "move_left": [
+        "A",
+        "Left"
+      ],
+      "move_right": [
+        "D",
+        "Right"
+      ],
+      "move_up": [
+        "W",
+        "Up"
+      ],
+      "move_down": [
+        "S",
+        "Down"
+      ],
+      "action": [
+        "Space",
+        "MouseLeft",
+        "Touch"
+      ]
     }
   },
-  "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "platforms": [
+    "windows",
+    "macos",
+    "linux",
+    "ios",
+    "android"
+  ],
   "feedbackFile": "ENGINE_FEEDBACK.json"
 }
