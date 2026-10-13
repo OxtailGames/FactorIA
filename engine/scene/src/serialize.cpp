@@ -1,7 +1,9 @@
 #include "fa/scene/serialize.h"
 
 #include <algorithm>
+#include <limits>
 #include <set>
+#include <span>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -565,7 +567,40 @@ Json save_scene(const World& world) {
     return scene;
 }
 
-Result<void> save_scene_file(const World& world, std::string_view path) { return save_json_file(path, save_scene(world)); }
+namespace {
+
+// Elements per line for a flat Tilemap `tiles` array: the component's `width` (0 = no row layout).
+int tilemap_row_length(std::span<const std::string> path, const Json& parent, const Json&) {
+    const std::size_t n = path.size();
+    if (n < 3 || path[n - 1] != "tiles" || path[n - 2] != "Tilemap" || path[n - 3] != "components") return 0;
+    if (!parent.is_object()) return 0;
+    auto it = parent.find("width");
+    if (it == parent.end() || !it->is_number_integer()) return 0;
+    const std::int64_t width = it->get<std::int64_t>();
+    return width > 0 && width <= std::numeric_limits<int>::max() ? static_cast<int>(width) : 0;
+}
+
+const JsonFormat& scene_json_format() {
+    static const JsonFormat format = [] {
+        JsonFormat f;
+        f.maxWidth = 100;
+        f.rowLength = tilemap_row_length;
+        return f;
+    }();
+    return format;
+}
+
+}  // namespace
+
+std::string dump_scene_json(const Json& sceneOrPrefab) { return dump_json(sceneOrPrefab, scene_json_format()); }
+
+Result<void> save_scene_json_file(std::string_view path, const Json& sceneOrPrefab) {
+    return save_json_file(path, sceneOrPrefab, scene_json_format());
+}
+
+Result<void> save_scene_file(const World& world, std::string_view path) {
+    return save_scene_json_file(path, save_scene(world));
+}
 
 // ---------------------------------------------------------------- prefabs --
 Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity parent, LoadReport& report, const Json& overrides) {
