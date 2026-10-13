@@ -65,12 +65,13 @@ camera, `level` script and HUD of the scene alone. It writes the scene in the en
 row of `tiles` per line, no `columns`: it is derived from `assets/tileset.png`). The ids stay `player`, `goal`,
 `coin_1`..`coin_N` and `enemy_1`..`enemy_N` (reading order), which the scripts and tests rely on.
 
-Things to keep in sync by hand: when you change the size of a map, set the camera limits (`maxX` = columns * 32,
-`maxY` = rows * 32) in the scene's `camera` entity. A test checks it, and checks that each scene equals what its
-map builds, so a forgotten rebuild fails `factoria test`.
+The camera limits need no upkeep: `scripts/follow_camera.js` takes them from the `map` Tilemap (`entity.bounds()`,
+named by the `"bounds": "map"` prop of the `camera` entity), so a bigger or smaller map moves them with it. A test
+checks that each scene equals what its map builds, so a forgotten rebuild fails `factoria test`.
 
-**A new level:** copy `levels/generator_base.scene.json` to `scenes/levelN.scene.json`, set `levelIndex` and the
-camera limits in it, copy a map to `levels/levelN.json`, edit it, and run the command above for it. Make the
+**A new level:** copy `levels/generator_base.scene.json` to `scenes/levelN.scene.json`, set `levelIndex` in it
+(the camera follows the map through `"bounds": "map"`; `minX`..`maxY` props would only narrow the map's limits, so
+delete them from the copy), copy a map to `levels/levelN.json`, edit it, and run the command above for it. Make the
 previous level's `F` legend `next` point at the new scene.
 
 ## Generated level
@@ -86,9 +87,9 @@ factoria call project.generate_level '{"width":40,"seed":2,"dryRun":true}'      
 
 The tool calls `scene.import_ascii {path, from, dryRun}`, which edits the scene FILE in a scratch world: the running
 game is never touched, so there is nothing to save first or restore afterwards. `from` is a copy of
-`levels/generator_base.scene.json` with this level's camera limits, sky colour and level number, which the tool
+`levels/generator_base.scene.json` with this level's sky colour and level number, which the tool
 writes to `.factoria/tmp/` (the scratch folder) and deletes again. With `dryRun` nothing but that scratch copy is
 written and the scene JSON comes back in `scene`.
 
-The tool keeps its own small PRNG (`mulberry32`) instead of `rng.seed(seed)`: `rng.seed` reseeds the single world
-RNG that the running game draws from, and a script cannot read that state back to restore it.
+The tool draws its random numbers from `rng.create(seed)`, an independent generator: `rng.seed(seed)` would reseed
+the single world RNG that the running game draws from. The same seed gives the same level on every platform.

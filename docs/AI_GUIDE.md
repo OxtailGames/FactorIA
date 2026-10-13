@@ -170,11 +170,12 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | 3D | Units are meters. Right-handed, +Y up. A perspective camera looks down its local -Z axis. |
 | Angles | Degrees. In 2D only `rotation[2]` is used, counter-clockwise. In 3D, `rotation` is `[pitch X, yaw Y, roll Z]` and the matrix is `Ry(yaw) · Rx(pitch) · Rz(roll)`. |
 | Colors | `[r, g, b, a]` with values 0..1, `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`, or a name: white, black, red, green, blue, yellow, cyan, magenta, gray, grey, orange, purple, pink, brown, transparent. If any value in an array is above 1, the engine reads the array as 0..255 bytes, so keep to 0..1. |
+| Rects | `{x, y, w, h}` or `[x, y, w, h]` (`physics.overlapBox`, `debug.rect`, `entity.bounds()`): `(x, y)` is the minimum corner, the BOTTOM-LEFT in the +Y-up world, and `w`, `h` the size. |
 | Vectors | In scripts, a vector argument accepts `Vec2`/`Vec3` values, `{x, y}` or `[x, y]`. In JSON, use arrays (`[x, y]` or `[x, y, z]`); `{x, y}` objects also work in component fields. |
 | Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"` or `"Touch"` (any finger down). Gamepad names are reserved and not supported yet. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. |
-| Determinism | Random numbers come from `rng` (imported from "factoria"). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
+| Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
 | Names | JSON keys are camelCase. Components are PascalCase (`RigidBody2D`). Enum values are lowercase (`"orthographic"`, `"additive"`). Commands are `area.verb_object`. |
 | Secrets | Never put API keys in a project. They belong in `~/.factoria/ai.json` or in environment variables. |
 
@@ -323,7 +324,7 @@ Timing you can rely on:
 
 Inside a behaviour: `this.entity` (the owning entity), `this.world`, `this.after(seconds, fn)` and `this.every(seconds, fn)` (timers that stop when the entity is destroyed; both return a handle with `.cancel()`), `this.on(name, fn)` (an event listener), and `this.enabled` (false skips the update callbacks).
 
-Entity members: `id`, `name`, `tags`, `active`, `alive`, `transform`, `position`, `worldPosition`, `get(name)` (a live view, or `null`), `add(name, fields)`, `set(name, fields)`, `has`, `remove`, `destroy()` (deferred to the end of the frame), `hasTag`, `addTag`, `removeTag`, `parent`, `children`, `setParent`, `behaviour`, `send(method, ...args)`, `isGrounded(tolerance?)` (2D pixels or 3D meters), `isTouching(direction, tolerance?)`, `emitBurst(count)` and `toJSON()`.
+Entity members: `id`, `name`, `tags`, `active`, `alive`, `transform`, `position`, `worldPosition`, `bounds()` (the world rectangle of its 2D visual, section 9.6), `get(name)` (a live view, or `null`), `add(name, fields)`, `set(name, fields)`, `has`, `remove`, `destroy()` (deferred to the end of the frame), `hasTag`, `addTag`, `removeTag`, `parent`, `children`, `setParent`, `behaviour`, `send(method, ...args)`, `isGrounded(tolerance?)` (2D pixels or 3D meters), `isTouching(direction, tolerance?)`, `emitBurst(count)` and `toJSON()`.
 
 `entity.isTouching([1, 0])` is true when a solid body touches this entity on the right; `[-1, 0]` is left, `[0, -1]` is the ground below, `[0, 1]` the ceiling. Triggers never count.
 
@@ -338,7 +339,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 pauses gameplay); `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused`, `game.project`, `game.screenSize`; `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
-| `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`; `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
+| `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
 | `vec2`, `vec3`, `color` | constructors, for example `vec2(10, 0)`, `vec3([0, 4, 9])` or `color("#ffcc00")` |
 | `ToolError` | `new ToolError(message, hint, data?)` for a failed check in a tool (section A of `docs_read {"name":"extending"}`) |
@@ -510,24 +511,31 @@ One-way applies to the entity's collider, not to Tilemap solid tiles. For a jump
 
 ### 9.6 Camera follow with level bounds
 
-The camera stays inside the level rectangle. The rectangle lives in a JSON file that the script imports (section 9.16):
+The camera stays inside the level rectangle. Take that rectangle from the level's `Tilemap` with `entity.bounds()` instead of copying the map size into props, so the limits cannot drift from the map. The camera script gets the id of the Tilemap entity:
 
 ```js
 // scripts/follow_camera.js
 import { Behaviour, math } from "factoria";
-import levels from "../data/levels.json";
 
 export default class FollowCamera extends Behaviour {
   target = "player";
-  smoothing = 8;   // higher is snappier
+  bounds = "map";    // id of the level's Tilemap entity; "" = no limits
+  smoothing = 8;     // higher is snappier
+
+  clampPos(x, y) {
+    const area = this.bounds ? this.world.find(this.bounds)?.bounds() : null; // { x, y, w, h } or null
+    if (!area) return [x, y];
+    const halfW = 640, halfH = 360; // half of the 1280x720 design size (orthoSize 0)
+    // A level smaller than the view has an empty clamp range: centre on the level instead.
+    const cx = area.w <= 2 * halfW ? area.x + area.w / 2 : math.clamp(x, area.x + halfW, area.x + area.w - halfW);
+    const cy = area.h <= 2 * halfH ? area.y + area.h / 2 : math.clamp(y, area.y + halfH, area.y + area.h - halfH);
+    return [cx, cy];
+  }
 
   onLateUpdate(dt) { // after all updates, so the target has already moved
     const t = this.world.find(this.target);
     if (!t) return;
-    const { minX, minY, maxX, maxY } = levels.bounds;
-    const halfW = 640, halfH = 360; // half of the 1280x720 design size (orthoSize 0)
-    const tx = math.clamp(t.position.x, minX + halfW, maxX - halfW);
-    const ty = math.clamp(t.position.y, minY + halfH, maxY - halfH);
+    const [tx, ty] = this.clampPos(t.position.x, t.position.y);
     const p = this.entity.position;
     p.x = math.damp(p.x, tx, this.smoothing, dt);
     p.y = math.damp(p.y, ty, this.smoothing, dt);
@@ -535,7 +543,11 @@ export default class FollowCamera extends Behaviour {
 }
 ```
 
-`data/levels.json` holds `{ "bounds": { "minX": -640, "minY": -360, "maxX": 1000, "maxY": 720 } }`. If the level is narrower than the view, `minX + halfW` is greater than `maxX - halfW`, the clamp range is empty, and the result depends on the target. Centre the camera on `(minX + maxX) / 2` in that case.
+In the scene the camera entity has `"Script": { "path": "scripts/follow_camera.js", "props": { "target": "player", "bounds": "map" } }`, where `map` is the id of the Tilemap (the entity `scene.import_ascii` writes, section 9.8).
+
+`bounds()` returns `{ x, y, w, h }` in world units: `(x, y)` is the BOTTOM-LEFT corner (+Y up), `x + w` is the right edge and `y + h` the top edge, the same `Rect` that `physics.overlapBox` takes. For a Tilemap it is the map size (`width` x `height` tiles, or the rows) times `tileSize`, placed by the entity's transform; the entity position is the map's top-left corner. A map imported with `anchor: "bottom-left"` at `[0, 0]` gives `{ x: 0, y: 0, w: columns * tileSize, h: rows * tileSize }`. Resize or move the map and the camera limits follow. It also works for a `Sprite` (a background picture) or a `Shape2D` (an arena floor). It returns `null` for an entity without a world-space 2D visual (an empty map, a `space: "screen"` item); the script above then does not clamp. Calling it every frame is fine.
+
+A level that is not a Tilemap keeps its rectangle in a JSON file that the script imports (section 9.16): `import levels from "../data/levels.json"` with `{ "bounds": { "minX": -640, "minY": -360, "maxX": 1000, "maxY": 720 } }`, and the same clamp with those numbers.
 
 ### 9.7 Sounds and music
 
@@ -619,6 +631,8 @@ factoria call scene.import_ascii @levels/level1.json       # level1.json carries
 **The safe workflow for a level.** Keep the map in a JSON file (`levels/level1.json`) with `"path": "scenes/level1.scene.json"` and rebuild it with `factoria call scene.import_ascii @levels/level1.json` from the project folder. No `--scene`, no `scene_load`, no `scene_save`. Without `path` the same file with `"save": true` would, on a `factoria call` without `--scene`, rewrite the project's main scene with the wrong map. The engine therefore refuses `save` without `path` while the running scene is only the default `mainScene` (nobody passed `--scene` or called `scene.load`, and it is not the editor): the error `unsafe_save` names the file it would have overwritten and says to add `path`, or to choose the scene first on purpose (`--scene scenes/main.scene.json`). When `save` is allowed, the result's `notes` say `SAVED '<file>'` and that it is the running scene.
 
 **Scratch files (`.factoria/tmp/`).** `.factoria/` holds what the engine and its tools produce (screenshots, save games, AI transcripts, editor state); `scene_save`, `scene_import_ascii` with `path`, `fs_write`, `fs_edit` and `fs_delete` refuse to write or delete there, with one exception that all of them share: `.factoria/tmp/` is a scratch folder where files can be created, overwritten and deleted (for example a generated base scene, or a test's output). `fs_list` and `fs_search` hide `.factoria/` but show a `path` inside `.factoria/tmp`. It is not committed.
+
+The map's world rectangle is `world.find("map").bounds()` (`{ x, y, w, h }`, bottom-left corner and size): use it for camera limits, kill planes and spawn areas instead of repeating `columns * tileSize` in props (section 9.6).
 
 What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`, so its centre is `(px + (col+0.5)*tw, py - (row+0.5)*th)`.
 
@@ -835,7 +849,14 @@ import levels from "../data/levels.json";   // the parsed file, as the default e
 const { minX, maxX } = levels.bounds;
 ```
 
-Hot reload covers JSON too. A syntax error is reported against the `.json` file. For levels that must be generated from parameters, write a project tool. For a tile level it composes ASCII `rows` and calls `scene.import_ascii` with `path` and `from` (section 9.8), which writes the scene file without touching the running game; for anything else it builds the scene and writes it with `fs.write` (see `docs_read {"name":"extending"}`, A.1).
+Hot reload covers JSON too. A syntax error is reported against the `.json` file. For levels that must be generated from parameters, write a project tool. For a tile level it composes ASCII `rows` and calls `scene.import_ascii` with `path` and `from` (section 9.8), which writes the scene file without touching the running game; for anything else it builds the scene and writes it with `fs.write` (see `docs_read {"name":"extending"}`, A.1). A generator that must give the same level for the same seed draws its random numbers from `rng.create(seed)`, not from `rng` and not from `rng.seed(seed)`: `rng.seed` reseeds the single world RNG the running game draws from (and a script cannot restore its state), while `rng.create` is an independent generator that never touches it:
+
+```js
+import { rng } from "factoria";
+
+const r = rng.create(seed);   // mulberry32: the same seed gives the same sequence on every platform and engine version
+const width = r.int(30, 60);  // inclusive; also r.float(), r.range(a, b), r.chance(p), r.pick(list), r.shuffle(list)
+```
 
 ### 9.17 3D chase camera
 
@@ -1071,6 +1092,8 @@ The same format works with `factoria call --input` and `factoria session --input
 - Forgetting the primary `Camera`.
 - Using `pivot: [0, 0]` for top-left screen text. Text pivots are y-up: top-left is `[0, 1]`.
 - Expecting Tilemap solid tiles to be one-way. Use a one-way entity for jump-through ledges.
+- Copying the map size into camera limit props (`minX`, `maxX`, ...). They go stale when the map changes. Read the rectangle from the Tilemap with `entity.bounds()` (section 9.6).
+- Seeding a level generator with `rng.seed(n)`. That reseeds the game's one RNG. Use `rng.create(n)` (section 9.16).
 - Placing coins, enemies and spawn points by hand, or writing a script that generates the level. Put them in the legend of `scene.import_ascii` (section 9.8) and re-import after every edit.
 - Probing for ground in the first fixed step after a spawn (section 9.14).
 - Reading `game.world` or `game.time` in `script.eval`. Use `world` and `time`.

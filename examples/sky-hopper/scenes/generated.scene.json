@@ -19,10 +19,7 @@
           "props": {
             "target": "player",
             "smoothing": 8,
-            "minX": 0,
-            "maxX": 2880,
-            "minY": 0,
-            "maxY": 512
+            "bounds": "map"
           }
         }
       }

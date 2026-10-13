@@ -9,15 +9,23 @@ function load(path = "scenes/level1.scene.json") {
   return game.find("player");
 }
 
-// The follow camera stops at the edge of the map: its limits are scene data (Script props), not derived from the Tilemap,
-// so they must be changed together with the size of the map.
+// The follow camera stops at the edge of the map. It does not keep its own copy of the map size: the clamp rectangle is
+// the bounds() of the Tilemap entity named by its `bounds` prop, so it follows the map when the map changes size.
 function expectCameraFitsMap() {
   const map = fa.call("scene.get_entity", { id: "map" }).components.Tilemap;
-  const cam = fa.call("scene.get_entity", { id: "camera" }).components.Script.props;
-  expect(cam.minX).toBe(0);
-  expect(cam.minY).toBe(0);
-  expect(cam.maxX).toBe(map.width * map.tileSize[0]);
-  expect(cam.maxY).toBe(map.height * map.tileSize[1]);
+  const area = game.find("map").bounds();
+  // The map is imported with anchor bottom-left at the origin: it covers (0, 0) to (columns * tile, rows * tile).
+  expect([area.x, area.y, area.w, area.h]).toEqual([0, 0, map.width * map.tileSize[0], map.height * map.tileSize[1]]);
+  const lim = game.find("camera").behaviour.limits();
+  expect([lim.minX, lim.minY, lim.maxX, lim.maxY]).toEqual([area.x, area.y, area.x + area.w, area.y + area.h]);
+}
+
+// No level scene carries hand-set camera limits (they would drift from the map): the camera only names the Tilemap
+// entity. That holds for the hand-made levels and for scenes/generated.scene.json written by project.generate_level.
+function expectCameraDerivesLimitsFromMap() {
+  const props = fa.call("scene.get_entity", { id: "camera" }).components.Script.props;
+  expect(props.bounds).toBe("map");
+  for (const key of ["minX", "maxX", "minY", "maxY"]) expect(props[key]).toBe(undefined);
 }
 
 test("player lands on the ground", () => {
@@ -187,6 +195,21 @@ test("camera follows the player but stays inside level bounds", () => {
   expect(cam.position.x).toBeLessThan(1281);
 });
 
+// Whatever the map size, the camera view stays inside the Tilemap: it stops half a view from each edge, and a map lower than
+// the view (512 px against 720 px) is centred.
+for (const path of ["scenes/level1.scene.json", "scenes/level2.scene.json", "scenes/generated.scene.json"]) {
+  test(`the camera in ${path} clamps to the edges of the Tilemap`, () => {
+    load(path);
+    const area = game.find("map").bounds();
+    const cam = game.find("camera").behaviour;
+    expect(cam.clampPos(-1e6, 0)[0]).toBe(area.x + cam.viewW / 2);
+    expect(cam.clampPos(1e6, 0)[0]).toBe(area.x + area.w - cam.viewW / 2);
+    expect(area.h).toBeLessThan(cam.viewH);
+    expect(cam.clampPos(0, -1e6)[1]).toBe(area.y + area.h / 2);
+    expect(cam.clampPos(0, 1e6)[1]).toBe(area.y + area.h / 2);
+  });
+}
+
 test("project.generate_level is deterministic and has the required entities", () => {
   const args = { width: 60, seed: 5, difficulty: 2, dryRun: true };
   const a = fa.call("project.generate_level", args);
@@ -237,7 +260,8 @@ test("project.generate_level composes ASCII rows and scene.import_ascii builds t
   expect(out.scene.entities.filter((e) => e.id.startsWith("coin_")).length).toBe(6);
   expect(byId.coin_1.components.Transform.position).toEqual(at(9, 9)); // ids are row-major
   expect(out.enemies).toBe(1);
-  expect(byId.camera.components.Script.props.maxX).toBe(30 * 32);
+  expect(byId.camera.components.Script.props.bounds).toBe("map"); // limits come from the map, not from props
+  expect(byId.camera.components.Script.props.maxX).toBe(undefined);
 });
 
 // scene.import_ascii {path, from} edits the scene FILE in a scratch world: there is nothing to restore afterwards.
@@ -307,12 +331,14 @@ for (const name of ["level1", "level2"]) {
     resetState();
     game.load(scene);
     expectCameraFitsMap();
+    expectCameraDerivesLimitsFromMap();
   });
 }
 
 test("the committed generated level (scenes/generated.scene.json) loads and runs", () => {
   const p = load("scenes/generated.scene.json");
   expectCameraFitsMap();
+  expectCameraDerivesLimitsFromMap();
   expect(p.position.y).toBeGreaterThan(100);
   expect(game.find("goal")).not.toBeNull();
   const goal = game.find("goal");

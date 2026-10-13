@@ -467,6 +467,7 @@
       if (b && typeof b[method] === "function") return b[method](...args);
       return undefined;
     }
+    bounds() { const b = N.bounds(this.$h); return b === null ? null : new Rect(b[0], b[1], b[2], b[3]); }
     isGrounded(tolerance) { return N.isGrounded(this.$h, tolerance === undefined ? -1 : tolerance); }
     isTouching(direction, tolerance) { const d = vecArr(direction, 3, "entity.isTouching(direction)"); return N.isTouching(this.$h, d[0], d[1], d[2], tolerance === undefined ? (N.hasComp(this.$h, "RigidBody3D") || N.hasComp(this.$h, "Collider3D") ? 0.05 : 2) : tolerance); }
     emitBurst(count = 10) { N.particlesBurst(this.$h, count); }
@@ -733,6 +734,47 @@
     clear() { N.storageClear(); },
   };
 
+  // rng.create(seed): an independent seeded generator that never touches the world RNG (see rng in docs/SCRIPTING.md).
+  // The algorithm is mulberry32 (32-bit state, one step per draw, 32-bit output / 2^32). The algorithm and the number of
+  // draws each method consumes are documented as stable across engine versions, so a stored seed keeps giving the same
+  // level, name or loot table: float/range/int/chance draw once per call, pick draws once (not for an empty array),
+  // shuffle draws length - 1 times (Fisher-Yates from the end).
+  function createRng(seed) {
+    if (typeof seed !== "number" || !Number.isFinite(seed)) {
+      throw new Error(`rng.create(seed) expects a finite number, e.g. rng.create(12345), but got ${inspect(seed)}`);
+    }
+    let state = seed >>> 0;
+    const next = () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const nums = (method, a, b) => {
+      if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b)) {
+        throw new Error(`generator.${method}(min, max) expects two finite numbers, e.g. generator.${method}(1, 6), but got ${inspect(a)} and ${inspect(b)}`);
+      }
+    };
+    return {
+      float: () => next(),
+      range(a, b) { nums("range", a, b); return a + (b - a) * next(); },
+      int(a, b) {
+        nums("int", a, b);
+        const lo = Math.trunc(a), hi = Math.trunc(b);
+        const r = next();  // always one draw, also for an empty range, so the sequence does not depend on the arguments
+        return hi <= lo ? lo : lo + Math.floor(r * (hi - lo + 1));
+      },
+      chance(p = 0.5) { return next() < p; },
+      pick(arr) { if (!arr || arr.length === 0) return undefined; return arr[Math.floor(next() * arr.length)]; },
+      shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(next() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; },
+      seed(n) {
+        if (typeof n !== "number" || !Number.isFinite(n)) throw new Error(`generator.seed(n) expects a finite number, e.g. generator.seed(12345), but got ${inspect(n)}`);
+        state = n >>> 0;
+      },
+    };
+  }
+
   const rng = {
     float: () => N.rngFloat(),
     range: (a, b) => N.rngRange(a, b),
@@ -741,6 +783,7 @@
     pick(arr) { if (!arr || arr.length === 0) return undefined; return arr[N.rngInt(0, arr.length - 1)]; },
     seed(n) { if (typeof n !== "number" || !Number.isFinite(n)) throw new Error("rng.seed(n) expects a finite number, e.g. rng.seed(12345)"); N.rngSeed(n); },
     shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = N.rngInt(0, i); [a[i], a[j]] = [a[j], a[i]]; } return a; },
+    create: (seed) => createRng(seed),
   };
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).

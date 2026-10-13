@@ -8,11 +8,12 @@
 // scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch world, so the running game is never touched
 // (no scene is loaded, saved or restored, audio and physics keep going):
 //   1. copy levels/generator_base.scene.json (settings, camera, level script and HUD, no map) to a scratch file in
-//      .factoria/tmp/ with the camera limits, the sky colour and the level number set for this map
+//      .factoria/tmp/ with the sky colour and the level number set for this map (the camera takes its limits from the
+//      map itself: its follow_camera has "bounds": "map")
 //   2. scene.import_ascii {path, from: <that copy>, dryRun} builds the Tilemap and the objects and writes `path` in the
 //      canonical layout (dryRun: writes nothing and returns the scene JSON)
 //   3. delete the scratch copy, also when the import failed
-import { fa, ToolError } from "factoria";
+import { fa, ToolError, rng } from "factoria";
 
 const TS = 32; // tile size in pixels (assets/tileset.png holds 32x32 tiles: 0 grass, 1 dirt, 2 brick)
 const ROWS = 16;
@@ -25,24 +26,14 @@ const PREFAB = {
   goal: "prefabs/goal.prefab.json",
 };
 
-// Own PRNG instead of rng.seed(): rng.seed() reseeds the one world RNG that the running game also draws from, and
-// scripts cannot read its state back to restore it, so a generator run would change the game's random sequence.
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 const round3 = (v) => Math.round(v * 1000) / 1000;
 
 // The level as ASCII. `#` grass, `%` dirt, `=` brick platform, `o` coin, `E` enemy, `P` player, `F` flag, `.` empty.
 function compose_rows({ width: W, seed, difficulty }) {
-  const rnd = mulberry32(seed);
+  // rng.create(seed), not rng.seed(): an independent generator, so a generator run never changes the running game's
+  // random sequence, and the same seed gives the same level on every platform and engine version.
+  const r = rng.create(seed);
+  const rnd = () => r.float();
   const int = (a, b) => a + Math.floor(rnd() * (b - a + 1));
   const groundTop = 13; // first ground row
   const grid = Array.from({ length: ROWS }, () => Array(W).fill("."));
@@ -127,9 +118,10 @@ function call(name, args) {
   }
 }
 
-// The base scene with the parts that are not map set for this level: sky colour, camera limits, level number. Script
-// props are replaced as a whole, so start from what the base scene has.
-function base_for_level({ levelW, levelH, difficulty, levelIndex }) {
+// The base scene with the parts that are not map set for this level: sky colour, camera height, level number. Script
+// props are replaced as a whole, so start from what the base scene has. The camera limits are not set here: the
+// camera's "bounds": "map" makes follow_camera.js clamp to the Tilemap this level imports.
+function base_for_level({ levelH, difficulty, levelIndex }) {
   const base = JSON.parse(call("fs.read", { path: BASE }).content);
   const entity = (id) => {
     const e = base.entities.find((x) => x.id === id);
@@ -139,7 +131,6 @@ function base_for_level({ levelW, levelH, difficulty, levelIndex }) {
   const camera = entity("camera").components;
   camera.Camera = { ...camera.Camera, clearColor: [round3(0.55 - difficulty * 0.08), round3(0.7 - difficulty * 0.08), round3(0.95 - difficulty * 0.1), 1] };
   camera.Transform = { ...camera.Transform, position: [640, levelH / 2, 0] };
-  camera.Script = { ...camera.Script, props: { ...camera.Script.props, minX: 0, maxX: levelW, minY: 0, maxY: levelH } };
   const level = entity("level").components;
   level.Script = { ...level.Script, props: { ...level.Script.props, levelIndex } };
   return base;
@@ -147,7 +138,7 @@ function base_for_level({ levelW, levelH, difficulty, levelIndex }) {
 
 // Builds the scene file `path` (or, for dryRun, only returns it). Returns what scene.import_ascii said.
 function build_scene({ rows, legend, difficulty, levelIndex, path, dryRun }) {
-  const base = base_for_level({ levelW: rows[0].length * TS, levelH: rows.length * TS, difficulty, levelIndex });
+  const base = base_for_level({ levelH: rows.length * TS, difficulty, levelIndex });
   call("fs.write", { path: SCRATCH, content: JSON.stringify(base, null, 2) + "\n" });
   try {
     return call("scene.import_ascii", {

@@ -64,16 +64,18 @@ without `--scene` runs `scenes/level1.scene.json` (the main scene), so the engin
   and scripts look entities up by these ids. Every spawned object also has the tag `tilemap:map`; rebuilding replaces
   them, so nothing is duplicated.
 - The scene keeps everything that is not map: `camera`, the `level` script entity and the `hud`. The camera limits
-  (`maxX`, `maxY` in the `camera` Script props) are scene data: set them to the map size in pixels
-  (columns * 32, rows * 32) when you resize a map. `tests/platformer.test.js` checks this and that each scene is
-  exactly what its map builds, so a hand edit of a scene or a forgotten rebuild fails `factoria test`.
+  are not scene data: the `camera` Script prop `"bounds": "map"` names the Tilemap entity, and
+  `scripts/follow_camera.js` clamps to its `entity.bounds()`, so a resized map moves the limits by itself (do not add
+  `minX`..`maxY` props: they only narrow the map's limits). `tests/platformer.test.js` checks that and that each scene
+  is exactly what its map builds, so a hand edit of a scene or a forgotten rebuild fails `factoria test`.
 - A new level: copy `levels/generator_base.scene.json` to `scenes/levelN.scene.json`, set `levelIndex` in its
-  `level` entity and the camera limits, copy a map to `levels/levelN.json` with `"path": "scenes/levelN.scene.json"`,
-  edit it and run the command above for it. Point the previous level's `F` legend `next` at the new scene. (Do not put `"from"` in
-  a hand-made level's map file: `from` replaces the scene, so the camera limits you set in it would be lost on every rebuild.)
+  `level` entity, give its camera `"bounds": "map"` in place of any `minX`..`maxY`, copy a map to `levels/levelN.json`
+  with `"path": "scenes/levelN.scene.json"`, edit it and run the command above for it. Point the previous level's `F`
+  legend `next` at the new scene. (Do not put `"from"` in a hand-made level's map file: `from` replaces the scene, so the
+  camera, HUD and settings you set in it would be lost on every rebuild.)
 - `project.generate_level` (`tools/generate_level.js`) makes a random level the same way: it composes `rows` and a
   `legend` from `width`, `seed` and `difficulty`, writes a copy of `levels/generator_base.scene.json` with this level's
-  camera limits and level number to `.factoria/tmp/` (the scratch folder), and calls
+  sky colour and level number to `.factoria/tmp/` (the scratch folder), and calls
   `scene.import_ascii {path, from: <that copy>, dryRun}`. The running game is never touched (nothing to save or
   restore), `dryRun` writes nothing. `scenes/generated.scene.json` is
   `factoria call project.generate_level '{"width":90,"seed":7,"difficulty":3}'`. The result lists the `rows`.
