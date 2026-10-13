@@ -29,6 +29,7 @@ if(FA_BUILD_TESTS)
         add_test(NAME cli_integration
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/integration.py $<TARGET_FILE:factoria>
             WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(cli_integration PROPERTIES TIMEOUT 600)
+        # Template JS tests must pass (strict): templates are what every new game starts from.
+        set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 ENVIRONMENT "FA_CLI_STRICT_TESTS=1" LABELS "gpu")
     endif()
 endif()

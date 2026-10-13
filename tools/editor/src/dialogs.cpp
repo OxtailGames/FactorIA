@@ -186,10 +186,10 @@ void Editor::draw_toasts() {
     toasts_.erase(std::remove_if(toasts_.begin(), toasts_.end(), [&](const Toast& t) { return t.expires < time_; }), toasts_.end());
     if (toasts_.empty()) return;
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    float y = vp->WorkPos.y + vp->WorkSize.y - ImGui::GetFrameHeight() - 16;
+    float y = vp->WorkPos.y + ImGui::GetFrameHeight() * 2 + 18;
     int i = 0;
     for (auto it = toasts_.rbegin(); it != toasts_.rend(); ++it, ++i) {
-        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 14, y), ImGuiCond_Always, ImVec2(1, 1));
+        ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, y), ImGuiCond_Always, ImVec2(0.5f, 0));
         ImGui::SetNextWindowBgAlpha(0.92f);
         ImGui::PushStyleColor(ImGuiCol_Border, it->level >= 2 ? ImVec4(1, 0.4f, 0.38f, 1) : it->level == 1 ? ImVec4(1, 0.75f, 0.3f, 1) : ImVec4(0.3f, 0.55f, 0.95f, 1));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
@@ -201,7 +201,7 @@ void Editor::draw_toasts() {
         ImGui::PushTextWrapPos(460);
         ImGui::TextUnformatted(it->text.c_str());
         ImGui::PopTextWrapPos();
-        y -= ImGui::GetWindowHeight() + 6;
+        y += ImGui::GetWindowHeight() + 6;
         ImGui::End();
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor();

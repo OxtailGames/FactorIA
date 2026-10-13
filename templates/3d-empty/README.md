@@ -6,7 +6,7 @@ meshes are built-in primitives, so there are no binary assets.
 ```bash
 factoria validate
 factoria run
-factoria run --headless --frames 120 --screenshot 120
+factoria run --headless --frames 120 --screenshot-at 119
 factoria test
 ```
 

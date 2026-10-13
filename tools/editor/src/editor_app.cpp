@@ -155,6 +155,7 @@ int Editor::run() {
     g_editor = this;
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
+    atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
     AppDesc d;
     d.title = "FactorIA Editor";
     d.width = autotest_ ? 1600 : 1440;
@@ -183,8 +184,9 @@ void Editor::on_init() {
         atOutDir_ = base.string();
         stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_autotest_project_" + std::to_string(std::rand()));
         stdfs::remove_all(proj, ec);
-        auto r = create_project(proj.string(), "2d-platformer", ScaffoldOptions{"Autotest Platformer"});
-        if (!r) {
+        auto r = atWelcome_ ? Result<ScaffoldResult>(Error{"welcome mode"}) : create_project(proj.string(), "2d-platformer", ScaffoldOptions{"Autotest Platformer"});
+        if (atWelcome_) {
+        } else if (!r) {
             atFailures_.push_back("create_project: " + r.error().to_string());
         } else {
             dir = r->dir;
@@ -754,7 +756,7 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderSetNodeSize(dockId, size);
     ImGuiID center = dockId, left, right, bottom, leftBottom, rightBottom;
     left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, nullptr, &center);
-    right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr, &center);
+    right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.29f, nullptr, &center);
     bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.27f, nullptr, &center);
     leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.42f, nullptr, &left);
     rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
