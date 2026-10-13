@@ -60,6 +60,7 @@ static void hierarchy_node(Editor& ed, Entity e, const std::string& filter, bool
         ImGui::PushStyleColor(ImGuiCol_Text, info.active ? ImGui::GetStyleColorVec4(ImGuiCol_Text) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         open = ImGui::TreeNodeEx("##node", flags, "%s", nm);
         ImGui::PopStyleColor();
+        ed.at_track("hier:" + id);
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) ed.select(e);
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
             ed.renamingId_ = id;
@@ -97,6 +98,12 @@ static void hierarchy_node(Editor& ed, Entity e, const std::string& filter, bool
             if (ImGui::BeginMenu("Create child")) { create_menu(ed, e); ImGui::EndMenu(); }
             if (ImGui::MenuItem("Rename", "double-click")) { ed.renamingId_ = id; ed.renameFocus_ = true; }
             if (ImGui::MenuItem("Duplicate", "Ctrl+D")) ed.duplicate_entity(e);
+            // Writes a file, changes nothing in the scene: also available while the game runs (e.g. to keep what you built there).
+            ImGui::EndDisabled();
+            if (ImGui::MenuItem("Save as prefab...")) ed.open_prefab_dialog(e);
+            ed.at_track("menu:save_as_prefab");
+            ImGui::SetItemTooltip("Save this entity and its children as prefabs/<id>.prefab.json (prefab.save)");
+            ImGui::BeginDisabled(!editing);
             if (ImGui::MenuItem("Unparent", nullptr, false, !w.parent(e).is_null())) {
                 ed.begin_edit("unparent:" + id);
                 w.set_parent(e, kNullEntity, true);

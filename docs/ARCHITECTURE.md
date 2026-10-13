@@ -37,7 +37,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 ```
 engine/            runtime modules (ship inside every game)
   core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema
-  scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON
+  scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres/AABBs)
@@ -128,6 +128,11 @@ the frame is split: world pass, bloom, then a second pass that draws the screen-
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
 HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/`).
+
+### Bounds
+Where a 2D entity is and how big it is has ONE definition, `fa/scene/bounds.h` (`visual_footprints`, `entity_world_rect`): Tilemap, Sprite,
+Shape2D and Text from size, pivot and the world matrix. `entity.bounds()` in scripts and the editor's picking and selection outline
+both call it, so what a script measures is what the editor outlines. File sizes and font layout are injected (`VisualMeasure`).
 
 ### Headless
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works

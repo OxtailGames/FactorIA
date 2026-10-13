@@ -17,6 +17,7 @@
 #include "fa/platform/input.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "script_internal.h"
@@ -601,16 +602,7 @@ Vec2 measure_text_size(Impl* I, const std::string& text, float size, const std::
         warned = true;
         fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
     }
-    float lineW = 0, maxLine = 0;
-    int lines = 1;
-    for (char c : text) {
-        if (c == '\n') { maxLine = std::max(maxLine, lineW); lineW = 0; ++lines; continue; }
-        float adv = size * 0.6f;
-        if (maxW > 0 && lineW + adv > maxW && lineW > 0) { maxLine = std::max(maxLine, lineW); lineW = 0; ++lines; }
-        lineW += adv;
-    }
-    maxLine = std::max(maxLine, lineW);
-    return {maxLine, lines * size * 1.2f};
+    return approx_text_size(text, size, maxW);
 }
 
 NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
@@ -621,27 +613,10 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
 }
 
 // ---- entity.bounds() ----------------------------------------------------------------------------------------------
-// The world-space axis-aligned rectangle of an entity's 2D visuals, from the same geometry the renderer draws
-// (render/scene2d.cpp): a Tilemap through tilemap_size() (the helper the renderer and 2D physics share), a Sprite, Shape2D or
-// Text from its size and pivot. Each visual is a local rectangle moved by the entity's world matrix (rotation and scale
-// included); the result is the box around its four corners, and around all visuals when the entity has several.
-struct Aabb {
-    float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
-    bool any = false;
-    void add(float x, float y) {
-        if (!any) { x0 = x1 = x; y0 = y1 = y; any = true; return; }
-        x0 = std::min(x0, x); y0 = std::min(y0, y);
-        x1 = std::max(x1, x); y1 = std::max(y1, y);
-    }
-    void add_point(const Mat4& m, float lx, float ly) {
-        Vec3 p = m.transform_point({lx, ly, 0.0f});
-        add(p.x, p.y);
-    }
-    void add_rect(const Mat4& m, float lx0, float ly0, float lx1, float ly1) {
-        add_point(m, lx0, ly0); add_point(m, lx1, ly0); add_point(m, lx1, ly1); add_point(m, lx0, ly1);
-    }
-};
-
+// The world-space axis-aligned rectangle of an entity's 2D visuals, from the same geometry the renderer draws. The geometry
+// itself (Tilemap through tilemap_size(), Sprite, Shape2D and Text from size and pivot, the box around the four corners moved
+// by the world matrix, the union over all visuals) is entity_world_rect() in fa/scene/bounds.h, shared with the editor's
+// picking and selection outline. What only this module knows is how to measure a texture file and a text.
 // Pixel size of a texture file as the renderer sees it: 32 x 32 (the missing-texture checker) when the file is missing or
 // unreadable. Cached per file and modification time, so a script may ask every frame.
 Vec2 texture_pixel_size(Impl* I, const std::string& path) {
@@ -663,66 +638,15 @@ Vec2 texture_pixel_size(Impl* I, const std::string& path) {
 NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     SETUP;
     ENTITY(e, 0);
-    const Mat4 m = W.world_matrix(e);
-    Aabb box;
-
-    if (const Tilemap* tm = W.get<Tilemap>(e)) {
-        const TilemapSize size = tilemap_size(*tm);
-        if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0)  // what the renderer draws: local x right, y DOWN from the corner
-            box.add_rect(m, 0.0f, -static_cast<float>(size.height) * tm->tileSize.y, static_cast<float>(size.width) * tm->tileSize.x, 0.0f);
-    }
-    if (const Sprite* s = W.get<Sprite>(e); s && s->space == RenderSpace::World) {
-        Vec2 size = s->size;
-        if (size.x <= 0 || size.y <= 0) {  // 0 = the region, else the whole texture; 32 for a plain colour quad
-            Vec2 base{32.0f, 32.0f};
-            if (!s->texture.empty()) {
-                if (s->region.w > 0 && s->region.h > 0) base = {s->region.w, s->region.h};
-                else {
-                    base = texture_pixel_size(I, s->texture);
-                    if (const SpriteAnimator* a = W.get<SpriteAnimator>(e))  // the renderer sets the region to one frame of the sheet
-                        base = {base.x / static_cast<float>(std::max(1, a->columns)), base.y / static_cast<float>(std::max(1, a->rows))};
-                }
-            }
-            size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
-        }
-        box.add_rect(m, -s->pivot.x * size.x, -s->pivot.y * size.y, (1.0f - s->pivot.x) * size.x, (1.0f - s->pivot.y) * size.y);
-    }
-    if (const Shape2D* s = W.get<Shape2D>(e); s && s->space == RenderSpace::World) {
-        const float bx0 = -s->pivot.x * s->size.x, by0 = -s->pivot.y * s->size.y;
-        switch (s->shape) {
-            case ShapeType::Rectangle:
-            case ShapeType::Triangle:
-                box.add_rect(m, bx0, by0, bx0 + s->size.x, by0 + s->size.y);
-                break;
-            case ShapeType::Diamond: {  // the rhombus on the midpoints of the size box's edges
-                const float w = s->size.x, h = s->size.y;
-                box.add_point(m, bx0 + w * 0.5f, by0); box.add_point(m, bx0 + w, by0 + h * 0.5f);
-                box.add_point(m, bx0 + w * 0.5f, by0 + h); box.add_point(m, bx0, by0 + h * 0.5f);
-                break;
-            }
-            case ShapeType::Circle: {  // size.x is the diameter and the pivot refers to the circle's bounding square
-                const float cy0 = -s->pivot.y * s->size.x;
-                box.add_rect(m, bx0, cy0, bx0 + s->size.x, cy0 + s->size.x);
-                break;
-            }
-            case ShapeType::Line: {  // from the origin to `size`, as thick as the stroke
-                const float len = length(s->size);
-                if (len < 1e-6f) break;  // the renderer draws nothing
-                const Vec2 n = perp(s->size / len) * (std::max(s->thickness, 0.5f) * 0.5f);
-                box.add_point(m, n.x, n.y); box.add_point(m, -n.x, -n.y);
-                box.add_point(m, s->size.x + n.x, s->size.y + n.y); box.add_point(m, s->size.x - n.x, s->size.y - n.y);
-                break;
-            }
-        }
-    }
-    if (const Text* t = W.get<Text>(e); t && t->space == RenderSpace::World && !t->text.empty() && t->fontSize > 0.0f) {
-        const Vec2 size = measure_text_size(I, t->text, t->fontSize, t->font, t->maxWidth, "entity.bounds() of a Text");
-        box.add_rect(m, -t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x, (1.0f - t->pivot.y) * size.y);
-    }
-
-    if (!box.any) return JS_NULL;
+    VisualMeasure measure;
+    measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
+    measure.textSize = [I](const Text& t) {
+        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "entity.bounds() of a Text");
+    };
+    const std::optional<Rect> box = entity_world_rect(W, e, measure);
+    if (!box) return JS_NULL;
     JSValue a = JS_NewArray(ctx);
-    const float v[4] = {box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0};
+    const float v[4] = {box->x, box->y, box->w, box->h};
     for (uint32_t i = 0; i < 4; ++i) JS_SetPropertyUint32(ctx, a, i, float_to_js(ctx, v[i]));
     return a;
 }

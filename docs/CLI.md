@@ -54,7 +54,9 @@ current machine's platform is used; `--out` is the parent folder (default `<proj
 Prints the output folder, warnings and the next steps.
 
 ### `factoria editor [project]`
-Opens the visual editor (only in builds with the editor).
+Opens the visual editor (only in builds with the editor). Its panels, the entity menu (Save as prefab...), File > Import ASCII level...,
+File > Format scene files... and View > Audio are described in `docs/EDITOR.md`; each of them runs an engine command (`prefab.save`,
+`scene.import_ascii`, `scene.format`, `audio.log`), so everything the editor does can also be done with `factoria call`.
 
 ## Running
 
