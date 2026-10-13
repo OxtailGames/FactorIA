@@ -5,6 +5,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/scene/tilemap.h"
 
 namespace fa {
 
@@ -349,6 +350,14 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                     continue;
                 }
                 apply_component(e, *t, it.value(), kptr, true);
+            }
+        }
+        // Tilemap data (tiles vs width*height, rows, solidTiles) is checked once all its fields are in.
+        if (const Tilemap* tm = world_.get<Tilemap>(e)) {
+            for (const TilemapIssue& issue : check_tilemap(*tm)) {
+                std::string tptr = cptr + "/Tilemap" + issue.pointer;
+                if (issue.error) error(tptr, issue.message, issue.hint);
+                else warn(tptr, issue.message, issue.hint);
             }
         }
     }

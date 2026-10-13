@@ -363,6 +363,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
           });
 
+    register_level_commands(engine, I);  // scene.import_ascii
+
     // --------------------------------------------------------------------- game
     I.commands.add({"game.step", "Advance the simulation by N fixed frames (deterministic) and return a state summary.",
            "Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `release` lets go; they are "

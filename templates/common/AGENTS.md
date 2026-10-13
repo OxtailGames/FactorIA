@@ -68,6 +68,9 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 - **One-shot effects:** a `ParticleEmitter` with `emitting: false`, `burst: 24`, `autoDestroy: true` and
   `blend: "additive"` fires once and removes itself. `particles.burst(entity, n)` bursts an existing one.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
+- **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @level.json`) turns ASCII
+  `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Re-run it
+  after every edit (`save: true` writes the scene). Guide section 9.8. Do not place tile objects by hand or write a level generator.
 - **Sensing:** `entity.isGrounded()`, `entity.isTouching([dx, dy])`, `physics.raycast(a, b, {ignore: this.entity})`.
   Skip the first two fixed steps before probing (bodies are created by the first physics step).
 - **Spawning:** `world.spawn(json, {position, parent, props})` and `world.spawnPrefab(path, {position, props, overrides})`;
