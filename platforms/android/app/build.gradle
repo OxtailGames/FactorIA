@@ -8,8 +8,8 @@ def cmakeVer  = providers.gradleProperty('factoria.cmakeVersion').getOrElse('3.3
 android {
     namespace '{{APPLICATION_ID}}'
     compileSdk 34
-    // Pin the NDK (AGP otherwise defaults to its own, e.g. 26.1.x). Install with sdkmanager "ndk;26.3.11579264".
-    ndkVersion providers.gradleProperty('factoria.ndkVersion').getOrElse('26.3.11579264')
+    // Pin the NDK (AGP otherwise defaults to its own, e.g. 26.1.x; r27+ is needed for std::format). Install with sdkmanager "ndk;27.2.12479018".
+    ndkVersion providers.gradleProperty('factoria.ndkVersion').getOrElse('27.2.12479018')
 
     defaultConfig {
         applicationId '{{APPLICATION_ID}}'

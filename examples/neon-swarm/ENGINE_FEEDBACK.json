@@ -42,10 +42,12 @@
       "workaround": "Tried the commands anyway.",
       "suggestion": "Remove 'planned' markers from docs/AI_GUIDE.md.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified)."
-      ]
+        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified).",
+        "Docs: stale (planned) markers removed from AI_GUIDE/EXTENDING."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0003",
@@ -91,10 +93,12 @@
       ],
       "suggestion": "Fix the template and 9.4 example, or document that pivot y=1 means top even in +Y-down screen space; add an anchor option (top-left/top-right) to screen-space UI.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: Text/Shape2D/Sprite got an 'anchor' field, but the 2d-empty template (pivot [0,0] at [24,24]) and docs/AI_GUIDE.md 9.4 still use the clipped pivot (verified: the title is cut off at the top edge)."
-      ]
+        "Still open after e2b0090: Text/Shape2D/Sprite got an 'anchor' field, but the 2d-empty template (pivot [0,0] at [24,24]) and docs/AI_GUIDE.md 9.4 still use the clipped pivot (verified: the title is cut off at the top edge).",
+        "Template HUD pivot fixed; AI_GUIDE explains screen-space anchor + pivot (Text defaults to pivot [0,1])."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0005",
@@ -237,10 +241,12 @@
       ],
       "suggestion": "Document mouse/key entries in replay files, warn on unknown replay keys, and show test console output in the report.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: unknown replay keys are still silently ignored (verified), and console.log from tests is only visible with --log-level info."
-      ]
+        "Still open after e2b0090: unknown replay keys are still silently ignored (verified), and console.log from tests is only visible with --log-level info.",
+        "Docs: AI_GUIDE section 11 documents the input replay format (incl. mouse); factoria test now shows console output per test."
+      ],
+      "engineIssue": "this release"
     }
   ]
 }

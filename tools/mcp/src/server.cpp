@@ -160,6 +160,8 @@ Json McpServer::call_tool(const Json& params) {
         std::string hint = r.error.is_object() ? r.error.value("hint", "") : "";
         std::string text = code + ": " + message;
         if (!hint.empty()) text += "\nhint: " + hint;
+        if (r.error.is_object() && r.error.contains("data") && !r.error["data"].is_null())
+            text += "\ndata: " + r.error["data"].dump();  // e.g. the problems a check tool found (ToolError data)
         return textResult(text, true);
     }
 

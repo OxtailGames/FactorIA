@@ -22,9 +22,9 @@ source of truth; expect small fixes on the first real device run.
 Prerequisites:
 
 - JDK 17
-- Android SDK with: `platforms;android-34`, `build-tools;34.0.0`, an NDK r26+
-  (`ndk;26.3.11579264`) and CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older).
-  Install with `sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264" "cmake;3.31.6"`.
+- Android SDK with: `platforms;android-34`, `build-tools;34.0.0`, an NDK r27+ (r26's libc++ has no std::format)
+  (`ndk;27.2.12479018`) and CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older).
+  Install with `sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
 - `ANDROID_SDK_ROOT` set (or `sdk.dir=` in `local.properties`)
 - Gradle 8.7+ once, to create the wrapper (`gradle wrapper --gradle-version 8.7`); Android Studio can open the folder directly.
 

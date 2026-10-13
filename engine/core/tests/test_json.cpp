@@ -102,7 +102,7 @@ TEST_CASE("json: colors") {
     CHECK(c == Color::red());
     CHECK(json_to(Json::parse("\"transparent\""), c, &err));
     CHECK(c.a == 0.0f);
-    CHECK(color_names().size() == 15);
+    CHECK(color_names().size() >= 15);  // grows as AI-friendly names are added
 
     CHECK(!json_to(Json::parse("\"rde\""), c, &err));
     CHECK(err.find("Did you mean 'red'") != std::string::npos);

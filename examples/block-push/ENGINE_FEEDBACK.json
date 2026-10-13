@@ -21,10 +21,12 @@
       ],
       "suggestion": "Remove the (planned) labels for commands that ship, keep them only for real gaps, and add a short list of which commands work from the CLI.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md still marks validate/test/call/commands/--input as (planned); all of them work (verified)."
-      ]
+        "Still open after e2b0090: docs/AI_GUIDE.md still marks validate/test/call/commands/--input as (planned); all of them work (verified).",
+        "Docs: stale (planned) markers removed."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0002",
@@ -44,10 +46,12 @@
       ],
       "suggestion": "Publish getting-started in English (or add an English version), and update its status table to match the CLI that ships.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/GETTING_STARTED.md is still Spanish and its status table still says 'en desarrollo'."
-      ]
+        "Still open after e2b0090: docs/GETTING_STARTED.md is still Spanish and its status table still says 'en desarrollo'.",
+        "GETTING_STARTED.md now starts with an English pointer to AI_GUIDE.md (the full English guide); status table updated."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0003",
@@ -312,10 +316,12 @@
       ],
       "suggestion": "Document each TouchInfo field, for example: pressed is true only on the frame the touch starts. Add a held or down field for a touch that is still in contact.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: TouchInfo.pressed is still undocumented in docs/SCRIPTING.md and the typings. Verified behaviour: true only on the first frame of a touch, false while it is held."
-      ]
+        "Still open after e2b0090: TouchInfo.pressed is still undocumented in docs/SCRIPTING.md and the typings. Verified behaviour: true only on the first frame of a touch, false while it is held.",
+        "Docs: AI_GUIDE documents input.touches entries (id, position, world, pressed)."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0014",
@@ -359,10 +365,12 @@
       ],
       "suggestion": "State in COMPONENTS.md that rectangles and circles are centred on the entity position, or add a pivot field to Shape2D.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: Shape2D now has pivot (default [0.5,0.5], centered) and anchor, described in the engine's api output, but docs/COMPONENTS.md has not been regenerated. Use pivot/anchor now."
-      ]
+        "Still open after e2b0090: Shape2D now has pivot (default [0.5,0.5], centered) and anchor, described in the engine's api output, but docs/COMPONENTS.md has not been regenerated. Use pivot/anchor now.",
+        "Docs: anchor/pivot documented in AI_GUIDE and COMPONENTS.md (Sprite/Shape2D/Text anchor)."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0016",
@@ -406,10 +414,12 @@
       ],
       "suggestion": "Update EXTENDING.md and every (planned) label to match the build. Add a docs check that fails when a command documented as planned already runs.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/EXTENDING.md still marks tools/*.js and 'factoria call' as (planned); both work (verified)."
-      ]
+        "Still open after e2b0090: docs/EXTENDING.md still marks tools/*.js and 'factoria call' as (planned); both work (verified).",
+        "Docs: EXTENDING.md updated; project tools and factoria call are documented as available."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0018",
@@ -429,10 +439,12 @@
       ],
       "suggestion": "Let a tool return a result with ok: false that makes factoria call exit 1 while still printing the result. Or let it throw an error that carries both a result and a hint. Document which one a check tool should use.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Partly fixed in e2b0090: throw new ToolError(message, hint, data) makes the call exit 1 and keeps data via 'call --batch', 'session' and MCP. Still open: a plain 'factoria call project.x' prints only message+hint (verified), so the data/report is lost on the CLI single-call path; a returned {ok:false} still exits 0."
-      ]
+        "Partly fixed in e2b0090: throw new ToolError(message, hint, data) makes the call exit 1 and keeps data via 'call --batch', 'session' and MCP. Still open: a plain 'factoria call project.x' prints only message+hint (verified), so the data/report is lost on the CLI single-call path; a returned {ok:false} still exits 0.",
+        "throw new ToolError(message, hint, data): data is returned as error.data by factoria call (--json), session/batch and MCP."
+      ],
+      "engineIssue": "this release"
     }
   ]
 }

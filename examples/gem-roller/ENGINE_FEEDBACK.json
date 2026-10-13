@@ -42,10 +42,12 @@
       "workaround": "Tried each command anyway; all worked.",
       "suggestion": "Remove the (planned) markers from docs/AI_GUIDE.md.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified)."
-      ]
+        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified).",
+        "Docs: stale (planned) markers removed."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0003",
@@ -237,10 +239,12 @@
       ],
       "suggestion": "Add 3D recipes: chase camera, camera-relative movement, ground check, trigger pickups, moving platforms, and a note on which components a 3D trigger needs.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: docs/AI_GUIDE.md section 9 has no 3D recipes. Useful now: raycast3d with { ignore }, entity.isGrounded(), kinematic platforms carry riders, 3D triggers need a RigidBody3D."
-      ]
+        "Still open after e2b0090: docs/AI_GUIDE.md section 9 has no 3D recipes. Useful now: raycast3d with { ignore }, entity.isGrounded(), kinematic platforms carry riders, 3D triggers need a RigidBody3D.",
+        "Docs: AI_GUIDE 9.9-9.17 add 3D recipes (lights/fog, chase camera, moving platforms, rolling ball, 3D raycasts)."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0011",

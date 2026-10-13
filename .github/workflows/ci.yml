@@ -217,7 +217,7 @@ jobs:
         run: |
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$sdk/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6" "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018"
           echo "sdk.dir=$sdk" > /tmp/ci-out/ci-game-android/local.properties
 
       - name: Build the debug APK

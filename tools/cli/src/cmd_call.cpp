@@ -168,7 +168,7 @@ Command make_call_command() {
                   "factoria call scene.spawn '{\"name\":\"Enemy\",\"components\":{\"Transform\":{\"position\":[100,50,0]}}}'",
                   "factoria call game.screenshot '{\"path\":\"/tmp/s.png\"}' --frames-before 60",
                   "factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30",
-                  "factoria call --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"game.time\"}}]'",
+                  "factoria call --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"time.elapsed\"}}]'",
                   "factoria call docs.search '{\"query\":\"collision\"}'"};
     c.run = [](Context& ctx) {
         const bool batch = ctx.args.has("batch") || ctx.args.has("batch-file");

@@ -91,10 +91,12 @@
       ],
       "suggestion": "Add CameraFollow2D component or camera.viewSize / game.screenSize-based bounds clamp helper; document.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no CameraFollow2D / level-bounds clamp helper; docs/AI_GUIDE.md 9.6 only shows an unclamped follow camera."
-      ]
+        "Still open after e2b0090: no CameraFollow2D / level-bounds clamp helper; docs/AI_GUIDE.md 9.6 only shows an unclamped follow camera.",
+        "Docs: AI_GUIDE 9.6 'Camera follow with level bounds' recipe; AGENTS.md conventions on 2D origin."
+      ],
+      "engineIssue": "this release"
     },
     {
       "id": "FB-0005",
@@ -365,10 +367,12 @@
       "workaround": "Used friction 0 on characters; no issues seen in tests.",
       "suggestion": "Document how Tilemap collision is generated.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: tilemap collision rules are written in engine/physics/include/fa/physics/physics.h (merged row boxes, friction 0.5, not one-way, no trigger events) but not in docs/*.md."
-      ]
+        "Still open after e2b0090: tilemap collision rules are written in engine/physics/include/fa/physics/physics.h (merged row boxes, friction 0.5, not one-way, no trigger events) but not in docs/*.md.",
+        "Docs: AI_GUIDE 9.8 documents tilemap collision (merging, solidTiles, origin, one-way via separate oneWay entity)."
+      ],
+      "engineIssue": "this release"
     }
   ]
 }

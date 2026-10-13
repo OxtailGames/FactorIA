@@ -103,7 +103,7 @@ factoria call scene.list_entities
 factoria call scene.spawn '{"name":"Enemy","components":{"Transform":{"position":[100,50,0]}}}'
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
-factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"game.time"}}]'
+factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'
 ```
 Commands that create or patch entities (`scene.spawn`, `scene.set_component`) fail (exit 1, with a "did you mean"
 hint) on unknown component or field names instead of creating a half-built entity.
@@ -116,7 +116,7 @@ $ factoria session
 {"ready":true,"project":"/work/game","graphics":true,"frame":0,"commands":46}
 > {"command":"game.step","args":{"frames":30}}
 {"ok":true,"result":{"frame":30,"time":0.5,"scene":"scenes/main.scene.json",...}}
-> {"command":"script.eval","args":{"code":"game.world.findByTag('player')[0].position"}}
+> {"command":"script.eval","args":{"code":"world.findByTag('player')[0].position"}}
 {"ok":true,"result":{"value":[0,0,0]}}
 > {"command":"nope"}
 {"ok":false,"error":{"code":"unknown_command","message":"Unknown command 'nope'","hint":"Valid: ..."}}

@@ -598,7 +598,9 @@ bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold*, void* ctx) 
     return visBottom >= platTop - slop;
 }
 
-void Physics2D::step(World& world, float dt) {
+// Creates/updates/destroys bodies so they match the components, without simulating. Called by step()
+// and by the engine before scripts run, so bodies exist (and can be ray-cast) from the first frame.
+void Physics2D::sync(World& world) {
     ensure_world(world);
     ++stepCounter_;
     const float inv = 1.0f / settings_.pixelsPerMeter;
@@ -638,6 +640,10 @@ void Physics2D::step(World& world, float dt) {
             ++it;
         }
     }
+}
+
+void Physics2D::step(World& world, float dt) {
+    sync(world);
 
     // ---- 2. simulate
     b2World_Step(world_, dt, std::max(settings_.subSteps, 1));

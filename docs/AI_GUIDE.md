@@ -871,7 +871,7 @@ Patterns that work:
 - `game.load` gives a test a known starting state. Within one file, anything else (variables, `session`, behaviour fields) carries over between tests unless the test loads or resets it.
 - Storage is an empty in-memory store for each test file, so tests never read or write the real save. `session` is also reset per file.
 - Keep tests fast: headless steps do not draw, so `game.step(600)` costs little. Take a screenshot only where you need to see something, and avoid `--render-all`, which draws every frame in software and is much slower.
-- `console.log`, `console.warn` and `console.error` in scripts are log lines with category `script`. To see what a test printed, run `factoria test --log-level info`. Use `console.log` while you debug, and remove it before you finish.
+- `console.log`, `console.warn` and `console.error` in scripts are log lines with category `script`. `factoria test` shows what each test printed, indented under the test (and under `logs` with `--json`). Use `console.log` while you debug, and remove it before you finish.
 - Import JSON data in tests the same way as in scripts (`import levels from "../data/levels.json";`).
 
 ## 11. Debugging, live sessions and replays

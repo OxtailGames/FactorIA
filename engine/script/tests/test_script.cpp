@@ -1,4 +1,5 @@
 #include <doctest.h>
+#include <sstream>
 
 #include "test_host.h"
 #include "fa/core/log.h"
