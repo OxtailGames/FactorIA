@@ -218,7 +218,7 @@ std::string clip(std::string s, size_t n) {
 }  // namespace
 
 void Editor::draw_ai_panel() {
-    if (!ImGui::Begin("AI Assistant", &showAi_)) { ImGui::End(); return; }
+    if (!ImGui::Begin("AI Assistant")) { ImGui::End(); return; }
     std::vector<ai::ProviderStatus> status;
     ai::AiConfig cfg;
     std::string cfgErr;
@@ -285,9 +285,9 @@ void Editor::draw_ai_panel() {
     const float inputH = ImGui::GetTextLineHeight() * 3.4f + 8;
     const float footer = inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
-    if (chat_.empty())
-        ImGui::TextDisabled("Describe what you want built or changed. The assistant uses the same\ncommands as the console (scene.*, fs.*, game.*...) and edits the open scene.");
     ImGui::PushTextWrapPos(0.0f);
+    if (chat_.empty())
+        ImGui::TextDisabled("Describe what you want built or changed. The assistant uses the same commands as the console (scene.*, fs.*, game.*...) and edits the open scene. Changes can be undone with Ctrl+Z.");
     int idx = 0;
     for (const ChatItem& c : chat_) {
         ImGui::PushID(idx++);

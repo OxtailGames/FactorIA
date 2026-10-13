@@ -8,6 +8,7 @@
 #include "editor_internal.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
+#include "fa/platform/sokol_entry.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "ui_backend.h"
@@ -17,6 +18,7 @@ namespace fa::editor {
 Editor* g_editor = nullptr;
 
 namespace {
+constexpr const char* kRestoreFile = ".factoria/editor/restore.json";
 Key map_key(sapp_keycode k) {
     if (k >= SAPP_KEYCODE_A && k <= SAPP_KEYCODE_Z) return Key(int(Key::A) + (k - SAPP_KEYCODE_A));
     if (k >= SAPP_KEYCODE_0 && k <= SAPP_KEYCODE_9) return Key(int(Key::Num0) + (k - SAPP_KEYCODE_0));
@@ -309,6 +311,7 @@ bool Editor::boot(const std::string& dirIn) {
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
         register_tooling_commands(engine_->commands(), projectDir_);
         engine_->set_paused(true);
+        install_command_overrides();
         // Remember the project.
         recentProjects_.erase(std::remove(recentProjects_.begin(), recentProjects_.end(), projectDir_), recentProjects_.end());
         recentProjects_.insert(recentProjects_.begin(), projectDir_);
@@ -320,7 +323,7 @@ bool Editor::boot(const std::string& dirIn) {
                 for (auto& r : recentProjects_) j.push_back(r);
                 std::error_code ec;
                 std::filesystem::create_directories(std::filesystem::path(h) / ".factoria", ec);
-                save_json_file((std::filesystem::path(h) / ".factoria" / "editor_recent.json").string(), j);
+                (void)save_json_file((std::filesystem::path(h) / ".factoria" / "editor_recent.json").string(), j);
             }
         }
         app_set_title("FactorIA Editor - " + projectName_);
@@ -330,6 +333,35 @@ bool Editor::boot(const std::string& dirIn) {
         app_set_title("FactorIA Editor");
     }
     return engine_ != nullptr;
+}
+
+// The engine tracks the "current scene" as the last file it loaded, which is our internal restore
+// file after Play/Stop/Undo. Re-register scene.save / scene.reload so tools (console, AI, MCP) act on
+// the scene the user is editing.
+void Editor::install_command_overrides() {
+    CommandRegistry& reg = engine_->commands();
+    if (const CommandInfo* ci = reg.info("scene.save")) {
+        CommandInfo info = *ci;
+        reg.add(info, [this](const Json& a) -> Json {
+            const std::string path = a.value("path", scenePath_);
+            auto r = save_scene_file(world(), path);
+            if (!r) throw CommandError("failed", r.error().message, r.error().hint);
+            if (path == scenePath_) dirty_ = false;
+            return Json::object({{"ok", true}, {"path", path}, {"entities", world().entity_count()}});
+        });
+    }
+    if (const CommandInfo* ci = reg.info("scene.reload")) {
+        CommandInfo info = *ci;
+        reg.add(info, [this](const Json&) -> Json {
+            std::string err;
+            const bool ok = engine_->load_scene(scenePath_, &err);
+            world().set_scene_path(scenePath_);
+            undo_.clear();
+            redo_.clear();
+            dirty_ = false;
+            return Json::object({{"ok", ok}, {"scene", scenePath_}, {"messages", err.empty() ? Json::array() : Json::array({err})}});
+        });
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -427,6 +459,7 @@ void Editor::on_frame(double dt) {
             if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
             return r;
         });
+        sync_scene_path();
         ai_drain_events();
         engine_->frame(dt);
     }
@@ -454,7 +487,7 @@ void Editor::on_frame(double dt) {
 // Scene / play mode
 void Editor::restore_scene(const Json& snapshot) {
     if (!engine_) return;
-    const std::string rel = ".factoria/editor/restore.json";  // not *.scene.json: validate must not pick it up
+    const std::string rel = kRestoreFile;  // not *.scene.json: validate must not pick it up
     auto w = fs::write_text(rel, dump_json(snapshot));
     if (!w) {
         notify("Cannot write " + rel + ": " + w.error().to_string(), 2);
@@ -463,6 +496,17 @@ void Editor::restore_scene(const Json& snapshot) {
     std::string err;
     if (!engine_->load_scene(rel, &err)) notify("Scene restore failed: " + err, 2);
     world().set_scene_path(scenePath_);
+}
+
+void Editor::sync_scene_path() {
+    // Commands (scene.load from the console or the AI) may switch scenes behind our back.
+    if (!engine_) return;
+    const std::string p = world().scene_path();
+    if (p.empty() || p == scenePath_ || p == kRestoreFile) return;
+    scenePath_ = p;
+    undo_.clear();
+    redo_.clear();
+    dirty_ = false;
 }
 
 bool Editor::open_scene(const std::string& path) {

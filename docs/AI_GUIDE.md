@@ -1,8 +1,8 @@
 # How to build a game with FactorIA (for AI agents)
 
-Read this guide before you change a FactorIA game. Over MCP it is served as `docs_read {"name":"ai-guide"}` and as the resource `factoria://docs/AI_GUIDE.md`. The CLI form `factoria docs read ai-guide` is planned. The `AGENTS.md` in your project repeats the short rules.
+Read this guide before you change a FactorIA game. Through MCP, read it with `docs_read {"name":"ai-guide"}` or the resource `factoria://docs/AI_GUIDE.md`. The CLI form, `factoria docs read ai-guide`, is planned. The `AGENTS.md` in your project repeats the short rules.
 
-Every name here comes from the engine contracts. Your build may not have all of them yet, so the tools in your tool list are the ones that exist. To check a name, call `docs_search` or `docs_commands`. Do not guess component fields or command arguments.
+Every name here is part of the engine contracts. Your build may not have all of them yet, so the tools in your tool list are the ones that exist. To check a name, call `docs_search` or `docs_commands`. Do not guess component fields or command arguments.
 
 ## 1. Mental model
 
@@ -304,7 +304,7 @@ Entities expose `id`, `name`, `tags`, `active`, `transform`, `position`, `worldP
 
 ### 9.1 Platformer character
 
-This is `templates/2d-platformer/scripts/player.js`, which is the starting point for any platformer:
+This is the movement part of `templates/2d-platformer/scripts/player.js`, which is the starting point for any platformer. Coin handling is in 9.5:
 
 ```js
 // @ts-check
@@ -367,6 +367,7 @@ export default class Spawner extends Behaviour {
 To spawn without a prefab, pass the entity object itself, as in `templates/2d-platformer/tools/spawn_coin.js`:
 
 ```js
+// x and y are the coordinates you want (world pixels, +Y up).
 const coin = world.spawn({
   name: "Coin",
   tags: ["coin"],
@@ -597,7 +598,7 @@ test("player runs right", () => {
 - Black or empty screenshot: check for a primary `Camera`, that sprites have a `layer` and a size, that colours are 0..1, and that world and screen space are not mixed up.
 - Body that does not move: check its `type` (static never moves), that it has a collider, its `layer` and `mask`, and the sign of gravity in `settings.gravity2D`.
 - Results differ between runs: look for `Math.random`, `Date.now`, or timing. Headless runs are deterministic only when those are absent.
-- Reproduce a bug with an input replay for headless runs. Frames are 0-based and an entry applies before its frame runs:
+- Reproduce a bug with an input replay file for a headless run (`factoria run --headless`, planned). Frames are 0-based, and an entry applies before its frame runs:
 
 ```json
 { "frames": { "0": { "press": ["jump"] }, "30": { "release": ["jump"] } } }

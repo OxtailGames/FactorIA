@@ -9,7 +9,7 @@ Some parts are contracts that are not implemented yet. They are marked **(planne
 | You want to add | Put it in | It becomes |
 |---|---|---|
 | A tool for one game | `tools/<name>.js` in the game project | command `project.<name>`, MCP tool `project_<name>` |
-| A command for the running game | C++ `CommandRegistry::add`, in `engine/runtime/src/` | MCP tool, CLI subcommand, editor command, `fa.call` |
+| A command for the running game | C++ `CommandRegistry::add`, in `engine/runtime/src/` | MCP tool, `factoria call`, editor command, `fa.call` |
 | A command for project tooling | C++ `CommandRegistry::add`, in `tools/common/src/` | the same surfaces |
 | A new component | a struct in `engine/scene/include/fa/scene/components.h`, registered in `components.cpp` | scene JSON, script views, typings, docs, MCP |
 | A per-frame behaviour of the engine | a system called from the frame loop in `engine/runtime/src/` | runs in every game |
@@ -19,7 +19,7 @@ Every capability is registered once as a command. The same registry feeds MCP, t
 
 ## A. Project tools (`tools/*.js`)
 
-A project tool is a JavaScript module in the game's `tools/` folder. The file name is the tool name, so `tools/spawn_wave.js` becomes `project.spawn_wave` (CLI and `fa.call`) and MCP tool `project_spawn_wave`.
+A project tool is a JavaScript module in the game's `tools/` folder. The file name is the tool name, so `tools/spawn_wave.js` becomes `project.spawn_wave` (CLI and `fa.call`) and MCP tool `project_spawn_wave`. This is the contract in `docs/SCRIPTING.md`; it is planned until the script module loads `tools/*.js` in your build.
 
 ```js
 // tools/<name>.js
@@ -41,9 +41,9 @@ export default {
 };
 ```
 
-- **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called, with the field name and the allowed values in the message.
+- **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called. The error names the field and gives a hint, such as the allowed values.
 - **Hot reload.** Saving the file reloads the tool. MCP clients receive `notifications/tools/list_changed`.
-- **Errors.** If the arguments are wrong, `throw new Error(...)` with a message that says how to fix the call, for example `"crates must be 1-200. Pass {\"crates\": 12}."` The message is what the caller sees.
+- **Errors.** If the arguments are wrong, `throw new Error(...)` with a message that says how to fix the call, for example `"crates must be 1-200. Pass {\"crates\": 12}."` Put the fix in the message: the caller sees it, and the scripting contract does not yet define a separate hint for errors thrown by tools.
 - **Calling.** MCP: `project_<name>`. CLI: `factoria call project.<name> '<json>'` (planned). Scripts: `fa.call("project.<name>", {...})`.
 
 ### A.1 Level generator: writes a scene file
@@ -139,9 +139,10 @@ It uses `fs.list` and `fs.read`. A file counts as used when its project-relative
 import { fa } from "factoria";
 
 // Files under a project folder. A missing folder is treated as empty.
+// fs.list returns at most 500 entries unless a limit is given, so ask for more.
 function filesUnder(dir) {
   try {
-    return fa.call("fs.list", { path: dir, recursive: true }).entries.filter((e) => e.type === "file");
+    return fa.call("fs.list", { path: dir, recursive: true, limit: 10000 }).entries.filter((e) => e.type === "file");
   } catch (_) {
     return [];
   }

@@ -75,7 +75,7 @@ int history_cb(ImGuiInputTextCallbackData* d) {
 }  // namespace
 
 void Editor::draw_console() {
-    if (!ImGui::Begin("Console", &showConsole_)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Console")) { ImGui::End(); return; }
     static const char* levels[] = {"trace", "debug", "info", "warn", "error"};
     ImGui::SetNextItemWidth(90);
     ImGui::Combo("##lvl", &consoleLevel_, levels, 5);
@@ -91,7 +91,7 @@ void Editor::draw_console() {
     ImGui::TextDisabled("%zu errors logged", error_count());
 
     const float inputH = ImGui::GetFrameHeightWithSpacing() + 2;
-    ImGui::BeginChild("##logs", ImVec2(0, -inputH), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("##logs", ImVec2(0, -inputH), ImGuiChildFlags_Borders);
     auto logs = recent_logs(1000, LogLevel(consoleLevel_));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1));
     for (const LogEntry& l : logs) {
@@ -101,7 +101,9 @@ void Editor::draw_console() {
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.45f, 0.62f, 0.9f, 1), "[%s]", l.category.c_str());
         ImGui::SameLine();
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(l.message.c_str());
+        ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
     }
     ImGui::PopStyleVar();

@@ -124,7 +124,15 @@ bool Editor::draw_field(Entity e, const TypeInfo& t, const FieldInfo& f, void* c
         }
         case FieldKind::Color: {
             Color v = *static_cast<Color*>(p);
-            if (ImGui::ColorEdit4("##v", &v.r, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar)) commit(to_json(v));
+            const ImVec4 col(v.r, v.g, v.b, v.a);
+            if (ImGui::ColorButton("##c", col, ImGuiColorEditFlags_AlphaPreviewHalf, ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight())))
+                ImGui::OpenPopup("##colorpick");
+            ImGui::SetItemTooltip("rgba %.3f %.3f %.3f %.3f (click to edit)", v.r, v.g, v.b, v.a);
+            if (ImGui::BeginPopup("##colorpick")) {
+                if (ImGui::ColorPicker4("##pk", &v.r, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf))
+                    commit(to_json(v));
+                ImGui::EndPopup();
+            }
             break;
         }
         case FieldKind::Enum: {
@@ -270,7 +278,7 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& t) {
 }
 
 void Editor::draw_inspector() {
-    if (!ImGui::Begin("Inspector", &showInspector_)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Inspector")) { ImGui::End(); return; }
     World& w = world();
     Entity e = selected();
     if (play_ != PlayState::Edit)

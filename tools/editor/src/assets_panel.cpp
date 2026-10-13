@@ -105,7 +105,7 @@ void draw_node(Editor& ed, const AssetNode& n, bool root) {
 }  // namespace
 
 void Editor::draw_assets() {
-    if (!ImGui::Begin("Assets", &showAssets_)) { ImGui::End(); return; }
+    if (!ImGui::Begin("Assets")) { ImGui::End(); return; }
     if (time_ - assetsScanned_ > 2.0) {
         assetsScanned_ = time_;
         std::vector<std::string> files;
