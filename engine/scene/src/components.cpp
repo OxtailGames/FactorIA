@@ -165,12 +165,18 @@ void register_builtin_components(TypeRegistry& r) {
                    "2D")
         .asset_field("tileset", &Tilemap::tileset, "texture", "Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom).")
         .field("tileSize", &Tilemap::tileSize, "Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units).")
-        .field("columns", &Tilemap::columns, "Number of tile columns in the tileset texture (used to find a tile's source rectangle).").range(1, 4096)
-        .field("width", &Tilemap::width, "Map width in tiles.").range(0, 65536)
-        .field("height", &Tilemap::height, "Map height in tiles.").range(0, 65536)
+        .field("columns", &Tilemap::columns,
+               "Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the "
+               "default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. "
+               "Set it only when the image has a different layout.").range(0, 4096)
+        .field("width", &Tilemap::width,
+               "Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the "
+               "size; drawing and collision both use it).").range(0, 65536)
+        .field("height", &Tilemap::height,
+               "Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.").range(0, 65536)
         .field("tiles", &Tilemap::tiles,
-               "Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array "
-               "of rows. -1 = empty.")
+               "Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width "
+               "and height) or an array of rows (the size comes from the rows). -1 = empty.")
         .field("solidTiles", &Tilemap::solidTiles,
                "List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides.")
         .field("color", &Tilemap::color, "Tint multiplied with the tileset.")

@@ -177,7 +177,8 @@ TEST_CASE("import_ascii: a 10x6 level yields tiles, 3 coins, the player, at cell
     REQUIRE(tm != nullptr);
     CHECK(tm->width == 10);
     CHECK(tm->height == 6);
-    CHECK(tm->columns == 4);  // taken from the 128 px wide tileset
+    CHECK(tm->columns == 0);  // not set: derived from the 128 px wide tileset
+    CHECK(tileset_columns(*tm, 128) == 4);
     REQUIRE(tm->tiles.is_array());
     REQUIRE(tm->tiles.size() == 60);
     for (int i = 0; i < 40; ++i) CHECK(tm->tiles[i] == -1);
@@ -282,25 +283,39 @@ TEST_CASE("import_ascii: legend offset, overrides, tile + prefab on one glyph, o
     CHECK(contains(bonus["tags"].dump(), "tilemap:level"));
 }
 
-TEST_CASE("import_ascii: columns follow the tileset when tileset or tileSize change without columns") {
+TEST_CASE("import_ascii: columns stay 0 (derived from the tileset) unless the caller sets them") {
     Session s("columns");
     auto r = s.import(level());
     REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK(r.result["notes"][0].get<std::string>().find("columns set to 4") != std::string::npos);
+    CHECK_FALSE(r.result.contains("notes"));
     const Entity map = s.engine.world().find_by_id("tilemap");
-    CHECK(s.engine.world().get<Tilemap>(map)->columns == 4);
+    CHECK(s.engine.world().get<Tilemap>(map)->columns == 0);
 
-    // 16x16 tiles in the same 128x32 image: 8 columns, 16 tiles.
+    // 16x16 tiles in the same 128x32 image: 8 columns, 16 tiles, still nothing to set.
     r = s.import(level(R"({"tilemap":{"tileSize":[16,16]}})"));
     REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK(s.engine.world().get<Tilemap>(map)->columns == 8);
-    CHECK(r.result["notes"].size() == 1);
+    CHECK(s.engine.world().get<Tilemap>(map)->columns == 0);
+    CHECK(tileset_columns(*s.engine.world().get<Tilemap>(map), 128) == 8);
+    CHECK_FALSE(r.result.contains("notes"));
 
     // An explicit value always wins (and is range-checked against the image).
     r = s.import(level(R"({"tilemap":{"tileSize":[16,16],"columns":2}})"));
     REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(s.engine.world().get<Tilemap>(map)->columns == 2);
     CHECK_FALSE(r.result.contains("notes"));
+
+    // An explicit columns from before describes the OLD tileSize: changing it without columns goes back to 0.
+    r = s.import(level(R"({"tilemap":{"tileSize":[32,32]}})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(s.engine.world().get<Tilemap>(map)->columns == 0);
+    REQUIRE(r.result.contains("notes"));
+    CHECK(r.result["notes"][0].get<std::string>().find("columns was 2") != std::string::npos);
+
+    // Untouched tileset/tileSize leave an explicit value alone.
+    s.engine.world().get<Tilemap>(map)->columns = 4;
+    r = s.import(level(R"({"tilemap":{"layer":-5}})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(s.engine.world().get<Tilemap>(map)->columns == 4);
 }
 
 TEST_CASE("import_ascii: scene.save round trip keeps tiles and objects") {

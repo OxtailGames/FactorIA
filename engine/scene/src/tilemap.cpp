@@ -17,7 +17,60 @@ std::string number_text(double v) {
     return std::to_string(v);
 }
 
+// A tile index as the renderer and physics see it: whole numbers >= 0; anything else (strings, null, -1, nonsense) is empty.
+int tile_value(const Json& v) {
+    if (!v.is_number()) return -1;
+    const double d = v.get<double>();
+    if (!(d >= 0.0) || d > 1e9) return -1;
+    return static_cast<int>(d);
+}
+
 }  // namespace
+
+TilemapSize tilemap_size(const Tilemap& tm) {
+    TilemapSize size;
+    const Json& t = tm.tiles;
+    if (!t.is_array() || t.empty()) return size;
+    if (t[0].is_array()) {
+        for (const Json& row : t)
+            if (row.is_array()) size.width = std::max(size.width, static_cast<int>(row.size()));
+        if (size.width > 0) size.height = static_cast<int>(t.size());
+        return size;
+    }
+    const int count = static_cast<int>(t.size());
+    size.width = tm.width;
+    size.height = tm.height;
+    if (size.width <= 0) size.width = size.height > 0 ? (count + size.height - 1) / size.height : count;
+    if (size.height <= 0) size.height = (count + size.width - 1) / size.width;
+    return size;
+}
+
+TilemapGrid tilemap_grid(const Tilemap& tm) {
+    TilemapGrid g;
+    const TilemapSize size = tilemap_size(tm);
+    if (size.empty()) return g;
+    g.width = size.width;
+    g.height = size.height;
+    g.tiles.assign(std::size_t(g.width) * std::size_t(g.height), -1);
+    const Json& t = tm.tiles;
+    if (t[0].is_array()) {
+        for (int r = 0; r < g.height; ++r) {
+            const Json& row = t[std::size_t(r)];
+            if (!row.is_array()) continue;
+            const int n = std::min(static_cast<int>(row.size()), g.width);
+            for (int c = 0; c < n; ++c) g.tiles[std::size_t(r) * std::size_t(g.width) + std::size_t(c)] = tile_value(row[std::size_t(c)]);
+        }
+    } else {
+        for (std::size_t i = 0; i < t.size() && i < g.tiles.size(); ++i) g.tiles[i] = tile_value(t[i]);
+    }
+    return g;
+}
+
+int tileset_columns(const Tilemap& tm, int imageWidth) {
+    if (tm.columns > 0) return tm.columns;
+    if (imageWidth <= 0 || tm.tileSize.x <= 0) return 0;
+    return std::max(1, static_cast<int>(float(imageWidth) / tm.tileSize.x));
+}
 
 std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
     std::vector<TilemapIssue> out;
@@ -33,7 +86,6 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
             "Example: \"tileSize\": [32, 32] (the size of one tile in the tileset image AND in the world).");
 
     // ---- solidTiles
-    bool hasSolid = false;
     if (!tm.solidTiles.is_array()) {
         err("/solidTiles", "solidTiles must be an array of tile indices, got " + describe_json_value(tm.solidTiles),
             "Example: \"solidTiles\": [0, 1, 2]. Use [] for no collision.");
@@ -41,10 +93,7 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
         std::size_t bad = 0;
         for (std::size_t i = 0; i < tm.solidTiles.size(); ++i) {
             const Json& v = tm.solidTiles[i];
-            if (v.is_number() && v.get<double>() == std::floor(v.get<double>())) {
-                hasSolid = true;
-                continue;
-            }
+            if (v.is_number() && v.get<double>() == std::floor(v.get<double>())) continue;
             if (++bad <= kMaxReported)
                 err("/solidTiles/" + std::to_string(i), "solidTiles entry " + std::to_string(i) + " must be an integer tile index, got " + describe_json_value(v),
                     "List tile numbers of the tileset, e.g. [0, 1, 2].");
@@ -87,7 +136,7 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
     };
 
     const bool rowForm = t[0].is_array();
-    bool sizeKnown = w > 0 && h > 0;
+    const bool sizeKnown = w > 0 && h > 0;
     if (rowForm) {
         bool mixed = false;
         for (std::size_t r = 0; r < t.size(); ++r) {
@@ -132,11 +181,17 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
                 "tiles is row-major with row 0 at the TOP: give exactly width*height integers (-1 = empty), or fix width/height. " + std::string(kAsciiHint));
     }
 
-    if (!sizeKnown) {
-        std::string msg = "width and height must both be set (> 0) to match tiles (width is " + std::to_string(w) + ", height is " + std::to_string(h) + ")";
-        std::string hint = "The renderer guesses the size, but collision needs it. Set width and height (tiles per row / number of rows).";
-        if (hasSolid) err("/width", msg + ", otherwise the solid tiles do not collide", hint);
-        else warn("/width", msg, hint);
+    // Rows form: the rows define the size, width/height are optional (checked above when present). Flat form: the list
+    // alone does not say where a row ends, so a missing width means "one single row" (the same on screen and in physics).
+    if (!rowForm) {
+        const TilemapGrid g = tilemap_grid(tm);
+        const std::string read = std::to_string(g.width) + " x " + std::to_string(g.height);
+        if (w <= 0)
+            warn("/width", "width is not set, so the " + std::to_string(t.size()) + " flat tiles are read as a " + read + " map (width x height)",
+                 "Set width (tiles per row) and height (number of rows), or write tiles as an array of rows, which needs neither.");
+        else if (h <= 0 && std::int64_t(t.size()) % w != 0)
+            warn("/height", "height is not set and " + std::to_string(t.size()) + " tiles do not fill whole rows of " + std::to_string(w) + ": the map is read as " + read,
+                 "Set height (number of rows) so tiles has exactly width*height entries.");
     }
     return out;
 }
@@ -155,9 +210,8 @@ Vec2 tilemap_cell_center(const Tilemap& tm, int col, int row) {
 
 int tileset_tile_count(const Tilemap& tm, int imageWidth, int imageHeight) {
     if (imageWidth <= 0 || imageHeight <= 0 || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return 0;
-    const int tilesX = int(float(imageWidth) / tm.tileSize.x);
     const int tilesY = int(float(imageHeight) / tm.tileSize.y);
-    const int cols = tm.columns > 0 ? tm.columns : std::max(1, tilesX);
+    const int cols = tileset_columns(tm, imageWidth);
     if (cols <= 0 || tilesY <= 0) return 0;
     return cols * tilesY;
 }

@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "fa/physics/physics.h"
+#include "fa/scene/tilemap.h"
 
 using namespace fa;
 
@@ -200,6 +201,71 @@ TEST_CASE("2d: tilemap solid tiles collide (origin = top-left corner)") {
     CHECK(hit->point.x == doctest::Approx(64.0f).epsilon(0.01));
     // empty tile on the left: ray passes through the open cell
     CHECK_FALSE(s.physics.raycast2d(s.world, {-100, -24}, {-85, -24}).has_value());
+}
+
+TEST_CASE("2d: a tilemap written as rows, without width/height, collides exactly where it is drawn") {
+    // Same map as above, but tiles is an array of rows and width/height are NOT set. The renderer sizes the map from the
+    // rows; physics must do the same (both use tilemap_grid), otherwise the floor would not exist.
+    Sim s;
+    Entity map = s.world.create("map", "map");
+    s.world.get<Transform>(map)->position = {-80, 0, 0};  // top-left corner of the map
+    Tilemap& tm = s.world.add<Tilemap>(map);
+    tm.tileSize = {16, 16};
+    REQUIRE(tm.width == 0);
+    REQUIRE(tm.height == 0);
+    Json rows = Json::array();
+    for (int r = 0; r < 3; ++r) {
+        Json row = Json::array();
+        for (int c = 0; c < 10; ++c) row.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
+        rows.push_back(row);
+    }
+    tm.tiles = rows;
+    tm.solidTiles = Json::array({1, 2});
+    CHECK(check_tilemap(tm).empty());
+    const TilemapGrid grid = tilemap_grid(tm);
+    CHECK((grid.width == 10 && grid.height == 3));
+
+    Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);
+    s.run(180);
+    // bottom row spans y in [-48, -32]: the box rests on top of it (y = -32 + 8), exactly like the flat form.
+    CHECK(pos_of(s.world, box).y == doctest::Approx(-24.0f).epsilon(0.03));
+    // wall tile at column 9, row 1: x in [64, 80]
+    auto hit = s.physics.raycast2d(s.world, {40, -24}, {100, -24});
+    REQUIRE(hit.has_value());
+    CHECK(hit->point.x == doctest::Approx(64.0f).epsilon(0.01));
+    CHECK_FALSE(s.physics.raycast2d(s.world, {-100, -24}, {-85, -24}).has_value());
+}
+
+TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list without width is one row") {
+    {
+        Sim s;
+        Entity map = s.world.create("map", "map");
+        s.world.get<Transform>(map)->position = {-80, 0, 0};
+        Tilemap& tm = s.world.add<Tilemap>(map);
+        tm.tileSize = {16, 16};
+        tm.width = 2;   // wrong on purpose (check_tilemap reports it); the renderer draws 10 x 1 and so does physics
+        tm.height = 5;
+        Json row = Json::array();
+        for (int c = 0; c < 10; ++c) row.push_back(1);
+        tm.tiles = Json::array({row});
+        tm.solidTiles = Json::array({1});
+        CHECK_FALSE(check_tilemap(tm).empty());
+        Entity box = add_box(s.world, "box", {70, 100}, {16, 16}, BodyType::Dynamic);  // over column 9, outside width 2
+        s.run(180);
+        CHECK(pos_of(s.world, box).y == doctest::Approx(8.0f).epsilon(0.03));  // row 0 spans y in [-16, 0]: rests on y = 0
+    }
+    {
+        Sim s;
+        Entity map = s.world.create("map", "map");
+        s.world.get<Transform>(map)->position = {-40, 0, 0};
+        Tilemap& tm = s.world.add<Tilemap>(map);
+        tm.tileSize = {16, 16};
+        tm.tiles = Json::array({-1, -1, 1, 1, -1});  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
+        tm.solidTiles = Json::array({1});
+        Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
+        s.run(180);
+        CHECK(pos_of(s.world, box).y == doctest::Approx(8.0f).epsilon(0.03));  // rests on the top edge y = 0
+    }
 }
 
 TEST_CASE("2d: is_grounded2d") {

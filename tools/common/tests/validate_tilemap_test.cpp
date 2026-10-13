@@ -94,11 +94,31 @@ TEST_CASE("validate: a tile index outside the tileset image is an error, with th
     CHECK(i->message.find("1 more tile") != std::string::npos);
     CHECK(i->hint.find("0..3") != std::string::npos);
 
-    // Forgetting "columns" (default 1) on a 4 tile wide tileset is the usual cause: the hint says so.
+    // "columns": 1 on a 4 tile wide tileset is a mistake: the hint says to remove it or set 4.
     testing::TempDir tmp2;
-    auto r2 = validate_with_tilemap(tmp2, R"({"tileset":"assets/tiles.png","tileSize":[32,32],"width":2,"height":1,"tiles":[0,3]})");
+    auto r2 = validate_with_tilemap(tmp2, R"({"tileset":"assets/tiles.png","tileSize":[32,32],"columns":1,"width":2,"height":1,"tiles":[0,3]})");
     REQUIRE_FALSE(r2.ok);
     const ValidationIssue* j = find_issue(r2.errors, "/components/Tilemap/tiles/1");
     REQUIRE(j != nullptr);
     CHECK(j->hint.find("\"columns\": 4") != std::string::npos);
+    CHECK(j->message.find("columns 1") != std::string::npos);
+}
+
+TEST_CASE("validate: without columns the tileset width decides, so tile 3 of a 4 tile wide image is fine") {
+    testing::TempDir tmp;
+    // 128x32 image of 32x32 tiles: columns unset = 4, tiles 0..3 exist.
+    auto r = validate_with_tilemap(tmp, R"({"tileset":"assets/tiles.png","tileSize":[32,32],"width":4,"height":1,"tiles":[0,1,2,3]})");
+    CHECK(r.ok);
+    CHECK(r.errors.empty());
+    CHECK(r.warnings.empty());
+
+    // Tile 4 is outside; the message shows the derived columns and there is no "set columns" advice.
+    testing::TempDir tmp2;
+    auto r2 = validate_with_tilemap(tmp2, R"({"tileset":"assets/tiles.png","tileSize":[32,32],"width":5,"height":1,"tiles":[0,1,2,3,4]})");
+    REQUIRE_FALSE(r2.ok);
+    const ValidationIssue* i = find_issue(r2.errors, "/components/Tilemap/tiles/4");
+    REQUIRE(i != nullptr);
+    CHECK(i->message.find("columns 4 = 4 tiles") != std::string::npos);
+    CHECK(i->hint.find("0..3") != std::string::npos);
+    CHECK(i->hint.find("remove") == std::string::npos);
 }

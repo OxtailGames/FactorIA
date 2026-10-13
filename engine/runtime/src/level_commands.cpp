@@ -420,9 +420,16 @@ struct Diagnostics {
     }
 };
 
-// Defaults `columns` from the tileset image when tileset/tileSize are being set, and range-checks the tile indices.
-void check_tileset(Tilemap& tm, const Request& q, bool created, const std::vector<LegendEntry>& legend, int tileCount,
-                   int maxTile, Diagnostics& diag) {
+// `columns` 0 (the default) already follows the tileset image, so a new or updated tilemap needs nothing here, except
+// that an explicit value left over from an earlier tileset/tileSize no longer describes the new image: it goes back to 0.
+// Then range-checks the tile indices against the image.
+void check_tileset(Tilemap& tm, const Request& q, const std::vector<LegendEntry>& legend, int tileCount, int maxTile,
+                   Diagnostics& diag) {
+    int staleColumns = 0;
+    if (tm.columns != 0 && !q.tilemap.contains("columns") && (q.tilemap.contains("tileset") || q.tilemap.contains("tileSize"))) {
+        staleColumns = tm.columns;
+        tm.columns = 0;
+    }
     if (tm.tileset.empty()) {
         if (tileCount > 0)
             diag.warn("Tilemap.tileset is empty, so the tiles are drawn without a tileset image. Pass \"tilemap\": "
@@ -435,16 +442,11 @@ void check_tileset(Tilemap& tm, const Request& q, bool created, const std::vecto
                   "), so tile indices were not range-checked.");
         return;
     }
-    const bool columnsFollowImage = !q.tilemap.contains("columns") && tm.tileSize.x > 0 &&
-                                    (created || q.tilemap.contains("tileset") || q.tilemap.contains("tileSize"));
-    if (columnsFollowImage) {
-        const int cols = std::max(1, int(float(img->width) / tm.tileSize.x));
-        if (cols != tm.columns)
-            diag.notes.push_back("Tilemap.columns set to " + std::to_string(cols) + " from the tileset width (" +
-                                 std::to_string(img->width) + " px / tileSize.x " + std::to_string(int(tm.tileSize.x)) +
-                                 "). Pass tilemap.columns to override.");
-        tm.columns = cols;
-    }
+    if (staleColumns != 0 && tileset_columns(tm, img->width) != staleColumns)
+        diag.notes.push_back("Tilemap.columns was " + std::to_string(staleColumns) + " for the previous tileset or tileSize; it is now 0, so it is "
+                             "derived from the tileset width (" + std::to_string(img->width) + " px / tileSize.x " +
+                             std::to_string(int(tm.tileSize.x)) + " = " + std::to_string(tileset_columns(tm, img->width)) +
+                             "). Pass tilemap.columns to override.");
     const int count = tileset_tile_count(tm, img->width, img->height);
     if (count <= 0 || maxTile < count) return;
     for (const LegendEntry& e : legend) {
@@ -454,7 +456,7 @@ void check_tileset(Tilemap& tm, const Request& q, bool created, const std::vecto
             "legend['" + e.glyph + "'] uses tile " + std::to_string(e.tile) + " but the tileset '" + tm.tileset + "' (" +
                 std::to_string(img->width) + "x" + std::to_string(img->height) + " px) holds only " + std::to_string(count) +
                 " tiles (indices 0.." + std::to_string(count - 1) + ") with tileSize [" + std::to_string(int(tm.tileSize.x)) +
-                ", " + std::to_string(int(tm.tileSize.y)) + "] and columns " + std::to_string(tm.columns),
+                ", " + std::to_string(int(tm.tileSize.y)) + "] and columns " + std::to_string(tileset_columns(tm, img->width)),
             "Use an index in 0.." + std::to_string(count - 1) + ", or pass tilemap.tileSize / tilemap.columns that match the image.");
     }
 }
@@ -544,7 +546,7 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
                                    r.error().hint.empty() ? "Valid fields: see api.components (Tilemap)." : r.error().hint);
         }
         Tilemap& tm = *W.get<Tilemap>(mapE);
-        check_tileset(tm, q, created, legend, tileCount, maxTile, diag);
+        check_tileset(tm, q, legend, tileCount, maxTile, diag);
         if (created && tileCount > 0 && (!tm.solidTiles.is_array() || tm.solidTiles.empty()) && !q.tilemap.contains("solidTiles"))
             diag.warn("Tilemap.solidTiles is empty, so no tile collides. Pass \"tilemap\": {\"solidTiles\": [0, 1]} "
                       "for the tile indices that block movement.");
@@ -654,8 +656,8 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). "
          "`overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. "
          "The tilemap is the entity `entity` (default \"tilemap\"): created when missing, updated when it exists; `tilemap` sets "
-         "its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; when you pass tileset or tileSize without "
-         "columns, columns is set to the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like "
+         "its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is "
+         "derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like "
          "Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor "
          "bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; "
          "ids are `id` from the legend (unique objects such as \"player\") or generated in row-major order as <prefab name>_<n> "

@@ -135,9 +135,9 @@ struct Text {
 struct Tilemap {
     std::string tileset;              // asset path to the tileset texture
     Vec2 tileSize{16, 16};            // size of one tile in the tileset AND in the world (world units)
-    std::int32_t columns = 1;         // number of tile columns in the tileset texture
-    std::int32_t width = 0;           // map width in tiles
-    std::int32_t height = 0;          // map height in tiles
+    std::int32_t columns = 0;         // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
+    std::int32_t width = 0;           // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
+    std::int32_t height = 0;          // map height in tiles (flat tiles)
     Json tiles = Json::array();       // row-major tile indices, row 0 = TOP row; array of ints (width*height) or array of rows
     Json solidTiles = Json::array();  // tile indices that collide (empty = none collide)
     Color color{1, 1, 1, 1};
