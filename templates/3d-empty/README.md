@@ -12,7 +12,7 @@ factoria test
 
 - `scenes/main.scene.json` camera, directional light, primitives
 - `scripts/fly_camera.js`, `scripts/spin.js` behaviours
-- `tools/spawn_cube.js` project tool: `factoria call project.spawn_cube '{"x":2,"z":-3}'`
+- `tools/spawn_cube.js` project tool: `factoria call project.spawn_cube '{"x":2,"z":-3}'` (add `"seed":7` for a repeatable random colour, drawn from `rng.create(seed)`)
 - `tests/scene.test.js` headless tests
 
 Units are meters, +Y up, the default camera looks toward -Z.
