@@ -200,6 +200,7 @@ void Impl::load_storage() {
     if (storageLoaded) return;
     storageLoaded = true;
     storage = Json::object();
+    if (storageMode == StorageMode::Memory) return;
     std::ifstream f(fs::user_dir() / "storage.json", std::ios::binary);
     if (!f) return;
     std::stringstream ss;
@@ -210,6 +211,7 @@ void Impl::load_storage() {
 }
 
 void Impl::save_storage() {
+    if (storageMode == StorageMode::Memory) return;
     std::error_code ec;
     std::filesystem::create_directories(fs::user_dir(), ec);
     std::ofstream f(fs::user_dir() / "storage.json", std::ios::binary | std::ios::trunc);
@@ -524,6 +526,7 @@ NATIVE(spawn) {
     }
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
+    I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
     return ent_val(ctx, e);
 }
 
@@ -536,6 +539,7 @@ NATIVE(spawnPrefab) {
     LoadReport report;
     Entity e = instantiate_prefab(W, path, parent, report, overrides);
     if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
+    I->construct_for(report.created);
     return ent_val(ctx, e);
 }
 
@@ -550,7 +554,63 @@ NATIVE(behaviour) {
 NATIVE(isGrounded) {
     SETUP;
     ENTITY(e, 0);
-    return JS_NewBool(ctx, I->host->physics().is_grounded2d(W, e, static_cast<float>(arg_num(ctx, argc, argv, 1, 2.0))));
+    return JS_NewBool(ctx, I->host->physics().is_grounded(W, e, static_cast<float>(arg_num(ctx, argc, argv, 1, -1.0))));
+}
+
+NATIVE(isTouching) {  // (entity, x, y, z, tolerance)
+    SETUP;
+    ENTITY(e, 0);
+    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    Physics& ph = I->host->physics();
+    if (W.get<RigidBody3D>(e) || W.get<Collider3D>(e))
+        return JS_NewBool(ctx, ph.is_touching3d(W, e, d, static_cast<float>(arg_num(ctx, argc, argv, 4, 0.05))));
+    return JS_NewBool(ctx, ph.is_touching2d(W, e, {d.x, d.y}, static_cast<float>(arg_num(ctx, argc, argv, 4, 2.0))));
+}
+
+NATIVE(particlesBurst) {
+    SETUP;
+    ENTITY(e, 0);
+    int count = static_cast<int>(arg_num(ctx, argc, argv, 1, 10));
+    Renderer* r = I->host->renderer();
+    if (!r || !r->initialized()) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            fa::log(LogLevel::Warn, "script", "particles.burst: no renderer in this run (headless); skipped");
+        }
+        return JS_UNDEFINED;
+    }
+    r->emit_burst(e, count);
+    return JS_UNDEFINED;
+}
+
+NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
+    SETUP;
+    std::string text = arg_str(ctx, argc, argv, 0);
+    float size = static_cast<float>(arg_num(ctx, argc, argv, 1, 16));
+    std::string font = arg_str(ctx, argc, argv, 2);
+    float maxW = static_cast<float>(arg_num(ctx, argc, argv, 3, 0));
+    Renderer* r = I->host->renderer();
+    if (r && r->initialized()) {
+        Vec2 m = r->measure_text(text, size, font, maxW);
+        return array_of(ctx, {m.x, m.y});
+    }
+    static bool warned = false;
+    if (!warned) {
+        warned = true;
+        fa::log(LogLevel::Warn, "script", "ui.measureText: no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
+    }
+    // Approximation: 0.6em per character, wrapped at maxWidth, 1.2em line height.
+    float lineW = 0, maxLine = 0;
+    int lines = 1;
+    for (char c : text) {
+        if (c == '\n') { maxLine = std::max(maxLine, lineW); lineW = 0; ++lines; continue; }
+        float adv = size * 0.6f;
+        if (maxW > 0 && lineW + adv > maxW && lineW > 0) { maxLine = std::max(maxLine, lineW); lineW = 0; ++lines; }
+        lineW += adv;
+    }
+    maxLine = std::max(maxLine, lineW);
+    return array_of(ctx, {maxLine, lines * size * 1.2f});
 }
 
 // ---- components ---------------------------------------------------------------------------------------------------
@@ -583,6 +643,7 @@ NATIVE(addComp) {
     if (!fields.is_object()) return throw_err(ctx, "entity.add(name, fields): fields must be an object");
     auto r = patch_component(W, e, *t, fields);
     if (!r) return throw_err(ctx, r.error().to_string());
+    if (t->name == "Script") I->construct_for({e});
     return JS_NewInt32(ctx, static_cast<int32_t>(t->id));
 }
 
@@ -644,6 +705,7 @@ NATIVE(patchComp) {
     }
     auto r = patch_component(W, e, *t, fields);
     if (!r) return throw_err(ctx, r.error().to_string());
+    if (t->name == "Script") I->construct_for({e});
     return JS_UNDEFINED;
 }
 
@@ -1093,14 +1155,21 @@ NATIVE(raycast2d) {
     SETUP;
     Vec2 a{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
     Vec2 b{static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
-    return hit_to_js(ctx, I->host->physics().raycast2d(W, a, b, static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1))));
+    RaycastOptions o;
+    o.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1));
+    o.ignore = ent_from(ctx, argc > 5 ? argv[5] : JS_NULL);
+    o.ignoreTriggers = arg_bool(ctx, argc, argv, 6, true);
+    return hit_to_js(ctx, I->host->physics().raycast2d(W, a, b, o));
 }
 NATIVE(raycast3d) {
     SETUP;
     Vec3 o{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
     Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5))};
-    return hit_to_js(ctx, I->host->physics().raycast3d(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)),
-                                                       static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1))));
+    RaycastOptions opt;
+    opt.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1));
+    opt.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
+    opt.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
+    return hit_to_js(ctx, I->host->physics().raycast3d(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
 }
 NATIVE(overlapCircle) {
     SETUP;
@@ -1317,11 +1386,30 @@ NATIVE(testLoad) {
     if (path.empty()) path = W.scene_path();
     std::string err = I->host->load_scene_now(path);
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
-    W.rng().reseed(I->seed);
-    I->host->input().clear_action_overrides();
-    I->drop_all_behaviours();
-    I->call_method("scene reset", "", I->hooks.get(), "resetScene", {});
+    I->after_test_load();
     return JS_NewString(ctx, "");
+}
+
+NATIVE(testLoadJson) {
+    SETUP;
+    Json scene = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
+    if (!scene.is_object()) return JS_NewString(ctx, "game.loadJson(scene) expects a scene object like { format: \"factoria.scene/1\", entities: [...] }");
+    std::string err = I->host->load_scene_json_now(scene, "game.loadJson");
+    if (!err.empty()) return JS_NewString(ctx, err.c_str());
+    I->after_test_load();
+    return JS_NewString(ctx, "");
+}
+
+NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
+    SETUP;
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    auto id = static_cast<std::uint64_t>(arg_num(ctx, argc, argv, 1, 1));
+    Vec2 p{static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    Input& in = I->host->input();
+    if (kind == 0) in.on_touch_begin(id, p);
+    else if (kind == 1) in.on_touch_move(id, p);
+    else in.on_touch_end(id);
+    return JS_UNDEFINED;
 }
 
 NATIVE(testStep) {
@@ -1386,11 +1474,11 @@ const Reg kRegs[] = {
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
-    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(raycast2d, 5),
-    R(raycast3d, 8), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(raycast2d, 7),
+    R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testStep, 1), R(testScreenshot, 1),
+    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

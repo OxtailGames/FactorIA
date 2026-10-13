@@ -562,7 +562,9 @@ void Physics2D::collect_events(World& world) {
 }
 
 // One-way platforms (Box2D pre-solve; runs on the calling thread because workerCount = 1). The contact is kept
-// only if the visitor was fully above the platform's top (previous-step AABBs) and is not moving up relative to it.
+// only if the visitor's bottom was above the platform's top (previous-step AABBs, small speed-based slop for soft
+// contact penetration). Rising bodies are below the top until they clear it, so they pass through; at the apex
+// inside the platform they are still below the top, so they never get popped up.
 bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold*, void* ctx) {
     const auto* self = static_cast<const Physics2D*>(ctx);
     auto fa = self->shapes_.find(shape_key(idA));
@@ -580,7 +582,6 @@ bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold*, void* ctx) 
     const float visBottom = up > 0 ? va.lowerBound.y : -va.upperBound.y;
     const float relV = up * (b2Body_GetLinearVelocity(vb).y - b2Body_GetLinearVelocity(pb).y);
     const float slop = 0.02f + std::max(0.0f, -relV) * (1.0f / 30.0f);
-    if (relV > 0.05f) return false;  // moving up through it
     return visBottom >= platTop - slop;
 }
 

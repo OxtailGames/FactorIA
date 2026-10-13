@@ -60,6 +60,8 @@ Command make_run_command() {
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file."},
                {"seed", "N", "World RNG seed (default 1)."},
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
+               {"render-all", "", "Headless: draw every frame (default: only screenshot frames and the last frame)."},
+               {"persist-storage", "", "Headless: scripts' storage.* uses the real save file (default: in memory)."},
                {"json", "", "Headless: print the report as JSON."}};
     c.examples = {"factoria run",
                   "factoria run games/my-game --scene scenes/level2.scene.json",
@@ -76,13 +78,15 @@ Command make_run_command() {
         cfg.height = a.integer("height", 0);
         cfg.seed = a.uinteger("seed", 1);
         if (!a.has("headless")) {
-            for (const char* f : {"frames", "input", "screenshot-at", "screenshot-pattern", "state-out", "record-audio"})
+            for (const char* f : {"frames", "input", "screenshot-at", "screenshot-pattern", "state-out", "record-audio", "render-all", "persist-storage"})
                 if (a.has(f)) throw UsageError(std::string("--") + f + " only works with --headless.", "Add --headless.");
             cfg.headless = false;
             return run_windowed(cfg);
         }
         cfg.headless = true;
         cfg.audioDevice = false;
+        cfg.renderMode = a.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
+        cfg.memoryStorage = !a.has("persist-storage");
         HeadlessRunOptions ho;
         ho.frames = a.integer("frames", 60);
         if (ho.frames < 0) throw UsageError("--frames must be >= 0.");
@@ -186,12 +190,16 @@ Command make_test_command() {
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"filter", "TEXT", "Only run tests whose name contains TEXT."},
+               {"render-all", "", "Draw every frame (default: only when a test takes a screenshot)."},
+               {"persist-storage", "", "Scripts' storage.* uses the real save file (default: in memory)."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria test", "factoria test --filter jump --json"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
-        SessionOptions so;
+        SessionOptions so;  // OnDemand rendering + in-memory storage by default
         so.gfx = Gfx::Auto;
+        so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
+        so.memoryStorage = !ctx.args.has("persist-storage");
         auto session = Session::open(dir, so);
         TestReport rep = run_project_tests(session->engine(), ctx.args.str("filter"));
         if (ctx.args.has("json")) {

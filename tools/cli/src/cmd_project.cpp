@@ -1,12 +1,14 @@
 // new, templates, validate, export, editor
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 
 #include "common.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/scaffold.h"
+#include "fa/tooling/tooling.h"
 #include "fa/tooling/validate.h"
 
 #if __has_include("fa/tooling/export.h")
@@ -29,7 +31,8 @@ Command make_new_command() {
     c.usage = "<dir> [--template T] [--name NAME] [--id ID]";
     c.details =
         "Creates <dir> with factoria.json, a first scene, a script, a test, project tools, AGENTS.md/CLAUDE.md (the guide\n"
-        "for AI agents), ENGINE_FEEDBACK.json and a .mcp.json that connects Claude Code to 'factoria mcp'.";
+        "for AI agents), ENGINE_FEEDBACK.json, the real script typings (types/factoria.d.ts) and a .mcp.json that connects\n"
+        "Claude Code to 'factoria mcp'.";
     c.maxPositional = 1;
     c.flags = {{"template", "NAME", "Template: 2d-empty (default), 2d-platformer, 3d-empty. See 'factoria templates'."},
                {"name", "NAME", "Display name (default: the folder name)."},
@@ -99,40 +102,24 @@ Command make_validate_command() {
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"no-scenes", "", "Skip loading scenes (faster)."},
+               {"fix-types", "", "Also regenerate types/factoria.d.ts from the engine's script API."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria validate", "factoria validate games/my-game --json"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
-        ValidateOptions vo;
-        vo.checkScenes = !ctx.args.has("no-scenes");
-        // Script syntax goes through a logic-only engine; if the project cannot even load, scripts are
-        // skipped and the scene/project errors below explain why.
+        // Script syntax and Script.props go through a logic-only engine; if the project cannot even load, scripts
+        // are skipped and the scene/project errors below explain why.
         std::unique_ptr<Session> session;
         std::string engineProblem;
-        bool tried = false;
-        vo.scriptCheck = [&](const std::string&, const std::string& script) {
-            std::vector<ValidationIssue> issues;
-            if (!tried) {
-                tried = true;
-                try {
-                    SessionOptions so;
-                    so.gfx = Gfx::None;
-                    session = Session::open(dir, so);
-                } catch (const CliError& e) {
-                    engineProblem = e.what();
-                }
-            }
-            if (!session) return issues;
-            auto r = session->engine().scripts().check_syntax(script);
-            if (!r.ok()) {
-                ValidationIssue i;
-                i.file = script;
-                i.message = "Syntax error: " + r.error().message;
-                i.hint = r.error().hint;
-                issues.push_back(std::move(i));
-            }
-            return issues;
-        };
+        try {
+            SessionOptions so;
+            so.gfx = Gfx::None;
+            session = Session::open(dir, so);
+        } catch (const CliError& e) {
+            engineProblem = e.what();
+        }
+        ValidateOptions vo = session ? engine_validate_options(session->engine()) : ValidateOptions{};
+        vo.checkScenes = !ctx.args.has("no-scenes");
         ValidationReport rep = validate_project(dir, vo);
         if (!engineProblem.empty()) {
             ValidationIssue w;
@@ -140,6 +127,22 @@ Command make_validate_command() {
             w.message = "Script syntax was not checked: the engine could not load the project (" + engineProblem + ").";
             w.hint = "Fix the errors above first.";
             rep.warnings.push_back(w);
+        }
+        if (ctx.args.has("fix-types")) {
+            if (!session) return report_failure(ctx.err, "Cannot regenerate typings: " + engineProblem);
+            std::string text = session->engine().scripts().typescript_declarations();
+            std::string path = (fsys::path(dir) / "types" / "factoria.d.ts").string();
+            std::error_code ec;
+            fsys::create_directories(fsys::path(path).parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return report_failure(ctx.err, "Cannot write " + path);
+            f << text;
+            f.close();
+            // The placeholder warning is moot now.
+            rep.warnings.erase(std::remove_if(rep.warnings.begin(), rep.warnings.end(),
+                                              [](const ValidationIssue& i) { return i.file == "types/factoria.d.ts"; }),
+                               rep.warnings.end());
+            if (!ctx.args.has("json")) ctx.out << "Wrote " << path << " (" << text.size() << " bytes)\n";
         }
         if (ctx.args.has("json")) {
             print_json(ctx.out, rep.to_json());

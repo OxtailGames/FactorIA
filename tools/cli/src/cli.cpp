@@ -45,6 +45,7 @@ std::vector<Command> build_commands() {
     v.push_back(make_test_command());
     v.push_back(make_validate_command());
     v.push_back(make_call_command());
+    v.push_back(make_session_command());
     v.push_back(make_commands_command());
     v.push_back(make_api_command());
     v.push_back(make_mcp_command());

@@ -402,3 +402,207 @@ TEST_CASE("3d: determinism") {
     auto a = run(), b = run();
     CHECK(std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0);
 }
+
+// ------------------------------------------------- raycast options etc. ----
+
+TEST_CASE("2d: raycast skips colliders containing the origin, honours ignore and triggers") {
+    Sim s;
+    Entity caster = add_box(s.world, "caster", {0, 0}, {40, 40}, BodyType::Static, false);
+    Entity wall = add_box(s.world, "wall", {100, 0}, {20, 100}, BodyType::Static, false);
+    Entity trig = add_box(s.world, "trig", {50, 0}, {10, 10}, BodyType::Static, false);
+    s.world.get<Collider2D>(trig)->isTrigger = true;
+    s.run(2);
+    // from the caster's centre the caster itself is skipped; the trigger is skipped; the wall is hit
+    auto hit = s.physics.raycast2d(s.world, {0, 0}, {300, 0});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(hit->distance == doctest::Approx(90.0f).epsilon(0.01));
+    RaycastOptions o;
+    o.ignore = wall;
+    CHECK_FALSE(s.physics.raycast2d(s.world, {0, 0}, {300, 0}, o).has_value());
+    o = {};
+    o.ignoreTriggers = false;
+    auto th = s.physics.raycast2d(s.world, {-100, 0}, {300, 0}, o);
+    REQUIRE(th.has_value());
+    CHECK(th->entity == caster);  // from outside the caster it is the first thing hit
+    o.ignore = caster;
+    th = s.physics.raycast2d(s.world, {-100, 0}, {300, 0}, o);
+    if (th) CHECK(th->entity == trig);
+    // ignore covers children
+    Entity child = add_box(s.world, "child", {0, 0}, {10, 10}, BodyType::Static, false);
+    s.world.set_parent(child, wall, true);
+    s.run(2);
+    RaycastOptions o2;
+    o2.ignore = wall;
+    CHECK_FALSE(s.physics.raycast2d(s.world, {60, 0}, {300, 0}, o2).has_value());
+}
+
+TEST_CASE("3d: raycast from inside the caster, ignore option, triggers") {
+    Sim s;
+    Entity ball = add_sphere3(s.world, "ball", {0, 1, 0}, 0.5f);
+    add_box3(s.world, "ground", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
+    Entity trig = add_box3(s.world, "trig", {0, 0.4f, 0}, {4, 0.2f, 4}, BodyType::Static, false);
+    s.world.get<Collider3D>(trig)->isTrigger = true;
+    s.world.get<RigidBody3D>(ball)->gravityScale = 0.0f;
+    s.run(2);
+    auto hit = s.physics.raycast3d(s.world, {0, 1, 0}, {0, -1, 0}, 10.0f);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity != ball);
+    CHECK(hit->distance == doctest::Approx(1.0f).epsilon(0.02));
+    RaycastOptions o;
+    o.ignore = hit->entity;
+    CHECK_FALSE(s.physics.raycast3d(s.world, {0, 1, 0}, {0, -1, 0}, 10.0f, o).has_value());
+    o = {};
+    o.ignoreTriggers = false;
+    auto th = s.physics.raycast3d(s.world, {0, 1, 0}, {0, -1, 0}, 10.0f, o);
+    REQUIRE(th.has_value());
+    CHECK(th->entity == trig);
+    // origin inside the ground is skipped too
+    CHECK_FALSE(s.physics.raycast3d(s.world, {0, -0.2f, 0}, {0, -1, 0}, 10.0f).has_value());
+}
+
+TEST_CASE("3d: kinematic platform carries a rider; friction is relative to the platform") {
+    Sim s;
+    Entity plat = add_box3(s.world, "plat", {0, -0.5f, 0}, {6, 1, 6}, BodyType::Kinematic, true);
+    s.world.get<RigidBody3D>(plat)->velocity = {2, 0, 0};
+    Entity box = add_box3(s.world, "rider", {0, 0.5f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+    Entity ball = add_sphere3(s.world, "ball", {1, 0.5f, 1}, 0.5f);
+    s.world.get<RigidBody3D>(ball)->rollWithMotion = false;
+    s.run(60);
+    float platX = pos_of(s.world, plat).x;
+    CHECK(platX == doctest::Approx(2.0f).epsilon(0.05));
+    CHECK(std::fabs((pos_of(s.world, box).x) - (platX)) < 0.1);
+    CHECK(std::fabs((pos_of(s.world, ball).x - 1.0f) - (platX)) < 0.15);
+    CHECK(std::fabs((pos_of(s.world, box).y) - (0.5f)) < 0.05);
+    // a teleported (moved) static platform carries too
+    Sim t;
+    Entity sp = add_box3(t.world, "sp", {0, -0.5f, 0}, {6, 1, 6}, BodyType::Static, false);
+    Entity r = add_box3(t.world, "r", {0, 0.6f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+    t.run(60);
+    t.world.get<Transform>(sp)->position.x += 1.5f;
+    t.run(1);
+    CHECK(std::fabs((pos_of(t.world, r).x) - (1.5f)) < 0.05);
+}
+
+TEST_CASE("2d: dynamic body rides a moving kinematic platform") {
+    Sim s;
+    Entity plat = add_box(s.world, "plat", {0, -20}, {400, 40}, BodyType::Kinematic);
+    s.world.get<RigidBody2D>(plat)->velocity = {100, 0};
+    Entity box = add_box(s.world, "box", {0, 16}, {32, 32}, BodyType::Dynamic);
+    s.world.get<Collider2D>(box)->friction = 1.0f;
+    s.world.get<Collider2D>(plat)->friction = 1.0f;
+    s.run(90);
+    float px = pos_of(s.world, plat).x, bx = pos_of(s.world, box).x;
+    CHECK(px == doctest::Approx(150.0f).epsilon(0.05));
+    CHECK(std::fabs(bx - px) < 25.0f);
+    CHECK(s.physics.is_grounded(s.world, box));
+}
+
+TEST_CASE("3d: angularVelocity integrates into Transform.rotation") {
+    Sim s;
+    Entity e = add_box3(s.world, "spinner", {0, 10, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+    s.world.get<RigidBody3D>(e)->gravityScale = 0.0f;
+    s.world.get<RigidBody3D>(e)->angularVelocity = {0, 90, 0};
+    s.run(60);
+    CHECK(s.world.get<Transform>(e)->rotation.y == doctest::Approx(90.0f).epsilon(0.02));
+    CHECK(s.world.get<RigidBody3D>(e)->angularVelocity.y == doctest::Approx(90.0f));
+    // kinematic too
+    Entity k = add_box3(s.world, "k", {5, 10, 0}, {1, 1, 1}, BodyType::Kinematic, true);
+    s.world.get<RigidBody3D>(k)->angularVelocity = {0, 0, 180};
+    s.run(30);
+    CHECK(s.world.get<Transform>(k)->rotation.z == doctest::Approx(90.0f).epsilon(0.02));
+}
+
+TEST_CASE("3d: rolling sphere spins to match its motion; rollWithMotion=false does not") {
+    Sim s;
+    add_box3(s.world, "ground", {0, -0.5f, 0}, {100, 1, 100}, BodyType::Static, false);
+    Entity roll = add_sphere3(s.world, "roll", {0, 0.5f, -3}, 0.5f);
+    Entity stay = add_sphere3(s.world, "stay", {0, 0.5f, 3}, 0.5f);
+    s.world.get<RigidBody3D>(stay)->rollWithMotion = false;
+    s.run(30);
+    s.world.get<RigidBody3D>(roll)->velocity = {2, 0, 0};
+    s.world.get<RigidBody3D>(stay)->velocity = {2, 0, 0};
+    s.run(10);
+    // v = (2,0,0): axis = up x v = (0,0,-2)/2 -> angular z = -|v|/r rad/s = -4 rad/s
+    Vec3 w = s.world.get<RigidBody3D>(roll)->angularVelocity;
+    CHECK(w.z < -100.0f);
+    CHECK(std::fabs(w.x) < 1e-3f);
+    CHECK(s.world.get<Transform>(roll)->rotation.z < -5.0f);
+    CHECK(s.world.get<RigidBody3D>(stay)->angularVelocity == Vec3{});
+    CHECK(s.world.get<Transform>(stay)->rotation == Vec3{});
+}
+
+TEST_CASE("3d: is_grounded and is_touching3d") {
+    Sim s;
+    add_box3(s.world, "ground", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
+    add_box3(s.world, "wall", {3.5f, 2, 0}, {1, 4, 10}, BodyType::Static, false);
+    Entity ball = add_sphere3(s.world, "ball", {0, 3, 0}, 0.5f);
+    s.run(2);
+    CHECK_FALSE(s.physics.is_grounded(s.world, ball));
+    s.run(100);
+    CHECK(s.physics.is_grounded(s.world, ball));
+    CHECK(s.physics.is_touching3d(s.world, ball, {0, -1, 0}));
+    CHECK_FALSE(s.physics.is_touching3d(s.world, ball, {0, 1, 0}));
+    CHECK_FALSE(s.physics.is_touching3d(s.world, ball, {1, 0, 0}));
+    s.world.get<RigidBody3D>(ball)->velocity = {5, 0, 0};
+    s.run(60);
+    CHECK(s.physics.is_touching3d(s.world, ball, {1, 0, 0}));
+    CHECK_FALSE(s.physics.is_touching3d(s.world, ball, {-1, 0, 0}));
+    s.physics.apply_impulse(s.world, ball, {0, 6, 0});
+    s.run(8);
+    CHECK_FALSE(s.physics.is_grounded(s.world, ball));
+    CHECK_FALSE(s.physics.is_grounded(s.world, kNullEntity));
+}
+
+TEST_CASE("2d: is_touching2d walls, ground, ceiling") {
+    Sim s;
+    add_ground(s.world);
+    add_box(s.world, "wallR", {116, 0}, {20, 400}, BodyType::Static, false);
+    add_box(s.world, "wallL", {-116, 0}, {20, 400}, BodyType::Static, false);
+    add_box(s.world, "ceil", {0, 60}, {400, 20}, BodyType::Static, false);
+    Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+    s.world.get<Collider2D>(box)->friction = 0.0f;
+    s.run(60);
+    CHECK(s.physics.is_touching2d(s.world, box, {0, -1}));
+    CHECK_FALSE(s.physics.is_touching2d(s.world, box, {0, 1}));
+    CHECK_FALSE(s.physics.is_touching2d(s.world, box, {1, 0}));
+    CHECK_FALSE(s.physics.is_touching2d(s.world, box, {-1, 0}));
+    s.world.get<RigidBody2D>(box)->velocity = {300, 0};
+    s.run(60);
+    CHECK(s.physics.is_touching2d(s.world, box, {1, 0}));
+    CHECK_FALSE(s.physics.is_touching2d(s.world, box, {-1, 0}));
+    s.world.get<RigidBody2D>(box)->velocity = {-300, 0};
+    s.run(90);
+    CHECK(s.physics.is_touching2d(s.world, box, {-1, 0}));
+    CHECK_FALSE(s.physics.is_touching2d(s.world, box, {1, 0}));
+    s.world.get<RigidBody2D>(box)->velocity = {0, 600};
+    s.run(20);
+    CHECK(s.physics.is_touching2d(s.world, box, {0, 1}));
+}
+
+TEST_CASE("2d: one-way platform lands from above and lets bodies jump through from below") {
+    Sim s;
+    add_ground(s.world, -200.0f);
+    Entity plat = add_box(s.world, "plat", {0, 0}, {200, 16}, BodyType::Static, false);
+    s.world.get<Collider2D>(plat)->oneWay = true;
+    // lands from above
+    Entity a = add_box(s.world, "a", {0, 100}, {32, 32}, BodyType::Dynamic);
+    s.run(120);
+    CHECK(std::fabs((pos_of(s.world, a).y) - (8.0f + 16.0f)) < 1.5f);
+    CHECK(s.physics.is_grounded(s.world, a));
+    // jumps through from below, then lands on top
+    Entity b = add_box(s.world, "b", {0, -100}, {32, 32}, BodyType::Dynamic);
+    s.world.get<RigidBody2D>(b)->velocity = {0, 600};
+    float maxY = -1e9f;
+    for (int i = 0; i < 20; ++i) { s.run(1); maxY = std::max(maxY, pos_of(s.world, b).y); }
+    s.run(200);
+    CHECK(maxY > 20.0f);  // went through
+    CHECK(pos_of(s.world, b).y > 8.0f);
+    CHECK(s.physics.is_grounded(s.world, b));
+    // sides never block
+    Entity c = add_box(s.world, "c", {-300, 0}, {32, 32}, BodyType::Dynamic);
+    s.world.get<RigidBody2D>(c)->gravityScale = 0.0f;
+    s.world.get<RigidBody2D>(c)->velocity = {400, 0};
+    s.run(60);
+    CHECK(pos_of(s.world, c).x > 150.0f);
+}
