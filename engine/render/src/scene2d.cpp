@@ -153,6 +153,29 @@ void gather_2d(World& world, Frame& f) {
                 }
                 break;
             }
+            case ShapeType::Diamond: {
+                // Rhombus whose 4 points are the middles of the size box's edges. The outline grows INWARD (like the
+                // rectangle's), so filled and outlined diamonds have the same silhouette and sharp tips.
+                const float cx = bx0 + hw, cy = by0 + hh;
+                const Vec2 pts[4] = {{cx, by1}, {bx0, cy}, {cx, by0}, {bx1, cy}};  // top, left, bottom, right
+                auto v = [&](Vec2 p) { Vec3 w = em.xf(p.x, p.y); return Vertex2D{w.x, w.y, w.z, 0, 0, em.color, kModeTextured, 0}; };
+                if (s.filled) {
+                    list.quad(v(pts[0]), v(pts[1]), v(pts[2]), v(pts[3]));
+                } else {
+                    // Distance from the centre to an edge of the rhombus; the inner rhombus is the outer one scaled so
+                    // its edges sit `t` closer to the centre (t is capped so a thick outline fills the shape).
+                    const float diag = std::sqrt(hw * hw + hh * hh);
+                    const float d = diag > 1e-6f ? hw * hh / diag : 0.0f;
+                    const float k = d > 1e-6f ? std::max(0.0f, d - t) / d : 0.0f;
+                    Vec2 inner[4];
+                    for (int i = 0; i < 4; ++i) inner[i] = {cx + (pts[i].x - cx) * k, cy + (pts[i].y - cy) * k};
+                    for (int i = 0; i < 4; ++i) {
+                        const int j = (i + 1) % 4;
+                        list.quad(v(pts[i]), v(pts[j]), v(inner[j]), v(inner[i]));
+                    }
+                }
+                break;
+            }
         }
         list.end_item();
         ++f.stats->shapes;

@@ -13,7 +13,18 @@
 namespace fa::render {
 
 // Camera.bloom* -> supported ranges. NaN and infinities fall back to the defaults.
-BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, float radius);
+BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, float radius, bool screenSpace = true);
+
+// Where the glow is added. `att` is a color-attachment view of the game target. With MSAA the glow can go either
+// into the single-sample RESOLVED image (att = the resolve image's own attachment view, the default flow) or into the
+// multisampled image itself (att = the MSAA view, `resolve` = the resolve attachment view, `samples` = its sample
+// count): the pass then resolves at its end, and the multisampled image keeps the glow so that a later pass (the HUD
+// of Camera.bloomScreenSpace = false) can draw on top of it with MSAA and resolve again.
+struct BloomTarget {
+    sg_view att{};
+    sg_view resolve{};
+    int samples = 1;
+};
 
 class Bloom {
 public:
@@ -21,10 +32,11 @@ public:
     Bloom(const Bloom&) = delete;
     Bloom& operator=(const Bloom&) = delete;
 
-    // Adds the glow of `srcTex` (a texture view of the finished game target) into `dstAtt` (a color-attachment
-    // view of the same image). Must be called outside a pass, after the scene was drawn. Returns the number of
-    // draw calls issued, 0 when bloom was skipped (disabled, unsupported shaders, degenerate size).
-    int apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_view srcTex, sg_view dstAtt);
+    // Adds the glow of `srcTex` (a texture view of the finished game target) into `dst` (see BloomTarget: a
+    // color-attachment view of the same image, or of its multisampled twin). Must be called outside a pass, after
+    // the scene was drawn. Returns the number of draw calls issued, 0 when bloom was skipped (disabled,
+    // unsupported shaders, degenerate size).
+    int apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_view srcTex, const BloomTarget& dst);
 
     // Frees the intermediate targets (call when the game target is resized or on shutdown).
     void release();

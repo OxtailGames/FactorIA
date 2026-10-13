@@ -58,10 +58,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("bloom", &Camera::bloom,
                "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
                "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
-               "included) and shows in screenshots. Combine with blend \"additive\" on Sprite, Shape2D or "
+               "included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend \"additive\" on Sprite, Shape2D or "
                "ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few "
                "extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). "
-               "Tune with bloomThreshold, bloomIntensity and bloomRadius.")
+               "Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.")
         .field("bloomThreshold", &Camera::bloomThreshold,
                "Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: "
                "pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully "
@@ -77,7 +77,13 @@ void register_builtin_components(TypeRegistry& r) {
                "whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 "
                "(the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide "
                "glows are softer). Limited to 1..128.")
-        .range(1, 128);
+        .range(1, 128)
+        .field("bloomScreenSpace", &Camera::bloomScreenSpace,
+               "Only used when bloom is true. true (default): the whole finished frame glows, screen-space items "
+               "(Sprite, Shape2D, Text with space \"screen\", and debug text) included, so a bright neon title or HUD "
+               "icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays "
+               "crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text "
+               "over a glowing world; leave it true to make a screen-space title or logo glow.");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",
@@ -123,10 +129,12 @@ void register_builtin_components(TypeRegistry& r) {
     r.add<Shape2D>("Shape2D",
                    "Untextured 2D primitive for prototypes, UI panels and debug visuals.",
                    "2D")
-        .enum_field("shape", &Shape2D::shape, {"rectangle", "circle", "line", "triangle"},
-                    "Kind of primitive to draw.")
+        .enum_field("shape", &Shape2D::shape, {"rectangle", "circle", "line", "triangle", "diamond"},
+                    "Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along "
+                    "the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square "
+                    "rotated 45 degrees when size is square; handy for gems, enemies and neon markers).")
         .field("size", &Shape2D::size,
-               "rectangle/triangle: [width, height]. circle: diameter in x. line: end point offset from the entity origin.")
+               "rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.")
         .field("color", &Shape2D::color, "Fill or outline color.")
         .field("filled", &Shape2D::filled, "true = solid shape, false = outline only (lines are always drawn as strokes).")
         .field("thickness", &Shape2D::thickness, "Outline / line thickness in world units.").range(0, 10000)
@@ -134,8 +142,12 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("space", &Shape2D::space, {"world", "screen"},
                     "world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down.")
         .field("pivot", &Shape2D::pivot,
-               "Anchor point within the shape for rectangle/circle/triangle: [0.5,0.5] = centered on the position (default), "
-               "[0,0] bottom-left, [1,1] top-right. In screen space +Y is down, so [0,1] puts the top-left corner at the position.")
+               "Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits "
+               "on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and "
+               "scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a "
+               "triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the "
+               "bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle "
+               "around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place.")
         .enum_field("blend", &Shape2D::blend, {"alpha", "additive", "multiply"},
                     "Compositing: alpha (normal), additive (glow/neon), multiply (darken).")
         .field("anchor", &Shape2D::anchor,

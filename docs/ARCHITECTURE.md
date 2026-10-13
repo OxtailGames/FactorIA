@@ -123,7 +123,10 @@ GLES3 (Android). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
 target, so headless and windowed images match. `Camera.bloom` is a post-process
 that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
-`shaders/bloom.glsl`), so screenshots include it. Shaders are GLSL annotated for
+`shaders/bloom.glsl`), so screenshots include it. With `Camera.bloomScreenSpace = false`
+the frame is split: world pass, bloom, then a second pass that draws the screen-space
+groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
+HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/`).
 
 ### Headless

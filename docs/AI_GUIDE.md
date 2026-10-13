@@ -243,10 +243,10 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius` | The view. Without a primary camera the screenshot is black. `bloom: true` adds a glow around bright pixels (section 9.20). |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true) | The view. Without a primary camera the screenshot is black. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
-| `Shape2D` | `shape` (rectangle, circle, line, triangle), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. |
+| `Shape2D` | `shape` (rectangle, circle, line, triangle, diamond), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. A `triangle` points up (apex at the top-middle of its `size` box); a `diamond` is a rhombus whose 4 points touch the middles of the box edges (gems, enemies, markers). `pivot` is the point of the `size` box that sits on the position and that the entity rotates around: to spin a triangle without it wobbling use `pivot: [0.5, 0.3333]` (its centroid). Circles and diamonds already spin in place at the default pivot. |
 | `Text` | `text` (`\n` breaks lines), `fontSize` (default 24), `color`, `align`, `pivot` (default [0, 1]), `maxWidth`, `layer` (default 100), `space`, `anchor`, `font` | Labels, scores and the HUD (`space: "screen"`). |
 | `Tilemap` | `tileset`, `tileSize`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty; flat list with `width`/`height`, or an array of rows), `solidTiles`, optional `columns` (0 = derived from the tileset image) | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
 | `ParticleEmitter` | `emitting`, `rate`, `burst`, `autoDestroy`, `maxParticles`, `lifetime`, `speed`, `direction` (0 = right, 90 = up), `spread`, `gravity`, `startSize`, `endSize`, `startColor`, `endColor`, `blend`, `texture`, `layer` | Sparks, dust and explosions (section 9.12). |
@@ -886,17 +886,19 @@ Glow is a camera setting, not artwork. Draw the bright things with `"blend": "ad
 ```json
 { "id": "camera", "components": {
     "Camera": { "projection": "orthographic", "clearColor": [0.02, 0.02, 0.05, 1],
-                "bloom": true, "bloomThreshold": 0.6, "bloomIntensity": 1.2, "bloomRadius": 20 } } },
+                "bloom": true, "bloomThreshold": 0.6, "bloomIntensity": 1.2, "bloomRadius": 20,
+                "bloomScreenSpace": false } } },
 { "id": "ship", "components": {
     "Transform": { "position": [0, 0, 0] },
-    "Shape2D": { "shape": "triangle", "size": [60, 60], "color": [0.1, 0.9, 1, 1],
+    "Shape2D": { "shape": "triangle", "size": [60, 60], "color": [0.1, 0.9, 1, 1], "pivot": [0.5, 0.3333],
                  "filled": false, "thickness": 4, "blend": "additive" } } }
 ```
 
 - **Fields.** `bloom` turns it on (default off, so existing games are unchanged). `bloomThreshold` (0..1, default 0.7) is the brightness where glow starts, measured as the largest of r, g and b, so a saturated colour such as `[1, 0, 0.8]` glows as much as white. Lower it to make dim colours glow, raise it so only the brightest things do. `bloomIntensity` (0..10, default 1.2) is how much glow is added. `bloomRadius` (1..128 design pixels, default 20) is how far it reaches; radii below about 5 behave like 5.
 - **Dark background.** The glow is added on top of the picture, so it only shows on dark areas. Keep `clearColor` and backgrounds dark; a light background hides it.
 - **Bright sources.** Sprites, shapes and particles that glow need a bright `color` (at or above the threshold). `ParticleEmitter` with `"blend": "additive"` plus bloom gives fire, sparks and explosions for free. In 3D, bright unlit meshes (`MeshRenderer.unlit`) and strong `emissive` colours glow the same way.
-- **Whole frame.** Bloom is applied to the finished picture, screen-space HUD included: white HUD text glows too. Tint the HUD below the threshold if you do not want that.
+- **HUD: crisp or glowing.** By default bloom is applied to the whole finished picture, screen-space items included, so white HUD text glows too. Set `"bloomScreenSpace": false` on the `Camera` (the recipe above does) to draw the screen-space items (Sprite, Shape2D and Text with `"space": "screen"`, and debug text) AFTER the bloom: the world glows and the HUD stays crisp, with translucent panels blending over the glow. Leave it `true` when a screen-space title or logo should glow, as on a title screen. Particles and tilemaps are world-space only, so they always glow.
+- **Shapes for neon.** `Shape2D` has `rectangle`, `circle`, `line`, `triangle` and `diamond` (a rhombus touching the middles of its `size` box; a square box gives a 45-degree square). Outlines (`filled: false`, `thickness`) read best under bloom. `pivot` is also the point a shape rotates around: a spinning `triangle` wobbles with the default pivot because the centre of its box is not its centre of mass, so give it `"pivot": [0.5, 0.3333]` (its centroid). The recipe above does.
 - **Screenshots and tests.** The glow is part of the image (`factoria run --headless --screenshot-at`, MCP screenshots), and it is deterministic. Look at a screenshot after tuning; compare with `bloom: false` to see what it adds.
 - **Animating it.** `this.entity.get("Camera").bloomIntensity = 1 + Math.sin(time.elapsed * 4) * 0.5;` pulses the glow from a script.
 - **Cost.** Bloom reads the finished frame once, blurs a reduced-resolution copy and adds it back (4 to 7 extra passes, the number grows with the radius). That is cheap on a GPU; the software renderer used for headless runs spends about 5 ms per drawn frame at 1280x720. Headless tests and `factoria call` only draw when they take a screenshot, so bloom costs them nothing otherwise.

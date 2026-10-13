@@ -170,6 +170,7 @@ struct BloomSettings {
     float threshold = 0.7f;   // 0 .. 0.99, brightness (max of r, g, b) where the glow starts
     float intensity = 1.2f;   // 0 .. 10, multiplier of the glow added to the frame
     float radius = 20.0f;     // 1 .. 128 design pixels
+    bool screenSpace = true;  // Camera.bloomScreenSpace: false = screen-space items are drawn after the bloom
 };
 
 struct CameraInfo {
@@ -272,7 +273,8 @@ public:
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
     bool bloom_ready();
-    sg_pipeline bloom_pipeline(BloomStage stage);
+    // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
+    sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1);
 
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }

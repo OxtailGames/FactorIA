@@ -51,7 +51,7 @@ export default class Player extends Behaviour {
     this.shots++;
     const p = this.entity.position;
     const b = world.spawnPrefab("prefabs/bullet.prefab.json", {
-      position: vec3(p.x + this.aim.x * 26, p.y + this.aim.y * 26, 0),
+      position: vec3(p.x + this.aim.x * 34, p.y + this.aim.y * 34, 0),   // the nose: apex is 2/3 of 50 px from the centroid pivot
     });
     const speed = 900;
     b.get("RigidBody2D").velocity = vec2(this.aim.x * speed, this.aim.y * speed);

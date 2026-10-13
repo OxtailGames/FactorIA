@@ -15,7 +15,8 @@
           "bloom": true,
           "bloomThreshold": 0.5,
           "bloomIntensity": 1.5,
-          "bloomRadius": 26.0
+          "bloomRadius": 26.0,
+          "bloomScreenSpace": false
         }
       }
     },
@@ -108,6 +109,7 @@
         "Shape2D": {
           "shape": "triangle",
           "size": [50.0, 50.0],
+          "pivot": [0.5, 0.3333],
           "color": [0.3, 1.0, 1.0, 1.0],
           "layer": 10,
           "blend": "additive"
