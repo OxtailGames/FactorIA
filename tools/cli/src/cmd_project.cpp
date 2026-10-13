@@ -160,8 +160,9 @@ Command make_export_command() {
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
-               {"out", "DIR", "Parent folder of the export (default: <project>/build/export)."},
+               {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/ (default out: <project>/build/export)."},
                {"release", "", "Release build (assets packed, no dev tools)."},
+               {"engine-root", "DIR", "Android/iOS: engine checkout (default: $FACTORIA_ENGINE_DIR or the build-time source root)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria)."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android"};
@@ -182,6 +183,7 @@ Command make_export_command() {
         eo.platform = platform;
         eo.outDir = ctx.args.has("out") ? absolute_path(ctx.args.str("out")) : "";
         eo.release = ctx.args.has("release");
+        eo.engineRoot = ctx.args.has("engine-root") ? absolute_path(ctx.args.str("engine-root")) : "";
         eo.playerBinary = ctx.args.has("player") ? absolute_path(ctx.args.str("player")) : "";
         auto r = export_project(eo);
         if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
