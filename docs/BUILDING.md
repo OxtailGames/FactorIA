@@ -125,8 +125,8 @@ starts that build directory over, because CMake would otherwise keep using the o
 | `windows-debug` | Windows | Visual Studio 17 2022, x64 | Debug | yes | Default on Windows |
 | `windows-release` | Windows | Visual Studio 17 2022, x64 | Release | yes | |
 | `windows-ninja-debug` | Windows | Ninja with `cl` | Debug | yes | Run from a VS Developer prompt |
-| `ios` | macOS | Xcode | Debug (set at build time) | no | iOS devices (arm64), deployment target 15.0 |
-| `ios-simulator` | macOS | Xcode | Debug (set at build time) | no | iOS Simulator SDK |
+| `ios` | macOS | Xcode | Debug (`--config Release` to change) | no | iOS devices (arm64), deployment target 15.0 |
+| `ios-simulator` | macOS | Xcode | Debug (`--config Release` to change) | no | iOS Simulator SDK |
 | `android-arm64` | any host with the NDK | Ninja | Debug | no | `ANDROID_NDK_HOME`, ABI arm64-v8a, API 26 |
 | `android-x86_64` | any host with the NDK | Ninja | Debug | no | Android emulator, ABI x86_64, API 26 |
 
