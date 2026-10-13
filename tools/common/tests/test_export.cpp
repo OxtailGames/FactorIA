@@ -252,13 +252,12 @@ TEST_CASE("export: ios produces a script and the game folder") {
 }
 
 // End to end on Linux: export a game and run the exported player for a few seconds under a (virtual) display.
-TEST_CASE("export: the exported linux player runs the game" * doctest::skip(
 #if defined(__linux__)
-    false
+constexpr bool kIsLinux = true;
 #else
-    true
+constexpr bool kIsLinux = false;
 #endif
-    )) {
+TEST_CASE("export: the exported linux player runs the game" * doctest::skip(!kIsLinux)) {
     // Locate the player in the build tree: <build>/tools/common/fa_test_tooling -> <build>/player/factoria_player.
     stdfs::path exeDir = stdfs::read_symlink("/proc/self/exe").parent_path();
     stdfs::path player;
