@@ -47,15 +47,16 @@ void apply_uniforms(int slot, const T& u) {
 
 // One full-screen-triangle pass: samples `srcTex`, writes `dstAtt`. `fsParams` (optional) goes to slot `fsSlot`.
 template <class U>
-void run_pass(Gpu& gpu, BloomStage stage, sg_view srcTex, sg_view dstAtt, bool additive, const U* fsParams, int fsSlot,
+void run_pass(Gpu& gpu, BloomStage stage, sg_view srcTex, const BloomTarget& dst, bool additive, const U* fsParams, int fsSlot,
               const char* label) {
     sg_pass p{};
     p.action.colors[0].load_action = additive ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;
     p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = dstAtt;
+    p.attachments.colors[0] = dst.att;
+    if (dst.resolve.id) p.attachments.resolves[0] = dst.resolve;
     p.label = label;
     sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.bloom_pipeline(stage));
+    sg_apply_pipeline(gpu.bloom_pipeline(stage, dst.samples));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_bloom_tex] = srcTex;
@@ -71,9 +72,10 @@ void run_pass(Gpu& gpu, BloomStage stage, sg_view srcTex, sg_view dstAtt, bool a
 
 }  // namespace
 
-BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, float radius) {
+BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, float radius, bool screenSpace) {
     BloomSettings b;
     b.enabled = enabled;
+    b.screenSpace = screenSpace;
     b.threshold = std::clamp(finite_or(threshold, b.threshold), 0.0f, 0.99f);
     b.intensity = std::clamp(finite_or(intensity, b.intensity), 0.0f, 10.0f);
     b.radius = std::clamp(finite_or(radius, b.radius), 1.0f, 128.0f);
@@ -130,7 +132,7 @@ bool Bloom::ensure(int level, int targetW, int targetH, bool needSecond) {
     return true;
 }
 
-int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_view srcTex, sg_view dstAtt) {
+int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_view srcTex, const BloomTarget& dst) {
     if (!s.enabled || s.intensity <= 0.0f || targetW < 1 || targetH < 1) return 0;
     if (!gpu.bloom_ready()) return 0;
     if (targetW != targetW_ || targetH != targetH_) {
@@ -152,13 +154,13 @@ int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_
         u.p[2] = s.threshold;
         u.p[3] = 1.0f / std::max(1.0f - s.threshold, 1.0f / 255.0f);
         u.q[0] = plan.first == 0 ? 2.0f : 4.0f;
-        run_pass(gpu, BloomStage::Bright, srcTex, levels_[plan.first].att[0], false, &u, UB_bloom_bloom_bright_params,
+        run_pass(gpu, BloomStage::Bright, srcTex, BloomTarget{levels_[plan.first].att[0]}, false, &u, UB_bloom_bloom_bright_params,
                  "bloom-bright");
         ++passes;
     }
     // 2. downsample to the working level.
     for (int l = plan.first + 1; l <= plan.level; ++l) {
-        run_pass<bloom_bloom_bright_params_t>(gpu, BloomStage::Down, levels_[l - 1].tex[0], levels_[l].att[0], false, nullptr, 0,
+        run_pass<bloom_bloom_bright_params_t>(gpu, BloomStage::Down, levels_[l - 1].tex[0], BloomTarget{levels_[l].att[0]}, false, nullptr, 0,
                                               "bloom-down");
         ++passes;
     }
@@ -171,17 +173,17 @@ int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_
         u.p[3] = std::ceil(plan.halfWidth);
         u.p[0] = 1.0f / float(w.w);
         u.p[1] = 0.0f;
-        run_pass(gpu, BloomStage::Blur, w.tex[0], w.att[1], false, &u, UB_bloom_bloom_blur_params, "bloom-blur-h");
+        run_pass(gpu, BloomStage::Blur, w.tex[0], BloomTarget{w.att[1]}, false, &u, UB_bloom_bloom_blur_params, "bloom-blur-h");
         u.p[0] = 0.0f;
         u.p[1] = 1.0f / float(w.h);
-        run_pass(gpu, BloomStage::Blur, w.tex[1], w.att[0], false, &u, UB_bloom_bloom_blur_params, "bloom-blur-v");
+        run_pass(gpu, BloomStage::Blur, w.tex[1], BloomTarget{w.att[0]}, false, &u, UB_bloom_bloom_blur_params, "bloom-blur-v");
         passes += 2;
     }
     // 4. composite: game target += glow * intensity (bilinear upsample from the working level).
     {
         bloom_bloom_composite_params_t u{};
         u.p[0] = s.intensity;
-        run_pass(gpu, BloomStage::Composite, levels_[plan.level].tex[0], dstAtt, true, &u, UB_bloom_bloom_composite_params,
+        run_pass(gpu, BloomStage::Composite, levels_[plan.level].tex[0], dst, true, &u, UB_bloom_bloom_composite_params,
                  "bloom-composite");
         ++passes;
     }

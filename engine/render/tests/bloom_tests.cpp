@@ -362,6 +362,208 @@ TEST_CASE("bloom: follows a resized game target") {
     CHECK(back.rgba == small.rgba);
 }
 
+// ---- Camera.bloomScreenSpace -------------------------------------------------------------------------------------------
+// The additive world rectangle of Scene2D glows at x >= ~120. The HUD lives in the top-left corner (x < 110), far
+// enough from that glow to tell the two apart.
+
+namespace {
+
+constexpr int kHudX1 = 110;  // the HUD region is x < kHudX1 (and the world glow stays right of it)
+
+// Bright screen-space items in the left part of the frame: a white rectangle [20,60) x [10,30), the text "HUD" and a diamond.
+void add_hud(World& w) {
+    Entity box = make(w, "hud-box", {20, 10, 0});
+    auto& b = w.add<Shape2D>(box);
+    b.shape = ShapeType::Rectangle;
+    b.size = {40, 20};
+    b.color = Color::white();
+    b.space = RenderSpace::Screen;
+    b.pivot = {0, 1};  // visual top-left corner at the position
+    Entity label = make(w, "hud-text", {20, 45, 0});
+    auto& t = w.add<Text>(label);
+    t.text = "HUD";
+    t.fontSize = 24;
+    t.color = Color::white();
+    t.space = RenderSpace::Screen;
+    // A tilted diamond: its slanted edges are anti-aliased with MSAA, so the HUD pass must be multisampled too.
+    Entity gem = make(w, "hud-gem", {40, 110, 0});
+    w.get<Transform>(gem)->rotation = {0, 0, 20};
+    auto& d = w.add<Shape2D>(gem);
+    d.shape = ShapeType::Diamond;
+    d.size = {30, 30};
+    d.color = Color::white();
+    d.space = RenderSpace::Screen;
+}
+
+// Pixels of the HUD region that differ from the same frame without bloom (the glow around the HUD).
+int hud_glow_pixels(const Image& withBloom, const Image& withoutBloom) {
+    int n = 0;
+    for (int y = 0; y < withBloom.height; ++y)
+        for (int x = 0; x < kHudX1; ++x) {
+            Color a = withBloom.pixel(x, y), b = withoutBloom.pixel(x, y);
+            if (std::max({a.r - b.r, a.g - b.g, a.b - b.b}) > 3.0f / 255.0f) ++n;
+        }
+    return n;
+}
+
+// Pixels right of the HUD region (outside the world rectangle) that the glow lit up.
+int world_glow_pixels(const Image& img) {
+    int n = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = kHudX1; x < img.width; ++x)
+            if (!in_rect(x, y) && is_lit(img.pixel(x, y))) ++n;
+    return n;
+}
+
+int max_abs_diff(const Image& a, const Image& b) {
+    int worst = 0;
+    for (std::size_t i = 0; i < a.rgba.size(); ++i) worst = std::max(worst, std::abs(int(a.rgba[i]) - int(b.rgba[i])));
+    return worst;
+}
+
+}  // namespace
+
+TEST_CASE("bloomScreenSpace: true (the default) makes screen-space items glow, false keeps the HUD crisp") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    CHECK(Camera{}.bloomScreenSpace);  // default = today's behaviour: the whole frame glows
+    Scene2D s;
+    add_hud(s.world);
+
+    s.bloom(false);
+    Image off = g.render(s.world);
+    CHECK(hud_glow_pixels(off, off) == 0);
+    CHECK(max_channel(off.pixel(40, 20)) > 0.95f);  // the HUD rectangle is bright
+    CHECK(world_glow_pixels(off) == 0);
+
+    s.bloom(true);
+    s.camera().bloomScreenSpace = true;
+    Image glowing = g.render(s.world);
+    INFO("HUD glow pixels with bloomScreenSpace=true: " << hud_glow_pixels(glowing, off));
+    CHECK(hud_glow_pixels(glowing, off) > 300);
+    CHECK(world_glow_pixels(glowing) > 300);
+
+    s.camera().bloomScreenSpace = false;
+    Image crisp = g.render(s.world);
+    CHECK(hud_glow_pixels(crisp, off) == 0);  // not one pixel around the HUD changed: it is exactly the frame without bloom
+    CHECK(world_glow_pixels(crisp) > 300);    // the world still glows
+    CHECK(max_channel(crisp.pixel(40, 20)) > 0.95f);
+    for (int y = 0; y < kH; ++y)              // HUD region identical, including the text glyphs
+        for (int x = 0; x < kHudX1; ++x) {
+            REQUIRE(crisp.pixel(x, y).r == off.pixel(x, y).r);
+            REQUIRE(crisp.pixel(x, y).g == off.pixel(x, y).g);
+            REQUIRE(crisp.pixel(x, y).b == off.pixel(x, y).b);
+        }
+
+    // The world glow does not depend on the flag (MSAA rounds per sample: allow 2/255).
+    int worst = 0;
+    for (int y = 0; y < kH; ++y)
+        for (int x = kHudX1; x < kW; ++x)
+            for (int ch = 0; ch < 3; ++ch) {
+                std::size_t i = (std::size_t(y) * kW + std::size_t(x)) * 4 + std::size_t(ch);
+                worst = std::max(worst, std::abs(int(crisp.rgba[i]) - int(glowing.rgba[i])));
+            }
+    CHECK(worst <= 2);
+}
+
+TEST_CASE("bloomScreenSpace: the flag changes nothing without a HUD, with bloom off or with zero intensity") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+
+    // No screen-space items: both settings give the same picture (MSAA rounds per sample: allow 2/255).
+    Scene2D s;
+    s.bloom(true);
+    s.camera().bloomScreenSpace = true;
+    Image a = g.render(s.world);
+    s.camera().bloomScreenSpace = false;
+    Image b = g.render(s.world);
+    CHECK(max_abs_diff(a, b) <= 2);
+
+    // Bloom off ignores the flag completely, HUD or not: pixel-identical.
+    add_hud(s.world);
+    s.bloom(false);
+    s.camera().bloomScreenSpace = true;
+    Image offTrue = g.render(s.world);
+    s.camera().bloomScreenSpace = false;
+    Image offFalse = g.render(s.world);
+    CHECK(offTrue.rgba == offFalse.rgba);
+
+    // Zero intensity adds nothing, so nothing is split either.
+    s.bloom(true, 0.5f, 0.0f, 12.0f);
+    Image zeroFalse = g.render(s.world);
+    CHECK(zeroFalse.rgba == offTrue.rgba);
+}
+
+TEST_CASE("bloomScreenSpace=false: a translucent HUD panel is blended over the glow, not under it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Scene2D s;
+    s.bloom(true);
+    s.camera().bloomScreenSpace = false;
+    Image plain = g.render(s.world);
+    const Color glow = plain.pixel(136, 90);  // glow just left of the world rectangle
+    REQUIRE(is_lit(glow));
+
+    // Half-transparent black panel over the glow, drawn in the HUD pass: the glow itself is halved.
+    Entity panel = make(s.world, "panel", {110, 60, 0});
+    auto& p = s.world.add<Shape2D>(panel);
+    p.shape = ShapeType::Rectangle;
+    p.size = {90, 60};
+    p.color = Color{0, 0, 0, 0.5f};
+    p.space = RenderSpace::Screen;
+    p.pivot = {0, 1};  // screen x 110..199, y 60..119 covers the rectangle and its glow
+    Image covered = g.render(s.world);
+    Color c = covered.pixel(136, 90);
+    CHECK(c.r == doctest::Approx(0.5f * glow.r).epsilon(0.03));
+    CHECK(c.b == doctest::Approx(0.5f * glow.b).epsilon(0.03));
+    CHECK(c.r < glow.r - 0.02f);
+
+    // Outside the panel the glow is untouched.
+    CHECK(covered.pixel(100, 90).r == doctest::Approx(plain.pixel(100, 90).r).epsilon(0.01));
+}
+
+TEST_CASE("bloomScreenSpace=false: screen debug text stays crisp as well") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Scene2D s;
+    s.bloom(false);
+    auto frame = [&] {
+        g.renderer.debug().text({20, 60}, "DEBUG", Color::white(), 24.0f);
+        return g.render(s.world);
+    };
+    Image off = frame();
+    s.bloom(true);
+    s.camera().bloomScreenSpace = true;
+    Image glowing = frame();
+    CHECK(hud_glow_pixels(glowing, off) > 200);
+    s.camera().bloomScreenSpace = false;
+    Image crisp = frame();
+    CHECK(hud_glow_pixels(crisp, off) == 0);
+    CHECK(world_glow_pixels(crisp) > 300);
+}
+
+TEST_CASE("bloomScreenSpace=false: a HUD item drawn over a bright world shape covers it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Scene2D s;
+    s.bloom(true);
+    s.camera().bloomScreenSpace = false;
+    Entity cover = make(s.world, "cover", {150, 80, 0});
+    auto& c = s.world.add<Shape2D>(cover);
+    c.shape = ShapeType::Rectangle;
+    c.size = {20, 20};
+    c.color = Color{0, 0, 1, 1};
+    c.space = RenderSpace::Screen;
+    c.pivot = {0, 1};  // screen x 150..169, y 80..99 (over the middle of the world rectangle)
+    Image img = g.render(s.world);
+    Color inside = img.pixel(160, 90);
+    CHECK(inside.b > 0.95f);
+    CHECK(inside.r < 0.2f);
+    CHECK(inside.g < 0.2f);
+    // The uncovered part of the world rectangle is still bright.
+    CHECK(img.pixel(145, 85).r > 0.9f);
+}
+
 namespace {
 bool bloom_bench_enabled() {
     const char* v = std::getenv("FA_BLOOM_BENCH");

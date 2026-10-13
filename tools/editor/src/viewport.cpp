@@ -46,11 +46,14 @@ PickBounds Editor::bounds_of(Entity e) {
         Vec2 size = sh->size;
         if (sh->shape == ShapeType::Circle) {
             b.half = Vec2{size.x * 0.5f, size.x * 0.5f};
+            b.center = Vec2{(0.5f - sh->pivot.x) * size.x, (0.5f - sh->pivot.y) * size.x};  // the pivot refers to the bounding square
         } else if (sh->shape == ShapeType::Line) {
             b.center = size * 0.5f;
             b.half = Vec2{std::max(std::fabs(size.x) * 0.5f, sh->thickness), std::max(std::fabs(size.y) * 0.5f, sh->thickness)};
         } else {
+            // Rectangle, Triangle and Diamond all fit inside the size box, which the pivot places around the origin.
             b.half = Vec2{std::fabs(size.x) * 0.5f, std::fabs(size.y) * 0.5f};
+            b.center = Vec2{(0.5f - sh->pivot.x) * size.x, (0.5f - sh->pivot.y) * size.y};
         }
         b.layer = sh->layer;
         b.screenSpace = sh->space == RenderSpace::Screen;

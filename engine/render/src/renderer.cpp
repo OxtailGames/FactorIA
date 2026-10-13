@@ -271,7 +271,7 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
     ci.right = x; ci.up = y; ci.forward = -z;
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear;
-    ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius);
+    ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
     if (cam.projection == Projection::Perspective) {
         ci.perspective = true;
         ci.fov = cam.fov;
@@ -649,10 +649,16 @@ void Renderer::Impl::render(World& world, float dt) {
     }
 
     // ---- main pass ----
+    // Camera.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
+    // glows it, and a second pass (below) draws the screen-space groups (HUD) on top, so the HUD never glows.
+    // With MSAA the multisampled image must survive the first pass (STORE): the bloom adds its glow to it and the
+    // HUD pass loads it again, so the HUD is multisampled too and the final resolve contains everything.
+    const bool msaa = gpu.sample_count() > 1;
+    const bool hudAfterBloom = fr.cam.bloom.enabled && fr.cam.bloom.intensity > 0.0f && !fr.cam.bloom.screenSpace;
     sg_pass mp{};
     mp.action.colors[0].load_action = fr.cam.clear ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
     mp.action.colors[0].clear_value = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
-    mp.action.colors[0].store_action = gpu.sample_count() > 1 ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    mp.action.colors[0].store_action = (msaa && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
     mp.action.depth.load_action = SG_LOADACTION_CLEAR;
     mp.action.depth.clear_value = 1.0f;
     mp.action.stencil.load_action = SG_LOADACTION_CLEAR;
@@ -777,14 +783,43 @@ void Renderer::Impl::render(World& world, float dt) {
         sg_draw(0, int(fr.debugLines.size()), 1);
         ++stats.drawCalls;
     }
-    draw_group(gScreen.batches, screenProj, false);
-    draw_group(gDebugScreen.batches, screenProj, false);
+    if (!hudAfterBloom) {
+        draw_group(gScreen.batches, screenProj, false);
+        draw_group(gDebugScreen.batches, screenProj, false);
+    }
 
     sg_end_pass();
 
-    // ---- post-process: bloom adds its glow into the game target (the resolved image when MSAA is on) ----
+    // ---- post-process: bloom adds its glow into the game target ----
     if (fr.cam.bloom.enabled) {
-        stats.drawCalls += bloom.apply(gpu, fr.cam.bloom, targetW, targetH, texView, gpu.sample_count() > 1 ? resolveColorAtt : colorAtt);
+        BloomTarget dst;
+        if (hudAfterBloom && msaa) {
+            // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
+            // can load it. Reads the already resolved image of the main pass.
+            dst = BloomTarget{colorAtt, resolveAtt, gpu.sample_count()};
+        } else {
+            // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
+            dst = BloomTarget{msaa ? resolveColorAtt : colorAtt, sg_view{}, 1};
+        }
+        stats.drawCalls += bloom.apply(gpu, fr.cam.bloom, targetW, targetH, texView, dst);
+    }
+
+    // ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
+    if (hudAfterBloom && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
+        sg_pass hp{};
+        hp.action.colors[0].load_action = SG_LOADACTION_LOAD;  // keep the world and its glow
+        hp.action.colors[0].store_action = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+        hp.action.depth.load_action = SG_LOADACTION_CLEAR;
+        hp.action.depth.clear_value = 1.0f;
+        hp.action.stencil.load_action = SG_LOADACTION_CLEAR;
+        hp.attachments.colors[0] = colorAtt;
+        if (msaa) hp.attachments.resolves[0] = resolveAtt;
+        hp.attachments.depth_stencil = depthAtt;
+        hp.label = "game-hud";
+        sg_begin_pass(&hp);
+        draw_group(gScreen.batches, screenProj, false);
+        draw_group(gDebugScreen.batches, screenProj, false);
+        sg_end_pass();
     }
 
     debug.clear();

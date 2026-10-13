@@ -259,8 +259,8 @@ bool Gpu::bloom_ready() {
     return true;
 }
 
-sg_pipeline Gpu::bloom_pipeline(BloomStage stage) {
-    PipelineKey key{0x600u | std::uint32_t(stage)};
+sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
+    PipelineKey key{0x600u | std::uint32_t(stage) | (std::uint32_t(sampleCount) << 4)};
     sg_pipeline_desc d{};
     d.shader = bloom_shaders_[int(stage)];
     // All four programs share the vertex shader and therefore the same single `pos` attribute at location 0.
@@ -269,7 +269,7 @@ sg_pipeline Gpu::bloom_pipeline(BloomStage stage) {
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
     d.colors[0].pixel_format = kColorFormat;
-    d.sample_count = 1;
+    d.sample_count = sampleCount;
     d.face_winding = SG_FACEWINDING_CCW;
     switch (stage) {
         case BloomStage::Composite:  // dst.rgb += src.rgb (intensity is applied in the shader); alpha stays

@@ -196,6 +196,30 @@ describe("neon look", () => {
     }
   });
 
+  test("the HUD is drawn after the bloom in the game scene (crisp), the titles still glow", () => {
+    game.load("scenes/game.scene.json");
+    game.step(1);
+    expect(game.find("camera").get("Camera").bloomScreenSpace).toBe(false);
+    for (const path of ["scenes/title.scene.json", "scenes/gameover.scene.json"]) {
+      game.load(path);
+      game.step(1);
+      expect(game.find("camera").get("Camera").bloomScreenSpace).toBe(true);
+    }
+  });
+
+  test("the chaser is a spinning diamond, triangles spin about their centroid", () => {
+    loadGame();
+    mgr().timer = 999;
+    const chaser = world.spawnPrefab("prefabs/chaser.prefab.json", { position: vec3(400, 200, 0) });
+    expect(chaser.get("Shape2D").shape).toBe("diamond");
+    const shooter = world.spawnPrefab("prefabs/shooter.prefab.json", { position: vec3(-400, 200, 0) });
+    expect(shooter.get("Shape2D").shape).toBe("triangle");
+    for (const e of [shooter, player()]) {
+      expect(e.get("Shape2D").pivot.y).toBeCloseTo(1 / 3, 2);
+      expect(e.get("Shape2D").pivot.x).toBeCloseTo(0.5, 2);
+    }
+  });
+
   test("the player, the enemies and the bullets are bright additive shapes", () => {
     loadGame();
     mgr().timer = 999;

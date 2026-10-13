@@ -13,9 +13,11 @@ The glow is a camera setting, not artwork (no glow textures, no halo sprites):
 - The player, the enemies, the bullets, the arena border and the title decorations are `Shape2D`s with bright colours
   and `"blend": "additive"`, so overlapping lights add up. Enemies and decorations are outlines (`filled: false`), the
   player and the bullets are solid. Explosions are `ParticleEmitter`s with `"blend": "additive"`.
-- The HUD is not additive but bloom is applied to the whole finished frame, so the bright HUD text (white score, cyan
-  best, yellow wave, the full cyan health pips) picks up a soft glow. That is accepted: it stays readable and matches the
-  look. The dim help line and the empty health pips are close to the threshold or below it and barely glow.
+- The game scene's `Camera` has `"bloomScreenSpace": false`, so the screen-space HUD (white score, cyan best, yellow wave,
+  the health pips) is drawn after the bloom and stays crisp while the arena glows. The title and game-over scenes keep the
+  default (`true`), so their screen-space titles glow too.
+- The chaser is a spinning `diamond` (a rhombus), the shooter and the player are triangles with `"pivot": [0.5, 0.3333]`
+  (the triangle's centroid), so they spin and aim about their own centre instead of wobbling around the middle of their box.
 - Scripts tint the shapes at runtime through `Shape2D.color` (hit flash to white, invulnerability blink through `a`).
 
 Screenshots (`screenshots/`) come from the headless runner:

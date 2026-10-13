@@ -158,6 +158,41 @@ TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {
     CHECK(r.error_count() >= 5);
 }
 
+TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos get suggestions") {
+    const char* text = R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "gem", "components": { "Shape2D": { "shape": "diamond", "size": [40, 60], "pivot": [0.5, 0.3333] } } },
+        { "id": "cam", "components": { "Camera": { "bloom": true, "bloomScreenSpace": false } } },
+        { "id": "plain", "components": { "Camera": { "bloom": true }, "Shape2D": {} } },
+        { "id": "typo", "components": { "Shape2D": { "shape": "diamnd" }, "Camera": { "bloomScreenSpce": false } } }
+      ]
+    })";
+    World w;
+    LoadReport r = load_scene(w, Json::parse(text), "diamond.scene.json");
+    CHECK(has_message(r, kErr, "#/entities/3/components/Shape2D/shape: Field 'shape': unknown value \"diamnd\""));
+    CHECK(has_message(r, kErr, "Did you mean 'diamond'?"));
+    CHECK(has_message(r, kErr, "#/entities/3/components/Camera/bloomScreenSpce: Unknown field 'bloomScreenSpce' on Camera"));
+    CHECK(has_message(r, kErr, "Did you mean 'bloomScreenSpace'?"));
+    REQUIRE(w.get<Shape2D>(w.find_by_id("gem")) != nullptr);
+    CHECK(w.get<Shape2D>(w.find_by_id("gem"))->shape == ShapeType::Diamond);
+    CHECK(w.get<Shape2D>(w.find_by_id("gem"))->size == Vec2{40, 60});
+    CHECK(w.get<Camera>(w.find_by_id("cam"))->bloomScreenSpace == false);
+    CHECK(w.get<Camera>(w.find_by_id("plain"))->bloomScreenSpace == true);  // default: the whole frame glows (HUD included)
+    CHECK(Camera{}.bloomScreenSpace);
+    CHECK(w.get<Shape2D>(w.find_by_id("typo"))->shape == ShapeType::Rectangle);  // bad value keeps the default
+
+    // Saved canonically: the default (true) is omitted, false and the enum name are written.
+    Json saved = save_scene(w);
+    CHECK(saved["entities"][0]["components"]["Shape2D"]["shape"] == "diamond");
+    CHECK(saved["entities"][1]["components"]["Camera"]["bloomScreenSpace"] == false);
+    CHECK(!saved["entities"][2]["components"]["Camera"].contains("bloomScreenSpace"));
+    World again;
+    CHECK(load_scene(again, saved, "again").ok());
+    CHECK(again.get<Shape2D>(again.find_by_id("gem"))->shape == ShapeType::Diamond);
+    CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
+}
+
 TEST_CASE("scene: structural problems are reported, not crashed on") {
     World w;
     CHECK(!load_scene(w, Json::array(), "x").ok());
