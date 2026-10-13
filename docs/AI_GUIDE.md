@@ -119,6 +119,8 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_destroy` | `scene.destroy` | Destroy an entity and its children: `{"id":"coin_1"}`. |
 | `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"save":true}`. |
 | `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
+| `prefab_save` | `prefab.save` | Save an entity of the running world, with its children, as a prefab file: `{"id":"enemy_3","path":"prefabs/enemy.prefab.json"}`. It does not overwrite a file unless `"overwrite":true`. Section 6 says what the file leaves out. |
+| `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{}` formats the whole project, `{"paths":["prefabs"],"check":true}` only lists the files that are not canonical. Section 6. |
 | `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
 | `game_input` | `game.input` | Press or release an action or key now, or move the mouse. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`. The next `game_step` sees the input. |
 | `game_screenshot` | `game.screenshot` | Capture the last rendered frame as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. Needs graphics. |
@@ -227,6 +229,27 @@ A scene is `factoria.scene/1`. Each entity has `id`, `name`, `tags`, `active`, `
 ```
 
 A scene entity can start from a prefab and override it: `{"id": "enemy_1", "prefab": "prefabs/enemy.prefab.json", "components": {"Transform": {"position": [200, -100, 0]}}}`.
+
+### Saving a prefab from the running game, and keeping files tidy
+
+Do not format prefab JSON by hand. Build the thing in the running game (`scene_spawn`, `scene_set_component`, children with `parent`), look at it, then save it:
+
+```
+prefab_save {"id": "enemy_3", "path": "prefabs/enemy.prefab.json"}
+```
+
+Over the CLI, a plain `factoria call` starts a new game each time, so the entity must exist in the start scene; to save something you spawned first, use `factoria call --batch` or `factoria session` (section 11).
+
+The file is a `factoria.prefab/1` document in the canonical layout (the one `scene_save` writes), with the entity's whole tree: its children and each component's non-default fields. A prefab describes the reusable thing, not the instance you built it from, so the file does NOT carry:
+
+- **Ids.** Every instantiation gets fresh ones. An `id` stays only where another entity of the saved tree points at it through an entity-typed field, so that reference still resolves.
+- **The root's `Transform.position`.** It is where this instance stands. The spawn call (`scene_spawn {"prefab":..., "position":[x,y]}`), the scene entity or the `scene.import_ascii` legend places each new instance. Children keep their positions relative to the root, and the root's rotation and scale are kept.
+- **Tags that start with `tilemap:`.** `scene.import_ascii` adds them to the objects it places, and a prefab that carried one would be destroyed when that map is re-imported.
+- **Entity references that leave the saved tree.** They would point at nothing in every instance.
+
+The result is `{path, entity, children, overwritten, notes}`; `notes` lists what was left out when it matters (for example the root position that was dropped). `path` must end in `.prefab.json` and normally lives in `prefabs/`, where `project_info` and `project_validate` look. An existing file is an error until you pass `"overwrite": true`. To keep one entity exactly where it stands, save the whole scene with `scene_save`.
+
+After you edit scene or prefab files by hand, run `scene_format` (CLI: `factoria call scene.format`). It rewrites every `*.scene.json` and `*.prefab.json` of the project in the canonical layout: 2-space indent, short arrays of numbers on one line (`"position": [0, 12.5, 0]`), long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line. It does not load anything into the game and it only changes whitespace: values and key order stay as they are, and each file is read back and compared with the original data before it is written. Pass `paths` (files or folders) to limit it. With `"check": true` nothing is written and the result lists the files that are not canonical in `notCanonical`, which is what a CI step or a review wants. A file with a JSON syntax error is reported in `errors` with its file, line and column and skipped; fix it and run the command again.
 
 ## 7. Component cheat-sheet
 
@@ -602,7 +625,7 @@ What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid
 }
 ```
 
-The flat `tiles` array has `width * height` entries. `tiles` may also be an array of rows (`[[-1, 0, 1], [2, 2, 2]]`); then the rows define the size and `width`/`height` are not needed. In both forms the renderer and the 2D collision read the same grid, so what is drawn is exactly what collides. A flat list without `width` is read as ONE row (validation warns). When the engine saves a scene or prefab (`scene_save`, `save: true`, the editor), it writes a flat `tiles` one map row per line with aligned columns, as in the example above, so the file shows the map and a diff shows which row changed. The same writer puts short arrays (`position`, `color`, `tags`, `solidTiles`) on one line and wraps long number lists at about 100 columns. This is plain JSON, so you can keep that layout when you edit a scene by hand, but nothing depends on it. The tileset image holds tiles of `tileSize`, laid out left to right and top to bottom. `columns` (tiles per image row) is optional: leave it out and it is derived from the image width divided by `tileSize[0]`, so tile 3 of a 4-tile-wide image is the 4th tile of the first row. Set it only for a layout that does not follow the image width. Validation reports a missing tileset, a `tiles` list that does not match `width * height` (or rows of different lengths, or strings instead of integers), and tile indices outside the tileset image.
+The flat `tiles` array has `width * height` entries. `tiles` may also be an array of rows (`[[-1, 0, 1], [2, 2, 2]]`); then the rows define the size and `width`/`height` are not needed. In both forms the renderer and the 2D collision read the same grid, so what is drawn is exactly what collides. A flat list without `width` is read as ONE row (validation warns). When the engine saves a scene or prefab (`scene_save`, `save: true`, the editor), it writes a flat `tiles` one map row per line with aligned columns, as in the example above, so the file shows the map and a diff shows which row changed. The same writer puts short arrays (`position`, `color`, `tags`, `solidTiles`) on one line and wraps long number lists at about 100 columns. This is plain JSON, so you can keep that layout when you edit a scene by hand, but nothing depends on it; run `scene_format` (section 6) after a hand edit and it puts the map rows and the arrays back in that layout. The tileset image holds tiles of `tileSize`, laid out left to right and top to bottom. `columns` (tiles per image row) is optional: leave it out and it is derived from the image width divided by `tileSize[0]`, so tile 3 of a 4-tile-wide image is the 4th tile of the first row. Set it only for a layout that does not follow the image width. Validation reports a missing tileset, a `tiles` list that does not match `width * height` (or rows of different lengths, or strings instead of integers), and tile indices outside the tileset image.
 
 How tiles collide (verified against the physics rules):
 
@@ -1035,6 +1058,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Editing `types/factoria.d.ts` or `.factoria/`. Both are generated.
 - Guessing a component field or command argument. Check `factoria api --md` and `factoria commands`.
 - Changing only the running game (`scene_spawn`, `scene_set_component`) and then forgetting that the scene file did not change. Save the scene (`scene_save`) or write it in the file.
+- Writing a prefab file by hand to capture something you already built in the running game, or laying out JSON by hand. Save it with `prefab_save` and tidy hand edits with `scene_format` (section 6).
 - Skipping THE FEEDBACK RULE because the workaround "works".
 
 ## 13. Performance

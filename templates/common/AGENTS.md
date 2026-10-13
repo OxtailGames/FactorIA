@@ -75,6 +75,10 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @level.json`) turns ASCII
   `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Re-run it
   after every edit (`save: true` writes the scene). Guide section 9.8. Do not place tile objects by hand or write a level generator.
+- **Prefab files and tidy JSON:** `prefab.save` (MCP `prefab_save`) saves an entity you built in the running game, with its
+  children, as `prefabs/<name>.prefab.json` (it leaves out ids, the root position and `tilemap:` tags; it never overwrites
+  without `"overwrite": true`). `scene.format` (MCP `scene_format`; `{"check": true}` only lists) puts hand-edited scenes and
+  prefabs in the canonical layout. Guide section 6. Do not lay out prefab JSON by hand.
 - **Sensing:** `entity.isGrounded()`, `entity.isTouching([dx, dy])`, `physics.raycast(a, b, {ignore: this.entity})`.
   Skip the first two fixed steps before probing (bodies are created by the first physics step).
 - **Spawning:** `world.spawn(json, {position, parent, props})` and `world.spawnPrefab(path, {position, props, overrides})`;
