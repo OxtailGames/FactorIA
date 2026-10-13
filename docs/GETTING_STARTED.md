@@ -1,23 +1,25 @@
-# Primeros pasos con FactorIA
+# Getting started with FactorIA
+
+**English** | [Español](i18n/es/GETTING_STARTED.md)
 
 > AI agents: read [AI_GUIDE.md](AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
 
-FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree juegos sin depender de un editor gráfico. Las escenas son JSON, la lógica va en JavaScript y cada capacidad del motor es un comando que la IA puede invocar. Esta guía explica cómo compilar el motor, crear un juego y conectar una IA.
+FactorIA is a 2D and 3D game engine in C++20 designed so that an AI can create games without depending on a graphical editor. Scenes are JSON, game logic is written in JavaScript, and each engine capability is a command the AI can invoke. This guide explains how to build the engine, create a game and connect an AI.
 
-> **Estado del proyecto.** Está en desarrollo temprano. En Linux funciona el flujo completo: crear un proyecto, validarlo, probarlo, simularlo sin ventana con capturas, exportarlo y conectar una IA por MCP. macOS, Windows, iOS y Android tienen scripts y presets definidos, pero no se han probado en esas plataformas, y el código móvil todavía no se ha podido compilar en la máquina de desarrollo (ver `docs/MOBILE.md`). La sección 8 resume lo que funciona y lo que falta.
+> **Project status.** It is in early development. On Linux the full workflow works: create a project, validate it, test it, simulate it without a window with screenshots, export it and connect an AI over MCP. macOS, Windows, iOS and Android have scripts and presets defined, but they have not been tested on those platforms, and the mobile code has not yet been built on the development machine (see `docs/MOBILE.md`). Section 8 summarizes what works and what is missing.
 
-## 1. Requisitos e instalación
+## 1. Requirements and installation
 
-Necesitas CMake 3.24 o superior y un compilador de C++20. En Linux y macOS los presets usan Ninja. Las librerías de terceros vienen incluidas en `external/`, así que no hay que descargar dependencias aparte, salvo los SDK de cada plataforma.
+You need CMake 3.24 or later and a C++20 compiler. On Linux and macOS the presets use Ninja. Third-party libraries are bundled in `external/`, so there are no separate dependencies to download, except the SDKs for each platform.
 
-### Linux (Debian o Ubuntu)
+### Linux (Debian or Ubuntu)
 
 ```bash
-./scripts/bootstrap-linux.sh      # instala compilador, CMake, Ninja y las librerías necesarias (se puede repetir)
-./scripts/build.sh debug --test   # configura, compila y ejecuta los tests
+./scripts/bootstrap-linux.sh      # installs the compiler, CMake, Ninja and the required libraries (can be run again)
+./scripts/build.sh debug --test   # configures, builds and runs the tests
 ```
 
-El script funciona solo en sistemas con `apt` (Debian y Ubuntu) y usa `sudo` si no eres root. En otras distribuciones se detiene e imprime los paquetes equivalentes para Fedora y Arch; instala esos mismos componentes con tu gestor de paquetes y después ejecuta `./scripts/build.sh debug --test`.
+The script only works on systems with `apt` (Debian and Ubuntu) and uses `sudo` if you are not root. On other distributions it stops and prints the equivalent packages for Fedora and Arch; install those same components with your package manager, then run `./scripts/build.sh debug --test`.
 
 ### macOS
 
@@ -26,45 +28,45 @@ El script funciona solo en sistemas con `apt` (Debian y Ubuntu) y usa `sudo` si 
 ./scripts/build.sh debug --test
 ```
 
-Necesitas las herramientas de línea de comandos de Xcode (`xcode-select --install`). Para iOS hace falta Xcode completo.
+You need the Xcode Command Line Tools (`xcode-select --install`). For iOS, the full Xcode is required.
 
 ### Windows
 
-1. Instala Visual Studio 2022 con la carga de trabajo «Desarrollo para escritorio con C++» (en inglés, *Desktop development with C++*). Community sirve.
-2. Desde la raíz del repositorio, en PowerShell:
+1. Install Visual Studio 2022 with the *Desktop development with C++* workload. The Community edition works.
+2. From the repository root, in PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Test
 ```
 
-Para compilar con Ninja (`windows-ninja-debug`), instala Ninja y ejecuta el script desde «Developer PowerShell for VS 2022», que pone `cl.exe` en el PATH:
+To build with Ninja (`windows-ninja-debug`), install Ninja and run the script from *Developer PowerShell for VS 2022*, which puts `cl.exe` on the PATH:
 
 ```powershell
 winget install Ninja-build.Ninja
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Preset windows-ninja-debug -Test
 ```
 
-### iOS y Android
+### iOS and Android
 
 ```bash
-./scripts/build-ios.sh --simulator    # iOS Simulator; requiere Xcode completo
-./scripts/build-android.sh            # Android arm64; requiere el NDK r26 o superior y ANDROID_NDK_HOME
+./scripts/build-ios.sh --simulator    # iOS Simulator; requires full Xcode
+./scripts/build-android.sh            # Android arm64; requires NDK r26 or later and ANDROID_NDK_HOME
 ```
 
 ### Presets
 
-Cada compilación va a `build/<preset>/`. Para ver los presets que funcionan en tu equipo, ejecuta `cmake --list-presets`.
+Each build goes to `build/<preset>/`. To see the presets that work on your machine, run `cmake --list-presets`.
 
-| Preset | Sistema | Uso |
+| Preset | System | Use |
 |---|---|---|
-| `linux-debug`, `linux-release` | Linux | Desarrollo y publicación |
-| `macos-debug`, `macos-release` | macOS | Desarrollo y publicación |
-| `windows-debug`, `windows-release` | Windows (Visual Studio 2022) | Desarrollo y publicación |
-| `windows-ninja-debug` | Windows (Ninja con `cl`) | Desde Developer PowerShell |
-| `ios`, `ios-simulator` | macOS con Xcode | Dispositivo y simulador |
-| `android-arm64`, `android-x86_64` | Cualquier equipo con el NDK | Dispositivo y emulador |
+| `linux-debug`, `linux-release` | Linux | Development and release |
+| `macos-debug`, `macos-release` | macOS | Development and release |
+| `windows-debug`, `windows-release` | Windows (Visual Studio 2022) | Development and release |
+| `windows-ninja-debug` | Windows (Ninja with `cl`) | From Developer PowerShell |
+| `ios`, `ios-simulator` | macOS with Xcode | Device and simulator |
+| `android-arm64`, `android-x86_64` | Any machine with the NDK | Device and emulator |
 
-Para compilar sin los scripts:
+To build without the scripts:
 
 ```bash
 cmake --preset linux-debug
@@ -72,89 +74,89 @@ cmake --build --preset linux-debug
 ctest --preset linux-debug
 ```
 
-Si el equipo se queda sin memoria, limita los procesos: `cmake --build --preset linux-debug -- -j 2`.
+If the machine runs out of memory, limit the number of parallel jobs: `cmake --build --preset linux-debug -- -j 2`.
 
-### Problemas frecuentes
+### Common problems
 
-- **`Could not use disabled preset`**: el preset es de otro sistema operativo. Usa `cmake --list-presets`.
-- **`Does not match the generator used previously: Ninja`**: borra `build/<preset>` y vuelve a configurar.
-- **CMake demasiado antiguo**: instala CMake 3.24 o superior desde cmake.org.
-- **`Could NOT find X11` u `OpenGL` (Linux)**: ejecuta `./scripts/bootstrap-linux.sh`.
-- **Los tests headless fallan sin pantalla (Linux)**: ejecútalos con un servidor virtual: `xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-debug`.
-- **`cl.exe not found`**: usa «Developer PowerShell for VS 2022».
-- **`running scripts is disabled on this system`**: ejecuta el script con `-ExecutionPolicy Bypass`.
+- **`Could not use disabled preset`**: the preset belongs to another operating system. Use `cmake --list-presets`.
+- **`Does not match the generator used previously: Ninja`**: delete `build/<preset>` and configure again.
+- **CMake too old**: install CMake 3.24 or later from cmake.org.
+- **`Could NOT find X11` or `OpenGL` (Linux)**: run `./scripts/bootstrap-linux.sh`.
+- **Headless tests fail without a display (Linux)**: run them with a virtual display server: `xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-debug`.
+- **`cl.exe not found`**: use *Developer PowerShell for VS 2022*.
+- **`running scripts is disabled on this system`**: run the script with `-ExecutionPolicy Bypass`.
 
-Más detalles en `docs/BUILDING.md`.
+More details in `docs/BUILDING.md`.
 
-## 2. Crear tu primer juego
+## 2. Create your first game
 
-Con la CLI `factoria` crearás un proyecto a partir de una plantilla:
+With the `factoria` CLI, you create a project from a template:
 
 ```bash
-factoria new mi-juego --template 2d-platformer
-cd mi-juego
+factoria new my-game --template 2d-platformer
+cd my-game
 ```
 
-Plantillas disponibles:
+Available templates:
 
-- `2d-empty`: un cuadrado controlable con WASD o las flechas. No usa recursos gráficos.
-- `2d-platformer`: plataformas con física, monedas, marcador y una cámara que sigue al jugador.
-- `3d-empty`: una cámara de vuelo, una luz, un suelo y un cubo que gira.
+- `2d-empty`: a square you can control with WASD or the arrow keys. It uses no graphic assets.
+- `2d-platformer`: platforms with physics, coins, a score counter and a camera that follows the player.
+- `3d-empty`: a fly camera, a light, a floor and a spinning cube.
 
-`factoria templates` muestra las plantillas disponibles con su descripción.
+`factoria templates` lists the available templates with their descriptions.
 
-El proyecto contiene:
+The project contains:
 
-- `factoria.json`: ajustes de pantalla, física y controles.
-- `scenes/`: niveles en JSON.
-- `scripts/`: comportamientos en JavaScript.
-- `tools/`: herramientas de proyecto que la IA puede invocar.
-- `tests/`: pruebas headless.
-- `types/factoria.d.ts`: tipos de la API de scripts, generados por el motor.
-- `AGENTS.md`: guía corta para la IA.
-- `ENGINE_FEEDBACK.json`: lo que le faltó al motor (sección 7).
-- `.mcp.json`: conexión con Claude Code.
-- `jsconfig.json`: comprobación de tipos para el JavaScript.
+- `factoria.json`: display, physics and control settings.
+- `scenes/`: levels in JSON.
+- `scripts/`: behaviors in JavaScript.
+- `tools/`: project tools the AI can invoke.
+- `tests/`: headless tests.
+- `types/factoria.d.ts`: types for the scripting API, generated by the engine.
+- `AGENTS.md`: a short guide for the AI.
+- `ENGINE_FEEDBACK.json`: what the engine was missing (section 7).
+- `.mcp.json`: connection to Claude Code.
+- `jsconfig.json`: type checking for the JavaScript.
 
-## 3. Ejecutar el juego
+## 3. Run the game
 
 ```bash
 factoria run
 ```
 
-Se abre una ventana con el juego. Los controles están definidos en `factoria.json`, dentro de `input.actions`:
+A window opens with the game. The controls are defined in `factoria.json`, under `input.actions`:
 
-- `2d-empty`: A, D, W y S o las flechas.
-- `2d-platformer`: A y D o las flechas para moverte; Espacio, W o la flecha arriba para saltar.
-- `3d-empty`: W y S o las flechas para avanzar y retroceder; A y D para moverte de lado; E o Espacio para subir; Q o LeftShift para bajar.
+- `2d-empty`: A, D, W and S, or the arrow keys.
+- `2d-platformer`: A and D or the arrow keys to move; Space, W or the up arrow to jump.
+- `3d-empty`: W and S or the arrow keys to move forward and back; A and D to move sideways; E or Space to go up; Q or LeftShift to go down.
 
-## 4. Modo sin ventana y capturas
+## 4. Headless mode and screenshots
 
-Sin ventana, el juego avanza sin abrir ninguna ventana. Solo dibuja las capturas que pides y el último fotograma, así que es rápido. El resultado es determinista: con la misma semilla y las mismas entradas se obtienen los mismos fotogramas.
+In headless mode the game advances without opening any window. It only draws the screenshots you ask for and the last frame, so it is fast. The result is deterministic: the same seed and the same inputs produce the same frames.
 
 ```bash
 factoria run --headless --frames 120 --screenshot-at 119
 ```
 
-- Simula 120 fotogramas, es decir, 2 segundos de juego a 60 por segundo.
-- Guarda una captura en `.factoria/screenshots/`, por defecto `frame_119.png`. Ábrela y comprueba que muestra lo que esperabas.
-- Los fotogramas empiezan en 0 y la captura del fotograma N se toma después de simularlo. Por eso, con 120 fotogramas, la captura es la 119.
-- `--state-out out.json` guarda el estado del mundo en JSON: entidades, componentes, registros y errores.
-- `--record-audio out.wav` guarda el sonido mezclado, para comprobar que el juego suena.
-- `--input replay.json` aplica una secuencia de pulsaciones fotograma a fotograma (acciones, teclas y ratón), por ejemplo `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
-- Para una sola captura, `factoria screenshot --frames 120 --out shot.png` simula los fotogramas indicados y guarda la imagen.
-- `--json` imprime el informe en JSON, con las rutas de las capturas.
+- Simulates 120 frames, that is, 2 seconds of gameplay at 60 frames per second.
+- Saves a screenshot in `.factoria/screenshots/`, by default `frame_119.png`. Open it and check that it shows what you expected.
+- Frames start at 0, and the screenshot of frame N is taken after simulating it. That is why, with 120 frames, the screenshot is frame 119.
+- `--state-out out.json` saves the world state as JSON: entities, components, logs and errors.
+- `--record-audio out.wav` saves the mixed sound, so you can check that the game has sound.
+- `--input replay.json` applies a sequence of presses frame by frame (actions, keys and mouse), for example `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
+- For a single screenshot, `factoria screenshot --frames 120 --out shot.png` simulates the given frames and saves the image.
+- `--json` prints the report as JSON, including the screenshot paths.
 
-## 5. Validación y tests
+## 5. Validation and tests
 
 ```bash
-factoria validate    # comprueba el proyecto: JSON, escenas, recursos, controles y scripts
-factoria test        # ejecuta tests/*.test.js sin ventana
+factoria validate    # checks the project: JSON, scenes, assets, controls and scripts
+factoria test        # runs tests/*.test.js without a window
 ```
 
-`factoria validate --fix-types` regenera `types/factoria.d.ts` a partir de la API del motor.
+`factoria validate --fix-types` regenerates `types/factoria.d.ts` from the engine's API.
 
-Un test de la plantilla `2d-empty` tiene este aspecto:
+A test from the `2d-empty` template looks like this:
 
 ```js
 import { test, expect, game } from "factoria:test";
@@ -170,79 +172,79 @@ test("player moves right while move_right is held", () => {
 });
 ```
 
-Cada archivo de test se ejecuta en un motor nuevo y con la semilla del proyecto, así que los resultados son reproducibles.
+Each test file runs in a fresh engine with the project's seed, so the results are reproducible.
 
-## 6. Conectar una IA
+## 6. Connect an AI
 
-Hay dos formas de trabajar con una IA dentro de FactorIA. Puedes combinarlas.
+There are two ways to work with an AI inside FactorIA. You can combine them.
 
-| | Suscripción con la CLI oficial | Clave de API |
+| | Subscription via the official CLI | API key |
 |---|---|---|
-| Qué usas | Claude Code (Claude) o Codex (ChatGPT) | La IA integrada de `factoria ai` (Anthropic u otros proveedores) |
-| Quién ejecuta el bucle del agente | La propia CLI | FactorIA |
-| Qué pagas | Tu plan actual de Claude o ChatGPT | Tokens, al proveedor |
-| Dónde están las credenciales | En la CLI, con tu inicio de sesión | En una variable de entorno o en `~/.factoria/ai.json` |
+| What you use | Claude Code (Claude) or Codex (ChatGPT) | The built-in AI of `factoria ai` (Anthropic or other providers) |
+| Who runs the agent loop | The CLI itself | FactorIA |
+| What you pay | Your current Claude or ChatGPT plan | Tokens, billed by the provider |
+| Where credentials live | In the CLI, under your sign-in | In an environment variable or in `~/.factoria/ai.json` |
 
-FactorIA nunca lee, guarda ni reenvía las credenciales de tu suscripción. Solo arranca la CLI oficial que tú instalas y le conecta su servidor MCP.
+FactorIA never reads, stores or forwards the credentials of your subscription. It only launches the official CLI that you install and connects its MCP server to it.
 
-### Opción A: Claude Code o Codex con tu suscripción (MCP)
+### Option A: Claude Code or Codex with your subscription (MCP)
 
 **Claude Code**
 
-1. Instala la CLI e inicia sesión una vez:
+1. Install the CLI and sign in once:
 
 ```bash
 npm i -g @anthropic-ai/claude-code
 claude
 ```
 
-2. `factoria new` crea en el proyecto un archivo `.mcp.json` con esta configuración:
+2. `factoria new` creates a `.mcp.json` file in the project with this configuration:
 
 ```json
 { "mcpServers": { "factoria": { "command": "factoria", "args": ["mcp", "--project", "."] } } }
 ```
 
-Si tu proyecto no tiene `.mcp.json`, el mismo servidor se añade con:
+If your project does not have a `.mcp.json`, add the same server with:
 
 ```bash
 claude mcp add factoria -- factoria mcp --project .
 ```
 
-3. Abre `claude` dentro de la carpeta del juego. La primera vez, es posible que te pida aprobar el servidor `factoria`.
-4. Pide el trabajo en lenguaje natural, por ejemplo: "Lee AGENTS.md y añade un enemigo que persiga al jugador."
+3. Open `claude` inside the game folder. The first time, it may ask you to approve the `factoria` server.
+4. Ask for the work in natural language, for example: "Read AGENTS.md and add an enemy that chases the player."
 
 **Codex**
 
-1. Instala la CLI e inicia sesión con tu cuenta de ChatGPT:
+1. Install the CLI and sign in with your ChatGPT account:
 
 ```bash
 npm i -g @openai/codex
 codex login
 ```
 
-2. Añade el servidor a `~/.codex/config.toml`:
+2. Add the server to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.factoria]
 command = "factoria"
-args = ["mcp", "--project", "/ruta/a/mi-juego"]
+args = ["mcp", "--project", "/path/to/my-game"]
 ```
 
-El servidor MCP expone cada comando como herramienta, la documentación como recursos `factoria://docs/...` y las capturas de pantalla como imágenes. Incluye también los prompts `make-game`, `add-feature`, `fix-bug` y `report-engine-gap`, que guían a la IA paso a paso. Normalmente el cliente lo arranca por ti. Para depurarlo, puedes arrancarlo a mano con `factoria mcp --project mi-juego`.
+The MCP server exposes each command as a tool, the documentation as `factoria://docs/...` resources, and screenshots as images. It also includes the prompts `make-game`, `add-feature`, `fix-bug` and `report-engine-gap`, which guide the AI step by step. The client usually starts it for you. To debug it, you can start it by hand with `factoria mcp --project my-game`.
 
-### Opción B: IA integrada con clave de API
+### Option B: Built-in AI with an API key
 
-`factoria ai doctor` y `factoria ai providers` no necesitan clave: muestran qué proveedores están listos en tu equipo.
+`factoria ai doctor` and `factoria ai providers` do not need a key: they show which providers are ready on your machine.
 
-1. Guarda tu clave en una variable de entorno. Nunca la pongas dentro de un proyecto:
+1. Store your key in an environment variable. Never put it inside a project:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Si tienes instalada la CLI `ant` y has iniciado sesión con `ant auth login`, FactorIA también puede usarla.
+If you have the `ant` CLI installed and have signed in with `ant auth login`, FactorIA can also use it.
 
-2. Opcional: crea `~/.factoria/ai.json` para fijar los límites de cada ejecución. En Windows, la ruta es `%APPDATA%\factoria\ai.json`:
+2. Optional: create `~/.factoria/ai.json` to set the limits for each run. On Windows, the path is `%APPDATA%\factoria\ai.json`:
 
 ```json
 {
@@ -250,44 +252,44 @@ Si tienes instalada la CLI `ant` y has iniciado sesión con `ant auth login`, Fa
 }
 ```
 
-Sin este archivo se usan los valores por defecto de Anthropic.
+Without this file, Anthropic's default values are used.
 
-3. Comprueba qué está disponible. El comando muestra las CLI y las claves que encuentra, sin imprimir ninguna clave:
+3. Check what is available. The command shows the CLIs and keys it finds, without printing any key:
 
 ```bash
 factoria ai doctor
 ```
 
-4. Pide una tarea:
+4. Ask for a task:
 
 ```bash
-factoria ai run "Añade un marcador de monedas en pantalla"
+factoria ai run "Add a coin counter on screen"
 ```
 
-Cada tarea usa un rol. En `~/.factoria/ai.json` puedes asignar un proveedor y un modelo a cada uno:
+Each task uses a role. In `~/.factoria/ai.json` you can assign a provider and a model to each one:
 
-| Rol (clave en el archivo) | Para qué sirve | Valor por defecto (Anthropic) |
+| Role (key in the file) | What it is for | Default (Anthropic) |
 |---|---|---|
-| Orquestador (`orchestrator`) | Planifica, revisa y delega | `claude-opus-5-5`, esfuerzo `xhigh` |
-| Trabajador (`worker`) | Implementa funciones y arreglos | `claude-sonnet-5-5`, esfuerzo `medium` |
-| Rápido (`fast`) | Cambios mecánicos y pequeños | `claude-haiku-5-5`, esfuerzo `max` |
+| Orchestrator (`orchestrator`) | Plans, reviews and delegates | `claude-opus-5-5`, effort `xhigh` |
+| Worker (`worker`) | Implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
+| Fast (`fast`) | Small, mechanical changes | `claude-haiku-5-5`, effort `max` |
 
-`factoria ai run` usa el rol orquestador, salvo que indiques otro con `--role orchestrator|worker|fast`. También puedes elegir proveedor y modelo con `--provider` y `--model`, y limitar la ejecución con `--max-turns` y `--max-cost` (en dólares).
+`factoria ai run` uses the orchestrator role unless you pass another one with `--role orchestrator|worker|fast`. You can also choose the provider and model with `--provider` and `--model`, and limit the run with `--max-turns` and `--max-cost` (in dollars).
 
-Los límites `maxTurns` (número de pasos) y `maxCostUsd` (coste máximo en dólares) detienen una ejecución cuando se alcanzan. Las cifras de coste son estimaciones: manda la factura del proveedor.
+The `maxTurns` (number of steps) and `maxCostUsd` (maximum cost in dollars) limits stop a run when they are reached. Cost figures are estimates: the provider's invoice is what counts.
 
-FactorIA solo lee claves de variables de entorno o de `~/.factoria/ai.json`. Si encuentra algo que parece una clave dentro de un proyecto, avisa. Para usar un modelo local, como Ollama o LM Studio, configura un proveedor compatible con OpenAI (ver `docs/AI_PROVIDERS.md`). Así el contenido no sale de tu equipo.
+FactorIA only reads keys from environment variables or from `~/.factoria/ai.json`. If it finds something that looks like a key inside a project, it warns you. To use a local model, such as Ollama or LM Studio, configure an OpenAI-compatible provider (see `docs/AI_PROVIDERS.md`). That way, the content never leaves your machine.
 
-## 7. ENGINE_FEEDBACK.json en palabras sencillas
+## 7. ENGINE_FEEDBACK.json in plain words
 
-Cada juego tiene un archivo `ENGINE_FEEDBACK.json` en su raíz. En él, la IA anota lo que le faltó al motor (una función, un comando o un dato de la documentación) y cómo lo resolvió.
+Each game has an `ENGINE_FEEDBACK.json` file at its root. In it, the AI notes what the engine was missing (a function, a command or a piece of documentation) and how it worked around it.
 
-- **Para qué sirve.** El equipo de FactorIA junta estos archivos de muchos juegos. Lo que aparece una y otra vez sube en la lista de lo que hay que construir. Así el motor mejora con el uso real.
-- **Qué hace la IA.** En cuanto le falta algo, llama a la herramienta `feedback_report` (MCP). Sin MCP, usa `factoria feedback add` o edita el archivo a mano. Si el mismo hueco aparece otra vez, no se duplica la entrada: se suma un caso.
-- **Qué tienes que hacer tú.** Nada. Puedes leerlo cuando quieras. Es texto normal y puedes editarlo o borrar entradas.
-- **Privacidad.** El archivo no se envía a ningún sitio por sí solo. Cuando usas la IA integrada con una API, los títulos de estas entradas forman parte de lo que se envía al proveedor (ver `docs/AI_PROVIDERS.md`).
+- **What it is for.** The FactorIA team collects these files from many games. Whatever keeps appearing moves up the list of things to build. That is how the engine improves through real use.
+- **What the AI does.** As soon as something is missing, it calls the `feedback_report` tool (MCP). Without MCP, it uses `factoria feedback add` or edits the file by hand. If the same gap comes up again, the entry is not duplicated: a case is added to it.
+- **What you have to do.** Nothing. You can read it whenever you want. It is plain text, and you can edit it or delete entries.
+- **Privacy.** The file is not sent anywhere on its own. When you use the built-in AI with an API, the titles of these entries are part of what is sent to the provider (see `docs/AI_PROVIDERS.md`).
 
-Ejemplo de entrada:
+Example entry:
 
 ```json
 {
@@ -302,40 +304,40 @@ Ejemplo de entrada:
 }
 ```
 
-Qué significa cada campo:
+What each field means:
 
-- `category`: el área del motor afectada, por ejemplo `physics`, `audio` o `scene`.
-- `severity`: `blocker` (no se pudo construir), `major` (una solución grande o frágil), `minor` (una solución pequeña) o `nice-to-have` (sería más cómodo).
-- `title`: un nombre corto del hueco. Usa siempre las mismas palabras para el mismo hueco.
-- `missing`: qué faltaba.
-- `workaround`: cómo se resolvió y en qué archivos.
-- `suggestion`: qué debería hacer el motor.
+- `category`: the engine area affected, for example `physics`, `audio` or `scene`.
+- `severity`: `blocker` (the game could not be built), `major` (a large or fragile workaround), `minor` (a small workaround) or `nice-to-have` (would be more convenient).
+- `title`: a short name for the gap. Always use the same words for the same gap.
+- `missing`: what was missing.
+- `workaround`: how it was worked around, and in which files.
+- `suggestion`: what the engine should do.
 
-Las claves y los valores fijos (`category`, `severity`) van en inglés, como en el ejemplo. El texto libre puede escribirse en el idioma que quieras. `factoria validate` falla si el archivo falta o no cumple el esquema `schemas/engine-feedback.schema.json`.
+Keys and fixed values (`category`, `severity`) are in English, as in the example. Free text can be written in any language. `factoria validate` fails if the file is missing or does not match the `schemas/engine-feedback.schema.json` schema.
 
-## 8. Qué funciona y qué falta
+## 8. What works and what is missing
 
-| Parte | Estado |
+| Part | Status |
 |---|---|
-| Compilación en Linux (`./scripts/build.sh`) | Probada |
-| Compilación en macOS, Windows, iOS y Android | Scripts y presets listos; sin probar todavía en esas plataformas. El código móvil no se ha podido compilar en la máquina de desarrollo (`docs/MOBILE.md`) |
-| Motor: escenas, scripts de JavaScript, render 2D y 3D, física (incluidas plataformas de un sentido y tilemaps), partículas y capturas | Funciona en Linux. El audio no se ha probado en el entorno de documentación |
-| CLI `factoria`: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Funciona en Linux |
-| `factoria editor` (editor visual) | Incluido en las builds de escritorio. Necesita pantalla; no probado en el entorno de documentación |
-| Plantillas de proyecto (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Funciona |
-| Servidor MCP para Claude Code y Codex (`factoria mcp`) | Funciona |
-| IA integrada con clave de API (`factoria ai`) | `doctor`, `providers` y `config` funcionan. `ai run` necesita una clave de API o una CLI instalada (Claude Code o Codex) |
-| Exportar juegos (`factoria export`) | Linux probado (`--platform linux`). Windows, macOS, Android e iOS: ver `docs/EXPORTING.md` y `docs/MOBILE.md` |
-| Documentación para IA | En inglés: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Mandos (gamepad) | Planificado. Los nombres de los botones están reservados, pero aún no funcionan |
+| Build on Linux (`./scripts/build.sh`) | Tested |
+| Build on macOS, Windows, iOS and Android | Scripts and presets ready; not yet tested on those platforms. The mobile code could not be built on the development machine (`docs/MOBILE.md`) |
+| Engine: scenes, JavaScript scripts, 2D and 3D rendering, physics (including one-way platforms and tilemaps), particles and screenshots | Works on Linux. Audio has not been tested in the documentation environment |
+| `factoria` CLI: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Works on Linux |
+| `factoria editor` (visual editor) | Included in the desktop builds. Needs a display; not tested in the documentation environment |
+| Project templates (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Works |
+| MCP server for Claude Code and Codex (`factoria mcp`) | Works |
+| Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |
+| Exporting games (`factoria export`) | Linux tested (`--platform linux`). Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md` |
+| Documentation for AI | In English: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
+| Gamepads | Planned. Button names are reserved, but they do not work yet |
 
-## 9. Dónde seguir leyendo
+## 9. Where to read next
 
-- `factoria help <comando>` muestra la ayuda y ejemplos de cada comando. `docs/CLI.md` describe todos los comandos y opciones.
-- `docs/AI_GUIDE.md` (en inglés): la guía completa para una IA que construye un juego. Si eres una IA, léela antes de tocar un juego. Está disponible también con `factoria docs read ai-guide`.
-- `docs/ARCHITECTURE.md`: diseño, módulos y convenciones.
-- `docs/SCRIPTING.md`: la API de JavaScript: comportamientos, herramientas y tests.
-- `docs/EXTENDING.md`: cómo añadir herramientas de proyecto y comandos del motor.
-- `docs/MCP.md`, `docs/AI_PROVIDERS.md` y `docs/ENGINE_FEEDBACK.md`: conexión con IA y registro de lo que le falta al motor.
-- `docs/BUILDING.md`: requisitos y compilación por plataforma.
-- `docs/EXPORTING.md` y `docs/MOBILE.md`: exportar juegos y compilarlos para móvil.
+- `factoria help <command>` shows the help and examples for each command. `docs/CLI.md` describes all commands and options.
+- `docs/AI_GUIDE.md` (in English): the complete guide for an AI that builds a game. If you are an AI, read it before touching a game. It is also available with `factoria docs read ai-guide`.
+- `docs/ARCHITECTURE.md`: design, modules and conventions.
+- `docs/SCRIPTING.md`: the JavaScript API: behaviors, tools and tests.
+- `docs/EXTENDING.md`: how to add project tools and engine commands.
+- `docs/MCP.md`, `docs/AI_PROVIDERS.md` and `docs/ENGINE_FEEDBACK.md`: connecting AI and recording what the engine is missing.
+- `docs/BUILDING.md`: requirements and builds per platform.
+- `docs/EXPORTING.md` and `docs/MOBILE.md`: exporting games and building them for mobile.

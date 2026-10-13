@@ -49,7 +49,8 @@
       "status": "fixed-in-engine",
       "notes": [
         "Still open after e2b0090: docs/GETTING_STARTED.md is still Spanish and its status table still says 'en desarrollo'.",
-        "GETTING_STARTED.md now starts with an English pointer to AI_GUIDE.md (the full English guide); status table updated."
+        "GETTING_STARTED.md now starts with an English pointer to AI_GUIDE.md (the full English guide); status table updated.",
+        "docs/GETTING_STARTED.md is now English (the reference); the Spanish version moved to docs/i18n/es/GETTING_STARTED.md. Translations are not embedded, so factoria docs read getting-started returns English."
       ],
       "engineIssue": "this release"
     },
