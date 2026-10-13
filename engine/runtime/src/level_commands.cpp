@@ -8,6 +8,9 @@
 // Flow of the command: everything that can be checked from the arguments alone is checked first (rows, legend, glyphs,
 // prefab files, ids), then the world is changed; failures after that point (a bad `tilemap` value, a prefab that does not
 // load, a tile outside the tileset) restore the tilemap and remove what was spawned, so a failed call changes nothing.
+//
+// Two targets share that code (apply_import): the RUNNING world (no `path`), or, with `path`, a scratch World loaded from
+// the scene file and written back to it (import_into_scene_file), which leaves the running engine untouched.
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -331,12 +334,45 @@ struct Request {
     std::string mapId;
     bool replace = true;
     bool save = false;
+    // File mode: edit the scene FILE `path` in a scratch World instead of the running world (see import_into_scene_file).
+    std::string path;        // normalized, project-relative; "" = edit the running world
+    std::string from;        // scene file to start from instead of `path` ("" = `path` itself)
+    bool dryRun = false;     // file mode: write nothing, return the scene JSON
     Json tilemap = Json::object();  // Tilemap fields to apply
     bool place = false;             // position and/or anchor given
     Vec3 position{0, 0, 0};
     bool hasZ = false;
     std::string anchor = "top-left";
 };
+
+// Every *.scene.json of the project (scenes/, but also e.g. a levels/base.scene.json), for "did you mean" suggestions.
+std::vector<std::string> scene_files() {
+    std::vector<std::string> out;
+    for (const std::string& f : fs::list("", true, ".json"))
+        if (ends_with(f, ".scene.json") && !starts_with(f, ".factoria/") && !starts_with(f, ".git/")) out.push_back(f);
+    return out;
+}
+
+// `path` / `from`: a project-relative scene file. Absolute paths are refused (the project folder is the sandbox of the
+// file mode); the file that is WRITTEN also has to be somewhere commands may write (fs::check_writable).
+std::string scene_file_arg(const Json& v, const char* key, bool forWrite) {
+    const std::string k = key;
+    if (!v.is_string() || v.get<std::string>().empty())
+        bad_arg("'" + k + "' must be a project-relative scene file path, got " + describe_json_value(v),
+                "Example: \"" + k + "\": \"scenes/level1.scene.json\".");
+    const std::string raw = v.get<std::string>();
+    if (fs::is_absolute(raw))
+        bad_arg("'" + k + "' must be project-relative, but '" + raw + "' is an absolute path",
+                "Use the path inside the project, e.g. \"" + k + "\": \"scenes/level1.scene.json\".");
+    auto norm = fs::normalize_checked(raw);
+    if (!norm.ok()) bad_arg("'" + k + "': " + norm.error().message, norm.error().hint);
+    const std::string& path = norm.value();
+    if (path.empty() || fs::is_directory(path))
+        bad_arg("'" + k + "' is '" + raw + "', which is a folder, not a scene file", "Name the file, e.g. \"scenes/level1.scene.json\".");
+    if (forWrite)
+        if (auto w = fs::check_writable(path); !w.ok()) bad_arg("'" + k + "': " + w.error().message, w.error().hint);
+    return path;
+}
 
 Request parse_request(const Engine::Impl& I, const Json& a) {
     Request q;
@@ -349,9 +385,33 @@ Request parse_request(const Engine::Impl& I, const Json& a) {
         if (q.tilemap.contains(k))
             bad_arg(std::string("'tilemap.") + k + "' cannot be set: the grid (tiles, width, height) comes from 'rows' and 'legend'",
                     "Remove it from 'tilemap'; pass only tileset, tileSize, columns, solidTiles, color, layer there.");
-    if (q.save && I.currentScene.empty())
-        bad_arg("'save' needs a current scene file but none is loaded",
-                "Load one with scene.load, or call scene.save {\"path\":\"scenes/x.scene.json\"} after importing.");
+    if (a.contains("path")) q.path = scene_file_arg(a["path"], "path", true);
+    if (a.contains("from")) q.from = scene_file_arg(a["from"], "from", false);
+    q.dryRun = a.value("dryRun", false);
+    if (q.path.empty()) {
+        if (!q.from.empty())
+            bad_arg("'from' needs 'path': it is the scene file to start from when building the scene file 'path'",
+                    "Add \"path\": \"scenes/<name>.scene.json\" (the file to write), or drop 'from'.");
+        if (q.dryRun)
+            bad_arg("'dryRun' needs 'path': it previews the scene file 'path' without writing it",
+                    "Add \"path\": \"scenes/<name>.scene.json\". Without 'path' the import changes the RUNNING scene, which a dry run cannot undo.");
+    }
+    if (q.path.empty() && q.save) {
+        if (I.currentScene.empty())
+            bad_arg("'save' needs a current scene file but none is loaded",
+                    "Pass \"path\": \"scenes/x.scene.json\" to build that scene file directly (the running world is not touched), "
+                    "or load a scene with scene.load first.");
+        // `factoria call` without --scene (or a fresh MCP session) runs the project's mainScene because nobody chose a scene.
+        // A map file that says "save": true would overwrite it with a map meant for another level.
+        if (I.implicitStartScene && !I.cfg.editorMode)
+            throw CommandError(
+                "unsafe_save",
+                "'save' would overwrite '" + I.currentScene + "', the project's main scene, which is only running because no scene was chosen "
+                "(no --scene, no scene.load); nothing was changed",
+                "To build a scene file without touching the running game add \"path\": \"scenes/<name>.scene.json\" (and optionally "
+                "\"from\": a base scene). To update the running scene on purpose, choose it first: factoria call ... --scene " +
+                    I.currentScene + " (or scene.load), then repeat this call.");
+    }
     if (a.contains("position")) {
         const Json& p = a["position"];
         bool ok = p.is_array() && (p.size() == 2 || p.size() == 3);
@@ -477,16 +537,11 @@ void place_tilemap(World& W, Entity mapE, const Tilemap& tm, const Request& q, s
     W.set_world_position(mapE, pos);
 }
 
-Json import_ascii(Engine::Impl& I, const Json& a) {
-    World& W = I.world;
-
-    // ---- 1. Everything that can be checked from the arguments alone.
-    const Grid grid = parse_rows(a);
-    if (!a.contains("legend")) bad_arg("Missing 'legend'", "Example: \"legend\": {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}.");
-    std::vector<LegendEntry> legend = parse_legend(a["legend"]);
-    std::vector<Cell> cells = resolve_cells(grid, legend);
-    const Request q = parse_request(I, a);
-
+// Imports the (already validated) map into `W`: the running world or a scratch World. `flushNow`: destroyed entities are
+// removed at once (false only while the running game is inside a frame, where the engine flushes at the end of it).
+// Returns the result object without the `saved`/`path` keys, which depend on where the world comes from.
+Json apply_import(World& W, bool flushNow, const Request& q, const Grid& grid, std::vector<LegendEntry>& legend,
+                  std::vector<Cell>& cells) {
     Entity mapE = W.find_by_id(q.mapId);
     if (mapE && !W.get<Tilemap>(mapE))
         bad_arg("Entity '" + q.mapId + "' exists but has no Tilemap component, so it cannot hold the level",
@@ -532,7 +587,7 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
             *W.get<Tilemap>(mapE) = backupTm;
             *W.get<Transform>(mapE) = backupTf;
         }
-        if (!I.inFrame) W.flush();
+        if (flushNow) W.flush();
     };
 
     Diagnostics diag;
@@ -600,7 +655,7 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
                 removedJson.push_back(W.id_of(e));
                 W.destroy(e);
             }
-        if (!I.inFrame) W.flush();
+        if (flushNow) W.flush();
         for (auto& [e, cell] : fresh) {
             if (W.id_of(e) != cell->id)
                 if (auto r = W.set_id(e, cell->id); !r.ok())
@@ -632,13 +687,112 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
     out["tag"] = tag;
     if (!diag.notes.empty()) out["notes"] = diag.notes;
     out["warnings"] = diag.warnings;
+    return out;
+}
+
+void add_note(Json& out, const std::string& note) {
+    if (!out.contains("notes")) out["notes"] = Json::array();
+    out["notes"].push_back(note);
+}
+
+// File mode (`path`): the scene FILE is loaded into a scratch World, the map is imported into it and the result is
+// written back with the canonical writer (the same layout as scene.save). Nothing of the running engine is involved:
+// not its World, scenes, physics, audio or scripts; a scratch World is plain data. The reads go through the VFS (prefab
+// files, the tileset image for the range check), which has no per-engine state either. Any failure happens before the
+// write, so the file is either replaced completely or left exactly as it was.
+//
+// Start state: `from` if given, else `path` itself. When that file does not exist: an error for `from`, an empty scene for
+// `path` (creating a new level is the normal first call; a typo is reported as a warning with a "did you mean").
+Json import_into_scene_file(const Request& q, const Grid& grid, std::vector<LegendEntry>& legend, std::vector<Cell>& cells) {
+    const std::string source = q.from.empty() ? q.path : q.from;
+    World scratch;
+    Json startWarnings = Json::array();
+    bool startedEmpty = false;
+    if (fs::exists(source)) {
+        LoadReport report = load_scene_file(scratch, source);
+        if (report.error_count() > 0) {
+            std::string detail;
+            std::size_t shown = 0;
+            for (const LoadMessage& m : report.messages)
+                if (m.severity == LoadMessage::Severity::Error && ++shown <= 5) detail += "\n  " + m.to_string();
+            if (report.error_count() > shown) detail += "\n  ... (" + std::to_string(report.error_count() - shown) + " more)";
+            throw CommandError(
+                "invalid_argument",
+                "Cannot edit '" + source + "': it has " + std::to_string(report.error_count()) +
+                    " load error(s), and writing the scene back would silently drop the entries that failed to load:" + detail,
+                "Fix the file first (project.validate lists every problem with its JSON pointer), or start from another scene with "
+                "\"from\": \"<base scene>\". Nothing was written.");
+        }
+        for (const LoadMessage& m : report.messages) startWarnings.push_back(m.to_string());
+    } else if (!q.from.empty()) {
+        std::vector<std::string> scenes = scene_files();
+        throw CommandError("not_found", "'from' scene '" + q.from + "' does not exist. " + did_you_mean(q.from, scenes),
+                           "'from' is the scene file to start from (e.g. a base scene with the camera and HUD). Use project.info to list scenes. "
+                           "Nothing was written.");
+    } else {
+        startedEmpty = true;
+    }
+
+    Json out = apply_import(scratch, true, q, grid, legend, cells);
+
+    Json scene = save_scene(scratch);
+    out["path"] = q.path;
+    out["from"] = startedEmpty ? Json(nullptr) : Json(source);
+    out["entityCount"] = scratch.entity_count();
+    if (!startWarnings.empty()) {
+        Json merged = startWarnings;
+        for (const Json& w : out["warnings"]) merged.push_back(w);
+        out["warnings"] = merged;
+    }
+    if (startedEmpty) {
+        std::string msg = "'" + q.path + "' does not exist, so it " + (q.dryRun ? "would start" : "starts") +
+                          " as an empty scene (default settings, no camera, no scripts).";
+        const std::string near = closest_match(q.path, scene_files());
+        if (!near.empty()) {
+            out["warnings"].push_back(msg + " Did you mean '" + near + "'? Fix 'path', or pass \"from\": \"" + near + "\" to build on it.");
+        } else {
+            add_note(out, msg + " Pass \"from\": \"<base scene>\" to start from an existing scene (camera, HUD, settings).");
+        }
+    } else if (!q.from.empty() && fs::exists(q.path)) {
+        add_note(out, "'" + q.path + "' " + (q.dryRun ? "would be replaced" : "was replaced") + " by the result of importing into '" + q.from + "'.");
+    }
+    if (!ends_with(q.path, ".scene.json"))
+        out["warnings"].push_back("'" + q.path + "' does not end in .scene.json, so project.info, validate and the editor will not list it as a scene.");
+
+    out["dryRun"] = q.dryRun;
+    if (q.dryRun) {
+        out["scene"] = std::move(scene);
+        return out;
+    }
+    if (auto r = save_scene_json_file(q.path, scene); !r.ok())
+        throw CommandError("failed", "The level was imported but writing '" + q.path + "' failed: " + r.error().message, r.error().hint);
+    // The running engine is deliberately not told: its World is unchanged. If `path` is the running scene and hot reload
+    // is on (windowed play), the file watcher reloads it from disk like after any other edit of the file.
+    out["saved"] = q.path;
+    return out;
+}
+
+Json import_ascii(Engine::Impl& I, const Json& a) {
+    // ---- 1. Everything that can be checked from the arguments alone.
+    const Grid grid = parse_rows(a);
+    if (!a.contains("legend")) bad_arg("Missing 'legend'", "Example: \"legend\": {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}.");
+    std::vector<LegendEntry> legend = parse_legend(a["legend"]);
+    std::vector<Cell> cells = resolve_cells(grid, legend);
+    const Request q = parse_request(I, a);
+
+    if (!q.path.empty()) return import_into_scene_file(q, grid, legend, cells);
+
+    // ---- 2. The running world (and, with `save`, the current scene file).
+    Json out = apply_import(I.world, !I.inFrame, q, grid, legend, cells);
     if (q.save) {
-        auto r = save_scene_file(W, I.currentScene);
+        auto r = save_scene_file(I.world, I.currentScene);
         if (!r.ok())
             throw CommandError("failed", "The level was imported but writing '" + I.currentScene + "' failed: " + r.error().message,
                                r.error().hint);
         if (I.watchSeeded) I.watched[I.currentScene] = fs::modified_time(I.currentScene);
         out["saved"] = I.currentScene;
+        add_note(out, "SAVED '" + I.currentScene + "': that is the RUNNING scene, so everything in the running world went into the file. "
+                      "To change a scene file without touching the running game, pass \"path\" (and optionally \"from\").");
     }
     return out;
 }
@@ -662,15 +816,26 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; "
          "ids are `id` from the legend (unique objects such as \"player\") or generated in row-major order as <prefab name>_<n> "
          "(coin_1, coin_2...); every object is tagged \"tilemap:<entity>\". With `replace` (default true) the objects of earlier "
-         "imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `save` "
-         "writes the current scene file like scene.save. Nothing is changed when an argument is wrong: errors name the "
-         "row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, "
-         "spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?}. Example: "
+         "imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. "
+         "TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to "
+         "start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is "
+         "imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, "
+         "audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the "
+         "file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. If the file "
+         "has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like "
+         "scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose "
+         "(--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is "
+         "refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. "
+         "Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. "
+         "Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], "
+         "position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started "
+         "from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: "
          "scene.import_ascii {\"rows\":[\"..........\",\"...o..o...\",\".P......o.\",\"##########\"],"
          "\"legend\":{\"#\":0,\"o\":{\"prefab\":\"prefabs/coin.prefab.json\"},"
          "\"P\":{\"prefab\":\"prefabs/player.prefab.json\",\"id\":\"player\"}},"
          "\"tilemap\":{\"tileset\":\"assets/tiles.png\",\"tileSize\":[32,32],\"solidTiles\":[0]},"
-         "\"anchor\":\"bottom-left\",\"position\":[0,0],\"save\":true}",
+         "\"anchor\":\"bottom-left\",\"position\":[0,0],\"path\":\"scenes/level1.scene.json\","
+         "\"from\":\"levels/base.scene.json\"}",
          parse_schema(R"json({"type":"object","required":["rows","legend"],"properties":{
                "rows":{"type":"array","minItems":1,"items":{"type":"string"},
                        "description":"The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length."},
@@ -681,7 +846,10 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},
                "replace":{"type":"boolean","default":true,
                           "description":"Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them."},
-               "save":{"type":"boolean","default":false,"description":"Also write the current scene file (like scene.save) so one call is enough."},
+               "path":{"type":"string","description":"File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/)."},
+               "from":{"type":"string","description":"File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist."},
+               "dryRun":{"type":"boolean","default":false,"description":"File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`."},
+               "save":{"type":"boolean","default":false,"description":"Running-world mode: also write the current scene file (like scene.save). Refused when the running scene is only the default mainScene (no --scene, no scene.load): pass `path` instead. Ignored when `path` is given."},
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,
                            "description":"[x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is."},
                "anchor":{"type":"string","enum":["top-left","bottom-left","center"],

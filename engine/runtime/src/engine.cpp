@@ -71,6 +71,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         path = n.value();
     }
     hasPendingScene = false;
+    implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
     audio.stop_all();
     physics.reset();
     LoadReport report = load_scene_file(world, path);
@@ -334,6 +335,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         } else {
             I.load_scene_impl(scenePath, &serrText);
         }
+        I.implicitStartScene = config.scene.empty();  // load_scene_impl cleared it; the default scene was not chosen by anyone
     }
     if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
     I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active

@@ -345,6 +345,8 @@ void Editor::install_command_overrides() {
         CommandInfo info = *ci;
         reg.add(info, [this](const Json& a) -> Json {
             const std::string path = a.value("path", scenePath_);
+            if (auto w = fs::check_writable(path); !w.ok())  // same write rule as the engine's scene.save
+                throw CommandError("invalid_argument", w.error().message, w.error().hint);
             auto r = save_scene_file(world(), path);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
             if (path == scenePath_) dirty_ = false;

@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -97,12 +98,16 @@ EngineConfig headless_cfg(const TempProject& p) {
     return c;
 }
 
+// `startScene` = EngineConfig::scene (like `factoria call --scene`); empty = the project's mainScene is loaded by default.
 struct Session {
     TempProject project;
     Engine engine;
-    explicit Session(const std::string& name) : project(name) {
+    explicit Session(const std::string& name, const std::string& startScene = {}, bool editorMode = false) : project(name) {
         std::string err;
-        REQUIRE_MESSAGE(engine.init(headless_cfg(project), nullptr, &err), err);
+        EngineConfig cfg = headless_cfg(project);
+        cfg.scene = startScene;
+        cfg.editorMode = editorMode;
+        REQUIRE_MESSAGE(engine.init(cfg, nullptr, &err), err);
     }
     ~Session() { engine.shutdown(); }
     CommandResult call(const std::string& cmd, const Json& args = Json::object()) { return engine.commands().call(cmd, args); }
@@ -361,14 +366,64 @@ TEST_CASE("import_ascii: scene.save round trip keeps tiles and objects") {
     CHECK(s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"] == 3);
 }
 
-TEST_CASE("import_ascii: save:true writes the current scene in one call") {
-    Session s("save");
+std::string slurp(const stdfs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+TEST_CASE("import_ascii: save:true writes a scene that was chosen, and says so loudly") {
+    SUBCASE("after scene.load") {
+        Session s("save");
+        REQUIRE(s.call("scene.load", Json{{"path", "scenes/main.scene.json"}}).ok);
+        auto r = s.import(level(R"({"save":true})"));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        CHECK(r.result["saved"] == "scenes/main.scene.json");
+        CHECK(contains(r.result["notes"].dump(), "SAVED 'scenes/main.scene.json'"));
+        CHECK(contains(r.result["notes"][0].get<std::string>(), "\"path\""));
+        auto file = load_json_file((s.project.dir / "scenes/main.scene.json").generic_string());
+        REQUIRE(file.ok());
+        CHECK((*file)["entities"].size() == 6);  // cam, tilemap, 3 coins, player
+    }
+    SUBCASE("with a start scene (factoria call --scene)") {
+        Session s("save_cfg", "scenes/main.scene.json");
+        auto r = s.import(level(R"({"save":true})"));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        CHECK(r.result["saved"] == "scenes/main.scene.json");
+    }
+    SUBCASE("in the editor the open scene is always a choice") {
+        Session s("save_editor", {}, true);
+        auto r = s.import(level(R"({"save":true})"));
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        CHECK(r.result["saved"] == "scenes/main.scene.json");
+    }
+}
+
+TEST_CASE("import_ascii: save:true without path is refused while the running scene is only the default mainScene") {
+    Session s("save_refused");
+    const std::string before = slurp(s.project.dir / "scenes/main.scene.json");
     auto r = s.import(level(R"({"save":true})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "unsafe_save");
+    const std::string text = error_text(r);
+    CHECK(contains(text, "scenes/main.scene.json"));  // names the file it would have overwritten
+    CHECK(contains(text, "main scene"));
+    CHECK(contains(text, "\"path\""));                // the fix
+    CHECK(contains(text, "--scene"));
+    CHECK(slurp(s.project.dir / "scenes/main.scene.json") == before);
+    CHECK(s.entities() == 1);  // refused before anything was built: just the camera
+
+    // Without save the same map is fine (it only changes the running world), and so is path.
+    CHECK(s.import(level()).ok);
+    CHECK(s.import(level(R"({"save":true,"path":"scenes/other.scene.json"})")).ok);
+    CHECK(slurp(s.project.dir / "scenes/main.scene.json") == before);
+
+    // Choosing the scene (even the same one) lifts the refusal.
+    REQUIRE(s.call("scene.reload").ok);
+    r = s.import(level(R"({"save":true})"));
     REQUIRE_MESSAGE(r.ok, error_text(r));
     CHECK(r.result["saved"] == "scenes/main.scene.json");
-    auto file = load_json_file((s.project.dir / "scenes/main.scene.json").generic_string());
-    REQUIRE(file.ok());
-    CHECK((*file)["entities"].size() == 6);  // cam, tilemap, 3 coins, player
 }
 
 TEST_CASE("import_ascii: replace (default) does not duplicate objects, replace:false does") {
@@ -653,4 +708,307 @@ TEST_CASE("import_ascii: the tilemap is drawn where the objects are (screenshot)
     Color sky = px(5, 0);       // empty cell = clear colour
     CHECK(sky.r < 0.2f);
     CHECK(sky.b > 0.1f);
+}
+
+// ------------------------------------------------------------------------------------------------ file mode (path)
+// scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch World. The running engine must not notice.
+namespace {
+
+const char* kBaseScene = R"({
+  "format": "factoria.scene/1",
+  "settings": { "gravity2D": [0, -500] },
+  "entities": [
+    { "id": "camera", "components": { "Camera": { "clearColor": "#304050" }, "Transform": { "position": [160, 96, 0] } } },
+    { "id": "hud", "components": { "Transform": { "position": [4, 4, 0] } } }
+  ]
+})";
+
+Json scene_file(const Session& s, const std::string& rel) {
+    auto j = load_json_file((s.project.dir / rel).generic_string());
+    REQUIRE_MESSAGE(j.ok(), rel);
+    return *j;
+}
+
+std::vector<std::string> entity_ids(const Json& scene) {
+    std::vector<std::string> out;
+    for (const Json& e : scene["entities"]) out.push_back(e["id"].get<std::string>());
+    return out;
+}
+
+bool has(const std::vector<std::string>& v, const std::string& x) { return std::find(v.begin(), v.end(), x) != v.end(); }
+
+}  // namespace
+
+TEST_CASE("import_ascii path: builds a new scene file from an empty scene and leaves the running world alone") {
+    Session s("file_new");
+    // Something that a reload or a stray import into the running world would change.
+    REQUIRE(s.call("scene.set_component", Json::parse(R"({"id":"cam","component":"Camera","fields":{"clearColor":"#ff0000"}})")).ok);
+    s.engine.step(3);
+    const Json worldBefore = s.call("game.state", Json{{"maxEntities", 100}}).result;
+    const std::uint64_t frame = s.engine.frame_index();
+
+    auto r = s.import(level(R"({"path":"scenes/zzz_new_level.scene.json"})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["path"] == "scenes/zzz_new_level.scene.json");
+    CHECK(r.result["saved"] == "scenes/zzz_new_level.scene.json");
+    CHECK(r.result["from"].is_null());  // started as an empty scene
+    CHECK(r.result["dryRun"] == false);
+    CHECK(r.result["created"] == true);
+    CHECK(r.result["entityCount"] == 5);  // tilemap, 3 coins, player
+    CHECK(r.result["spawned"].size() == 4);
+    CHECK(contains(r.result["notes"].dump(), "empty scene"));
+    CHECK(r.result["warnings"].empty());
+
+    Json file = scene_file(s, "scenes/zzz_new_level.scene.json");
+    CHECK(entity_ids(file) == std::vector<std::string>{"tilemap", "coin_1", "coin_2", "player", "coin_3"});
+    CHECK(file["entities"][0]["components"]["Tilemap"]["width"] == 10);
+
+    // Nothing of the running engine changed: its entities, its edited camera, the frame, the scene path.
+    CHECK(s.engine.frame_index() == frame);
+    CHECK(s.entities() == 1);
+    CHECK_FALSE(s.engine.world().find_by_id("tilemap"));
+    CHECK(s.call("scene.get_entity", Json{{"id", "cam"}}).result["components"]["Camera"]["clearColor"] == Json::parse("[1,0,0,1]"));
+    CHECK(s.call("project.info").result["currentScene"] == "scenes/main.scene.json");
+    const Json worldAfter = s.call("game.state", Json{{"maxEntities", 100}}).result;
+    CHECK(worldAfter["entities"] == worldBefore["entities"]);
+    CHECK(worldAfter["frame"] == worldBefore["frame"]);
+}
+
+TEST_CASE("import_ascii path: the file is exactly what the running-world import plus scene.save writes") {
+    Session s("file_canonical");
+    auto f = s.import(level(R"({"path":".factoria/tmp/by_file.scene.json","from":"scenes/main.scene.json"})"));
+    REQUIRE_MESSAGE(f.ok, error_text(f));
+    REQUIRE(s.import(level()).ok);
+    REQUIRE(s.call("scene.save", Json{{"path", ".factoria/tmp/by_world.scene.json"}}).ok);
+    const std::string byFile = slurp(s.project.dir / ".factoria/tmp/by_file.scene.json");
+    CHECK_FALSE(byFile.empty());
+    CHECK(byFile == slurp(s.project.dir / ".factoria/tmp/by_world.scene.json"));
+    // Re-running the file import is idempotent: same bytes.
+    REQUIRE(s.import(level(R"({"path":".factoria/tmp/by_file.scene.json","from":"scenes/main.scene.json"})")).ok);
+    CHECK(slurp(s.project.dir / ".factoria/tmp/by_file.scene.json") == byFile);
+}
+
+TEST_CASE("import_ascii path: edits an existing scene in place, replacing the objects of the earlier import") {
+    Session s("file_edit");
+    s.project.write("scenes/level.scene.json", kBaseScene);
+    auto r = s.import(level(R"({"path":"scenes/level.scene.json"})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["from"] == "scenes/level.scene.json");  // started from the file itself
+    CHECK(r.result["created"] == true);                    // the tilemap entity was new in that scene
+    CHECK(has(entity_ids(scene_file(s, "scenes/level.scene.json")), "camera"));  // kept
+    CHECK(has(entity_ids(scene_file(s, "scenes/level.scene.json")), "hud"));
+    CHECK(scene_file(s, "scenes/level.scene.json")["settings"]["gravity2D"] == Json::parse("[0,-500]"));
+
+    // Edit the map and import again: same ids, no duplicates, the other entities untouched.
+    Json edited = level(R"({"path":"scenes/level.scene.json"})");
+    edited["rows"] = Json::parse(R"(["..........","...o......","..........",".P........","##########","@@@@@@@@@@"])");
+    r = s.import(edited);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["created"] == false);
+    CHECK(r.result["removed"].size() == 4);
+    CHECK(entity_ids(scene_file(s, "scenes/level.scene.json")) ==
+          std::vector<std::string>{"camera", "hud", "tilemap", "coin_1", "player"});
+    CHECK(s.entities() == 1);  // the running world still has only cam
+}
+
+TEST_CASE("import_ascii path: from starts the scene from a base scene and replaces path") {
+    Session s("file_from");
+    s.project.write("levels/base.scene.json", kBaseScene);
+    s.project.write("scenes/out.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"old"}]})");
+    const std::string baseBefore = slurp(s.project.dir / "levels/base.scene.json");
+    auto r = s.import(level(R"({"path":"scenes/out.scene.json","from":"levels/base.scene.json"})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["from"] == "levels/base.scene.json");
+    CHECK(contains(r.result["notes"].dump(), "was replaced"));
+    Json out = scene_file(s, "scenes/out.scene.json");
+    CHECK(entity_ids(out) == std::vector<std::string>{"camera", "hud", "tilemap", "coin_1", "coin_2", "player", "coin_3"});
+    CHECK(out["settings"]["gravity2D"] == Json::parse("[0,-500]"));
+    CHECK(slurp(s.project.dir / "levels/base.scene.json") == baseBefore);  // the base is only read
+
+    // A missing base is an error with a did-you-mean over ALL scene files, and nothing is written.
+    r = s.import(level(R"({"path":"scenes/second.scene.json","from":"levels/bse.scene.json"})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "not_found");
+    CHECK(contains(error_text(r), "levels/base.scene.json"));
+    CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/second.scene.json"));
+}
+
+TEST_CASE("import_ascii path: a typo in path warns with a did-you-mean instead of silently creating a different scene") {
+    Session s("file_typo");
+    auto r = s.import(level(R"({"path":"scenes/mian.scene.json"})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));  // it is a valid way to create a scene, so it works ...
+    CHECK(contains(r.result["warnings"].dump(), "Did you mean 'scenes/main.scene.json'"));  // ... but says what it did
+    CHECK(contains(r.result["warnings"].dump(), "empty scene"));
+    CHECK(stdfs::exists(s.project.dir / "scenes/mian.scene.json"));
+    // The scene that was meant is untouched.
+    CHECK(entity_ids(scene_file(s, "scenes/main.scene.json")) == std::vector<std::string>{"cam"});
+}
+
+TEST_CASE("import_ascii path: dryRun returns the scene and writes nothing") {
+    Session s("file_dry");
+    const std::string mainBefore = slurp(s.project.dir / "scenes/main.scene.json");
+    auto r = s.import(level(R"({"path":"scenes/main.scene.json","dryRun":true})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["dryRun"] == true);
+    CHECK_FALSE(r.result.contains("saved"));
+    CHECK(slurp(s.project.dir / "scenes/main.scene.json") == mainBefore);
+    REQUIRE(r.result.contains("scene"));
+    CHECK(r.result["scene"]["format"] == "factoria.scene/1");
+    CHECK(entity_ids(r.result["scene"]) == std::vector<std::string>{"cam", "tilemap", "coin_1", "coin_2", "player", "coin_3"});
+
+    // A new path stays absent, and the same call without dryRun writes exactly the scene the dry run returned.
+    r = s.import(level(R"({"path":"scenes/preview.scene.json","dryRun":true})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/preview.scene.json"));
+    const Json preview = r.result["scene"];
+    REQUIRE(s.import(level(R"({"path":"scenes/preview.scene.json"})")).ok);
+    CHECK(scene_file(s, "scenes/preview.scene.json") == preview);
+}
+
+TEST_CASE("import_ascii path: the base scene's entities count for ids, and a failed import writes nothing") {
+    Session s("file_fail");
+    s.project.write("levels/base.scene.json", kBaseScene);
+    s.project.write("scenes/taken.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"player"}]})");
+    const std::string takenBefore = slurp(s.project.dir / "scenes/taken.scene.json");
+
+    SUBCASE("a legend id that the scene already uses") {
+        auto r = s.import(level(R"({"path":"scenes/taken.scene.json"})"));
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(error_text(r), "'player'"));
+        CHECK(contains(error_text(r), "already used"));
+        CHECK(slurp(s.project.dir / "scenes/taken.scene.json") == takenBefore);
+    }
+    SUBCASE("a tile outside the tileset (the tileset is read in the scratch import too)") {
+        Json a = level(R"({"path":"scenes/taken.scene.json","from":"levels/base.scene.json"})");
+        a["legend"]["#"] = 9;
+        auto r = s.import(a);
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(error_text(r), "tile 9"));
+        CHECK(contains(error_text(r), "holds only 4 tiles"));
+        CHECK(slurp(s.project.dir / "scenes/taken.scene.json") == takenBefore);
+        a["path"] = "scenes/never.scene.json";
+        CHECK_FALSE(s.import(a).ok);
+        CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/never.scene.json"));
+    }
+    SUBCASE("a prefab that does not exist") {
+        Json a = level(R"({"path":"scenes/never.scene.json"})");
+        a["legend"]["o"]["prefab"] = "prefabs/coin2.prefab.json";
+        auto r = s.import(a);
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(error_text(r), "prefabs/coin.prefab.json"));
+        CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/never.scene.json"));
+    }
+    SUBCASE("a scene with load errors is not rewritten (the entries that failed would be dropped)") {
+        s.project.write("scenes/broken.scene.json",
+                        R"({"format":"factoria.scene/1","entities":[{"id":"ok"},{"id":"bad","components":{"Sprit":{"color":"red"}}}]})");
+        const std::string brokenBefore = slurp(s.project.dir / "scenes/broken.scene.json");
+        auto r = s.import(level(R"({"path":"scenes/broken.scene.json"})"));
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(error_text(r), "scenes/broken.scene.json"));
+        CHECK(contains(error_text(r), "Sprit"));
+        CHECK(contains(error_text(r), "Nothing was written"));
+        CHECK(slurp(s.project.dir / "scenes/broken.scene.json") == brokenBefore);
+        // Starting from a good base works.
+        CHECK(s.import(level(R"({"path":"scenes/broken.scene.json","from":"levels/base.scene.json"})")).ok);
+    }
+}
+
+TEST_CASE("import_ascii path: arguments are checked, and writes follow the same rule as scene.save and fs.write") {
+    Session s("file_args");
+    auto fails = [&](const char* patch, const char* needle) {
+        auto r = s.import(level(patch));
+        CAPTURE(patch);
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(error_text(r), needle));
+        CHECK(s.entities() == 1);
+    };
+    fails(R"({"from":"scenes/main.scene.json"})", "'from' needs 'path'");
+    fails(R"({"dryRun":true})", "'dryRun' needs 'path'");
+    fails(R"({"path":""})", "'path'");
+    fails(R"({"path":"scenes"})", "folder");
+    fails(R"({"path":"../outside.scene.json"})", "escapes");
+    fails(R"({"path":"/tmp/abs.scene.json"})", "absolute");
+    fails(R"({"path":"scenes/a.scene.json","from":"/etc/x.scene.json"})", "absolute");
+    // .factoria/ is managed by the engine: only .factoria/tmp/ is writable (scene.save, fs.write and fs.delete agree).
+    for (const char* bad : {".factoria/screenshots/a.scene.json", ".factoria/save/a.scene.json", ".factoria/a.scene.json"}) {
+        Json a = level();
+        a["path"] = bad;
+        auto r = s.import(a);
+        CAPTURE(bad);
+        REQUIRE_FALSE(r.ok);
+        CHECK(contains(error_text(r), ".factoria/tmp/"));
+        CHECK_FALSE(stdfs::exists(s.project.dir / bad));
+    }
+    // dryRun predicts the real call, so it refuses the same paths.
+    auto dry = s.import(level(R"({"path":".factoria/save/a.scene.json","dryRun":true})"));
+    CHECK_FALSE(dry.ok);
+    auto ok = s.import(level(R"({"path":".factoria/tmp/a.scene.json"})"));
+    REQUIRE_MESSAGE(ok.ok, error_text(ok));
+    CHECK(stdfs::exists(s.project.dir / ".factoria/tmp/a.scene.json"));
+    // A path that is not *.scene.json still works but is flagged.
+    ok = s.import(level(R"({"path":"scenes/odd.json"})"));
+    REQUIRE_MESSAGE(ok.ok, error_text(ok));
+    CHECK(contains(ok.result["warnings"].dump(), ".scene.json"));
+}
+
+TEST_CASE("scene.save writes where commands may write: .factoria/tmp yes, the rest of .factoria no") {
+    Session s("save_rule");
+    auto bad = s.call("scene.save", Json{{"path", ".factoria/test/x.scene.json"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["code"] == "invalid_argument");
+    CHECK(contains(error_text(bad), ".factoria/test/x.scene.json"));
+    CHECK(contains(error_text(bad), ".factoria/tmp/"));
+    CHECK_FALSE(stdfs::exists(s.project.dir / ".factoria/test"));
+    CHECK_FALSE(s.call("scene.save", Json{{"path", ".factoria/save/slot.scene.json"}}).ok);
+    CHECK_FALSE(s.call("scene.save", Json{{"path", "../escape.scene.json"}}).ok);
+
+    auto ok = s.call("scene.save", Json{{"path", ".factoria/tmp/x.scene.json"}});
+    REQUIRE_MESSAGE(ok.ok, error_text(ok));
+    CHECK(stdfs::exists(s.project.dir / ".factoria/tmp/x.scene.json"));
+    CHECK(s.call("scene.save", Json{{"path", "scenes/y.scene.json"}}).ok);
+    // The command says so in its own description.
+    const CommandInfo* info = s.engine.commands().info("scene.save");
+    REQUIRE(info != nullptr);
+    CHECK(contains(info->description, ".factoria/tmp/"));
+}
+
+TEST_CASE("import_ascii path: works inside a frame too (a script can build a scene file)") {
+    Session s("file_frame");
+    s.project.write("scripts/builder.js", R"(
+import { Behaviour, fa } from "factoria";
+export default class Builder extends Behaviour {
+  frames = 0;
+  onUpdate(dt) {
+    if (++this.frames !== 2) return;
+    const r = fa.call("scene.import_ascii", {
+      rows: ["o.o", "###"],
+      legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json" } },
+      path: ".factoria/tmp/from_script.scene.json",
+    });
+    this.saved = r.saved;
+  }
+}
+)");
+    REQUIRE(s.call("scene.spawn", Json::parse(R"({"id":"builder","components":{"Script":{"path":"scripts/builder.js"}}})")).ok);
+    s.engine.step(4);
+    Json state = s.engine.state();
+    CHECK_MESSAGE(state["scriptErrors"].empty(), state["scriptErrors"].dump());
+    CHECK(s.call("script.eval", Json{{"code", "world.find('builder').behaviour.saved"}}).result["value"] == ".factoria/tmp/from_script.scene.json");
+    CHECK(entity_ids(scene_file(s, ".factoria/tmp/from_script.scene.json")) == std::vector<std::string>{"tilemap", "coin_1", "coin_2"});
+    CHECK(s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"] == 0);  // the running world has no coins
+}
+
+TEST_CASE("import_ascii: documented path, from and dryRun") {
+    Session s("docs_file");
+    const CommandInfo* info = s.engine.commands().info("scene.import_ascii");
+    REQUIRE(info != nullptr);
+    for (const char* prop : {"path", "from", "dryRun"}) {
+        CAPTURE(prop);
+        REQUIRE(info->inputSchema["properties"].contains(prop));
+        CHECK(info->inputSchema["properties"][prop]["description"].get<std::string>().size() > 40);
+    }
+    CHECK(contains(info->description, "RUNNING"));
+    CHECK(contains(info->description, "unsafe_save"));
+    CHECK(contains(info->description, "dryRun"));
+    CHECK(contains(info->description, "scratch"));
 }

@@ -240,17 +240,41 @@ test("project.generate_level composes ASCII rows and scene.import_ascii builds t
   expect(byId.camera.components.Script.props.maxX).toBe(30 * 32);
 });
 
-test("project.generate_level reloads the running scene afterwards and writes nothing in dryRun", () => {
-  load();
+// scene.import_ascii {path, from} edits the scene FILE in a scratch world: there is nothing to restore afterwards.
+test("project.generate_level never touches the running game, with or without dryRun", () => {
+  const p = load();
+  game.press("move_right");
+  game.step(12);
+  const running = () => {
+    const s = fa.call("game.state", { maxEntities: 100000 });
+    return JSON.stringify({ entities: s.entities, physics: s.physics, audio: s.audio, scene: fa.call("project.info").currentScene });
+  };
+  const x = p.position.x;
+  const before = running();
   const committed = fa.call("fs.read", { path: "scenes/generated.scene.json" }).content;
+
   fa.call("project.generate_level", { width: 40, seed: 2, dryRun: true });
+  expect(running()).toBe(before);
+  expect(fa.call("fs.read", { path: "scenes/generated.scene.json" }).content).toBe(committed); // dryRun writes nothing
+
+  const path = ".factoria/tmp/generate_level.running.scene.json";
+  fa.call("project.generate_level", { width: 40, seed: 2, path });
+  expect(running()).toBe(before); // a real write does not reload, move or reset anything either
+  expect(p.position.x).toBe(x);
   expect(fa.call("project.info").currentScene).toBe("scenes/level1.scene.json");
   expect(game.find("player")).not.toBeNull();
-  expect(fa.call("fs.read", { path: "scenes/generated.scene.json" }).content).toBe(committed);
+  expect(fa.call("fs.read", { path }).content.length).toBeGreaterThan(1000);
+
+  // The scratch copy of the base scene is gone; delete the output with the same command that wrote it.
+  const left = fa.call("fs.list", { path: ".factoria/tmp" }).entries.map((e) => e.path);
+  expect(left).toContain(path);
+  expect(left).not.toContain(".factoria/tmp/generate_level.base.scene.json");
+  fa.call("fs.delete", { path });
+  game.release("move_right");
 });
 
 test("project.generate_level writes a scene file that loads and plays", () => {
-  const path = ".factoria/test/generate_level.scene.json";
+  const path = ".factoria/tmp/generate_level.scene.json";
   const out = fa.call("project.generate_level", { width: 30, seed: 3, path });
   expect(out.path).toBe(path);
   const text = fa.call("fs.read", { path }).content;
@@ -260,24 +284,29 @@ test("project.generate_level writes a scene file that loads and plays", () => {
   const p = load(path);
   expect(p.position.y).toBeGreaterThan(100);
   expect(game.find("goal")).not.toBeNull();
+  fa.call("fs.delete", { path }); // .factoria/tmp/ is the scratch folder: files written there can be deleted again
+  expect(fa.call("fs.list", { path: ".factoria/tmp" }).entries.map((e) => e.path)).not.toContain(path);
 });
 
 // The ASCII maps in levels/ are the source of truth of the hand-made levels. Importing a map into its own scene must
 // change nothing: if this fails, rebuild the scene (see README.md, "Levels") or fix the map.
 for (const name of ["level1", "level2"]) {
   test(`scenes/${name}.scene.json is what levels/${name}.json builds`, () => {
-    resetState();
-    game.load(`scenes/${name}.scene.json`);
-    const snapshot = () => Object.fromEntries(fa.call("game.state", { maxEntities: 100000 }).entities.map((e) => [e.id, JSON.stringify(e)]));
-    const before = snapshot();
     const args = JSON.parse(fa.call("fs.read", { path: `levels/${name}.json` }).content);
-    delete args.save; // do not rewrite the file from a test
-    const imported = fa.call("scene.import_ascii", args);
+    const scene = `scenes/${name}.scene.json`;
+    expect(args.path).toBe(scene); // the map names the scene it builds
+    // Rebuild into a scratch file (the same call as the README's, with another `path`) and compare the bytes.
+    const rebuilt = `.factoria/tmp/${name}.rebuilt.scene.json`;
+    const imported = fa.call("scene.import_ascii", { ...args, path: rebuilt, from: scene });
     expect(imported.warnings).toEqual([]);
     expect(imported.removed.length).toBe(imported.spawned.length);
-    expect(snapshot()).toEqual(before);
+    const committed = fa.call("fs.read", { path: scene }).content;
+    expect(fa.call("fs.read", { path: rebuilt }).content).toBe(committed);
+    fa.call("fs.delete", { path: rebuilt });
+    expect(committed).not.toContain('"columns"');
+    resetState();
+    game.load(scene);
     expectCameraFitsMap();
-    expect(fa.call("fs.read", { path: `scenes/${name}.scene.json` }).content).not.toContain('"columns"');
   });
 }
 

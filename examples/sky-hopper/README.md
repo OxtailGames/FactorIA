@@ -42,20 +42,23 @@ A level is an ASCII map plus a legend, in the format of the engine command `scen
            "overrides": { "Script": { "props": { "next": "scenes/level2.scene.json" } } } }
   },
   "entity": "map", "tilemap": { "tileset": "assets/tileset.png", "tileSize": [32, 32], "solidTiles": [0, 1, 2], "layer": -10 },
-  "anchor": "bottom-left", "position": [0, 0], "save": true
+  "anchor": "bottom-left", "position": [0, 0], "path": "scenes/level1.scene.json"
 }
 ```
 
 (The real files have 16 rows of 60 columns.) `#` is grass (tile 0), `%` dirt (1), `=` a brick platform (2), `.`
 empty, `o` a coin, `E` a crawler, `P` the player, `F` the flag. Row 0 is the top row.
 
-**Rebuild a level after editing its map.** From this folder, one `factoria call` per level; `--scene` is the scene
-that receives the map and is saved (`"save": true`), so always pass it:
+**Rebuild a level after editing its map.** From this folder, one `factoria call` per level. Each map file names the
+scene it builds in `path`, so no `--scene` is needed and the running game, if there is one, is not touched:
 
 ```bash
-factoria call scene.import_ascii @levels/level1.json --scene scenes/level1.scene.json
-factoria call scene.import_ascii @levels/level2.json --scene scenes/level2.scene.json
+factoria call scene.import_ascii @levels/level1.json    # "path": "scenes/level1.scene.json"
+factoria call scene.import_ascii @levels/level2.json    # "path": "scenes/level2.scene.json"
 ```
+
+(Without `path` the command edits the running world, and `"save": true` would write the running scene: the engine
+refuses that when the running scene is only the default main scene, which is what a plain `factoria call` runs.)
 
 The command replaces the `map` Tilemap and the objects of the earlier import (tag `tilemap:map`), and leaves the
 camera, `level` script and HUD of the scene alone. It writes the scene in the engine's compact layout (one map
@@ -81,10 +84,11 @@ factoria call project.generate_level '{"width":90,"seed":7,"difficulty":3}'     
 factoria call project.generate_level '{"width":40,"seed":2,"dryRun":true}'      # returns rows + scene JSON, writes nothing
 ```
 
-`scene.import_ascii` edits the running world, so the tool works in a scratch scene: it remembers the loaded scene,
-loads `levels/generator_base.scene.json`, imports the rows, saves the result to `path` (with `dryRun`, reads the
-entities back with `game.state` instead), and loads the remembered scene again. The running game is therefore
-reloaded from its scene file when the tool returns: save unsaved edits first.
+The tool calls `scene.import_ascii {path, from, dryRun}`, which edits the scene FILE in a scratch world: the running
+game is never touched, so there is nothing to save first or restore afterwards. `from` is a copy of
+`levels/generator_base.scene.json` with this level's camera limits, sky colour and level number, which the tool
+writes to `.factoria/tmp/` (the scratch folder) and deletes again. With `dryRun` nothing but that scratch copy is
+written and the scene JSON comes back in `scene`.
 
 The tool keeps its own small PRNG (`mulberry32`) instead of `rng.seed(seed)`: `rng.seed` reseeds the single world
 RNG that the running game draws from, and a script cannot read that state back to restore it.

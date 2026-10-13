@@ -342,7 +342,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"scene.save", "Save the running world to a scene file (current scene path by default).",
-           "Writes canonical scene JSON (only non-default fields). Example: scene.save {\"path\":\"scenes/snapshot.scene.json\"}",
+           "Writes canonical scene JSON (only non-default fields). Files inside .factoria/ belong to the engine and its tools: "
+           "only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a "
+           "scene FILE without touching the running world use scene.import_ascii with `path`. Example: "
+           "scene.save {\"path\":\"scenes/snapshot.scene.json\"}",
            parse_schema(R"({"type":"object","properties":{
                "path":{"type":"string","description":"Project-relative output path. Default: the current scene."}}})"),
            false, "scene"},
@@ -350,6 +353,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               std::string path = a.value("path", I.currentScene);
               if (path.empty())
                   throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+              if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
               auto r = save_scene_file(I.world, path);
               if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
               if (I.watchSeeded) I.watched[path] = fs::modified_time(path);

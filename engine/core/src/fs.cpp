@@ -46,7 +46,8 @@ bool use_assets(const std::string& normalized) {
 std::string to_generic(const stdfs::path& p) { return p.generic_string(); }
 
 Error not_found_error(std::string_view requested, const stdfs::path& resolved) {
-    std::string hint = "Paths are relative to the project root (" + to_generic(project_root()) + ").";
+    std::string hint = is_absolute(requested) ? "No file exists at that absolute path."
+                                              : "Paths are relative to the project root (" + to_generic(project_root()) + ").";
     // Suggest a similarly named file from the same directory.
     std::error_code ec;
     stdfs::path dir = resolved.parent_path();
@@ -155,6 +156,37 @@ stdfs::path resolve(std::string_view path) {
     if (!n) return {};
     if (is_absolute(n.value())) return stdfs::path(n.value());
     return project_root() / n.value();
+}
+
+namespace {
+bool is_same_or_below(std::string_view path, std::string_view folder) {
+    return path == folder || (path.size() > folder.size() && path.substr(0, folder.size()) == folder && path[folder.size()] == '/');
+}
+}  // namespace
+
+bool is_scratch_path(std::string_view relativePath) { return is_same_or_below(relativePath, kScratchDir); }
+
+bool is_managed_path(std::string_view relativePath) {
+    if (is_scratch_path(relativePath)) return false;
+    return is_same_or_below(relativePath, ".factoria") || is_same_or_below(relativePath, ".git");
+}
+
+Result<void> check_writable(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return n.error();
+    std::string rel = n.value();
+    if (is_absolute(rel)) {
+        // Only an absolute path that lands inside the project can be judged by its project-relative form.
+        stdfs::path r = stdfs::path(rel).lexically_relative(project_root());
+        std::string g = r.generic_string();
+        if (r.empty() || g == ".." || g.rfind("../", 0) == 0) return {};
+        rel = g;
+    }
+    if (!is_managed_path(rel)) return {};
+    return make_error("'" + std::string(path) + "' is inside " + (is_same_or_below(rel, ".factoria") ? ".factoria/" : "the version-control folder") +
+                          ", which is managed by the engine and its tools",
+                      std::string("Write scratch files to '") + kScratchDir + "/' (commands may create and delete files there), "
+                      "or to a normal project folder such as scenes/ or assets/.");
 }
 
 Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {

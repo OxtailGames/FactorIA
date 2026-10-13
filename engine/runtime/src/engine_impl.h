@@ -40,6 +40,9 @@ struct Engine::Impl {
     std::string pendingScene;
     bool hasPendingScene = false;
     std::string currentScene;
+    // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
+    // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
+    bool implicitStartScene = false;
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;

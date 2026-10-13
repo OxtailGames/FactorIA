@@ -4,6 +4,7 @@
 #include <regex>
 #include <sstream>
 
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "util.h"
 
@@ -32,12 +33,23 @@ bool is_binary(const std::string& s) {
     return s.find('\0') != std::string::npos;
 }
 
+// fs.list and fs.search skip the tools' folders (.factoria and the version-control folder), except the scratch folder
+// `.factoria/tmp` (fa::fs::kScratchDir), whose files commands may create and delete, so they can be listed there.
 bool in_hidden_dir(const std::string& rel) {
+    if (fs::is_scratch_path(rel)) return false;
     return rel == ".factoria" || rel.rfind(".factoria/", 0) == 0 || rel == ".git" || rel.rfind(".git/", 0) == 0;
 }
 
 [[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint = {}) {
     throw CommandError(code, msg, hint);
+}
+
+// Throws unless fs.write / fs.edit / fs.delete may change `rel` (normalized, project-relative). It is the rule of
+// fa::fs::check_writable, shared with scene.save and scene.import_ascii, so every command agrees on where files can be
+// written and deleted: normal project folders and `.factoria/tmp/`, never the rest of `.factoria/`.
+void require_writable(const std::string& rel) {
+    auto ok = fs::check_writable(rel);
+    if (!ok.ok()) fail("invalid_argument", ok.error().message, ok.error().hint);
 }
 
 stdfs::path root_of(const std::string& projectDir) {
@@ -129,7 +141,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.name = "fs.list";
         info.category = "fs";
         info.summary = "List files and folders in the project.";
-        info.description = "Project-relative. Hides .git and .factoria. Example: {\"path\":\"scenes\",\"recursive\":true}";
+        info.description = "Project-relative. Hides the tools' folders (.factoria, version control) except the scratch folder .factoria/tmp. Example: {\"path\":\"scenes\",\"recursive\":true}";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"path", str_prop("Folder to list (default: project root).")},
                                          {"recursive", bool_prop("Descend into subfolders.", false)},
@@ -215,7 +227,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.summary = "Create or overwrite a text file (parent folders are created).";
         info.description = "Example: {\"path\":\"scripts/enemy.js\",\"content\":\"export default class ...\"}. "
                            "For small changes to an existing file prefer fs.edit. .json files are checked for syntax "
-                           "and a warning is returned if invalid; run project.validate afterwards.";
+                           "and a warning is returned if invalid; run project.validate afterwards. Writing into .factoria/ is refused except "
+                           ".factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"path", str_prop("Project-relative file path.")},
                                          {"content", str_prop("Full new file content.")},
@@ -227,8 +240,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             std::string content = arg_string(args, "content", true);
             stdfs::path p = resolve_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
-            if (r == "." || in_hidden_dir(r))
-                fail("invalid_argument", "Writing to '" + rel + "' is not allowed.", ".git and .factoria are managed by tools.");
+            if (r == ".") fail("invalid_argument", "Writing to '" + rel + "' is not allowed.", "Give a file path inside the project.");
+            require_writable(r);
             if (content.size() > kMaxWriteBytes) fail("too_large", "Content larger than 8 MiB.");
             std::error_code ec;
             bool existed = stdfs::exists(p, ec);
@@ -253,7 +266,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.readOnly = false;
         info.summary = "Replace exact text in a file (must match exactly once unless replaceAll).";
         info.description = "Example: {\"path\":\"scripts/player.js\",\"find\":\"speed = 300\",\"replace\":\"speed = 360\"}. "
-                           "Fails if 'find' is not found or matches several places; include more surrounding text to make it unique.";
+                           "Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. "
+                           "Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"path", str_prop("Project-relative file path.")},
                                          {"find", str_prop("Exact text to find (whitespace-sensitive).")},
@@ -267,7 +281,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             if (find.empty()) fail("invalid_argument", "'find' must not be empty.", "Use fs.write to create or replace whole files.");
             stdfs::path p = resolve_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
-            if (in_hidden_dir(r)) fail("invalid_argument", "Editing '" + rel + "' is not allowed.");
+            require_writable(r);
             auto text = tooling_detail::read_file(p);
             if (!text) fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list, or fs.write to create it.");
             if (is_binary(*text)) fail("binary_file", "'" + rel + "' is a binary file.");
@@ -388,7 +402,9 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.readOnly = false;
         info.summary = "Delete a file or folder from the project.";
         info.description = "Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable "
-                           "unless the project is under version control. Example: {\"path\":\"scripts/old.js\"}";
+                           "unless the project is under version control. Inside .factoria/ (screenshots, saves, AI transcripts) "
+                           "only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may "
+                           "write to. Example: {\"path\":\"scripts/old.js\"} or {\"path\":\".factoria/tmp\",\"recursive\":true}";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"path", str_prop("Project-relative path.")},
                                          {"recursive", bool_prop("Delete a folder and everything in it.", false)}})},
@@ -398,8 +414,9 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             std::string rel = arg_string(args, "path", true);
             stdfs::path p = resolve_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
-            if (r == "." || in_hidden_dir(r) || r == "factoria.json" || r == "ENGINE_FEEDBACK.json")
-                fail("invalid_argument", "Deleting '" + rel + "' is not allowed.", "Project root, factoria.json, ENGINE_FEEDBACK.json, .git and .factoria are protected.");
+            if (r == "." || r == "factoria.json" || r == "ENGINE_FEEDBACK.json")
+                fail("invalid_argument", "Deleting '" + rel + "' is not allowed.", "The project root, factoria.json and ENGINE_FEEDBACK.json are protected.");
+            require_writable(r);
             std::error_code ec;
             if (!stdfs::exists(stdfs::symlink_status(p, ec))) fail("not_found", "'" + rel + "' does not exist.");
             if (stdfs::is_directory(p, ec) && !stdfs::is_symlink(p, ec)) {
