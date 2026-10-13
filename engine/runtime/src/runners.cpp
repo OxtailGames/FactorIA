@@ -136,6 +136,10 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
 
 }  // namespace
 
+void Engine::apply_input_entry(const Json& entry, std::vector<std::string>& problems, int frame) {
+    apply_replay_entry(*impl_, entry, problems, frame);
+}
+
 int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options, Json* reportOut) {
     EngineConfig config = configIn;
     config.headless = true;

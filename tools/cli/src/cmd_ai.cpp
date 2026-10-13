@@ -193,10 +193,6 @@ Command make_ai_command() {
         so.gfx = Gfx::Auto;
         auto session = Session::open(dir, so);
         register_cli_commands(session->registry(), dir, &session->engine());
-        install_script_check(session->engine());
-        struct HookReset {
-            ~HookReset() { set_script_check_hook(nullptr); }
-        } hookReset;
 
         ai::SessionOptions ao;
         ao.projectDir = dir;

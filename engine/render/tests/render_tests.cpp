@@ -333,3 +333,190 @@ TEST_CASE("debug draw renders on top and clears each frame") {
     Image b = g.render(w);  // debug data was consumed
     CHECK(b.pixel(160, 90).r < 0.2f);
 }
+
+// ---------------------------------------------------------------------------
+// Blend modes, anchors, pivots, particles (burst / autoDestroy), update/draw split, measure_text
+// ---------------------------------------------------------------------------
+namespace {
+Entity rect_at(World& w, Vec3 p, Vec2 size, Color c, RenderSpace sp = RenderSpace::World, Vec2 pivot = {0.5f, 0.5f},
+               Vec2 anchor = {0, 0}, BlendMode bm = BlendMode::Alpha, int layer = 0) {
+    Entity e = make(w, "r", p);
+    auto& s = w.add<Shape2D>(e);
+    s.shape = ShapeType::Rectangle; s.size = size; s.color = c; s.space = sp; s.pivot = pivot; s.anchor = anchor;
+    s.blend = bm; s.layer = layer;
+    return e;
+}
+}  // namespace
+
+TEST_CASE("blend modes: alpha, additive, multiply") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color{0.2f, 0.2f, 0.2f, 1};
+    // background strip so the blends have something to act on
+    rect_at(w, {0, 0, 0}, {320, 40}, Color{0.5f, 0.5f, 0.5f, 1}, RenderSpace::World, {0.5f, 0.5f}, {0, 0}, BlendMode::Alpha, -1);
+    rect_at(w, {-100, 0, 0}, {50, 50}, Color{1, 0, 0, 0.5f}, RenderSpace::World, {0.5f, 0.5f}, {0, 0}, BlendMode::Alpha);
+    rect_at(w, {0, 0, 0}, {50, 50}, Color{1, 0, 0, 0.5f}, RenderSpace::World, {0.5f, 0.5f}, {0, 0}, BlendMode::Additive);
+    rect_at(w, {100, 0, 0}, {50, 50}, Color{0.5f, 0.5f, 1, 1}, RenderSpace::World, {0.5f, 0.5f}, {0, 0}, BlendMode::Multiply);
+    // two overlapping additive items accumulate
+    rect_at(w, {-30, -65, 0}, {40, 30}, Color{0.3f, 0.3f, 0.3f, 1}, RenderSpace::World, {0.5f, 0.5f}, {0, 0}, BlendMode::Additive);
+    rect_at(w, {-10, -65, 0}, {40, 30}, Color{0.3f, 0.3f, 0.3f, 1}, RenderSpace::World, {0.5f, 0.5f}, {0, 0}, BlendMode::Additive);
+    Image img = g.render(w);
+    // centers: world (x,y) -> pixel (160+x, 90-y)
+    Color a = img.pixel(60, 90), ad = img.pixel(160, 90), mu = img.pixel(260, 90);
+    CHECK(a.r == doctest::Approx(0.75f).epsilon(0.03));   // 0.5*1 + 0.5*0.5
+    CHECK(a.g == doctest::Approx(0.25f).epsilon(0.05));
+    CHECK(ad.r == doctest::Approx(1.0f).epsilon(0.03));   // 0.5 + 0.5*1
+    CHECK(ad.g == doctest::Approx(0.5f).epsilon(0.03));   // unchanged by red additive
+    CHECK(mu.r == doctest::Approx(0.25f).epsilon(0.05));  // 0.5*0.5
+    CHECK(mu.b == doctest::Approx(0.5f).epsilon(0.05));   // 0.2*... background strip? (y 70..110 covers) 0.5*1
+    Color overlap = img.pixel(140, 155), single = img.pixel(125, 155);
+    CHECK(overlap.r > single.r + 0.2f);
+    expect_golden(img, "2d_blend_modes");
+}
+
+TEST_CASE("screen-space anchored HUD: 4 corners + center") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::hex(0x101820);
+    auto S = RenderSpace::Screen;
+    rect_at(w, {10, 10, 0}, {40, 20}, Color::hex(0xe05050), S, {0, 1}, {0, 0});        // top-left
+    rect_at(w, {-10, 10, 0}, {40, 20}, Color::hex(0x50e050), S, {1, 1}, {1, 0});       // top-right
+    rect_at(w, {10, -10, 0}, {40, 20}, Color::hex(0x5050e0), S, {0, 0}, {0, 1});       // bottom-left
+    rect_at(w, {-10, -10, 0}, {40, 20}, Color::hex(0xe0e050), S, {1, 0}, {1, 1});      // bottom-right
+    rect_at(w, {0, 0, 0}, {40, 20}, Color::hex(0xffffff), S, {0.5f, 0.5f}, {0.5f, 0.5f});  // center
+    Entity t = make(w, "t", {0, 30, 0});
+    auto& tx = w.add<Text>(t);
+    tx.text = "TOP"; tx.fontSize = 14; tx.space = S; tx.anchor = {0.5f, 0}; tx.pivot = {0.5f, 1};
+    Entity sp = make(w, "sp", {-10, -40, 0});
+    auto& s = w.add<Sprite>(sp);
+    s.space = S; s.anchor = {1, 1}; s.pivot = {1, 0}; s.size = {16, 16}; s.color = Color::hex(0xff00ff);
+    Image img = g.render(w);
+    CHECK(img.pixel(30, 20).r > 0.8f);     // red: x 10..50, y 10..30
+    CHECK(img.pixel(9, 5).r < 0.2f);
+    CHECK(img.pixel(290, 20).g > 0.8f);    // green: x 270..310
+    CHECK(img.pixel(30, 160).b > 0.8f);    // blue: y 150..170
+    CHECK(img.pixel(290, 160).r > 0.8f);   // yellow
+    CHECK(img.pixel(160, 90).g > 0.9f);
+    CHECK(img.pixel(300, 130).b > 0.8f);   // magenta sprite: x 294..310, y 114..130 -> (300,125)
+    CHECK(img.pixel(300, 125).r > 0.8f);
+    expect_golden(img, "ui_anchored_hud");
+}
+
+TEST_CASE("Shape2D pivots in world and screen space") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::hex(0x101820);
+    // world: pivot [0,0] = bottom-left corner at position (extends right/up)
+    rect_at(w, {-100, 0, 0}, {40, 30}, Color::hex(0xe05050), RenderSpace::World, {0, 0});
+    auto circle = [&](Vec3 p, Vec2 pivot, Color c, RenderSpace sp) {
+        Entity e = make(w, "c", p);
+        auto& s = w.add<Shape2D>(e);
+        s.shape = ShapeType::Circle; s.size = {30, 30}; s.color = c; s.pivot = pivot; s.space = sp;
+    };
+    auto tri = [&](Vec3 p, Vec2 pivot, Color c, RenderSpace sp) {
+        Entity e = make(w, "t", p);
+        auto& s = w.add<Shape2D>(e);
+        s.shape = ShapeType::Triangle; s.size = {30, 30}; s.color = c; s.pivot = pivot; s.space = sp;
+    };
+    circle({0, 0, 0}, {0, 0}, Color::hex(0x50e050), RenderSpace::World);
+    tri({60, 0, 0}, {0, 0}, Color::hex(0x5050e0), RenderSpace::World);
+    // screen: pivot [0,1] = top-left corner at position (extends right/down)
+    rect_at(w, {20, 120, 0}, {40, 30}, Color::hex(0xe0e050), RenderSpace::Screen, {0, 1});
+    circle({100, 120, 0}, {0, 1}, Color::hex(0x50e0e0), RenderSpace::Screen);
+    // default stays centered
+    rect_at(w, {160, 140, 0}, {20, 20}, Color::hex(0xffffff), RenderSpace::Screen);
+    Image img = g.render(w);
+    CHECK(img.pixel(60, 80).r > 0.8f);     // world red: x -100..-60 -> px 60..100, y 0..30 -> py 90..60
+    CHECK(img.pixel(55, 80).r < 0.2f);
+    CHECK(img.pixel(160 + 15, 75).g > 0.8f);   // circle center at (15,15)
+    CHECK(img.pixel(160 - 5, 95).g < 0.2f);
+    CHECK(img.pixel(40, 135).r > 0.8f);    // screen yellow: x 20..60, y 120..150
+    CHECK(img.pixel(40, 115).b < 0.2f);
+    CHECK(img.pixel(115, 135).g > 0.8f);   // screen circle center (115,135)
+    CHECK(img.pixel(160, 140).r > 0.9f);
+    CHECK(img.pixel(160, 155).r < 0.2f);
+    expect_golden(img, "2d_shape_pivots");
+}
+
+TEST_CASE("particles: burst fires with emitting=false, emit_burst, autoDestroy") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::hex(0x000010);
+    Entity e = make(w, "boom", {-80, 0, 0});
+    auto& p = w.add<ParticleEmitter>(e);
+    p.emitting = false; p.rate = 0; p.burst = 60; p.lifetime = 1.0f; p.speed = 80; p.spread = 180; p.startSize = 12;
+    p.endSize = 12; p.gravity = {0, 0, 0}; p.startColor = Color::hex(0xffc040); p.endColor = Color::hex(0xffc040);
+    p.autoDestroy = true; p.blend = BlendMode::Additive;
+    Entity m = make(w, "manual", {80, 0, 0});
+    auto& q = w.add<ParticleEmitter>(m);
+    q.emitting = false; q.rate = 0; q.burst = 0; q.lifetime = 10.0f; q.speed = 30; q.spread = 180; q.startSize = 10;
+    q.endSize = 10; q.gravity = {0, 0, 0}; q.startColor = Color::hex(0x40ff80); q.endColor = Color::hex(0x40ff80);
+    Image img;
+    for (int i = 0; i < 3; ++i) img = g.render(w, 1.0f / 30.0f);
+    CHECK(g.renderer.stats().particles == 60);  // burst fired though emitting=false; manual emitter idle
+    g.renderer.emit_burst(m, 40);
+    for (int i = 0; i < 6; ++i) img = g.render(w, 1.0f / 30.0f);
+    CHECK(g.renderer.stats().particles == 100);
+    expect_golden(img, "2d_particle_burst_idle");
+    for (int i = 0; i < 40; ++i) { img = g.render(w, 1.0f / 30.0f); w.flush(); }
+    CHECK_FALSE(w.alive(e));       // autoDestroy removed the finished one-shot
+    CHECK(w.alive(m));             // no autoDestroy on the manual one
+    CHECK(g.renderer.stats().particles == 40);
+    expect_golden(img, "2d_particle_autodestroy");
+}
+
+TEST_CASE("update/draw split: skipping draws gives the same image") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    auto build = [](World& w) {
+        Entity cam = make(w, "cam");
+        w.add<Camera>(cam).clearColor = Color::hex(0x000010);
+        Entity e = make(w, "fx", {0, -60, 0});
+        auto& p = w.add<ParticleEmitter>(e);
+        p.rate = 60; p.burst = 20; p.lifetime = 1.0f; p.speed = 100; p.spread = 40; p.startSize = 10;
+        Entity s = make(w, "anim", {-100, 40, 0});
+        w.add<Sprite>(s).size = {20, 20};
+        auto& a = w.add<SpriteAnimator>(s);
+        a.columns = 2; a.rows = 1; a.firstFrame = 0; a.lastFrame = 1; a.fps = 7;
+    };
+    auto sheet = write_checker("split_sheet.png", 32, 16, 8, Color::hex(0xff0000), Color::hex(0x00ff00));
+    World w1, w2;
+    build(w1); build(w2);
+    w1.each<Sprite>([&](Entity, Sprite& s) { s.texture = sheet; });
+    w2.each<Sprite>([&](Entity, Sprite& s) { s.texture = sheet; });
+    Image a, b;
+    g.renderer.clear_asset_cache();
+    for (int i = 0; i < 25; ++i) { g.renderer.update(w1, 1.0f / 60.0f); a = g.render(w1, 1.0f / 60.0f); }
+    g.renderer.clear_asset_cache();
+    for (int i = 0; i < 25; ++i) {
+        g.renderer.update(w2, 1.0f / 60.0f);
+        if (i == 24) b = g.render(w2, 1.0f / 60.0f);  // only the last frame is drawn
+    }
+    ImageDiff d = diff_images(a, b, 1.0f / 255.0f);
+    CHECK(d.meanError < 0.0005);
+    CHECK(d.differingPixels == 0);
+}
+
+TEST_CASE("measure_text matches Text layout") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    Vec2 one = g.renderer.measure_text("Hello world", 20);
+    CHECK(one.x > 50);
+    CHECK(one.y > 10);
+    CHECK(g.renderer.measure_text("Hello world", 40).x > one.x * 1.8f);
+    Vec2 wrapped = g.renderer.measure_text("Hello world this wraps", 20, {}, 80);
+    CHECK(wrapped.x <= 80.5f);
+    CHECK(wrapped.y > one.y * 1.5f);
+    Vec2 two = g.renderer.measure_text("a\nb", 20);
+    CHECK(two.y > one.y * 1.5f);
+    CHECK(g.renderer.measure_text("", 20).x == 0);
+}

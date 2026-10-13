@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <format>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/scene/components.h"
 #include "script_internal.h"
@@ -169,6 +170,36 @@ void Impl::construct_for(const std::vector<Entity>& entities) {
 }
 
 void Impl::construct_all() { construct_for(host->world().entities_with(&World::type_of<Script>())); }
+
+std::vector<std::string> Impl::check_props(const std::string& modulePath, const Json& props) {
+    std::vector<std::string> out;
+    auto norm = fs::normalize_checked(modulePath);
+    if (!norm) return {norm.error().message};
+    std::string path = *norm;
+    if (!props.is_object() || props.empty()) return out;
+    ScriptError detail;
+    auto ns = import_module(path, &detail);
+    if (!ns) return {ns.error().message};
+    JsVal nsv(ctx, *ns);
+    JsVal cls(ctx, JS_GetPropertyStr(ctx, nsv.get(), "default"));
+    if (!JS_IsFunction(ctx, cls.get())) return {"module '" + path + "' has no default export class (export default class X extends Behaviour)"};
+    JsVal propsV(ctx, from_json(props));
+    JsVal pathV(ctx, JS_NewString(ctx, path.c_str()));
+    JsVal fn(ctx, JS_GetPropertyStr(ctx, hooks.get(), "checkProps"));
+    bool failed = false;
+    JSValue r = call("checking props of " + path, "", fn.get(), hooks.get(), {cls.get(), propsV.get(), pathV.get()}, &failed);
+    JsVal res(ctx, r);
+    int64_t n = 0;
+    if (!failed && JS_IsArray(res.get())) JS_GetLength(ctx, res.get(), &n);
+    for (int64_t i = 0; i < n; ++i) {
+        JsVal item(ctx, JS_GetPropertyUint32(ctx, res.get(), static_cast<uint32_t>(i)));
+        if (JS_IsString(item.get())) {
+            const char* c = JS_ToCString(ctx, item.get());
+            if (c) { out.emplace_back(c); JS_FreeCString(ctx, c); }
+        }
+    }
+    return out;
+}
 
 void Impl::sync() {
     if (inSync || !ctx) return;

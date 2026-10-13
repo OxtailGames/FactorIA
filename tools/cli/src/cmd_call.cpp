@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "common.h"
+#include "fa/core/json.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
@@ -27,8 +28,9 @@ struct ToolSession {
     ~ToolSession() { set_script_check_hook(nullptr); }
 };
 
-std::unique_ptr<Session> open_tool_session(const Context& ctx, Gfx gfx, const SessionOptions* base = nullptr) {
-    std::string dir = find_project_dir_or_empty(ctx, 99);
+std::unique_ptr<Session> open_tool_session(const Context& ctx, Gfx gfx, const SessionOptions* base = nullptr,
+                                          std::size_t posIndex = 99) {
+    std::string dir = find_project_dir_or_empty(ctx, posIndex);
     if (!dir.empty() && !fsys::exists(fsys::path(dir) / kProjectFileName))
         throw CliError("'" + dir + "' is not a FactorIA project: " + kProjectFileName + " not found.",
                        "Pass --project <folder containing factoria.json>, or run from inside a project.");
@@ -36,8 +38,79 @@ std::unique_ptr<Session> open_tool_session(const Context& ctx, Gfx gfx, const Se
     so.gfx = gfx;
     auto s = Session::open(dir, so);
     register_cli_commands(s->registry(), s->project_dir(), &s->engine());
-    install_script_check(s->engine());
     return s;
+}
+
+// Flags shared by `call` and `session`: one engine, optionally pre-positioned.
+const std::vector<FlagSpec>& engine_flags() {
+    static const std::vector<FlagSpec> f = {
+        {"project", "DIR", "Project folder (default: the project containing the current directory)."},
+        {"scene", "PATH", "Start scene (default: the project's mainScene)."},
+        {"seed", "N", "World RNG seed (default 1)."},
+        {"frames-before", "N", "Step N headless frames before the first command."},
+        {"press", "A,B", "Hold these actions/keys down before the first command (comma separated)."},
+        {"input", "FILE", "Input replay JSON (see 'factoria run --help') applied while stepping; steps through its last frame unless --frames-before says otherwise."},
+        {"no-graphics", "", "No GPU context (game.screenshot unavailable, faster start)."},
+        {"render-all", "", "Draw every frame (default: only when a screenshot is taken)."},
+        {"persist-storage", "", "Let scripts' storage.* read/write the real save file (default: in memory)."}};
+    return f;
+}
+
+SessionOptions session_options(const Context& ctx) {
+    SessionOptions so;
+    so.scene = ctx.args.str("scene");
+    so.seed = ctx.args.uinteger("seed", 1);
+    so.gfx = ctx.args.has("no-graphics") ? Gfx::None : Gfx::Auto;
+    so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
+    so.memoryStorage = !ctx.args.has("persist-storage");
+    return so;
+}
+
+// Applies --press / --input / --frames-before to a freshly opened session.
+void prepare_session(Context& ctx, Session& session) {
+    Engine& engine = session.engine();
+    if (ctx.args.has("press")) {
+        Json names = Json::array();
+        for (const auto& part : split(ctx.args.str("press"), ',')) {
+            std::string n(trim(part));
+            if (!n.empty()) names.push_back(n);
+        }
+        CommandResult r = session.registry().call("game.input", Json::object({{"press", names}}));
+        if (!r.ok) throw UsageError("--press: " + r.error.value("message", std::string("failed")), r.error.value("hint", std::string()));
+    }
+    int before = ctx.args.integer("frames-before", -1);
+    if (ctx.args.has("input")) {
+        auto rep = load_json_file(absolute_path(ctx.args.str("input")));
+        if (!rep.ok()) throw CliError("Cannot read input replay: " + rep.error().to_string());
+        const Json* frames = rep->is_object() && rep->contains("frames") ? &(*rep)["frames"] : nullptr;
+        if (!frames || !frames->is_object())
+            throw UsageError("Input replay must look like {\"frames\": {\"0\": {\"press\": [\"jump\"]}}}.");
+        std::map<int, Json> entries;
+        int last = 0;
+        for (auto it = frames->begin(); it != frames->end(); ++it) {
+            try {
+                entries[std::stoi(it.key())] = *it;
+                last = std::max(last, std::stoi(it.key()));
+            } catch (...) {
+                throw UsageError("Input replay frame key '" + it.key() + "' is not a number.");
+            }
+        }
+        int total = before >= 0 ? before : last + 1;
+        std::vector<std::string> problems;
+        for (int f = 0; f < total; ++f) {
+            if (auto e = entries.find(f); e != entries.end()) engine.apply_input_entry(e->second, problems, f);
+            engine.step(1);
+        }
+        for (const auto& p : problems) ctx.err << "warning: " << p << "\n";
+        return;
+    }
+    if (before > 0) engine.step(before);
+}
+
+void print_command_error(Context& ctx, const Json& error) {
+    ctx.err << "error: " << error.value("code", std::string("failed")) << ": " << error.value("message", std::string()) << "\n";
+    if (error.contains("hint") && error["hint"].is_string() && !error["hint"].get<std::string>().empty())
+        ctx.err << "  hint: " << error["hint"].get<std::string>() << "\n";
 }
 
 std::string read_all(std::istream& in) { return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()); }
@@ -72,41 +145,149 @@ void write_file(const std::string& path, const std::string& text) {
 Command make_call_command() {
     Command c;
     c.name = "call";
-    c.summary = "Run any engine command on a headless engine and print the JSON result.";
-    c.usage = "<command> ['<json args>'] [--project DIR] [--frames-before N]";
+    c.summary = "Run engine commands on a headless engine and print the JSON result (one command, or a --batch).";
+    c.usage = "<command> ['<json args>'] [options]   |   --batch '<json array>' | --batch-file F.json";
     c.details =
         "The same commands MCP exposes as tools (list them with 'factoria commands'). Arguments are a JSON object;\n"
         "use @args.json to read them from a file or - for stdin. Without a project in the current directory a scratch\n"
         "project is used, so docs.*, project.create etc. work anywhere. Failures print the error with its hint to\n"
-        "stderr and exit 1. Images (game.screenshot) are returned as file paths.";
+        "stderr and exit 1. Images (game.screenshot) are returned as file paths.\n\n"
+        "Every call starts a NEW engine, so state does not carry over between calls. To act on one running game use:\n"
+        "  --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"1+1\"}}]'\n"
+        "(commands run in order on ONE engine; prints {ok, results:[{ok,result|error}]}; stops at the first failure\n"
+        "unless --keep-going; exit 1 if any failed), or 'factoria session' for an interactive JSON-lines loop.\n"
+        "--scene, --press and --input position the game before the first command.";
     c.maxPositional = 2;
-    c.flags = {{"project", "DIR", "Project folder (default: the project containing the current directory)."},
-               {"scene", "PATH", "Start scene override."},
-               {"frames-before", "N", "Step N headless frames before running the command."},
-               {"seed", "N", "World RNG seed (default 1)."}};
+    c.flags = engine_flags();
+    c.flags.push_back({"batch", "JSON", "Array of {\"command\", \"args\"} to run in order on one engine (instead of a positional command)."});
+    c.flags.push_back({"batch-file", "FILE", "Same as --batch, read from a file ('-' = stdin)."});
+    c.flags.push_back({"keep-going", "", "Batch: continue after a failed command."});
     c.examples = {"factoria call scene.list_entities",
-                  "factoria call scene.spawn '{\"name\":\"Enemy\",\"components\":{\"Transform2D\":{\"position\":[100,50]}}}'",
+                  "factoria call scene.spawn '{\"name\":\"Enemy\",\"components\":{\"Transform\":{\"position\":[100,50,0]}}}'",
                   "factoria call game.screenshot '{\"path\":\"/tmp/s.png\"}' --frames-before 60",
+                  "factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30",
+                  "factoria call --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"game.time\"}}]'",
                   "factoria call docs.search '{\"query\":\"collision\"}'"};
     c.run = [](Context& ctx) {
-        if (ctx.args.positional().empty())
-            throw UsageError("Missing command name.", "Usage: factoria call <command> ['<json>']. List commands with 'factoria commands'.");
-        std::string name = ctx.args.pos(0);
-        Json args = parse_call_args(ctx, ctx.args.pos(1));
-        SessionOptions so;
-        so.scene = ctx.args.str("scene");
-        so.seed = ctx.args.uinteger("seed", 1);
-        ToolSession ts;
-        ts.session = open_tool_session(ctx, Gfx::Auto, &so);
-        int before = ctx.args.integer("frames-before", 0);
-        if (before > 0) ts.session->engine().step(before);
-        CommandResult r = ts.session->registry().call(name, args);
-        if (!r.ok) {
-            ctx.err << "error: " << r.error.value("code", std::string("failed")) << ": " << r.error.value("message", std::string()) << "\n";
-            if (r.error.contains("hint") && !r.error["hint"].get<std::string>().empty()) ctx.err << "  hint: " << r.error["hint"].get<std::string>() << "\n";
-            return 1;
+        const bool batch = ctx.args.has("batch") || ctx.args.has("batch-file");
+        if (!batch && ctx.args.positional().empty())
+            throw UsageError("Missing command name.", "Usage: factoria call <command> ['<json>']  or  factoria call --batch '[...]'. List commands with 'factoria commands'.");
+        if (batch && ctx.args.has("batch") && ctx.args.has("batch-file")) throw UsageError("Use --batch or --batch-file, not both.");
+        Json requests = Json::array();
+        if (batch) {
+            if (!ctx.args.positional().empty()) throw UsageError("--batch replaces the positional command.", "Put every command in the batch array.");
+            std::string body;
+            if (ctx.args.has("batch")) {
+                body = ctx.args.str("batch");
+                if (body == "-") body = read_all(ctx.in);
+                else if (!body.empty() && body[0] == '@') {
+                    std::ifstream f(body.substr(1), std::ios::binary);
+                    if (!f) throw UsageError("Cannot read batch file '" + body.substr(1) + "'.");
+                    body = read_all(f);
+                }
+            } else {
+                std::string file = ctx.args.str("batch-file");
+                if (file == "-") body = read_all(ctx.in);
+                else {
+                    std::ifstream f(absolute_path(file), std::ios::binary);
+                    if (!f) throw UsageError("Cannot read batch file '" + file + "'.");
+                    body = read_all(f);
+                }
+            }
+            auto j = parse_json(body, "<batch>");
+            if (!j.ok()) throw UsageError("--batch is not valid JSON: " + j.error().message,
+                                          "Example: --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}}]'");
+            if (!j->is_array()) throw UsageError("--batch must be a JSON array of {\"command\", \"args\"} objects, got " + describe_json_value(*j) + ".");
+            requests = *j;
+        } else {
+            requests.push_back(Json::object({{"command", ctx.args.pos(0)}, {"args", parse_call_args(ctx, ctx.args.pos(1))}}));
         }
-        print_json(ctx.out, r.result);
+        ToolSession ts;
+        SessionOptions so = session_options(ctx);
+        ts.session = open_tool_session(ctx, so.gfx, &so);
+        prepare_session(ctx, *ts.session);
+        if (!batch) {
+            Json out = run_command_json(ts.session->registry(), requests[0]);
+            if (!out["ok"].get<bool>()) {
+                print_command_error(ctx, out["error"]);
+                return 1;
+            }
+            print_json(ctx.out, out["result"]);
+            return 0;
+        }
+        Json results = Json::array();
+        bool allOk = true;
+        for (const Json& req : requests) {
+            Json out = run_command_json(ts.session->registry(), req);
+            results.push_back(out);
+            if (!out["ok"].get<bool>()) {
+                allOk = false;
+                print_command_error(ctx, out["error"]);
+                if (!ctx.args.has("keep-going")) break;
+            }
+        }
+        print_json(ctx.out, Json::object({{"ok", allOk}, {"results", results}}));
+        return allOk ? 0 : 1;
+    };
+    return c;
+}
+
+Command make_session_command() {
+    Command c;
+    c.name = "session";
+    c.summary = "Interactive JSON-lines loop on ONE engine: a request per stdin line, a result per stdout line (no MCP needed).";
+    c.usage = "[project] [options]";
+    c.details =
+        "Starts a headless engine for the project and reads one JSON request per line from stdin:\n"
+        "  {\"command\": \"game.step\", \"args\": {\"frames\": 30}}\n"
+        "and answers with one line of JSON on stdout:\n"
+        "  {\"ok\": true, \"result\": {...}}   or   {\"ok\": false, \"error\": {\"code\", \"message\", \"hint\"}}\n"
+        "State persists between lines (the game keeps running), so an AI without MCP can step, poke and inspect the\n"
+        "same game. A line may also be an array of requests (answered with an array). The first line printed is\n"
+        "{\"ready\": true, ...}. Stops at EOF or on {\"command\": \"session.quit\"}. Logs go to stderr.";
+    c.maxPositional = 1;
+    c.flags = engine_flags();
+    c.examples = {"printf '%s\\n' '{\"command\":\"game.step\",\"args\":{\"frames\":30}}' '{\"command\":\"game.state\"}' | factoria session",
+                  "factoria session games/my-game --scene scenes/level2.scene.json"};
+    c.run = [](Context& ctx) {
+        ToolSession ts;
+        SessionOptions so = session_options(ctx);
+        ts.session = open_tool_session(ctx, so.gfx, &so, 0);
+        prepare_session(ctx, *ts.session);
+        CommandRegistry& reg = ts.session->registry();
+        auto emit = [&](const Json& j) { ctx.out << j.dump() << "\n" << std::flush; };
+        emit(Json::object({{"ready", true}, {"project", ts.session->project_dir()}, {"graphics", ts.session->has_graphics()},
+                           {"frame", ts.session->engine().frame_index()}, {"commands", reg.list().size()}}));
+        std::string line;
+        while (std::getline(ctx.in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.find_first_not_of(" \t") == std::string::npos) continue;
+            auto j = parse_json(line, "<session line>");
+            if (!j.ok()) {
+                emit(Json::object({{"ok", false}, {"error", Json::object({{"code", "invalid_json"}, {"message", j.error().message},
+                                    {"hint", "Send one JSON object per line: {\"command\":\"game.step\",\"args\":{\"frames\":1}}"}})}}));
+                continue;
+            }
+            bool quit = false;
+            auto handle = [&](const Json& req) {
+                if (req.is_object() && req.value("command", std::string()) == "session.quit") {
+                    quit = true;
+                    return Json::object({{"ok", true}, {"result", Json::object({{"bye", true}})}});
+                }
+                return run_command_json(reg, req);
+            };
+            if (j->is_array()) {
+                Json outs = Json::array();
+                for (const Json& req : *j) {
+                    outs.push_back(handle(req));
+                    if (quit) break;
+                }
+                emit(outs);
+            } else {
+                emit(handle(*j));
+            }
+            if (quit) break;
+        }
         return 0;
     };
     return c;

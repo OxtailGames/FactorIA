@@ -24,6 +24,7 @@ Command make_run_command();
 Command make_screenshot_command();
 Command make_test_command();
 Command make_call_command();
+Command make_session_command();
 Command make_commands_command();
 Command make_api_command();
 Command make_mcp_command();

@@ -117,6 +117,32 @@ void Impl::reload_tools() {
         host->commands().add(std::move(info), [this, cname](const Json& args) -> Json {
             auto it = tools.find(cname);
             if (it == tools.end() || !ctx) throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded", "Call project tools after the script system is initialized.");
+            const std::string toolFile = it->second.file;
+            // Converts a thrown JS value into a CommandError. ToolError(message, hint, data) is an expected failure
+            // (not a script bug): its hint and data reach the caller. Any other error is "failed".
+            auto throw_js = [&](JSValueConst exc) {
+                std::string kind;
+                if (JS_IsObject(exc)) {
+                    JsVal nm(ctx, JS_GetPropertyStr(ctx, exc, "name"));
+                    if (JS_IsString(nm.get())) kind = js_to_string(ctx, nm.get());
+                }
+                if (kind == "ToolError") {
+                    auto str = [&](const char* k) {
+                        JsVal v(ctx, JS_GetPropertyStr(ctx, exc, k));
+                        return JS_IsString(v.get()) ? js_to_string(ctx, v.get()) : std::string();
+                    };
+                    std::string msg = str("message"), hint = str("hint"), code = str("code");
+                    JsVal dv(ctx, JS_GetPropertyStr(ctx, exc, "data"));
+                    Json data = JS_IsUndefined(dv.get()) ? Json(nullptr) : to_json(dv.get());
+                    if (!data.is_null()) msg += "\ndata: " + data.dump();
+                    throw CommandError(code.empty() ? "tool_error" : code, msg, hint);
+                }
+                ScriptError e = error_from_exception(exc, "", toolFile);
+                record_error(e, cname);
+                std::string loc = e.file + (e.line > 0 ? ":" + std::to_string(e.line) : "");
+                throw CommandError("failed", e.message + (loc.empty() ? "" : " (at " + loc + ")"),
+                                   "Fix the error in " + toolFile + " (see script errors), or throw new ToolError(message, hint) for expected failures.");
+            };
             JSValueConst defv = it->second.fn.get();
             JsVal run(ctx, JS_GetPropertyStr(ctx, defv, "run"));
             JsVal a(ctx, from_json(args.is_null() ? Json::object() : args));
@@ -124,15 +150,11 @@ void Impl::reload_tools() {
             JSValue r = call(cname, "", run.get(), defv, {a.get(), factoria.get()}, &failed, 10.0, true);
             if (JS_IsException(r)) {
                 JSValue exc = JS_GetException(ctx);
-                ScriptError e = error_from_exception(exc, "", it->second.file);
-                JS_FreeValue(ctx, exc);
-                record_error(e, cname);
-                std::string loc = e.file + (e.line > 0 ? ":" + std::to_string(e.line) : "");
-                throw CommandError("tool_failed", e.message + (loc.empty() ? "" : " (at " + loc + ")"),
-                                   "Fix the error in " + it->second.file + " (see script errors).");
+                JsVal guard(ctx, exc);
+                throw_js(exc);
             }
             if (failed) {
-                throw CommandError("tool_failed", "script took too long (> 10 s) in tool " + cname, "Avoid infinite loops in tools.");
+                throw CommandError("failed", "script took too long (> 10 s) in tool " + cname, "Avoid infinite loops in tools.");
             }
             JsVal result(ctx, r);
             if (JS_PromiseState(ctx, result.get()) != JS_PROMISE_NOT_A_PROMISE) {
@@ -140,11 +162,9 @@ void Impl::reload_tools() {
                 auto st = JS_PromiseState(ctx, result.get());
                 if (st == JS_PROMISE_REJECTED) {
                     JsVal reason(ctx, JS_PromiseResult(ctx, result.get()));
-                    ScriptError e = error_from_exception(reason.get(), "", cname);
-                    record_error(e, cname);
-                    throw CommandError("tool_failed", e.message, "Fix the error in " + it->second.file + ".");
+                    throw_js(reason.get());
                 }
-                if (st == JS_PROMISE_PENDING) throw CommandError("tool_failed", "tool returned a promise that never resolved", "Tools must finish synchronously or await only already-resolved promises.");
+                if (st == JS_PROMISE_PENDING) throw CommandError("failed", "tool returned a promise that never resolved", "Tools must finish synchronously or await only already-resolved promises.");
                 JsVal value(ctx, JS_PromiseResult(ctx, result.get()));
                 run_jobs();
                 Json j = to_json(value.get());
@@ -285,29 +305,57 @@ void Impl::reload_module(std::string_view modulePath) {
 // ---------------------------------------------------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------------------------------------------------
+void Impl::reset_modules() {
+    // Every project module gets a fresh instance (module-level state does not leak between test files).
+    std::vector<std::string> files(everLoaded.begin(), everLoaded.end());
+    for (const std::string& p : files) {
+        namespaces.erase(module_name_for(p));
+        versions[p] += 1;
+    }
+    // Tools import modules too: re-evaluate them so they share the fresh instances. No MCP notification.
+    auto cb = std::move(toolsChanged);
+    toolsChanged = nullptr;
+    reload_tools();
+    toolsChanged = std::move(cb);
+}
+
+void Impl::after_test_load() {
+    host->world().rng().reseed(seed);
+    host->input().clear_action_overrides();
+    drop_all_behaviours();
+    call_method("scene reset", "", hooks.get(), "resetScene", {});
+    run_jobs();
+    construct_all();
+    run_jobs();
+}
+
 void Impl::reset_for_test_file() {
     Json proj = host->project_settings();
     std::string scene = "scenes/main.scene.json";
     if (proj.is_object() && proj.contains("mainScene") && proj["mainScene"].is_string()) scene = proj["mainScene"].get<std::string>();
     drop_all_behaviours();
+    reset_modules();
+    storage = Json::object();
+    storageLoaded = true;
+    call_method("reset session", "", hooks.get(), "resetSession", {});
     if (fs::exists(scene)) {
         std::string err = host->load_scene_now(scene);
         if (!err.empty()) log(LogLevel::Warn, "script", "test reset: could not load start scene " + scene + ": " + err);
     } else {
         host->world().clear();
     }
-    host->world().rng().reseed(seed);
-    host->input().clear_action_overrides();
     host->input().release_all();
     timeScale = 1.0;
-    drop_all_behaviours();
-    call_method("scene reset", "", hooks.get(), "resetScene", {});
-    run_jobs();
+    call_method("reset session", "", hooks.get(), "resetSession", {});
+    after_test_load();
 }
 
 TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_view nameFilter) {
     TestReport rep;
     inTestRun = true;
+    // Tests never touch the real save file: in-memory storage, fresh for every test file.
+    const StorageMode savedMode = storageMode;
+    storageMode = StorageMode::Memory;
     for (const std::string& f : files) {
         auto norm = fs::normalize_checked(f);
         std::string path = norm ? *norm : f;
@@ -378,8 +426,11 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             rep.cases.push_back(std::move(c));
         }
     }
-    inTestRun = false;
     reset_for_test_file();
+    inTestRun = false;
+    storageMode = savedMode;
+    storage = Json::object();
+    storageLoaded = false;
     return rep;
 }
 

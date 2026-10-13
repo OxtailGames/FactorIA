@@ -90,6 +90,10 @@ public:
     std::uint64_t frame_index() const;
     bool quit_requested() const;
 
+    // Applies one input-replay entry ({"press":[..],"release":[..],"keys":{..},"mouse":{..}}, format in
+    // HeadlessRunOptions below) to the input state; problems (unknown names...) are appended to `problems`.
+    void apply_input_entry(const Json& entry, std::vector<std::string>& problems, int frame = 0);
+
     // Draws the current state now when it has not been drawn yet (RenderMode::OnDemand); no-op otherwise.
     void render_now();
     // True when frames were simulated since the last draw (always false in RenderMode::Always).

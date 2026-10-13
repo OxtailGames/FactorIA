@@ -122,6 +122,8 @@ Command make_mcp_command() {
                {"scene", "PATH", "Start scene override."},
                {"no-graphics", "", "Do not create a GPU context (game_screenshot is then unavailable)."},
                {"no-hot-reload", "", "Do not watch scripts/ and tools/ for edits."},
+               {"render-all", "", "Draw every frame (default: only when game_screenshot asks)."},
+               {"persist-storage", "", "Let scripts' storage.* use the real save file (default: in memory)."},
                {"seed", "N", "World RNG seed (default 1)."}};
     c.examples = {"factoria mcp --project games/my-game",
                   "claude mcp add factoria -- factoria mcp --project .",
@@ -134,19 +136,17 @@ Command make_mcp_command() {
         std::unique_ptr<Session> session;
         CommandRegistry standalone;
         CommandRegistry* registry = &standalone;
-        struct HookReset {
-            ~HookReset() { set_script_check_hook(nullptr); }
-        } hookReset;
         if (!dir.empty()) {
             SessionOptions so;
             so.gfx = ctx.args.has("no-graphics") ? Gfx::None : Gfx::Auto;
             so.scene = ctx.args.str("scene");
             so.seed = ctx.args.uinteger("seed", 1);
             so.hotReload = !ctx.args.has("no-hot-reload");
+            so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
+            so.memoryStorage = !ctx.args.has("persist-storage");
             session = Session::open(dir, so);
             registry = &session->registry();
             register_cli_commands(*registry, dir, &session->engine());
-            install_script_check(session->engine());
             FA_INFO("mcp", "project {} ({} tools, graphics {})", dir, registry->list().size(), session->has_graphics() ? "on" : "off");
         } else {
             register_cli_commands(*registry, "", nullptr);
