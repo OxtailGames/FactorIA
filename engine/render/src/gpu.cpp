@@ -6,6 +6,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
 
+#include "shaders/bloom.glsl.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
@@ -60,6 +61,8 @@ bool Gpu::init(int sampleCount, std::string* error) {
     samplers_[int(SamplerKind::Linear)] = make_sampler(SG_FILTER_LINEAR, SG_FILTER_LINEAR, SG_WRAP_CLAMP_TO_EDGE, "linear");
     samplers_[int(SamplerKind::LinearRepeat)] = make_sampler(SG_FILTER_LINEAR, SG_FILTER_LINEAR, SG_WRAP_REPEAT, "linear-repeat");
     samplers_[int(SamplerKind::NearestRepeat)] = make_sampler(SG_FILTER_NEAREST, SG_FILTER_NEAREST, SG_WRAP_REPEAT, "nearest-repeat");
+    // Bilinear, clamped, no mipmaps and no anisotropy: post-processing fetches (explicit LOD 0).
+    samplers_[int(SamplerKind::LinearClamp)] = make_sampler(SG_FILTER_LINEAR, SG_FILTER_NEAREST, SG_WRAP_CLAMP_TO_EDGE, "linear-clamp");
 
     // Static quad index buffer: (0,1,2, 0,2,3) per quad.
     std::vector<std::uint16_t> idx(std::size_t(kMaxQuadsPerDraw) * 6);
@@ -96,6 +99,11 @@ void Gpu::shutdown() {
         sg_destroy_shader(*s);
         *s = {};
     }
+    for (sg_shader& s : bloom_shaders_) {
+        if (s.id) sg_destroy_shader(s);
+        s = {};
+    }
+    bloomState_ = 0;
 }
 
 sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
@@ -224,6 +232,58 @@ sg_pipeline Gpu::blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format dept
     d.sample_count = sampleCount;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "blit";
+    return find_or_make(key, d);
+}
+
+bool Gpu::bloom_ready() {
+    if (bloomState_ != 0) return bloomState_ > 0;
+    sg_backend backend = sg_query_backend();
+    bloom_shaders_[int(BloomStage::Bright)] = sg_make_shader(bloom_bright_shader_desc(backend));
+    bloom_shaders_[int(BloomStage::Down)] = sg_make_shader(bloom_down_shader_desc(backend));
+    bloom_shaders_[int(BloomStage::Blur)] = sg_make_shader(bloom_blur_shader_desc(backend));
+    bloom_shaders_[int(BloomStage::Composite)] = sg_make_shader(bloom_composite_shader_desc(backend));
+    bool ok = true;
+    for (sg_shader s : bloom_shaders_) ok = ok && sg_query_shader_state(s) == SG_RESOURCESTATE_VALID;
+    if (!ok) {
+        for (sg_shader& s : bloom_shaders_) {
+            if (s.id) sg_destroy_shader(s);
+            s = {};
+        }
+        bloomState_ = -1;
+        FA_ERROR("render", "Camera.bloom is unavailable: the bloom shaders failed to compile for this graphics backend "
+                           "(see the sokol log lines above). The game renders without bloom. Hint: update the graphics driver "
+                           "(Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.bloom to false.");
+        return false;
+    }
+    bloomState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::bloom_pipeline(BloomStage stage) {
+    PipelineKey key{0x600u | std::uint32_t(stage)};
+    sg_pipeline_desc d{};
+    d.shader = bloom_shaders_[int(stage)];
+    // All four programs share the vertex shader and therefore the same single `pos` attribute at location 0.
+    d.layout.attrs[ATTR_bloom_bright_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.colors[0].pixel_format = kColorFormat;
+    d.sample_count = 1;
+    d.face_winding = SG_FACEWINDING_CCW;
+    switch (stage) {
+        case BloomStage::Composite:  // dst.rgb += src.rgb (intensity is applied in the shader); alpha stays
+            d.colors[0].blend.enabled = true;
+            d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
+            d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+            d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+            d.label = "bloom-composite";
+            break;
+        case BloomStage::Bright: d.label = "bloom-bright"; break;
+        case BloomStage::Down: d.label = "bloom-down"; break;
+        default: d.label = "bloom-blur"; break;
+    }
     return find_or_make(key, d);
 }
 

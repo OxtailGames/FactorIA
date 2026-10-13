@@ -121,7 +121,9 @@ meters. Details in `core/math.h` and `scene/components.h`.
 sokol_gfx backends: D3D11 (Windows), Metal (macOS/iOS), GL 4.3 core (Linux),
 GLES3 (Android). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
-target, so headless and windowed images match. Shaders are GLSL annotated for
+target, so headless and windowed images match. `Camera.bloom` is a post-process
+that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
+`shaders/bloom.glsl`), so screenshots include it. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/`).
 
 ### Headless
