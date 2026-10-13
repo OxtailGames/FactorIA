@@ -177,6 +177,34 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   each platform. It uploads test output (`Testing` folders and `test-output/**/*.png`
   screenshots) when a job fails.
 
+## Continuous integration (local, no GitHub minutes)
+
+CI runs on your own machine with one script. It runs every job the host can run
+and reports the others as skipped, with the reason:
+
+```bash
+./scripts/ci-local.sh            # all jobs this machine supports
+./scripts/ci-local.sh linux      # just one job
+```
+
+| Job | Runs on | What it checks |
+|---|---|---|
+| `linux` | Linux | full build + every ctest suite (GPU tests through Xvfb + Mesa llvmpipe) |
+| `windows` | Linux with `g++-mingw-w64-x86-64-posix` (+ `wine64 wine` to run tests) | Windows x64 cross-build (D3D11 backend), every unit-test `.exe` under Wine, and a CLI smoke test that creates, validates, tests and renders a game through D3D11 |
+| `android` | any host with `ANDROID_NDK_HOME` (NDK r27+) | `factoria_player` for arm64-v8a |
+| `macos` | a Mac | macOS build + ctest |
+| `ios` | a Mac with Xcode | iOS Simulator app bundle with a demo game |
+
+Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
+MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
+Windows PC.
+
+The GitHub workflow (`.github/workflows/ci.yml`) is kept for **manual** runs only
+(Actions tab, "Run workflow"), because GitHub-hosted runners consume Actions
+minutes. To use GitHub's UI for free with your own computer, register it as a
+self-hosted runner (repository Settings > Actions > Runners > New self-hosted
+runner) and change the job's `runs-on` to `self-hosted`.
+
 ## Troubleshooting
 
 **`CMake Error: Could not use disabled preset "windows-release"`**

@@ -26,7 +26,7 @@ public:
         std::error_code ec;
         fsys::path dir = fsys::path(projectDir) / ".factoria" / "ai" / "sessions";
         fsys::create_directories(dir, ec);
-        path_ = (dir / (name + ".jsonl")).string();
+        path_ = (dir / (name + ".jsonl")).generic_string();  // forward slashes on every OS (stable for tools/AIs)
         f_.open(path_, std::ios::binary | std::ios::app);
         if (!f_) path_.clear();
     }
