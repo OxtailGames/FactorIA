@@ -124,6 +124,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
 | `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. |
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
+| `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Only `mask` is available here; `ignore` exists in scripts (section 8). |
@@ -530,6 +531,8 @@ Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
 
+To check that a sound really fires, read the play log: in a test, `expect(game.audioLog()).toContainPlayed("jump.wav")` (section 10); from MCP or the CLI, `audio_log` after `game_step`. A play whose clip failed to load is in the log with `ok: false` and does not count as played.
+
 ### 9.8 Tilemap levels and tile collision
 
 A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`.
@@ -861,6 +864,20 @@ The `game` object under test:
 - Keys and mouse: `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`.
 - Touch: `touch(screenPos, frames)` for a finger held for some frames, `touchStart(screenPos, id?)`, `touchMove(screenPos, id?)`, `touchEnd(id?)`. `input.touches[0].pressed` is true on the first frame only.
 - Queries: `find(idOrName)`, `world`, `time`, `state()`, `screenshot(path)` (needs graphics).
+- Sound: `audioLog()` lists the sounds played since the test started (`{frame, time, path, volume, pitch, pan, bus, loop, music, source, ok}`, oldest first); it is cleared before each test, and `clearAudioLog()` clears it by hand.
+
+Assert sounds with `toContainPlayed` (alias `toHavePlayed`). The path can be the full project path, just the file name, or a RegExp; options `times` (exact count), `bus` and `source` (entity or id) narrow it. Plays whose clip failed to load do not count, and the failure message lists what did play:
+
+```js
+test("jumping plays the jump sound once", () => {
+  game.load("scenes/main.scene.json");
+  game.step(60);
+  game.clearAudioLog();                      // ignore sounds from the level start
+  game.tap("jump");
+  expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav", { times: 1 });
+  expect(game.audioLog()).not.toContainPlayed("hurt.wav");
+});
+```
 
 Patterns that work:
 
@@ -881,6 +898,7 @@ Patterns that work:
 | `factoria validate`, `project.validate` | `project_validate` | Structure and references, before anything runs. |
 | `script.errors` | `script_errors` | Exceptions thrown by scripts, with file, line and stack. |
 | `game.logs` | `game_logs` | Log lines. `console.log/warn/error` in scripts appear with category `script`. |
+| `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
 

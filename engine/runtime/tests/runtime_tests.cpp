@@ -223,7 +223,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
                              "scene.destroy", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
                              "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
-                             "game.pause", "game.resume", "script.eval", "script.errors", "project.test", "physics.raycast",
+                             "game.pause", "game.resume", "audio.log", "script.eval", "script.errors", "project.test", "physics.raycast",
                              "api.components", "api.commands", "api.scripting", "assets.list"}) {
         INFO(name);
         const CommandInfo* info = c.info(name);
@@ -540,4 +540,53 @@ TEST_CASE("engine: load_scene_json replaces the world but keeps the current scen
     auto r = e.commands().call("scene.reload", Json::object());
     REQUIRE(r.ok);
     CHECK(e.world().entity_count() == 3);
+}
+
+TEST_CASE("engine: audio.log lists played sounds with the scene frame, source and hints") {
+    const char* scene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "ambience", "components": { "AudioSource": { "clip": "assets/sfx/beep.wav", "playOnStart": true } } }
+  ]
+})";
+    TempProject p("engine_audio_log", kProject, scene);
+    {  // 0.1 s of silence, 16-bit mono PCM
+        const std::uint32_t n = 4410;
+        std::string b;
+        auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
+        auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
+        b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
+        b += "data"; u32(n * 2);
+        b.append(std::size_t(n) * 2, '\0');
+        p.write("assets/sfx/beep.wav", b);
+    }
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+    e.step(5);
+    REQUIRE(c.call("script.eval", Json::parse(R"({"code":"audio.play('assets/sfx/beep.wav', {bus: 'ui', volume: 0.25}); time.frame"})")).ok);
+
+    auto r = c.call("audio.log", Json::object());
+    REQUIRE(r.ok);
+    const Json& plays = r.result["plays"];
+    REQUIRE(plays.size() == 2);
+    CHECK(plays[0]["source"] == "ambience");
+    CHECK(plays[0]["path"] == "assets/sfx/beep.wav");
+    CHECK(plays[1]["source"] == "");
+    CHECK(plays[1]["bus"] == "ui");
+    CHECK(plays[1]["frame"] == e.world().frame());
+    CHECK(plays[1]["volume"].get<double>() == doctest::Approx(0.25));
+
+    r = c.call("audio.log", Json::parse(R"({"path":"beep.wav","after":1})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["count"] == 1);
+    CHECK(r.result["lastSeq"] == 2);
+
+    r = c.call("audio.log", Json::parse(R"({"path":"assets/sfx/bep.wav"})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["count"] == 0);
+    CHECK(r.result["hint"].get<std::string>().find("assets/sfx/beep.wav") != std::string::npos);
+    e.shutdown();
 }

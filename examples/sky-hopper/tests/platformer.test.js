@@ -31,10 +31,12 @@ test("player runs right and left", () => {
 test("player jumps from the ground and lands again", () => {
   const p = load();
   const y0 = p.position.y;
+  game.clearAudioLog();
   game.press("jump");
   game.step(12);
   game.release("jump");
   expect(p.position.y).toBeGreaterThan(y0 + 30);
+  expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav", { times: 1 });
   game.step(90);
   expect(Math.abs(p.position.y - y0)).toBeLessThan(3);
 });
@@ -89,6 +91,7 @@ test("collecting a coin removes it, counts it and bursts particles", () => {
   game.step(3);
   expect(game.find("coin_1")).toBeNull();
   expect(state.coins).toBe(1);
+  expect(game.audioLog()).toContainPlayed("coin.wav", { times: 1 });
   expect(game.world.findByTag("fx").length).toBeGreaterThan(0);
 });
 
@@ -101,6 +104,8 @@ test("stomping an enemy kills it and bounces the player", () => {
   game.step(20);
   expect(game.find("enemy_1")).toBeNull();
   expect(state.lives).toBe(3);
+  expect(game.audioLog()).toContainPlayed("stomp.wav");
+  expect(game.audioLog()).not.toContainPlayed("hurt.wav");
 });
 
 test("side contact with an enemy costs a life and respawns at level start", () => {
@@ -113,6 +118,7 @@ test("side contact with an enemy costs a life and respawns at level start", () =
   for (let i = 0; i < 60 && state.lives === 3; i++) game.step(1);
   game.release("move_right");
   expect(state.lives).toBe(2);
+  expect(game.audioLog()).toContainPlayed("hurt.wav");
   expect(Math.abs(p.position.x - sx)).toBeLessThan(10);
 });
 
@@ -139,6 +145,7 @@ test("reaching the goal loads the next level", () => {
   p.position.x = goal.position.x;
   p.position.y = goal.position.y;
   game.step(90);
+  expect(game.audioLog()).toContainPlayed("win.wav", { times: 1 });
   expect(state.level).toBe(2);
   expect(game.find("goal")).not.toBeNull();
   expect(game.find("enemy_1")).not.toBeNull();

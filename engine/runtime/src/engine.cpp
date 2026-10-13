@@ -306,6 +306,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_WARN("audio", "Audio init failed: {}", aerr);
         I.startupProblems.push_back("audio: " + aerr);
     }
+    I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
     std::string serr;
     if (!I.scripts.init(*this, &serr)) {

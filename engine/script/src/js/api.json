@@ -1425,6 +1425,14 @@
        "doc": ""
       },
       {
+       "sig": "toContainPlayed(path: string | RegExp, options?: { times?: number; bus?: \"sfx\" | \"music\" | \"ui\"; source?: EntityLike }): void",
+       "doc": "For expect(game.audioLog()): passes when a clip was played (path = project-relative path, file name like \"jump.wav\", or RegExp). times = exact count; plays whose clip failed to load do not count."
+      },
+      {
+       "sig": "toHavePlayed(path: string | RegExp, options?: { times?: number; bus?: \"sfx\" | \"music\" | \"ui\"; source?: EntityLike }): void",
+       "doc": "Same as toContainPlayed."
+      },
+      {
        "sig": "readonly not: Expectation",
        "doc": "Negates the matcher."
       }
@@ -1455,6 +1463,61 @@
       {
        "sig": "skip(name: string, fn: () => void): void",
        "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "AudioPlay",
+     "doc": "One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.",
+     "members": [
+      {
+       "sig": "readonly seq: number",
+       "doc": "Increasing id."
+      },
+      {
+       "sig": "readonly frame: number",
+       "doc": "time.frame when the sound was requested."
+      },
+      {
+       "sig": "readonly time: number",
+       "doc": "time.elapsed (seconds) when the sound was requested."
+      },
+      {
+       "sig": "readonly path: string",
+       "doc": "Project-relative clip path."
+      },
+      {
+       "sig": "readonly volume: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly pitch: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly pan: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly bus: \"sfx\" | \"music\" | \"ui\"",
+       "doc": ""
+      },
+      {
+       "sig": "readonly loop: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "readonly music: boolean",
+       "doc": "Started with audio.music() or SceneSettings.music."
+      },
+      {
+       "sig": "readonly source: string",
+       "doc": "Id of the entity whose AudioSource played it; \"\" for scripts and music."
+      },
+      {
+       "sig": "readonly ok: boolean",
+       "doc": "false when the clip could not be loaded (the error is in the log)."
       }
      ]
     },
@@ -1538,6 +1601,14 @@
       {
        "sig": "state(): Json",
        "doc": "JSON dump of the game state."
+      },
+      {
+       "sig": "audioLog(): AudioPlay[]",
+       "doc": "Sounds played since the current test started (cleared before each test), oldest first. Assert with expect(game.audioLog()).toContainPlayed(\"assets/sfx/jump.wav\")."
+      },
+      {
+       "sig": "clearAudioLog(): void",
+       "doc": "Empties the audio log (e.g. after setup, before the action under test)."
       }
      ]
     },

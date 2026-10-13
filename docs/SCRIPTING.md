@@ -170,6 +170,8 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
 - `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` (`"master"`, `"sfx"`, `"music"`, `"ui"`)
+- Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
+  `game.audioLog()`, agents with the `audio.log` command.
 
 ### physics
 - `raycast(from, to, { mask, ignore, ignoreTriggers })` → `{ entity, point, normal, distance } | null` (2D when `from` has no z)
@@ -266,12 +268,16 @@ test("player jumps", () => {
 
 - `test(name, fn)`, `test.skip`, `describe(name, fn)`
 - `expect(v)`: `toBe toEqual toBeCloseTo(n, digits) toBeGreaterThan toBeGreaterThanOrEqual toBeLessThan
-  toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`
+  toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`;
+  for sounds `expect(game.audioLog()).toContainPlayed(path, { times?, bus?, source? })` (alias `toHavePlayed`; `path`
+  is a project path, a file name such as `"jump.wav"`, or a RegExp; plays whose clip failed to load do not count)
 - `game`: `load(path)` (behaviours are constructed immediately, `onStart` runs on the first `step`),
   `loadJson(sceneObject)`, `step(frames = 1)`, `touch(pos, frames = 1)`, `touchStart(pos, id?)`, `touchMove(pos, id?)`,
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`), `press(action)`, `release(action)`, `tap(action)`,
   `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
-  `world`, `time`, `screenshot(path)`, `state()`
+  `world`, `time`, `screenshot(path)`, `state()`, `audioLog()` (sounds played since the test started:
+  `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
+  `clearAudioLog()`
 
 Each test FILE starts from fresh module instances (module-level state is
 re-created, tools are re-evaluated against them), an empty in-memory `storage`
@@ -281,8 +287,8 @@ file, state carries over between tests unless you reset it.
 Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
-behaviours; `game.load` also reseeds. Before each test input overrides and
-`time.scale` are reset. Results are deterministic. Extras: `describe.skip`,
+behaviours; `game.load` also reseeds. Before each test input overrides,
+`time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
 `toBeNaN`, `toMatch`, `toBeInstanceOf`. Failures print expected/received and
 `file:line` of the failing `expect`.
