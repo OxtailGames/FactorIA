@@ -21,7 +21,11 @@
       ],
       "suggestion": "Have 'factoria new' write the real output of 'factoria api --dts' (or make the stub header say clearly to run it), and keep it refreshed on validate.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
+      ]
     },
     {
       "id": "FB-0002",
@@ -38,7 +42,10 @@
       "workaround": "Tried each command anyway; all worked.",
       "suggestion": "Remove the (planned) markers from docs/AI_GUIDE.md.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified)."
+      ]
     },
     {
       "id": "FB-0003",
@@ -59,7 +66,11 @@
       ],
       "suggestion": "Carry dynamic bodies resting on kinematic bodies (apply platform velocity to supported bodies), or expose the contact's other body + a 'standingOn' query on RigidBody3D.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Dynamic bodies resting on a kinematic RigidBody3D now ride it (inherit its displacement; friction acts on relative velocity). Verified with friction 0, 0.5 and 1 over 2 s. Stacked riders are not carried."
+      ]
     },
     {
       "id": "FB-0004",
@@ -79,7 +90,11 @@
       ],
       "suggestion": "Accept arrays for Vec3Like (or throw a clear error), add opts.ignore (entity or id) and skip colliders containing the origin by default; add RigidBody3D/entity.isGrounded() for 3D like the 2D one.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: raycast3d accepts [x,y,z] arrays or vec3(); { ignore: entity|id } option; colliders containing the origin are skipped. Verified."
+      ]
     },
     {
       "id": "FB-0005",
@@ -99,7 +114,11 @@
       ],
       "suggestion": "Add angular velocity / rolling for sphere colliders, or at least RigidBody3D.angularVelocity + a rolling-friction option.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: RigidBody3D.angularVelocity (deg/s) and rollWithMotion (default true): a sphere on the ground spins to match its motion (visual only, colliders stay axis-aligned). Caveat: friction still slows the ball as if sliding (no rolling resistance model), so keep applying your own force/velocity."
+      ]
     },
     {
       "id": "FB-0006",
@@ -119,7 +138,11 @@
       ],
       "suggestion": "Add pivot to Shape2D, document that rectangles are centered, and add anchors (top-right etc.) for screen-space UI so layouts survive resolution/scaleMode changes.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Shape2D.pivot ([0.5,0.5] default, [0,1] = top-left in screen space) and Sprite/Shape2D/Text 'anchor' (screen-space anchors such as [1,0] top-right). Verified by screenshot."
+      ]
     },
     {
       "id": "FB-0007",
@@ -139,7 +162,11 @@
       ],
       "suggestion": "Add 'factoria test'/'run --no-render' (logic only) and render only on screenshot frames; make game.step(n) skip rendering except the last frame.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Headless runs/tests render only when a screenshot is taken (--render-all to force): 5400 simulated frames take ~0.4 s. No flag needed."
+      ]
     },
     {
       "id": "FB-0008",
@@ -160,7 +187,11 @@
       ],
       "suggestion": "Make burst fire regardless of emitting, add an emitter 'oneShot/autoDestroy' option (destroy entity when done) and a script-callable emitter.burst(n).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n); autoDestroy:true for one-shots."
+      ]
     },
     {
       "id": "FB-0009",
@@ -180,7 +211,11 @@
       ],
       "suggestion": "Free the id immediately on destroy(), or offer entity.destroyNow()/world.flush() for tools and tests.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: world.destroy() unregisters the id immediately, so world.spawn with the same id right after works (verified)."
+      ]
     },
     {
       "id": "FB-0010",
@@ -202,7 +237,10 @@
       ],
       "suggestion": "Add 3D recipes: chase camera, camera-relative movement, ground check, trigger pickups, moving platforms, and a note on which components a 3D trigger needs.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: docs/AI_GUIDE.md section 9 has no 3D recipes. Useful now: raycast3d with { ignore }, entity.isGrounded(), kinematic platforms carry riders, 3D triggers need a RigidBody3D."
+      ]
     },
     {
       "id": "FB-0011",
@@ -222,7 +260,11 @@
       ],
       "suggestion": "Document entity.behaviour in the testing section and add game.step(n,{render:false}).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Rendering is skipped in tests by default, so game.step(5400) is fast; read script fields with game.find(id).behaviour (usable right after game.load, see SCRIPTING.md 'When behaviours exist')."
+      ]
     }
   ]
 }

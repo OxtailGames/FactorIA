@@ -22,7 +22,11 @@
       ],
       "suggestion": "Resolve ./ and ../ relative to the importing module (or document the root-relative rule in docs/SCRIPTING.md and mention it in the validate hint).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: './x.js' and '../x.js' now resolve relative to the importing module ('scripts/x.js' stays project-root relative); escaping the project root is an error naming the import. Documented in docs/SCRIPTING.md > Imports."
+      ]
     },
     {
       "id": "FB-0002",
@@ -42,7 +46,11 @@
       ],
       "suggestion": "Have validate instantiate/inspect script class fields and flag unknown props with did-you-mean.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria validate now reports Script.props that are not class fields (warning with did-you-mean). Declare props as class fields."
+      ]
     },
     {
       "id": "FB-0003",
@@ -59,7 +67,11 @@
       "workaround": "Relied on docs; did not use typings.",
       "suggestion": "factoria new should write the real generated typings.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria new writes the real generated typings to types/factoria.d.ts; refresh with 'factoria api --dts --project .'. Remove the placeholder workaround."
+      ]
     },
     {
       "id": "FB-0004",
@@ -79,7 +91,10 @@
       ],
       "suggestion": "Add CameraFollow2D component or camera.viewSize / game.screenSize-based bounds clamp helper; document.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: no CameraFollow2D / level-bounds clamp helper; docs/AI_GUIDE.md 9.6 only shows an unclamped follow camera."
+      ]
     },
     {
       "id": "FB-0005",
@@ -99,7 +114,11 @@
       ],
       "suggestion": "Add rng.seed(n) and/or rng.create(seed) returning an independent generator.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: rng.seed(n) reseeds the world RNG (seed -> level determinism in tools and tests)."
+      ]
     },
     {
       "id": "FB-0006",
@@ -119,7 +138,11 @@
       ],
       "suggestion": "Add raycast option {ignore: entity|id} (or auto-ignore the origin's own collider), document inside-start behaviour.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: physics.raycast(a, b, { ignore: this.entity }) / raycast3d(..., { ignore }); colliders containing the ray origin are skipped; triggers skipped unless ignoreTriggers:false."
+      ]
     },
     {
       "id": "FB-0007",
@@ -139,7 +162,11 @@
       ],
       "suggestion": "Add entity.isTouching(dir) / physics.shapeCast and a lighter raycast result (entity id).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Use entity.isTouching([1,0]) (wall right) / isTouching([0,1]) (ceiling) / isGrounded(), and a short downward physics.raycast with { ignore } for ledge checks. No shape-cast yet (see ROADMAP)."
+      ]
     },
     {
       "id": "FB-0008",
@@ -159,7 +186,11 @@
       ],
       "suggestion": "Add ParticleEmitter oneShot/destroyOnFinish and document that burst needs emitting=true (or make burst independent).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n) / entity.emitBurst(n) spawn on demand; ParticleEmitter.autoDestroy:true destroys the entity when the burst finishes. Drop the cleanup timers."
+      ]
     },
     {
       "id": "FB-0009",
@@ -180,7 +211,11 @@
       ],
       "suggestion": "Register fs.* in the test runtime (sandboxed to project), or provide game.writeFile / a way for tests to load a scene from JSON (game.loadJson).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Use game.loadJson(sceneObject) in tests to load a scene from data (no fs.* needed). fs.* is still not registered in the test runtime."
+      ]
     },
     {
       "id": "FB-0010",
@@ -200,7 +235,11 @@
       ],
       "suggestion": "Document module-singleton persistence guarantee or add game.session / world.persistent state; make hot reload semantics clear.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Import { session } from 'factoria': a plain object that survives scene loads for the run (reset per test file). Module-level variables also persist across scene loads."
+      ]
     },
     {
       "id": "FB-0011",
@@ -220,7 +259,11 @@
       ],
       "suggestion": "Reload project modules between test files/tests or document the isolation rules; allow top-level beforeEach.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Each test FILE now gets fresh module instances, empty in-memory storage and empty session. Within one file state still carries over (reset it yourself); top-level beforeEach is still only inside describe."
+      ]
     },
     {
       "id": "FB-0012",
@@ -237,7 +280,11 @@
       "workaround": "Small Python JSON-RPC client over 'factoria mcp'.",
       "suggestion": "Add 'factoria repl' / 'factoria call --steps N' / a --session flag, and state in call --help that it is stateless.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Use 'factoria session' (JSON lines on one engine) or 'factoria call --batch [...]' (commands in order on one engine); 'factoria call' also takes --frames-before/--press/--input. call --help states that a single call is stateless."
+      ]
     },
     {
       "id": "FB-0013",
@@ -254,7 +301,11 @@
       "workaround": "Dropped: platforms are solid; levels designed so headroom is clear.",
       "suggestion": "Add Collider2D oneWay field enforced by physics, also for Tilemap solid tiles (per-tile one-way list).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Collider2D.oneWay:true (verified: body jumps up through the platform and lands on it)."
+      ]
     },
     {
       "id": "FB-0014",
@@ -274,7 +325,10 @@
       ],
       "suggestion": "Tilemap object layer or 'scene.import_ascii' / 'tilemap.paint' commands; tile-to-prefab mapping.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: no tilemap object layer or ASCII/prefab import command."
+      ]
     },
     {
       "id": "FB-0015",
@@ -291,7 +345,10 @@
       "workaround": "Checked --record-audio output non-empty; no assertion in tests.",
       "suggestion": "Add game.audioLog() / expect(audio).toHavePlayed(path) in tests.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: no audio log / assertion in the test harness."
+      ]
     },
     {
       "id": "FB-0016",
@@ -308,7 +365,10 @@
       "workaround": "Used friction 0 on characters; no issues seen in tests.",
       "suggestion": "Document how Tilemap collision is generated.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: tilemap collision rules are written in engine/physics/include/fa/physics/physics.h (merged row boxes, friction 0.5, not one-way, no trigger events) but not in docs/*.md."
+      ]
     }
   ]
 }

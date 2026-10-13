@@ -21,7 +21,11 @@
       ],
       "suggestion": "Have 'factoria new' write the real generated d.ts, and make 'factoria validate' warn when the stub is still present.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
+      ]
     },
     {
       "id": "FB-0002",
@@ -38,7 +42,10 @@
       "workaround": "Tried the commands anyway.",
       "suggestion": "Remove 'planned' markers from docs/AI_GUIDE.md.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: docs/AI_GUIDE.md still marks working CLI commands (planned); the commands work (verified)."
+      ]
     },
     {
       "id": "FB-0003",
@@ -60,7 +67,11 @@
       ],
       "suggestion": "Accept Vec2/[x,y] for Transform.position in 2D (z=0) in spawnPrefab/spawn and fix the doc examples; do not truncate error text.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: spawn / spawnPrefab / scene.spawn accept vec2(x,y), [x,y] or [x,y,z] for Transform.position (2D z=0). Verified."
+      ]
     },
     {
       "id": "FB-0004",
@@ -80,7 +91,10 @@
       ],
       "suggestion": "Fix the template and 9.4 example, or document that pivot y=1 means top even in +Y-down screen space; add an anchor option (top-left/top-right) to screen-space UI.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: Text/Shape2D/Sprite got an 'anchor' field, but the 2d-empty template (pivot [0,0] at [24,24]) and docs/AI_GUIDE.md 9.4 still use the clipped pivot (verified: the title is cut off at the top edge)."
+      ]
     },
     {
       "id": "FB-0005",
@@ -100,7 +114,11 @@
       ],
       "suggestion": "Add --press/--input replay to 'factoria call' (like 'run --input'), fix the help example (Transform, not Transform2D).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria call/session accept --scene, --frames-before, --press a,b and --input replay.json; use --batch to step and inspect on one engine."
+      ]
     },
     {
       "id": "FB-0006",
@@ -122,7 +140,11 @@
       ],
       "suggestion": "Instantiate behaviours synchronously in spawn/spawnPrefab (props applied, onStart deferred), and document Script.props overrides in spawnPrefab/world.spawn.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Behaviours are constructed synchronously after spawn/spawnPrefab/entity.add('Script')/game.load, with Script.props applied; e.behaviour is usable immediately (onStart still runs at the next step)."
+      ]
     },
     {
       "id": "FB-0007",
@@ -142,7 +164,11 @@
       ],
       "suggestion": "Document the interaction, add an 'oneShot'/'destroyWhenDone' field, and a script API emitter.burst(n).",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; use particles.burst(entity, n) or autoDestroy:true for one-shots."
+      ]
     },
     {
       "id": "FB-0008",
@@ -164,7 +190,10 @@
       ],
       "suggestion": "Add blendMode (alpha|additive) on Sprite/ParticleEmitter/Shape2D and a simple bloom camera option.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Partly fixed in e2b0090: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow."
+      ]
     },
     {
       "id": "FB-0009",
@@ -184,7 +213,11 @@
       ],
       "suggestion": "Use a temporary save dir for test/headless runs by default (flag to keep), and reset storage between test files like RNG/input.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: Tests and headless runs/calls use in-memory storage by default (fresh per test file); pass --persist-storage to use the real save file."
+      ]
     },
     {
       "id": "FB-0010",
@@ -204,7 +237,10 @@
       ],
       "suggestion": "Document mouse/key entries in replay files, warn on unknown replay keys, and show test console output in the report.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: unknown replay keys are still silently ignored (verified), and console.log from tests is only visible with --log-level info."
+      ]
     }
   ]
 }
