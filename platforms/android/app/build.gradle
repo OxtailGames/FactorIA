@@ -1,0 +1,63 @@
+plugins {
+    id 'com.android.application'
+}
+
+def engineDir = providers.gradleProperty('factoria.engineDir').get()
+def cmakeVer  = providers.gradleProperty('factoria.cmakeVersion').getOrElse('3.31.6')
+
+android {
+    namespace '{{APPLICATION_ID}}'
+    compileSdk 34
+    // Pin the NDK (AGP otherwise defaults to its own, e.g. 26.1.x; r27+ is needed for std::format). Install with sdkmanager "ndk;27.2.12479018".
+    ndkVersion providers.gradleProperty('factoria.ndkVersion').getOrElse('27.2.12479018')
+
+    defaultConfig {
+        applicationId '{{APPLICATION_ID}}'
+        minSdk 26
+        targetSdk 34
+        versionCode {{VERSION_CODE}}
+        versionName '{{VERSION_NAME}}'
+
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
+        externalNativeBuild {
+            cmake {
+                arguments '-DFA_BUILD_TOOLS=OFF', '-DFA_BUILD_TESTS=OFF', '-DANDROID_STL=c++_static'
+                targets 'factoria_player'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("${engineDir}/CMakeLists.txt")
+            version cmakeVer
+        }
+    }
+
+    sourceSets {
+        main {
+            // The game project (factoria.json, scenes/, scripts/, assets/ ...) plus assets_index.txt,
+            // which the engine's VFS needs to list files inside the APK.
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+
+    // Package every game file (the default pattern skips dot-files and folders starting with "_").
+    androidResources {
+        ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signing: configure a release keystore (see docs/MOBILE.md) or sign the APK/AAB afterwards.
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

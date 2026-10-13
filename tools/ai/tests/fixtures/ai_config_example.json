@@ -1,0 +1,16 @@
+{
+  "defaultProvider": "anthropic",
+  "providers": {
+    "anthropic": { "apiKeyEnv": "MY_ANTHROPIC_KEY" },
+    "openrouter": { "preset": "openrouter", "headers": { "HTTP-Referer": "https://example.com" } },
+    "local": { "type": "openai-compatible", "baseUrl": "http://localhost:8080/v1", "defaultModel": "qwen" },
+    "my-agent": { "type": "generic-cli", "command": "my-agent", "argv": ["--ask", "{prompt}", "--dir", "{project}"] },
+    "groq": { "preset": "groq", "apiKey": "gsk_example_not_real_key_value_12345" }
+  },
+  "roles": {
+    "orchestrator": { "provider": "anthropic" },
+    "worker": { "provider": "openrouter", "model": "deepseek/deepseek-chat", "maxTokens": 8000 },
+    "fast": { "provider": "local" }
+  },
+  "limits": { "maxTurns": 12, "maxCostUsd": 3.5 }
+}

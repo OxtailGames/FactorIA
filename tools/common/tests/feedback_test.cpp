@@ -1,0 +1,270 @@
+#include <doctest.h>
+
+#include "fa/tooling/feedback.h"
+#include "test_helpers.h"
+
+using namespace fa;
+
+namespace {
+FeedbackInput make(const std::string& title, const std::string& cat = "physics", const std::string& sev = "major") {
+    FeedbackInput in;
+    in.category = cat;
+    in.severity = sev;
+    in.title = title;
+    in.missing = "Engine lacks " + title;
+    in.workaround = "Wrote a script for " + title;
+    return in;
+}
+}  // namespace
+
+TEST_CASE("feedback: empty document validates") {
+    Json doc = create_empty_feedback("My Game", "0.1.0");
+    CHECK(doc["format"] == "factoria.feedback/1");
+    CHECK(validate_feedback(doc).empty());
+}
+
+TEST_CASE("feedback: add assigns ids, date and validates") {
+    Json doc = create_empty_feedback("g");
+    auto a = add_feedback_entry(doc, make("No one-way platforms"));
+    REQUIRE(a.ok());
+    CHECK(a->id == "FB-0001");
+    CHECK_FALSE(a->merged);
+    auto b = add_feedback_entry(doc, make("Particles cannot use sprite sheets", "rendering-2d", "minor"));
+    REQUIRE(b.ok());
+    CHECK(b->id == "FB-0002");
+    CHECK(doc["entries"][0]["date"].get<std::string>().size() == 10);
+    CHECK(doc["entries"][0]["status"] == "open");
+    CHECK(doc["entries"][0]["occurrences"] == 1);
+    auto errors = validate_feedback(doc);
+    for (auto& e : errors) MESSAGE(e.to_string());
+    CHECK(errors.empty());
+}
+
+TEST_CASE("feedback: required fields and enums are checked with hints") {
+    Json doc = create_empty_feedback("g");
+    FeedbackInput in = make("x title");
+    in.category = "phyics";
+    auto r = add_feedback_entry(doc, in);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("physics") != std::string::npos);  // did-you-mean
+    in = make("t");
+    CHECK_FALSE(add_feedback_entry(doc, in).ok());  // title too short
+    in = make("Valid title");
+    in.severity = "huge";
+    CHECK_FALSE(add_feedback_entry(doc, in).ok());
+    in = make("Valid title");
+    in.workaround = "";
+    CHECK_FALSE(add_feedback_entry(doc, in).ok());
+    CHECK(doc["entries"].empty());
+}
+
+TEST_CASE("feedback: similar open entries are merged") {
+    Json doc = create_empty_feedback("g");
+    auto a = add_feedback_entry(doc, make("No one-way platforms", "physics", "minor"));
+    auto b = add_feedback_entry(doc, make("One-way platforms missing", "physics", "major"));
+    REQUIRE(b.ok());
+    CHECK(b->merged);
+    CHECK(b->id == a->id);
+    CHECK(b->occurrences == 2);
+    CHECK(doc["entries"].size() == 1);
+    CHECK(doc["entries"][0]["severity"] == "major");  // upgraded
+    CHECK(doc["entries"][0]["notes"].size() == 1);
+    CHECK(doc["entries"][0]["notes"][0].get<std::string>().find("Wrote a script") != std::string::npos);
+
+    // Different category or unrelated title => new entry.
+    CHECK_FALSE(add_feedback_entry(doc, make("No one-way platforms", "rendering-2d"))->merged);
+    CHECK_FALSE(add_feedback_entry(doc, make("Tilemap collision rebuild is slow"))->merged);
+    CHECK(doc["entries"].size() == 3);
+
+    // Closed entries are not merge targets.
+    REQUIRE(update_feedback_entry(doc, "FB-0001", "fixed-in-engine", "#12").ok());
+    auto c = add_feedback_entry(doc, make("No one-way platforms"));
+    CHECK_FALSE(c->merged);
+    CHECK(validate_feedback(doc).empty());
+}
+
+TEST_CASE("feedback: list filters and update errors teach") {
+    Json doc = create_empty_feedback("g");
+    (void)add_feedback_entry(doc, make("Alpha gap here", "physics", "major"));
+    (void)add_feedback_entry(doc, make("Beta thing audio", "audio", "minor"));
+    CHECK(list_feedback(doc).size() == 2);
+    CHECK(list_feedback(doc, {"", "audio", ""}).size() == 1);
+    CHECK(list_feedback(doc, {"", "", "major"}).size() == 1);
+    CHECK(list_feedback(doc, {"fixed-in-engine", "", ""}).empty());
+    auto bad = update_feedback_entry(doc, "FB-0009", "open", "");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().hint.find("FB-0001") != std::string::npos);
+    CHECK_FALSE(update_feedback_entry(doc, "FB-0001", "done", "").ok());
+}
+
+TEST_CASE("feedback: validation reports bad files") {
+    Json doc = create_empty_feedback("g");
+    (void)add_feedback_entry(doc, make("Some gap title"));
+    doc["entries"][0]["severity"] = "huge";
+    doc["entries"].push_back(doc["entries"][0]);  // duplicate id
+    auto errors = validate_feedback(doc);
+    CHECK(errors.size() >= 2);
+    CHECK(validate_feedback(Json::object()).size() >= 1);
+}
+
+TEST_CASE("feedback: collect ranks by occurrences x severity weight") {
+    testing::TempDir tmp;
+    auto make_doc = [&](const std::string& project, std::vector<std::pair<FeedbackInput, int>> items) {
+        Json doc = create_empty_feedback(project);
+        for (auto& [in, extra] : items) {
+            auto r = add_feedback_entry(doc, in);
+            REQUIRE(r.ok());
+            for (int i = 0; i < extra; ++i) (void)add_feedback_entry(doc, in);  // merges: occurrences++
+        }
+        REQUIRE(save_feedback(tmp.sub(project + "/ENGINE_FEEDBACK.json"), doc).ok());
+    };
+    FeedbackInput oneway = make("No one-way platforms", "physics", "major");
+    oneway.suggestion = "Add Collider2D.oneWay (bool) with direction.";
+    FeedbackInput oneway2 = make("One-way platforms missing", "physics", "minor");
+    oneway2.suggestion = "oneWay flag";
+    FeedbackInput audio = make("Audio cannot loop a sub-range", "audio", "nice-to-have");
+    FeedbackInput crash = make("Crash when loading empty tilemap", "scene", "blocker");
+    make_doc("proj-a", {{oneway, 1}, {audio, 4}});
+    make_doc("proj-b", {{oneway2, 0}, {crash, 0}});
+
+    auto report = collect_feedback({tmp.sub("proj-a"), tmp.sub("proj-b")});
+    REQUIRE(report.ok());
+    const Json& cl = report->json["clusters"];
+    REQUIRE(cl.size() == 3);
+    // one-way: occurrences 2 + 1 = 3, severity major (4) => 12; crash: 1 x 8 = 8; audio: 5 x 1 = 5
+    CHECK(cl[0]["title"].get<std::string>().find("one-way") != std::string::npos);
+    CHECK(cl[0]["score"] == 12);
+    CHECK(cl[0]["totalOccurrences"] == 3);
+    CHECK(cl[0]["projects"].size() == 2);
+    CHECK(cl[0]["bestSuggestion"] == "Add Collider2D.oneWay (bool) with direction.");
+    CHECK(cl[1]["category"] == "scene");
+    CHECK(cl[1]["score"] == 8);
+    CHECK(cl[2]["category"] == "audio");
+    CHECK(cl[2]["score"] == 5);
+    CHECK(cl[0]["rank"] == 1);
+
+    std::string md = report->markdown();
+    CHECK(md.find("# Engine feedback report") != std::string::npos);
+    CHECK(md.find("Projects affected") != std::string::npos);
+    CHECK(md.find("proj-a") != std::string::npos);
+
+    // A directory containing the projects is searched too.
+    auto viaParent = collect_feedback({tmp.str()});
+    REQUIRE(viaParent.ok());
+    CHECK(viaParent->json["clusters"].size() == 3);
+    // Missing path => reported, not fatal.
+    auto missing = collect_feedback({tmp.sub("nope"), tmp.sub("proj-a")});
+    REQUIRE(missing.ok());
+    CHECK(missing->json["errors"].size() == 1);
+}
+
+TEST_CASE("feedback: commands report/list/update work on a project dir") {
+    testing::TempDir tmp;
+    testing::write_all(tmp.path / "factoria.json", R"({"format":"factoria.project/1","name":"Cmd Game"})");
+    CommandRegistry reg;
+    register_feedback_commands(reg, tmp.str());
+    REQUIRE(reg.has("feedback.report"));
+    CHECK_FALSE(reg.info("feedback.report")->readOnly);
+    CHECK(reg.info("feedback.report")->description.find("WHENEVER") != std::string::npos);
+    CHECK(reg.info("feedback.list")->readOnly);
+
+    Json args = {{"category", "input"}, {"severity", "minor"}, {"title", "No gamepad rumble"},
+                 {"missing", "Cannot vibrate the controller."}, {"workaround", "Dropped the feature."}};
+    auto r1 = reg.call("feedback.report", args);
+    REQUIRE(r1.ok);
+    CHECK(r1.result["id"] == "FB-0001");
+    CHECK(r1.result["merged"] == false);
+    auto r2 = reg.call("feedback.report", args);
+    REQUIRE(r2.ok);
+    CHECK(r2.result["merged"] == true);
+    CHECK(r2.result["occurrences"] == 2);
+
+    auto list = reg.call("feedback.list", Json::object());
+    REQUIRE(list.ok);
+    CHECK(list.result["count"] == 1);
+    CHECK(reg.call("feedback.update", {{"id", "FB-0001"}, {"status", "wont-fix"}}).ok);
+    CHECK(reg.call("feedback.list", {{"status", "open"}}).result["count"] == 0);
+
+    auto bad = reg.call("feedback.report", {{"category", "nope"}, {"severity", "minor"}, {"title", "abc def"}, {"missing", "abc"}, {"workaround", "abc"}});
+    CHECK_FALSE(bad.ok);
+    auto loaded = load_feedback(tmp.sub("ENGINE_FEEDBACK.json"));
+    REQUIRE(loaded.ok());
+    CHECK((*loaded)["project"] == "Cmd Game");
+    CHECK(validate_feedback(*loaded).empty());
+}
+
+namespace {
+Json entry(const std::string& title, const std::string& cat, const std::string& suggestion = "") {
+    return Json{{"title", title}, {"category", cat}, {"suggestion", suggestion}};
+}
+}  // namespace
+
+TEST_CASE("feedback: the same gap reported with different titles is recognised (real example titles)") {
+    // Titles copied from examples/*/ENGINE_FEEDBACK.json.
+    const std::vector<Json> placeholder = {
+        entry("Generated types/factoria.d.ts is a placeholder (any)", "tooling"),
+        entry("Project types/factoria.d.ts is a placeholder", "tooling"),
+        entry("types/factoria.d.ts is a placeholder stub", "docs"),
+        entry("New projects ship a placeholder types/factoria.d.ts", "tooling"),
+        entry("factoria.d.ts placeholder", "tooling"),
+        entry("Bug: factoria.d.ts placeholders", "docs")};
+    for (size_t i = 1; i < placeholder.size(); ++i)
+        CHECK_MESSAGE(feedback_entry_similarity(placeholder[0], placeholder[i]) >= 0.7, placeholder[i]["title"].get<std::string>());
+
+    const std::vector<Json> planned = {entry("AI_GUIDE marks working CLI commands as planned", "docs"),
+                                       entry("AI guide marks working CLI commands as planned", "docs"),
+                                       entry("Docs mark working CLI commands as planned", "docs")};
+    for (size_t i = 1; i < planned.size(); ++i) CHECK(feedback_entry_similarity(planned[0], planned[i]) >= 0.7);
+
+    const std::vector<Json> burst = {entry("ParticleEmitter burst does nothing when emitting is false", "rendering-3d"),
+                                     entry("ParticleEmitter burst silently does nothing when emitting is false", "rendering-2d"),
+                                     entry("ParticleEmitter burst is silently suppressed when emitting=false; no one-shot auto-destroy", "rendering-2d")};
+    for (size_t i = 1; i < burst.size(); ++i) CHECK(feedback_entry_similarity(burst[0], burst[i]) >= 0.7);
+
+    // Different gaps stay apart, in the same or another category.
+    CHECK(feedback_entry_similarity(placeholder[0], planned[0]) < 0.5);
+    CHECK(feedback_entry_similarity(entry("No one-way platforms", "physics"), entry("No additive blend mode / glow for neon looks", "rendering-2d")) < 0.4);
+    CHECK(feedback_entry_similarity(entry("Kinematic 3D platforms do not carry bodies standing on them", "physics"),
+                                    entry("No one-way platforms", "physics")) < 0.7);
+    CHECK(feedback_entry_similarity(entry("Docs mark working CLI commands as planned", "docs"),
+                                    entry("EXTENDING.md marks project tools and factoria call as planned", "docs")) < 0.7);
+    // Deterministic and symmetric.
+    CHECK(feedback_entry_similarity(burst[0], burst[2]) == feedback_entry_similarity(burst[2], burst[0]));
+}
+
+TEST_CASE("feedback: collect groups reports of one gap across projects and categories") {
+    testing::TempDir tmp;
+    auto make_doc = [&](const std::string& name, const std::vector<std::pair<std::string, std::string>>& titleCat) {
+        Json doc = create_empty_feedback(name, "0.1.0");
+        int n = 0;
+        for (const auto& [title, cat] : titleCat) {
+            FeedbackInput in = make(title, cat, "minor");
+            in.suggestion = "";
+            auto r = add_feedback_entry(doc, in);
+            REQUIRE(r.ok());
+            (void)n;
+        }
+        REQUIRE(save_feedback((tmp.path / name / "ENGINE_FEEDBACK.json").string(), doc).ok());
+    };
+    make_doc("a", {{"Generated types/factoria.d.ts is a placeholder (any)", "tooling"}, {"Docs mark working CLI commands as planned", "docs"}});
+    make_doc("b", {{"Project types/factoria.d.ts is a placeholder", "tooling"}});
+    make_doc("c", {{"types/factoria.d.ts is a placeholder stub", "docs"}, {"AI guide marks working CLI commands as planned", "docs"}});
+    make_doc("d", {{"New projects ship a placeholder types/factoria.d.ts", "tooling"}});
+    auto report = collect_feedback({tmp.str()});
+    REQUIRE(report.ok());
+    const Json& cl = report->json["clusters"];
+    REQUIRE(cl.size() == 2);
+    CHECK(cl[0]["projects"].size() == 4);
+    CHECK(cl[0]["category"] == "tooling");  // majority category of the cluster
+    CHECK(cl[1]["projects"].size() == 2);
+#ifdef FA_REPO_ROOT
+    // The real example games: the placeholder-typings gap is one cluster, reported by several projects.
+    auto real = collect_feedback({std::string(FA_REPO_ROOT) + "/examples"}, [] { CollectOptions o; o.includeClosed = true; return o; }());
+    if (real.ok() && real->json["totalEntries"].get<int>() > 0) {
+        bool found = false;
+        for (const Json& c : real->json["clusters"])
+            if (c["title"].get<std::string>().find("d.ts") != std::string::npos && c["projects"].size() >= 3) found = true;
+        CHECK_MESSAGE(found, "placeholder d.ts reports from the examples form one cluster");
+    }
+#endif
+}

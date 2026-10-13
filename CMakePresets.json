@@ -1,0 +1,151 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "description": "Shared settings. Each preset builds into build/<preset name>.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+
+    {
+      "name": "linux-debug",
+      "displayName": "Linux x64, Debug",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux x64, Release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "macos-debug",
+      "displayName": "macOS, Debug",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "macos-release",
+      "displayName": "macOS, Release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+
+    {
+      "name": "windows-debug",
+      "displayName": "Windows x64, Visual Studio 2022, Debug",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "x64", "strategy": "set" }
+    },
+    {
+      "name": "windows-release",
+      "displayName": "Windows x64, Visual Studio 2022, Release",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "generator": "Visual Studio 17 2022",
+      "architecture": { "value": "x64", "strategy": "set" }
+    },
+    {
+      "name": "windows-ninja-debug",
+      "displayName": "Windows x64, Ninja + MSVC cl, Debug (run from a VS Developer prompt)",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+
+    {
+      "name": "ios",
+      "displayName": "iOS device (arm64), Xcode",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "generator": "Xcode",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "16.3",
+        "FA_BUILD_TOOLS": "OFF",
+        "FA_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "ios-simulator",
+      "displayName": "iOS Simulator, Xcode",
+      "inherits": "ios",
+      "cacheVariables": {
+        "CMAKE_OSX_SYSROOT": "iphonesimulator"
+      }
+    },
+
+    {
+      "name": "android-arm64",
+      "displayName": "Android arm64-v8a (devices), NDK; needs ANDROID_NDK_HOME",
+      "inherits": "base",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-26",
+        "FA_BUILD_TOOLS": "OFF",
+        "FA_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "android-x86_64",
+      "displayName": "Android x86_64 (emulator), NDK; needs ANDROID_NDK_HOME",
+      "inherits": "base",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ANDROID_ABI": "x86_64",
+        "ANDROID_PLATFORM": "android-26",
+        "FA_BUILD_TOOLS": "OFF",
+        "FA_BUILD_TESTS": "OFF"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "linux-debug",        "configurePreset": "linux-debug",        "configuration": "Debug" },
+    { "name": "linux-release",      "configurePreset": "linux-release",      "configuration": "Release" },
+    { "name": "macos-debug",        "configurePreset": "macos-debug",        "configuration": "Debug" },
+    { "name": "macos-release",      "configurePreset": "macos-release",      "configuration": "Release" },
+    { "name": "windows-debug",      "configurePreset": "windows-debug",      "configuration": "Debug" },
+    { "name": "windows-release",    "configurePreset": "windows-release",    "configuration": "Release" },
+    { "name": "windows-ninja-debug", "configurePreset": "windows-ninja-debug", "configuration": "Debug" },
+    { "name": "ios",                "configurePreset": "ios",                "configuration": "Debug" },
+    { "name": "ios-simulator",      "configurePreset": "ios-simulator",      "configuration": "Debug" },
+    { "name": "android-arm64",      "configurePreset": "android-arm64" },
+    { "name": "android-x86_64",     "configurePreset": "android-x86_64" }
+  ],
+
+  "testPresets": [
+    { "name": "linux-debug",         "configurePreset": "linux-debug",         "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "linux-release",       "configurePreset": "linux-release",       "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "macos-debug",         "configurePreset": "macos-debug",         "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "macos-release",       "configurePreset": "macos-release",       "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "windows-debug",       "configurePreset": "windows-debug",       "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "windows-release",     "configurePreset": "windows-release",     "configuration": "Release", "output": { "outputOnFailure": true } },
+    { "name": "windows-ninja-debug", "configurePreset": "windows-ninja-debug", "configuration": "Debug",   "output": { "outputOnFailure": true } }
+  ]
+}

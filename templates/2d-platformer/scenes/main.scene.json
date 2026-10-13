@@ -1,0 +1,102 @@
+{
+  "format": "factoria.scene/1",
+  "settings": { "gravity2D": [0, -980] },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": { "position": [0, 0, 0] },
+        "Camera": { "projection": "orthographic", "clearColor": [0.35, 0.55, 0.85, 1], "primary": true },
+        "Script": { "path": "scripts/follow_camera.js", "props": { "target": "player", "smoothing": 8 } }
+      }
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "tags": ["ground"],
+      "components": {
+        "Transform": { "position": [0, -320, 0] },
+        "Shape2D": { "shape": "rectangle", "size": [3000, 80], "color": [0.25, 0.6, 0.3, 1], "layer": 0 },
+        "RigidBody2D": { "type": "static" },
+        "Collider2D": { "shape": "box", "size": [3000, 80], "friction": 0.6 }
+      }
+    },
+    {
+      "id": "platform_1",
+      "name": "Platform 1",
+      "tags": ["ground"],
+      "components": {
+        "Transform": { "position": [250, -200, 0] },
+        "Shape2D": { "shape": "rectangle", "size": [220, 24], "color": [0.55, 0.4, 0.25, 1], "layer": 0 },
+        "RigidBody2D": { "type": "static" },
+        "Collider2D": { "shape": "box", "size": [220, 24], "friction": 0.6 }
+      }
+    },
+    {
+      "id": "platform_2",
+      "name": "Platform 2",
+      "tags": ["ground"],
+      "components": {
+        "Transform": { "position": [560, -90, 0] },
+        "Shape2D": { "shape": "rectangle", "size": [220, 24], "color": [0.55, 0.4, 0.25, 1], "layer": 0 },
+        "RigidBody2D": { "type": "static" },
+        "Collider2D": { "shape": "box", "size": [220, 24], "friction": 0.6 }
+      }
+    },
+    {
+      "id": "player",
+      "name": "Player",
+      "tags": ["player"],
+      "components": {
+        "Transform": { "position": [-300, -250, 0] },
+        "Shape2D": { "shape": "rectangle", "size": [32, 48], "color": [0.95, 0.35, 0.3, 1], "layer": 2 },
+        "RigidBody2D": { "type": "dynamic", "fixedRotation": true },
+        "Collider2D": { "shape": "box", "size": [32, 48], "friction": 0.2 },
+        "Script": { "path": "scripts/player.js", "props": { "speed": 300, "jumpSpeed": 620 } }
+      }
+    },
+    {
+      "id": "coin_1",
+      "name": "Coin",
+      "tags": ["coin"],
+      "components": {
+        "Transform": { "position": [-100, -266, 0] },
+        "Shape2D": { "shape": "circle", "size": [24, 24], "color": [1, 0.85, 0.2, 1], "layer": 1 },
+        "RigidBody2D": { "type": "static" },
+        "Collider2D": { "shape": "circle", "radius": 12, "isTrigger": true }
+      }
+    },
+    {
+      "id": "coin_2",
+      "name": "Coin",
+      "tags": ["coin"],
+      "components": {
+        "Transform": { "position": [250, -160, 0] },
+        "Shape2D": { "shape": "circle", "size": [24, 24], "color": [1, 0.85, 0.2, 1], "layer": 1 },
+        "RigidBody2D": { "type": "static" },
+        "Collider2D": { "shape": "circle", "radius": 12, "isTrigger": true }
+      }
+    },
+    {
+      "id": "coin_3",
+      "name": "Coin",
+      "tags": ["coin"],
+      "components": {
+        "Transform": { "position": [560, -50, 0] },
+        "Shape2D": { "shape": "circle", "size": [24, 24], "color": [1, 0.85, 0.2, 1], "layer": 1 },
+        "RigidBody2D": { "type": "static" },
+        "Collider2D": { "shape": "circle", "radius": 12, "isTrigger": true }
+      }
+    },
+    {
+      "id": "hud",
+      "name": "Score",
+      "components": {
+        "Transform": { "position": [24, 24, 0] },
+        "Text": { "text": "Coins: 0", "fontSize": 32, "color": [1, 1, 1, 1], "pivot": [0, 1], "space": "screen", "layer": 100 },
+        "Script": { "path": "scripts/hud.js" }
+      }
+    }
+  ]
+}

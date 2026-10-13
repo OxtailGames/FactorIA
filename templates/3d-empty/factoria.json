@@ -1,0 +1,22 @@
+{
+  "format": "factoria.project/1",
+  "name": "{{PROJECT_NAME}}",
+  "id": "{{PROJECT_ID}}",
+  "version": "0.1.0",
+  "engine": "{{ENGINE_VERSION}}",
+  "mainScene": "scenes/main.scene.json",
+  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "input": {
+    "actions": {
+      "move_forward": ["W", "Up"],
+      "move_back": ["S", "Down"],
+      "move_left": ["A", "Left"],
+      "move_right": ["D", "Right"],
+      "move_up": ["E", "Space"],
+      "move_down": ["Q", "LeftShift"]
+    }
+  },
+  "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "feedbackFile": "ENGINE_FEEDBACK.json"
+}

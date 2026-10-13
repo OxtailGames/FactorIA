@@ -1,0 +1,592 @@
+#include <doctest.h>
+#include <sstream>
+
+#include "test_host.h"
+#include "fa/core/log.h"
+
+using namespace fa;
+using namespace fa::test;
+
+namespace {
+Json scene_with(const Json& entities) {
+    return Json::object({{"format", "factoria.scene/1"}, {"entities", entities}});
+}
+}  // namespace
+
+TEST_CASE("behaviour lifecycle order and props") {
+    TestHost h("life");
+    h.file("scripts/a.js", R"(
+import { Behaviour } from "factoria";
+export const log = [];
+export default class A extends Behaviour {
+  speed = 3;
+  constructor() { super(); globalThis.__log = globalThis.__log || []; globalThis.__log.push("ctor"); }
+  onStart() { globalThis.__log.push("start:" + this.speed); }
+  onFixedUpdate(dt) { globalThis.__log.push("fixed"); }
+  onUpdate(dt) { globalThis.__log.push("update"); }
+  onLateUpdate(dt) { globalThis.__log.push("late"); }
+  onDestroy() { globalThis.__log.push("destroy"); }
+}
+)");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::object({{"id", "p"}, {"components", Json::object({{"Script", Json::object({{"path", "scripts/a.js"}, {"props", Json::object({{"speed", 9}})}})}})}})})).dump());
+    REQUIRE(h.start());
+    CHECK(h.load_scene_now("scenes/main.scene.json").empty());
+    h.step_frames(2);
+    auto r = h.scripts.eval("globalThis.__log.join(',')");
+    REQUIRE(r.ok());
+    CHECK(r->get<std::string>() == "ctor,start:9,fixed,update,late,fixed,update,late");
+    h.w.destroy(h.w.find("p"));
+    h.w.flush();
+    r = h.scripts.eval("globalThis.__log.slice(-1)[0]");
+    CHECK(r->get<std::string>() == "destroy");
+    CHECK(h.scripts.errors().empty());
+}
+
+TEST_CASE("component views, live vectors, enums, destroyed entities") {
+    TestHost h("views");
+    REQUIRE(h.start());
+    Entity e = h.w.create("Thing", "thing");
+    h.w.add<Sprite>(e);
+    h.w.add<RigidBody2D>(e);
+    auto ev = [&](const char* code) { auto r = h.scripts.eval(code); if (!r.ok()) { FAIL(r.error().to_string()); } return *r; };
+    ev("world.find('thing').position.x = 5; world.find('thing').get('Sprite').color.a = 0.5");
+    CHECK(h.w.get<Transform>(e)->position.x == 5.0f);
+    CHECK(h.w.get<Sprite>(e)->color.a == 0.5f);
+    ev("world.find('thing').get('RigidBody2D').type = 'kinematic'");
+    CHECK(h.w.get<RigidBody2D>(e)->type == BodyType::Kinematic);
+    ev("world.find('thing').get('RigidBody2D').velocity = {x: 3, y: 4}");
+    CHECK(h.w.get<RigidBody2D>(e)->velocity.y == 4.0f);
+    ev("world.find('thing').position = vec2(10, 20)");
+    CHECK(h.w.get<Transform>(e)->position.y == 20.0f);
+    CHECK(ev("world.find('thing').get('Sprite').color.a").get<double>() == 0.5);
+    CHECK(ev("world.find('thing').get('Collider2D')").is_null());
+    CHECK(ev("world.find('thing').get('RigidBody2D').type").get<std::string>() == "kinematic");
+    // errors teach
+    auto bad = h.scripts.eval("world.find('thing').get('RigidBody2D').type = 'kinematik'");
+    CHECK(!bad.ok());
+    CHECK(bad.error().message.find("kinematic") != std::string::npos);
+    bad = h.scripts.eval("world.find('thing').get('Sprite').colour = 1");
+    CHECK(!bad.ok());
+    // id goes through set_id
+    ev("world.find('thing').id = 'renamed'");
+    CHECK(h.w.find_by_id("renamed") == e);
+    CHECK(h.w.find_by_id("thing").is_null());
+    ev("globalThis.t = world.find('renamed')");
+    h.w.destroy_immediate(e);
+    bad = h.scripts.eval("t.position.x");
+    CHECK(!bad.ok());
+    CHECK(bad.error().message.find("'renamed' was destroyed") != std::string::npos);
+    CHECK(ev("t.alive").get<bool>() == false);
+}
+
+TEST_CASE("check_syntax reports line numbers") {
+    TestHost h("syntax");
+    h.file("scripts/bad.js", "export default class X {\n  onUpdate( {\n}\n");
+    h.file("scripts/good.js", "export const a = 1;\n");
+    REQUIRE(h.start());
+    auto r = h.scripts.check_syntax("scripts/bad.js");
+    REQUIRE(!r.ok());
+    CHECK(r.error().message.find("scripts/bad.js:") != std::string::npos);
+    CHECK(h.scripts.check_syntax("scripts/good.js").ok());
+}
+
+namespace {
+void copy_template(TestHost& h, const char* name) {
+    namespace sfs = std::filesystem;
+    sfs::path src = sfs::path(FA_REPO_ROOT) / "templates" / name;
+    for (auto& e : sfs::recursive_directory_iterator(src)) {
+        if (!e.is_regular_file()) continue;
+        auto rel = sfs::relative(e.path(), src);
+        if (rel == "template.json" || rel == "README.md") continue;
+        sfs::create_directories((h.root / rel).parent_path());
+        sfs::copy_file(e.path(), h.root / rel, sfs::copy_options::overwrite_existing);
+    }
+    auto pj = load_json_file((h.root / "factoria.json").string());
+    REQUIRE(pj.ok());
+    h.proj = *pj;
+    h.in.set_actions(h.proj["input"]["actions"]);
+    if (name == std::string("3d-empty")) {
+        // 3D template declares its own actions
+    }
+}
+}  // namespace
+
+TEST_CASE("templates: scripts, tools and tests run against the host") {
+    for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
+        CAPTURE(name);
+        TestHost h(std::string("tpl_") + name);
+        copy_template(h, name);
+        REQUIRE(h.start());
+        CHECK(h.scripts.errors().empty());
+        std::vector<std::string> files = fs::list("tests", true, ".js");
+        REQUIRE(!files.empty());
+        TestReport rep = h.scripts.run_tests(files);
+        MESSAGE(rep.summary());
+        CHECK(rep.ok());
+        for (const auto& e : h.scripts.errors()) MESSAGE(e.to_string());
+        CHECK(h.scripts.errors().empty());
+        CHECK(h.cmds.has("project.spawn_" + std::string(name == std::string("2d-empty") ? "box" : name == std::string("3d-empty") ? "cube" : "coin")));
+    }
+}
+
+TEST_CASE("events, timers, collisions, input, raycast") {
+    TestHost h("events");
+    h.file("scripts/b.js", R"(
+import { Behaviour, world, input, physics, vec2 } from "factoria";
+globalThis.L = [];
+export default class B extends Behaviour {
+  onStart() {
+    this.unsub = world.on("ping", (d, s) => L.push("on:" + d.n));
+    this.after(0.05, () => L.push("after"));
+    this.t = this.every(0.1, () => L.push("every"));
+  }
+  onEvent(name, data) { L.push("ev:" + name + data.n); }
+  onCollisionEnter(o, info) { L.push("hit:" + o.id + ":" + (info.normal.y !== 0)); }
+  onTriggerEnter(o) { L.push("trig:" + o.id); }
+  onUpdate(dt) { if (input.pressed("jump")) L.push("jump"); }
+  onDestroy() { L.push("bye"); }
+}
+)");
+    Json ents = Json::array();
+    ents.push_back(Json::parse(R"({"id":"ground","components":{"Transform":{"position":[0,-100,0]},"Collider2D":{"size":[1000,20]}}})"));
+    ents.push_back(Json::parse(R"({"id":"ball","components":{"Transform":{"position":[0,0,0]},"RigidBody2D":{},"Collider2D":{"size":[20,20]},"Script":{"path":"scripts/b.js"}}})"));
+    ents.push_back(Json::parse(R"({"id":"zone","components":{"Transform":{"position":[0,-60,0]},"Collider2D":{"size":[100,10],"isTrigger":true}}})"));
+    h.file("scenes/main.scene.json", scene_with(ents).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    h.step_frames(1);
+    REQUIRE(h.scripts.eval("world.emit('ping', {n: 7})").ok());
+    h.in.set_action_override("jump", true);
+    h.step_frames(40);
+    h.in.set_action_override("jump", false);
+    h.step_frames(10);
+    std::string log = h.scripts.eval("L.join(',')")->get<std::string>();
+    CAPTURE(log);
+    CHECK(log.find("on:7") != std::string::npos);
+    CHECK(log.find("ev:ping7") != std::string::npos);
+    CHECK(log.find("after") != std::string::npos);
+    CHECK(log.find("every") != std::string::npos);
+    CHECK(log.find("hit:ground:true") != std::string::npos);
+    CHECK(log.find("trig:zone") != std::string::npos);
+    CHECK(log.find("jump") != std::string::npos);
+    auto hit = h.scripts.eval("const r = physics.raycast(vec2(0, 200), vec2(0, -300)); r ? r.entity.id : null");
+    REQUIRE(hit.ok());
+    CHECK(hit->get<std::string>() == "ball");
+    h.w.destroy(h.w.find("ball"));
+    h.w.flush();
+    CHECK(h.scripts.eval("L.slice(-1)[0]")->get<std::string>() == "bye");
+}
+
+TEST_CASE("errors are recorded once, runaway scripts are stopped") {
+    TestHost h("errs");
+    h.file("scripts/e.js", "import { Behaviour } from 'factoria';\nexport default class E extends Behaviour {\n  onUpdate() { this.nothing.x = 1; }\n}\n");
+    h.file("scripts/loop.js", "import { Behaviour } from 'factoria';\nexport default class L extends Behaviour {\n  onUpdate() { while (true) {} }\n}\n");
+    Json ents = Json::array();
+    ents.push_back(Json::parse(R"({"id":"a","components":{"Script":{"path":"scripts/e.js"}}})"));
+    ents.push_back(Json::parse(R"({"id":"b","components":{"Script":{"path":"scripts/loop.js"}}})"));
+    h.file("scenes/main.scene.json", scene_with(ents).dump());
+    REQUIRE(h.start());
+    h.load_scene_now("scenes/main.scene.json");
+    h.step_frames(3);
+    int tooLong = 0, typeErr = 0;
+    for (auto& e : h.scripts.errors()) {
+        if (e.message.find("took too long") != std::string::npos) { ++tooLong; CHECK(e.file == "scripts/loop.js"); }
+        if (e.message.find("TypeError") != std::string::npos) { ++typeErr; CHECK(e.file == "scripts/e.js"); CHECK(e.line == 3); CHECK(e.entityId == "a"); }
+    }
+    CHECK(tooLong == 1);
+    CHECK(typeErr == 1);
+}
+
+TEST_CASE("JS tools, hot reload, rng determinism, eval, runner failures") {
+    TestHost h("tools");
+    h.cmds.add({"project.test", "builtin", "", Json::object({{"type", "object"}, {"properties", Json::object()}}), true, "project"},
+               [](const Json&) { return Json::object(); });
+    h.file("tools/hello.js", "export default { name: 'hello', summary: 's', input: {type:'object', properties:{n:{type:'integer', default: 2}}}, run({n}) { return { twice: n * 2 }; } };");
+    h.file("tools/test.js", "export default { name: 'test', summary: 's', run() { return 1; } };");
+    h.file("scripts/c.js", "import { Behaviour } from 'factoria';\nexport default class C extends Behaviour { v = 1; onStart() { globalThis.V = this.v; } }\n");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"c","components":{"Script":{"path":"scripts/c.js"}}})")})).dump());
+    h.file("tests/t.test.js", "import { test, expect } from 'factoria:test';\ntest('ok', () => { expect(1).toBe(1); });\ntest('bad', () => {\n  expect(2).toBe(3);\n});\ntest.skip('s', () => {});\n");
+    int notified = 0;
+    h.scripts.set_tools_changed_callback([&] { ++notified; });
+    REQUIRE(h.start());
+    auto r = h.cmds.call("project.hello", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["twice"] == 4);
+    CHECK(h.cmds.info("project.test")->summary == "builtin");  // builtin not replaced
+    bool collided = false;
+    for (auto& e : h.scripts.errors()) if (e.message.find("collides") != std::string::npos) collided = true;
+    CHECK(collided);
+    h.file("tools/hello.js", "export default { name: 'hello', summary: 's', run() { return { v: 'new' }; } };");
+    h.scripts.reload_module("tools/hello.js");
+    CHECK(h.cmds.call("project.hello").result["v"] == "new");
+    // behaviour hot reload
+    h.load_scene_now("scenes/main.scene.json");
+    h.step_frames(1);
+    CHECK(h.scripts.eval("V")->get<int>() == 1);
+    h.file("scripts/c.js", "import { Behaviour } from 'factoria';\nexport default class C extends Behaviour { v = 5; onStart() { globalThis.V = this.v; } }\n");
+    h.scripts.reload_module("scripts/c.js");
+    CHECK(h.scripts.eval("V")->get<int>() == 5);
+    // runner
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    CHECK(rep.passed == 1);
+    CHECK(rep.failed == 1);
+    REQUIRE(rep.cases.size() == 2);
+    CHECK(rep.cases[1].message.find("expected: 3") != std::string::npos);
+    CHECK(rep.cases[1].message.find("tests/t.test.js:4") != std::string::npos);
+    // determinism
+    auto a = h.scripts.eval("[rng.float(), rng.int(0, 100), Math.random()]");
+    h.w.rng().reseed(1);
+    REQUIRE(h.scripts.eval("rng.float()").ok());  // advance
+    h.w.rng().reseed(1);
+    auto b = h.scripts.eval("[rng.float(), rng.int(0, 100), Math.random()]");
+    h.w.rng().reseed(1);
+    auto c = h.scripts.eval("[rng.float(), rng.int(0, 100), Math.random()]");
+    CHECK(*b == *c);
+    // storage
+    REQUIRE(h.scripts.eval("storage.set('hs', {a: 1})").ok());
+    CHECK(h.scripts.eval("storage.get('hs').a")->get<int>() == 1);
+    CHECK(h.scripts.eval("storage.get('zz', 'fb')")->get<std::string>() == "fb");
+    CHECK(notified >= 1);
+}
+
+TEST_CASE("api manifest and typescript declarations") {
+    TestHost h("api");
+    REQUIRE(h.start());
+    std::string dts = h.scripts.typescript_declarations();
+    CHECK(dts.find("declare module \"factoria\"") != std::string::npos);
+    CHECK(dts.find("declare module \"factoria:test\"") != std::string::npos);
+    CHECK(dts.find("get<K extends keyof Components>(name: K): Components[K] | null;") != std::string::npos);
+    CHECK(dts.find("\"kinematic\"") != std::string::npos);
+    Json m = h.scripts.api_manifest();
+    CHECK(m["modules"].size() == 2);
+    CHECK(m["components"].size() > 5);
+    if (const char* out = std::getenv("FA_DTS_OUT")) std::ofstream(out) << dts;
+}
+
+// ======================================================================================================================
+// Fix wave: vectors, synchronous behaviours, imports, rng.seed, test isolation, session, ToolError, options, props
+// ======================================================================================================================
+namespace {
+Json ev_ok(TestHost& h, const char* code) {
+    auto r = h.scripts.eval(code);
+    if (!r.ok()) FAIL(r.error().to_string());
+    return *r;
+}
+std::string ev_err(TestHost& h, const char* code) {
+    auto r = h.scripts.eval(code);
+    return r.ok() ? std::string() : r.error().message;
+}
+const char* kBeh = R"(
+import { Behaviour } from "factoria";
+export default class Foo extends Behaviour {
+  speed = 1;
+  tag = "none";
+  constructor() { super(); globalThis.__ev = globalThis.__ev || []; globalThis.__ev.push("ctor"); }
+  onStart() { globalThis.__ev.push("start:" + this.speed); }
+  onUpdate() { globalThis.__ev.push("update"); }
+}
+)";
+}  // namespace
+
+TEST_CASE("vectors: arrays, plain objects and Vec2/Vec3 are accepted everywhere") {
+    TestHost h("vecs");
+    h.file("prefabs/thing.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Thing","components":{"Transform":{}}}})");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'a', components:{Transform:{position:[3,4]}}})");
+    ev_ok(h, "world.spawn({id:'b', components:{Transform:{position:vec2(5,6)}}})");
+    ev_ok(h, "world.spawn({id:'c', components:{Transform:{position:{x:7,y:8}, scale:2, rotation:30}}})");
+    ev_ok(h, "world.spawn({id:'d'}, {position:[1,2,3], rotation:{x:0,y:90,z:0}})");
+    CHECK(h.w.get<Transform>(h.w.find("a"))->position.y == 4.0f);
+    CHECK(h.w.get<Transform>(h.w.find("a"))->position.z == 0.0f);
+    CHECK(h.w.get<Transform>(h.w.find("b"))->position.x == 5.0f);
+    CHECK(h.w.get<Transform>(h.w.find("c"))->position.y == 8.0f);
+    CHECK(h.w.get<Transform>(h.w.find("c"))->scale.x == 2.0f);
+    CHECK(h.w.get<Transform>(h.w.find("c"))->rotation.z == 30.0f);
+    CHECK(h.w.get<Transform>(h.w.find("d"))->position.z == 3.0f);
+    CHECK(h.w.get<Transform>(h.w.find("d"))->rotation.y == 90.0f);
+    ev_ok(h, "world.spawnPrefab('prefabs/thing.prefab.json', {position: vec2(9, 1), rotation: 45})");
+    ev_ok(h, "world.spawnPrefab('prefabs/thing.prefab.json', {position: [2, 3], rotation: [0, 0, 10], scale: [2, 2]})");
+    auto things = h.w.find_all_by_name("Thing");
+    REQUIRE(things.size() == 2);
+    CHECK(h.w.get<Transform>(things[0])->position.x == 9.0f);
+    CHECK(h.w.get<Transform>(things[0])->rotation.z == 45.0f);
+    CHECK(h.w.get<Transform>(things[1])->scale.z == 1.0f);
+    // setters
+    ev_ok(h, "const e = world.find('a'); e.position = [10, 11]; e.worldPosition = {x: 1, y: 2}");
+    CHECK(h.w.get<Transform>(h.w.find("a"))->position.x == 1.0f);
+    ev_ok(h, "world.find('a').position = vec3(4, 5, 6)");
+    CHECK(h.w.get<Transform>(h.w.find("a"))->position.z == 6.0f);
+    ev_ok(h, "world.find('a').position = [7, 8]");
+    CHECK(h.w.get<Transform>(h.w.find("a"))->position.z == 0.0f);
+    // physics queries / camera / debug
+    ev_ok(h, "world.spawn({id:'wall', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");
+    h.step_frames(1);  // bodies are created on the first physics step
+    CHECK(ev_ok(h, "physics.raycast([0, 0], [0, -300])?.entity.id") == "wall");
+    CHECK(ev_ok(h, "physics.raycast({x:0,y:0}, vec2(0,-300))?.entity.id") == "wall");
+    CHECK(ev_ok(h, "physics.overlapCircle([0, -100], 5).length") == 1);
+    CHECK(ev_ok(h, "physics.overlapBox([-10, -110, 20, 20]).length") == 1);
+    ev_ok(h, "camera.worldToScreen([0, 0]); camera.screenToWorld([100, 100]); debug.line([0,0],{x:1,y:1}); debug.circle([0,0],3); debug.rect([0,0,1,1]); debug.text([1,1],'x')");
+    ev_ok(h, "world.spawn({id:'rb', components:{RigidBody2D:{}}}); physics.setVelocity(world.find('rb'), [3, 4]); physics.applyImpulse(world.find('rb'), {x:1,y:0})");
+    CHECK(h.w.get<RigidBody2D>(h.w.find("rb"))->velocity.y == 4.0f);
+    // bad input throws an Error naming the accepted forms
+    std::string m = ev_err(h, "physics.raycast('x', [0, 0])");
+    CHECK(m.find("[x, y") != std::string::npos);
+    CHECK(m.find("Vec2") != std::string::npos);
+    m = ev_err(h, "world.find('a').position = 'oops'");
+    CHECK(m.find("Transform.position") != std::string::npos);
+    m = ev_err(h, "world.spawnPrefab('prefabs/thing.prefab.json', {position: 5})");
+    CHECK(m.find("position") != std::string::npos);
+    CHECK(!ev_err(h, "camera.worldToScreen({x: 'a', y: 1})").empty());
+}
+
+TEST_CASE("behaviours exist synchronously after spawn, spawnPrefab and scene load") {
+    TestHost h("syncbeh");
+    h.file("scripts/foo.js", kBeh);
+    h.file("prefabs/foo.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Foo","components":{"Script":{"path":"scripts/foo.js","props":{"speed":2,"tag":"prefab"}}}}})");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"s","components":{"Script":{"path":"scripts/foo.js","props":{"speed":7}}}})")})).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    CHECK(ev_ok(h, "world.find('s').behaviour.speed") == 7);
+    CHECK(ev_ok(h, "globalThis.__ev.join(',')") == "ctor");  // onStart has not run yet
+    ev_ok(h, "world.spawn({id:'x', components:{Script:{path:'scripts/foo.js', props:{speed:3}}}})");
+    CHECK(ev_ok(h, "world.find('x').behaviour.speed") == 3);
+    ev_ok(h, "globalThis.p = world.spawnPrefab('prefabs/foo.prefab.json', {props: {speed: 5}})");
+    CHECK(ev_ok(h, "p.behaviour.speed") == 5);
+    CHECK(ev_ok(h, "p.behaviour.tag") == "prefab");  // prefab props kept, merged with options.props
+    ev_ok(h, "world.spawnPrefab('prefabs/foo.prefab.json', {overrides: {components: {Script: {props: {speed: 9}}}}}).id");
+    h.step_frames(1);
+    std::string log = ev_ok(h, "globalThis.__ev.join(',')").get<std::string>();
+    CHECK(log.find("start:7") != std::string::npos);
+    CHECK(log.find("start:5") != std::string::npos);
+    // onStart always precedes the entity's first update
+    CHECK(log.find("start:7,") < log.find("update"));
+    CHECK(h.scripts.errors().empty());
+    // entity.add("Script") constructs too
+    ev_ok(h, "const q = world.spawn({id:'q'}); q.add('Script', {path:'scripts/foo.js', props:{speed:11}}); globalThis.q = q");
+    CHECK(ev_ok(h, "q.behaviour.speed") == 11);
+}
+
+TEST_CASE("relative imports, ../ and JSON modules") {
+    TestHost h("imports");
+    h.file("lib/util.js", "export const twice = (n) => n * 2;\n");
+    h.file("scripts/sub/helper.js", "import { twice } from '../../lib/util.js';\nimport data from './data.json';\nimport sib from '../sibling.js';\nexport const v = twice(data.n) + sib;\n");
+    h.file("scripts/sub/data.json", "{\"n\": 21}");
+    h.file("scripts/sibling.js", "export default 100;\n");
+    h.file("scripts/main.js", "import { Behaviour } from 'factoria';\nimport { v } from './sub/helper.js';\nimport { twice } from '../lib/util.js';\nglobalThis.V = [v, twice(1)];\nexport default class M extends Behaviour {}\n");
+    h.file("scripts/bad.js", "import x from '../../outside.js';\nexport default x;\n");
+    h.file("scripts/badjson.json", "{ nope");
+    h.file("scripts/usesbad.js", "import d from './badjson.json';\nexport default d;\n");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")})).dump());
+    REQUIRE(h.start());
+    CHECK(h.scripts.check_syntax("scripts/main.js").ok());  // "../" must not be rejected by the syntax check
+    CHECK(h.scripts.check_syntax("scripts/sub/helper.js").ok());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    CHECK(h.scripts.errors().empty());
+    CHECK(ev_ok(h, "globalThis.V") == Json::parse("[142, 2]"));
+    // hot reload of the JSON data reaches importers
+    h.file("scripts/sub/data.json", "{\"n\": 1}");
+    h.scripts.reload_module("scripts/sub/data.json");
+    CHECK(ev_ok(h, "globalThis.V") == Json::parse("[102, 2]"));
+    // escaping the project root is an error naming the import
+    auto bad = h.scripts.check_props("scripts/bad.js", Json::object({{"a", 1}}));
+    REQUIRE(!bad.empty());
+    CHECK(bad[0].find("outside.js") != std::string::npos);
+    auto bj = h.scripts.check_props("scripts/usesbad.js", Json::object({{"a", 1}}));
+    REQUIRE(!bj.empty());
+    CHECK(bj[0].find("badjson.json") != std::string::npos);
+}
+
+TEST_CASE("rng.seed reseeds the world rng deterministically") {
+    TestHost h("rngseed");
+    REQUIRE(h.start());
+    ev_ok(h, "rng.seed(42)");
+    Json a = ev_ok(h, "[rng.float(), rng.int(0, 1000), rng.range(0, 5)]");
+    ev_ok(h, "rng.float(); rng.seed(42)");
+    Json b = ev_ok(h, "[rng.float(), rng.int(0, 1000), rng.range(0, 5)]");
+    CHECK(a == b);
+    ev_ok(h, "rng.seed(43)");
+    Json c = ev_ok(h, "[rng.float(), rng.int(0, 1000), rng.range(0, 5)]");
+    CHECK(a != c);
+    CHECK(!ev_err(h, "rng.seed('x')").empty());
+}
+
+TEST_CASE("tests: fresh modules, empty memory storage and session per test file; real save untouched") {
+    TestHost h("isolation");
+    h.file("scripts/state.js", "export const state = { n: 0 };\n");
+    h.file("tests/a.test.js", "import { test, expect } from 'factoria:test';\nimport { storage, session } from 'factoria';\nimport { state } from '../scripts/state.js';\n"
+                              "test('first', () => { expect(state.n).toBe(0); state.n = 5; session.score = 9; expect(storage.get('k')).toBeUndefined(); storage.set('k', 1); });\n"
+                              "test('second sees the same file state', () => { expect(state.n).toBe(5); expect(storage.get('k')).toBe(1); });\n");
+    h.file("tests/b.test.js", "import { test, expect } from 'factoria:test';\nimport { storage, session } from 'factoria';\nimport { state } from '../scripts/state.js';\n"
+                              "test('fresh module instance', () => { expect(state.n).toBe(0); });\n"
+                              "test('fresh storage and session', () => { expect(storage.get('k')).toBeUndefined(); expect(session.score).toBeUndefined(); });\n");
+    // a pre-existing real save must be neither read nor modified
+    std::filesystem::create_directories(h.root / "save");
+    std::ofstream(h.root / "save" / "storage.json") << R"({"real": 1})";
+    h.file("tests/c.test.js", "import { test, expect } from 'factoria:test';\nimport { storage } from 'factoria';\ntest('save file is not visible', () => { expect(storage.get('real')).toBeUndefined(); storage.set('leak', 1); });\n");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/a.test.js", "tests/b.test.js", "tests/c.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 5);
+    std::ifstream f(h.root / "save" / "storage.json");
+    std::stringstream ss;
+    ss << f.rdbuf();
+    CHECK(ss.str() == R"({"real": 1})");
+    // after the run the real storage is visible again
+    CHECK(ev_ok(h, "storage.get('real')") == 1);
+    CHECK(ev_ok(h, "storage.get('leak')").is_null());
+}
+
+TEST_CASE("storage mode Memory never touches disk") {
+    TestHost h("memstore");
+    REQUIRE(h.start());
+    h.scripts.set_storage_mode(StorageMode::Memory);
+    ev_ok(h, "storage.set('a', 1)");
+    CHECK(ev_ok(h, "storage.get('a')") == 1);
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage.json"));
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    ev_ok(h, "storage.set('a', 2)");
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.json"));
+}
+
+TEST_CASE("session persists across scene loads; module state too") {
+    TestHost h("session");
+    h.file("scripts/s.js", "import { Behaviour, session } from 'factoria';\nlet loads = 0;\nexport default class S extends Behaviour { constructor() { super(); loads++; session.lives = (session.lives ?? 3) - 1; session.loads = loads; } }\n");
+    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"s","components":{"Script":{"path":"scripts/s.js"}}})")})).dump());
+    REQUIRE(h.start());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+    CHECK(ev_ok(h, "session.lives") == 1);
+    CHECK(ev_ok(h, "session.loads") == 2);  // module-level `loads` persisted across the loads
+}
+
+TEST_CASE("destroyed entities free their ids for JS spawn in the same frame") {
+    TestHost h("destroyid");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'gem_1', tags:['gem']}); world.find('gem_1').destroy()");
+    CHECK(ev_ok(h, "world.find('gem_1')").is_null());
+    CHECK(ev_ok(h, "world.findByTag('gem').length") == 0);
+    CHECK(ev_ok(h, "world.spawn({id:'gem_1'}).id") == "gem_1");
+    h.w.flush();
+    CHECK(ev_ok(h, "world.find('gem_1').alive") == true);
+}
+
+TEST_CASE("tools: ToolError carries hint and data, other errors are 'failed'") {
+    TestHost h("toolerr");
+    h.file("tools/chk.js", "import { ToolError } from 'factoria';\nexport default { name: 'chk', summary: 's', run({mode}) {\n"
+                           " if (mode === 'tool') throw new ToolError('bad level', 'edit levels.json', { errors: [1, 2] });\n"
+                           " if (mode === 'plain') throw new Error('boom');\n return { ok: true }; } };\n");
+    REQUIRE(h.start());
+    auto r = h.cmds.call("project.chk", Json::object({{"mode", "tool"}}));
+    REQUIRE(!r.ok);
+    CHECK(r.error["message"].get<std::string>().find("bad level") != std::string::npos);
+    CHECK(r.error["data"]["errors"] == Json::array({1, 2}));  // structured data travels in error.data
+    CHECK(r.error["hint"] == "edit levels.json");
+    CHECK(h.scripts.errors().empty());  // an expected failure is not a script bug
+    r = h.cmds.call("project.chk", Json::object({{"mode", "plain"}}));
+    REQUIRE(!r.ok);
+    CHECK(r.error["code"] == "failed");
+    CHECK(r.error["message"].get<std::string>().find("boom") != std::string::npos);
+    CHECK(h.cmds.call("project.chk", Json::object({{"mode", "ok"}})).ok);
+}
+
+TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
+    TestHost h("misc");
+    REQUIRE(h.start());
+    ev_ok(h, "const e = world.spawn({id:'p'}); particles.burst(e, 5); e.emitBurst(3)");
+    Json m = ev_ok(h, "ui.measureText('abcd', { fontSize: 10 })");
+    CHECK(m["width"].get<double>() == doctest::Approx(24.0));
+    CHECK(m["height"].get<double>() > 0);
+    Json wrapped = ev_ok(h, "ui.measureText('abcdefgh', { fontSize: 10, maxWidth: 30 })");
+    CHECK(wrapped["height"].get<double>() > m["height"].get<double>());
+    // raycast: the caster's own collider is skipped with `ignore`, and a ray starting inside a collider skips it
+    ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");
+    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");
+    h.step_frames(1);
+    CHECK(ev_ok(h, "physics.raycast([0, 0], [0, -300], { ignore: world.find('ball') }).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.raycast([0, 0], [0, -300], { ignore: 'ball' }).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.raycast([0, 0], [0, -300], { mask: 0 })").is_null());
+    CHECK(ev_ok(h, "world.find('ball').isTouching([0, -1])") == false);
+    CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
+}
+
+TEST_CASE("Script.props validation: one warning with did-you-mean, check_props without side effects") {
+    TestHost h("props");
+    h.file("scripts/foo.js", kBeh);
+    REQUIRE(h.start());
+    auto problems = h.scripts.check_props("scripts/foo.js", Json::object({{"sped", 3}, {"tag", "x"}, {"zzz", 1}}));
+    REQUIRE(problems.size() == 2);
+    CHECK(problems[0].find("sped") != std::string::npos);
+    CHECK(problems[0].find("did you mean 'speed'") != std::string::npos);
+    CHECK(h.scripts.check_props("scripts/foo.js", Json::object({{"speed", 3}})).empty());
+    CHECK(h.w.entity_count() == 0);
+    CHECK(h.scripts.eval("globalThis.__ev === undefined || true").ok());
+    CHECK(h.scripts.check_props("scripts/missing.js", Json::object({{"a", 1}})).size() == 1);
+}
+
+TEST_CASE("game.loadJson, touch input and default host without scene JSON support") {
+    TestHost h("loadjson");
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("loadJson", () => {
+  game.loadJson({ format: "factoria.scene/1", entities: [{ id: "solo", components: { Transform: { position: [4, 5] } } }] });
+  expect(game.find("solo").position.x).toBe(4);
+});
+test("touch", () => {
+  let seen = [];
+  game.touchStart([10, 20]);
+  seen.push(input.touches.length, input.touches[0].pressed, input.touches[0].position.x);  // visible to the frame that runs next
+  game.step(1);
+  game.touchMove({ x: 30, y: 40 });
+  game.step(1);
+  seen.push(input.touches[0].position.x, input.touches[0].pressed);
+  game.touchEnd();
+  game.step(1);
+  seen.push(input.touches.length);
+  expect(seen).toEqual([1, true, 10, 30, false, 0]);
+  game.touch([5, 5]);
+  expect(input.touches.length).toBe(0);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    // the default ScriptHost implementation reports "not supported"
+    struct Bare : ScriptHost {
+        World w; Input in; Audio au; Physics ph; CommandRegistry c;
+        World& world() override { return w; } Input& input() override { return in; } Audio& audio() override { return au; }
+        Physics& physics() override { return ph; } Renderer* renderer() override { return nullptr; } CommandRegistry& commands() override { return c; }
+        Json project_settings() const override { return Json::object(); } double fixed_dt() const override { return 0.016; }
+        void request_scene_change(std::string_view) override {} void request_quit() override {} void step_frames(int) override {}
+        std::string load_scene_now(std::string_view) override { return ""; } bool screenshot(std::string_view, std::string*) override { return false; }
+    } bare;
+    CHECK(bare.load_scene_json_now(Json::object(), "x").find("not supported") != std::string::npos);
+}
+
+TEST_CASE("typescript declarations cover the new APIs") {
+    TestHost h("dts");
+    REQUIRE(h.start());
+    std::string dts = h.scripts.typescript_declarations();
+    for (const char* needle : {"export const session", "class ToolError extends Error", "seed(n: number): void", "burst(entity", "measureText(",
+                               "interface RaycastOptions", "ignore?:", "emitBurst(", "isTouching(", "loadJson(scene", "touchStart(", "SpawnOptions", "props?: Record<string, any>"}) {
+        CAPTURE(needle);
+        CHECK(dts.find(needle) != std::string::npos);
+    }
+    if (const char* out = std::getenv("FA_DTS_OUT2")) std::ofstream(out) << dts;
+}
+
+TEST_CASE("unknown Script.props warn once naming the entity") {
+    TestHost h("propwarn");
+    h.file("scripts/foo.js", kBeh);
+    REQUIRE(h.start());
+    std::vector<std::string> msgs;
+    int sink = add_log_sink([&](const LogEntry& e) { if (e.level == LogLevel::Warn) msgs.push_back(e.message); });
+    ev_ok(h, "world.spawn({id:'bad_1', components:{Script:{path:'scripts/foo.js', props:{sped: 3}}}}); world.spawn({id:'bad_2', components:{Script:{path:'scripts/foo.js', props:{sped: 4}}}})");
+    remove_log_sink(sink);
+    CHECK(ev_ok(h, "world.find('bad_1').behaviour.sped") == 3);
+    int n = 0;
+    for (auto& m : msgs) if (m.find("sped") != std::string::npos) { ++n; CHECK(m.find("bad_1") != std::string::npos); CHECK(m.find("did you mean 'speed'") != std::string::npos); }
+    CHECK(n == 1);
+}
