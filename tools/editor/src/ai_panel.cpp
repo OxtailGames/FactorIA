@@ -234,7 +234,11 @@ void Editor::draw_ai_panel() {
     const bool detected = aiDetected_.load();
     const bool running = aiRunning_.load();
     bool anyAvailable = false;
-    for (auto& s : status) anyAvailable = anyAvailable || s.available;
+    // "Ready" = an API key or a CLI login was found; local-server presets (ollama...) are always listed
+    // as available but are not verified, so they do not count as configured.
+    for (auto& s : status) anyAvailable = anyAvailable || (s.available && (s.isCli || !s.keySource.empty()));
+    bool anyListed = false;
+    for (auto& s : status) anyListed = anyListed || s.available;
 
     // Provider / role selectors.
     static const char* roleNames[] = {"orchestrator", "worker", "fast"};
@@ -268,9 +272,9 @@ void Editor::draw_ai_panel() {
         ImGui::TextDisabled(aiDetecting_.load() ? "Detecting providers..." : "Provider detection not started.");
     } else if (!anyAvailable) {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.30f, 0.22f, 0.08f, 1));
-        ImGui::BeginChild("##noprov", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 4.6f), ImGuiChildFlags_Borders);
+        ImGui::BeginChild("##noprov", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 6.6f), ImGuiChildFlags_Borders);
         ImGui::TextColored(ImVec4(1, 0.82f, 0.4f, 1), "No AI provider is configured.");
-        ImGui::TextWrapped("Set an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY...), or install the Claude Code / Codex CLI and sign in.");
+        ImGui::TextWrapped("Set an API key (ANTHROPIC_API_KEY, OPENAI_API_KEY...), or install the Claude Code / Codex CLI and sign in.%s", anyListed ? " Local servers (ollama, lmstudio) can be selected above." : "");
         if (ImGui::SmallButton("Open AI_PROVIDERS.md")) {
             auto d = read_doc("ai-providers");
             docsTitle_ = "AI_PROVIDERS.md";
@@ -355,7 +359,7 @@ void Editor::draw_ai_panel() {
         ImVec2 p = ImGui::GetItemRectMin();
         ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(120, 125, 140, 255), "Ask the assistant...  (Enter sends, Ctrl+Enter newline)");
     }
-    const bool canRun = anyAvailable || !detected;
+    const bool canRun = anyListed || !detected;
     ImGui::BeginDisabled(running || aiInput_.empty() || !canRun);
     if (ImGui::Button("Run") || (submit && !aiInput_.empty() && canRun)) {
         std::string task = aiInput_;

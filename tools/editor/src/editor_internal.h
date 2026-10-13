@@ -357,6 +357,7 @@ public:
     Vec2 atMouse_{};
     size_t atUndoBeforeAi_ = 0;
     bool atWaitAi_ = false;
+    std::vector<ai::ProviderStatus> atSavedStatus_;
     int atWaitCount_ = 0;
     void save_screenshot_now(const std::string& path);
 };

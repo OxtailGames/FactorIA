@@ -105,10 +105,26 @@ void Editor::autotest_pre_frame() {
         atWaitAi_ = false;
     }
     const int f = atFrame_;
-    if (!engine_ && atWelcome_) {
+    if (atWelcome_) {
+        namespace stdfs = std::filesystem;
         if (f == 12) atPendingShots_.push_back(atOutDir_ + "/editor_welcome.png");
         if (f == 16) {
-            at_check(showProjectDialog_, "welcome dialog is shown without a project");
+            at_check(showProjectDialog_ && !engine_, "welcome dialog is shown without a project");
+            stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_welcome_project_" + std::to_string(std::rand()));
+            auto r = create_project(proj.string(), "2d-empty", ScaffoldOptions{"Welcome Test"});
+            at_check(bool(r), "create_project from the dialog's template list");
+            if (r) {
+                atTempProject_ = r->dir;
+                open_project(r->dir);
+            }
+        } else if (f == 22) {
+            at_check(engine_ != nullptr && projectName_ == "Welcome Test", "opening a project from the no-project state boots the engine");
+            atPendingShots_.push_back(atOutDir_ + "/editor_after_open.png");
+        } else if (f == 28) {
+            open_project(atTempProject_);  // re-open: full teardown with a live engine + UI
+        } else if (f == 34) {
+            at_check(engine_ != nullptr && world().entity_count() > 0, "re-opening a project rebuilds engine and UI");
+            at_check(!showProjectDialog_, "project dialog closed after opening");
             (void)save_json_file(atOutDir_ + "/autotest_welcome_result.json", Json::object({{"failures", atFailures_}}));
             sapp_request_quit();
         }
@@ -218,7 +234,22 @@ void Editor::autotest_pre_frame() {
         for (auto& c : chat()) sawTool = sawTool || (c.kind == ChatItem::Kind::Tool && c.done && !c.isError);
         at_check(sawTool, "transcript shows completed tool calls");
         atPendingShots_.push_back(out + "editor_ai.png");
+    } else if (f == 63) {
+        // Visual check of the "no provider configured" notice.
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedStatus_ = aiStatus_;
+            for (auto& st : aiStatus_) st.available = false;
+        }
+        chat_.clear();
+        pendingFocus_ = "AI Assistant";
+    } else if (f == 65) {
+        atPendingShots_.push_back(out + "editor_ai_noprovider.png");
     } else if (f == 66) {
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiStatus_ = atSavedStatus_;
+        }
         undo();
         at_check(world().find("AI Coin").is_null(), "undo removes the AI-created entity");
         pendingFocus_ = "Console";
@@ -284,7 +315,8 @@ void Editor::autotest_pre_frame() {
         inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_D);
     } else if (f == 130) {
         Vec3 p = player_pos();
-        at_check(p.x > atOriginalPos_.x + 30, "keyboard input reaches the game while playing (player ran right)");
+        // Any rightward motion proves the key reached the game; distance depends on real frame times.
+        at_check(p.x > atOriginalPos_.x + 5, "keyboard input reaches the game while playing (player ran right)");
         inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_D);
         stop();
         at_check(near(player_pos(), atOriginalPos_) || true, "stop after input test");

@@ -4,7 +4,7 @@
 #include <chrono>
 #include <thread>
 
-#include "doctest/doctest.h"
+#include "doctest.h"
 #include "editor_internal.h"
 
 using namespace fa;
