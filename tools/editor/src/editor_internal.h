@@ -6,6 +6,7 @@
 // until the main thread has executed them (Editor::on_frame -> queue.pump()).
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <condition_variable>
@@ -29,8 +30,10 @@
 #include "fa/core/log.h"
 #include "fa/editor/editor.h"
 #include "fa/runtime/engine.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/tooling.h"
+#include "editor_tools.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 
@@ -102,12 +105,58 @@ struct JsonEditState {
     bool editing = false;
 };
 
+// What the viewport selects, outlines and hit-tests for one entity. The geometry is the engine's own footprint of the
+// entity's 2D visuals (fa/scene/bounds.h, shared with `entity.bounds()`), plus a marker for entities that draw nothing.
 struct PickBounds {
     bool valid = false;
+    bool screenSpace = false;            // the entity is picked on the screen (design pixels, y down), not in the world
+    std::vector<VisualFootprint> parts;  // local-space boxes (y up) of its visuals, or one marker
+    int layer = 0;                       // highest draw layer among the parts
+};
+
+// One part's outline in WORLD xy (world-space parts) or DESIGN pixels (screen-space parts): the box the part occupies after the
+// entity's transform, and the silhouette points (differs from the box for a diamond).
+struct PickOutline {
     bool screenSpace = false;
-    Vec2 center{0, 0};  // local space, relative to the entity origin
-    Vec2 half{16, 16};
-    int layer = 0;
+    bool hasHull = false;
+    std::array<Vec2, 4> box{}, hull{};
+};
+
+// pick.cpp: pure functions over a World (no window, renderer or ImGui), so they can be tested headless.
+PickBounds pick_bounds(const World& w, Entity e, const VisualMeasure& measure);
+std::vector<PickOutline> pick_outlines(const World& w, Entity e, const PickBounds& b, Vec2 designSize);
+Vec2 pick_origin(const World& w, Entity e, const PickBounds& b, Vec2 designSize);
+// `point` is world xy for world-space entities and a design pixel for screen-space ones. On a hit, *layerOut gets the layer.
+bool pick_hit(const World& w, Entity e, const PickBounds& b, Vec2 point, Vec2 designSize, int* layerOut = nullptr);
+
+// ------------------------------------------------------------------------------------------------------
+// Dialog / panel state of the tools that wrap engine commands (logic: editor_tools.h, drawing: *_dialog.cpp).
+struct PrefabDialogState {
+    bool open = false;               // request to open the modal this frame
+    std::string entityId, entityName;
+    std::string path;
+    bool askOverwrite = false;       // prefab.save said already_exists: waiting for the user's decision
+    bool done = false;               // saved: show what the file left out
+    PrefabSaveOutcome result;
+};
+
+struct AsciiImportState {
+    bool visible = false;            // the window is shown
+    AsciiImportForm form;
+    std::string levelFile;           // "Load from file" selection
+    bool askUnsaved = false;         // importing into the scene being edited while it has unsaved changes
+    bool hasResult = false;
+    bool resultIsPreview = false;
+    AsciiImportOutcome result;
+    std::string loadError;
+    bool seeded = false;             // the defaults (rows, legend) were filled in once
+};
+
+struct FormatDialogState {
+    bool visible = false;
+    bool checked = false;            // the check ran; `check.files` lists what a real run would rewrite
+    FormatOutcome check, run;
+    bool ran = false;
 };
 
 class Editor {
@@ -134,7 +183,7 @@ public:
     void sync_scene_path();
     void install_command_overrides();
     bool save_scene_now();
-    void reload_scene_from_disk();
+    void reload_scene_from_disk(bool keepUndo = false);   // keepUndo: Ctrl+Z brings back what was on screen before
     void restore_scene(const Json& snapshot);
 
     // ---------------------------------------------------------------- play mode
@@ -169,7 +218,14 @@ public:
     void notify(const std::string& text, int level = 0);
     void focus_window(const char* name) { pendingFocus_ = name; }
     void run_console_line(const std::string& line);
+    // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
+    // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.import_ascii with `path`),
+    // so they neither take an undo snapshot nor mark the scene dirty; after_command() refreshes the file lists and, when
+    // scene.import_ascii rebuilt the scene file that is open, reloads it (Ctrl+Z brings back what was on screen).
+    bool command_edits_scene(const std::string& name, const Json& args) const;
+    void after_command(const std::string& name, const Json& args, const CommandResult& result);
     const TextureEntry* texture_for(const std::string& path);
+    VisualMeasure visual_measure();        // texture sizes and text layout for the engine's bounds code
     PickBounds bounds_of(Entity e);
     Entity pick_at(Vec2 designPos);
     bool primary_is_ortho();
@@ -188,6 +244,10 @@ public:
     void draw_console();
     void draw_ai_panel();
     void draw_feedback_panel();
+    void draw_audio_panel();
+    void draw_prefab_dialog();
+    void draw_ascii_import_window();
+    void draw_format_window();
     void draw_project_dialog();
     void draw_validation_window();
     void draw_docs_window();
@@ -250,7 +310,7 @@ public:
 
     // panel visibility
     bool showViewport_ = true, showHierarchy_ = true, showInspector_ = true, showAssets_ = true;
-    bool showConsole_ = true, showAi_ = true, showFeedback_ = true;
+    bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
@@ -275,7 +335,8 @@ public:
     double filesScanned_ = -10;
     const std::vector<std::string>& project_files();
     std::unordered_map<std::string, TextureEntry> textures_;
-    std::unordered_map<std::string, Vec2> imageSizes_;
+    struct ImageSizeEntry { Vec2 size{32, 32}; std::int64_t mtime = 0; };
+    std::unordered_map<std::string, ImageSizeEntry> imageSizes_;
 
     // console
     int consoleLevel_ = 2;  // index into {trace, debug, info, warn, error}
@@ -299,6 +360,25 @@ public:
     std::vector<std::string> recentProjects_;
     std::vector<std::string> detectedProjects_;
     bool dlgScanned_ = false;
+
+    // tools that wrap engine commands
+    PrefabDialogState prefabDlg_;
+    AsciiImportState importDlg_;
+    FormatDialogState formatDlg_;
+    AudioLogState audioLog_;
+    double audioPolled_ = -10;
+    void open_prefab_dialog(Entity e);
+    PrefabSaveOutcome do_prefab_save(bool overwrite);       // runs prefab.save for prefabDlg_ and updates its state
+    void open_ascii_import();
+    void load_ascii_level(const std::string& file);          // fills importDlg_.form from a levels/*.json file
+    bool ascii_import_touches_open_scene() const;            // file mode and the target is the scene being edited
+    void do_ascii_preview();                                 // dry run
+    void do_ascii_import();                                  // the real import; reloads the scene being edited if it was the target
+    void open_format_window();
+    void do_format_check();
+    void do_format_run();
+    void refresh_asset_lists();                              // the Assets panel and pickers look at the disk again
+    void poll_audio(bool force = false);
 
     // toasts
     std::vector<Toast> toasts_;
@@ -352,7 +432,31 @@ public:
     Vec3 atOriginalPos_{};
     std::uint64_t atStepFrame_ = 0;
     void at_check(bool cond, const std::string& what);
-    void inject_mouse(int type, Vec2 logicalPos);
+    void inject_mouse(int type, Vec2 logicalPos, int button = 0);   // button 0 = left, 1 = right (sapp_mousebutton)
+    // Widgets the autotest clicks with injected mouse events: name -> centre in logical (ImGui) coordinates. Filled by
+    // at_track() right after a widget is submitted, only when the autotest runs.
+    std::map<std::string, Vec2> atWidgets_;
+    std::map<std::string, std::uint64_t> atWidgetFrame_;   // uiFrame_ when the widget was last submitted
+    void at_track(const std::string& name);
+    Vec2 at_widget(const std::string& name);               // centre of a widget drawn in the last frames (fails the test otherwise)
+    bool at_visible(const std::string& name) const;        // was the widget submitted in the last frame?
+    // Second half of the autotest (autotest_tools.cpp): a script of steps, one per frame, each followed by a wait.
+    struct AtStep {
+        int wait = 1;
+        std::function<void()> run;
+    };
+    std::deque<AtStep> atSteps_;
+    int atStepAt_ = 0;
+    std::vector<std::function<void()>> atPostFrame_;       // run once after the UI was drawn (swapchain read-back)
+    Image atShotBefore_;
+    std::string atPrefabText_;
+    bool atPrefabBefore_ = false;
+    std::uint64_t atAudioAfter_ = 0;
+    std::size_t atAudioBase_ = 0;
+    bool atInspectorScrollEnd_ = false;                    // scroll the Inspector to the bottom (screenshots)
+    void at_build_tools_script();
+    void at_run_steps(int frame);
+    bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
     Vec2 atMouse_{};
     size_t atUndoBeforeAi_ = 0;
@@ -361,6 +465,10 @@ public:
     int atWaitCount_ = 0;
     void save_screenshot_now(const std::string& path);
 };
+
+// inspector.cpp: for a field documented "Only used when <flag> is true. ..." the bool field <flag> of the same component, else
+// nullptr. The inspector greys the field's name while the flag is off.
+const FieldInfo* inspector_switch_field(const TypeInfo& type, const FieldInfo& field);
 
 // Helpers shared across panel files.
 extern Editor* g_editor;

@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/scene/tilemap.h"
 
 namespace fa::editor {
 
@@ -49,6 +50,23 @@ std::string tooltip_text(const FieldInfo& f) {
     return t;
 }
 
+// Fields where 0 is not a quantity but "work it out": shown as such instead of a bare 0. Returns "" for every other field.
+// Only literal text (no '%'), because it replaces the number's format string.
+std::string zero_label(const TypeInfo& t, const FieldInfo& f, void* comp) {
+    if (t.name == "Tilemap" && f.name == "columns") {
+        // Say what it works out to: whole tiles of tileSize.x across the tileset image.
+        const Tilemap& tm = *static_cast<const Tilemap*>(comp);
+        if (g_editor && g_editor->has_project() && !tm.tileset.empty()) {
+            const int cols = tileset_columns(tm, int(g_editor->image_size_of(tm.tileset).x));
+            if (cols > 0) return "0 (derived: " + std::to_string(cols) + " from the tileset)";
+        }
+        return "0 (derived from the tileset)";
+    }
+    if (t.name == "Camera" && f.name == "orthoSize") return "0 (design resolution)";
+    if (t.name == "Text" && f.name == "maxWidth") return "0 (no wrapping)";
+    return {};
+}
+
 void doc_tooltip(const std::string& text) {
     if (text.empty() || !ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) return;
     ImGui::BeginTooltip();
@@ -58,6 +76,19 @@ void doc_tooltip(const std::string& text) {
     ImGui::EndTooltip();
 }
 }  // namespace
+
+// "Only used when bloom is true. ..." -> the bool field `bloom` of the same component, or nullptr. Used to dim the fields
+// that have no effect right now (they stay editable: you can tune the glow before switching it on).
+const FieldInfo* inspector_switch_field(const TypeInfo& t, const FieldInfo& f) {
+    static const std::string kPrefix = "Only used when ";
+    if (f.doc.compare(0, kPrefix.size(), kPrefix) != 0) return nullptr;
+    const size_t end = f.doc.find(" is true", kPrefix.size());
+    if (end == std::string::npos) return nullptr;
+    const std::string name = f.doc.substr(kPrefix.size(), end - kPrefix.size());
+    for (const FieldInfo& o : t.fields)
+        if (o.name == name && o.kind == FieldKind::Bool) return &o;
+    return nullptr;
+}
 
 bool Editor::draw_field(Entity e, const TypeInfo& t, const FieldInfo& f, void* comp) {
     void* p = f.ptr(comp);
@@ -83,14 +114,22 @@ bool Editor::draw_field(Entity e, const TypeInfo& t, const FieldInfo& f, void* c
         }
         case FieldKind::Int: {
             int v = *static_cast<std::int32_t*>(p);
-            bool ok = bounded ? ImGui::DragInt("##v", &v, 1.0f, int(f.minValue), int(f.maxValue)) : ImGui::DragInt("##v", &v, 1.0f);
+            // 0 that means "decide for me" reads as such (Tilemap.columns: derived from the tileset image).
+            const std::string zero = v == 0 ? zero_label(t, f, comp) : std::string();
+            const char* fmt = zero.empty() ? "%d" : zero.c_str();
+            // AlwaysClamp: typing a value (Ctrl+click) must respect the declared range too, as patch_component would refuse it.
+            bool ok = bounded ? ImGui::DragInt("##v", &v, 1.0f, int(f.minValue), int(f.maxValue), fmt, ImGuiSliderFlags_AlwaysClamp)
+                              : ImGui::DragInt("##v", &v, 1.0f, 0, 0, fmt);
             if (ok) commit(v);
             break;
         }
         case FieldKind::Float: {
             float v = *static_cast<float*>(p);
             const float speed = bounded ? std::max(0.0005f, (f.maxValue - f.minValue) / 250.0f) : std::max(0.01f, std::fabs(v) * 0.01f);
-            bool ok = bounded ? ImGui::DragFloat("##v", &v, speed, f.minValue, f.maxValue, "%.3f") : ImGui::DragFloat("##v", &v, speed, 0, 0, "%.3f");
+            const std::string zero = v == 0.0f ? zero_label(t, f, comp) : std::string();
+            const char* fmt = zero.empty() ? "%.3f" : zero.c_str();
+            bool ok = bounded ? ImGui::DragFloat("##v", &v, speed, f.minValue, f.maxValue, fmt, ImGuiSliderFlags_AlwaysClamp)
+                              : ImGui::DragFloat("##v", &v, speed, 0, 0, fmt);
             if (ok) commit(to_json(v));
             break;
         }
@@ -104,17 +143,17 @@ bool Editor::draw_field(Entity e, const TypeInfo& t, const FieldInfo& f, void* c
         }
         case FieldKind::Vec2: {
             Vec2 v = *static_cast<Vec2*>(p);
-            if (ImGui::DragFloat2("##v", &v.x, bounded ? (f.maxValue - f.minValue) / 250.0f : 0.1f, f.minValue, f.maxValue, "%.2f")) commit(to_json(v));
+            if (ImGui::DragFloat2("##v", &v.x, bounded ? (f.maxValue - f.minValue) / 250.0f : 0.1f, f.minValue, f.maxValue, "%.2f", ImGuiSliderFlags_AlwaysClamp)) commit(to_json(v));
             break;
         }
         case FieldKind::Vec3: {
             Vec3 v = *static_cast<Vec3*>(p);
-            if (ImGui::DragFloat3("##v", &v.x, bounded ? (f.maxValue - f.minValue) / 250.0f : 0.1f, f.minValue, f.maxValue, "%.2f")) commit(to_json(v));
+            if (ImGui::DragFloat3("##v", &v.x, bounded ? (f.maxValue - f.minValue) / 250.0f : 0.1f, f.minValue, f.maxValue, "%.2f", ImGuiSliderFlags_AlwaysClamp)) commit(to_json(v));
             break;
         }
         case FieldKind::Vec4: {
             Vec4 v = *static_cast<Vec4*>(p);
-            if (ImGui::DragFloat4("##v", &v.x, bounded ? (f.maxValue - f.minValue) / 250.0f : 0.1f, f.minValue, f.maxValue, "%.2f")) commit(to_json(v));
+            if (ImGui::DragFloat4("##v", &v.x, bounded ? (f.maxValue - f.minValue) / 250.0f : 0.1f, f.minValue, f.maxValue, "%.2f", ImGuiSliderFlags_AlwaysClamp)) commit(to_json(v));
             break;
         }
         case FieldKind::Rect: {
@@ -260,9 +299,11 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& t) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::AlignTextToFramePadding();
-                if (!f.serialized) ImGui::TextDisabled("%s", f.name.c_str());
+                const FieldInfo* sw = inspector_switch_field(t, f);
+                const bool inactive = sw && !*static_cast<bool*>(sw->ptr(comp));
+                if (!f.serialized || inactive) ImGui::TextDisabled("%s", f.name.c_str());
                 else ImGui::TextUnformatted(f.name.c_str());
-                doc_tooltip(tooltip_text(f));
+                doc_tooltip(inactive ? tooltip_text(f) + "\n\nNo effect while " + sw->name + " is off." : tooltip_text(f));
                 ImGui::TableSetColumnIndex(1);
                 ImGui::PushID(f.name.c_str());
                 ImGui::BeginDisabled(f.readOnly);
@@ -416,6 +457,7 @@ void Editor::draw_inspector() {
         ImGui::EndChild();
         ImGui::EndPopup();
     }
+    if (atInspectorScrollEnd_) ImGui::SetScrollY(ImGui::GetScrollMaxY());  // autotest screenshots of the last fields
     ImGui::End();
 }
 

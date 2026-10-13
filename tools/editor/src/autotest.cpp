@@ -65,27 +65,43 @@ void Editor::at_check(bool cond, const std::string& what) {
 }
 
 void Editor::save_screenshot_now(const std::string& path) {
-    const int w = sapp_width(), h = sapp_height();
     Image img;
-    img.width = w;
-    img.height = h;
-    img.rgba.resize(size_t(w) * size_t(h) * 4);
-    if (!ui::read_backbuffer(w, h, img.rgba.data())) {
+    if (!capture_window(img)) {
         at_check(false, "read back the swapchain for " + path);
         return;
     }
-    for (size_t i = 3; i < img.rgba.size(); i += 4) img.rgba[i] = 255;
     auto r = save_png(img, path);
     at_check(bool(r), "saved window screenshot " + path + (r ? "" : " (" + r.error().to_string() + ")"));
 }
 
-void Editor::inject_mouse(int type, Vec2 logicalPos) {
+void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
     sapp_event ev{};
     ev.type = sapp_event_type(type);
     ev.mouse_x = logicalPos.x * dpi_;
     ev.mouse_y = logicalPos.y * dpi_;
-    ev.mouse_button = type == SAPP_EVENTTYPE_MOUSE_MOVE ? SAPP_MOUSEBUTTON_INVALID : SAPP_MOUSEBUTTON_LEFT;
+    ev.mouse_button = type == SAPP_EVENTTYPE_MOUSE_MOVE ? SAPP_MOUSEBUTTON_INVALID : (button == 1 ? SAPP_MOUSEBUTTON_RIGHT : SAPP_MOUSEBUTTON_LEFT);
     on_event(&ev);
+}
+
+void Editor::at_track(const std::string& name) {
+    if (!autotest_) return;
+    const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+    atWidgets_[name] = Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
+    atWidgetFrame_[name] = uiFrame_;
+}
+
+bool Editor::at_visible(const std::string& name) const {
+    auto it = atWidgetFrame_.find(name);
+    return it != atWidgetFrame_.end() && it->second + 1 >= uiFrame_;
+}
+
+Vec2 Editor::at_widget(const std::string& name) {
+    auto it = atWidgets_.find(name);
+    if (it == atWidgets_.end() || !at_visible(name)) {
+        at_check(false, "widget '" + name + "' is on screen (so the autotest can click it)");
+        return it == atWidgets_.end() ? Vec2{0, 0} : it->second;
+    }
+    return it->second;
 }
 
 void Editor::inject_key(int type, int keyCode) {
@@ -321,17 +337,20 @@ void Editor::autotest_pre_frame() {
         stop();
         at_check(near(player_pos(), atOriginalPos_) || true, "stop after input test");
     } else if (f == 134) {
-        Json report = Json::object({{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}});
-        (void)save_json_file(out + "autotest_result.json", report);
-        FA_INFO("autotest", "finished: {} failure(s)", atFailures_.size());
-        sapp_request_quit();
-    } else if (f > 600) {
+        // The viewport/play checks are done; the rest drives the tools that wrap engine commands (autotest_tools.cpp) and
+        // writes the report and quits when its last step has run.
+        at_build_tools_script();
+        atStepAt_ = f + 2;
+    } else if (f > 3000) {
         at_check(false, "autotest finished within the frame budget");
         sapp_request_quit();
     }
+    if (f > 134) at_run_steps(f);
 }
 
 void Editor::autotest_post_frame(bool&) {
+    for (auto& hook : atPostFrame_) hook();
+    atPostFrame_.clear();
     if (atPendingShots_.empty()) return;
     for (const auto& p : atPendingShots_) save_screenshot_now(p);
     atPendingShots_.clear();

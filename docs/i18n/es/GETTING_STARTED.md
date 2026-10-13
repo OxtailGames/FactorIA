@@ -325,7 +325,7 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 | Compilación en macOS, Windows, iOS y Android | Scripts y presets listos; sin probar todavía en esas plataformas. El código móvil no se ha podido compilar en la máquina de desarrollo (`docs/MOBILE.md`) |
 | Motor: escenas, scripts de JavaScript, render 2D y 3D, física (incluidas plataformas de un sentido y tilemaps), partículas y capturas | Funciona en Linux. El audio no se ha probado en el entorno de documentación |
 | CLI `factoria`: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Funciona en Linux |
-| `factoria editor` (editor visual) | Incluido en las builds de escritorio. Necesita pantalla; no probado en el entorno de documentación |
+| `factoria editor` (editor visual) | Incluido en las builds de escritorio (`docs/EDITOR.md`, en inglés). Necesita pantalla. En Linux las pruebas `editor_autotest` de ctest lo ejercitan de punta a punta con `xvfb-run` |
 | Plantillas de proyecto (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Funciona |
 | Servidor MCP para Claude Code y Codex (`factoria mcp`) | Funciona |
 | IA integrada con clave de API (`factoria ai`) | `doctor`, `providers` y `config` funcionan. `ai run` necesita una clave de API o una CLI instalada (Claude Code o Codex) |
