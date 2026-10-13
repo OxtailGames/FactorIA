@@ -29,10 +29,11 @@ Lists templates with dimension and description.
 Checks `factoria.json`, every scene/prefab, asset references, `ENGINE_FEEDBACK.json` and the JavaScript syntax of
 `scripts/**/*.js` and `tools/*.js`. Messages give file, JSON pointer, the problem and a fix. Exit 1 on any error.
 
-### `factoria export [project] [--platform P] [--out DIR] [--release] [--player PATH] [--json]`
+### `factoria export [project] [--platform P] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android Gradle project, iOS project). Without `--platform` the
-current machine's platform is used; `--player` selects the `factoria_player` binary to bundle. Prints the output
-folder and the next steps.
+current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`.
+`--player` selects the `factoria_player` binary to bundle; `--engine-root` the engine checkout for Android/iOS.
+Prints the output folder, warnings and the next steps.
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor).

@@ -335,6 +335,7 @@ public:
     double aiCost_ = 0;
     bool aiScrollDown_ = false;
     std::shared_ptr<CommandRegistry> aiProxy_;
+    ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
 
     // autotest
     bool autotest_ = false;
@@ -350,6 +351,12 @@ public:
     Vec3 atOriginalPos_{};
     std::uint64_t atStepFrame_ = 0;
     void at_check(bool cond, const std::string& what);
+    void inject_mouse(int type, Vec2 logicalPos);
+    void inject_key(int type, int keyCode);
+    Vec2 atMouse_{};
+    size_t atUndoBeforeAi_ = 0;
+    bool atWaitAi_ = false;
+    int atWaitCount_ = 0;
     void save_screenshot_now(const std::string& path);
 };
 

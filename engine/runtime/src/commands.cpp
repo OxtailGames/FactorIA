@@ -213,7 +213,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, position?}. Optional parent id. "
            "Returns the created entity (with defaults) plus load messages. Example: "
            "scene.spawn {\"name\":\"Coin\",\"components\":{\"Transform\":{\"position\":[100,50,0]},"
-           "\"Shape2D\":{\"type\":\"circle\",\"size\":[20,20],\"color\":\"gold\"}}}  or  "
+           "\"Shape2D\":{\"shape\":\"circle\",\"size\":[20,20],\"color\":\"gold\"}}}  or  "
            "scene.spawn {\"prefab\":\"prefabs/enemy.prefab.json\",\"position\":[300,0]}",
            parse_schema(R"({"type":"object","properties":{
                "prefab":{"type":"string","description":"Project-relative prefab path to instantiate."},

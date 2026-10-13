@@ -88,12 +88,14 @@ property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
 ```js
 // <project>/tools/spawn_wave.js
+import { world } from "factoria";
+
 export default {
   name: "spawn_wave",                         // -> command "project.spawn_wave", MCP tool "project_spawn_wave"
   summary: "Spawn a wave of enemies around the player.",
   input: { type: "object", properties: { count: { type: "integer", default: 5 } } },
   readOnly: false,
-  run({ count }, { world }) {
+  run({ count }) {
     for (let i = 0; i < count; i++) world.spawnPrefab("prefabs/enemy.prefab.json");
     return { spawned: count };
   },

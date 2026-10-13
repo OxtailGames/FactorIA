@@ -99,7 +99,7 @@ Plantillas disponibles:
 - `2d-platformer`: plataformas con física, monedas, marcador y una cámara que sigue al jugador.
 - `3d-empty`: una cámara de vuelo, una luz, un suelo y un cubo que gira.
 
-`factoria new --list` muestra las plantillas.
+`factoria templates` muestra las plantillas disponibles con su descripción.
 
 El proyecto contiene:
 
@@ -130,14 +130,17 @@ Se abre una ventana con el juego. Los controles están definidos en `factoria.js
 Sin ventana, el juego avanza sin dibujar en pantalla. El resultado es determinista: con la misma semilla y las mismas entradas se obtienen los mismos fotogramas.
 
 ```bash
-factoria run --headless --frames 120 --screenshot 119
+factoria run --headless --frames 120 --screenshot-at 119
 ```
 
 - Simula 120 fotogramas, es decir, 2 segundos de juego a 60 por segundo.
 - Guarda una captura en `.factoria/screenshots/`, por defecto `frame_119.png`. Ábrela y comprueba que muestra lo que esperabas.
 - Los fotogramas empiezan en 0 y la captura del fotograma N se toma después de simularlo. Por eso, con 120 fotogramas, la captura es la 119.
-- `--state out.json` guarda el estado del mundo en JSON: entidades, componentes, registros y errores.
+- `--state-out out.json` guarda el estado del mundo en JSON: entidades, componentes, registros y errores.
 - `--record-audio out.wav` guarda el sonido mezclado, para comprobar que el juego suena.
+- `--input replay.json` aplica una secuencia de pulsaciones fotograma a fotograma, por ejemplo `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
+- Para una sola captura, `factoria screenshot --frames 120 --out shot.png` simula los fotogramas indicados y guarda la imagen.
+- `--json` imprime el informe en JSON, con las rutas de las capturas.
 
 ## 5. Validación y tests (en desarrollo)
 
@@ -192,6 +195,12 @@ claude
 
 ```json
 { "mcpServers": { "factoria": { "command": "factoria", "args": ["mcp", "--project", "."] } } }
+```
+
+Si tu proyecto no tiene `.mcp.json`, el mismo servidor se añade con:
+
+```bash
+claude mcp add factoria -- factoria mcp --project .
 ```
 
 3. Abre `claude` dentro de la carpeta del juego. La primera vez, es posible que te pida aprobar el servidor `factoria`.
@@ -256,7 +265,7 @@ Cada tarea usa un rol. En `~/.factoria/ai.json` puedes asignar un proveedor y un
 | Trabajador (`worker`) | Implementa funciones y arreglos | `claude-sonnet-5-5`, esfuerzo `medium` |
 | Rápido (`fast`) | Cambios mecánicos y pequeños | `claude-haiku-5-5`, esfuerzo `max` |
 
-`factoria ai run` usa el rol orquestador, salvo que indiques otro con las opciones `role`, `provider` o `model`.
+`factoria ai run` usa el rol orquestador, salvo que indiques otro con `--role orchestrator|worker|fast`. También puedes elegir proveedor y modelo con `--provider` y `--model`, y limitar la ejecución con `--max-turns` y `--max-cost` (en dólares).
 
 Los límites `maxTurns` (número de pasos) y `maxCostUsd` (coste máximo en dólares) detienen una ejecución cuando se alcanzan. Las cifras de coste son estimaciones: manda la factura del proveedor.
 
@@ -314,6 +323,7 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 
 ## 9. Dónde seguir leyendo
 
+- `factoria help <comando>` muestra la ayuda y ejemplos de cada comando (en desarrollo). `docs/CLI.md` describe todos los comandos y opciones.
 - `docs/ARCHITECTURE.md`: diseño, módulos y convenciones.
 - `docs/SCRIPTING.md`: la API de JavaScript: comportamientos, herramientas y tests.
 - `docs/AI_GUIDE.md`: la guía completa para una IA que construye un juego. Si eres una IA, léela antes de tocar un juego. Está disponible también con `factoria docs read ai-guide` (en desarrollo).

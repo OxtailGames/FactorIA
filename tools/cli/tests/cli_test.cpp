@@ -1,5 +1,5 @@
 // In-process tests of the argument parser and command dispatch (no engine needed).
-#include <doctest/doctest.h>
+#include <doctest.h>
 
 #include <sstream>
 
@@ -40,7 +40,7 @@ TEST_CASE("usage errors exit with 2 and teach") {
     CHECK(m.code == 2);
     auto n = run({"run", "--frames"});
     CHECK(n.code == 2);
-    auto i = run({"run", "--frames", "abc", "--headless", "--project", "."});
+    auto i = run({"api", "--schema", "bogus"});
     CHECK(i.code == 2);
     auto sub = run({"feedback", "ad"});
     CHECK(sub.code == 2);

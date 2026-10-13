@@ -63,6 +63,7 @@ void Editor::ai_start(const std::string& task) {
     {
         std::lock_guard<std::mutex> lock(aiMu_);
         cfg = aiConfig_;
+        if (cfg.providers.empty()) cfg = ai::default_config();
         if (aiProvider_ > 0 && size_t(aiProvider_ - 1) < aiStatus_.size()) providerOverride = aiStatus_[size_t(aiProvider_ - 1)].name;
     }
     static const char* roles[] = {ai::kRoleOrchestrator, ai::kRoleWorker, ai::kRoleFast};
@@ -82,8 +83,10 @@ void Editor::ai_start(const std::string& task) {
     aiProxy_ = make_proxy_registry();
     auto proxy = aiProxy_;
     aiRunning_ = true;
-    aiThread_ = std::thread([this, cfg, opt, task, proxy] {
+    ai::ProviderFactory factory = aiFactory_;
+    aiThread_ = std::thread([this, cfg, opt, task, proxy, factory] {
         ai::AgentSession session(*proxy, cfg, opt);
+        if (factory) session.set_provider_factory(factory);
         session.set_event_handler([this](const ai::AgentEvent& ev) {
             std::lock_guard<std::mutex> lock(aiMu_);
             aiPending_.push_back(ev);

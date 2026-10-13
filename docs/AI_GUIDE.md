@@ -103,7 +103,7 @@ Without MCP, use `factoria call feedback.report '{...}'` (CLI, planned), or add 
 
 ## 4. Using the MCP tools
 
-A tool name is the command name with `.` replaced by `_`. Arguments are one JSON object. Results are JSON, and a screenshot comes back as an image. A failure returns `code`, `message` and `hint`; the hint says how to fix it. An unknown name returns a "did you mean" suggestion. `docs_commands` lists every command with its `inputSchema`, so use it to get exact argument names.
+A tool name is the command name with `.` replaced by `_`. Arguments are one JSON object. Results are JSON, and a screenshot comes back as an image. A failure returns `code`, `message` and `hint`; the hint says how to fix it. An unknown name returns a "did you mean" suggestion. `docs_commands` lists every command with its `inputSchema`, so use it to get exact argument names. The CLI equivalent is `factoria commands` (planned), and `factoria call <command> '<json>'` runs any command from a shell.
 
 | Tool | Command | Purpose |
 |---|---|---|
@@ -595,10 +595,10 @@ test("player runs right", () => {
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
 
 - Errors name their location (file and JSON pointer), what is wrong and how to fix it. Unknown component or field names come with a "did you mean" hint. Read the hint first.
-- Black or empty screenshot: check for a primary `Camera`, that sprites have a `layer` and a size, that colours are 0..1, and that world and screen space are not mixed up.
+- Black or empty screenshot: check for a primary `Camera`, that sprites have a `layer` and a size, that colours are 0..1, and that world and screen space are not mixed up. If the machine has no GPU, the engine runs in logic-only mode and `game_screenshot` says so. Then rely on `game_state` and `game_logs`.
 - Body that does not move: check its `type` (static never moves), that it has a collider, its `layer` and `mask`, and the sign of gravity in `settings.gravity2D`.
 - Results differ between runs: look for `Math.random`, `Date.now`, or timing. Headless runs are deterministic only when those are absent.
-- Reproduce a bug with an input replay file for a headless run (`factoria run --headless`, planned). Frames are 0-based, and an entry applies before its frame runs:
+- Reproduce a bug with an input replay file for a headless run (`factoria run --headless --input replay.json`, planned). Frames are 0-based, and an entry applies before its frame runs:
 
 ```json
 { "frames": { "0": { "press": ["jump"] }, "30": { "release": ["jump"] } } }

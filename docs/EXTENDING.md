@@ -589,11 +589,12 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 Each game records what the engine lacked in its `ENGINE_FEEDBACK.json` (`docs/ENGINE_FEEDBACK.md`). Engine developers merge those files to decide what to build next.
 
 ```bash
-factoria feedback collect ~/games/*/ENGINE_FEEDBACK.json --format md     # (planned)
-factoria feedback collect ~/games --format json --include-closed         # (planned)
+factoria feedback collect games/ examples/ --out roadmap.md                  # (planned)
+factoria feedback collect games/ --out roadmap.json --include-closed         # (planned)
 ```
 
 - **Inputs.** Files, or directories. A directory contributes its `ENGINE_FEEDBACK.json` and any below it.
+- **Output file.** `--out` writes the Markdown report, or the JSON report when the name ends in `.json`.
 - **Scoring.** `score = sum(occurrences) x severity weight`, with weights blocker 8, major 4, minor 2 and nice-to-have 1. Only `open` entries count unless `--include-closed` is given.
 - **Grouping.** Entries in the same category with similar titles form one cluster. Titles are compared by token overlap and edit distance, with a default threshold of 0.7.
 - **Output (JSON).** `sources`, `projects`, `totalEntries`, `errors` and `clusters`. Each cluster has `rank`, `title`, `category`, `severity`, `score`, `totalOccurrences`, `projects`, `entries` (with `project`, `id`, `severity` and `status`), `bestSuggestion` and `sampleWorkarounds`.
