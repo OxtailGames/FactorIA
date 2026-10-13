@@ -901,6 +901,22 @@ declare module "factoria" {
      * Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).
      */
     depth: number;
+    /**
+     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius.
+     */
+    bloom: boolean;
+    /**
+     * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
+     */
+    bloomThreshold: number;
+    /**
+     * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
+     */
+    bloomIntensity: number;
+    /**
+     * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
+     */
+    bloomRadius: number;
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -1646,7 +1662,7 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
@@ -1700,6 +1716,14 @@ declare module "factoria:test" {
     toBeInstanceOf(cls: Function): void;
     toThrow(expected?: string | RegExp | Function): void;
     /**
+     * For expect(game.audioLog()): passes when a clip was played (path = project-relative path, file name like "jump.wav", or RegExp). times = exact count; plays whose clip failed to load do not count.
+     */
+    toContainPlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
+     * Same as toContainPlayed.
+     */
+    toHavePlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
      * Negates the matcher.
      */
     readonly not: Expectation;
@@ -1713,6 +1737,45 @@ declare module "factoria:test" {
   export interface DescribeFn {
     (name: string, fn: () => void): void;
     skip(name: string, fn: () => void): void;
+  }
+
+  /**
+   * One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.
+   */
+  export interface AudioPlay {
+    /**
+     * Increasing id.
+     */
+    readonly seq: number;
+    /**
+     * time.frame when the sound was requested.
+     */
+    readonly frame: number;
+    /**
+     * time.elapsed (seconds) when the sound was requested.
+     */
+    readonly time: number;
+    /**
+     * Project-relative clip path.
+     */
+    readonly path: string;
+    readonly volume: number;
+    readonly pitch: number;
+    readonly pan: number;
+    readonly bus: "sfx" | "music" | "ui";
+    readonly loop: boolean;
+    /**
+     * Started with audio.music() or SceneSettings.music.
+     */
+    readonly music: boolean;
+    /**
+     * Id of the entity whose AudioSource played it; "" for scripts and music.
+     */
+    readonly source: string;
+    /**
+     * false when the clip could not be loaded (the error is in the log).
+     */
+    readonly ok: boolean;
   }
 
   /**
@@ -1765,6 +1828,14 @@ declare module "factoria:test" {
      * JSON dump of the game state.
      */
     state(): Json;
+    /**
+     * Sounds played since the current test started (cleared before each test), oldest first. Assert with expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav").
+     */
+    audioLog(): AudioPlay[];
+    /**
+     * Empties the audio log (e.g. after setup, before the action under test).
+     */
+    clearAudioLog(): void;
   }
 
   /**

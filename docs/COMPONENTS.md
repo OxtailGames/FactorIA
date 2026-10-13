@@ -41,6 +41,10 @@ Renders the scene to the screen. The active camera with primary=true and the low
 | `clear` | bool | `true` | Clear the target before drawing. Set false on overlay cameras that draw on top of another camera. |
 | `primary` | bool | `true` | The first active primary camera renders the game. |
 | `depth` | int | `0` | Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap). |
+| `bloom` | bool | `false` | Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius. |
+| `bloomThreshold` | float | `0.7` | Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99). Range 0.0..1.0. |
+| `bloomIntensity` | float | `1.2` | Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10. Range 0.0..10.0. |
+| `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. |
 
 ## 2D
 
@@ -374,6 +378,20 @@ Example: assets.list {"folder":"assets","extension":".png"}
 |---|---|---|---|
 | `folder` | string | no | Project-relative folder. Default "assets". |
 | `extension` | string | no | Only files with this extension, e.g. .png |
+
+## audio
+
+### `audio.log`
+
+List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
+
+Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `after` | integer | no | Only entries with seq greater than this. Default 0. |
+| `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
+| `max` | integer | no | Return at most this many (the newest). Default 200. |
 
 ## docs
 
@@ -730,6 +748,23 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name). |
+
+### `scene.import_ascii` (modifies state)
+
+Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
+
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; when you pass tileset or tileSize without columns, columns is set to the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `save` writes the current scene file like scene.save. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"save":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
+| `legend` | object | yes | Glyph -> tile index (integer, -1 = empty) or {tile?: int, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
+| `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
+| `save` | boolean | no | Also write the current scene file (like scene.save) so one call is enough. Default false. |
+| `position` | array | no | [x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is. |
+| `anchor` | string ["top-left","bottom-left","center"] | no | Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin. |
 
 ### `scene.list_entities`
 
@@ -1735,6 +1770,22 @@ declare module "factoria" {
      * Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).
      */
     depth: number;
+    /**
+     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius.
+     */
+    bloom: boolean;
+    /**
+     * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
+     */
+    bloomThreshold: number;
+    /**
+     * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
+     */
+    bloomIntensity: number;
+    /**
+     * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
+     */
+    bloomRadius: number;
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -2480,7 +2531,7 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
@@ -2534,6 +2585,14 @@ declare module "factoria:test" {
     toBeInstanceOf(cls: Function): void;
     toThrow(expected?: string | RegExp | Function): void;
     /**
+     * For expect(game.audioLog()): passes when a clip was played (path = project-relative path, file name like "jump.wav", or RegExp). times = exact count; plays whose clip failed to load do not count.
+     */
+    toContainPlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
+     * Same as toContainPlayed.
+     */
+    toHavePlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
      * Negates the matcher.
      */
     readonly not: Expectation;
@@ -2547,6 +2606,45 @@ declare module "factoria:test" {
   export interface DescribeFn {
     (name: string, fn: () => void): void;
     skip(name: string, fn: () => void): void;
+  }
+
+  /**
+   * One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.
+   */
+  export interface AudioPlay {
+    /**
+     * Increasing id.
+     */
+    readonly seq: number;
+    /**
+     * time.frame when the sound was requested.
+     */
+    readonly frame: number;
+    /**
+     * time.elapsed (seconds) when the sound was requested.
+     */
+    readonly time: number;
+    /**
+     * Project-relative clip path.
+     */
+    readonly path: string;
+    readonly volume: number;
+    readonly pitch: number;
+    readonly pan: number;
+    readonly bus: "sfx" | "music" | "ui";
+    readonly loop: boolean;
+    /**
+     * Started with audio.music() or SceneSettings.music.
+     */
+    readonly music: boolean;
+    /**
+     * Id of the entity whose AudioSource played it; "" for scripts and music.
+     */
+    readonly source: string;
+    /**
+     * false when the clip could not be loaded (the error is in the log).
+     */
+    readonly ok: boolean;
   }
 
   /**
@@ -2599,6 +2697,14 @@ declare module "factoria:test" {
      * JSON dump of the game state.
      */
     state(): Json;
+    /**
+     * Sounds played since the current test started (cleared before each test), oldest first. Assert with expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav").
+     */
+    audioLog(): AudioPlay[];
+    /**
+     * Empties the audio log (e.g. after setup, before the action under test).
+     */
+    clearAudioLog(): void;
   }
 
   /**
