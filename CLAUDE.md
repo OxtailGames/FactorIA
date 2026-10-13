@@ -55,3 +55,18 @@ ctest --test-dir build/dev --output-on-failure
   top. Translations are not embedded in the binary (AIs read English).
 - Record engine gaps you notice while building examples in the example's
   `ENGINE_FEEDBACK.json` — the same loop we ask game-making AIs to follow.
+
+## Models for agent work (every session on this project)
+
+Split work across models the same way the engine's own AI roles do
+(docs/AI_PROVIDERS.md). This holds for every Claude Code session on this
+repository, not only the one where it was agreed:
+
+- **Orchestrator — `opus`.** The main session: plans, triages feedback, splits
+  work into packages, reviews and integrates the results, runs the full test
+  suite, commits and pushes.
+- **Workers — `sonnet`.** Implement features and fixes (Agent tool with
+  `model: "sonnet"`). One work package per worker, each in its own git worktree
+  or its own build dir (`build/agent-<name>`, `-j2`), with tests and docs.
+- **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`): code searches,
+  regenerating docs/typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
