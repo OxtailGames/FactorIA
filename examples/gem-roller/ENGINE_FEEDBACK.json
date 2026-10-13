@@ -140,6 +140,89 @@
       "suggestion": "Add 'factoria test'/'run --no-render' (logic only) and render only on screenshot frames; make game.step(n) skip rendering except the last frame.",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "gem-roller-builder",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-3d",
+      "severity": "minor",
+      "title": "ParticleEmitter burst does nothing when emitting is false",
+      "missing": "Docs say burst is 'emitted once when the emitter starts' but a one-shot effect with emitting:false, burst:40 shows no particles; it only bursts when emitting is true. For a one-shot gem sparkle I expected emitting:false + burst to work; nothing logged either.",
+      "workaround": "scripts/gem.js spawns an emitter with emitting:true, rate:0, burst:40 and destroys it after 1.5 s via a game.js timer.",
+      "workaroundFiles": [
+        "scripts/gem.js",
+        "scripts/game.js"
+      ],
+      "suggestion": "Make burst fire regardless of emitting, add an emitter 'oneShot/autoDestroy' option (destroy entity when done) and a script-callable emitter.burst(n).",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "gem-roller-builder",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "Deferred destroy makes entity ids of just-destroyed entities unusable",
+      "missing": "world.spawn with an explicit id right after destroy() of an entity with the same id (e.g. a tool that clears and re-places gems in one frame) warns 'id already used; renamed to gem_2_2', so ids are not stable/predictable.",
+      "workaround": "tools/scatter_gems.js picks a free id (suffix _rN) when world.find(id) still returns the doomed entity.",
+      "workaroundFiles": [
+        "tools/scatter_gems.js"
+      ],
+      "suggestion": "Free the id immediately on destroy(), or offer entity.destroyNow()/world.flush() for tools and tests.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "gem-roller-builder",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "No 3D gameplay recipes in the AI guide",
+      "missing": "Recipes (platformer, top-down, camera follow, collisions) are all 2D. For a 3D rolling-ball game I had to discover by experiment: camera yaw convention (forward=(-sin,-cos)), that 3D triggers need a RigidBody3D static to fire, a 3D ground check, how kinematic 3D bodies behave, and a 3D chase camera with onLateUpdate.",
+      "workaround": "Experimented with probe tests (tests/gem_roller.test.js covers the results).",
+      "workaroundFiles": [
+        "scripts/ball.js",
+        "scripts/chase_camera.js",
+        "scripts/gem.js"
+      ],
+      "suggestion": "Add 3D recipes: chase camera, camera-relative movement, ground check, trigger pickups, moving platforms, and a note on which components a 3D trigger needs.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "gem-roller-builder",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Tests cannot fast-forward without rendering or inspect script state conveniently",
+      "missing": "game.find(id).behaviour exposes script fields, but there is no documented way to read it (found by trial); and game.step cannot be told to skip shadows/rendering for long simulations.",
+      "workaround": "Tests mutate behaviour fields (timeLeft, yaw) directly and teleport the ball to gems.",
+      "workaroundFiles": [
+        "tests/gem_roller.test.js"
+      ],
+      "suggestion": "Document entity.behaviour in the testing section and add game.step(n,{render:false}).",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

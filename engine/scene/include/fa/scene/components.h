@@ -57,6 +57,13 @@ struct Camera {
 enum class RenderSpace : std::int32_t { World, Screen };
 // Screen space = UI/HUD: position is in design-resolution pixels with (0,0) at
 // the TOP-LEFT and +Y DOWN; drawn after the world, unaffected by cameras.
+// `anchor` (screen space only) picks the screen point the position is relative
+// to: (0,0) top-left (default), (1,0) top-right, (0.5,0.5) center, (1,1)
+// bottom-right — so HUDs stay glued to screen edges on any aspect ratio.
+
+// How a 2D item is composited: alpha (default), additive (glow/neon, fire,
+// lasers), multiply (shadows, tinting).
+enum class BlendMode : std::int32_t { Alpha, Additive, Multiply };
 
 enum class Align : std::int32_t { Left, Center, Right };
 
@@ -71,6 +78,8 @@ struct Sprite {
     std::int32_t layer = 0;           // draw order: higher layers draw on top; ties sort by position.y (lower y on top) then creation
     RenderSpace space = RenderSpace::World;
     bool pixelArt = true;             // nearest-neighbour filtering when true, linear otherwise
+    BlendMode blend = BlendMode::Alpha;
+    Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to (see above)
 };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
@@ -97,6 +106,9 @@ struct Shape2D {
     float thickness = 2.0f;           // outline / line thickness in world units
     std::int32_t layer = 0;
     RenderSpace space = RenderSpace::World;
+    Vec2 pivot{0.5f, 0.5f};           // rectangle/circle/triangle anchor within the shape: 0,0 = bottom-left, 1,1 = top-right
+    BlendMode blend = BlendMode::Alpha;
+    Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
 };
 
 struct Text {
@@ -109,6 +121,7 @@ struct Text {
     float maxWidth = 0.0f;            // > 0 wraps lines at this width
     std::int32_t layer = 100;
     RenderSpace space = RenderSpace::World;
+    Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
 };
 
 // Grid of tiles drawn from a tileset texture. Tile index -1 = empty.
@@ -145,6 +158,8 @@ struct ParticleEmitter {
     bool worldSpace = true;           // particles stay where emitted when the emitter moves
     bool is3D = false;                // emit in a 3D cone (camera-facing billboards)
     std::int32_t layer = 50;
+    BlendMode blend = BlendMode::Alpha;
+    bool autoDestroy = false;         // destroy the entity once it stopped emitting and all particles died (one-shot effects)
 };
 
 // ------------------------------------------------------------------- 3D ---
@@ -199,6 +214,7 @@ struct Collider2D {
     float density = 1.0f;
     std::int32_t layer = 0;           // collision layer 0..31 (this collider's category bit)
     std::int32_t mask = -1;           // bitmask of layers it collides with (-1 = all)
+    bool oneWay = false;              // one-way platform: only blocks bodies coming from above (+Y side of the entity)
 };
 
 // Simple 3D physics (spheres and axis-aligned boxes, no rotation dynamics).
@@ -209,6 +225,8 @@ struct RigidBody3D {
     float gravityScale = 1.0f;
     float linearDamping = 0.0f;
     Vec3 velocity{0, 0, 0};           // m/s, read/write
+    Vec3 angularVelocity{0, 0, 0};    // deg/s around x,y,z, read/write; integrated into Transform.rotation
+    bool rollWithMotion = true;       // sphere colliders spin to match their rolling motion while touching the ground
 };
 
 enum class ColliderShape3D : std::int32_t { Box, Sphere };

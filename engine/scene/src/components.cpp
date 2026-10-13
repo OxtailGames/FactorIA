@@ -76,7 +76,12 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("space", &Sprite::space, {"world", "screen"},
                     "world: positioned in the game world and affected by cameras. screen: UI/HUD in design-resolution "
                     "pixels with (0,0) at the TOP-LEFT and +Y DOWN; drawn after the world.")
-        .field("pixelArt", &Sprite::pixelArt, "true = nearest-neighbour filtering (crisp pixels), false = smooth linear filtering.");
+        .field("pixelArt", &Sprite::pixelArt, "true = nearest-neighbour filtering (crisp pixels), false = smooth linear filtering.")
+        .enum_field("blend", &Sprite::blend, {"alpha", "additive", "multiply"},
+                    "Compositing: alpha (normal), additive (glow, neon, fire, lasers; brightens), multiply (darkens/tints).")
+        .field("anchor", &Sprite::anchor,
+               "Screen space only: screen point the position is relative to. [0,0] top-left (default), [1,0] top-right, "
+               "[0.5,0.5] center, [1,1] bottom-right. Keeps HUD elements glued to screen edges on any aspect ratio.");
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
@@ -104,7 +109,14 @@ void register_builtin_components(TypeRegistry& r) {
         .field("thickness", &Shape2D::thickness, "Outline / line thickness in world units.").range(0, 10000)
         .field("layer", &Shape2D::layer, "Draw order. Higher layers draw on top.")
         .enum_field("space", &Shape2D::space, {"world", "screen"},
-                    "world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down.");
+                    "world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down.")
+        .field("pivot", &Shape2D::pivot,
+               "Anchor point within the shape for rectangle/circle/triangle: [0.5,0.5] = centered on the position (default), "
+               "[0,0] bottom-left, [1,1] top-right. In screen space +Y is down, so [0,1] puts the top-left corner at the position.")
+        .enum_field("blend", &Shape2D::blend, {"alpha", "additive", "multiply"},
+                    "Compositing: alpha (normal), additive (glow/neon), multiply (darken).")
+        .field("anchor", &Shape2D::anchor,
+               "Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right).");
 
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
@@ -118,7 +130,11 @@ void register_builtin_components(TypeRegistry& r) {
         .field("maxWidth", &Text::maxWidth, "If > 0, lines wrap at this width in world units. 0 = no wrapping.").range(0, 100000)
         .field("layer", &Text::layer, "Draw order. Higher layers draw on top. Text defaults above sprites.")
         .enum_field("space", &Text::space, {"world", "screen"},
-                    "world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.");
+                    "world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.")
+        .field("anchor", &Text::anchor,
+               "Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, "
+               "[0.5,0] top-center, [1,1] bottom-right). Combine with pivot, e.g. anchor [1,0] + pivot [1,1] + "
+               "position [-20, 20] = right-aligned 20px from the top-right corner.");
 
     r.add<Tilemap>("Tilemap",
                    "A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is the TOP row. "
@@ -159,7 +175,12 @@ void register_builtin_components(TypeRegistry& r) {
         .asset_field("texture", &ParticleEmitter::texture, "texture", "Particle image. Empty uses a soft round particle.")
         .field("worldSpace", &ParticleEmitter::worldSpace, "true = particles stay where they were emitted when the emitter moves; false = they follow the emitter.")
         .field("is3D", &ParticleEmitter::is3D, "Emit in a 3D cone as camera-facing billboards instead of in the 2D plane.")
-        .field("layer", &ParticleEmitter::layer, "Draw order. Higher layers draw on top.");
+        .field("layer", &ParticleEmitter::layer, "Draw order. Higher layers draw on top.")
+        .enum_field("blend", &ParticleEmitter::blend, {"alpha", "additive", "multiply"},
+                    "Compositing of particles: additive is ideal for sparks, fire, magic and neon effects.")
+        .field("autoDestroy", &ParticleEmitter::autoDestroy,
+               "Destroy the entity automatically once it is not emitting and all its particles died. Use with "
+               "burst > 0 and emitting = false for one-shot effects (explosions, pickups).");
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",
@@ -220,7 +241,10 @@ void register_builtin_components(TypeRegistry& r) {
         .field("restitution", &Collider2D::restitution, "Bounciness: 0 = no bounce, 1 = perfectly elastic.").range(0, 1)
         .field("density", &Collider2D::density, "Mass per area; mass = density * shape area.").range(0, 10000)
         .field("layer", &Collider2D::layer, "Collision category of this collider, 0..31.").range(0, 31)
-        .field("mask", &Collider2D::mask, "Bitmask of layers this collider collides with. -1 = all layers (bit i = layer i).");
+        .field("mask", &Collider2D::mask, "Bitmask of layers this collider collides with. -1 = all layers (bit i = layer i).")
+        .field("oneWay", &Collider2D::oneWay,
+               "One-way platform: only blocks bodies landing on it from above (the entity's +Y side); bodies can jump "
+               "up through it from below and pass sideways.");
 
     r.add<RigidBody3D>("RigidBody3D",
                        "Simple 3D physics body for arcade games (spheres and axis-aligned boxes; no rotation dynamics). "
@@ -231,7 +255,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("mass", &RigidBody3D::mass, "Mass in kilograms (affects collision responses between dynamic bodies).").range(0.0001f, 1000000)
         .field("gravityScale", &RigidBody3D::gravityScale, "Multiplier on world gravity.")
         .field("linearDamping", &RigidBody3D::linearDamping, "Air resistance; 0 = none.").range(0, 1000)
-        .field("velocity", &RigidBody3D::velocity, "Linear velocity [x, y, z] in meters per second. Read/write.");
+        .field("velocity", &RigidBody3D::velocity, "Linear velocity [x, y, z] in meters per second. Read/write.")
+        .field("angularVelocity", &RigidBody3D::angularVelocity,
+               "Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step.")
+        .field("rollWithMotion", &RigidBody3D::rollWithMotion,
+               "Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground "
+               "(sets angularVelocity from the horizontal velocity).");
 
     r.add<Collider3D>("Collider3D",
                       "Collision shape for 3D physics (axis-aligned box or sphere). Scaled by the Transform scale.",

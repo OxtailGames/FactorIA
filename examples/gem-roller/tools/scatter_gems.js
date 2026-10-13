@@ -13,6 +13,12 @@ function prng(seed) {
   };
 }
 
+let rerolls = 0;
+// Destroy is deferred to the end of the frame, so ids of just-cleared gems are still taken: pick a free one.
+function freeId(id) {
+  return world.find(id) ? `${id}_r${++rerolls}` : id;
+}
+
 export default {
   name: "scatter_gems",
   summary: "Place N collectible gems on top of the existing platforms, deterministically.",
@@ -52,7 +58,7 @@ export default {
         +(c.z + (rnd() * 2 - 1) * hz).toFixed(3),
       ];
       const gem = world.spawn({
-        id: `gem_${i + 1}`,
+        id: freeId(`gem_${i + 1}`),
         name: "Gem",
         tags: ["gem"],
         components: {

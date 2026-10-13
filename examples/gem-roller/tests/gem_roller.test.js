@@ -43,9 +43,9 @@ test("jump lifts the ball only while grounded", () => {
 test("chase camera follows the ball", () => {
   const { ball, cam } = load();
   game.press("move_forward");
-  game.step(60);
+  game.step(20); // ~2 m, stays on the start platform
   game.release("move_forward");
-  game.step(60);
+  game.step(90);
   expect(Math.abs(cam.position.z - ball.position.z - 9)).toBeLessThan(1.5);
 });
 
