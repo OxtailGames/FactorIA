@@ -67,5 +67,9 @@ struct Engine::Impl {
 
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
+void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+
+// Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
+Entity need_entity(World& world, const Json& args, const char* key = "id");
 
 }  // namespace fa

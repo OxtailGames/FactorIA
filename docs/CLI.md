@@ -102,6 +102,8 @@ the first failure (`--keep-going` continues) and exits 1 if any command failed.
 factoria call scene.list_entities
 factoria call scene.spawn '{"name":"Enemy","components":{"Transform":{"position":[100,50,0]}}}'
 factoria call scene.import_ascii @level1.json   # ASCII rows + legend -> Tilemap + coins/enemies; "save": true writes the scene
+factoria call prefab.save '{"id":"boss","path":"prefabs/boss.prefab.json"}'   # an entity of the start scene (or one spawned earlier in a --batch) -> prefab file
+factoria call scene.format '{"check":true}'     # list scene/prefab files not in the canonical layout; without "check" it rewrites them
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'

@@ -18,7 +18,9 @@ Json parse_schema(const char* text) {
     return r.value();
 }
 
-std::vector<std::string> all_entity_names(World& w) {
+}  // namespace
+
+static std::vector<std::string> all_entity_names(World& w) {
     std::vector<std::string> out;
     for (Entity e : w.entities()) {
         out.push_back(w.id_of(e));
@@ -27,7 +29,7 @@ std::vector<std::string> all_entity_names(World& w) {
     return out;
 }
 
-Entity need_entity(World& w, const Json& args, const char* key = "id") {
+Entity need_entity(World& w, const Json& args, const char* key) {
     if (!args.contains(key) || !args[key].is_string())
         throw CommandError("invalid_argument", std::string("Missing string argument '") + key + "'.",
                            "Use scene.list_entities to find entity ids.");
@@ -40,6 +42,8 @@ Entity need_entity(World& w, const Json& args, const char* key = "id") {
     }
     return e;
 }
+
+namespace {
 
 const TypeInfo& need_component_type(const std::string& name) {
     const TypeInfo* t = TypeRegistry::global().find_ci(name);
@@ -363,7 +367,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
           });
 
-    register_level_commands(engine, I);  // scene.import_ascii
+    register_level_commands(engine, I);       // scene.import_ascii
+    register_scene_file_commands(engine, I);  // prefab.save, scene.format
 
     // --------------------------------------------------------------------- game
     I.commands.add({"game.step", "Advance the simulation by N fixed frames (deterministic) and return a state summary.",
