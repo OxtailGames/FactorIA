@@ -53,7 +53,7 @@ tools/             developer tools (desktop only)
   cli/             factoria    the single developer binary
 templates/         project templates used by `factoria new`
 schemas/           JSON Schemas (project, feedback, AI config); scene schema is generated
-docs/              documentation (embedded into the binary)
+docs/              documentation in English (embedded into the binary); translations in docs/i18n/<lang>/
 examples/          sample games (also used as integration tests)
 platforms/         android/ (Gradle) and ios/ packaging
 external/          vendored third-party code (do not edit)

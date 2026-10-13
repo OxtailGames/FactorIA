@@ -47,5 +47,11 @@ ctest --test-dir build/dev --output-on-failure
 - Tests: add doctest cases in `engine/<module>/tests/` for new behaviour.
 - Keep `docs/` in sync when changing user-facing behaviour (docs are embedded
   in the binary and served to AIs through MCP).
+- Language: the engine (code, comments, identifiers, error messages, CLI
+  output, templates) and its documentation are in ENGLISH. English docs are the
+  reference. Translations are welcome but optional: `README.<lang>.md` and
+  `docs/i18n/<lang>/<SAME_NAME>.md`, with a language selector at the top. Update
+  the English text first; a translation that falls behind must say so at the
+  top. Translations are not embedded in the binary (AIs read English).
 - Record engine gaps you notice while building examples in the example's
   `ENGINE_FEEDBACK.json` — the same loop we ask game-making AIs to follow.

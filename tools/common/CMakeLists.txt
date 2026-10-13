@@ -10,6 +10,8 @@ target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings)
 
 # Bake docs, templates and schemas into the binary (offline AI access).
 file(GLOB_RECURSE FA_EMBED_DOCS CONFIGURE_DEPENDS ${FA_ROOT}/docs/*.md)
+# Translations (docs/i18n/<lang>/) are for humans browsing the repo; AIs get the English reference docs.
+list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
 file(GLOB_RECURSE FA_EMBED_SCHEMAS CONFIGURE_DEPENDS ${FA_ROOT}/schemas/*.json)
 set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS})
