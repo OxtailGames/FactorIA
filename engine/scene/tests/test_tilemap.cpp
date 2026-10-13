@@ -29,8 +29,8 @@ TEST_CASE("tilemap: valid data in both forms has no issues") {
     CHECK(check_tilemap(Tilemap{}).empty());  // an empty default tilemap is fine
     CHECK(check_tilemap(map_with(3, 2, "[-1,0,1, 2,2,2]", "[0,1]")).empty());
     CHECK(check_tilemap(map_with(3, 2, "[[-1,0,1],[2,2,2]]", "[0]")).empty());
-    CHECK(check_tilemap(map_with(0, 0, "[[-1,0,1],[2,2,2]]")).size() == 1);  // rows form without width/height: only a warning
-    CHECK_FALSE(check_tilemap(map_with(0, 0, "[[-1,0,1],[2,2,2]]"))[0].error);
+    // Rows form: the rows define the size, so width/height are not needed (even with solid tiles).
+    CHECK(check_tilemap(map_with(0, 0, "[[-1,0,1],[2,2,2]]", "[0,2]")).empty());
 }
 
 TEST_CASE("tilemap: a flat array must have width*height entries") {
@@ -84,15 +84,21 @@ TEST_CASE("tilemap: tile values must be integers >= -1 (strings point at scene.i
     CHECK(issues[0].message.find("must be an array") != std::string::npos);
 }
 
-TEST_CASE("tilemap: solid tiles need width and height; solidTiles and tileSize are checked") {
+TEST_CASE("tilemap: a flat array without width is read as one row (warning); solidTiles and tileSize are checked") {
+    // Collision and drawing both read it as ONE row of 3 tiles, so it is a warning, never an error.
     auto issues = check_tilemap(map_with(0, 0, "[0,1,0]", "[0]"));
     REQUIRE(issues.size() == 1);
-    CHECK(issues[0].error);
-    CHECK(issues[0].message.find("do not collide") != std::string::npos);
+    CHECK_FALSE(issues[0].error);
+    CHECK(issues[0].pointer == "/width");
+    CHECK(issues[0].message.find("3 x 1") != std::string::npos);
+    CHECK(issues[0].hint.find("array of rows") != std::string::npos);
 
-    issues = check_tilemap(map_with(0, 0, "[0,1,0]"));
+    // Width alone is enough when the list fills whole rows; a ragged last row is a warning.
+    CHECK(check_tilemap(map_with(3, 0, "[0,1,0, 1,1,1]")).empty());
+    issues = check_tilemap(map_with(3, 0, "[0,1,0, 1]"));
     REQUIRE(issues.size() == 1);
     CHECK_FALSE(issues[0].error);
+    CHECK(issues[0].pointer == "/height");
 
     issues = check_tilemap(map_with(1, 1, "[0]", "[0, \"a\", 1.5]"));
     REQUIRE(issues.size() == 2);
@@ -155,4 +161,77 @@ TEST_CASE("tilemap: grid helpers") {
     CHECK(tileset_tile_count(tm, 128, 64) == 8);  // columns derived from the image width
     CHECK(tileset_tile_count(tm, 0, 64) == 0);
     CHECK(tileset_tile_count(tm, 128, 16) == 0);  // shorter than one tile row
+}
+
+TEST_CASE("tilemap: tilemap_grid is the one definition of the map size, for both forms") {
+    // Rows form: size from the rows, width/height fields not needed.
+    TilemapGrid g = tilemap_grid(map_with(0, 0, "[[-1,0,1],[2,2,2]]"));
+    CHECK(g.width == 3);
+    CHECK(g.height == 2);
+    CHECK(g.tiles == std::vector<int>{-1, 0, 1, 2, 2, 2});
+    CHECK(g.at(2, 0) == 1);
+    CHECK(g.at(0, 1) == 2);
+    CHECK(g.at(3, 0) == -1);   // outside the map
+    CHECK(g.at(0, -1) == -1);
+    CHECK_FALSE(g.empty());
+
+    // Rows form ignores width/height (check_tilemap reports a disagreement); short rows are padded, junk is -1.
+    g = tilemap_grid(map_with(9, 9, "[[0,1,2],[3],\"x\"]"));
+    CHECK(g.width == 3);
+    CHECK(g.height == 3);
+    CHECK(g.tiles == std::vector<int>{0, 1, 2, 3, -1, -1, -1, -1, -1});
+
+    // Flat form: width/height fields.
+    g = tilemap_grid(map_with(3, 2, "[-1,0,1, 2,2,2]"));
+    CHECK(g.width == 3);
+    CHECK(g.height == 2);
+    CHECK(g.tiles == std::vector<int>{-1, 0, 1, 2, 2, 2});
+    // ... too few entries are -1, extra ones are ignored.
+    CHECK(tilemap_grid(map_with(3, 2, "[1,1,1, 2]")).tiles == std::vector<int>{1, 1, 1, 2, -1, -1});
+    CHECK(tilemap_grid(map_with(2, 1, "[1,1,1,1]")).tiles == std::vector<int>{1, 1});
+    // ... a missing width is ONE row (or tiles / height columns), a missing height is the rows the list needs.
+    g = tilemap_grid(map_with(0, 0, "[0,1,0]"));
+    CHECK((g.width == 3 && g.height == 1));
+    g = tilemap_grid(map_with(0, 2, "[0,1,0, 1,1,1]"));
+    CHECK((g.width == 3 && g.height == 2));
+    g = tilemap_grid(map_with(3, 0, "[0,1,0, 1,1]"));
+    CHECK((g.width == 3 && g.height == 2));
+    CHECK(g.tiles == std::vector<int>{0, 1, 0, 1, 1, -1});
+
+    // Anything that is not a tile index is empty: strings, negatives other than -1, null.
+    CHECK(tilemap_grid(map_with(4, 1, "[\"a\", -5, null, 7]")).tiles == std::vector<int>{-1, -1, -1, 7});
+
+    // No tiles, no grid; the size alone agrees with the grid.
+    CHECK(tilemap_grid(Tilemap{}).empty());
+    CHECK(tilemap_grid(map_with(3, 2, "[]")).empty());
+    CHECK(tilemap_size(map_with(0, 0, "[[0,1],[2,3],[4,5]]")).height == 3);
+    CHECK(tilemap_size(map_with(0, 0, "[[0,1],[2,3],[4,5]]")).width == 2);
+    CHECK(tilemap_size(map_with(0, 0, "[0,1,2,3,4]")).width == 5);
+}
+
+TEST_CASE("tilemap: columns 0 (the default) is derived from the tileset image") {
+    Tilemap tm;
+    CHECK(tm.columns == 0);
+    tm.tileSize = {32, 32};
+    CHECK(tileset_columns(tm, 128) == 4);  // 128 / 32
+    CHECK(tileset_columns(tm, 16) == 1);   // narrower than one tile: at least 1
+    CHECK(tileset_columns(tm, 0) == 0);    // unknown image
+    tm.columns = 3;
+    CHECK(tileset_columns(tm, 128) == 3);  // an explicit value wins
+    CHECK(tileset_columns(tm, 0) == 3);
+
+    // A scene that does not mention columns loads with 0; an explicit 0 is accepted, an explicit 1 stays 1.
+    World w;
+    Json scene = Json::parse(R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "auto", "components": { "Tilemap": { "tileSize": [32, 32] } } },
+        { "id": "zero", "components": { "Tilemap": { "columns": 0 } } },
+        { "id": "one", "components": { "Tilemap": { "columns": 1 } } }
+      ] })");
+    LoadReport r = load_scene(w, scene, "level.scene.json");
+    CHECK(r.messages.empty());
+    CHECK(w.get<Tilemap>(w.find_by_id("auto"))->columns == 0);
+    CHECK(w.get<Tilemap>(w.find_by_id("zero"))->columns == 0);
+    CHECK(w.get<Tilemap>(w.find_by_id("one"))->columns == 1);
 }

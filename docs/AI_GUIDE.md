@@ -248,7 +248,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
 | `Shape2D` | `shape` (rectangle, circle, line, triangle), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. |
 | `Text` | `text` (`\n` breaks lines), `fontSize` (default 24), `color`, `align`, `pivot` (default [0, 1]), `maxWidth`, `layer` (default 100), `space`, `anchor`, `font` | Labels, scores and the HUD (`space: "screen"`). |
-| `Tilemap` | `tileset`, `tileSize`, `columns`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty), `solidTiles` | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
+| `Tilemap` | `tileset`, `tileSize`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty; flat list with `width`/`height`, or an array of rows), `solidTiles`, optional `columns` (0 = derived from the tileset image) | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
 | `ParticleEmitter` | `emitting`, `rate`, `burst`, `autoDestroy`, `maxParticles`, `lifetime`, `speed`, `direction` (0 = right, 90 = up), `spread`, `gravity`, `startSize`, `endSize`, `startColor`, `endColor`, `blend`, `texture`, `layer` | Sparks, dust and explosions (section 9.12). |
 
 `layer` is the draw order: higher layers draw on top. `space: "screen"` items ignore the camera.
@@ -567,7 +567,7 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
 
 - `rows` is the map: one string per row, ONE CHARACTER PER TILE, all rows the same length, row 0 is the TOP row. `.` and a space are empty tiles unless the legend defines them.
 - `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile. A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
-- `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). When you pass `tileset` or `tileSize` without `columns`, `columns` is set to the tileset width divided by `tileSize[0]` (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
+- `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). You do not need `columns`: left at 0 (the default) it is derived from the tileset image, as many whole tiles of `tileSize[0]` as fit across it. Pass it only for an image with another layout. If an earlier import set `columns` explicitly and you now change `tileset` or `tileSize` without `columns`, it goes back to 0 (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
 - `entity` (default `"tilemap"`) is the id of the Tilemap entity: created when missing, updated when it exists. Use another id for a second layer, such as a background.
 - `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
 - Objects are ordinary top-level entities, saved with the scene. Give unique objects an `id` in the legend (`"id": "player"`). Other objects get ids from the prefab file name in row-major order: `coin_1`, `coin_2`, `crawler_1`. Every object carries the tag `tilemap:<entity>` (for example `tilemap:tilemap`).
@@ -589,7 +589,6 @@ What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid
     "Tilemap": {
       "tileset": "assets/tiles.png",
       "tileSize": [32, 32],
-      "columns": 8,
       "width": 6,
       "height": 3,
       "tiles": [
@@ -603,7 +602,7 @@ What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid
 }
 ```
 
-The flat `tiles` array has `width * height` entries (the field also accepts an array of rows). The tileset image holds tiles of `tileSize`, laid out `columns` per row, left to right and top to bottom. Validation reports a missing tileset, a `tiles` list that does not match `width * height` (or rows of different lengths, or strings instead of integers), and tile indices outside the tileset image.
+The flat `tiles` array has `width * height` entries. `tiles` may also be an array of rows (`[[-1, 0, 1], [2, 2, 2]]`); then the rows define the size and `width`/`height` are not needed. In both forms the renderer and the 2D collision read the same grid, so what is drawn is exactly what collides. A flat list without `width` is read as ONE row (validation warns). The tileset image holds tiles of `tileSize`, laid out left to right and top to bottom. `columns` (tiles per image row) is optional: leave it out and it is derived from the image width divided by `tileSize[0]`, so tile 3 of a 4-tile-wide image is the 4th tile of the first row. Set it only for a layout that does not follow the image width. Validation reports a missing tileset, a `tiles` list that does not match `width * height` (or rows of different lengths, or strings instead of integers), and tile indices outside the tileset image.
 
 How tiles collide (verified against the physics rules):
 

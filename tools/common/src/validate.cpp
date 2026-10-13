@@ -127,13 +127,16 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
             visit(tiles[i], "/tiles/" + std::to_string(i));
     }
     if (offenders == 0) return;
+    // `columns` unset (0) is derived from the image, so a mismatch can only come from an explicit value.
     const int tilesX = std::max(0, int(float(img->width) / tm.tileSize.x));
+    const int columns = tileset_columns(tm, img->width);
     std::string hint = "Tile indices count from 0, left-to-right then top-to-bottom, so valid indices are 0.." + std::to_string(count - 1) + ".";
-    if (tm.columns != tilesX && tilesX > 0)
-        hint += " The image has " + std::to_string(tilesX) + " tile columns but columns is " + std::to_string(tm.columns) + ": set \"columns\": " + std::to_string(tilesX) + ".";
+    if (tm.columns > 0 && tm.columns != tilesX && tilesX > 0)
+        hint += " The image has " + std::to_string(tilesX) + " tile columns but columns is " + std::to_string(tm.columns) +
+                ": remove \"columns\" (it is derived from the image) or set \"columns\": " + std::to_string(tilesX) + ".";
     c.error(file, pointer + firstPointer,
             "Tile index " + std::to_string(firstValue) + " is outside the tileset '" + path + "' (" + std::to_string(img->width) + "x" + std::to_string(img->height) +
-                " px, tileSize [" + std::to_string(int(tm.tileSize.x)) + ", " + std::to_string(int(tm.tileSize.y)) + "], columns " + std::to_string(tm.columns) +
+                " px, tileSize [" + std::to_string(int(tm.tileSize.x)) + ", " + std::to_string(int(tm.tileSize.y)) + "], columns " + std::to_string(columns) +
                 " = " + std::to_string(count) + " tiles)" + (offenders > 1 ? "; " + std::to_string(offenders - 1) + " more tile(s) are outside too" : ""),
             hint);
 }

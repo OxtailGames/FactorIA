@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/scene/tilemap.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
@@ -61,7 +62,10 @@ PickBounds Editor::bounds_of(Entity e) {
         b.layer = t->layer;
         b.screenSpace = t->space == RenderSpace::Screen;
     } else if (const Tilemap* tm = w.get<Tilemap>(e)) {
-        b.half = Vec2{tm->width * tm->tileSize.x * 0.5f, tm->height * tm->tileSize.y * 0.5f};
+        // Same size the renderer draws and physics collides with; the entity origin is the map's TOP-LEFT corner (+Y up).
+        const TilemapSize size = tilemap_size(*tm);
+        b.half = Vec2{size.width * tm->tileSize.x * 0.5f, size.height * tm->tileSize.y * 0.5f};
+        b.center = Vec2{b.half.x, -b.half.y};
         b.layer = tm->layer;
         if (b.half.x <= 0 || b.half.y <= 0) b.half = Vec2{16, 16};
     } else if (const Collider2D* c = w.get<Collider2D>(e)) {

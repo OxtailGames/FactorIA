@@ -5,6 +5,7 @@
 #include <functional>
 
 #include "fa/core/log.h"
+#include "fa/scene/tilemap.h"
 #include "physics_internal.h"
 
 namespace fa::detail {
@@ -49,23 +50,6 @@ std::uint64_t hash_collider(const RigidBody2D* rb, const Collider2D* col, const 
         h.add(pose.scale.x); h.add(pose.scale.y);
     }
     return h.h;
-}
-
-std::vector<int> read_tiles(const Tilemap& tm) {
-    int w = std::max(tm.width, 0), hgt = std::max(tm.height, 0);
-    std::vector<int> out(std::size_t(w) * std::size_t(hgt), -1);
-    if (!tm.tiles.is_array() || tm.tiles.empty()) return out;
-    auto num = [](const Json& j) { return j.is_number() ? int(j.get<double>()) : -1; };
-    if (tm.tiles[0].is_array()) {
-        for (int r = 0; r < hgt && r < int(tm.tiles.size()); ++r) {
-            const Json& row = tm.tiles[std::size_t(r)];
-            if (!row.is_array()) continue;
-            for (int c = 0; c < w && c < int(row.size()); ++c) out[std::size_t(r) * std::size_t(w) + std::size_t(c)] = num(row[std::size_t(c)]);
-        }
-    } else {
-        for (std::size_t i = 0; i < out.size() && i < tm.tiles.size(); ++i) out[i] = num(tm.tiles[i]);
-    }
-    return out;
 }
 
 std::vector<int> read_solid(const Tilemap& tm) {
@@ -371,14 +355,15 @@ void Physics2D::sync_tilemaps(World& world) {
         const bool active = world.active_in_hierarchy(e);
         if (it == tiles_.end()) {
             std::vector<int> solid = read_solid(*tm);
-            if (solid.empty() || tm->width <= 0 || tm->height <= 0) {
+            // The same grid the renderer draws (rows form: the rows; flat form: width/height).
+            const TilemapGrid grid = tilemap_grid(*tm);
+            if (solid.empty() || grid.empty()) {
                 // No collision: remember nothing; nothing to build.
                 continue;
             }
-            std::vector<int> tiles = read_tiles(*tm);
-            const int w = tm->width, hgt = tm->height;
+            const int w = grid.width, hgt = grid.height;
             auto is_solid = [&](int c, int r) {
-                int t = tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
+                int t = grid.at(c, r);
                 return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
             };
             // Horizontal runs per row, then merge identical runs of consecutive rows into taller boxes.

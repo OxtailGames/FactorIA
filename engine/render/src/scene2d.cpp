@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "fa/scene/tilemap.h"
 #include "frame.h"
 
 namespace fa::render {
@@ -160,27 +161,14 @@ void gather_2d(World& world, Frame& f) {
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
         if (!entity_active(world, e) || tm.tileSize.x <= 0 || tm.tileSize.y <= 0) return;
-        const Json& tiles = tm.tiles;
-        if (!tiles.is_array() || tiles.empty()) return;
-        std::vector<int> flat;
-        int w = tm.width, h = tm.height;
-        if (tiles[0].is_array()) {
-            h = int(tiles.size());
-            for (const auto& row : tiles) w = std::max(w, int(row.size()));
-            flat.assign(std::size_t(w) * h, -1);
-            for (int r = 0; r < h; ++r)
-                for (int c = 0; c < int(tiles[r].size()); ++c)
-                    if (tiles[r][c].is_number()) flat[std::size_t(r) * w + c] = tiles[r][c].get<int>();
-        } else {
-            if (w <= 0) w = int(tiles.size());
-            if (h <= 0) h = (int(tiles.size()) + w - 1) / std::max(1, w);
-            flat.assign(std::size_t(w) * h, -1);
-            for (std::size_t i = 0; i < tiles.size() && i < flat.size(); ++i)
-                if (tiles[i].is_number()) flat[i] = tiles[i].get<int>();
-        }
+        // The same grid 2D physics collides with (rows form: the rows; flat form: width/height).
+        const TilemapGrid grid = tilemap_grid(tm);
+        if (grid.empty()) return;
+        const int w = grid.width, h = grid.height;
         TextureAsset* tex = assets.texture(tm.tileset);
         float tw = tm.tileSize.x, th = tm.tileSize.y;
-        int cols = tm.columns > 0 ? tm.columns : std::max(1, int(float(tex->width) / tw));
+        // columns = 0 (the default) means: as many whole tiles as fit across the tileset image.
+        int cols = std::max(1, tileset_columns(tm, tex->width));
         Mat4 m = world.world_matrix(e);
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
@@ -191,7 +179,7 @@ void gather_2d(World& world, Frame& f) {
         view.x -= 1; view.y -= 1; view.w += 2; view.h += 2;
         for (int r = 0; r < h; ++r) {
             for (int c = 0; c < w; ++c) {
-                int idx = flat[std::size_t(r) * w + c];
+                int idx = grid.tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
                 if (idx < 0) continue;
                 float x0 = float(c) * tw, y1 = -float(r) * th, x1 = x0 + tw, y0 = y1 - th;
                 if (cull) {
