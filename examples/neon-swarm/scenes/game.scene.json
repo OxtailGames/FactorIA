@@ -1,590 +1,330 @@
 {
- "format": "factoria.scene/1",
- "settings": {
-  "gravity2D": [
-   0,
-   0
-  ],
-  "music": "assets/music/loop.wav",
-  "musicVolume": 0.35
- },
- "entities": [
-  {
-   "id": "camera",
-   "name": "Main Camera",
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      0
-     ]
-    },
-    "Camera": {
-     "projection": "orthographic",
-     "clearColor": [
-      0.03,
-      0.02,
-      0.07,
-      1
-     ],
-     "primary": true
-    }
-   }
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, 0.0],
+    "music": "assets/music/loop.wav",
+    "musicVolume": 0.35
   },
-  {
-   "id": "wall_top",
-   "tags": [
-    "wall"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      310,
-      0
-     ]
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Camera": {
+          "clearColor": [0.03, 0.02, 0.07, 1.0],
+          "bloom": true,
+          "bloomThreshold": 0.5,
+          "bloomIntensity": 1.5,
+          "bloomRadius": 26.0
+        }
+      }
     },
-    "RigidBody2D": {
-     "type": "static"
+    {
+      "id": "wall_top",
+      "tags": ["wall"],
+      "components": {
+        "Transform": {
+          "position": [0.0, 310.0, 0.0]
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "size": [1240.0, 20.0],
+          "layer": 3,
+          "mask": 34
+        }
+      }
     },
-    "Collider2D": {
-     "shape": "box",
-     "size": [
-      1240,
-      20
-     ],
-     "layer": 3,
-     "mask": 34
+    {
+      "id": "wall_bottom",
+      "tags": ["wall"],
+      "components": {
+        "Transform": {
+          "position": [0.0, -310.0, 0.0]
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "size": [1240.0, 20.0],
+          "layer": 3,
+          "mask": 34
+        }
+      }
+    },
+    {
+      "id": "wall_left",
+      "tags": ["wall"],
+      "components": {
+        "Transform": {
+          "position": [-610.0, 0.0, 0.0]
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "size": [20.0, 640.0],
+          "layer": 3,
+          "mask": 34
+        }
+      }
+    },
+    {
+      "id": "wall_right",
+      "tags": ["wall"],
+      "components": {
+        "Transform": {
+          "position": [610.0, 0.0, 0.0]
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "size": [20.0, 640.0],
+          "layer": 3,
+          "mask": 34
+        }
+      }
+    },
+    {
+      "id": "grid",
+      "components": {
+        "Shape2D": {
+          "size": [1200.0, 620.0],
+          "color": [0.2, 0.55, 1.0, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": 1,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "player",
+      "name": "Player",
+      "tags": ["player"],
+      "components": {
+        "Shape2D": {
+          "shape": "triangle",
+          "size": [50.0, 50.0],
+          "color": [0.3, 1.0, 1.0, 1.0],
+          "layer": 10,
+          "blend": "additive"
+        },
+        "RigidBody2D": {
+          "type": "kinematic"
+        },
+        "Collider2D": {
+          "shape": "circle",
+          "radius": 14.0,
+          "layer": 4,
+          "mask": 32
+        },
+        "Script": {
+          "path": "scripts/player.js"
+        }
+      }
+    },
+    {
+      "id": "manager",
+      "name": "Game Manager",
+      "components": {
+        "Script": {
+          "path": "scripts/game.js"
+        }
+      }
+    },
+    {
+      "id": "hud_score",
+      "name": "hud_score",
+      "components": {
+        "Transform": {
+          "position": [24.0, 20.0, 0.0]
+        },
+        "Text": {
+          "text": "SCORE 0",
+          "fontSize": 30.0,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "hud_best",
+      "name": "hud_best",
+      "components": {
+        "Transform": {
+          "position": [24.0, 56.0, 0.0]
+        },
+        "Text": {
+          "text": "BEST 0",
+          "fontSize": 20.0,
+          "color": [0.4, 1.0, 1.0, 1.0],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "hud_wave",
+      "name": "hud_wave",
+      "components": {
+        "Transform": {
+          "position": [1256.0, 20.0, 0.0]
+        },
+        "Text": {
+          "text": "WAVE 1",
+          "fontSize": 30.0,
+          "color": [1.0, 0.85, 0.2, 1.0],
+          "align": "right",
+          "pivot": [1.0, 1.0],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "hud_combo",
+      "name": "hud_combo",
+      "components": {
+        "Transform": {
+          "position": [1256.0, 56.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "color": [1.0, 0.4, 0.7, 1.0],
+          "align": "right",
+          "pivot": [1.0, 1.0],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "hud_banner",
+      "name": "hud_banner",
+      "components": {
+        "Transform": {
+          "position": [640.0, 300.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 72.0,
+          "color": [1.0, 1.0, 1.0, 0.9],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_0",
+      "components": {
+        "Transform": {
+          "position": [542.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_1",
+      "components": {
+        "Transform": {
+          "position": [570.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_2",
+      "components": {
+        "Transform": {
+          "position": [598.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_3",
+      "components": {
+        "Transform": {
+          "position": [626.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_4",
+      "components": {
+        "Transform": {
+          "position": [654.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_5",
+      "components": {
+        "Transform": {
+          "position": [682.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_6",
+      "components": {
+        "Transform": {
+          "position": [710.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "pip_7",
+      "components": {
+        "Transform": {
+          "position": [738.0, 22.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [20.0, 12.0],
+          "color": [0.2, 1.0, 0.9, 1.0],
+          "layer": 100,
+          "space": "screen"
+        }
+      }
     }
-   }
-  },
-  {
-   "id": "wall_bottom",
-   "tags": [
-    "wall"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      -310,
-      0
-     ]
-    },
-    "RigidBody2D": {
-     "type": "static"
-    },
-    "Collider2D": {
-     "shape": "box",
-     "size": [
-      1240,
-      20
-     ],
-     "layer": 3,
-     "mask": 34
-    }
-   }
-  },
-  {
-   "id": "wall_left",
-   "tags": [
-    "wall"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      -610,
-      0,
-      0
-     ]
-    },
-    "RigidBody2D": {
-     "type": "static"
-    },
-    "Collider2D": {
-     "shape": "box",
-     "size": [
-      20,
-      640
-     ],
-     "layer": 3,
-     "mask": 34
-    }
-   }
-  },
-  {
-   "id": "wall_right",
-   "tags": [
-    "wall"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      610,
-      0,
-      0
-     ]
-    },
-    "RigidBody2D": {
-     "type": "static"
-    },
-    "Collider2D": {
-     "shape": "box",
-     "size": [
-      20,
-      640
-     ],
-     "layer": 3,
-     "mask": 34
-    }
-   }
-  },
-  {
-   "id": "grid",
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      1200,
-      620
-     ],
-     "color": [
-      0.2,
-      0.55,
-      1,
-      1
-     ],
-     "filled": false,
-     "thickness": 4,
-     "layer": 1
-    }
-   }
-  },
-  {
-   "id": "player",
-   "name": "Player",
-   "tags": [
-    "player"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      0
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_tri.png",
-     "size": [
-      56,
-      56
-     ],
-     "color": [
-      0.3,
-      1,
-      1,
-      1
-     ],
-     "layer": 10,
-     "pixelArt": false
-    },
-    "RigidBody2D": {
-     "type": "kinematic"
-    },
-    "Collider2D": {
-     "shape": "circle",
-     "radius": 14,
-     "layer": 4,
-     "mask": 32
-    },
-    "Script": {
-     "path": "scripts/player.js"
-    }
-   }
-  },
-  {
-   "id": "manager",
-   "name": "Game Manager",
-   "components": {
-    "Script": {
-     "path": "scripts/game.js"
-    }
-   }
-  },
-  {
-   "id": "hud_score",
-   "name": "hud_score",
-   "components": {
-    "Transform": {
-     "position": [
-      24,
-      20,
-      0
-     ]
-    },
-    "Text": {
-     "text": "SCORE 0",
-     "fontSize": 30,
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0,
-      1
-     ],
-     "align": "left",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "hud_best",
-   "name": "hud_best",
-   "components": {
-    "Transform": {
-     "position": [
-      24,
-      56,
-      0
-     ]
-    },
-    "Text": {
-     "text": "BEST 0",
-     "fontSize": 20,
-     "color": [
-      0.4,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0,
-      1
-     ],
-     "align": "left",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "hud_wave",
-   "name": "hud_wave",
-   "components": {
-    "Transform": {
-     "position": [
-      1256,
-      20,
-      0
-     ]
-    },
-    "Text": {
-     "text": "WAVE 1",
-     "fontSize": 30,
-     "color": [
-      1,
-      0.85,
-      0.2,
-      1
-     ],
-     "pivot": [
-      1,
-      1
-     ],
-     "align": "right",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "hud_combo",
-   "name": "hud_combo",
-   "components": {
-    "Transform": {
-     "position": [
-      1256,
-      56,
-      0
-     ]
-    },
-    "Text": {
-     "text": "",
-     "fontSize": 24,
-     "color": [
-      1,
-      0.4,
-      0.7,
-      1
-     ],
-     "pivot": [
-      1,
-      1
-     ],
-     "align": "right",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "hud_banner",
-   "name": "hud_banner",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      300,
-      0
-     ]
-    },
-    "Text": {
-     "text": "",
-     "fontSize": 72,
-     "color": [
-      1,
-      1,
-      1,
-      0.9
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_0",
-   "components": {
-    "Transform": {
-     "position": [
-      542,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_1",
-   "components": {
-    "Transform": {
-     "position": [
-      570,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_2",
-   "components": {
-    "Transform": {
-     "position": [
-      598,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_3",
-   "components": {
-    "Transform": {
-     "position": [
-      626,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_4",
-   "components": {
-    "Transform": {
-     "position": [
-      654,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_5",
-   "components": {
-    "Transform": {
-     "position": [
-      682,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_6",
-   "components": {
-    "Transform": {
-     "position": [
-      710,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "pip_7",
-   "components": {
-    "Transform": {
-     "position": [
-      738,
-      22,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      20,
-      12
-     ],
-     "color": [
-      0.2,
-      1,
-      0.9,
-      1
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  }
- ]
+  ]
 }

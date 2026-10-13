@@ -183,3 +183,32 @@ describe("flow", () => {
     expect(game.find("manager")).not.toBeNull();
   });
 });
+
+describe("neon look", () => {
+  test("every scene turns on camera bloom over a dark background", () => {
+    for (const path of ["scenes/title.scene.json", "scenes/game.scene.json", "scenes/gameover.scene.json"]) {
+      game.load(path);
+      game.step(1);
+      const cam = game.find("camera").get("Camera");
+      expect(cam.bloom).toBe(true);
+      expect(cam.bloomThreshold).toBeLessThan(1);
+      expect(Math.max(cam.clearColor.r, cam.clearColor.g, cam.clearColor.b)).toBeLessThan(0.15);
+    }
+  });
+
+  test("the player, the enemies and the bullets are bright additive shapes", () => {
+    loadGame();
+    mgr().timer = 999;
+    const things = [player()];
+    for (const name of ["chaser", "shooter", "splitter", "mini", "bullet", "enemy_bullet"]) {
+      things.push(world.spawnPrefab("prefabs/" + name + ".prefab.json", { position: vec3(400, 200, 0) }));
+    }
+    for (const e of things) {
+      const s = e.get("Shape2D");
+      expect(s).not.toBeNull();
+      expect(s.blend).toBe("additive");
+      expect(Math.max(s.color.r, s.color.g, s.color.b)).toBeGreaterThan(0.7); // above the bloom threshold, so it glows
+      expect(e.has("Sprite")).toBe(false); // no hand-made glow sprites
+    }
+  });
+});

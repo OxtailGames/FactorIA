@@ -23,8 +23,8 @@ export default class Enemy extends Behaviour {
       this.fireDelay = Math.max(0.8, this.fireDelay / k);
     }
     this.body = this.entity.get("RigidBody2D");
-    this.sprite = this.entity.get("Sprite");
-    const c0 = this.sprite.color; this.base = [c0.r, c0.g, c0.b];
+    this.shape = this.entity.get("Shape2D");
+    const c0 = this.shape.color; this.base = [c0.r, c0.g, c0.b];
     this.cool = this.fireDelay * rng.range(0.4, 1);
     this.flash = 0;
     this.strafe = rng.chance(0.5) ? 1 : -1;
@@ -52,7 +52,7 @@ export default class Enemy extends Behaviour {
     // contact damage
     if (d < this.radius + 18) player.send("hurt", this.contactDamage);
 
-    const col = this.sprite.color;
+    const col = this.shape.color;
     if (this.flash > 0) {
       this.flash -= dt;
       col.r = col.g = col.b = 1;
@@ -81,7 +81,7 @@ export default class Enemy extends Behaviour {
   die() {
     this.dead = true;
     const pos = this.entity.position;
-    const c = this.sprite.color;
+    const c = this.shape.color;
     world.emit("enemy_killed", { kind: this.kind, points: this.points, x: pos.x, y: pos.y, color: [c.r, c.g, c.b], big: this.kind === "splitter" });
     if (this.kind === "splitter") {
       for (let i = 0; i < 3; i++) {

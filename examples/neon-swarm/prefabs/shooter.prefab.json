@@ -2,32 +2,19 @@
   "format": "factoria.prefab/1",
   "entity": {
     "name": "Shooter",
-    "tags": [
-      "enemy",
-      "shooter"
-    ],
+    "tags": ["enemy", "shooter"],
     "components": {
       "Transform": {
-        "position": [
-          0,
-          0,
-          0
-        ]
+        "position": [0, 0, 0]
       },
-      "Sprite": {
-        "texture": "assets/img/glow_tri.png",
-        "size": [
-          48.0,
-          48.0
-        ],
-        "color": [
-          1,
-          0.85,
-          0.2,
-          1
-        ],
+      "Shape2D": {
+        "shape": "triangle",
+        "size": [44, 44],
+        "color": [1, 0.85, 0.2, 1],
+        "filled": false,
+        "thickness": 5,
         "layer": 5,
-        "pixelArt": false
+        "blend": "additive"
       },
       "RigidBody2D": {
         "type": "kinematic"
