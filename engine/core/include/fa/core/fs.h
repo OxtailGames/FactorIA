@@ -65,6 +65,21 @@ std::string stem(std::string_view path);       // "player"
 std::string parent(std::string_view path);     // "assets"
 std::string join(std::string_view a, std::string_view b);
 
+// ---- Write policy of the project folder -------------------------------------------------------------------------
+// The VCS folder and `.factoria/` belong to tools: the engine and the editor keep screenshots, save games, AI
+// transcripts and editor state in `.factoria/`. Commands that write or delete a file whose path comes from the caller
+// (scene.save, scene.import_ascii with `path`, fs.write, fs.edit, fs.delete) refuse to touch them, with ONE exception:
+// the scratch folder `.factoria/tmp/` is the place for throw-away files (generated inputs, test output). Everything in
+// it may be created, overwritten and deleted by those commands; like the rest of `.factoria/` it is not committed.
+constexpr const char* kScratchDir = ".factoria/tmp";
+
+// `relativePath` is project-relative and normalized (forward slashes, no "." or ".." segments).
+bool is_scratch_path(std::string_view relativePath);  // ".factoria/tmp" or anything below it
+bool is_managed_path(std::string_view relativePath);  // the VCS folder, ".factoria" or below, except the scratch folder
+// Ok when a command may write or delete `path` (project-relative, or absolute: then only paths inside the project root
+// are judged). The error names the folder that is allowed (`.factoria/tmp/`).
+Result<void> check_writable(std::string_view path);
+
 // Polling file watcher for hot reload (desktop only; no-op on mobile).
 class Watcher {
 public:

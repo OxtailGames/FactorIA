@@ -107,6 +107,53 @@ TEST_CASE("fs: search skips binary and .factoria, supports regex") {
     CHECK(f.reg.call("fs.search", {{"query", "speed"}, {"glob", "*.txt"}}).result["count"] == 0);
 }
 
+TEST_CASE("fs: .factoria is managed by the tools, .factoria/tmp is the scratch folder (write, edit, list, search, delete)") {
+    FsFixture f;
+    // Managed files (screenshots, saves...) cannot be written, edited or deleted, and the error names the allowed place.
+    for (const char* managed : {".factoria/log.txt", ".factoria/save/slot1.json", ".factoria/screenshots/frame_1.png", ".git/config"}) {
+        CAPTURE(managed);
+        auto w = f.reg.call("fs.write", {{"path", managed}, {"content", "x"}});
+        REQUIRE_FALSE(w.ok);
+        CHECK(w.error["hint"].get<std::string>().find(".factoria/tmp/") != std::string::npos);
+        CHECK(w.error["message"].get<std::string>().find(managed) != std::string::npos);
+        CHECK_FALSE(f.reg.call("fs.edit", {{"path", managed}, {"find", "needle"}, {"replace", "y"}}).ok);
+        auto d = f.reg.call("fs.delete", {{"path", managed}});
+        REQUIRE_FALSE(d.ok);
+        CHECK(d.error["hint"].get<std::string>().find(".factoria/tmp/") != std::string::npos);
+    }
+    CHECK(testing::read_all(f.tmp.path / ".factoria/log.txt") == "secret needle");  // untouched
+    CHECK_FALSE(f.reg.call("fs.delete", {{"path", ".factoria"}, {"recursive", true}}).ok);
+    CHECK(stdfs::exists(f.tmp.path / ".factoria/log.txt"));
+    CHECK_FALSE(f.reg.call("fs.delete", {{"path", ".factoria/save"}, {"recursive", true}}).ok);
+
+    // The scratch folder may be created, rewritten, listed, searched and deleted with the same commands.
+    auto w = f.reg.call("fs.write", {{"path", ".factoria/tmp/gen/base.scene.json"}, {"content", "{\"scratch\": \"needle\"}"}});
+    REQUIRE_MESSAGE(w.ok, w.error.dump());
+    CHECK(stdfs::exists(f.tmp.path / ".factoria/tmp/gen/base.scene.json"));
+    CHECK(f.reg.call("fs.edit", {{"path", ".factoria/tmp/gen/base.scene.json"}, {"find", "scratch"}, {"replace", "tmp"}}).ok);
+    CHECK(testing::read_all(f.tmp.path / ".factoria/tmp/gen/base.scene.json").find("\"tmp\"") != std::string::npos);
+    auto list = f.reg.call("fs.list", {{"path", ".factoria/tmp"}, {"recursive", true}});
+    REQUIRE(list.ok);
+    CHECK(list.result["count"] == 2);  // gen/ and gen/base.scene.json
+    CHECK(list.result["entries"][1]["path"] == ".factoria/tmp/gen/base.scene.json");
+    auto root = f.reg.call("fs.list", {{"recursive", true}});  // the project listing still hides .factoria
+    for (auto& e : root.result["entries"]) CHECK(e["path"].get<std::string>().find(".factoria") == std::string::npos);
+    CHECK(f.reg.call("fs.search", {{"query", "needle"}, {"path", ".factoria/tmp"}}).result["count"] == 1);
+    CHECK(f.reg.call("fs.search", {{"query", "needle"}}).result["count"] == 0);  // not found from the root: hidden there
+    CHECK(f.reg.call("fs.delete", {{"path", ".factoria/tmp/gen/base.scene.json"}}).ok);
+    CHECK_FALSE(stdfs::exists(f.tmp.path / ".factoria/tmp/gen/base.scene.json"));
+    CHECK(f.reg.call("fs.delete", {{"path", ".factoria/tmp"}, {"recursive", true}}).ok);
+    CHECK_FALSE(stdfs::exists(f.tmp.path / ".factoria/tmp"));
+    CHECK(stdfs::exists(f.tmp.path / ".factoria/log.txt"));  // the rest of .factoria is still there
+
+    // The descriptions say so, because they are what AIs read.
+    for (const char* name : {"fs.write", "fs.edit", "fs.delete"}) {
+        const CommandInfo* info = f.reg.info(name);
+        REQUIRE(info != nullptr);
+        CHECK_MESSAGE(info->description.find(".factoria/tmp") != std::string::npos, name);
+    }
+}
+
 TEST_CASE("docs: list, read and search the bundled documentation") {
     auto docs = list_docs();
     REQUIRE_FALSE(docs.empty());

@@ -243,21 +243,55 @@ def test_template(tmp, template):
     code, out, err = run(["call", "scene.spawn", '{"components":{"Transform2D":{"position":[1,2]}}}', "--project", proj])
     check(code == 1 and "Transform" in (out + err), "scene.spawn with an unknown component exits 1 with a did-you-mean")
 
-    # ASCII level import: ONE call writes the tilemap and its objects into the scene file; validate accepts it
+    # --input: a relative path is looked up in the current directory, then in the project, so it works from any folder;
+    # the error lists the places tried. Outputs (--state-out) are relative to the current directory.
+    os.makedirs(os.path.join(proj, "replays"), exist_ok=True)
+    with open(os.path.join(proj, "replays", "probe.json"), "w") as f:
+        json.dump({"frames": {"0": {}}}, f)
+    elsewhere = os.path.join(tmp, "elsewhere-" + template)
+    os.makedirs(elsewhere, exist_ok=True)
+    code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", "replays/probe.json"], cwd=elsewhere)
+    check(code == 0, "run --input replays/probe.json from another folder finds the file in the project (exit %d)" % code)
+    code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", "replays/prob.json"], cwd=elsewhere)
+    check(code == 2 and os.path.join(os.path.realpath(elsewhere), "replays", "prob.json") in err
+          and os.path.join(proj, "replays", "prob.json") in err and "Did you mean 'replays/probe.json'" in err
+          and "relative to the project root" not in err, "run --input: a missing file lists both places tried and suggests a name")
+    code, rep, err = jrun(["run", proj, "--headless", "--frames", "3", "--state-out", "out/state.json", "--json"], cwd=elsewhere)
+    check(code == 0 and os.path.exists(os.path.join(elsewhere, "out", "state.json"))
+          and not os.path.exists(os.path.join(proj, "out", "state.json")), "run --state-out is relative to the current directory")
+
+    # ASCII level import: ONE call writes the tilemap and its objects into the scene FILE (`path`), without touching the
+    # running game; validate accepts it. `save: true` without `path` on the default main scene is refused.
     os.makedirs(os.path.join(proj, "prefabs"), exist_ok=True)
     with open(os.path.join(proj, "prefabs", "probe_gem.prefab.json"), "w") as f:
         json.dump({"format": "factoria.prefab/1", "entity": {"name": "Coin", "tags": ["coin"],
                    "components": {"Shape2D": {"shape": "circle", "size": [12, 12]}}}}, f)
-    level = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}}, "save": True}
+    main_scene = os.path.join(proj, "scenes", "main.scene.json")
+    main_before = open(main_scene).read()
+    unsafe = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}}, "save": True}
+    code, out, err = run(["call", "scene.import_ascii", json.dumps(unsafe), "--project", proj])
+    check(code == 1 and "unsafe_save" in err and "scenes/main.scene.json" in err and '"path"' in err and open(main_scene).read() == main_before,
+          "scene.import_ascii save:true without path on the default main scene is refused and changes nothing")
+    level = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}},
+             "path": "scenes/main.scene.json"}
     code, res, err = jrun(["call", "scene.import_ascii", json.dumps(level), "--project", proj])
     check(code == 0 and res is not None and res["width"] == 4 and res["height"] == 3 and res["tileCount"] == 4
           and [o["id"] for o in res["spawned"]] == ["probe_gem_1", "probe_gem_2"] and res["spawned"][0]["position"] == [24.0, -24.0]
-          and res.get("saved"), "call scene.import_ascii (save) builds the level in one call")
+          and res.get("saved") == "scenes/main.scene.json" and res.get("path") == "scenes/main.scene.json",
+          "call scene.import_ascii (path) builds the level in one call")
     code, rep, err = jrun(["validate", proj, "--json"])
     check(code == 0 and rep is not None and rep.get("ok") is True, "validate accepts the imported level")
     code, res, err = jrun(["call", "scene.import_ascii", json.dumps(level), "--project", proj])
     check(code == 0 and res is not None and res["removed"] == ["probe_gem_1", "probe_gem_2"] and res["created"] is False,
           "re-importing replaces the objects of the previous import")
+    scratch = dict(level, path=".factoria/tmp/probe.scene.json", **{"from": "scenes/main.scene.json"})
+    code, res, err = jrun(["call", "scene.import_ascii", json.dumps(scratch), "--project", proj])
+    check(code == 0 and res is not None and os.path.exists(os.path.join(proj, ".factoria", "tmp", "probe.scene.json")),
+          "scene.import_ascii path/from writes a scratch file in .factoria/tmp")
+    code, out, err = run(["call", "scene.import_ascii", json.dumps(dict(level, path=".factoria/save/probe.scene.json")), "--project", proj])
+    check(code == 1 and ".factoria/tmp/" in err, "scene.import_ascii refuses .factoria/ outside .factoria/tmp/")
+    code, res, err = jrun(["call", "fs.delete", json.dumps({"path": ".factoria/tmp", "recursive": True}), "--project", proj])
+    check(code == 0 and not os.path.exists(os.path.join(proj, ".factoria", "tmp")), "fs.delete removes the scratch folder .factoria/tmp")
     code, out, err = run(["call", "scene.import_ascii", json.dumps({"rows": ["..x"], "legend": {"#": 0}}), "--project", proj])
     check(code == 1 and "'x'" in err and "row 0, column 2" in err and "hint:" in err, "scene.import_ascii unknown glyph: row, column and hint")
 

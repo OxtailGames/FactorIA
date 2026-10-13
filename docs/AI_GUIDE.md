@@ -21,7 +21,7 @@ my-game/
   types/factoria.d.ts     generated script typings (do not edit)
   AGENTS.md               short guide for AI agents, written by `factoria new`
   ENGINE_FEEDBACK.json    engine gaps you met (see THE FEEDBACK RULE)
-  .factoria/              generated output: screenshots, logs (do not edit)
+  .factoria/              generated output: screenshots, logs (do not edit; scratch files go in .factoria/tmp/)
 ```
 
 - **Components are data.** An entity has a stable `id`, optional `name` and `tags`, and components such as `Transform`, `Sprite` or `RigidBody2D`. Engine systems (rendering, physics, audio, scripts) read them.
@@ -117,7 +117,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_spawn` | `scene.spawn` | Create an entity: `{"prefab":"prefabs/enemy.prefab.json","position":[300,0]}`, or entity JSON with `name`, `tags`, `components` and an optional `parent` id. |
 | `scene_set_component`, `scene_remove_component` | `scene.set_component`, `scene.remove_component` | Set fields with `{"id":"player","component":"Shape2D","fields":{...}}`, or remove a component by `id` and `component`. |
 | `scene_destroy` | `scene.destroy` | Destroy an entity and its children: `{"id":"coin_1"}`. |
-| `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"save":true}`. |
+| `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"path":"scenes/level1.scene.json"}`. With `path` it edits that scene FILE and never touches the running game. |
 | `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
 | `prefab_save` | `prefab.save` | Save an entity of the running world, with its children, as a prefab file: `{"id":"enemy_3","path":"prefabs/enemy.prefab.json"}`. It does not overwrite a file unless `"overwrite":true`. Section 6 says what the file leaves out. |
 | `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{}` formats the whole project, `{"paths":["prefabs"],"check":true}` only lists the files that are not canonical. Section 6. |
@@ -132,7 +132,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Only `mask` is available here; `ignore` exists in scripts (section 8). |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
-| `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder. Use them if your client has no file tools. |
+| `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Use them if your client has no file tools. |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
@@ -584,7 +584,7 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
   "tilemap": { "tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0, 1] },
   "anchor": "bottom-left",
   "position": [0, 0],
-  "save": true
+  "path": "scenes/level1.scene.json"
 }
 ```
 
@@ -595,11 +595,30 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
 - `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
 - Objects are ordinary top-level entities, saved with the scene. Give unique objects an `id` in the legend (`"id": "player"`). Other objects get ids from the prefab file name in row-major order: `coin_1`, `coin_2`, `crawler_1`. Every object carries the tag `tilemap:<entity>` (for example `tilemap:tilemap`).
 - Re-import after editing the map: with `replace` (default `true`) the objects of earlier imports into the same tilemap are destroyed first, so nothing is duplicated and the ids stay stable. `replace: false` keeps them.
-- `save: true` also writes the current scene file, so one call is enough. Without it, call `scene_save` afterwards (the import changes the running world).
+- `path` is the scene FILE to build (see "Edit a scene file, not the running game" below). It is the normal way to use the command.
+- `save: true` (only without `path`) also writes the current scene file, so one call is enough. It is refused when the running scene is just the project's `mainScene` that was loaded because nobody chose a scene (see below).
 - The result lists the `spawned` objects (`id`, `prefab`, `cell: [col, row]`, `position`), the `removed` ids, the number of non-empty tiles (`tileCount`) and `warnings` (a legend glyph that is never used, no tileset, no `solidTiles`).
 - Errors name the row and column, the glyph and the legend, with a "did you mean": ragged rows, an unknown glyph, a legend value that is not an integer or an object, a missing prefab, a duplicate fixed `id`, a tile index outside the tileset. A failed import changes nothing.
 
 Run `project_validate`, then take a screenshot to check the picture: the tiles, the coins and the player must line up.
+
+**Edit a scene file, not the running game (`path`, `from`, `dryRun`).** Without `path` the command changes the RUNNING world, like `scene.spawn`. That is the right tool in the editor or in a play-test, but a poor one for building level files: `scene.load` and `scene.save` act on the running world too, and loading a scene stops the audio and resets the physics. Give the command a `path` and it works on the file instead:
+
+```
+factoria call scene.import_ascii @levels/level1.json       # level1.json carries "path": "scenes/level1.scene.json"
+```
+
+- `path` (project-relative, e.g. `scenes/level1.scene.json`) is the scene file to edit. The file is loaded into a scratch world that the engine throws away, the map is imported into it, and the result is written back to `path` in the same layout as `scene_save` (compact `tiles` rows, stable key order, so a diff shows what changed). The running world, its scene, the audio, the physics and the scripts are not touched, and nothing is reloaded, so it is safe to call from a project tool, from a script or while a game is running. If the running scene is that file and hot reload is on (windowed play), the game reloads it from disk like after any other edit of the file.
+- `from` (needs `path`) is a scene file to START from instead of `path`. A generator uses it to build `path` from a base scene that has the settings, camera, HUD and level script but no map (`"from": "levels/base.scene.json"`); `path` is then replaced. `from` must exist (the error suggests close scene names).
+- A `path` that does not exist yet and no `from`: the scene starts empty (default settings, no camera) and is created. That makes a new level one call; the result says so in `notes`. If `path` looks like a typo of an existing scene (`scenes/mian.scene.json`), `warnings` says "Did you mean 'scenes/main.scene.json'?" after creating it. Pass `from` to build on an existing scene.
+- `dryRun: true` (needs `path`) writes nothing and returns the resulting scene in `scene`, for a preview or a test. The same call without `dryRun` writes exactly that scene.
+- The result has the usual keys plus `path`, `from` (the file it started from, `null` for an empty scene), `entityCount`, `dryRun` and `saved` (the file written, absent in a dry run).
+- Everything else behaves as in the running world: `replace` removes the objects of the earlier import from the scene, ids are checked against every entity of the file (a fixed `id` that the file already uses is an error), the tileset is read for the range check. A failed import writes nothing, and a start file that has load errors (an unknown component, a bad value) is refused instead of being rewritten with those entries silently dropped. `save` is ignored when `path` is given.
+- `path` is written like any file written by a command: not into `.factoria/` except `.factoria/tmp/` (see "Scratch files" below), and not outside the project.
+
+**The safe workflow for a level.** Keep the map in a JSON file (`levels/level1.json`) with `"path": "scenes/level1.scene.json"` and rebuild it with `factoria call scene.import_ascii @levels/level1.json` from the project folder. No `--scene`, no `scene_load`, no `scene_save`. Without `path` the same file with `"save": true` would, on a `factoria call` without `--scene`, rewrite the project's main scene with the wrong map. The engine therefore refuses `save` without `path` while the running scene is only the default `mainScene` (nobody passed `--scene` or called `scene.load`, and it is not the editor): the error `unsafe_save` names the file it would have overwritten and says to add `path`, or to choose the scene first on purpose (`--scene scenes/main.scene.json`). When `save` is allowed, the result's `notes` say `SAVED '<file>'` and that it is the running scene.
+
+**Scratch files (`.factoria/tmp/`).** `.factoria/` holds what the engine and its tools produce (screenshots, save games, AI transcripts, editor state); `scene_save`, `scene_import_ascii` with `path`, `fs_write`, `fs_edit` and `fs_delete` refuse to write or delete there, with one exception that all of them share: `.factoria/tmp/` is a scratch folder where files can be created, overwritten and deleted (for example a generated base scene, or a test's output). `fs_list` and `fs_search` hide `.factoria/` but show a `path` inside `.factoria/tmp`. It is not committed.
 
 What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`, so its centre is `(px + (col+0.5)*tw, py - (row+0.5)*th)`.
 
@@ -816,7 +835,7 @@ import levels from "../data/levels.json";   // the parsed file, as the default e
 const { minX, maxX } = levels.bounds;
 ```
 
-Hot reload covers JSON too. A syntax error is reported against the `.json` file. For levels that must be generated from parameters, write a project tool that builds the scene and writes it with `fs.write` (see `docs_read {"name":"extending"}`, A.1).
+Hot reload covers JSON too. A syntax error is reported against the `.json` file. For levels that must be generated from parameters, write a project tool. For a tile level it composes ASCII `rows` and calls `scene.import_ascii` with `path` and `from` (section 9.8), which writes the scene file without touching the running game; for anything else it builds the scene and writes it with `fs.write` (see `docs_read {"name":"extending"}`, A.1).
 
 ### 9.17 3D chase camera
 

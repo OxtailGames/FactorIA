@@ -5,18 +5,19 @@
 // builds the Tilemap and puts the coins, enemies, player and flag in the right cell, so there is no world coordinate
 // in this file. The hand-made levels are built by the same command from levels/level1.json and levels/level2.json.
 //
-// scene.import_ascii edits the RUNNING world, so the tool works in a scratch scene and then puts the game back:
-//   1. remember the scene that is loaded (project.info: currentScene)
-//   2. scene.load levels/generator_base.scene.json: settings, camera, level script and HUD, no map
-//   3. tune the camera and the level script, then scene.import_ascii the generated rows
-//   4. scene.save to `path` (dryRun: read the entities back with game.state, nothing is written)
-//   5. scene.load the remembered scene again, also when a step failed
-// The remembered scene is reloaded from its file, so unsaved edits and the runtime state of the running game are lost.
+// scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch world, so the running game is never touched
+// (no scene is loaded, saved or restored, audio and physics keep going):
+//   1. copy levels/generator_base.scene.json (settings, camera, level script and HUD, no map) to a scratch file in
+//      .factoria/tmp/ with the camera limits, the sky colour and the level number set for this map
+//   2. scene.import_ascii {path, from: <that copy>, dryRun} builds the Tilemap and the objects and writes `path` in the
+//      canonical layout (dryRun: writes nothing and returns the scene JSON)
+//   3. delete the scratch copy, also when the import failed
 import { fa, ToolError } from "factoria";
 
 const TS = 32; // tile size in pixels (assets/tileset.png holds 32x32 tiles: 0 grass, 1 dirt, 2 brick)
 const ROWS = 16;
 const BASE = "levels/generator_base.scene.json";
+const SCRATCH = ".factoria/tmp/generate_level.base.scene.json"; // the base with this level's settings (fs.write/fs.delete may use .factoria/tmp/)
 const PREFAB = {
   coin: "prefabs/coin.prefab.json",
   enemy: "prefabs/enemy.prefab.json",
@@ -126,46 +127,47 @@ function call(name, args) {
   }
 }
 
-// Steps 2-4: replaces the running scene with the base scene, imports the rows, saves. Returns what the import said
-// and, for dryRun, the scene JSON.
+// The base scene with the parts that are not map set for this level: sky colour, camera limits, level number. Script
+// props are replaced as a whole, so start from what the base scene has.
+function base_for_level({ levelW, levelH, difficulty, levelIndex }) {
+  const base = JSON.parse(call("fs.read", { path: BASE }).content);
+  const entity = (id) => {
+    const e = base.entities.find((x) => x.id === id);
+    if (!e) throw new ToolError(`${BASE} has no entity '${id}'.`, `Restore it: project.generate_level tunes the 'camera' and 'level' entities of the base scene.`);
+    return e;
+  };
+  const camera = entity("camera").components;
+  camera.Camera = { ...camera.Camera, clearColor: [round3(0.55 - difficulty * 0.08), round3(0.7 - difficulty * 0.08), round3(0.95 - difficulty * 0.1), 1] };
+  camera.Transform = { ...camera.Transform, position: [640, levelH / 2, 0] };
+  camera.Script = { ...camera.Script, props: { ...camera.Script.props, minX: 0, maxX: levelW, minY: 0, maxY: levelH } };
+  const level = entity("level").components;
+  level.Script = { ...level.Script, props: { ...level.Script.props, levelIndex } };
+  return base;
+}
+
+// Builds the scene file `path` (or, for dryRun, only returns it). Returns what scene.import_ascii said.
 function build_scene({ rows, legend, difficulty, levelIndex, path, dryRun }) {
-  const loaded = call("scene.load", { path: BASE });
-  if (loaded.scheduled) {
-    throw new ToolError("project.generate_level cannot run inside a frame.", "Call it from a tool, a test, `factoria call` or MCP, not from a script's update.");
+  const base = base_for_level({ levelW: rows[0].length * TS, levelH: rows.length * TS, difficulty, levelIndex });
+  call("fs.write", { path: SCRATCH, content: JSON.stringify(base, null, 2) + "\n" });
+  try {
+    return call("scene.import_ascii", {
+      rows,
+      legend,
+      entity: "map",
+      tilemap: { tileset: "assets/tileset.png", tileSize: [TS, TS], solidTiles: [0, 1, 2], layer: -10 },
+      anchor: "bottom-left",
+      position: [0, 0],
+      path,
+      from: SCRATCH,
+      dryRun,
+    });
+  } finally {
+    try {
+      call("fs.delete", { path: SCRATCH });
+    } catch (e) {
+      // A leftover scratch file is harmless: it lives in .factoria/tmp/ and the next run overwrites it.
+    }
   }
-  if (!loaded.ok) throw new ToolError(`Cannot load ${BASE}: ${(loaded.messages ?? []).join("; ")}`, `Fix ${BASE} (project_validate lists the problems).`);
-
-  const imported = call("scene.import_ascii", {
-    rows,
-    legend,
-    entity: "map",
-    tilemap: { tileset: "assets/tileset.png", tileSize: [TS, TS], solidTiles: [0, 1, 2], layer: -10 },
-    anchor: "bottom-left",
-    position: [0, 0],
-  });
-
-  // The parts of the scene that are not map: sky colour, camera limits, level number. Script props are replaced as a
-  // whole, so start from what the base scene has.
-  const levelW = imported.width * TS;
-  const levelH = imported.height * TS;
-  const cameraProps = call("scene.get_entity", { id: "camera" }).components.Script.props;
-  const levelProps = call("scene.get_entity", { id: "level" }).components.Script.props;
-  call("scene.set_component", {
-    id: "camera",
-    component: "Camera",
-    fields: { clearColor: [round3(0.55 - difficulty * 0.08), round3(0.7 - difficulty * 0.08), round3(0.95 - difficulty * 0.1), 1] },
-  });
-  call("scene.set_component", { id: "camera", component: "Transform", fields: { position: [640, levelH / 2, 0] } });
-  call("scene.set_component", { id: "camera", component: "Script", fields: { props: { ...cameraProps, minX: 0, maxX: levelW, minY: 0, maxY: levelH } } });
-  call("scene.set_component", { id: "level", component: "Script", fields: { props: { ...levelProps, levelIndex } } });
-
-  if (!dryRun) {
-    call("scene.save", { path });
-    return { imported };
-  }
-  const settings = JSON.parse(call("fs.read", { path: BASE }).content).settings;
-  const entities = call("game.state", { maxEntities: 100000 }).entities;
-  return { imported, scene: { format: "factoria.scene/1", settings, entities } };
 }
 
 export default {
@@ -175,8 +177,8 @@ export default {
     'Example: {"width": 80, "seed": 7, "difficulty": 3, "path": "scenes/generated.scene.json", "next": "scenes/win.scene.json"}. ' +
     "Overwrites `path`. Same arguments always give the same level. width is in tiles (32 px each). " +
     "Higher difficulty means wider pits, more enemies and fewer safe ground stretches. " +
-    "The result lists the level as ASCII `rows`. It is built with scene.import_ascii in a scratch scene, after which the " +
-    "scene that was loaded is reloaded from its file: save unsaved edits of the running scene first. Run project_validate afterwards.",
+    "The result lists the level as ASCII `rows`. It is built with scene.import_ascii {path, from, dryRun}, which edits the " +
+    "scene FILE and never touches the running game, so it is safe to call while playing. Run project_validate afterwards.",
   input: {
     type: "object",
     properties: {
@@ -194,30 +196,11 @@ export default {
     const rows = compose_rows({ width, seed, difficulty });
     const legend = compose_legend(rows, { difficulty, next });
 
-    const previous = call("project.info").currentScene || "";
-    let built;
-    let failure = null;
-    try {
-      built = build_scene({ rows, legend, difficulty, levelIndex, path, dryRun });
-    } catch (e) {
-      failure = e;
-    }
-    if (previous) {
-      // Put the running game back, also after a failure (the first error is the one worth reporting).
-      try {
-        call("scene.load", { path: previous });
-      } catch (e) {
-        failure = failure ?? e;
-      }
-    }
-    if (failure) throw failure;
-
-    const { imported, scene } = built;
-    const spawned = imported.spawned;
-    const count = (prefab) => spawned.filter((s) => s.prefab === prefab).length;
+    const imported = build_scene({ rows, legend, difficulty, levelIndex, path, dryRun });
+    const count = (prefab) => imported.spawned.filter((s) => s.prefab === prefab).length;
     const result = { path, widthTiles: width, coins: count(PREFAB.coin), enemies: count(PREFAB.enemy), seed, difficulty, rows };
     if (imported.warnings.length > 0) result.warnings = imported.warnings;
-    if (dryRun) result.scene = scene;
+    if (dryRun) result.scene = imported.scene;
     return result;
   },
 };

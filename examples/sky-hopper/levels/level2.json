@@ -35,5 +35,5 @@
   "tilemap": { "tileset": "assets/tileset.png", "tileSize": [32, 32], "solidTiles": [0, 1, 2], "layer": -10 },
   "anchor": "bottom-left",
   "position": [0, 0],
-  "save": true
+  "path": "scenes/level2.scene.json"
 }

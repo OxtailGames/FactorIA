@@ -49,7 +49,7 @@ const std::vector<FlagSpec>& engine_flags() {
         {"seed", "N", "World RNG seed (default 1)."},
         {"frames-before", "N", "Step N headless frames before the first command."},
         {"press", "A,B", "Hold these actions/keys down before the first command (comma separated)."},
-        {"input", "FILE", "Input replay JSON (see 'factoria run --help') applied while stepping; steps through its last frame unless --frames-before says otherwise."},
+        {"input", "FILE", "Input replay JSON (see 'factoria run --help') applied while stepping; steps through its last frame unless --frames-before says otherwise. A relative path is looked up in the current directory, then in the project."},
         {"no-graphics", "", "No GPU context (game.screenshot unavailable, faster start)."},
         {"render-all", "", "Draw every frame (default: only when a screenshot is taken)."},
         {"persist-storage", "", "Let scripts' storage.* read/write the real save file (default: in memory)."}};
@@ -80,7 +80,7 @@ void prepare_session(Context& ctx, Session& session) {
     }
     int before = ctx.args.integer("frames-before", -1);
     if (ctx.args.has("input")) {
-        auto rep = load_json_file(absolute_path(ctx.args.str("input")));
+        auto rep = load_json_file(resolve_input_path(ctx.args.str("input"), session.scratch() ? std::string() : session.project_dir(), "the --input file"));
         if (!rep.ok()) throw CliError("Cannot read input replay: " + rep.error().to_string());
         const Json* frames = rep->is_object() && rep->contains("frames") ? &(*rep)["frames"] : nullptr;
         if (!frames || !frames->is_object())
@@ -122,7 +122,8 @@ Json parse_call_args(Context& ctx, const std::string& text) {
     if (text == "-") {
         body = read_all(ctx.in);
     } else if (text[0] == '@') {
-        std::ifstream f(text.substr(1), std::ios::binary);
+        // cwd first, then the project folder: `factoria call scene.import_ascii @levels/level1.json --project games/x` works.
+        std::ifstream f(resolve_input_path(text.substr(1), find_project_dir_or_empty(ctx, 99), "the @file with the command arguments"), std::ios::binary);
         if (!f) throw UsageError("Cannot read arguments file '" + text.substr(1) + "'.");
         body = read_all(f);
     }
@@ -157,7 +158,10 @@ Command make_call_command() {
         "  --batch '[{\"command\":\"game.step\",\"args\":{\"frames\":30}},{\"command\":\"script.eval\",\"args\":{\"code\":\"1+1\"}}]'\n"
         "(commands run in order on ONE engine; prints {ok, results:[{ok,result|error}]}; stops at the first failure\n"
         "unless --keep-going; exit 1 if any failed), or 'factoria session' for an interactive JSON-lines loop.\n"
-        "--scene, --press and --input position the game before the first command.";
+        "--scene, --press and --input position the game before the first command.\n\n"
+        "Files: @args.json, --batch-file and --input are looked up in the current directory first, then in the project\n"
+        "folder (the error lists both). Paths inside the arguments (scene.load, scene.import_ascii path/from, game.screenshot)\n"
+        "are project-relative. To change a scene FILE without touching the running game use scene.import_ascii with \"path\".";
     c.maxPositional = 2;
     c.flags = engine_flags();
     c.flags.push_back({"batch", "JSON", "Array of {\"command\", \"args\"} to run in order on one engine (instead of a positional command)."});
@@ -183,7 +187,7 @@ Command make_call_command() {
                 body = ctx.args.str("batch");
                 if (body == "-") body = read_all(ctx.in);
                 else if (!body.empty() && body[0] == '@') {
-                    std::ifstream f(body.substr(1), std::ios::binary);
+                    std::ifstream f(resolve_input_path(body.substr(1), find_project_dir_or_empty(ctx, 99), "the --batch file"), std::ios::binary);
                     if (!f) throw UsageError("Cannot read batch file '" + body.substr(1) + "'.");
                     body = read_all(f);
                 }
@@ -191,7 +195,7 @@ Command make_call_command() {
                 std::string file = ctx.args.str("batch-file");
                 if (file == "-") body = read_all(ctx.in);
                 else {
-                    std::ifstream f(absolute_path(file), std::ios::binary);
+                    std::ifstream f(resolve_input_path(file, find_project_dir_or_empty(ctx, 99), "the --batch-file file"), std::ios::binary);
                     if (!f) throw UsageError("Cannot read batch file '" + file + "'.");
                     body = read_all(f);
                 }

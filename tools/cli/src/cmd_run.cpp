@@ -45,7 +45,11 @@ Command make_run_command() {
         "Headless (--headless): no window; steps exactly 1/fixedHz per frame, so the same --seed and --input always\n"
         "give the same state and pixels. Prints a report; with --json it is machine-readable and lists the PNG\n"
         "paths so an AI can open them. Exit code 1 if scripts raised errors.\n\n"
-        "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}";
+        "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}\n\n"
+        "File paths: an INPUT file (--input) is looked up in the current directory first, then in the project folder, so\n"
+        "'factoria run games/x --headless --input replays/jump.json' works from anywhere; the error lists both places.\n"
+        "OUTPUT files (--state-out, --screenshot-pattern, --record-audio) are relative to the current directory; the\n"
+        "report prints the absolute path written. --scene is project-relative (it names a scene of the project).";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"scene", "PATH", "Start scene override (default: project mainScene)."},
@@ -53,11 +57,11 @@ Command make_run_command() {
                {"height", "H", "Override the design/window height."},
                {"headless", "", "No window: deterministic offscreen run."},
                {"frames", "N", "Headless: number of frames to simulate (default 60)."},
-               {"input", "FILE", "Headless: input replay JSON."},
+               {"input", "FILE", "Headless: input replay JSON. A relative path is looked up in the current directory, then in the project."},
                {"screenshot-at", "F1,F2", "Headless: frame numbers to capture as PNG."},
-               {"screenshot-pattern", "PATTERN", "PNG path with {frame} (default <project>/.factoria/screenshots/frame_{frame}.png)."},
-               {"state-out", "FILE", "Headless: write the final world state JSON here."},
-               {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file."},
+               {"screenshot-pattern", "PATTERN", "PNG path with {frame}, relative to the current directory (default <project>/.factoria/screenshots/frame_{frame}.png)."},
+               {"state-out", "FILE", "Headless: write the final world state JSON here (relative to the current directory)."},
+               {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
                {"seed", "N", "World RNG seed (default 1)."},
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
                {"render-all", "", "Headless: draw every frame (default: only screenshot frames and the last frame)."},
@@ -90,7 +94,8 @@ Command make_run_command() {
         HeadlessRunOptions ho;
         ho.frames = a.integer("frames", 60);
         if (ho.frames < 0) throw UsageError("--frames must be >= 0.");
-        if (a.has("input")) ho.inputReplayPath = absolute_path(a.str("input"));
+        // Input files: the current directory first, then the project. Output files: relative to the current directory.
+        if (a.has("input")) ho.inputReplayPath = resolve_input_path(a.str("input"), dir, "the --input file");
         if (a.has("screenshot-at")) ho.screenshotFrames = parse_frame_list(a.str("screenshot-at"));
         std::string pattern = a.has("screenshot-pattern") ? absolute_path(a.str("screenshot-pattern"))
                                                           : (fsys::path(dir) / ".factoria" / "screenshots" / "frame_{frame}.png").string();
