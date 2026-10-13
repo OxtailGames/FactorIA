@@ -3,9 +3,12 @@
 # commands work on that platform too.
 name: CI
 
+# GitHub-hosted runners are NOT used automatically (they cost Actions minutes).
+# The same checks run locally with ./scripts/ci-local.sh (see docs/BUILDING.md).
+# This workflow only runs when started by hand (Actions tab -> CI -> Run workflow).
+# To run it on your own machine for free, register a self-hosted runner and set
+# the job's runs-on to `self-hosted` (docs/BUILDING.md, "Self-hosted CI").
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 # Keep only the newest run per branch or pull request.
