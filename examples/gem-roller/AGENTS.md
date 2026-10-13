@@ -27,7 +27,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 |---|---|
 | `factoria.json` | project settings: name, display size, main scene, physics, input actions |
 | `scenes/*.scene.json` | levels: entities with components (format `factoria.scene/1`) |
-| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab` |
+| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab`; here `gem_burst`, the one-shot sparkle of a picked-up gem |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `tests/*.test.js` | headless tests run by `factoria test` |
@@ -35,6 +35,27 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 | `types/factoria.d.ts` | script API typings (regenerate: `factoria api --dts`) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
 | `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit |
+
+## Gem Roller: what the engine does, so the scripts do not
+
+Do not emulate these in JavaScript (earlier versions did; the engine now covers them):
+
+- **Moving platforms and rolling.** The ball is a dynamic sphere `RigidBody3D`; `scripts/mover.js` only sets the
+  `velocity` of kinematic `RigidBody3D` platforms. Bodies resting on a kinematic platform ride it, and a sphere on
+  the ground spins to match its motion (`rollWithMotion`, default true). So `ball.js` sets `velocity` relative to the
+  ground and never touches `Transform.rotation`. Keep the ball collider at `friction: 0`, or friction slows it.
+- **Raycasts.** `physics.raycast3d(origin, dir, dist, { ignore: this.entity })` (arrays are fine). No collider layers
+  are needed to stop the ball hitting itself.
+- **HUD.** Screen-space items use `anchor` and `pivot` (top-left `[0, 0]`, top-right `[1, 0]`, centre `[0.5, 0.5]`), so
+  `position` is an offset from that point and never needs half a size added by hand (AI guide 9.4).
+- **One-shot effects.** `prefabs/gem_burst.prefab.json` is a `ParticleEmitter` with `emitting: false`, `burst` and
+  `autoDestroy: true`: spawn it and forget it. No timer cleans it up.
+- **Ids.** `world.destroy()` frees an id at once: spawn with the plain id (`gem_1`), no `_rN` suffixes.
+- **Scenes** are saved in the compact layout by the engine. After editing `scenes/main.scene.json` by hand, run
+  `factoria call scene.save '{}' --scene scenes/main.scene.json` to normalise it. It only drops default values, and
+  a fresh call has not stepped yet, so `game.js` has not scattered gems into the world it saves.
+- **Tests** do not draw, so `game.step(5400)` (the whole 90 s) is cheap: let time run instead of poking `timeLeft`,
+  and assert sounds with `expect(game.audioLog()).toContainPlayed("gem.wav")`.
 
 ## Conventions
 

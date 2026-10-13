@@ -1,6 +1,6 @@
 // @ts-check
 // Game manager: countdown timer, gem counter, HUD, win / lose screens, restart.
-import { Behaviour, input, audio, scene, fa } from "factoria";
+import { Behaviour, input, audio, scene, fa, game } from "factoria";
 
 export default class Game extends Behaviour {
   timeLimit = 90;
@@ -36,9 +36,6 @@ export default class Game extends Behaviour {
       this.timeLeft = Math.max(0, this.timeLeft - this.fallPenalty);
       this.flash = 0.5;
     });
-    this.world.on("fx_cleanup", (d) => {
-      this.after(1.5, () => { const e = this.world.find(d.id); if (e) e.destroy(); });
-    });
     this.refresh();
   }
 
@@ -68,7 +65,7 @@ export default class Game extends Behaviour {
     this.sub.get("Text").text = sub;
     const c = this.overlay.get("Shape2D").color;
     c.r = panel[0]; c.g = panel[1]; c.b = panel[2]; c.a = panel[3];
-    this.overlay.get("Shape2D").size = [1280, 720];
+    this.overlay.get("Shape2D").size = [game.screenSize.x, game.screenSize.y]; // the overlay is centred (anchor 0.5)
   }
 
   refresh() {
