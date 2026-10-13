@@ -1145,6 +1145,14 @@ NATIVE(audioVolume) {
     return JS_UNDEFINED;
 }
 
+NATIVE(audioLog) {  // (clear) -> play log entries, oldest first
+    SETUP;
+    Json list = Json::array();
+    for (const AudioEvent& ev : I->host->audio().play_log()) list.push_back(ev.to_json());
+    if (arg_bool(ctx, argc, argv, 0, false)) I->host->audio().clear_play_log();
+    return I->from_json(list);
+}
+
 // ---- physics ------------------------------------------------------------------------------------------------------
 JSValue hit_to_js(JSContext* ctx, const std::optional<RaycastHit>& hit) {
     if (!hit) return JS_NULL;
@@ -1479,7 +1487,7 @@ const Reg kRegs[] = {
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
-    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(raycast2d, 7),
+    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),

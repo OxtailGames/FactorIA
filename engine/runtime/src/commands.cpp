@@ -469,6 +469,40 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                    {"logs", list}});
           });
 
+    I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
+           "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "
+           "music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
+           "(time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq "
+           "from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with "
+           "/<path>. Example: audio.log {\"path\":\"jump.wav\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "after":{"type":"integer","default":0,"minimum":0,"description":"Only entries with seq greater than this."},
+               "path":{"type":"string","description":"Only this clip: a project-relative path or a file name like \"jump.wav\"."},
+               "max":{"type":"integer","default":200,"minimum":1,"description":"Return at most this many (the newest)."}}})"),
+           true, "audio"},
+          [&I](const Json& a) {
+              const std::string path = fs::normalize(a.value("path", std::string()));
+              const std::size_t max = std::size_t(std::max<std::int64_t>(1, a.value("max", std::int64_t(200))));
+              std::vector<AudioEvent> evs = I.audio.play_log(a.value("after", std::uint64_t(0)));
+              const std::uint64_t lastSeq = evs.empty() ? a.value("after", std::uint64_t(0)) : evs.back().seq;
+              std::vector<const AudioEvent*> keep;
+              for (const AudioEvent& ev : evs)
+                  if (path.empty() || ev.path == path || ends_with(ev.path, "/" + path)) keep.push_back(&ev);
+              Json list = Json::array();
+              for (std::size_t i = keep.size() > max ? keep.size() - max : 0; i < keep.size(); ++i) list.push_back(keep[i]->to_json());
+              Json out = Json::object({{"count", list.size()}, {"matched", keep.size()}, {"lastSeq", lastSeq},
+                                       {"dropped", I.audio.play_log_dropped()}, {"plays", list}});
+              if (!path.empty() && keep.empty()) {
+                  std::vector<std::string> played;
+                  for (const AudioEvent& ev : evs)
+                      if (std::find(played.begin(), played.end(), ev.path) == played.end()) played.push_back(ev.path);
+                  out["hint"] = played.empty() ? std::string("no sound has been played yet; step the game first (game.step)")
+                                               : "'" + path + "' was not played; played clips: " + join(played, ", ") + ". " +
+                                                     did_you_mean(path, played);
+              }
+              return out;
+          });
+
     I.commands.add({"game.pause", "Pause the simulation (frame() stops simulating; game.step still works).",
            "Example: game.pause {}", parse_schema(R"({"type":"object","properties":{}})"), false, "game"},
           [&engine, &I](const Json&) {

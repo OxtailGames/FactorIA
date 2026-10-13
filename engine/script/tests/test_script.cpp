@@ -590,3 +590,82 @@ TEST_CASE("unknown Script.props warn once naming the entity") {
     for (auto& m : msgs) if (m.find("sped") != std::string::npos) { ++n; CHECK(m.find("bad_1") != std::string::npos); CHECK(m.find("did you mean 'speed'") != std::string::npos); }
     CHECK(n == 1);
 }
+
+namespace {
+// A 0.1 s silent 16-bit mono PCM WAV (the audio module only needs it to decode).
+std::string tiny_wav() {
+    const std::uint32_t n = 4410;
+    std::string b;
+    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
+    auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
+    b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
+    b += "data"; u32(n * 2);
+    b.append(std::size_t(n) * 2, '\0');
+    return b;
+}
+}  // namespace
+
+TEST_CASE("tests: game.audioLog and toContainPlayed assert which sounds played") {
+    TestHost h("audiolog");
+    h.file("assets/sfx/jump.wav", tiny_wav());
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("scripts/jumper.js", R"(
+import { Behaviour, input, audio, time } from "factoria";
+export default class Jumper extends Behaviour {
+  playedAt = -1;
+  onUpdate() {
+    if (input.pressed("jump")) { audio.play("assets/sfx/jump.wav", { volume: 0.5 }); this.playedAt = time.frame; }
+  }
+}
+)");
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+const scene = { format: "factoria.scene/1", entities: [{ id: "hero", components: { Script: { path: "scripts/jumper.js" } } }] };
+test("jump plays a sound", () => {
+  game.loadJson(scene);
+  game.step(2);
+  expect(game.audioLog()).toHaveLength(0);
+  game.tap("jump");
+  const log = game.audioLog();
+  expect(log).toContainPlayed("assets/sfx/jump.wav");
+  expect(log).toContainPlayed("jump.wav", { times: 1, bus: "sfx", source: "" });
+  expect(log).toHavePlayed(/jump/);
+  expect(log).not.toContainPlayed("coin.wav");
+  expect(log[0].volume).toBeCloseTo(0.5);
+  expect(log[0].frame).toBe(game.find("hero").behaviour.playedAt);
+});
+test("the log is cleared before each test", () => {
+  expect(game.audioLog()).toHaveLength(0);
+  audio.play("assets/sfx/coin.wav", { bus: "ui" });
+  audio.play("assets/sfx/missing.wav");
+  audio.music("assets/sfx/coin.wav");
+  const log = game.audioLog();
+  expect(log).toContainPlayed("coin.wav", { times: 2 });
+  expect(log).not.toContainPlayed("missing.wav");
+  expect(log[1].ok).toBe(false);
+  expect(log[2].music).toBe(true);
+  game.clearAudioLog();
+  expect(game.audioLog()).toEqual([]);
+});
+test("a failing assertion lists what played", () => {
+  audio.play("assets/sfx/coin.wav");
+  expect(game.audioLog()).toContainPlayed("jump.wav");
+});
+test("a wrong receiver explains the usage", () => {
+  expect(game).toContainPlayed("jump.wav");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    CHECK_MESSAGE(rep.cases[0].passed, rep.cases[0].message);
+    CHECK_MESSAGE(rep.cases[1].passed, rep.cases[1].message);
+    CHECK_FALSE(rep.cases[2].passed);
+    const std::string& msg = rep.cases[2].message;
+    CHECK(msg.find("toContainPlayed(\"jump.wav\")") != std::string::npos);
+    CHECK(msg.find("assets/sfx/coin.wav [sfx] x1") != std::string::npos);
+    CHECK_FALSE(rep.cases[3].passed);
+    CHECK(rep.cases[3].message.find("game.audioLog()") != std::string::npos);
+}

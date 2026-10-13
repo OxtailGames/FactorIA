@@ -879,6 +879,36 @@
     const check = (pass, matcher, expected, extra = {}) => {
       if (pass === negate) fail(matcher, expected === undefined ? "" : short(expected), { expected: extra.expectedText ?? short(expected), received: extra.received });
     };
+    // expect(game.audioLog()).toContainPlayed(path, { times, bus, source }): `path` is a project-relative clip path, a
+    // file name ("jump.wav" matches "assets/sfx/jump.wav") or a RegExp. Plays whose clip failed to load do not count.
+    const played = (matcher, path, o = {}) => {
+      if (!Array.isArray(received) || received.some((x) => !isObj(x) || typeof x.path !== "string")) {
+        throw new AssertionError(`expect(log).${matcher}(path): the received value must be the array returned by game.audioLog(), ` +
+          `e.g. expect(game.audioLog()).${matcher}("assets/sfx/jump.wav"), but got ${received === gameApi ? "the game object" : short(received)}`);
+      }
+      const want = path instanceof RegExp ? path : String(path).replace(/^\.\//, "");
+      const pathOk = (p) => (want instanceof RegExp ? p.search(want) >= 0 : p === want || p.endsWith("/" + want));
+      const source = o.source instanceof Entity ? o.source.id : o.source;
+      const hits = received.filter((x) => x.ok !== false && pathOk(x.path) && (o.bus === undefined || x.bus === o.bus) &&
+        (source === undefined || x.source === source));
+      const pass = o.times === undefined ? hits.length > 0 : hits.length === o.times;
+      let expectedText = `a play of ${want instanceof RegExp ? want : JSON.stringify(want)}`;
+      if (o.times !== undefined) expectedText += ` exactly ${o.times} time(s)`;
+      if (o.bus !== undefined) expectedText += ` on bus "${o.bus}"`;
+      if (source !== undefined) expectedText += ` from entity "${source}"`;
+      const groups = new Map();
+      for (const x of received) {
+        const key = x.path + (x.ok === false ? " (FAILED TO LOAD: see the audio error in the log)" : ` [${x.bus}]`);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(x.frame);
+      }
+      const parts = [...groups].slice(0, 12).map(([k, frames]) => `${k} x${frames.length} (frame${frames.length > 1 ? "s" : ""} ${frames.slice(0, 5).join(", ")}${frames.length > 5 ? ", ..." : ""})`);
+      if (groups.size > 12) parts.push(`... ${groups.size - 12} more clips`);
+      const got = received.length === 0
+        ? "no sounds played (the log is cleared before each test: step the game after the action that plays the sound)"
+        : parts.join("; ");
+      check(pass, matcher, want instanceof RegExp ? String(want) : want, { expectedText, received: got });
+    };
     const m = {
       toBe(e) { check(Object.is(received, e), "toBe", e); },
       toEqual(e) { check(deepEqual(received, e), "toEqual", e); },
@@ -911,6 +941,8 @@
         check(pass, "toMatch", re instanceof RegExp ? String(re) : re, { expectedText: `to match ${re}` });
       },
       toBeInstanceOf(C) { check(received instanceof C, "toBeInstanceOf", C.name, { expectedText: `instance of ${C.name}` }); },
+      toContainPlayed(path, o) { played("toContainPlayed", path, o); },
+      toHavePlayed(path, o) { played("toHavePlayed", path, o); },
       toThrow(expected) {
         let threw = false, error;
         if (typeof received !== "function") throw new AssertionError("expect(fn).toThrow(): the received value is not a function. Wrap the code: expect(() => ...).toThrow()");
@@ -1005,6 +1037,10 @@
       if (err) throw new Error(`game.screenshot('${path}') failed: ${err}`);
     },
     state() { return N.testState(); },
+    // Sounds played since the test started (cleared before each test): [{ seq, frame, time, path, volume, pitch, pan,
+    // bus, loop, music, source, ok }], oldest first. Assert with expect(game.audioLog()).toContainPlayed(path).
+    audioLog() { return N.audioLog(false); },
+    clearAudioLog() { N.audioLog(true); },
   };
   const testApi = { test, describe, expect, game: gameApi, beforeEach, afterEach };
 
@@ -1018,6 +1054,7 @@
       if (t.skip) { results.push({ name: t.name, skipped: true, passed: true, ms: 0 }); continue; }
       testCurrentName = t.name;
       N.resetInput();
+      N.audioLog(true);
       N.setTimeScale(1);
       const start = N.nowMs();
       const seq0 = N.logSeq();

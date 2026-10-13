@@ -46,6 +46,7 @@ struct TestHost : ScriptHost {
                                                                      {"move_right", Json::array({"D"})}})}});
         in.set_actions(proj["input"]["actions"]);
         au.init(false, nullptr);
+        au.set_clock(&w);
         ph.init(PhysicsSettings{});
     }
     ~TestHost() override {
@@ -91,6 +92,7 @@ struct TestHost : ScriptHost {
             ph.step(w, dt);
             scripts.dispatch_events();
             scripts.update(dt);
+            au.update(w, dt);
             scripts.late_update(dt);
             w.advance_clock(fdt);
             w.flush();
