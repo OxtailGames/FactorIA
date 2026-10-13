@@ -91,6 +91,8 @@ struct Renderer::Impl {
     RenderStats stats;
     CameraInfo lastCam;
     bool warnedNoLight = false;
+    bool updated = false;  // update() ran since the last draw
+    ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
 
     void create_targets(int w, int h);
@@ -268,6 +270,15 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
     } else {
         float halfH = cam.orthoSize > 0 ? cam.orthoSize : float(targetH) * 0.5f;
         float halfW = halfH * aspect;
+        if (scaleMode == ScaleMode::Expand && cam.orthoSize > 0) {
+            // Expand: the design height (landscape-ish targets) or design width (taller targets) stays fixed;
+            // the other axis grows with the window aspect.
+            float designAspect = float(desc.designWidth) / float(std::max(1, desc.designHeight));
+            if (aspect < designAspect) {
+                halfW = cam.orthoSize * designAspect;
+                halfH = halfW / aspect;
+            }
+        }
         ci.halfH = halfH; ci.halfW = halfW;
         ci.pixelsPerUnit = float(targetH) / (2.0f * halfH);
         ci.proj = Mat4::ortho(-halfW, halfW, -halfH, halfH, -1000.0f, 1000.0f, z01);
@@ -429,9 +440,44 @@ Vec2 Renderer::framebuffer_to_design(Vec2 fb, int fbW, int fbH, ScaleMode mode) 
 // ---------------------------------------------------------------------------
 // render_world
 // ---------------------------------------------------------------------------
+void Renderer::update(World& world, float dt) {
+    if (!initialized()) return;
+    Impl& im = *impl_;
+    Frame fr;
+    fr.dt = dt;
+    fr.assets = im.assets.get();
+    fr.fonts = im.fonts.get();
+    update_animators(world, fr, true);
+    update_particles(world, dt);
+    im.updated = true;
+}
+
+void Renderer::emit_burst(Entity e, int count) {
+    if (!initialized() || !e) return;
+    queue_particle_burst(e.bits(), count);
+}
+
+void Renderer::set_scale_mode(ScaleMode mode) {
+    if (impl_) impl_->scaleMode = mode;
+}
+
+Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth) const {
+    if (!initialized() || text.empty() || fontSize <= 0.0f) return {0, 0};
+    Text t;
+    t.text = std::string(text);
+    t.font = std::string(font);
+    t.fontSize = fontSize;
+    t.maxWidth = maxWidth;
+    float rasterPx = fontSize;  // same as screen-space Text rendering at scale 1
+    float unitsPerPx = fontSize / std::max(std::round(std::clamp(rasterPx, 4.0f, 400.0f)), 1.0f);
+    return impl_->fonts->layout(t, rasterPx, unitsPerPx).size;
+}
+
 void Renderer::render_world(World& world, float dt) {
     if (!initialized()) return;
     if (!impl_->inFrame) begin_frame();
+    if (!impl_->updated) update(world, dt);  // backward compatible: callers that only use render_world
+    impl_->updated = false;
     impl_->render(world, dt);
 }
 
@@ -451,7 +497,8 @@ void Renderer::Impl::render(World& world, float dt) {
     fr.fonts = fonts.get();
     fonts->begin_frame();
 
-    update_animators(world, fr);
+    flush_particle_bursts(world);
+    update_animators(world, fr, false);
     gather_2d(world, fr);
     gather_particles(world, fr);
     gather_debug(*debug.impl(), fr);
@@ -680,11 +727,11 @@ void Renderer::Impl::render(World& world, float dt) {
     // quad groups
     auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest) {
         if (batches.empty()) return;
-        sg_apply_pipeline(gpu.quad_pipeline(depthTest, false));
         quad_vs_params_t u{};
         copy_mat(u.view_proj, vp);
-        apply_uniforms(UB_quad_vs_params, u);
         for (const QuadBatch& qb : batches) {
+            sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend));
+            apply_uniforms(UB_quad_vs_params, u);
             std::uint32_t done = 0;
             while (done < qb.quadCount) {
                 std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
@@ -736,6 +783,7 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     if (!initialized()) return;
     Impl& im = *impl_;
     const sg_swapchain& sc = swapchain.get();
+    im.scaleMode = mode;
     Viewport vp = compute_viewport(mode, fbW, fbH, im.targetW, im.targetH);
     sg_pass pass{};
     pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;

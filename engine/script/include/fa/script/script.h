@@ -59,8 +59,19 @@ public:
     virtual void step_frames(int n) = 0;
     // Load a scene immediately (test runner only), returns error text or "".
     virtual std::string load_scene_now(std::string_view scenePath) = 0;
+    // Load a scene given as JSON (test runner: game.loadJson). Returns error text or "". Hosts that cannot do it keep
+    // the default, which returns an explanatory error.
+    virtual std::string load_scene_json_now(const Json& scene, std::string_view sourceName) {
+        (void)scene;
+        (void)sourceName;
+        return "not supported by this host (load_scene_json_now is not implemented)";
+    }
     virtual bool screenshot(std::string_view path, std::string* error) = 0;
 };
+
+// Where `storage.*` keeps its data. Persistent: <user dir>/storage.json (default). Memory: never touches disk
+// (headless runs, tests). Test runs always use a fresh in-memory storage per test file, whatever the mode.
+enum class StorageMode { Persistent, Memory };
 
 struct ScriptError {
     std::string file;     // project-relative module path
@@ -116,6 +127,14 @@ public:
     void reload_tools();
     // Called after the set of JS tools changed (so MCP can send tools/list_changed).
     void set_tools_changed_callback(std::function<void()> cb);
+    // Switches `storage.*` between the real save file and a throwaway in-memory object (switching clears what
+    // was loaded in memory; Memory never writes to disk).
+    void set_storage_mode(StorageMode mode);
+    StorageMode storage_mode() const;
+    // Validates Script.props against a behaviour module WITHOUT side effects on the scene: constructs a throw-away
+    // instance and returns one message per prop that is not an own field of it (with "did you mean"). Returns an
+    // error entry too when the module cannot be loaded. Empty = all good. Used by `factoria validate`.
+    std::vector<std::string> check_props(std::string_view modulePath, const Json& props);
 
     Json api_manifest() const;               // machine-readable API (modules, classes, functions, docs)
     std::string typescript_declarations() const;  // contents of types/factoria.d.ts

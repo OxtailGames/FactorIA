@@ -63,7 +63,7 @@ elseif(FA_PLATFORM STREQUAL "ios")
     if(FA_IOS_DEVELOPMENT_TEAM)
         set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${FA_IOS_DEVELOPMENT_TEAM}")
     endif()
-    target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework Metal" "-framework MetalKit"
+    target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit"
         "-framework QuartzCore" "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation")
 
     if(FA_GAME_PROJECT_DIR)

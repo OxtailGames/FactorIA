@@ -178,7 +178,7 @@ private:
     static Contact collide(const Body& a, const Body& b, float margin);
     static bool filters_pass(const Body& a, const Body& b);
     void sync(World& world);
-    void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact);
+    void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried);
 
     PhysicsSettings settings_;
     std::vector<Body> bodies_;  // sorted by seq (creation order)

@@ -128,23 +128,47 @@ void Impl::create_behaviour(Entity e, const std::string& path, const Json& props
 
     JSValue propsV = from_json(props.is_object() ? props : Json::object());
     JSValue hv = JS_NewFloat64(ctx, static_cast<double>(e.bits()));
+    JSValue idv = JS_NewString(ctx, id.c_str());
+    JSValue pathv = JS_NewString(ctx, path.c_str());
     bool failed = false;
     JSValue instFn = JS_GetPropertyStr(ctx, hooks.get(), "instantiate");
-    JSValue inst = call(path + "#constructor", id, instFn, hooks.get(), {cls, hv, propsV}, &failed);
+    JSValue inst = call(path + "#constructor", id, instFn, hooks.get(), {cls, hv, propsV, idv, pathv}, &failed);
     JS_FreeValue(ctx, instFn);
     JS_FreeValue(ctx, cls);
     JS_FreeValue(ctx, hv);
     JS_FreeValue(ctx, propsV);
+    JS_FreeValue(ctx, idv);
+    JS_FreeValue(ctx, pathv);
     if (failed || !JS_IsObject(inst)) {
         JS_FreeValue(ctx, inst);
         b->loadFailed = true;
         return;
     }
     b->instance = JsVal(ctx, inst);
-    b->started = true;
-    JSValue r = call_method(path + "#onStart", id, b->instance.get(), "onStart", {});
+}
+
+void Impl::start_behaviour(Behaviour& b) {
+    if (b.started || b.dead || b.loadFailed || JS_IsUndefined(b.instance.get())) return;
+    b.started = true;
+    std::string id = host->world().alive(b.entity) ? host->world().id_of(b.entity) : std::string();
+    JSValue r = call_method(b.path + "#onStart", id, b.instance.get(), "onStart", {});
     JS_FreeValue(ctx, r);
 }
+
+void Impl::construct_for(const std::vector<Entity>& entities) {
+    if (!ctx || !initialized) return;
+    World& W = host->world();
+    for (Entity e : entities) {
+        if (!W.alive(e) || byEntity.count(e.bits()) || W.pending_destroy(e)) continue;
+        const Script* s = W.get<Script>(e);
+        if (!s || !s->enabled || s->path.empty() || !W.active_in_hierarchy(e)) continue;
+        std::string path = s->path;
+        Json props = s->props;
+        create_behaviour(e, path, props);
+    }
+}
+
+void Impl::construct_all() { construct_for(host->world().entities_with(&World::type_of<Script>())); }
 
 void Impl::sync() {
     if (inSync || !ctx) return;
@@ -175,6 +199,13 @@ void Impl::sync() {
         if (!W.alive(p.e) || byEntity.count(p.e.bits())) continue;
         create_behaviour(p.e, p.path, p.props);
     }
+    // onStart for everything constructed since the last sync (scene load, spawn), in creation order.
+    for (size_t i = 0; i < behaviours.size(); ++i) {
+        Behaviour& b = *behaviours[i];
+        if (b.dead || b.started || b.loadFailed || JS_IsUndefined(b.instance.get())) continue;
+        if (!W.alive(b.entity)) continue;
+        start_behaviour(b);
+    }
     compact();
     inSync = false;
 }
@@ -188,6 +219,7 @@ void Impl::run_callbacks(const char* method, float dt, bool) {
         if (!W.alive(b.entity)) continue;
         const Script* s = W.get<Script>(b.entity);
         if (!s || !s->enabled || !W.active_in_hierarchy(b.entity)) continue;
+        if (!b.started) start_behaviour(b);  // spawned earlier this frame: onStart before its first callback
         JSValue en = JS_GetPropertyStr(ctx, b.instance.get(), "enabled");
         bool enabled = JS_IsUndefined(en) || JS_ToBool(ctx, en) > 0;
         JS_FreeValue(ctx, en);
@@ -212,6 +244,7 @@ void Impl::dispatch(const char* method, Entity self, std::initializer_list<JSVal
         World& W = host->world();
         const Script* s = W.get<Script>(self);
         if (s && s->enabled && W.active_in_hierarchy(self)) {
+            if (!b->started) start_behaviour(*b);
             JSValue r = call_method(b->path + "#" + method, W.id_of(self), b->instance.get(), method, args);
             JS_FreeValue(ctx, r);
         }

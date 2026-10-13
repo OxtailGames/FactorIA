@@ -117,6 +117,7 @@ struct ScriptSystem::Impl {
     // ---- storage
     Json storage = Json::object();
     bool storageLoaded = false;
+    StorageMode storageMode = StorageMode::Persistent;
 
     // ---- test runner state
     bool inTestRun = false;
@@ -160,7 +161,13 @@ struct ScriptSystem::Impl {
 
     // ================= behaviours (script_behaviours.cpp)
     void sync();
+    // Constructs the behaviour (props applied) but does NOT run onStart; sync()/start_behaviour() do that.
     void create_behaviour(Entity e, const std::string& path, const Json& props);
+    void start_behaviour(Behaviour& b);
+    // Constructs behaviours for Script components of these entities that have none yet (spawn, scene load).
+    void construct_for(const std::vector<Entity>& entities);
+    void construct_all();
+    std::vector<std::string> check_props(const std::string& modulePath, const Json& props);
     void destroy_behaviour(Behaviour& b, bool callOnDestroy);
     void compact();
     void drop_all_behaviours();
@@ -175,6 +182,8 @@ struct ScriptSystem::Impl {
     void unregister_tools();
     TestReport run_tests(const std::vector<std::string>& files, std::string_view nameFilter);
     void reset_for_test_file();
+    void reset_modules();  // every project module gets a fresh instance on its next import
+    void after_test_load();
     Result<Json> eval(std::string_view code);
     Result<void> check_syntax(std::string_view path);
     void reload_module(std::string_view path);

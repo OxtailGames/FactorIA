@@ -37,7 +37,7 @@ elseif(FA_PLATFORM STREQUAL "macos")
     target_link_libraries(fa_platform PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework Foundation")
 elseif(FA_PLATFORM STREQUAL "ios")
-    target_link_libraries(fa_platform PUBLIC "-framework UIKit" "-framework QuartzCore" "-framework Metal"
+    target_link_libraries(fa_platform PUBLIC "-framework UIKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation")
 elseif(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_platform PUBLIC GLESv3 EGL android log aaudio)

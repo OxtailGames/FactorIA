@@ -55,6 +55,10 @@ struct SessionOptions {
     int width = 0, height = 0;
     u64 seed = 1;
     bool hotReload = false;
+    // Headless sessions simulate every frame but only draw on screenshots (see RenderMode::OnDemand) and keep
+    // `storage.*` in memory. `--render-all` / `--persist-storage` turn these off.
+    RenderMode renderMode = RenderMode::OnDemand;
+    bool memoryStorage = true;
 };
 
 // A headless Engine for a project (or, with an empty projectDir, a throw-away scratch project
@@ -77,13 +81,19 @@ private:
     std::filesystem::path scratchDir_;
 };
 
-// Registers tooling + project.create/templates/test + ai.* commands on `registry`
-// (the session's engine registry, or a standalone one when `engine` is null).
+// Registers the full command set on `registry`: with an engine, register_project_commands (tooling, fs.*, docs.*,
+// feedback.*, project.*) + ai.*; without one (no project: `factoria mcp` bootstrap) docs + project creation + ai.*.
+// Session::open already registers the project commands, so this mostly adds ai.*.
 void register_cli_commands(CommandRegistry& registry, const std::string& projectDir, Engine* engine);
 
 // Runs tests/**/*.test.js on the engine's scripts.
 TestReport run_project_tests(Engine& engine, const std::string& nameFilter);
-// Installs the process-wide script syntax hook backed by `engine`'s scripts.
+// Kept for callers that validate through the process-wide hooks (project.validate is already engine-bound).
 void install_script_check(Engine& engine);
+
+// --- batch / session helpers (cmd_session.cpp) ---
+// Runs `{"command": "...", "args": {...}}` on `registry`; returns {"ok":true,"result":...} or
+// {"ok":false,"error":{code,message,hint}}.
+Json run_command_json(CommandRegistry& registry, const Json& request);
 
 }  // namespace fa::cli

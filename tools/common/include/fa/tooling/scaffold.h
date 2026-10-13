@@ -6,7 +6,7 @@
 //   {{PROJECT_NAME}} {{PROJECT_ID}} {{ENGINE_VERSION}} {{DATE}}
 // (inside .json files the values are JSON-escaped).
 // Always generated: ENGINE_FEEDBACK.json, AGENTS.md + CLAUDE.md (same guide),
-// .gitignore, jsconfig.json, .mcp.json (Claude Code), types/ (d.ts placeholder).
+// .gitignore, jsconfig.json, .mcp.json (Claude Code), types/factoria.d.ts (the real typings).
 #pragma once
 
 #include <string>
@@ -27,6 +27,7 @@ struct ScaffoldOptions {
     std::string name;  // display name; default = target folder name
     std::string id;    // reverse-DNS id; default "com.example.<slug>"
     std::string engineVersion;  // default FA_ENGINE_VERSION
+    bool writeTypings = true;  // generate the real types/factoria.d.ts (needs a logic-only Engine); false = placeholder
     bool force = false;  // allow a non-empty target dir (overwrites template files, keeps others)
 };
 
@@ -40,6 +41,10 @@ struct ScaffoldResult {
 std::vector<TemplateInfo> list_templates();
 Result<ScaffoldResult> create_project(const std::string& targetDir, const std::string& templateName,
                                       const ScaffoldOptions& options = {});
+
+// Regenerates <projectDir>/types/factoria.d.ts from the engine's script API (starts a throw-away logic-only Engine;
+// the global VFS root is restored afterwards). Returns the written path.
+Result<std::string> write_project_typings(const std::string& projectDir);
 
 // Text of the generated AGENTS.md / CLAUDE.md for a project (from templates/common/AGENTS.md).
 std::string render_agents_guide(const std::string& projectName, const std::string& engineVersion = {});
