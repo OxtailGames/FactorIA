@@ -243,7 +243,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov` | The view. Without a primary camera the screenshot is black. |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius` | The view. Without a primary camera the screenshot is black. `bloom: true` adds a glow around bright pixels (section 9.20). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
 | `Shape2D` | `shape` (rectangle, circle, line, triangle), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. |
@@ -879,6 +879,28 @@ export default class GroundProbe extends Behaviour {
 ```
 
 A collider that contains the ray origin is always skipped, so a ray that starts at the centre of a ball does not hit the ball. Use `ignore` when the ray starts outside the caster's own collider, for example just ahead of a body. The 3D `isTouching(direction)` works like the 2D one, for any direction.
+
+### 9.20 Neon glow: additive blend and camera bloom
+
+Glow is a camera setting, not artwork. Draw the bright things with `"blend": "additive"` (overlapping lights add up instead of covering each other), then switch on bloom on the primary `Camera`: every pixel brighter than `bloomThreshold` bleeds light into its surroundings. Do not hand-draw blurred halo sprites or stack translucent copies of a shape; they cost entities and never look as good.
+
+```json
+{ "id": "camera", "components": {
+    "Camera": { "projection": "orthographic", "clearColor": [0.02, 0.02, 0.05, 1],
+                "bloom": true, "bloomThreshold": 0.6, "bloomIntensity": 1.2, "bloomRadius": 20 } } },
+{ "id": "ship", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Shape2D": { "shape": "triangle", "size": [60, 60], "color": [0.1, 0.9, 1, 1],
+                 "filled": false, "thickness": 4, "blend": "additive" } } }
+```
+
+- **Fields.** `bloom` turns it on (default off, so existing games are unchanged). `bloomThreshold` (0..1, default 0.7) is the brightness where glow starts, measured as the largest of r, g and b, so a saturated colour such as `[1, 0, 0.8]` glows as much as white. Lower it to make dim colours glow, raise it so only the brightest things do. `bloomIntensity` (0..10, default 1.2) is how much glow is added. `bloomRadius` (1..128 design pixels, default 20) is how far it reaches; radii below about 5 behave like 5.
+- **Dark background.** The glow is added on top of the picture, so it only shows on dark areas. Keep `clearColor` and backgrounds dark; a light background hides it.
+- **Bright sources.** Sprites, shapes and particles that glow need a bright `color` (at or above the threshold). `ParticleEmitter` with `"blend": "additive"` plus bloom gives fire, sparks and explosions for free. In 3D, bright unlit meshes (`MeshRenderer.unlit`) and strong `emissive` colours glow the same way.
+- **Whole frame.** Bloom is applied to the finished picture, screen-space HUD included: white HUD text glows too. Tint the HUD below the threshold if you do not want that.
+- **Screenshots and tests.** The glow is part of the image (`factoria run --headless --screenshot-at`, MCP screenshots), and it is deterministic. Look at a screenshot after tuning; compare with `bloom: false` to see what it adds.
+- **Animating it.** `this.entity.get("Camera").bloomIntensity = 1 + Math.sin(time.elapsed * 4) * 0.5;` pulses the glow from a script.
+- **Cost.** Bloom reads the finished frame once, blurs a reduced-resolution copy and adds it back (4 to 7 extra passes, the number grows with the radius). That is cheap on a GPU; the software renderer used for headless runs spends about 5 ms per drawn frame at 1280x720. Headless tests and `factoria call` only draw when they take a screenshot, so bloom costs them nothing otherwise.
 
 ## 10. Tests
 

@@ -187,6 +187,8 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 
 ### camera
 `main` (primary camera Entity), `worldToScreen(v)`, `screenToWorld(v)`.
+The `Camera` component fields are live, for example `camera.main.get("Camera").bloomIntensity = 2` changes the glow
+(`bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`; see AI_GUIDE section 9.20).
 
 ### debug
 `line(a, b, color?)`, `rect(x, y, w, h, color?)`, `circle(center, r, color?)`, `text(screenPos, str, color?)`.

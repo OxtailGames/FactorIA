@@ -51,6 +51,12 @@ struct Camera {
     bool clear = true;
     bool primary = true;        // the first active primary camera renders the game
     std::int32_t depth = 0;     // multiple cameras render in ascending depth order
+    // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
+    // Applied to the whole frame by fa_render; off by default.
+    bool bloom = false;
+    float bloomThreshold = 0.7f;   // brightness (largest of r, g, b; 0..1) where the glow starts
+    float bloomIntensity = 1.2f;   // strength of the added glow (0..10)
+    float bloomRadius = 20.0f;     // glow size in design pixels (1..128)
 };
 
 // ------------------------------------------------------------------- 2D ---

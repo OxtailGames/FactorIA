@@ -8,6 +8,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
+#include "bloom.h"
 #include "frame.h"
 #include "render_internal.h"
 
@@ -83,6 +84,8 @@ struct Renderer::Impl {
 
     sg_image colorImg{}, resolveImg{}, depthImg{};
     sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
+    sg_view resolveColorAtt{};  // MSAA only: the resolved image as a color attachment (bloom composites into it)
+    Bloom bloom;                // Camera.bloom post-process (intermediate targets are created on first use)
     sg_image shadowColor{}, shadowDepth{};
     sg_view shadowColorAtt{}, shadowDepthAtt{}, shadowTexView{};
     static constexpr int kShadowSize = 2048;
@@ -169,6 +172,7 @@ void Renderer::Impl::create_targets(int w, int h) {
     if (samples > 1) {
         sg_image_desc rd{};
         rd.usage.resolve_attachment = true;
+        rd.usage.color_attachment = true;  // Camera.bloom adds its glow to the resolved image
         rd.width = targetW; rd.height = targetH;
         rd.pixel_format = SG_PIXELFORMAT_RGBA8;
         rd.sample_count = 1;
@@ -177,6 +181,10 @@ void Renderer::Impl::create_targets(int w, int h) {
         sg_view_desc rv{};
         rv.resolve_attachment.image = resolveImg;
         resolveAtt = sg_make_view(&rv);
+        sg_view_desc rc{};
+        rc.color_attachment.image = resolveImg;
+        rc.label = "game-resolve-color-att";
+        resolveColorAtt = sg_make_view(&rc);
     }
     sg_view_desc tv{};
     tv.texture.image = samples > 1 ? resolveImg : colorImg;
@@ -195,7 +203,8 @@ void Renderer::Impl::create_targets(int w, int h) {
 }
 
 void Renderer::Impl::destroy_targets() {
-    for (sg_view* v : {&colorAtt, &resolveAtt, &depthAtt, &texView}) {
+    bloom.release();
+    for (sg_view* v : {&colorAtt, &resolveAtt, &resolveColorAtt, &depthAtt, &texView}) {
         if (v->id) sg_destroy_view(*v);
         *v = {};
     }
@@ -262,6 +271,7 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
     ci.right = x; ci.up = y; ci.forward = -z;
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear;
+    ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius);
     if (cam.projection == Projection::Perspective) {
         ci.perspective = true;
         ci.fov = cam.fov;
@@ -771,6 +781,12 @@ void Renderer::Impl::render(World& world, float dt) {
     draw_group(gDebugScreen.batches, screenProj, false);
 
     sg_end_pass();
+
+    // ---- post-process: bloom adds its glow into the game target (the resolved image when MSAA is on) ----
+    if (fr.cam.bloom.enabled) {
+        stats.drawCalls += bloom.apply(gpu, fr.cam.bloom, targetW, targetH, texView, gpu.sample_count() > 1 ? resolveColorAtt : colorAtt);
+    }
+
     debug.clear();
     auto t1 = std::chrono::steady_clock::now();
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();

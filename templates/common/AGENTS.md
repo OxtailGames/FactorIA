@@ -67,6 +67,9 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
   (Text default [0,1]). Guide section 9.4.
 - **One-shot effects:** a `ParticleEmitter` with `emitting: false`, `burst: 24`, `autoDestroy: true` and
   `blend: "additive"` fires once and removes itself. `particles.burst(entity, n)` bursts an existing one.
+- **Neon glow:** `"blend": "additive"` on bright Sprites/Shapes/particles plus `"bloom": true` on the primary `Camera`
+  (`bloomThreshold`, `bloomIntensity`, `bloomRadius`) over a dark `clearColor`. Never hand-draw blurred halo sprites.
+  Guide section 9.20.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @level.json`) turns ASCII
   `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Re-run it

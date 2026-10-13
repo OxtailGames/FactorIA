@@ -54,7 +54,30 @@ void register_builtin_components(TypeRegistry& r) {
         .field("clear", &Camera::clear,
                "Clear the target before drawing. Set false on overlay cameras that draw on top of another camera.")
         .field("primary", &Camera::primary, "The first active primary camera renders the game.")
-        .field("depth", &Camera::depth, "Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).");
+        .field("depth", &Camera::depth, "Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).")
+        .field("bloom", &Camera::bloom,
+               "Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / "
+               "explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD "
+               "included) and shows in screenshots. Combine with blend \"additive\" on Sprite, Shape2D or "
+               "ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few "
+               "extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). "
+               "Tune with bloomThreshold, bloomIntensity and bloomRadius.")
+        .field("bloomThreshold", &Camera::bloomThreshold,
+               "Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: "
+               "pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully "
+               "saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest "
+               "pixels do (values above 0.99 behave like 0.99).")
+        .range(0, 1)
+        .field("bloomIntensity", &Camera::bloomIntensity,
+               "Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, "
+               "1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.")
+        .range(0, 10)
+        .field("bloomRadius", &Camera::bloomRadius,
+               "Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur "
+               "whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 "
+               "(the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide "
+               "glows are softer). Limited to 1..128.")
+        .range(1, 128);
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",
