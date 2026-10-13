@@ -249,6 +249,14 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               if (!e || !I.world.alive(e))
                   throw CommandError("invalid_argument", "Spawn failed:\n" + report.summary(),
                                      "Use api.components for valid component names and fields; prefabs live in prefabs/.");
+              if (report.error_count() > 0) {
+                  // Unknown component/field names etc.: no half-built entity is left behind, the caller gets the fix.
+                  for (Entity c : report.created)
+                      if (I.world.alive(c)) I.world.destroy(c);
+                  I.world.flush();
+                  throw CommandError("invalid_argument", "Spawn failed, nothing was created:\n" + report.summary(),
+                                     "Fix the names above (the hints list valid ones); api.components describes every component.");
+              }
               EntityJsonOptions o;
               o.includeDefaults = true;
               Json out = Json::object();

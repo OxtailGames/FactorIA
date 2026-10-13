@@ -229,3 +229,5 @@ Json run_command_json(CommandRegistry& registry, const Json& request) {
     if (!r.ok) return Json::object({{"ok", false}, {"error", r.error}});
     return Json::object({{"ok", true}, {"result", r.result}});
 }
+
+}  // namespace fa::cli

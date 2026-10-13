@@ -32,7 +32,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `tests/*.test.js` | headless tests run by `factoria test` |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
-| `types/factoria.d.ts` | script API typings (regenerate: `factoria api --dts`) |
+| `types/factoria.d.ts` | script API typings (regenerate: `factoria api --dts --project .` — writes the file; plain `--dts` only prints) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
 | `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit |
 
@@ -66,7 +66,12 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
   `game_state` / `scene_list_entities` give the same live. `game_logs` shows script errors.
 - Compare screenshots before/after a change. If the picture is black, check there is a
   primary `Camera`, that sprites have a `layer` and size, and that the colors are not 0..255.
-- To poke at runtime: `factoria call <command> '<json>'` (all commands: `factoria commands`).
+- To poke at runtime: `factoria call <command> '<json>'` (all commands: `factoria commands`). Every `call`
+  starts a NEW engine, so to act on the same running game use
+  `factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"..."}}]'`
+  (add `--scene S`, `--press a,b` or `--input replay.json` to position the game first) or the interactive
+  `factoria session` (one JSON request per stdin line, one JSON answer per stdout line, state persists).
+- Headless runs and tests simulate every frame but draw only for screenshots (fast); `--render-all` draws all.
 
 ## Recording engine gaps (IMPORTANT)
 

@@ -18,7 +18,6 @@ namespace fa::editor {
 Editor* g_editor = nullptr;
 
 namespace {
-constexpr const char* kRestoreFile = ".factoria/editor/restore.json";
 Key map_key(sapp_keycode k) {
     if (k >= SAPP_KEYCODE_A && k <= SAPP_KEYCODE_Z) return Key(int(Key::A) + (k - SAPP_KEYCODE_A));
     if (k >= SAPP_KEYCODE_0 && k <= SAPP_KEYCODE_9) return Key(int(Key::Num0) + (k - SAPP_KEYCODE_0));
@@ -311,7 +310,7 @@ bool Editor::boot(const std::string& dirIn) {
         projectName_ = engine_->project().name;
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
-        register_tooling_commands(engine_->commands(), projectDir_);
+        register_project_commands(*engine_, projectDir_);
         engine_->set_paused(true);
         install_command_overrides();
         // Remember the project.
@@ -337,9 +336,9 @@ bool Editor::boot(const std::string& dirIn) {
     return engine_ != nullptr;
 }
 
-// The engine tracks the "current scene" as the last file it loaded, which is our internal restore
-// file after Play/Stop/Undo. Re-register scene.save / scene.reload so tools (console, AI, MCP) act on
-// the scene the user is editing.
+// The engine's current scene path now stays on the edited scene across Play/Stop/Undo (restores use
+// Engine::load_scene_json). scene.save / scene.reload are still wrapped because they also have to keep the
+// editor's own state (dirty flag, undo history) in sync.
 void Editor::install_command_overrides() {
     CommandRegistry& reg = engine_->commands();
     if (const CommandInfo* ci = reg.info("scene.save")) {
@@ -494,22 +493,17 @@ void Editor::on_frame(double dt) {
 // Scene / play mode
 void Editor::restore_scene(const Json& snapshot) {
     if (!engine_) return;
-    const std::string rel = kRestoreFile;  // not *.scene.json: validate must not pick it up
-    auto w = fs::write_text(rel, dump_json(snapshot));
-    if (!w) {
-        notify("Cannot write " + rel + ": " + w.error().to_string(), 2);
-        return;
-    }
+    // Straight from the in-memory snapshot: no temp file, and the engine's current scene path (engine.info,
+    // game.state, scene.save, scene.reload) keeps pointing at the scene being edited.
     std::string err;
-    if (!engine_->load_scene(rel, &err)) notify("Scene restore failed: " + err, 2);
-    world().set_scene_path(scenePath_);
+    if (!engine_->load_scene_json(snapshot, "editor snapshot", &err)) notify("Scene restore failed: " + err, 2);
 }
 
 void Editor::sync_scene_path() {
     // Commands (scene.load from the console or the AI) may switch scenes behind our back.
     if (!engine_) return;
     const std::string p = world().scene_path();
-    if (p.empty() || p == scenePath_ || p == kRestoreFile) return;
+    if (p.empty() || p == scenePath_) return;
     scenePath_ = p;
     undo_.clear();
     redo_.clear();

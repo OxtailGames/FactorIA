@@ -48,16 +48,26 @@ static bool contains(const std::vector<std::string>& v, std::string_view s) {
 // ------------------------------------------------------------ similarity ----
 namespace {
 
+// Significant tokens of a title or suggestion: lower-case alphanumerics, plural "s" dropped, stop words and
+// boilerplate ("Bug:", "Generated", "Project", "docs"...) removed, a few synonyms canonicalised ("stub" ~ "placeholder").
 std::vector<std::string> title_tokens(std::string_view title) {
-    static const std::set<std::string> stop = {"a",   "an",      "the",    "no",      "not",      "for",    "of",
-                                               "to",  "in",      "on",     "and",     "or",       "is",     "are",
-                                               "missing", "lacks", "lack", "support", "supports", "built", "with",
-                                               "cannot", "cant", "there", "add",    "need",     "needs",  "without"};
+    static const std::set<std::string> stop = {
+        "a",       "an",     "the",    "no",     "not",    "for",   "of",     "to",      "in",     "on",
+        "and",     "or",     "is",     "are",    "was",    "be",    "it",     "its",     "this",   "that",
+        "by",      "at",     "from",   "as",     "but",    "when",  "does",   "do",      "did",    "has",
+        "have",    "missing", "lacks", "lack",   "support", "supports", "built", "with",  "cannot", "cant",
+        "there",   "add",    "need",   "needs",  "without", "bug",  "bugs",   "silently", "actually", "still",
+        "any",     "generated", "generate", "project", "new",  "ship",  "shipped", "doc",  "docs",  "md",
+        "guide",   "ai",     "template", "tool",   "tooling", "wrong", "just",  "only",    "also",   "into"};
+    static const std::map<std::string, std::string> synonyms = {
+        {"stub", "placeholder"}, {"stubbed", "placeholder"}, {"fake", "placeholder"},    {"undocumented", "documented"},
+        {"ignored", "nothing"},  {"suppressed", "nothing"},  {"unusable", "invalid"},    {"crash", "crashe"}};
     std::vector<std::string> out;
     std::string cur;
     auto flush = [&] {
         if (cur.empty()) return;
         if (cur.size() > 3 && cur.back() == 's' && cur[cur.size() - 2] != 's') cur.pop_back();
+        if (auto syn = synonyms.find(cur); syn != synonyms.end()) cur = syn->second;
         if (!stop.count(cur)) out.push_back(cur);
         cur.clear();
     };
@@ -70,15 +80,34 @@ std::vector<std::string> title_tokens(std::string_view title) {
     return out;
 }
 
+struct SetStats {
+    double jaccard = 0, overlap = 0;
+    size_t minSize = 0;
+};
+
+SetStats set_stats(const std::vector<std::string>& a, const std::vector<std::string>& b) {
+    std::set<std::string> sa(a.begin(), a.end()), sb(b.begin(), b.end());
+    SetStats st;
+    if (sa.empty() || sb.empty()) return st;
+    size_t inter = 0;
+    for (const auto& t : sa) inter += sb.count(t);
+    st.jaccard = double(inter) / double(sa.size() + sb.size() - inter);
+    st.minSize = std::min(sa.size(), sb.size());
+    st.overlap = double(inter) / double(st.minSize);
+    return st;
+}
+
+std::string category_family(const std::string& c) {
+    auto dash = c.find('-');
+    return dash == std::string::npos ? c : c.substr(0, dash);
+}
+
 }  // namespace
 
 double feedback_title_similarity(std::string_view a, std::string_view b) {
     auto ta = title_tokens(a), tb = title_tokens(b);
     if (ta.empty() || tb.empty()) return to_lower(a) == to_lower(b) ? 1.0 : 0.0;
-    std::set<std::string> sa(ta.begin(), ta.end()), sb(tb.begin(), tb.end());
-    size_t inter = 0;
-    for (const auto& t : sa) inter += sb.count(t);
-    double jaccard = double(inter) / double(sa.size() + sb.size() - inter);
+    SetStats st = set_stats(ta, tb);
     std::sort(ta.begin(), ta.end());
     std::sort(tb.begin(), tb.end());
     std::string ja, jb;
@@ -86,7 +115,19 @@ double feedback_title_similarity(std::string_view a, std::string_view b) {
     for (const auto& t : tb) jb += t + " ";
     size_t maxLen = std::max(ja.size(), jb.size());
     double edit = 1.0 - double(edit_distance(ja, jb)) / double(maxLen);
-    return std::max(jaccard, edit);
+    // A short title fully contained in a longer one (>= 3 shared significant tokens) is the same gap, slightly damped.
+    double contained = st.minSize >= 3 ? 0.85 * st.overlap : 0.0;
+    return std::max({st.jaccard, edit, contained});
+}
+
+double feedback_entry_similarity(const Json& a, const Json& b) {
+    double score = feedback_title_similarity(a.value("title", ""), b.value("title", ""));
+    std::string ca = a.value("category", ""), cb = b.value("category", "");
+    if (!ca.empty() && ca == cb) score += 0.10;
+    else if (!ca.empty() && category_family(ca) == category_family(cb)) score += 0.05;
+    auto sa = title_tokens(a.value("suggestion", "")), sb = title_tokens(b.value("suggestion", ""));
+    if (sa.size() >= 3 && sb.size() >= 3) score += 0.10 * set_stats(sa, sb).jaccard;
+    return std::min(1.0, score);
 }
 
 // ------------------------------------------------------------- documents ----
@@ -362,12 +403,12 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
             if (!opts.includeClosed && status != "open") continue;
             ++total;
             std::string cat = e.value("category", "other"), title = e.value("title", "");
+            (void)title;
             Cluster* target = nullptr;
             double best = 0;
             for (auto& c : clusters) {
-                if (c.category != cat) continue;
                 for (const auto& it : c.items) {
-                    double s = feedback_title_similarity(it.entry.value("title", ""), title);
+                    double s = feedback_entry_similarity(it.entry, e);
                     if (s >= opts.similarity && s > best) { best = s; target = &c; }
                 }
             }
@@ -385,6 +426,14 @@ Result<FeedbackReport> collect_feedback(const std::vector<std::string>& paths, c
         std::string title;
     };
     std::vector<Ranked> ranked;
+    // A cluster may span categories (docs vs tooling reports of one gap): the most common one wins (ties: alphabetical).
+    for (auto& c : clusters) {
+        std::map<std::string, int> counts;
+        for (const auto& it : c.items) ++counts[it.entry.value("category", "other")];
+        int bestCount = 0;
+        for (const auto& [name, n] : counts)
+            if (n > bestCount) { bestCount = n; c.category = name; }
+    }
     for (const auto& c : clusters) {
         long occ = 0;
         int maxW = 0;

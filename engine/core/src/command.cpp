@@ -85,7 +85,9 @@ CommandResult CommandRegistry::call(std::string_view name, const Json& argsIn) c
         r.ok = true;
         return r;
     } catch (const CommandError& e) {
-        return fail(e.code, e.what(), e.hint);
+        CommandResult r = fail(e.code, e.what(), e.hint);
+        if (!e.data.is_null()) r.error["data"] = e.data;
+        return r;
     } catch (const std::exception& e) {
         FA_ERROR("command", "'{}' threw: {}", entry.info.name, e.what());
         return fail("failed", std::string("Command '") + entry.info.name + "' failed: " + e.what(),

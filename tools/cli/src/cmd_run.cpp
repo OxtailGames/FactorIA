@@ -218,7 +218,10 @@ Command make_test_command() {
             if (!t.passed && !t.message.empty()) ctx.out << "        " << replace_all(t.message, "\n", "\n        ") << "\n";
         }
         for (const auto& e : rep.loadErrors) ctx.out << "  ERROR " << e.to_string() << "\n";
-        ctx.out << rep.summary() << "\n";
+        // TestReport::summary() repeats every case; the lines above already list them, print only the totals.
+        std::string sum = rep.summary();
+        if (auto nl = sum.rfind('\n'); nl != std::string::npos) sum = sum.substr(nl + 1);
+        ctx.out << sum << "\n";
         return rep.ok() ? 0 : 1;
     };
     return c;

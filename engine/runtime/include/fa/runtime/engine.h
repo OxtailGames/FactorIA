@@ -43,7 +43,8 @@ namespace fa {
 //             current state first, Engine::render_now() draws explicitly, and a headless `factoria run` draws its
 //             last frame. A screenshot at frame N is pixel-identical in both modes. Headless tests and
 //             `factoria call/session` use OnDemand (software rendering costs ~40 ms/frame); camera helpers
-//             (Renderer::world_to_screen) and renderStats reflect the last frame that was actually drawn.
+//             (Renderer::world_to_screen) need a drawn frame, so Engine::renderer() (what scripts reach them through)
+//             draws the current state first when frames were simulated since the last draw.
 enum class RenderMode { Always, OnDemand };
 
 struct EngineConfig {

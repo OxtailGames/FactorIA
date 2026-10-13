@@ -29,8 +29,9 @@ namespace fa {
 struct CommandError : std::runtime_error {
     std::string code;  // "not_found", "invalid_argument", "failed", "unavailable"...
     std::string hint;  // how to fix, e.g. "Use scene.list_entities to see valid ids."
-    CommandError(std::string code_, const std::string& message, std::string hint_ = {})
-        : std::runtime_error(message), code(std::move(code_)), hint(std::move(hint_)) {}
+    Json data;         // optional structured details (e.g. the problems a check tool found)
+    CommandError(std::string code_, const std::string& message, std::string hint_ = {}, Json data_ = nullptr)
+        : std::runtime_error(message), code(std::move(code_)), hint(std::move(hint_)), data(std::move(data_)) {}
 };
 
 struct CommandInfo {

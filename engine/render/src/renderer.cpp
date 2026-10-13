@@ -449,6 +449,9 @@ void Renderer::update(World& world, float dt) {
     fr.fonts = im.fonts.get();
     update_animators(world, fr, true);
     update_particles(world, dt);
+    // Camera queries (world_to_screen, screen_to_world, screen_ray) must not depend on drawing:
+    // the runtime skips drawing in headless/test runs, so refresh the camera here as well.
+    im.lastCam = im.build_camera(world);
     im.updated = true;
 }
 

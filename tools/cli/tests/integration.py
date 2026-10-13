@@ -124,6 +124,10 @@ def test_template(tmp, template):
     for f in ["factoria.json", "ENGINE_FEEDBACK.json", "AGENTS.md", ".mcp.json"]:
         check(os.path.exists(os.path.join(proj, f)), "created " + f)
 
+    dts = open(os.path.join(proj, "types", "factoria.d.ts")).read()
+    check('declare module "factoria"' in dts and "(placeholder)" not in dts and len(dts) > 2000,
+          "new writes the real types/factoria.d.ts (%d bytes)" % len(dts))
+
     code, rep, err = jrun(["validate", proj, "--json"])
     check(code == 0 and rep is not None and rep.get("ok") is True, "validate (scripts checked: %s)" % (rep or {}).get("scriptsChecked"))
     if code != 0:
@@ -162,6 +166,70 @@ def test_template(tmp, template):
     check(code == 0 and rep is not None, "call game.state --frames-before 5")
     code, out, err = run(["call", "no.such_command", "--project", proj])
     check(code == 1 and "unknown" in (out + err).lower(), "call unknown command fails with exit 1")
+
+    # one engine for several commands: --batch
+    batch = json.dumps([{"command": "game.step", "args": {"frames": 12}},
+                        {"command": "script.eval", "args": {"code": "1+2"}},
+                        {"command": "game.state", "args": {"maxEntities": 0}}])
+    code, rep, err = jrun(["call", "--batch", batch, "--project", proj])
+    ok = code == 0 and rep is not None and rep.get("ok") and len(rep["results"]) == 3
+    check(ok and rep["results"][1]["result"]["value"] == 3 and rep["results"][2]["result"]["frame"] == 12,
+          "call --batch runs several commands on ONE engine (state persists)")
+    code, rep, err = jrun(["call", "--batch", json.dumps([{"command": "nope.nope"}, {"command": "game.step"}]), "--project", proj])
+    check(code == 1 and rep is not None and rep["ok"] is False and len(rep["results"]) == 1, "call --batch stops at the first failure, exit 1")
+    code, rep, err = jrun(["call", "game.state", "{}", "--project", proj, "--frames-before", "3", "--press", "nope_action"])
+    check(code == 2, "call --press with an unknown action is a usage error")
+
+    # session: JSON lines on one engine
+    lines = [{"command": "game.step", "args": {"frames": 7}}, {"command": "script.eval", "args": {"code": "40+2"}},
+             {"command": "game.state", "args": {"maxEntities": 0}}, {"command": "nope.nope"}]
+    stdin = "\n".join(json.dumps(l) for l in lines) + "\nnot json\n"
+    code, out, err = run(["session", proj], stdin=stdin)
+    answers = [json.loads(l) for l in out.splitlines() if l.strip()]
+    check(code == 0 and len(answers) == 6 and answers[0].get("ready") is True, "session: ready line + one answer per request (%d lines)" % len(answers))
+    if len(answers) == 6:
+        check(answers[1]["ok"] and answers[2]["result"]["value"] == 42 and answers[3]["result"]["frame"] == 7,
+              "session: state persists between requests")
+        check(answers[4]["ok"] is False and answers[4]["error"]["code"] == "unknown_command" and answers[5]["error"]["code"] == "invalid_json",
+              "session: errors are JSON lines with code/hint")
+
+    # fs.* works inside tests (same command set everywhere), and tests print each result once
+    with open(os.path.join(proj, "tests", "zz_fs.test.js"), "w") as f:
+        f.write('import { test, expect } from "factoria:test";\n'
+                'import { fa } from "factoria";\n'
+                'test("fs.write is available inside tests", () => {\n'
+                '  fa.call("fs.write", { path: "tests/out/probe.txt", content: "hi" });\n'
+                '  expect(fa.call("fs.read", { path: "tests/out/probe.txt" }).content).toContain("hi");\n'
+                '});\n')
+    code, out, err = run(["test", proj, "--filter", "fs.write is available"])
+    check(code == 0 and "1 passed, 0 failed" in out and out.count("fs.write is available") == 1,
+          "fs.* works inside factoria test; each result printed once")
+    os.remove(os.path.join(proj, "tests", "zz_fs.test.js"))
+
+    # unknown component names fail instead of creating a half-built entity
+    code, out, err = run(["call", "scene.spawn", '{"components":{"Transform2D":{"position":[1,2]}}}', "--project", proj])
+    check(code == 1 and "Transform" in (out + err), "scene.spawn with an unknown component exits 1 with a did-you-mean")
+
+    # Script.props typos are validate warnings
+    scene_path = os.path.join(proj, "scenes", "main.scene.json")
+    scene = json.load(open(scene_path))
+    scripted = None
+    def find(es):
+        for e in es:
+            sc = e.get("components", {}).get("Script")
+            if sc and sc.get("path"):
+                return sc
+            r = find(e.get("children", []))
+            if r:
+                return r
+        return None
+    scripted = find(scene.get("entities", []))
+    if scripted:
+        scripted.setdefault("props", {})["noSuchPropForSure"] = 1
+        json.dump(scene, open(scene_path, "w"))
+        code, rep, err = jrun(["validate", proj, "--json"])
+        check(code == 0 and rep is not None and any("noSuchPropForSure" in w.get("message", "") for w in rep.get("warnings", [])),
+              "validate warns about Script.props keys the behaviour does not have")
 
     m, names = mcp_session(["mcp", "--project", proj], proj, ["game_step", "game_screenshot", "scene_list_entities"], "mcp")
     if m:
@@ -254,6 +322,15 @@ def test_misc(tmp):
     check(code == 0 and os.path.exists(report) and "one-way" in open(report).read().lower().replace(" ", "-"), "feedback collect -> markdown")
     code, rep, err = jrun(["feedback", "collect", proj, "--format", "json"])
     check(code == 0 and rep is not None and rep.get("clusters"), "feedback collect --format json")
+
+    # validate --fix-types replaces a placeholder
+    dts_path = os.path.join(proj, "types", "factoria.d.ts")
+    with open(dts_path, "w") as f:
+        f.write("// FactorIA script API typings (placeholder).\n")
+    code, rep, err = jrun(["validate", proj, "--json"])
+    check(rep is not None and any("placeholder" in w.get("message", "") for w in rep.get("warnings", [])), "validate warns about a placeholder d.ts")
+    code, out, err = run(["validate", proj, "--fix-types"])
+    check(code == 0 and 'declare module "factoria"' in open(dts_path).read(), "validate --fix-types writes the real typings")
 
     # api --dts into a project
     code, out, err = run(["api", "--dts", "--project", proj])

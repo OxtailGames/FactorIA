@@ -67,7 +67,10 @@ public:
     // id: stable string id; "" -> auto ("e" + counter). If the id is already
     // taken a numeric suffix is appended ("enemy" -> "enemy_2").
     Entity create(std::string_view name = {}, std::string_view id = {});
-    void destroy(Entity e);            // deferred (see flush)
+    // Deferred (see flush): the entity (and its children) stay in memory until flush(), but are
+    // unregistered at once — find/find_by_id/find_by_tag no longer return them and their ids are
+    // immediately reusable. Check pending_destroy() if you hold a handle.
+    void destroy(Entity e);
     void destroy_immediate(Entity e);  // also destroys children; avoid during iteration
     void flush();                      // apply deferred destroys
     bool alive(Entity e) const;
