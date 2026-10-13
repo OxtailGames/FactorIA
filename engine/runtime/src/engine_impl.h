@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "fa/runtime/engine.h"
+#include "fa/scene/serialize.h"
 
 namespace fa {
 
@@ -26,6 +27,9 @@ struct Engine::Impl {
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
 
+    bool renderStale = false;       // OnDemand: simulated since the last draw
+    double lastRenderDt = 0.0;
+    std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;
     bool paused = false;
     bool quit = false;
@@ -46,7 +50,10 @@ struct Engine::Impl {
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
-    void render(double dt);
+    void render(double dt);       // per-frame: draws in Always mode, only simulates visuals in OnDemand
+    void draw(double dt);         // draws the world now
+    void finish_scene_load(const LoadReport& report, const std::string& label, std::string* error);
+    bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
     void end_of_frame(double dt);
     bool load_scene_impl(const std::string& path, std::string* error);
     void poll_hot_reload(bool force = false);

@@ -32,6 +32,12 @@ void line_quad(const QuadEmitter& em, Vec2 a, Vec2 b, float t) {
     em.list.quad(v(a + n), v(a - n), v(b - n), v(b + n));
 }
 
+// Screen-space anchoring: moves the entity's translation by anchor * design size.
+void apply_anchor(Mat4& m, Vec2 anchor, const Frame& f) {
+    m.at(3, 0) += anchor.x * float(f.targetW);
+    m.at(3, 1) += anchor.y * float(f.targetH);
+}
+
 bool axis_aligned(const Mat4& m) {
     return std::fabs(m.at(0, 1)) < 1e-4f && std::fabs(m.at(1, 0)) < 1e-4f && std::fabs(m.at(0, 2)) < 1e-4f &&
            std::fabs(m.at(1, 2)) < 1e-4f && std::fabs(m.at(2, 0)) < 1e-4f && std::fabs(m.at(2, 1)) < 1e-4f;
@@ -39,12 +45,13 @@ bool axis_aligned(const Mat4& m) {
 
 }  // namespace
 
-void update_animators(World& world, Frame& f) {
+void update_animators(World& world, Frame& f, bool advance) {
+    const float dt = advance ? f.dt : 0.0f;
     world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
         if (!entity_active(world, e)) return;
         int count = std::max(1, a.lastFrame - a.firstFrame + 1);
-        if (a.playing && f.dt > 0) {
-            a.time += f.dt;
+        if (a.playing && dt > 0) {
+            a.time += dt;
             int n = int(std::floor(a.time * std::max(0.0f, a.fps)));
             if (a.loop) {
                 a.frame = a.firstFrame + (n % count);
@@ -82,8 +89,9 @@ void gather_2d(World& world, Frame& f) {
         }
         Mat4 m = world.world_matrix(e);
         bool screen = s.space == RenderSpace::Screen;
+        if (screen) apply_anchor(m, s.anchor, f);
         QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear);
+        list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
         float tw = float(std::max(1, tex->width)), th = float(std::max(1, tex->height));
         float u0 = r.x / tw, u1 = (r.x + r.w) / tw, v0 = r.y / th, v1 = (r.y + r.h) / th;
@@ -100,35 +108,40 @@ void gather_2d(World& world, Frame& f) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
         Mat4 m = world.world_matrix(e);
         bool screen = s.space == RenderSpace::Screen;
+        if (screen) apply_anchor(m, s.anchor, f);
         QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest);
+        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
+        // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
+        float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
+        float by0 = -s.pivot.y * s.size.y, by1 = by0 + s.size.y;
         float hw = s.size.x * 0.5f, hh = s.size.y * 0.5f;
         float t = std::max(0.0f, s.thickness);
         switch (s.shape) {
             case ShapeType::Rectangle:
                 if (s.filled) {
-                    em.rect(-hw, -hh, hw, hh, 0, 0, 1, 1);
+                    em.rect(bx0, by0, bx1, by1, 0, 0, 1, 1);
                 } else {
                     t = std::min(t, std::min(hw, hh));
-                    em.rect(-hw, hh - t, hw, hh, 0, 0, 1, 1);
-                    em.rect(-hw, -hh, hw, -hh + t, 0, 0, 1, 1);
-                    em.rect(-hw, -hh + t, -hw + t, hh - t, 0, 0, 1, 1);
-                    em.rect(hw - t, -hh + t, hw, hh - t, 0, 0, 1, 1);
+                    em.rect(bx0, by1 - t, bx1, by1, 0, 0, 1, 1);
+                    em.rect(bx0, by0, bx1, by0 + t, 0, 0, 1, 1);
+                    em.rect(bx0, by0 + t, bx0 + t, by1 - t, 0, 0, 1, 1);
+                    em.rect(bx1 - t, by0 + t, bx1, by1 - t, 0, 0, 1, 1);
                 }
                 break;
             case ShapeType::Circle: {
-                float r = hw;
+                float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
+                float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
                 em.mode = s.filled ? kModeCircle : kModeRing;
                 em.aux = s.filled ? 0.0f : std::clamp(1.0f - t / std::max(r, 1e-4f), 0.0f, 1.0f);
-                em.rect(-r, -r, r, r, -1, -1, 1, 1);
+                em.rect(cx - r, cy - r, cx + r, cy + r, -1, -1, 1, 1);
                 break;
             }
             case ShapeType::Line:
                 line_quad(em, {0, 0}, s.size, std::max(t, 0.5f));
                 break;
             case ShapeType::Triangle: {
-                Vec2 apex{0, hh}, bl{-hw, -hh}, br{hw, -hh};
+                Vec2 apex{bx0 + hw, by1}, bl{bx0, by0}, br{bx1, by0};
                 if (s.filled) {
                     auto v = [&](Vec2 p) { Vec3 w = em.xf(p.x, p.y); return Vertex2D{w.x, w.y, w.z, 0, 0, em.color, kModeTextured, 0}; };
                     list.quad(v(apex), v(bl), v(br), v(br));
@@ -211,6 +224,7 @@ void gather_2d(World& world, Frame& f) {
         float localUnitsPerPx = t.fontSize / std::max(std::round(std::clamp(rasterPx, 4.0f, 400.0f)), 1.0f);
         TextLayout lay = f.fonts->layout(t, rasterPx, localUnitsPerPx);
         if (lay.quads.empty()) return;
+        if (screen) apply_anchor(m, t.anchor, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
             float ox = screen ? 0.0f : f.cam.visible.x, oy = screen ? 0.0f : f.cam.visible.y;

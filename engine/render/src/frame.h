@@ -31,9 +31,18 @@ struct QuadEmitter {
     void rect(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1) const;
 };
 
-void update_animators(World& world, Frame& f);
+// advance = true steps SpriteAnimator time by f.dt; false only (re)applies the current frame to
+// Sprite.region (idempotent, used by the draw pass).
+void update_animators(World& world, Frame& f, bool advance);
 void gather_2d(World& world, Frame& f);
-void gather_particles(World& world, Frame& f);
+// Particle simulation (no drawing): spawns the initial burst, continuous emission, queued emit_burst()
+// requests, integrates, kills, and destroys finished autoDestroy emitters. `assets` is unused by the sim.
+void update_particles(World& world, float dt);
+// Queues `count` particles for the emitter on entity bits `e`; spawned by the next update/gather.
+void queue_particle_burst(std::uint64_t entityBits, int count);
+// Spawns queued bursts (dt = 0, no integration) so they are visible in the frame being drawn.
+void flush_particle_bursts(World& world);
+void gather_particles(World& world, Frame& f);  // draw only
 void clear_particles();
 void gather_debug(DebugDrawData& dd, Frame& f);
 

@@ -22,6 +22,8 @@ struct WorldPose {
     Vec3 scale{1, 1, 1};
 };
 WorldPose world_pose(const World& world, Entity e);
+// True if `e` is `ignore` or one of its descendants (false when ignore is null).
+bool entity_or_ancestor_is(const World& world, Entity e, Entity ignore);
 
 // ------------------------------------------------------------------ 2D ----
 class Physics2D {
@@ -32,14 +34,16 @@ public:
     void reset();
     void step(World& world, float dt);
 
-    std::optional<RaycastHit> raycast(World& world, Vec2 from, Vec2 to, std::int32_t mask);
+    std::optional<RaycastHit> raycast(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt);
     std::vector<Entity> overlap_circle(World& world, Vec2 center, float radius, std::int32_t mask);
     std::vector<Entity> overlap_box(World& world, Rect box, std::int32_t mask);
     void apply_impulse(World& world, Entity e, Vec3 impulse);
     void apply_force(World& world, Entity e, Vec3 force);
     void set_velocity(World& world, Entity e, Vec3 velocity);
-    bool is_grounded(World& world, Entity e, float tolerance);
+    bool is_grounded(World& world, Entity e, float tolerance) { return is_touching(world, e, {0, -1}, tolerance); }
+    bool is_touching(World& world, Entity e, Vec2 dir, float tolerance);
     bool has_body(Entity e) const { return bodies_.count(e.bits()) != 0; }
+    static bool pre_solve(b2ShapeId a, b2ShapeId b, b2Manifold* m, void* ctx);
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
 
@@ -71,6 +75,7 @@ private:
     struct ShapeInfo {
         std::uint64_t entity = 0;
         bool trigger = false;
+        bool oneWay = false;
     };
 
     static std::uint64_t shape_key(b2ShapeId id) {
@@ -80,7 +85,7 @@ private:
     void ensure_world(World& world);
     void destroy_body(Body& b);
     void destroy_tile_body(std::uint64_t key);
-    void register_shape(b2ShapeId s, Entity e, bool trigger, std::vector<std::uint64_t>* keys = nullptr);
+    void register_shape(b2ShapeId s, Entity e, bool trigger, bool oneWay, std::vector<std::uint64_t>* keys = nullptr);
     void sync_entity(World& world, Entity e, RigidBody2D* rb, Collider2D* col);
     void build_body(World& world, Body& b, RigidBody2D* rb, Collider2D* col, const WorldPose& pose);
     void sync_tilemaps(World& world);
@@ -121,7 +126,8 @@ public:
     void init(const PhysicsSettings& s) { settings_ = s; }
     void reset();
     void step(World& world, float dt);
-    std::optional<RaycastHit> raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask);
+    std::optional<RaycastHit> raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt);
+    bool is_touching(World& world, Entity e, Vec3 dir, float tolerance);
     std::vector<Entity> overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask);
     void apply_impulse(World& world, Entity e, Vec3 impulse);
     void apply_force(World& world, Entity e, Vec3 force);
@@ -151,6 +157,9 @@ private:
         Vec3 center;                  // collider center (world)
         Vec3 vel;
         Vec3 force;
+        Vec3 angVel, lastAngVel;  // deg/s
+        bool rollWithMotion = true;
+        Vec3 pendingCarry;  // displacement of a teleported static/kinematic body, applied to its riders
         Vec3 lastPos, lastVel, lastCenter;  // gameplay-visible values last written / observed
         std::uint64_t seen = 0;
     };

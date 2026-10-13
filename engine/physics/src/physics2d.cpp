@@ -45,7 +45,7 @@ std::uint64_t hash_collider(const RigidBody2D* rb, const Collider2D* col, const 
     if (col) {
         h.add(col->shape); h.add(col->size.x); h.add(col->size.y); h.add(col->radius);
         h.add(col->offset.x); h.add(col->offset.y); h.add(col->isTrigger); h.add(col->friction);
-        h.add(col->restitution); h.add(col->density); h.add(col->layer); h.add(col->mask);
+        h.add(col->restitution); h.add(col->density); h.add(col->oneWay); h.add(col->layer); h.add(col->mask);
         h.add(pose.scale.x); h.add(pose.scale.y);
     }
     return h.h;
@@ -154,13 +154,14 @@ void Physics2D::ensure_world(World& world) {
         b2WorldDef wd = b2DefaultWorldDef();
         wd.gravity = {0.0f, -9.8f};
         wd.hitEventThreshold = 0.05f;
-        wd.workerCount = 1;
+        wd.workerCount = 1;  // single-threaded: the one-way pre-solve callback relies on it
         world_ = b2CreateWorld(&wd);
+        b2World_SetPreSolveCallback(world_, &Physics2D::pre_solve, this);
     }
 }
 
-void Physics2D::register_shape(b2ShapeId s, Entity e, bool trigger, std::vector<std::uint64_t>* keys) {
-    shapes_[shape_key(s)] = ShapeInfo{e.bits(), trigger};
+void Physics2D::register_shape(b2ShapeId s, Entity e, bool trigger, bool oneWay, std::vector<std::uint64_t>* keys) {
+    shapes_[shape_key(s)] = ShapeInfo{e.bits(), trigger, oneWay};
     if (keys) keys->push_back(shape_key(s));
 }
 
@@ -234,6 +235,7 @@ void Physics2D::build_body(World& world, Body& b, RigidBody2D* rb, Collider2D* c
         sd.enableSensorEvents = true;
         sd.enableContactEvents = true;
         sd.enableHitEvents = true;
+        sd.enablePreSolveEvents = col->oneWay && !col->isTrigger;
         const float sx = std::fabs(pose.scale.x), sy = std::fabs(pose.scale.y);
         b2Vec2 off{col->offset.x * pose.scale.x * inv, col->offset.y * pose.scale.y * inv};
         LocalShape ls;
@@ -277,7 +279,7 @@ void Physics2D::build_body(World& world, Body& b, RigidBody2D* rb, Collider2D* c
                 break;
             }
         }
-        register_shape(sid, b.e, col->isTrigger);
+        register_shape(sid, b.e, col->isTrigger, col->oneWay && !col->isTrigger);
         b.shapes.push_back(ls);
     }
     if (b.type == BodyType::Dynamic && b2Body_GetMass(b.body) <= 0.0f) {
@@ -435,7 +437,7 @@ void Physics2D::sync_tilemaps(World& world) {
                 float hy = std::max(float(r.r1 - r.r0 + 1) * th * 0.5f * inv, kMinHalf);
                 b2Polygon poly = b2MakeOffsetBox(hx, hy, {cx * inv, cy * inv}, b2MakeRot(0.0f));
                 b2ShapeId sid = b2CreatePolygonShape(tb.body, &sd, &poly);
-                register_shape(sid, e, false, &tb.shapeKeys);
+                register_shape(sid, e, false, false, &tb.shapeKeys);
                 // world-space AABB (rotation ignored for debug)
                 float wx = pose.position.x + cx, wy = pose.position.y + cy;
                 tb.boxes.push_back(Rect::from_center({wx, wy}, {hx * 2 / inv, hy * 2 / inv}));
@@ -559,6 +561,29 @@ void Physics2D::collect_events(World& world) {
     }
 }
 
+// One-way platforms (Box2D pre-solve; runs on the calling thread because workerCount = 1). The contact is kept
+// only if the visitor was fully above the platform's top (previous-step AABBs) and is not moving up relative to it.
+bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold*, void* ctx) {
+    const auto* self = static_cast<const Physics2D*>(ctx);
+    auto fa = self->shapes_.find(shape_key(idA));
+    auto fb = self->shapes_.find(shape_key(idB));
+    const bool aOne = fa != self->shapes_.end() && fa->second.oneWay;
+    const bool bOne = fb != self->shapes_.end() && fb->second.oneWay;
+    if (!aOne && !bOne) return true;
+    if (aOne && bOne) return true;
+    const b2ShapeId plat = aOne ? idA : idB, vis = aOne ? idB : idA;
+    const b2BodyId pb = b2Shape_GetBody(plat), vb = b2Shape_GetBody(vis);
+    const b2Rot q = b2Body_GetRotation(pb);
+    const float up = q.c >= 0.0f ? 1.0f : -1.0f;  // platform +Y has y = cos(rotation)
+    const b2AABB pa = b2Shape_GetAABB(plat), va = b2Shape_GetAABB(vis);
+    const float platTop = up > 0 ? pa.upperBound.y : -pa.lowerBound.y;
+    const float visBottom = up > 0 ? va.lowerBound.y : -va.upperBound.y;
+    const float relV = up * (b2Body_GetLinearVelocity(vb).y - b2Body_GetLinearVelocity(pb).y);
+    const float slop = 0.02f + std::max(0.0f, -relV) * (1.0f / 30.0f);
+    if (relV > 0.05f) return false;  // moving up through it
+    return visBottom >= platTop - slop;
+}
+
 void Physics2D::step(World& world, float dt) {
     ensure_world(world);
     ++stepCounter_;
@@ -647,21 +672,26 @@ bool overlap_cb(b2ShapeId shape, void* ctx) {
 }
 }  // namespace
 
-std::optional<RaycastHit> Physics2D::raycast(World& world, Vec2 from, Vec2 to, std::int32_t mask) {
+std::optional<RaycastHit> Physics2D::raycast(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt) {
     ensure_world(world);
     const float ppm = settings_.pixelsPerMeter;
     Vec2 d = to - from;
     float len = length(d);
     if (len < 1e-6f) return std::nullopt;
     RayCtx ctx;
+    const b2Vec2 origin{from.x / ppm, from.y / ppm};
     ctx.accept = [&](b2ShapeId s) {
         bool trig = false;
         Entity e = entity_of(s, &trig);
-        return !e.is_null() && !trig && world.alive(e);
+        if (e.is_null() || !world.alive(e)) return false;
+        if (trig && opt.ignoreTriggers) return false;
+        if (entity_or_ancestor_is(world, e, opt.ignore)) return false;
+        if (b2Shape_TestPoint(s, origin)) return false;  // origin inside this collider: skip it
+        return true;
     };
     b2QueryFilter qf = b2DefaultQueryFilter();
     qf.categoryBits = ~0ull;
-    qf.maskBits = mask_bits(mask);
+    qf.maskBits = mask_bits(opt.mask);
     b2World_CastRay(world_, {from.x / ppm, from.y / ppm}, {d.x / ppm, d.y / ppm}, qf, ray_cb, &ctx);
     if (!ctx.hit) return std::nullopt;
     RaycastHit h;
@@ -751,10 +781,13 @@ void Physics2D::set_velocity(World& world, Entity e, Vec3 velocity) {
     it->second.lastVel = {velocity.x, velocity.y};
 }
 
-bool Physics2D::is_grounded(World& world, Entity e, float tolerance) {
+bool Physics2D::is_touching(World& world, Entity e, Vec2 dir, float tolerance) {
     (void)world;
     auto it = bodies_.find(e.bits());
     if (it == bodies_.end() || !it->second.enabled || !b2Body_IsValid(it->second.body)) return false;
+    float dl = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+    if (dl < 1e-6f) return false;
+    dir = {dir.x / dl, dir.y / dl};
     const float tol = tolerance / settings_.pixelsPerMeter;
     int cap = b2Body_GetContactCapacity(it->second.body);
     if (cap <= 0) return false;
@@ -764,8 +797,9 @@ bool Physics2D::is_grounded(World& world, Entity e, float tolerance) {
         const b2ContactData& c = cd[std::size_t(i)];
         if (c.manifold.pointCount <= 0) continue;
         bool weAreA = B2_ID_EQUALS(b2Shape_GetBody(c.shapeIdA), it->second.body);
-        float ny = weAreA ? -c.manifold.normal.y : c.manifold.normal.y;  // normal pointing from the other body to us
-        if (ny <= 0.7f) continue;
+        b2Vec2 toOther = weAreA ? c.manifold.normal : b2Vec2{-c.manifold.normal.x, -c.manifold.normal.y};
+        // 0.7 is exactly the old is_grounded2d threshold for dir = {0,-1}.
+        if (toOther.x * dir.x + toOther.y * dir.y <= 0.7f) continue;
         float sep = c.manifold.points[0].separation;
         if (c.manifold.pointCount > 1) sep = std::min(sep, c.manifold.points[1].separation);
         if (sep <= tol) return true;

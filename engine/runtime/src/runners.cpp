@@ -203,6 +203,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                 replayProblems.push_back("screenshot at frame " + std::to_string(f) + ": " + serr);
         }
     }
+    engine.render_now();  // OnDemand: the last frame is drawn so renderStats / the final picture exist
     report["frames"] = ran;
     report["screenshots"] = shotPaths;
     if (!options.audioOutPath.empty()) {

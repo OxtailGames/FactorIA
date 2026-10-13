@@ -109,8 +109,8 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
     return p;
 }
 
-sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines) {
-    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u)};
+sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend) {
+    PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2)};
     sg_pipeline_desc d{};
     d.shader = quad_shader_;
     d.layout.attrs[ATTR_quad_quad_position].format = SG_VERTEXFORMAT_FLOAT3;
@@ -124,10 +124,27 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines) {
     d.depth.write_enabled = false;
     d.colors[0].pixel_format = kColorFormat;
     d.colors[0].blend.enabled = true;
-    d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
-    d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
-    d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
-    d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+    switch (blend) {
+        case BlendMode::Additive:  // dst + src.rgb * src.a  (glow: overlapping items accumulate light)
+            d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+            d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
+            d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+            break;
+        case BlendMode::Multiply:  // dst * lerp(1, src.rgb, src.a)
+            d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_DST_COLOR;
+            d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ZERO;  // shader emits mix(1, rgb, a) (mode + 8)
+            d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ZERO;
+            d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
+            break;
+        case BlendMode::Alpha:
+        default:
+            d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
+            d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            d.colors[0].blend.src_factor_alpha = SG_BLENDFACTOR_ONE;
+            d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+            break;
+    }
     d.cull_mode = SG_CULLMODE_NONE;
     d.face_winding = SG_FACEWINDING_CCW;
     d.sample_count = sampleCount_;
