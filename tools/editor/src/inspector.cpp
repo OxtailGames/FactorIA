@@ -285,7 +285,7 @@ void Editor::draw_inspector() {
         ImGui::TextColored(ImVec4(1, 0.8f, 0.3f, 1), "Play mode: edits are temporary and are discarded on Stop.");
 
     if (e.is_null()) {
-        ImGui::TextDisabled("No entity selected. Click one in the Hierarchy or Viewport.");
+        ImGui::TextWrapped("No entity selected. Click one in the Hierarchy or Viewport.");
         ImGui::Spacing();
         if (const TypeInfo* ss = TypeRegistry::global().find("SceneSettings")) {
             if (ImGui::CollapsingHeader("Scene Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
