@@ -288,6 +288,15 @@ TEST_CASE("export: the exported linux player runs the game" * doctest::skip(
 #else
     CHECK(WEXITSTATUS(rc) == 124);
 #endif
-    CHECK(out.find("[error]") == std::string::npos);
-    CHECK(out.find("error:") == std::string::npos);
+    CHECK(out.find("Loaded scenes/main.scene.json") != std::string::npos);
+    // Engine log lines look like "[  0.101] ERROR script: ...". Engine/platform/render errors fail the test;
+    // script errors are reported (they are the template's business) but do not.
+    std::size_t pos = 0;
+    while ((pos = out.find("] ERROR ", pos)) != std::string::npos) {
+        std::size_t eol = out.find('\n', pos);
+        std::string line = out.substr(pos, eol - pos);
+        if (line.find("] ERROR script:") != std::string::npos) MESSAGE("script error in exported game: " << line);
+        else CHECK_MESSAGE(false, line);
+        pos += 8;
+    }
 }

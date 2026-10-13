@@ -4,7 +4,7 @@
 // game's `sokol_main(argc, argv)`. player/ defines it like this:
 //
 //     #include "fa/platform/sokol_entry.h"
-//     sapp_desc sokol_main(int argc, char* argv[]) {
+//     extern "C" sapp_desc sokol_main(int argc, char* argv[]) {   // C linkage: sokol calls it from C
 //         static fa::AppDesc desc = make_app_desc();   // fills callbacks, input, ...
 //         return fa::to_sapp_desc(desc);
 //     }

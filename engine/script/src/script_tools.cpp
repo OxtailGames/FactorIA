@@ -5,6 +5,8 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/platform/input.h"
+#include <cstdio>
 #include "script_internal.h"
 
 namespace fa {
@@ -72,6 +74,13 @@ void Impl::reload_tools() {
         std::string name = sanitize_tool_name(js_to_string(ctx, nameV.get()));
         if (name.empty()) { bad("has an empty name"); continue; }
         std::string cname = "project." + name;
+        if (host->commands().has(cname)) {
+            ScriptError e;
+            e.file = file;
+            e.message = "tool name '" + name + "' collides with built-in command " + cname + "; rename the tool";
+            record_error(std::move(e), file);
+            continue;
+        }
         if (tools.count(cname)) {
             ScriptError e;
             e.file = file;
