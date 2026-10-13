@@ -231,6 +231,7 @@ Engine::Engine() : impl_(std::make_unique<Impl>()) { impl_->self = this; }
 Engine::~Engine() { shutdown(); }
 
 bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::string* error) {
+    impl_->logSeqAtInit = log_last_seq();
     Impl& I = *impl_;
     auto fail = [&](const std::string& msg) {
         FA_ERROR("engine", "{}", msg);
@@ -484,8 +485,8 @@ Json Engine::state(const Json& query) {
     for (const std::string& s : I.sceneIssues) issues.push_back(s);
     out["sceneIssues"] = issues;
     Json logs = Json::array();
-    for (const LogEntry& l : recent_logs(50, LogLevel::Warn)) {
-        // No wall-clock time / global seq here: state dumps must be reproducible.
+    for (const LogEntry& l : recent_logs(50, LogLevel::Warn, I.logSeqAtInit)) {
+        // Only this engine's logs, and no wall-clock time / global seq: state dumps must be reproducible.
         logs.push_back(Json::object({{"frame", l.frame}, {"level", log_level_name(l.level)}, {"category", l.category},
                                      {"message", l.message}}));
     }

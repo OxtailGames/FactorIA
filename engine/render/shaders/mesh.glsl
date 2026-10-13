@@ -70,7 +70,7 @@ float shadow_factor(vec3 n, vec3 l) {
     float texel = counts.y;
     for (int ix = -1; ix <= 1; ix++) {
         for (int iy = -1; iy <= 1; iy++) {
-            float depth = texture(sampler2D(shadow_tex, shadow_smp), suv + vec2(float(ix), float(iy)) * texel).r;
+            float depth = textureLod(sampler2D(shadow_tex, shadow_smp), suv + vec2(float(ix), float(iy)) * texel, 0.0).r;  // explicit LOD: no gradients inside loops (HLSL X3570)
             lit += (p.z - bias <= depth) ? 1.0 : 0.0;
         }
     }
