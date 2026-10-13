@@ -38,9 +38,9 @@
 //     identical runs in consecutive rows are merged into one taller box. Shapes: layer 0 (category bit 1), mask = all,
 //     friction 0.5, restitution 0, not triggers (no trigger events from tiles). Tile boxes are not one-way: for
 //     jump-through ledges put a separate entity with Collider2D.oneWay on top of the map instead of a solid tile
-//     index. Merged boxes can create "ghost edges" at internal seams only where tile boxes meet at different
-//     row spans; the Box2D polygon radius/speculative margin hides this for rounded/capsule characters, and
-//     friction-0 characters never catch on them. The tilemap body follows the Tilemap entity's world transform.
+//     index. Merging can leave seams between boxes of different row spans (possible ghost contacts for
+//     friction > 0 characters sliding along them); give characters friction 0 against walls, or use a capsule/circle
+//     foot. The tilemap body follows the Tilemap entity's world transform.
 //   * is_grounded2d: any touching contact whose normal points up (> 0.7) with a gap <= tolerance (pixels).
 //   * 3D: spheres + axis-aligned boxes only. Transform.rotation is IGNORED (never read or written); sizes are
 //     scaled by world scale. Semi-implicit Euler with subSteps sub-steps, positional correction, restitution

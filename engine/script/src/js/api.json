@@ -41,6 +41,12 @@
      "doc": "Plain JSON data (objects, arrays, numbers, strings, booleans, null)."
     },
     {
+     "kind": "alias",
+     "name": "SpawnOptions",
+     "type": "{ position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> }",
+     "doc": "Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props."
+    },
+    {
      "kind": "class",
      "name": "Vec2",
      "doc": "2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.",
@@ -521,12 +527,20 @@
        "doc": "Calls behaviour[method](...args) if it exists."
       },
       {
-       "sig": "isGrounded(): boolean",
-       "doc": "2D physics: touching ground below."
+       "sig": "isGrounded(tolerance?: number): boolean",
+       "doc": "Touching ground below (2D pixels tolerance, default 2; 3D meters, default 0.05)."
       },
       {
        "sig": "toJSON(): Json",
        "doc": "Entity JSON as in scene files."
+      },
+      {
+       "sig": "isTouching(direction: Vec3Like, tolerance?: number): boolean",
+       "doc": "Solid contact against the body in `direction` (the obstacle lies that way): isTouching(vec2(1, 0)) = wall on the right, vec2(0, 1) = ceiling. Triggers never count."
+      },
+      {
+       "sig": "emitBurst(count?: number): void",
+       "doc": "Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless)."
       }
      ]
     },
@@ -561,7 +575,7 @@
       },
       {
        "sig": "onStart?(): void",
-       "doc": "Once, before the first update (props already applied)."
+       "doc": "Once, before the first update (props already applied). The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded; onStart runs on the next step."
       },
       {
        "sig": "onUpdate?(dt: number): void",
@@ -647,12 +661,12 @@
        "doc": "All alive entities in creation order."
       },
       {
-       "sig": "spawn(entityJson: Json, opts?: { parent?: Entity }): Entity",
-       "doc": "Creates an entity from scene-file JSON ({ name, tags, components })."
+       "sig": "spawn(entityJson: Json, opts?: SpawnOptions): Entity",
+       "doc": "Creates an entity from scene-file JSON ({ name, tags, components }). Vectors in component fields may be Vec2/Vec3, {x,y,z} objects or arrays (2D values get z = 0). The Script behaviour is constructed immediately (entity.behaviour), onStart runs before its first update."
       },
       {
-       "sig": "spawnPrefab(path: string, opts?: { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; overrides?: Json }): Entity",
-       "doc": "Instantiates a prefab file."
+       "sig": "spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity",
+       "doc": "Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge)."
       },
       {
        "sig": "emit(name: string, data?: any, source?: Entity): void",
@@ -839,19 +853,38 @@
     },
     {
      "kind": "interface",
-     "name": "PhysicsAPI",
-     "doc": "Queries and direct body control.",
+     "name": "RaycastOptions",
+     "doc": "Options of physics.raycast / raycast3d.",
      "members": [
       {
-       "sig": "raycast(from: Vec3, to: Vec3, opts?: { mask?: number }): RayHit<Vec3> | null",
-       "doc": "3D raycast between two points (when given Vec3)."
+       "sig": "mask?: number",
+       "doc": "Layer mask the ray can hit (default all)."
       },
       {
-       "sig": "raycast(from: Vec2Like, to: Vec2Like, opts?: { mask?: number }): RayHit<Vec2> | null",
-       "doc": "2D raycast between two points (when given Vec2)."
+       "sig": "ignore?: Entity | string",
+       "doc": "Entity whose colliders (and its children's) are skipped; use the caster: { ignore: this.entity }."
       },
       {
-       "sig": "raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: { mask?: number }): RayHit<Vec3> | null",
+       "sig": "ignoreTriggers?: boolean",
+       "doc": "Skip trigger colliders (default true); false hits them too."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "PhysicsAPI",
+     "doc": "Queries and direct body control. All vectors accept Vec2/Vec3, {x, y(, z)} objects and [x, y(, z)] arrays.",
+     "members": [
+      {
+       "sig": "raycast(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: RaycastOptions): RayHit<Vec3> | null",
+       "doc": "3D raycast between two points (when `from` has a z). A ray that starts inside a collider skips it. From a behaviour pass { ignore: this.entity }."
+      },
+      {
+       "sig": "raycast(from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2> | null",
+       "doc": "2D raycast between two points. A ray that starts inside a collider skips it. From a behaviour pass { ignore: this.entity } so it does not hit itself."
+      },
+      {
+       "sig": "raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null",
        "doc": ""
       },
       {
@@ -940,6 +973,10 @@
        "doc": ""
       },
       {
+       "sig": "rect(rect: RectLike, color?: ColorLike): void",
+       "doc": "Rect as { x, y, w, h } or [x, y, w, h]."
+      },
+      {
        "sig": "circle(center: Vec2Like, radius: number, color?: ColorLike): void",
        "doc": ""
       },
@@ -1000,7 +1037,7 @@
     {
      "kind": "interface",
      "name": "StorageAPI",
-     "doc": "Persistent JSON save data.",
+     "doc": "Persistent JSON save data (<user dir>/storage.json). Tests and `--storage memory` runs use a throw-away in-memory object instead.",
      "members": [
       {
        "sig": "get<T = any>(key: string, fallback?: T): T",
@@ -1052,6 +1089,10 @@
       {
        "sig": "shuffle<T>(items: readonly T[]): T[]",
        "doc": ""
+      },
+      {
+       "sig": "seed(n: number): void",
+       "doc": "Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism)."
       }
      ]
     },
@@ -1151,6 +1192,45 @@
      ]
     },
     {
+     "kind": "class",
+     "name": "ToolError",
+     "extends": "Error",
+     "ctor": "message: string, hint?: string, data?: Json",
+     "doc": "Throw from a tool's run() for an EXPECTED failure: the caller gets the message, the hint (how to fix) and optional structured data. Any other Error becomes a generic \"failed\" error.",
+     "members": [
+      {
+       "sig": "readonly hint: string",
+       "doc": "How to fix it."
+      },
+      {
+       "sig": "readonly data?: Json",
+       "doc": "Optional details (e.g. a report) delivered with the error."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "ParticlesAPI",
+     "doc": "Particle helpers.",
+     "members": [
+      {
+       "sig": "burst(entity: Entity | string, count?: number): void",
+       "doc": "Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "UIAPI",
+     "doc": "Text/UI helpers.",
+     "members": [
+      {
+       "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number }",
+       "doc": "Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning)."
+      }
+     ]
+    },
+    {
      "kind": "const",
      "name": "world",
      "type": "WorldAPI",
@@ -1227,6 +1307,24 @@
      "name": "math",
      "type": "MathAPI",
      "doc": "Math helpers."
+    },
+    {
+     "kind": "const",
+     "name": "session",
+     "type": "Record<string, any>",
+     "doc": "Plain object that persists across scene loads for the whole run (score, lives, current level). Not saved to disk; reset for every test file. Module-level variables persist across scene loads too."
+    },
+    {
+     "kind": "const",
+     "name": "particles",
+     "type": "ParticlesAPI",
+     "doc": "Particle helpers."
+    },
+    {
+     "kind": "const",
+     "name": "ui",
+     "type": "UIAPI",
+     "doc": "Text measurement."
     },
     {
      "kind": "function",
@@ -1367,7 +1465,7 @@
      "members": [
       {
        "sig": "load(path: string): void",
-       "doc": "Loads a scene immediately (reseeds the RNG)."
+       "doc": "Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step()."
       },
       {
        "sig": "step(frames?: number): void",
@@ -1399,6 +1497,26 @@
       },
       {
        "sig": "click(screenPos: Vec2Like, button?: \"left\" | \"right\" | \"middle\"): void",
+       "doc": ""
+      },
+      {
+       "sig": "loadJson(scene: Json): void",
+       "doc": "Loads a scene given as JSON ({ format: \"factoria.scene/1\", entities: [...] }) instead of a file."
+      },
+      {
+       "sig": "touch(screenPos: Vec2Like, frames?: number): void",
+       "doc": "A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released."
+      },
+      {
+       "sig": "touchStart(screenPos: Vec2Like, id?: number): void",
+       "doc": "Finger down (stays down until touchEnd)."
+      },
+      {
+       "sig": "touchMove(screenPos: Vec2Like, id?: number): void",
+       "doc": ""
+      },
+      {
+       "sig": "touchEnd(id?: number): void",
        "doc": ""
       },
       {

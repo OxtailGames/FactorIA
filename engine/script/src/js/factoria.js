@@ -251,7 +251,33 @@
   const FIELD_N = { vec2: 2, vec3: 3, vec4: 4, color: 4, rect: 4 };
   const FIELD_KEYS = { vec2: ["x", "y"], vec3: ["x", "y", "z"], vec4: ["x", "y", "z", "w"], color: ["r", "g", "b", "a"], rect: ["x", "y", "w", "h"] };
 
+  // Converts any accepted vector form (Vec2/Vec3 instance, plain {x, y(, z)} object, [x, y(, z)] array) into a
+  // plain array of n numbers (n = 2 or 3). A missing z becomes `zDefault` (0 for positions, 1 for scale).
+  function vecArr(v, n, label, zDefault = 0) {
+    let x, y, z;
+    if (Array.isArray(v)) { x = v[0]; y = v[1]; z = v[2]; }
+    else if (isObj(v) && !(v instanceof Entity)) { x = v.x; y = v.y; z = v.z; }
+    const ok = typeof x === "number" && typeof y === "number" && (z === undefined || typeof z === "number") &&
+      Number.isFinite(x) && Number.isFinite(y) && (z === undefined || Number.isFinite(z));
+    if (!ok)
+      throw new Error(`${label} expects ${n === 2 ? "a 2D vector" : "a 2D or 3D vector"}: a Vec2/Vec3 (vec2(x, y)), a plain ` +
+        `{ x, y${n === 3 ? ", z?" : ""} } object or an [x, y${n === 3 ? ", z?" : ""}] array of finite numbers, but got ${inspect(v)}`);
+    return n === 2 ? [x, y] : [x, y, z === undefined ? zDefault : z];
+  }
+  const rectArr = (r, label) => {
+    const a = Array.isArray(r) ? r : isObj(r) ? [r.x, r.y, r.w, r.h] : null;
+    if (!a || a.length < 4 || !a.slice(0, 4).every((x) => typeof x === "number" && Number.isFinite(x)))
+      throw new Error(`${label} expects a Rect, a plain { x, y, w, h } object or an [x, y, w, h] array, but got ${inspect(r)}`);
+    return a.slice(0, 4);
+  };
+
   function toFloats(v, kind, label) {
+    if (kind === "vec2") return vecArr(v, 2, label);
+    if (kind === "vec3") {
+      if (typeof v === "number" && label === "Transform.rotation") return [0, 0, v];
+      if (typeof v === "number" && label === "Transform.scale") return [v, v, v];
+      return vecArr(v, 3, label, label === "Transform.scale" ? 1 : 0);
+    }
     if (Array.isArray(v)) return v;
     if (typeof v === "string" && kind === "color") return parseColor(v).toArray();
     if (isObj(v)) {
@@ -330,6 +356,58 @@
   }
   function viewOf(h, t) { return viewClassFor(t)(h); }
 
+  // Converts component fields written by a script into JSON for the engine: Entity -> id, vectors -> arrays
+  // (any accepted vector form; 2D values get z = 0, scale z = 1, a number rotation means z degrees).
+  function lookupType(name) {
+    if (typeByName.has(name)) return typeByName.get(name);
+    const l = String(name).toLowerCase();
+    for (const t of types) if (t.name.toLowerCase() === l) return t;
+    return undefined;
+  }
+  function fieldsPlain(typeName, fields) {
+    if (!isObj(fields) || Array.isArray(fields)) return plain(fields);
+    const t = lookupType(typeName);
+    const out = {};
+    for (const k of Object.keys(fields)) {
+      const v = fields[k];
+      if (v === undefined || typeof v === "function") continue;
+      const f = t && t.fields.find((x) => x.name === k);
+      if (f && (f.kind === "vec2" || f.kind === "vec3") && v !== null) out[k] = toFloats(v, f.kind, `${t.name}.${k}`);
+      else out[k] = plain(v);
+    }
+    return out;
+  }
+  function entityPlain(j) {
+    if (!isObj(j) || Array.isArray(j)) return plain(j);
+    const out = {};
+    for (const k of Object.keys(j)) {
+      const v = j[k];
+      if (v === undefined) continue;
+      if (k === "components" && isObj(v)) {
+        out.components = {};
+        for (const c of Object.keys(v)) out.components[c] = fieldsPlain(c, v[c]);
+      } else if (k === "children" && Array.isArray(v)) out.children = v.map(entityPlain);
+      else out[k] = plain(v);
+    }
+    return out;
+  }
+  // position / rotation / scale / props options shared by world.spawn and world.spawnPrefab.
+  function applySpawnOptions(ov, opts, what) {
+    ov.components = ov.components || {};
+    if (opts.position !== undefined || opts.rotation !== undefined || opts.scale !== undefined) {
+      const tr = ov.components.Transform = ov.components.Transform || {};
+      if (opts.position !== undefined) tr.position = vecArr(opts.position, 3, `${what} position`);
+      if (opts.rotation !== undefined) tr.rotation = typeof opts.rotation === "number" ? [0, 0, opts.rotation] : vecArr(opts.rotation, 3, `${what} rotation (a number = degrees around z, or a vector)`);
+      if (opts.scale !== undefined) tr.scale = typeof opts.scale === "number" ? [opts.scale, opts.scale, opts.scale] : vecArr(opts.scale, 3, `${what} scale`, 1);
+    }
+    if (opts.props !== undefined) {
+      if (!isObj(opts.props) || Array.isArray(opts.props)) throw new Error(`${what} props must be an object merged into Script.props, e.g. { speed: 3 }`);
+      const sc = ov.components.Script = ov.components.Script || {};
+      sc.props = Object.assign({}, sc.props || {}, plain(opts.props));
+    }
+    return ov;
+  }
+
   // ========================================================================================================= Entity
   const entityCache = new Map();
   function entityOf(h) {
@@ -364,14 +442,14 @@
     get position() { return viewOf(this.$h, TRANSFORM).position; }
     set position(v) { viewOf(this.$h, TRANSFORM).position = v; }
     get worldPosition() { const p = N.worldPos(this.$h); return new Vec3(p[0], p[1], p[2]); }
-    set worldPosition(v) { N.setWorldPos(this.$h, toFloats(v, "vec3", "worldPosition")); }
+    set worldPosition(v) { N.setWorldPos(this.$h, vecArr(v, 3, "entity.worldPosition")); }
     get(name) {
       const t = typeOf(name);
       return N.hasComp(this.$h, t.name) ? viewOf(this.$h, t) : null;
     }
     has(name) { return N.hasComp(this.$h, name); }
-    add(name, fields) { const ti = N.addComp(this.$h, name, fields === undefined ? null : plain(fields)); return viewOf(this.$h, types[ti]); }
-    set(name, fields) { N.patchComp(this.$h, name, plain(fields)); return this.get(name); }
+    add(name, fields) { const ti = N.addComp(this.$h, name, fields === undefined ? null : fieldsPlain(name, fields)); return viewOf(this.$h, types[ti]); }
+    set(name, fields) { N.patchComp(this.$h, name, fieldsPlain(name, fields)); return this.get(name); }
     remove(name) { return N.removeComp(this.$h, name); }
     components() { return N.compNames(this.$h); }
     destroy() { if (N.alive(this.$h)) N.destroy(this.$h); }
@@ -389,7 +467,9 @@
       if (b && typeof b[method] === "function") return b[method](...args);
       return undefined;
     }
-    isGrounded() { return N.isGrounded(this.$h); }
+    isGrounded(tolerance) { return N.isGrounded(this.$h, tolerance === undefined ? -1 : tolerance); }
+    isTouching(direction, tolerance) { const d = vecArr(direction, 3, "entity.isTouching(direction)"); return N.isTouching(this.$h, d[0], d[1], d[2], tolerance === undefined ? (N.hasComp(this.$h, "RigidBody3D") || N.hasComp(this.$h, "Collider3D") ? 0.05 : 2) : tolerance); }
+    emitBurst(count = 10) { N.particlesBurst(this.$h, count); }
     toJSON() { return N.entityJson(this.$h, true, false); }
     toString() { return `Entity(${this.id})`; }
   }
@@ -462,22 +542,32 @@
   function isBehaviourClass(c) { return typeof c === "function" && c.prototype instanceof Behaviour; }
 
   const warnedProps = new Set();
-  function instantiate(Cls, h, props) {
+  function unknownProps(inst, props) {
+    const out = [];
+    const own = Object.keys(inst);
+    for (const k of Object.keys(props || {})) {
+      if (Object.prototype.hasOwnProperty.call(inst, k)) continue;
+      const sug = closest(k, own);
+      out.push({ key: k, text: `Script.props '${k}' is not a field of ${inst.constructor.name}` + (sug ? ` (did you mean '${sug}'?)` : "") +
+        `. Declare it as a class field: ${k} = <default>;` });
+    }
+    return out;
+  }
+  function instantiate(Cls, h, props, entityId, path) {
     binding = entityOf(h);
     let inst;
     try { inst = new Cls(); } finally { binding = null; }
-    const known = Object.keys(inst);
+    const bad = unknownProps(inst, props);
+    if (bad.length) {
+      const key = `${path}|${bad.map((b) => b.key).join(",")}`;
+      if (!warnedProps.has(key)) {
+        warnedProps.add(key);
+        N.log(3, `entity '${entityId}' (${path}): ` + bad.map((b) => b.text).join(" "));
+      }
+    }
     for (const k of Object.keys(props || {})) {
       let v = props[k];
-      if (!(k in inst)) {
-        const key = `${Cls.name}.${k}`;
-        if (!warnedProps.has(key)) {
-          warnedProps.add(key);
-          const sug = closest(k, known);
-          N.log(3, `Script.props '${k}' is not a field of ${Cls.name}` + (sug ? ` (did you mean '${sug}'?)` : "") +
-            `. Declare it as a class field: ${k} = <default>;`);
-        }
-      } else {
+      if (Object.prototype.hasOwnProperty.call(inst, k)) {
         const cur = inst[k];
         if (cur instanceof Vec2 && (Array.isArray(v) || isObj(v))) v = vec2(v);
         else if (cur instanceof Vec3 && (Array.isArray(v) || isObj(v))) v = vec3(v);
@@ -486,6 +576,16 @@
       inst[k] = v;
     }
     return inst;
+  }
+  // Side-effect free check used by `factoria validate`: constructs a throw-away instance.
+  function checkProps(Cls, props, path) {
+    if (!isBehaviourClass(Cls)) return [`${path}: the default export must extend Behaviour`];
+    const dummy = new Entity(-2);
+    binding = dummy;
+    let inst;
+    try { inst = new Cls(); } catch (e) { return [`${path}: the constructor threw while checking props: ${e && e.message}`]; }
+    finally { binding = null; timers.dropOwner(-2); }
+    return unknownProps(inst, props).map((b) => `${path}: ${b.text}`);
   }
 
   function makeInfo(is2d, px, py, pz, nx, ny, nz, impulse) {
@@ -499,19 +599,13 @@
     findAll(name) { return N.findAll(name).map(entityOf); },
     findByTag(tag) { return N.findByTag(tag).map(entityOf); },
     entities() { return N.entities().map(entityOf); },
-    spawn(entityJson, opts) {
+    spawn(entityJson, opts = {}) {
       const parent = opts && opts.parent ? entityHandle(opts.parent, "world.spawn parent") : null;
-      return entityOf(N.spawn(plain(entityJson), parent));
+      const j = applySpawnOptions(entityPlain(entityJson), opts || {}, "world.spawn");
+      return entityOf(N.spawn(j, parent));
     },
     spawnPrefab(path, opts = {}) {
-      const ov = opts.overrides ? plain(opts.overrides) : {};
-      ov.components = ov.components || {};
-      if (opts.position !== undefined || opts.rotation !== undefined || opts.scale !== undefined) {
-        const tr = ov.components.Transform = ov.components.Transform || {};
-        if (opts.position !== undefined) tr.position = toFloats(opts.position, "vec3", "position").slice(0, 3);
-        if (opts.rotation !== undefined) tr.rotation = typeof opts.rotation === "number" ? [0, 0, opts.rotation] : toFloats(opts.rotation, "vec3", "rotation");
-        if (opts.scale !== undefined) tr.scale = typeof opts.scale === "number" ? [opts.scale, opts.scale, opts.scale] : toFloats(opts.scale, "vec3", "scale");
-      }
+      const ov = applySpawnOptions(opts.overrides ? entityPlain(opts.overrides) : {}, opts, "world.spawnPrefab");
       const parent = opts.parent ? entityHandle(opts.parent, "world.spawnPrefab parent") : null;
       return entityOf(N.spawnPrefab(path, parent, ov));
     },
@@ -552,30 +646,40 @@
   };
 
   const maskOf = (o) => (o && typeof o.mask === "number" ? o.mask : -1);
+  const ignoreOf = (o) => (o && o.ignore !== undefined && o.ignore !== null ? entityHandle(o.ignore, "physics option `ignore`") : null);
+  const trigOf = (o) => !(o && o.ignoreTriggers === false);
   function hitOf(r, is2d) {
     if (!r) return null;
     const p = r.point, n = r.normal;
     return { entity: entityOf(r.entity), point: is2d ? new Vec2(p[0], p[1]) : new Vec3(p[0], p[1], p[2]),
              normal: is2d ? new Vec2(n[0], n[1]) : new Vec3(n[0], n[1], n[2]), distance: r.distance };
   }
+  const is3dVec = (v) => (Array.isArray(v) ? v.length >= 3 : isObj(v) && v.z !== undefined && !(v instanceof Vec2));
   const physics = {
+    // raycast(from, to, { mask, ignore, ignoreTriggers }): 2D when `from` is 2D, else 3D. Pass { ignore: this.entity }
+    // when casting from a behaviour so the ray does not hit its own collider.
     raycast(from, to, o) {
-      const is2d = !(isObj(from) && from.z !== undefined && !(from instanceof Vec2)) || (from instanceof Vec2);
-      if (is2d) return hitOf(N.raycast2d(from.x, from.y, to.x, to.y, maskOf(o)), true);
-      const d = new Vec3(to.x - from.x, to.y - from.y, (to.z || 0) - from.z);
-      const len = d.length();
+      const is3d = is3dVec(from);
+      if (!is3d) {
+        const a = vecArr(from, 2, "physics.raycast(from, to) `from`"), b = vecArr(to, 2, "physics.raycast(from, to) `to`");
+        return hitOf(N.raycast2d(a[0], a[1], b[0], b[1], maskOf(o), ignoreOf(o), trigOf(o)), true);
+      }
+      const a = vecArr(from, 3, "physics.raycast(from, to) `from`"), b = vecArr(to, 3, "physics.raycast(from, to) `to`");
+      const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const len = Math.hypot(d[0], d[1], d[2]);
       if (len < 1e-6) return null;
-      return hitOf(N.raycast3d(from.x, from.y, from.z, d.x / len, d.y / len, d.z / len, len, maskOf(o)), false);
+      return hitOf(N.raycast3d(a[0], a[1], a[2], d[0] / len, d[1] / len, d[2] / len, len, maskOf(o), ignoreOf(o), trigOf(o)), false);
     },
     raycast3d(origin, dir, maxDistance = 1000, o) {
-      return hitOf(N.raycast3d(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, maxDistance, maskOf(o)), false);
+      const a = vecArr(origin, 3, "physics.raycast3d(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3d(origin, dir) `dir`");
+      return hitOf(N.raycast3d(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o)), false);
     },
-    overlapCircle: (c, r, o) => N.overlapCircle(c.x, c.y, r, maskOf(o)).map(entityOf),
-    overlapBox: (r, o) => N.overlapBox(r.x, r.y, r.w, r.h, maskOf(o)).map(entityOf),
-    overlapSphere: (c, r, o) => N.overlapSphere(c.x, c.y, c.z || 0, r, maskOf(o)).map(entityOf),
-    applyImpulse: (e, v) => N.physicsApply(0, entityHandle(e, "applyImpulse"), v.x, v.y, v.z || 0),
-    applyForce: (e, v) => N.physicsApply(1, entityHandle(e, "applyForce"), v.x, v.y, v.z || 0),
-    setVelocity: (e, v) => N.physicsApply(2, entityHandle(e, "setVelocity"), v.x, v.y, v.z || 0),
+    overlapCircle(c, r, o) { const v = vecArr(c, 2, "physics.overlapCircle(center, r) `center`"); return N.overlapCircle(v[0], v[1], r, maskOf(o)).map(entityOf); },
+    overlapBox(r, o) { const q = rectArr(r, "physics.overlapBox(rect)"); return N.overlapBox(q[0], q[1], q[2], q[3], maskOf(o)).map(entityOf); },
+    overlapSphere(c, r, o) { const v = vecArr(c, 3, "physics.overlapSphere(center, r) `center`"); return N.overlapSphere(v[0], v[1], v[2], r, maskOf(o)).map(entityOf); },
+    applyImpulse(e, v) { const a = vecArr(v, 3, "physics.applyImpulse(entity, v)"); N.physicsApply(0, entityHandle(e, "applyImpulse"), a[0], a[1], a[2]); },
+    applyForce(e, v) { const a = vecArr(v, 3, "physics.applyForce(entity, v)"); N.physicsApply(1, entityHandle(e, "applyForce"), a[0], a[1], a[2]); },
+    setVelocity(e, v) { const a = vecArr(v, 3, "physics.setVelocity(entity, v)"); N.physicsApply(2, entityHandle(e, "setVelocity"), a[0], a[1], a[2]); },
   };
 
   const time = {
@@ -589,18 +693,22 @@
 
   const camera = {
     get main() { return entityOf(N.cameraMain()); },
-    worldToScreen(v) { const s = N.worldToScreen(v.x, v.y, v.z || 0); return new Vec2(s[0], s[1]); },
-    screenToWorld(v, depth = 0) { const w = N.screenToWorld(v.x, v.y, depth); return new Vec3(w[0], w[1], w[2]); },
+    worldToScreen(v) { const a = vecArr(v, 3, "camera.worldToScreen(v)"); const s = N.worldToScreen(a[0], a[1], a[2]); return new Vec2(s[0], s[1]); },
+    screenToWorld(v, depth = 0) { const a = vecArr(v, 2, "camera.screenToWorld(v)"); const w = N.screenToWorld(a[0], a[1], depth); return new Vec3(w[0], w[1], w[2]); },
   };
 
-  const colorArg = (c) => (c === undefined ? [1, 1, 1, 1] : toFloats(c instanceof Color || Array.isArray(c) || typeof c === "string" ? c : c, "color", "debug color"));
+  const colorArg = (c) => (c === undefined ? [1, 1, 1, 1] : toFloats(c, "color", "debug color"));
   const debug = {
-    line(a, b, c) { N.debugDraw(0, a.x, a.y, a.z || 0, b.x, b.y, b.z || 0, colorArg(c)); },
-    rect(x, y, w, h, c) { N.debugDraw(1, x, y, w, h, colorArg(c), false); },
-    circle(center, r, c) { N.debugDraw(2, center.x, center.y, r, colorArg(c), false); },
-    text(pos, str, c) { N.debugDraw(3, pos.x, pos.y, String(str), colorArg(c)); },
-    box(center, size, c) { N.debugDraw(4, center.x, center.y, center.z || 0, size.x, size.y, size.z || 0, colorArg(c)); },
-    sphere(center, r, c) { N.debugDraw(5, center.x, center.y, center.z || 0, r, colorArg(c)); },
+    line(a, b, c) { const p = vecArr(a, 3, "debug.line(a, b) `a`"), q = vecArr(b, 3, "debug.line(a, b) `b`"); N.debugDraw(0, p[0], p[1], p[2], q[0], q[1], q[2], colorArg(c)); },
+    // rect(x, y, w, h, color) or rect({x, y, w, h}, color)
+    rect(x, y, w, h, c) {
+      if (isObj(x)) { const q = rectArr(x, "debug.rect(rect)"); N.debugDraw(1, q[0], q[1], q[2], q[3], colorArg(y), false); }
+      else N.debugDraw(1, x, y, w, h, colorArg(c), false);
+    },
+    circle(center, r, c) { const p = vecArr(center, 2, "debug.circle(center, r) `center`"); N.debugDraw(2, p[0], p[1], r, colorArg(c), false); },
+    text(pos, str, c) { const p = vecArr(pos, 2, "debug.text(pos, str) `pos`"); N.debugDraw(3, p[0], p[1], String(str), colorArg(c)); },
+    box(center, size, c) { const p = vecArr(center, 3, "debug.box(center, size) `center`"), q = vecArr(size, 3, "debug.box(center, size) `size`", 1); N.debugDraw(4, p[0], p[1], p[2], q[0], q[1], q[2], colorArg(c)); },
+    sphere(center, r, c) { const p = vecArr(center, 3, "debug.sphere(center, r) `center`"); N.debugDraw(5, p[0], p[1], p[2], r, colorArg(c)); },
   };
 
   const scene = {
@@ -631,7 +739,35 @@
     int: (a, b) => N.rngInt(a, b),
     chance: (p = 0.5) => N.rngChance(p),
     pick(arr) { if (!arr || arr.length === 0) return undefined; return arr[N.rngInt(0, arr.length - 1)]; },
+    seed(n) { if (typeof n !== "number" || !Number.isFinite(n)) throw new Error("rng.seed(n) expects a finite number, e.g. rng.seed(12345)"); N.rngSeed(n); },
     shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = N.rngInt(0, i); [a[i], a[j]] = [a[j], a[i]]; } return a; },
+  };
+
+  // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
+  const session = {};
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; }
+
+  class ToolError extends Error {
+    // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
+    constructor(message, hint = "", data = undefined) {
+      super(message);
+      this.name = "ToolError";
+      this.hint = hint;
+      if (data !== undefined) this.data = data;
+    }
+  }
+
+  const particles = {
+    // Immediately spawns `count` particles at the ParticleEmitter on `entity` (works with emitting = false).
+    burst(entity, count = 10) { N.particlesBurst(entityHandle(entity, "particles.burst"), count); },
+  };
+
+  const ui = {
+    // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
+    measureText(text, o = {}) {
+      const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0);
+      return { width: m[0], height: m[1] };
+    },
   };
 
   const math = {
@@ -664,7 +800,7 @@
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui,
   };
 
   // ============================================================================================ eval serialization
@@ -850,6 +986,17 @@
       const a = posArg(p, "game.click");
       N.inMouseMove(a[0], a[1]); N.inMouseEvent(button, true); stepN(1); N.inMouseEvent(button, false); stepN(1);
     },
+    loadJson(scene) {
+      const err = N.testLoadJson(plain(scene));
+      if (err) throw new Error(`game.loadJson failed: ${err}`);
+    },
+    touchStart(p, id = 1) { const a = posArg(p, "game.touchStart"); N.testTouch(0, id, a[0], a[1]); },
+    touchMove(p, id = 1) { const a = posArg(p, "game.touchMove"); N.testTouch(1, id, a[0], a[1]); },
+    touchEnd(id = 1) { N.testTouch(2, id, 0, 0); },
+    touch(p, frames = 1) {
+      const a = posArg(p, "game.touch");
+      N.testTouch(0, 1, a[0], a[1]); stepN(frames); N.testTouch(2, 1, 0, 0); stepN(1);
+    },
     find(idOrName) { return world.find(idOrName); },
     get world() { return world; },
     get time() { return time; },
@@ -909,7 +1056,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, makeInfo, serialize,
+    isBehaviourClass, instantiate, checkProps, resetSession, makeInfo, serialize,
     tick: (dt) => timers.tick(dt),
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

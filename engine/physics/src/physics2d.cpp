@@ -561,6 +561,19 @@ void Physics2D::collect_events(World& world) {
     }
 }
 
+namespace {
+// Tight (non-fattened) world AABB of a shape at its body's current transform.
+b2AABB tight_aabb(b2ShapeId id) {
+    const b2Transform xf = b2Body_GetTransform(b2Shape_GetBody(id));
+    switch (b2Shape_GetType(id)) {
+        case b2_circleShape: { b2Circle c = b2Shape_GetCircle(id); return b2ComputeCircleAABB(&c, xf); }
+        case b2_capsuleShape: { b2Capsule c = b2Shape_GetCapsule(id); return b2ComputeCapsuleAABB(&c, xf); }
+        case b2_polygonShape: { b2Polygon p = b2Shape_GetPolygon(id); return b2ComputePolygonAABB(&p, xf); }
+        default: return b2Shape_GetAABB(id);
+    }
+}
+}  // namespace
+
 // One-way platforms (Box2D pre-solve; runs on the calling thread because workerCount = 1). The contact is kept
 // only if the visitor's bottom was above the platform's top (previous-step AABBs, small speed-based slop for soft
 // contact penetration). Rising bodies are below the top until they clear it, so they pass through; at the apex
@@ -577,11 +590,11 @@ bool Physics2D::pre_solve(b2ShapeId idA, b2ShapeId idB, b2Manifold*, void* ctx) 
     const b2BodyId pb = b2Shape_GetBody(plat), vb = b2Shape_GetBody(vis);
     const b2Rot q = b2Body_GetRotation(pb);
     const float up = q.c >= 0.0f ? 1.0f : -1.0f;  // platform +Y has y = cos(rotation)
-    const b2AABB pa = b2Shape_GetAABB(plat), va = b2Shape_GetAABB(vis);
+    const b2AABB pa = tight_aabb(plat), va = tight_aabb(vis);
     const float platTop = up > 0 ? pa.upperBound.y : -pa.lowerBound.y;
     const float visBottom = up > 0 ? va.lowerBound.y : -va.upperBound.y;
     const float relV = up * (b2Body_GetLinearVelocity(vb).y - b2Body_GetLinearVelocity(pb).y);
-    const float slop = 0.02f + std::max(0.0f, -relV) * (1.0f / 30.0f);
+    const float slop = 0.06f + std::max(0.0f, -relV) * (1.0f / 30.0f);
     return visBottom >= platTop - slop;
 }
 

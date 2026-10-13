@@ -174,6 +174,37 @@ TEST_CASE("world: deferred destroy takes children along and notifies observers")
     CHECK(destroyed.size() == 3);
 }
 
+TEST_CASE("world: destroy() hides the entity from lookups and frees its id immediately") {
+    World w;
+    Entity gem = w.create("Gem", "gem_1");
+    w.info(gem).tags = {"gem"};
+    Entity kid = w.create("GemKid", "gem_kid");
+    w.info(kid).tags = {"gem"};
+    w.set_parent(kid, gem);
+    Entity keep = w.create("Gem", "keep");
+    w.info(keep).tags = {"gem"};
+
+    w.destroy(gem);
+    CHECK(w.alive(gem));  // memory lives until flush()
+    CHECK(w.find_by_id("gem_1").is_null());
+    CHECK(w.find_by_id("gem_kid").is_null());  // children go with the parent
+    CHECK(w.find("gem_1").is_null());
+    CHECK(w.find("Gem") == keep);  // by name: skips the destroyed one
+    CHECK(w.find_all_by_name("Gem").size() == 1);
+    CHECK(w.find_by_tag("gem") == std::vector<Entity>{keep});
+
+    // The id is reusable at once, unchanged (no "gem_1_2").
+    Entity again = w.create("Gem", "gem_1");
+    CHECK(w.id_of(again) == "gem_1");
+    CHECK(w.find_by_id("gem_1") == again);
+    CHECK(w.id_of(gem) == "gem_1");  // the old (pending) entity still reads fine
+
+    w.flush();
+    CHECK(!w.alive(gem));
+    CHECK(w.find_by_id("gem_1") == again);  // flushing the old one must not unregister the new owner
+    CHECK(w.find_by_id("keep") == keep);
+}
+
 TEST_CASE("world: destroying a child detaches it from the parent") {
     World w;
     Entity p = w.create(), c1 = w.create(), c2 = w.create();

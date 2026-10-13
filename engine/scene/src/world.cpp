@@ -83,6 +83,18 @@ struct World::Impl {
         return e.index < slots.size() && slots[e.index].alive && slots[e.index].generation == e.generation;
     }
     EntityInfo& info(Entity e) const { return *static_cast<EntityInfo*>(infoPool->get(e)); }
+    // Removes the id from the lookup table, but only if it still maps to `e` (a destroyed entity's id may already
+    // belong to a newer entity).
+    void unregister_id(Entity e) {
+        auto it = ids.find(info(e).id);
+        if (it != ids.end() && it->second == e) ids.erase(it);
+    }
+    bool pending_destroy(Entity e) const {
+        if (!alive(e)) return false;
+        for (Entity cur = e; !cur.is_null(); cur = slots[cur.index].parent)
+            if (slots[cur.index].pending) return true;
+        return false;
+    }
 };
 
 World::World() : impl_(std::make_unique<Impl>()) {
@@ -135,12 +147,7 @@ Entity World::create(std::string_view name, std::string_view id) {
 
 bool World::alive(Entity e) const { return impl_->alive(e); }
 
-bool World::pending_destroy(Entity e) const {
-    if (!alive(e)) return false;
-    for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent)
-        if (impl_->slots[cur.index].pending) return true;
-    return false;
-}
+bool World::pending_destroy(Entity e) const { return impl_->pending_destroy(e); }
 
 std::size_t World::entity_count() const { return impl_->aliveCount; }
 
@@ -152,6 +159,12 @@ void World::destroy(Entity e) {
     if (s.pending) return;
     s.pending = true;
     impl_->pending.push_back(e);
+    // The entity (and its children) stop being findable right away and their ids become reusable; the memory and
+    // components live until flush() so systems can keep iterating.
+    std::vector<Entity> subtree{e};
+    for (std::size_t i = 0; i < subtree.size(); ++i)
+        for (Entity c : impl_->slots[subtree[i].index].children) subtree.push_back(c);
+    for (Entity x : subtree) impl_->unregister_id(x);
 }
 
 void World::destroy_immediate(Entity e) {
@@ -181,7 +194,7 @@ void World::destroy_immediate(Entity e) {
     for (auto it = subtree.rbegin(); it != subtree.rend(); ++it) {
         Entity x = *it;
         Impl::Slot& s = d.slots[x.index];
-        d.ids.erase(d.info(x).id);
+        d.unregister_id(x);
         for (auto& p : d.pools)
             if (p) p->remove(x);
         s.alive = false;
@@ -243,27 +256,28 @@ const std::string& World::id_of(Entity e) const { return info(e).id; }
 
 Entity World::find_by_id(std::string_view id) const {
     auto it = impl_->ids.find(std::string(id));
-    return it == impl_->ids.end() ? kNullEntity : it->second;
+    if (it == impl_->ids.end() || impl_->pending_destroy(it->second)) return kNullEntity;
+    return it->second;
 }
 
 Entity World::find(std::string_view idOrName) const {
     if (Entity e = find_by_id(idOrName); !e.is_null()) return e;
     for (Entity e : impl_->infoPool->entities())
-        if (impl_->info(e).name == idOrName) return e;
+        if (impl_->info(e).name == idOrName && !impl_->pending_destroy(e)) return e;
     return kNullEntity;
 }
 
 std::vector<Entity> World::find_all_by_name(std::string_view name) const {
     std::vector<Entity> out;
     for (Entity e : impl_->infoPool->entities())
-        if (impl_->info(e).name == name) out.push_back(e);
+        if (impl_->info(e).name == name && !impl_->pending_destroy(e)) out.push_back(e);
     return out;
 }
 
 std::vector<Entity> World::find_by_tag(std::string_view tag) const {
     std::vector<Entity> out;
     for (Entity e : impl_->infoPool->entities())
-        if (has_tag(e, tag)) out.push_back(e);
+        if (has_tag(e, tag) && !impl_->pending_destroy(e)) out.push_back(e);
     return out;
 }
 
@@ -281,9 +295,9 @@ Result<void> World::set_id(Entity e, std::string_view newId) {
     if (auto it = impl_->ids.find(std::string(newId)); it != impl_->ids.end())
         return make_error("Entity id '" + std::string(newId) + "' is already used by another entity",
                           "Choose a different id, e.g. '" + std::string(newId) + "_2'.");
-    impl_->ids.erase(inf.id);
+    if (!impl_->pending_destroy(e)) impl_->unregister_id(e);
     inf.id = std::string(newId);
-    impl_->ids[inf.id] = e;
+    if (!impl_->pending_destroy(e)) impl_->ids[inf.id] = e;
     return {};
 }
 
