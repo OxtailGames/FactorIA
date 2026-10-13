@@ -4,18 +4,37 @@
   "title": "FactorIA factoria.json",
   "description": "Project file at the root of every FactorIA game. Unknown keys are kept but ignored by the engine.",
   "type": "object",
-  "required": ["format", "name"],
+  "required": [
+    "format",
+    "name"
+  ],
   "properties": {
-    "$schema": { "type": "string", "description": "Optional schema reference for editors." },
-    "format": { "const": "factoria.project/1", "description": "File format identifier. Always \"factoria.project/1\"." },
-    "name": { "type": "string", "minLength": 1, "description": "Human-readable game name shown in window titles and stores." },
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.project/1",
+      "description": "File format identifier. Always \"factoria.project/1\"."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable game name shown in window titles and stores."
+    },
     "id": {
       "type": "string",
       "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$",
       "description": "Reverse-DNS identifier used for mobile bundles, e.g. \"com.example.spacedodge\"."
     },
-    "version": { "type": "string", "description": "Game version, semantic versioning, e.g. \"0.1.0\"." },
-    "engine": { "type": "string", "description": "Engine version the game was made with, e.g. \"0.1\"." },
+    "version": {
+      "type": "string",
+      "description": "Game version, semantic versioning, e.g. \"0.1.0\"."
+    },
+    "engine": {
+      "type": "string",
+      "description": "Engine version the game was made with, e.g. \"0.1\"."
+    },
     "mainScene": {
       "type": "string",
       "description": "Project-relative path of the scene loaded at startup, e.g. \"scenes/main.scene.json\"."
@@ -24,21 +43,61 @@
       "type": "object",
       "description": "Window and design-resolution settings. The game always renders at the design resolution.",
       "properties": {
-        "width": { "type": "integer", "minimum": 16, "description": "Design width in pixels." },
-        "height": { "type": "integer", "minimum": 16, "description": "Design height in pixels." },
-        "scaleMode": { "type": "string", "description": "How the design resolution maps to the window: fit (keep aspect, letterbox), stretch (distort), expand (keep aspect, grow visible area on the long axis), pixelPerfect (integer scaling, letterbox). Default \"fit\"." },
-        "fullscreen": { "type": "boolean", "description": "Start in fullscreen." },
-        "vsync": { "type": "boolean", "description": "Synchronize presentation with the display refresh." },
-        "orientation": { "enum": ["landscape", "portrait", "any"], "description": "Allowed screen orientation on mobile." },
-        "pixelArt": { "type": "boolean", "description": "Use nearest-neighbour filtering when scaling the final image." }
+        "width": {
+          "type": "integer",
+          "minimum": 16,
+          "description": "Design width in pixels."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 16,
+          "description": "Design height in pixels."
+        },
+        "scaleMode": {
+          "enum": [
+            "fit",
+            "stretch",
+            "expand",
+            "pixel-perfect"
+          ],
+          "description": "How the design resolution maps to the window: fit (keep aspect, letterbox), stretch (fill the window, distort), expand (keep aspect, grow the visible area on the long axis), pixel-perfect (integer scaling, letterbox). Default \"fit\". The loader also accepts any capitalisation and \"pixelPerfect\"."
+        },
+        "fullscreen": {
+          "type": "boolean",
+          "description": "Start in fullscreen."
+        },
+        "vsync": {
+          "type": "boolean",
+          "description": "Synchronize presentation with the display refresh."
+        },
+        "orientation": {
+          "enum": [
+            "landscape",
+            "portrait",
+            "any"
+          ],
+          "description": "Allowed screen orientation on mobile."
+        },
+        "pixelArt": {
+          "type": "boolean",
+          "description": "Use nearest-neighbour filtering when scaling the final image."
+        }
       }
     },
     "physics": {
       "type": "object",
       "description": "Simulation settings.",
       "properties": {
-        "fixedHz": { "type": "number", "minimum": 1, "description": "Fixed simulation steps per second (default 60)." },
-        "pixelsPerMeter": { "type": "number", "exclusiveMinimum": 0, "description": "2D world units per physics meter (default 100)." }
+        "fixedHz": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Fixed simulation steps per second (default 60)."
+        },
+        "pixelsPerMeter": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "2D world units per physics meter (default 100)."
+        }
       }
     },
     "input": {
@@ -50,7 +109,9 @@
           "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", \"GamepadA\"...",
           "additionalProperties": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Bindings that trigger this action."
           }
         }
@@ -59,7 +120,15 @@
     "platforms": {
       "type": "array",
       "description": "Platforms this game targets.",
-      "items": { "enum": ["windows", "macos", "linux", "ios", "android"] }
+      "items": {
+        "enum": [
+          "windows",
+          "macos",
+          "linux",
+          "ios",
+          "android"
+        ]
+      }
     },
     "feedbackFile": {
       "type": "string",

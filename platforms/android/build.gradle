@@ -1,0 +1,4 @@
+// Top-level build file. Plugin versions live here; see app/build.gradle for the game.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
