@@ -1,4 +1,5 @@
 import { test, expect, game } from "factoria:test";
+import { fa } from "factoria";
 import { state, resetState } from "scripts/game_state.js";
 
 function load(path = "scenes/level1.scene.json") {
@@ -6,6 +7,17 @@ function load(path = "scenes/level1.scene.json") {
   game.load(path);
   game.step(30); // settle onto the ground
   return game.find("player");
+}
+
+// The follow camera stops at the edge of the map: its limits are scene data (Script props), not derived from the Tilemap,
+// so they must be changed together with the size of the map.
+function expectCameraFitsMap() {
+  const map = fa.call("scene.get_entity", { id: "map" }).components.Tilemap;
+  const cam = fa.call("scene.get_entity", { id: "camera" }).components.Script.props;
+  expect(cam.minX).toBe(0);
+  expect(cam.minY).toBe(0);
+  expect(cam.maxX).toBe(map.width * map.tileSize[0]);
+  expect(cam.maxY).toBe(map.height * map.tileSize[1]);
 }
 
 test("player lands on the ground", () => {
@@ -175,8 +187,7 @@ test("camera follows the player but stays inside level bounds", () => {
   expect(cam.position.x).toBeLessThan(1281);
 });
 
-test("project.generate_level is deterministic and has the required entities", async () => {
-  const { fa } = await import("factoria");
+test("project.generate_level is deterministic and has the required entities", () => {
   const args = { width: 60, seed: 5, difficulty: 2, dryRun: true };
   const a = fa.call("project.generate_level", args);
   const b = fa.call("project.generate_level", args);
@@ -189,8 +200,90 @@ test("project.generate_level is deterministic and has the required entities", as
   expect(ids).toContain("map");
 });
 
+test("project.generate_level composes ASCII rows and scene.import_ascii builds the scene from them", () => {
+  const out = fa.call("project.generate_level", { width: 30, seed: 3, difficulty: 2, dryRun: true });
+  expect(out.rows).toEqual([
+    "..............................",
+    "..............................",
+    "..............................",
+    "..............................",
+    "..............................",
+    "..............................",
+    "..............................",
+    "..............................",
+    "..............................",
+    ".........o.o..................",
+    "........o==..........o........",
+    ".............o.o............F.",
+    "..P...........E...........####",
+    "########....#######...####%%%%",
+    "%%%%%%%%....%%%%%%%...%%%%%%%%",
+    "%%%%%%%%....%%%%%%%...%%%%%%%%",
+  ]);
+  const byId = Object.fromEntries(out.scene.entities.map((e) => [e.id, e]));
+  // The tiles are the rows: # grass 0, % dirt 1, = brick 2, everything else empty.
+  const tm = byId.map.components.Tilemap;
+  const tile = { "#": 0, "%": 1, "=": 2 };
+  expect(tm.width).toBe(30);
+  expect(tm.height).toBe(16);
+  expect(tm.tiles).toEqual(out.rows.join("").split("").map((ch) => (ch in tile ? tile[ch] : -1)));
+  expect(tm.columns).toBeUndefined(); // derived from the tileset image
+  // The objects stand in the cells of their glyphs (cell centres; the flag and the crawler have a small legend offset).
+  const at = (col, row, dx = 0, dy = 0) => [col * 32 + 16 + dx, 512 - row * 32 - 16 + dy, 0];
+  expect(byId.player.components.Transform.position).toEqual(at(2, 12));
+  expect(byId.goal.components.Transform.position).toEqual(at(28, 11, 0, 16));
+  expect(byId.enemy_1.components.Transform.position).toEqual(at(14, 12, 0, -4));
+  expect(out.coins).toBe(6);
+  expect(out.scene.entities.filter((e) => e.id.startsWith("coin_")).length).toBe(6);
+  expect(byId.coin_1.components.Transform.position).toEqual(at(9, 9)); // ids are row-major
+  expect(out.enemies).toBe(1);
+  expect(byId.camera.components.Script.props.maxX).toBe(30 * 32);
+});
+
+test("project.generate_level reloads the running scene afterwards and writes nothing in dryRun", () => {
+  load();
+  const committed = fa.call("fs.read", { path: "scenes/generated.scene.json" }).content;
+  fa.call("project.generate_level", { width: 40, seed: 2, dryRun: true });
+  expect(fa.call("project.info").currentScene).toBe("scenes/level1.scene.json");
+  expect(game.find("player")).not.toBeNull();
+  expect(fa.call("fs.read", { path: "scenes/generated.scene.json" }).content).toBe(committed);
+});
+
+test("project.generate_level writes a scene file that loads and plays", () => {
+  const path = ".factoria/test/generate_level.scene.json";
+  const out = fa.call("project.generate_level", { width: 30, seed: 3, path });
+  expect(out.path).toBe(path);
+  const text = fa.call("fs.read", { path }).content;
+  expect(text).not.toContain('"columns"');
+  const mapRows = text.split("\n").filter((l) => /^[-\d, ]+$/.test(l) && l.match(/-?\d+/g).length === 30);
+  expect(mapRows.length).toBe(16); // compact layout: tiles one map row per line
+  const p = load(path);
+  expect(p.position.y).toBeGreaterThan(100);
+  expect(game.find("goal")).not.toBeNull();
+});
+
+// The ASCII maps in levels/ are the source of truth of the hand-made levels. Importing a map into its own scene must
+// change nothing: if this fails, rebuild the scene (see README.md, "Levels") or fix the map.
+for (const name of ["level1", "level2"]) {
+  test(`scenes/${name}.scene.json is what levels/${name}.json builds`, () => {
+    resetState();
+    game.load(`scenes/${name}.scene.json`);
+    const snapshot = () => Object.fromEntries(fa.call("game.state", { maxEntities: 100000 }).entities.map((e) => [e.id, JSON.stringify(e)]));
+    const before = snapshot();
+    const args = JSON.parse(fa.call("fs.read", { path: `levels/${name}.json` }).content);
+    delete args.save; // do not rewrite the file from a test
+    const imported = fa.call("scene.import_ascii", args);
+    expect(imported.warnings).toEqual([]);
+    expect(imported.removed.length).toBe(imported.spawned.length);
+    expect(snapshot()).toEqual(before);
+    expectCameraFitsMap();
+    expect(fa.call("fs.read", { path: `scenes/${name}.scene.json` }).content).not.toContain('"columns"');
+  });
+}
+
 test("the committed generated level (scenes/generated.scene.json) loads and runs", () => {
   const p = load("scenes/generated.scene.json");
+  expectCameraFitsMap();
   expect(p.position.y).toBeGreaterThan(100);
   expect(game.find("goal")).not.toBeNull();
   const goal = game.find("goal");

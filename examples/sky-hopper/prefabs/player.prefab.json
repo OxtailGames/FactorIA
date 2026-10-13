@@ -1,0 +1,14 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Player",
+    "tags": ["player"],
+    "components": {
+      "Transform": { "position": [0, 0, 0] },
+      "Sprite": { "texture": "assets/player.png", "size": [32, 48], "layer": 3, "pixelArt": false },
+      "RigidBody2D": { "type": "dynamic", "fixedRotation": true },
+      "Collider2D": { "shape": "box", "size": [26, 46], "friction": 0 },
+      "Script": { "path": "scripts/player.js" }
+    }
+  }
+}
