@@ -121,6 +121,8 @@ void Physics3D::sync(World& world) {
             nb.lastPos = pose.position;
             nb.lastVel = rb ? rb->velocity : Vec3{};
             nb.vel = nb.lastVel;
+            nb.angVel = rb ? rb->angularVelocity : Vec3{};
+            nb.lastAngVel = nb.angVel;
             bodies_.push_back(std::move(nb));
             it = index_.emplace(key, bodies_.size() - 1).first;
             bodies_.back().center = pose.position;  // refined below
@@ -133,6 +135,7 @@ void Physics3D::sync(World& world) {
         b.invMass = b.type == BodyType::Dynamic ? 1.0f / b.mass : 0.0f;
         b.gravityScale = rb ? rb->gravityScale : 1.0f;
         b.damping = rb ? std::max(rb->linearDamping, 0.0f) : 0.0f;
+        b.rollWithMotion = rb ? rb->rollWithMotion : false;
         b.hasShape = col != nullptr;
         if (col) {
             Vec3 as{std::fabs(pose.scale.x), std::fabs(pose.scale.y), std::fabs(pose.scale.z)};
@@ -155,9 +158,15 @@ void Physics3D::sync(World& world) {
         // Gameplay moved the Transform since the last writeback -> teleport (keep velocity).
         Vec3 dp = pose.position - b.lastPos;
         if (std::fabs(dp.x) > 1e-4f || std::fabs(dp.y) > 1e-4f || std::fabs(dp.z) > 1e-4f || b.type == BodyType::Static) {
+            const bool placed = b.lastPos.x < 1e8f;  // false right after slot reuse (forced initial placement)
+            if (placed && b.type != BodyType::Dynamic && b.seq != nextSeq_ - 1) b.pendingCarry += pose.position - b.lastPos;
             b.center = pose.position + b.offset;
             b.lastPos = pose.position;
             b.lastCenter = b.center;
+        }
+        if (rb && rb->angularVelocity != b.lastAngVel) {
+            b.angVel = rb->angularVelocity;
+            b.lastAngVel = rb->angularVelocity;
         }
         if (rb && rb->velocity != b.lastVel) {
             b.vel = rb->velocity;

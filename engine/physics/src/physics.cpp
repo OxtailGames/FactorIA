@@ -19,6 +19,17 @@ WorldPose world_pose(const World& world, Entity e) {
 }
 }  // namespace detail
 
+namespace detail {
+bool entity_or_ancestor_is(const World& world, Entity e, Entity ignore) {
+    if (ignore.is_null()) return false;
+    for (int depth = 0; !e.is_null() && depth < 256; ++depth) {
+        if (e == ignore) return true;
+        e = world.parent(e);
+    }
+    return false;
+}
+}  // namespace detail
+
 struct Physics::Impl {
     PhysicsSettings settings;
     detail::Physics2D p2d;
@@ -53,7 +64,12 @@ void Physics::step(World& world, float dt) {
 }
 
 std::optional<RaycastHit> Physics::raycast2d(World& world, Vec2 from, Vec2 to, std::int32_t mask) {
-    return impl_->p2d.raycast(world, from, to, mask);
+    RaycastOptions o;
+    o.mask = mask;
+    return impl_->p2d.raycast(world, from, to, o);
+}
+std::optional<RaycastHit> Physics::raycast2d(World& world, Vec2 from, Vec2 to, const RaycastOptions& options) {
+    return impl_->p2d.raycast(world, from, to, options);
 }
 std::vector<Entity> Physics::overlap_circle2d(World& world, Vec2 center, float radius, std::int32_t mask) {
     return impl_->p2d.overlap_circle(world, center, radius, mask);
@@ -62,7 +78,13 @@ std::vector<Entity> Physics::overlap_box2d(World& world, Rect box, std::int32_t 
     return impl_->p2d.overlap_box(world, box, mask);
 }
 std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask) {
-    return impl_->p3d.raycast(world, origin, dir, maxDistance, mask);
+    RaycastOptions o;
+    o.mask = mask;
+    return impl_->p3d.raycast(world, origin, dir, maxDistance, o);
+}
+std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                             const RaycastOptions& options) {
+    return impl_->p3d.raycast(world, origin, dir, maxDistance, options);
 }
 std::vector<Entity> Physics::overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask) {
     return impl_->p3d.overlap_sphere(world, center, radius, mask);
@@ -82,6 +104,18 @@ void Physics::set_velocity(World& world, Entity e, Vec3 velocity) {
 }
 bool Physics::is_grounded2d(World& world, Entity e, float tolerance) {
     return impl_->p2d.is_grounded(world, e, tolerance);
+}
+
+bool Physics::is_touching2d(World& world, Entity e, Vec2 direction, float tolerance) {
+    return impl_->p2d.is_touching(world, e, direction, tolerance);
+}
+bool Physics::is_touching3d(World& world, Entity e, Vec3 direction, float tolerance) {
+    return impl_->p3d.is_touching(world, e, direction, tolerance);
+}
+bool Physics::is_grounded(World& world, Entity e, float tolerance) {
+    if (impl_->p2d.has_body(e)) return impl_->p2d.is_grounded(world, e, tolerance < 0.0f ? 2.0f : tolerance);
+    if (impl_->p3d.has_body(e)) return impl_->p3d.is_touching(world, e, {0, -1, 0}, tolerance < 0.0f ? 0.05f : tolerance);
+    return false;
 }
 
 Json Physics::debug_state(const World& world) const {

@@ -5,7 +5,7 @@
 
 namespace fa::render {
 
-void QuadList::begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp) {
+void QuadList::begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend) {
     cur_ = QuadItem{};
     cur_.layer = layer;
     cur_.secondary = secondary;
@@ -13,6 +13,7 @@ void QuadList::begin_item(int layer, float secondary, TextureAsset* tex, Sampler
     cur_.firstVert = std::uint32_t(raw.size());
     cur_.tex = tex;
     cur_.smp = smp;
+    cur_.blend = blend;
     open_ = true;
 }
 
@@ -39,11 +40,13 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
     for (const QuadItem& it : items) {
         std::uint32_t firstQuad = std::uint32_t(out.size() / 4);
         out.insert(out.end(), raw.begin() + it.firstVert, raw.begin() + it.firstVert + std::size_t(it.quadCount) * 4);
-        if (!batches.empty() && batches.back().tex == it.tex && batches.back().smp == it.smp &&
+        if (it.blend == BlendMode::Multiply)  // shader variant: output mix(1, rgb, a) for the multiply blend
+            for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) out[i].mode += 8.0f;
+        if (!batches.empty() && batches.back().tex == it.tex && batches.back().smp == it.smp && batches.back().blend == it.blend &&
             batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
         } else {
-            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp});
+            batches.push_back({firstQuad, it.quadCount, it.tex, it.smp, it.blend});
         }
     }
 }

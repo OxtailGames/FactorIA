@@ -36,6 +36,16 @@
 
 namespace fa {
 
+// When Engine::step/frame draws the world.
+//   Always:   every frame is drawn (windowed play, the editor).
+//   OnDemand: every frame is SIMULATED (scripts, physics, audio, animators/particles via Renderer::update) but the
+//             world is only drawn when a picture is requested: Engine::screenshot() (and game.screenshot) draws the
+//             current state first, Engine::render_now() draws explicitly, and a headless `factoria run` draws its
+//             last frame. A screenshot at frame N is pixel-identical in both modes. Headless tests and
+//             `factoria call/session` use OnDemand (software rendering costs ~40 ms/frame); camera helpers
+//             (Renderer::world_to_screen) and renderStats reflect the last frame that was actually drawn.
+enum class RenderMode { Always, OnDemand };
+
 struct EngineConfig {
     std::string projectDir = ".";  // folder containing factoria.json
     std::string scene;             // start scene override ("" = project mainScene)
@@ -46,6 +56,10 @@ struct EngineConfig {
     std::uint64_t seed = 1;        // world RNG seed
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
     bool editorMode = false;       // editor drives the loop; game starts paused
+    RenderMode renderMode = RenderMode::Always;
+    // Isolate script storage (the `storage` module) in memory: nothing is read from or written to disk. Headless
+    // runs and tests set this so runs do not leak state into each other (needs ScriptSystem::set_storage_mode).
+    bool memoryStorage = false;
 };
 
 class Engine final : public ScriptHost {
@@ -64,6 +78,10 @@ public:
     void step(int frames = 1);
 
     bool load_scene(std::string_view path, std::string* error);  // immediate
+    // Replaces the world with a scene given as JSON (immediate; `sourceName` is only used in messages). Unlike
+    // load_scene it does NOT change the current scene path (engine.info / game.state / scene.save / scene.reload keep
+    // pointing at the file being edited), so editors can restore snapshots without temp files.
+    bool load_scene_json(const Json& scene, std::string_view sourceName, std::string* error);
     void reload_scene();
 
     // State
@@ -71,6 +89,11 @@ public:
     void set_paused(bool paused);
     std::uint64_t frame_index() const;
     bool quit_requested() const;
+
+    // Draws the current state now when it has not been drawn yet (RenderMode::OnDemand); no-op otherwise.
+    void render_now();
+    // True when frames were simulated since the last draw (always false in RenderMode::Always).
+    bool render_pending() const;
 
     // Screenshot of the game target (PNG). Works headless and windowed.
     bool screenshot(std::string_view path, std::string* error) override;

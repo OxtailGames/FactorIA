@@ -119,6 +119,7 @@ struct QuadItem {
     std::uint32_t quadCount = 0;
     TextureAsset* tex = nullptr;
     SamplerKind smp = SamplerKind::Nearest;
+    BlendMode blend = BlendMode::Alpha;
 };
 
 struct QuadBatch {
@@ -126,6 +127,7 @@ struct QuadBatch {
     std::uint32_t quadCount = 0;
     TextureAsset* tex = nullptr;
     SamplerKind smp = SamplerKind::Nearest;
+    BlendMode blend = BlendMode::Alpha;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -134,7 +136,7 @@ public:
     std::vector<Vertex2D> raw;
     std::vector<QuadItem> items;
 
-    void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp);
+    void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha);
     void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
     void end_item();
     bool empty() const { return items.empty(); }
@@ -248,7 +250,7 @@ public:
     void shutdown();
 
     sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
-    sg_pipeline quad_pipeline(bool depthTest, bool lines);
+    sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided);
     sg_pipeline sky_pipeline();
     sg_pipeline shadow_pipeline();
@@ -268,8 +270,7 @@ public:
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
 
 private:
-    sg_pipeline make_quad_pipeline(bool depthTest, bool lines);
-    sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
+        sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
 
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;

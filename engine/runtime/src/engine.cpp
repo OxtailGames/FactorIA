@@ -75,8 +75,13 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     physics.reset();
     LoadReport report = load_scene_file(world, path);
     world.set_scene_path(path);
-    world.reset_clock();
     currentScene = path;
+    finish_scene_load(report, path, error);
+    return report.ok();
+}
+
+void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string& label, std::string* error) {
+    world.reset_clock();
     sceneIssues.clear();
     sceneErrorCount = report.error_count();
     for (const LoadMessage& m : report.messages) {
@@ -88,10 +93,19 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
     if (renderer) renderer->debug().clear();
     if (!report.ok()) {
         if (error) *error = report.summary();
-        return false;
+        return;
     }
-    FA_INFO("scene", "Loaded {} ({} entities)", path, report.created.size());
-    return true;
+    FA_INFO("scene", "Loaded {} ({} entities)", label, report.created.size());
+}
+
+bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error) {
+    hasPendingScene = false;
+    audio.stop_all();
+    physics.reset();
+    LoadReport report = fa::load_scene(world, scene, sourceName);
+    // The scene path (world + currentScene) is deliberately left alone.
+    finish_scene_load(report, std::string(sourceName), error);
+    return report.ok();
 }
 
 void Engine::Impl::apply_scene_change() {
@@ -102,7 +116,16 @@ void Engine::Impl::apply_scene_change() {
     load_scene_impl(path, &err);
 }
 
-void Engine::Impl::render(double dt) {
+namespace {
+// Renderer::update(World&, float) advances animators/particles without drawing. Called when the renderer has it
+// (older renderers simulate inside render_world, which then has to run every frame).
+template <class R>
+void update_visuals(R& r, World& w, float dt) {
+    if constexpr (requires { r.update(w, dt); }) r.update(w, dt);
+}
+}  // namespace
+
+void Engine::Impl::draw(double dt) {
     if (!renderer) return;
     renderer->begin_frame();
     renderer->render_world(world, float(dt));
@@ -110,6 +133,20 @@ void Engine::Impl::render(double dt) {
     if (gpu) gpu->end_frame();
     else if (windowed && !cfg.editorMode)
         renderer->present(app_gfx_swapchain(), app_framebuffer_width(), app_framebuffer_height(), project.scaleMode);
+    renderStale = false;
+    lastRenderDt = dt;
+    renderedFrame = frame;
+}
+
+void Engine::Impl::render(double dt) {
+    if (!renderer) return;
+    update_visuals(*renderer, world, float(dt));
+    if (cfg.renderMode == RenderMode::OnDemand && !windowed) {
+        renderStale = true;
+        lastRenderDt = dt;
+        return;
+    }
+    draw(dt);
 }
 
 void Engine::Impl::poll_hot_reload(bool force) {
@@ -154,6 +191,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
     inFrame = true;
     set_log_frame(frame);
+    // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
+    // frame's survive until the next frame starts so a screenshot still shows them.
+    if (renderStale && renderer) renderer->debug().clear();
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
         scripts.fixed_update(fdt);
@@ -336,6 +376,17 @@ void Engine::step(int frames) {
 
 bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
 
+bool Engine::load_scene_json(const Json& scene, std::string_view sourceName, std::string* error) {
+    return impl_->load_scene_json_impl(scene, sourceName, error);
+}
+
+void Engine::render_now() {
+    Impl& I = *impl_;
+    if (!I.renderer) return;
+    if (I.renderStale) I.draw(I.lastRenderDt);
+}
+bool Engine::render_pending() const { return impl_->renderStale; }
+
 void Engine::reload_scene() {
     Impl& I = *impl_;
     if (I.currentScene.empty()) return;
@@ -362,7 +413,8 @@ bool Engine::screenshot(std::string_view path, std::string* error) {
         return fail("No renderer: the engine runs with graphics=false" +
                     std::string(I.startupProblems.empty() ? "" : " (" + I.startupProblems.front() + ")") +
                     ". Run with a GPU (headless EGL needs Mesa) to take screenshots.");
-    if (I.frame == 0 && !I.inFrame) I.render(0.0);  // nothing rendered yet: draw the initial state
+    if (I.renderStale) I.draw(I.lastRenderDt);       // OnDemand: draw the state of the current frame
+    else if (I.frame == 0 && !I.inFrame) I.draw(0.0);  // nothing rendered yet: draw the initial state
     Image img;
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
@@ -440,6 +492,7 @@ Json Engine::state(const Json& query) {
     } else {
         out["renderStats"] = nullptr;
     }
+    if (I.cfg.renderMode == RenderMode::OnDemand) out["renderedFrame"] = I.renderedFrame;
     out["audio"] = I.audio.stats();
     out["input"] = I.input.snapshot();
     return out;

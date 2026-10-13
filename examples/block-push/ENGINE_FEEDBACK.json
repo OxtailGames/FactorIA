@@ -137,7 +137,7 @@
       },
       "category": "tooling",
       "severity": "nice-to-have",
-      "title": "factoria test prints every result twice",
+      "title": "Bug: factoria test prints every result twice",
       "missing": "Each test is printed once as it finishes (with timing) and again in the summary, so a ten-test file prints twenty PASS lines. Failures are printed twice too. Nothing is wrong, but the output is longer than it needs to be.",
       "workaround": "none: ignored the second list of results.",
       "workaroundFiles": [
@@ -217,7 +217,7 @@
       },
       "category": "tooling",
       "severity": "minor",
-      "title": "scene.spawn exits 0 with unknown component or field names",
+      "title": "Bug: scene.spawn exits 0 with unknown component or field names",
       "missing": "factoria call scene.spawn with Transform2D, or Shape2D with colour instead of color, creates the entity, exits 0 with empty stderr, and drops the bad component. The only signal is a 'messages' entry in the stdout JSON: Unknown component 'Transform2D' with a did-you-mean hint. factoria validate rejects the same names in a scene file, so the CLI and the file path behave differently.",
       "workaround": "Read the messages array after each spawn call and used the valid names.",
       "workaroundFiles": [

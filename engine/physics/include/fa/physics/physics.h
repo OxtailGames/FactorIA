@@ -28,6 +28,19 @@
 //     (tw,th = tileSize * world scale). The renderer must draw tilemaps with the same convention.
 //   * apply_impulse/apply_force take world units (impulse / ppm is passed to Box2D); mass comes from
 //     collider area (meters^2) * density.
+//   * RAYCASTS: a collider that contains the ray origin is skipped (see RaycastOptions); `ignore` skips an entity and
+//     its children; triggers are skipped unless ignoreTriggers=false.
+//   * ONE-WAY PLATFORMS (Collider2D.oneWay): contact enabled only while the other body's bottom is above the
+//     platform's top and it is not moving up relative to it (Box2D pre-solve; world runs single-threaded).
+//     Assumes the platform is unrotated or flipped 180 degrees (flipped = one-way from below). Sides never block.
+//   * TILEMAP COLLISION: every tile index listed in Tilemap.solidTiles becomes part of ONE static body per Tilemap
+//     entity, as axis-aligned boxes: each row's horizontal runs of solid tiles are merged into one box, and
+//     identical runs in consecutive rows are merged into one taller box. Shapes: layer 0 (category bit 1), mask = all,
+//     friction 0.5, restitution 0, not triggers (no trigger events from tiles). Tile boxes are not one-way: for
+//     jump-through ledges put a separate entity with Collider2D.oneWay on top of the map instead of a solid tile
+//     index. Merged boxes can create "ghost edges" at internal seams only where tile boxes meet at different
+//     row spans; the Box2D polygon radius/speculative margin hides this for rounded/capsule characters, and
+//     friction-0 characters never catch on them. The tilemap body follows the Tilemap entity's world transform.
 //   * is_grounded2d: any touching contact whose normal points up (> 0.7) with a gap <= tolerance (pixels).
 //   * 3D: spheres + axis-aligned boxes only. Transform.rotation is IGNORED (never read or written); sizes are
 //     scaled by world scale. Semi-implicit Euler with subSteps sub-steps, positional correction, restitution
@@ -35,6 +48,14 @@
 //     Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a Collider3D
 //     alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger overlaps.
 //     Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
+//   * 3D RIDERS: dynamic bodies resting on top of a kinematic body (gap <= 2 cm, contact normal up) inherit its
+//     displacement every sub-step (horizontal; and downward), so they ride moving platforms; friction then acts
+//     on the velocity RELATIVE to the platform. A static/kinematic body teleported by gameplay carries its riders
+//     by the same displacement. Stacked riders (rider on a rider) are not carried.
+//   * 3D ROTATION: RigidBody3D.angularVelocity (deg/s about world x,y,z) is added to Transform.rotation (euler
+//     degrees) each step for dynamic and kinematic bodies. Collision shapes stay AXIS-ALIGNED and ignore the
+//     rotation; it is visual only. rollWithMotion: a dynamic sphere touching ground (contact normal up) gets
+//     angularVelocity = rolling rate: axis = up x velocity, rate = |horizontal v| / radius (deg/s).
 #pragma once
 
 #include <memory>
@@ -50,6 +71,18 @@ namespace fa {
 struct PhysicsSettings {
     float pixelsPerMeter = 100.0f;  // 2D scale (Box2D works best with 0.1..10 m objects)
     int subSteps = 4;
+};
+
+// Options for raycast2d/raycast3d.
+//   * mask: layers the ray can hit (-1 = all).
+//   * ignore: entity whose colliders (and its descendants' colliders) are skipped; use the caster itself.
+//   * ignoreTriggers: trigger colliders are skipped (default); set false to hit them too.
+// Colliders that CONTAIN the ray origin are always skipped (a ray cast from inside the caster does not hit it);
+// a ray starting inside the ground ignores the ground.
+struct RaycastOptions {
+    std::int32_t mask = -1;
+    Entity ignore;  // default = none
+    bool ignoreTriggers = true;
 };
 
 struct RaycastHit {
@@ -72,9 +105,12 @@ public:
 
     // ----- queries (world units; 2D queries ignore z)
     std::optional<RaycastHit> raycast2d(World& world, Vec2 from, Vec2 to, std::int32_t mask = -1);
+    std::optional<RaycastHit> raycast2d(World& world, Vec2 from, Vec2 to, const RaycastOptions& options);
     std::vector<Entity> overlap_circle2d(World& world, Vec2 center, float radius, std::int32_t mask = -1);
     std::vector<Entity> overlap_box2d(World& world, Rect box, std::int32_t mask = -1);
     std::optional<RaycastHit> raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask = -1);
+    std::optional<RaycastHit> raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                        const RaycastOptions& options);
     std::vector<Entity> overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask = -1);
 
     // ----- direct body control (applied immediately if the body exists)
@@ -82,6 +118,16 @@ public:
     void apply_force(World& world, Entity e, Vec3 force);
     void set_velocity(World& world, Entity e, Vec3 velocity);
     bool is_grounded2d(World& world, Entity e, float tolerance = 2.0f);  // contact with a normal pointing up
+    // Dispatches to 2D (tolerance in pixels, default 2) or 3D (tolerance in meters, default 0.05) by the body's
+    // dimension. tolerance < 0 = that default. False if the entity has no body.
+    bool is_grounded(World& world, Entity e, float tolerance = -1.0f);
+    // Is there a solid contact against the body in `direction` (the obstacle lies that way)? 2D: {-1,0} wall left,
+    // {1,0} wall right, {0,-1} ground, {0,1} ceiling (pixels, default 2). Contact normal within ~45 degrees of
+    // the direction. Triggers never count. Ledge detection is a raycast pattern: cast a short ray DOWN from a
+    // point just ahead of the feet (x + sign * halfWidth, y - halfHeight + 2) and treat "no hit" as a ledge.
+    bool is_touching2d(World& world, Entity e, Vec2 direction, float tolerance = 2.0f);
+    // 3D equivalent (tolerance in meters; any direction, normalized internally).
+    bool is_touching3d(World& world, Entity e, Vec3 direction, float tolerance = 0.05f);
 
     // Debug: list of bodies and shapes (for the editor / AI inspection).
     Json debug_state(const World& world) const;
