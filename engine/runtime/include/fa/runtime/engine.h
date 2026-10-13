@@ -22,6 +22,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/audio/audio.h"
 #include "fa/core/command.h"
@@ -97,17 +98,36 @@ public:
     ScriptSystem& scripts();
 
     struct Impl;
+    Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)
 
 private:
     std::unique_ptr<Impl> impl_;
 };
 
-// Opens a window and runs the project until closed. Returns process exit code.
+// Builds the AppDesc that runs `config`'s project in a window: title/size/fullscreen/vsync come from factoria.json,
+// the callbacks own a heap Engine (init on AppDesc.init with app_gfx_environment(), frame, resize/focus events,
+// shutdown on cleanup). Also used by the mobile player: fa::to_sapp_desc(make_app_desc(cfg)). `config.projectDir`
+// may be "" when the platform layer already configured the VFS root (iOS/Android bundles).
+AppDesc make_app_desc(const EngineConfig& config);
+
+// Opens a window and runs the project until closed (= run_app(make_app_desc(config))). Returns process exit code.
 int run_windowed(const EngineConfig& config);
 
 // Runs headless for `frames` frames, optionally injecting input from a replay
-// JSON ({"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}})
-// and capturing screenshots. Returns exit code (non-zero if script errors).
+// JSON and capturing screenshots. Returns exit code (non-zero if script errors).
+//
+// Input replay format (frame numbers are 0-based; an entry is applied BEFORE that frame is simulated, and a
+// screenshot listed for frame N is taken AFTER frame N was simulated):
+//   { "frames": {
+//       "0":  { "press": ["jump"],            // action names (held until released) or key names
+//               "release": [],
+//               "keys":  { "Space": true },    // raw key down/up
+//               "mouse": { "position": [640, 360], "left": true, "right": false, "middle": false } },
+//       "30": { "release": ["jump"] } } }
+// "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).
+//
+// Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],
+// statePath?, audioPath?, error?, exitCode}.
 struct HeadlessRunOptions {
     int frames = 60;
     std::string inputReplayPath;          // optional

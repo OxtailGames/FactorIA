@@ -23,6 +23,7 @@
 // (test/expect/game.step/game.input...) and run headless via run_tests().
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -111,6 +112,10 @@ public:
     const std::vector<ScriptError>& errors() const;
     void clear_errors();
     void reload_module(std::string_view modulePath);  // hot reload: re-import + recreate affected behaviours
+    // (Re)loads every tools/*.js of the project and registers them as "project.<name>" commands (also done by init()).
+    void reload_tools();
+    // Called after the set of JS tools changed (so MCP can send tools/list_changed).
+    void set_tools_changed_callback(std::function<void()> cb);
 
     Json api_manifest() const;               // machine-readable API (modules, classes, functions, docs)
     std::string typescript_declarations() const;  // contents of types/factoria.d.ts

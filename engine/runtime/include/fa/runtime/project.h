@@ -7,7 +7,7 @@
 //   "version": "0.1.0",
 //   "engine": "0.1",                          // engine version the game was made with
 //   "mainScene": "scenes/main.scene.json",
-//   "display": { "width": 1280, "height": 720, "scaleMode": "fit",
+//   "display": { "width": 1280, "height": 720, "scaleMode": "fit",   // fit | stretch | expand | pixel-perfect
 //                "fullscreen": false, "vsync": true, "orientation": "landscape",
 //                "pixelArt": false },
 //   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
@@ -59,5 +59,10 @@ Result<void> save_project(std::string_view projectDir, const ProjectSettings& se
 // Walks up from `startDir` looking for factoria.json ("" if none).
 std::string find_project_root(std::string_view startDir);
 Json project_json_schema();
+
+// scaleMode spellings: "fit" | "stretch" | "expand" | "pixel-perfect" (parsing is case-insensitive and also
+// accepts "pixelPerfect" / "pixel_perfect"). scale_mode_name returns the canonical spelling.
+const char* scale_mode_name(ScaleMode mode);
+bool parse_scale_mode(std::string_view text, ScaleMode& out);
 
 }  // namespace fa

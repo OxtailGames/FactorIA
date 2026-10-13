@@ -302,14 +302,30 @@ ToolResult AgentSession::execute_tool(const ToolCall& call, const std::string& r
         return finish(tr, cr.error);
     }
     Json shown = cr.result;
-    // Image convention: {"image": {"mediaType": "image/png", "data": "<base64>"}} is attached as an image.
+    // Image conventions (both attach the image to the model message):
+    //   {"image": {"mediaType"|"mimeType", "data"|"base64"}}
+    //   {"$image": {"path": "...", "mimeType": "image/png"}} or {"$image": {"base64": "...", "mimeType": ...}}
     if (shown.is_object()) {
-        if (const Json* img = child(shown, "image"); img && img->is_object()) {
+        for (const char* key : {"image", "$image"}) {
+            const Json* img = child(shown, key);
+            if (!img || !img->is_object()) continue;
             std::string data = str(*img, "data", str(*img, "base64"));
             std::string mt = str(*img, "mediaType", str(*img, "mimeType", "image/png"));
+            if (data.empty()) {
+                std::string path = str(*img, "path");
+                if (!path.empty()) {
+                    fsys::path fp(path);
+                    if (fp.is_relative() && !opt_.projectDir.empty()) fp = fsys::path(opt_.projectDir) / fp;
+                    std::ifstream in(fp, std::ios::binary);
+                    if (in) {
+                        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                        data = fa::base64_encode(bytes.data(), bytes.size());
+                    }
+                }
+            }
             if (!data.empty()) {
                 tr.images.push_back({mt, data});
-                shown["image"] = "(attached to this message)";
+                shown[key] = "(attached to this message)";
             }
         }
     }

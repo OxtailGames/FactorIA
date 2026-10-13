@@ -1,0 +1,470 @@
+#include <algorithm>
+#include <filesystem>
+
+#include "engine_impl.h"
+#include "fa/core/fs.h"
+#include "fa/core/log.h"
+#include "fa/core/strings.h"
+#include "fa/scene/serialize.h"
+
+namespace fa {
+
+namespace stdfs = std::filesystem;
+
+namespace {
+
+Json script_error_json(const ScriptError& e) {
+    Json j = Json::object();
+    j["file"] = e.file;
+    j["line"] = e.line;
+    j["column"] = e.column;
+    j["message"] = e.message;
+    if (!e.stack.empty()) j["stack"] = e.stack;
+    if (!e.entityId.empty()) j["entityId"] = e.entityId;
+    return j;
+}
+
+bool has_ext(const std::string& path, std::initializer_list<const char*> exts) {
+    std::string e = fs::extension(path);
+    for (const char* x : exts)
+        if (e == x) return true;
+    return false;
+}
+
+}  // namespace
+
+// ------------------------------------------------------------------ Impl --
+bool Engine::Impl::inject_named(const std::string& name, bool down, std::string* error) {
+    if (input.has_action(name)) {
+        input.set_action_override(name, down);
+        return true;
+    }
+    Key k = key_from_name(name);
+    if (k != Key::Unknown) {
+        input.on_key(k, down);
+        return true;
+    }
+    std::string lower = to_lower(name);
+    if (lower == "mouseleft") { input.on_mouse_button(MouseButton::Left, down); return true; }
+    if (lower == "mouseright") { input.on_mouse_button(MouseButton::Right, down); return true; }
+    if (lower == "mousemiddle") { input.on_mouse_button(MouseButton::Middle, down); return true; }
+    if (error) {
+        std::vector<std::string> candidates = input.action_names();
+        for (int i = 1; i < int(Key::Count); ++i) candidates.emplace_back(key_name(Key(i)));
+        for (const char* m : {"MouseLeft", "MouseRight", "MouseMiddle"}) candidates.emplace_back(m);
+        *error = "Unknown input '" + name + "' (not an action, key or mouse button). " + did_you_mean(name, candidates);
+    }
+    return false;
+}
+
+bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error) {
+    std::string path = pathIn;
+    if (!fs::is_absolute(path)) {
+        auto n = fs::normalize_checked(path);
+        if (!n.ok()) {
+            if (error) *error = n.error().to_string();
+            sceneIssues = {n.error().to_string()};
+            sceneErrorCount = 1;
+            FA_ERROR("scene", "{}", n.error().to_string());
+            return false;
+        }
+        path = n.value();
+    }
+    hasPendingScene = false;
+    audio.stop_all();
+    physics.reset();
+    LoadReport report = load_scene_file(world, path);
+    world.set_scene_path(path);
+    world.reset_clock();
+    currentScene = path;
+    sceneIssues.clear();
+    sceneErrorCount = report.error_count();
+    for (const LoadMessage& m : report.messages) {
+        sceneIssues.push_back(m.to_string());
+        if (m.severity == LoadMessage::Severity::Error) FA_ERROR("scene", "{}", m.to_string());
+        else FA_WARN("scene", "{}", m.to_string());
+    }
+    scripts.on_scene_loaded();
+    if (renderer) renderer->debug().clear();
+    if (!report.ok()) {
+        if (error) *error = report.summary();
+        return false;
+    }
+    FA_INFO("scene", "Loaded {} ({} entities)", path, report.created.size());
+    return true;
+}
+
+void Engine::Impl::apply_scene_change() {
+    if (!hasPendingScene) return;
+    std::string path = pendingScene;
+    hasPendingScene = false;
+    std::string err;
+    load_scene_impl(path, &err);
+}
+
+void Engine::Impl::render(double dt) {
+    if (!renderer) return;
+    renderer->begin_frame();
+    renderer->render_world(world, float(dt));
+    renderer->end_frame();
+    if (gpu) gpu->end_frame();
+    else if (windowed && !cfg.editorMode)
+        renderer->present(app_gfx_swapchain(), app_framebuffer_width(), app_framebuffer_height(), project.scaleMode);
+}
+
+void Engine::Impl::poll_hot_reload(bool force) {
+    bool active = force || cfg.hotReload;
+    if (!active) return;
+    static const char* dirs[] = {"scripts", "tools", "scenes", "assets"};
+    std::map<std::string, std::int64_t> now;
+    for (const char* d : dirs) {
+        if (!fs::is_directory(d)) continue;
+        for (const std::string& f : fs::list(d, true)) now[f] = fs::modified_time(f);
+    }
+    if (!watchSeeded) {
+        watched = std::move(now);
+        watchSeeded = true;
+        return;
+    }
+    std::vector<std::string> changed;
+    for (const auto& [path, t] : now) {
+        auto it = watched.find(path);
+        if (it == watched.end() || it->second != t) changed.push_back(path);
+    }
+    watched = std::move(now);
+    for (const std::string& p : changed) {
+        if (has_ext(p, {".js", ".mjs"})) {
+            FA_INFO("hotreload", "Reloading script {}", p);
+            if (starts_with(p, "tools/")) scripts.reload_tools();
+            else scripts.reload_module(p);
+        } else if (p.size() > 11 && ends_with(p, ".scene.json")) {
+            if (p == currentScene) {
+                FA_INFO("hotreload", "Scene {} changed on disk, reloading", p);
+                std::string err;
+                load_scene_impl(p, &err);
+            }
+        } else if (has_ext(p, {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})) {
+            if (renderer) renderer->reload_asset(p);
+        } else if (has_ext(p, {".wav", ".ogg", ".mp3"})) {
+            audio.reload_clip(p);
+        }
+    }
+}
+
+void Engine::Impl::run_frame(double dt, int fixedSteps) {
+    inFrame = true;
+    set_log_frame(frame);
+    const float fdt = float(fixedDt);
+    for (int i = 0; i < fixedSteps; ++i) {
+        scripts.fixed_update(fdt);
+        physics.step(world, fdt);
+        scripts.dispatch_events();
+        world.advance_clock(fixedDt);
+    }
+    scripts.update(float(dt));
+    audio.update(world, float(dt));
+    if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
+    scripts.late_update(float(dt));
+    render(dt);
+    end_of_frame(dt);
+    ++frame;
+    inFrame = false;
+}
+
+void Engine::Impl::end_of_frame(double dt) {
+    world.flush();
+    apply_scene_change();
+    watchTimer += dt;
+    if (watchTimer >= 0.25) {
+        watchTimer = 0.0;
+        poll_hot_reload();
+    }
+    input.begin_frame();
+}
+
+// ---------------------------------------------------------------- Engine --
+Engine::Engine() : impl_(std::make_unique<Impl>()) { impl_->self = this; }
+Engine::~Engine() { shutdown(); }
+
+bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::string* error) {
+    Impl& I = *impl_;
+    auto fail = [&](const std::string& msg) {
+        FA_ERROR("engine", "{}", msg);
+        if (error) *error = msg;
+        return false;
+    };
+    if (I.initialized) return fail("Engine::init called twice");
+    I.cfg = config;
+    ensure_builtin_components();
+
+    // Project root + project file.
+    std::string dir = config.projectDir;
+    if (!dir.empty()) {
+        std::error_code ec;
+        stdfs::path abs = stdfs::absolute(stdfs::path(dir), ec).lexically_normal();
+        if (abs.has_filename() == false && abs.has_parent_path()) abs = abs.parent_path();
+        dir = abs.generic_string();
+        fs::set_project_root(abs);
+    }
+    auto proj = load_project(dir);
+    if (!proj.ok()) return fail(proj.error().to_string());
+    I.project = proj.value();
+    I.fixedDt = 1.0 / std::max(1.0, I.project.fixedHz);
+    I.paused = config.editorMode;
+    I.windowed = gfx != nullptr && !config.headless;
+
+    // World + input.
+    I.world.rng().reseed(config.seed);
+    for (const std::string& problem : I.input.set_actions(I.project.inputActions)) {
+        FA_WARN("input", "{}", problem);
+        I.startupProblems.push_back(problem);
+    }
+
+    // Graphics.
+    if (config.graphics) {
+        RendererDesc rd;
+        rd.designWidth = config.width > 0 ? config.width : I.project.width;
+        rd.designHeight = config.height > 0 ? config.height : I.project.height;
+        rd.headless = !I.windowed;
+        std::string gerr;
+        bool ok = false;
+        if (I.windowed) {
+            I.renderer = std::make_unique<Renderer>();
+            ok = I.renderer->init(rd, *gfx, &gerr);
+        } else {
+            I.gpu = std::make_unique<HeadlessGpu>();
+            ok = I.gpu->init(&gerr);
+            if (ok) {
+                I.renderer = std::make_unique<Renderer>();
+                ok = I.renderer->init(rd, I.gpu->environment(), &gerr);
+            }
+        }
+        if (!ok) {
+            std::string msg = "Graphics unavailable (" + gerr + "); running with graphics=false: no rendering or screenshots.";
+            FA_WARN("engine", "{}", msg);
+            I.startupProblems.push_back(msg);
+            if (I.renderer) I.renderer->shutdown();
+            I.renderer.reset();
+            if (I.gpu) I.gpu->shutdown();
+            I.gpu.reset();
+        } else {
+            FA_INFO("engine", "Graphics: {}", I.gpu ? I.gpu->description() : "window");
+        }
+    }
+
+    // Physics, audio, scripts.
+    PhysicsSettings ps;
+    ps.pixelsPerMeter = I.project.pixelsPerMeter;
+    I.physics.init(ps);
+    std::string aerr;
+    if (!I.audio.init(I.windowed && config.audioDevice, &aerr)) {
+        FA_WARN("audio", "Audio init failed: {}", aerr);
+        I.startupProblems.push_back("audio: " + aerr);
+    }
+    register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
+    std::string serr;
+    if (!I.scripts.init(*this, &serr)) {
+        FA_ERROR("script", "Script system init failed: {}", serr);
+        I.startupProblems.push_back("script: " + serr);
+    }
+
+    I.initialized = true;
+    set_log_frame(0);
+
+    // Start scene (errors are kept for game.state / script.errors; they do not abort init).
+    std::string scenePath = config.scene.empty() ? I.project.mainScene : config.scene;
+    if (!scenePath.empty()) {
+        std::string serrText;
+        if (!fs::exists(scenePath) && !fs::is_absolute(scenePath)) {
+            std::string msg = "Start scene '" + scenePath + "' not found";
+            std::vector<std::string> scenes = fs::list("scenes", true, ".json");
+            std::string hint = scenes.empty() ? "Create it, or set mainScene in factoria.json." : did_you_mean(scenePath, scenes);
+            I.sceneIssues = {msg + " (hint: " + hint + ")"};
+            I.sceneErrorCount = 1;
+            I.currentScene = scenePath;
+            I.world.set_scene_path(scenePath);
+            FA_ERROR("scene", "{} (hint: {})", msg, hint);
+        } else {
+            I.load_scene_impl(scenePath, &serrText);
+        }
+    }
+    if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
+    I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active
+    return true;
+}
+
+void Engine::shutdown() {
+    Impl& I = *impl_;
+    if (!I.initialized) return;
+    I.initialized = false;
+    I.scripts.shutdown();
+    I.audio.shutdown();
+    I.physics.shutdown();
+    I.world.clear();
+    if (I.renderer) I.renderer->shutdown();
+    I.renderer.reset();
+    if (I.gpu) I.gpu->shutdown();
+    I.gpu.reset();
+}
+
+void Engine::frame(double dt) {
+    Impl& I = *impl_;
+    if (!I.initialized) return;
+    dt = std::clamp(dt, 0.0, 0.25);
+    if (I.paused) {
+        I.inFrame = true;
+        I.render(0.0);
+        I.end_of_frame(dt);
+        I.inFrame = false;
+        return;
+    }
+    I.accumulator += dt;
+    int steps = 0;
+    while (I.accumulator >= I.fixedDt && steps < 5) {
+        I.accumulator -= I.fixedDt;
+        ++steps;
+    }
+    if (steps == 5 && I.accumulator > I.fixedDt) I.accumulator = 0.0;  // spiral of death: drop the backlog
+    I.run_frame(dt, steps);
+}
+
+void Engine::step(int frames) {
+    Impl& I = *impl_;
+    if (!I.initialized) return;
+    for (int i = 0; i < frames && !I.quit; ++i) I.run_frame(I.fixedDt, 1);
+}
+
+bool Engine::load_scene(std::string_view path, std::string* error) { return impl_->load_scene_impl(std::string(path), error); }
+
+void Engine::reload_scene() {
+    Impl& I = *impl_;
+    if (I.currentScene.empty()) return;
+    std::string err;
+    I.load_scene_impl(I.currentScene, &err);
+}
+
+bool Engine::paused() const { return impl_->paused; }
+void Engine::set_paused(bool p) { impl_->paused = p; }
+std::uint64_t Engine::frame_index() const { return impl_->frame; }
+bool Engine::quit_requested() const { return impl_->quit; }
+const ProjectSettings& Engine::project() const { return impl_->project; }
+const EngineConfig& Engine::config() const { return impl_->cfg; }
+HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
+ScriptSystem& Engine::scripts() { return impl_->scripts; }
+
+bool Engine::screenshot(std::string_view path, std::string* error) {
+    Impl& I = *impl_;
+    auto fail = [&](const std::string& m) {
+        if (error) *error = m;
+        return false;
+    };
+    if (!I.renderer)
+        return fail("No renderer: the engine runs with graphics=false" +
+                    std::string(I.startupProblems.empty() ? "" : " (" + I.startupProblems.front() + ")") +
+                    ". Run with a GPU (headless EGL needs Mesa) to take screenshots.");
+    if (I.frame == 0 && !I.inFrame) I.render(0.0);  // nothing rendered yet: draw the initial state
+    Image img;
+    std::string cerr;
+    if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
+    auto r = save_png(img, path);
+    if (!r.ok()) return fail(r.error().to_string());
+    return true;
+}
+
+Json Engine::state(const Json& query) {
+    Impl& I = *impl_;
+    World& w = I.world;
+    bool includeDefaults = query.value("includeDefaults", false);
+    std::size_t maxEntities = std::size_t(std::max(0, query.value("maxEntities", 200)));
+    std::vector<std::string> comps;
+    if (query.contains("components") && query["components"].is_array())
+        for (const Json& c : query["components"])
+            if (c.is_string()) comps.push_back(to_lower(c.get<std::string>()));
+    std::vector<Entity> list;
+    Json missing = Json::array();
+    if (query.contains("entities") && query["entities"].is_array()) {
+        for (const Json& id : query["entities"]) {
+            if (!id.is_string()) continue;
+            Entity e = w.find(id.get<std::string>());
+            if (e) list.push_back(e);
+            else missing.push_back(id);
+        }
+    } else {
+        list = w.entities();
+    }
+    Json ents = Json::array();
+    EntityJsonOptions eo;
+    eo.includeChildren = false;
+    eo.includeDefaults = includeDefaults;
+    eo.includeRuntime = true;
+    for (Entity e : list) {
+        if (ents.size() >= maxEntities) break;
+        Json j = entity_to_json(w, e, eo);
+        if (Entity p = w.parent(e)) j["parent"] = w.id_of(p);
+        if (!comps.empty() && j.contains("components")) {
+            Json filtered = Json::object();
+            for (auto it = j["components"].begin(); it != j["components"].end(); ++it)
+                if (std::find(comps.begin(), comps.end(), to_lower(it.key())) != comps.end()) filtered[it.key()] = *it;
+            j["components"] = filtered;
+        }
+        ents.push_back(std::move(j));
+    }
+
+    Json out = Json::object();
+    out["frame"] = I.frame;
+    out["time"] = w.time();
+    out["scene"] = I.currentScene;
+    out["paused"] = I.paused;
+    out["entityCount"] = w.entity_count();
+    out["entities"] = ents;
+    if (ents.size() < list.size()) out["truncated"] = true;
+    if (!missing.empty()) out["missingEntities"] = missing;
+    out["physics"] = I.physics.debug_state(w);
+    Json errs = Json::array();
+    for (const ScriptError& e : I.scripts.errors()) errs.push_back(script_error_json(e));
+    out["scriptErrors"] = errs;
+    Json issues = Json::array();
+    for (const std::string& s : I.sceneIssues) issues.push_back(s);
+    out["sceneIssues"] = issues;
+    Json logs = Json::array();
+    for (const LogEntry& l : recent_logs(50, LogLevel::Warn)) {
+        // No wall-clock time / global seq here: state dumps must be reproducible.
+        logs.push_back(Json::object({{"frame", l.frame}, {"level", log_level_name(l.level)}, {"category", l.category},
+                                     {"message", l.message}}));
+    }
+    out["recentLogs"] = logs;
+    if (I.renderer) {
+        Json rs = I.renderer->stats().to_json();
+        if (rs.is_object()) rs.erase("cpuMs");
+        out["renderStats"] = rs;
+    } else {
+        out["renderStats"] = nullptr;
+    }
+    out["audio"] = I.audio.stats();
+    out["input"] = I.input.snapshot();
+    return out;
+}
+
+
+// ScriptHost
+World& Engine::world() { return impl_->world; }
+Input& Engine::input() { return impl_->input; }
+Audio& Engine::audio() { return impl_->audio; }
+Physics& Engine::physics() { return impl_->physics; }
+Renderer* Engine::renderer() { return impl_->renderer.get(); }
+CommandRegistry& Engine::commands() { return impl_->commands; }
+Json Engine::project_settings() const { return impl_->project.to_json(); }
+double Engine::fixed_dt() const { return impl_->fixedDt; }
+
+void Engine::request_scene_change(std::string_view scenePath) {
+    impl_->pendingScene = std::string(scenePath);
+    impl_->hasPendingScene = true;
+}
+void Engine::request_quit() { impl_->quit = true; }
+void Engine::step_frames(int n) { step(n); }
+std::string Engine::load_scene_now(std::string_view scenePath) {
+    std::string err;
+    return impl_->load_scene_impl(std::string(scenePath), &err) ? std::string() : (err.empty() ? "scene load failed" : err);
+}
+
+}  // namespace fa
