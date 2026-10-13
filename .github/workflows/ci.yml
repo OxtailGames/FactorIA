@@ -219,7 +219,6 @@ jobs:
           yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$sdk/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6" "platforms;android-34" "build-tools;34.0.0" "ndk;26.3.11579264"
           echo "sdk.dir=$sdk" > /tmp/ci-out/ci-game-android/local.properties
-          echo "ndk.dir=$sdk/ndk/26.3.11579264" >> /tmp/ci-out/ci-game-android/local.properties
 
       - name: Build the debug APK
         working-directory: /tmp/ci-out/ci-game-android
