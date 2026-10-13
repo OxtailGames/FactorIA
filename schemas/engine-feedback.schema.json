@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/engine-feedback.schema.json",
+  "title": "FactorIA ENGINE_FEEDBACK.json",
+  "description": "Log of things the FactorIA engine lacked while building this game, and how the author (usually an AI) worked around them. Engine developers aggregate these files with `factoria feedback collect` to decide what to build next. Append entries with the `feedback.report` command (MCP tool `feedback_report`) rather than editing by hand.",
+  "type": "object",
+  "required": ["format", "project", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.feedback/1",
+      "description": "File format identifier. Always \"factoria.feedback/1\"."
+    },
+    "project": {
+      "type": "string",
+      "description": "Name of the game project this file belongs to (factoria.json \"name\")."
+    },
+    "engineVersion": {
+      "type": "string",
+      "description": "Engine version the project was made with, e.g. \"0.1.0\"."
+    },
+    "entries": {
+      "type": "array",
+      "description": "Feedback entries, oldest first. Ids are FB-0001, FB-0002, ... and never reused.",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "category": {
+      "enum": ["rendering-2d", "rendering-3d", "physics", "audio", "input", "ui", "scripting", "scene", "assets",
+               "animation", "tooling", "ai-integration", "docs", "platform", "performance", "networking", "other"],
+      "description": "Engine area the gap belongs to."
+    },
+    "severity": {
+      "enum": ["blocker", "major", "minor", "nice-to-have"],
+      "description": "blocker: the game (or a requested feature) could not be built at all. major: needed a large or fragile workaround. minor: small workaround. nice-to-have: would be more convenient."
+    },
+    "status": {
+      "enum": ["open", "fixed-in-engine", "wont-fix", "duplicate"],
+      "description": "Lifecycle: open (default), fixed-in-engine, wont-fix, duplicate."
+    },
+    "reporter": {
+      "type": "object",
+      "description": "Who wrote the entry.",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["ai", "human"], "description": "Whether an AI agent or a person reported it." },
+        "agent": { "type": "string", "description": "Agent/tool name, e.g. \"claude-code\", \"codex\", \"factoria-ai\"." },
+        "model": { "type": "string", "description": "Model id when kind is ai, e.g. \"claude-sonnet-5-5\"." }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "description": "One engine gap and the workaround used.",
+      "required": ["id", "date", "category", "severity", "title", "missing", "workaround", "occurrences", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^FB-[0-9]{4,}$",
+          "description": "Stable id, FB-0001 style. Assigned automatically."
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "description": "UTC date the entry was first written, YYYY-MM-DD."
+        },
+        "reporter": { "$ref": "#/$defs/reporter" },
+        "category": { "$ref": "#/$defs/category" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "title": {
+          "type": "string",
+          "minLength": 3,
+          "description": "Short noun phrase naming the gap, e.g. \"No one-way platforms\". Reuse the same wording for the same gap so entries can be grouped."
+        },
+        "missing": {
+          "type": "string",
+          "minLength": 3,
+          "description": "What exactly the engine lacked or got wrong, and what you were trying to do."
+        },
+        "workaround": {
+          "type": "string",
+          "minLength": 3,
+          "description": "What you did instead (or \"none: feature dropped\"). Be concrete so engine developers can judge the cost."
+        },
+        "workaroundFiles": {
+          "type": "array",
+          "description": "Project-relative files that implement the workaround.",
+          "items": { "type": "string" }
+        },
+        "suggestion": {
+          "type": "string",
+          "description": "How the engine could fix it (component field, command, API), as specific as possible."
+        },
+        "effort": {
+          "enum": ["small", "medium", "large"],
+          "description": "Reporter's estimate of the engine-side effort to fix it."
+        },
+        "occurrences": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many times this gap was hit/reported. Incremented when a similar open entry is reported again."
+        },
+        "notes": {
+          "type": "array",
+          "description": "Extra workaround descriptions from repeated reports, each prefixed with its date.",
+          "items": { "type": "string" }
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "engineIssue": {
+          "type": "string",
+          "description": "Link or id of the engine issue/PR that tracks or fixed this entry."
+        }
+      }
+    }
+  }
+}
