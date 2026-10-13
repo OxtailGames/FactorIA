@@ -238,10 +238,10 @@ def test_misc(tmp):
     proj = os.path.join(tmp, "fb")
     run(["new", proj])
     code, out, err = run(["feedback", "add", "--project", proj, "--category", "physics", "--severity", "major", "--title",
-                          "No one-way platforms", "--missing", "no oneWay", "--workaround", "script toggles collider", "--files", "scripts/a.js,scripts/b.js"])
+                          "No one-way platforms", "--missing", "Collider2D has no oneWay option", "--workaround", "script toggles the collider", "--files", "scripts/a.js,scripts/b.js"])
     check(code == 0 and "FB-" in out, "feedback add")
     code, out, err = run(["feedback", "add", "--project", proj, "--json", json.dumps(
-        {"category": "physics", "severity": "minor", "title": "No one way platforms", "missing": "x", "workaround": "y"})])
+        {"category": "physics", "severity": "minor", "title": "No one way platforms", "missing": "Collider2D has no one way flag", "workaround": "a script disables the collider"})])
     check(code == 0 and "Merged" in out, "feedback add merges a similar entry")
     code, out, err = run(["feedback", "add", "--project", proj, "--category", "physics"])
     check(code == 2, "feedback add without required flags -> exit 2")

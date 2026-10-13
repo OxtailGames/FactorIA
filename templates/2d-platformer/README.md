@@ -6,7 +6,7 @@ A FactorIA 2D platformer starter. Run, jump, collect coins. No binary assets: ev
 ```bash
 factoria validate
 factoria run
-factoria run --headless --frames 120 --screenshot 120
+factoria run --headless --frames 120 --screenshot-at 119
 factoria test
 ```
 

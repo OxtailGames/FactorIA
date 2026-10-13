@@ -5,7 +5,7 @@ A minimal FactorIA 2D game. Open it with an AI agent (read `AGENTS.md`) or run i
 ```bash
 factoria validate
 factoria run                                   # window
-factoria run --headless --frames 120 --screenshot 120
+factoria run --headless --frames 120 --screenshot-at 119
 factoria test
 ```
 

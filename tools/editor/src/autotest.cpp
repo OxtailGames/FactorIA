@@ -105,6 +105,15 @@ void Editor::autotest_pre_frame() {
         atWaitAi_ = false;
     }
     const int f = atFrame_;
+    if (!engine_ && atWelcome_) {
+        if (f == 12) atPendingShots_.push_back(atOutDir_ + "/editor_welcome.png");
+        if (f == 16) {
+            at_check(showProjectDialog_, "welcome dialog is shown without a project");
+            (void)save_json_file(atOutDir_ + "/autotest_welcome_result.json", Json::object({{"failures", atFailures_}}));
+            sapp_request_quit();
+        }
+        return;
+    }
     if (!engine_) {
         if (f == 3) {
             at_check(false, "engine started with the temp project");

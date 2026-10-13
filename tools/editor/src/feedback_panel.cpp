@@ -89,13 +89,12 @@ void Editor::draw_feedback_panel() {
     Json entries = list_feedback(feedbackDoc_, filter);
     ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None);
     const float tableH = std::min(180.0f, ImGui::GetTextLineHeightWithSpacing() * float(entries.size() + 2) + 8);
-    if (ImGui::BeginTable("##fbt", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
+    if (ImGui::BeginTable("##fbt", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, std::max(60.0f, tableH)))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("id", ImGuiTableColumnFlags_WidthFixed, 62);
-        ImGui::TableSetupColumn("sev", ImGuiTableColumnFlags_WidthFixed, 66);
-        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 96);
-        ImGui::TableSetupColumn("x", ImGuiTableColumnFlags_WidthFixed, 28);
+        ImGui::TableSetupColumn("id", ImGuiTableColumnFlags_WidthFixed, 66);
+        ImGui::TableSetupColumn("severity", ImGuiTableColumnFlags_WidthFixed, 66);
+        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 56);
         ImGui::TableSetupColumn("title", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
         for (const auto& en : entries) {
@@ -108,9 +107,8 @@ void Editor::draw_feedback_panel() {
             ImGui::TableSetColumnIndex(2);
             ImGui::TextUnformatted(en.value("status", "").c_str());
             ImGui::TableSetColumnIndex(3);
-            ImGui::Text("%d", en.value("occurrences", 1));
-            ImGui::TableSetColumnIndex(4);
             ImGui::TextUnformatted(en.value("title", "").c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\noccurrences: %d", en.value("title", "").c_str(), en.value("occurrences", 1));
         }
         ImGui::EndTable();
     }
@@ -118,7 +116,9 @@ void Editor::draw_feedback_panel() {
     for (const auto& en : entries) {
         if (en.value("id", "") != fbSelected_) continue;
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s  [%s]", en.value("title", "").c_str(), en.value("category", "").c_str());
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s  [%s]  x%d", en.value("title", "").c_str(), en.value("category", "").c_str(), en.value("occurrences", 1));
+        ImGui::PopTextWrapPos();
         auto field = [&](const char* label, const char* key) {
             std::string v = en.value(key, "");
             if (v.empty()) return;

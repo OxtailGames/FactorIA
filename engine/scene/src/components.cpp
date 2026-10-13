@@ -34,8 +34,9 @@ void register_builtin_components(TypeRegistry& r) {
 
     // ----------------------------------------------------------- Camera ---
     r.add<Camera>("Camera",
-                  "Renders the scene to the screen. The first active camera with primary=true draws the game; extra "
-                  "cameras render in ascending depth order. 3D cameras look down their local -Z axis.",
+                  "Renders the scene to the screen. The active camera with primary=true and the lowest depth draws the "
+                  "game (only one camera renders for now; split-screen/overlay cameras are on the roadmap). 3D cameras "
+                  "look down their local -Z axis.",
                   "Camera")
         .enum_field("projection", &Camera::projection, {"orthographic", "perspective"},
                     "orthographic: flat 2D view (no perspective). perspective: 3D view with depth.")
@@ -53,7 +54,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("clear", &Camera::clear,
                "Clear the target before drawing. Set false on overlay cameras that draw on top of another camera.")
         .field("primary", &Camera::primary, "The first active primary camera renders the game.")
-        .field("depth", &Camera::depth, "Render order between cameras: lower values render first, higher on top.");
+        .field("depth", &Camera::depth, "Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",

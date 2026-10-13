@@ -12,7 +12,7 @@ is text; you never need a GUI.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.
 3. **Validate**: `factoria validate` (MCP: `project_validate`). Fix every error; each one has a
    file, a JSON pointer and a hint.
-4. **Run and LOOK**: `factoria run --headless --frames 120 --screenshot 120` (MCP: `game_step`,
+4. **Run and LOOK**: `factoria run --headless --frames 120 --screenshot-at 119` (MCP: `game_step`,
    then `game_screenshot`). Open the PNG and check it really shows what you intended. Do not
    assume the scene is right because validation passed.
 5. **Test**: `factoria test` (MCP: `project_test`). Add or update a test in `tests/` for every
@@ -39,7 +39,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 ## Conventions
 
 - JSON keys are `camelCase`. Component names are PascalCase (`Sprite`, `RigidBody2D`).
-  Run `factoria api components` for every component and field; unknown names are errors with
+  Run `factoria api --md` for every component and field; unknown names are errors with
   "did you mean" suggestions.
 - Entities have a stable string `id` (`"player"`, `"coin_3"`) and optional `name`, `tags`.
   Entity references in components use these ids. Always give gameplay entities an `id`.
@@ -62,11 +62,11 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 ## Debugging
 
 - `factoria validate` first: it loads every scene and checks assets, input bindings, scripts.
-- `factoria run --headless --frames N --state out.json` dumps entities and components; MCP
+- `factoria run --headless --frames N --state-out out.json` dumps entities and components; MCP
   `game_state` / `scene_list_entities` give the same live. `game_logs` shows script errors.
 - Compare screenshots before/after a change. If the picture is black, check there is a
   primary `Camera`, that sprites have a `layer` and size, and that the colors are not 0..255.
-- To poke at runtime: `factoria call <command> '<json>'` (all commands: `factoria call --list`).
+- To poke at runtime: `factoria call <command> '<json>'` (all commands: `factoria commands`).
 
 ## Recording engine gaps (IMPORTANT)
 

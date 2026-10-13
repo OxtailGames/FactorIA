@@ -53,7 +53,7 @@ is raised if the new report is more severe, and the longer `suggestion` wins. Th
 
 ## Collecting (engine developers)
 
-`factoria feedback collect <dirs-or-files...> [--format md|json]` groups similar entries across
+`factoria feedback collect <dirs-or-files...> [--out report.md|report.json]` groups similar entries across
 projects and ranks them by `sum(occurrences) x severity weight` (blocker 8, major 4, minor 2,
 nice-to-have 1). Each group lists title, category, projects affected, total occurrences, the best
 suggestion and sample workarounds. Only `open` entries count unless `--include-closed` is given.

@@ -339,6 +339,7 @@ public:
 
     // autotest
     bool autotest_ = false;
+    bool atWelcome_ = false;
     int atFrame_ = 0;
     std::string atOutDir_;
     std::string atTempProject_;
