@@ -73,7 +73,7 @@ bool read_components(const Json& j, float* out, int n, const char* const* keys, 
 }
 
 struct NamedColor { std::string_view name; Color color; };
-const std::array<NamedColor, 15> kColors = {{
+const std::array<NamedColor, 27> kColors = {{
     {"white", {1, 1, 1, 1}},
     {"black", {0, 0, 0, 1}},
     {"red", {1, 0, 0, 1}},
@@ -89,6 +89,18 @@ const std::array<NamedColor, 15> kColors = {{
     {"pink", {1, 0.7529f, 0.7961f, 1}},
     {"brown", {0.6471f, 0.1647f, 0.1647f, 1}},
     {"transparent", {0, 0, 0, 0}},
+    {"gold", {1, 0.8431f, 0, 1}},
+    {"silver", {0.7529f, 0.7529f, 0.7529f, 1}},
+    {"navy", {0, 0, 0.502f, 1}},
+    {"teal", {0, 0.502f, 0.502f, 1}},
+    {"lime", {0.1961f, 0.8039f, 0.1961f, 1}},
+    {"maroon", {0.502f, 0, 0, 1}},
+    {"olive", {0.502f, 0.502f, 0, 1}},
+    {"crimson", {0.8627f, 0.0784f, 0.2353f, 1}},
+    {"indigo", {0.2941f, 0, 0.5098f, 1}},
+    {"violet", {0.9333f, 0.5098f, 0.9333f, 1}},
+    {"skyblue", {0.5294f, 0.8078f, 0.9216f, 1}},
+    {"darkgray", {0.25f, 0.25f, 0.25f, 1}},
 }};
 
 int hex_digit(char c) {
@@ -274,8 +286,8 @@ bool parse_color(std::string_view text, Color& out) {
 }
 
 std::span<const std::string_view> color_names() {
-    static const std::array<std::string_view, 15> names = [] {
-        std::array<std::string_view, 15> a;
+    static const std::array<std::string_view, kColors.size()> names = [] {
+        std::array<std::string_view, kColors.size()> a;
         for (std::size_t i = 0; i < kColors.size(); ++i) a[i] = kColors[i].name;
         return a;
     }();

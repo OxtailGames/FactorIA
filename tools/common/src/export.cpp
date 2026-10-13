@@ -431,8 +431,8 @@ Result<void> export_android(const ExportOptions& o, const Project& p, const stdf
     const std::string task = o.release ? "assembleRelease" : "assembleDebug";
     const std::string apk = o.release ? "app/build/outputs/apk/release/app-release-unsigned.apk" : "app/build/outputs/apk/debug/app-debug.apk";
     report.nextSteps = {
-        "Install the prerequisites once: JDK 17, the Android SDK (set ANDROID_SDK_ROOT) with NDK r26+, CMake 3.31.6 and "
-        "platform 34: sdkmanager \"ndk;26.3.11579264\" \"cmake;3.31.6\" \"platforms;android-34\" \"build-tools;34.0.0\"",
+        "Install the prerequisites once: JDK 17, the Android SDK (set ANDROID_SDK_ROOT) with NDK r27+, CMake 3.31.6 and "
+        "platform 34: sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\" \"platforms;android-34\" \"build-tools;34.0.0\"",
         "cd '" + generic(outRoot) + "'",
         "Create the Gradle wrapper once (needs Gradle 8.7+ installed; Android Studio does this itself): gradle wrapper --gradle-version 8.7",
         "./gradlew " + task + "   (first build compiles the whole engine; the APK is " + apk + ")",

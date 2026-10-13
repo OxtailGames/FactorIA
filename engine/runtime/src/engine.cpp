@@ -89,6 +89,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
         if (m.severity == LoadMessage::Severity::Error) FA_ERROR("scene", "{}", m.to_string());
         else FA_WARN("scene", "{}", m.to_string());
     }
+    physics.sync(world);  // bodies exist (and can be queried) right after the load, before the first step
     scripts.on_scene_loaded();
     if (renderer) renderer->debug().clear();
     if (!report.ok()) {
@@ -198,6 +199,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     if (renderStale && renderer) renderer->debug().clear();
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
+        physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
         scripts.fixed_update(fdt);
         physics.step(world, fdt);
         scripts.dispatch_events();

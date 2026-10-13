@@ -102,6 +102,10 @@ public:
     void reset();  // drop all bodies (scene change)
 
     void step(World& world, float dt);
+    // Create/update/destroy bodies to match the components WITHOUT simulating. step() does this itself;
+    // the engine also calls it after scene loads and before scripts' fixed update so freshly spawned
+    // entities can be ray-cast / queried in the same frame.
+    void sync(World& world);
 
     // ----- queries (world units; 2D queries ignore z)
     std::optional<RaycastHit> raycast2d(World& world, Vec2 from, Vec2 to, std::int32_t mask = -1);

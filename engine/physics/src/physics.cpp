@@ -57,6 +57,11 @@ void Physics::reset() {
     impl_->p3d.reset();
 }
 
+void Physics::sync(World& world) {
+    impl_->p2d.sync(world);
+    impl_->p3d.sync(world);
+}
+
 void Physics::step(World& world, float dt) {
     if (dt <= 0.0f) return;
     impl_->p2d.step(world, dt);

@@ -4,7 +4,7 @@ import { Behaviour, physics, vec2 } from "factoria";
 
 export default class Enemy extends Behaviour {
   speed = 60;
-  dir = -1;
+  dir = 1;  // start walking right (older engines flipped it on the first frame: no bodies existed yet)
 
   onStart() {
     this.body = this.entity.get("RigidBody2D");

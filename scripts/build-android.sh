@@ -8,7 +8,7 @@
 #   debug|release  configuration (default: debug)
 #   --emulator     build x86_64 for the Android emulator instead of arm64 devices
 #
-# Needs: CMake 3.24+, Ninja, and the Android NDK (r26 or newer recommended).
+# Needs: CMake 3.24+, Ninja, and the Android NDK (r27 or newer recommended).
 # The NDK is found through ANDROID_NDK_HOME, then ANDROID_NDK_ROOT,
 # ANDROID_NDK_LATEST_HOME, or the newest NDK under $ANDROID_HOME/ndk.
 #
@@ -77,8 +77,8 @@ TOOLCHAIN="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
     || die "no CMake toolchain at $TOOLCHAIN. ANDROID_NDK_HOME must point to the NDK folder itself."
 
 NDK_MAJOR="$(sed -n 's/^Pkg\.Revision *= *\([0-9][0-9]*\).*/\1/p' "$ANDROID_NDK_HOME/source.properties" 2>/dev/null | sed -n '1p')" || true
-if [[ -n "$NDK_MAJOR" && "$NDK_MAJOR" -lt 26 ]]; then
-    echo "warning: NDK r$NDK_MAJOR found. r26 or newer is recommended." >&2
+if [[ -n "$NDK_MAJOR" && "$NDK_MAJOR" -lt 27 ]]; then
+    echo "warning: NDK r$NDK_MAJOR found. r27 or newer is recommended." >&2
 fi
 
 # ---- configure and build ----------------------------------------------------

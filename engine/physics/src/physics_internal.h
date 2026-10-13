@@ -32,6 +32,7 @@ public:
     void init(const PhysicsSettings& s);
     void shutdown();
     void reset();
+    void sync(World& world);
     void step(World& world, float dt);
 
     std::optional<RaycastHit> raycast(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt);
@@ -123,6 +124,7 @@ private:
 // ------------------------------------------------------------------ 3D ----
 class Physics3D {
 public:
+    void sync(World& world);  // bodies <-> components without simulating
     void init(const PhysicsSettings& s) { settings_ = s; }
     void reset();
     void step(World& world, float dt);
@@ -177,7 +179,6 @@ private:
 
     static Contact collide(const Body& a, const Body& b, float margin);
     static bool filters_pass(const Body& a, const Body& b);
-    void sync(World& world);
     void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried);
 
     PhysicsSettings settings_;
