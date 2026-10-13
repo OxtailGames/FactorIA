@@ -126,7 +126,9 @@ TEST_CASE("scaffold: a fresh project's scenes load") {
         REQUIRE(create_project(tmp.sub("game"), tpl).ok());
         auto report = validate_project(tmp.sub("game"));
         for (auto& e : report.errors) MESSAGE(e.to_string());
+        for (auto& e : report.warnings) MESSAGE(e.to_string());
         CHECK(report.ok);
+        CHECK(report.warnings.empty());
         CHECK(report.scenesChecked >= 1);
     }
 }
@@ -156,6 +158,14 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     }
     CHECK(binding);
     CHECK(asset);
+
+    // Unknown component => scene load error with a did-you-mean hint.
+    (*scene)["entities"][1]["components"]["Sprit"] = Json::object();
+    REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
+    bool unknownComponent = false;
+    for (auto& e : validate_project(tmp.sub("game")).errors)
+        unknownComponent = unknownComponent || (e.file == "scenes/main.scene.json" && e.message.find("Sprit") != std::string::npos);
+    CHECK(unknownComponent);
 
     // Script hook is invoked.
     ValidateOptions opt;

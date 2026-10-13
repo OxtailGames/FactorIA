@@ -167,7 +167,7 @@ TEST_CASE("world: deferred destroy takes children along and notifies observers")
     CHECK(w.alive(fresh));
     CHECK(!w.alive(root));
     CHECK(w.get<Transform>(root) == nullptr);
-    CHECK(w.id_of(fresh) == "e1");  // auto ids restart naming but never collide
+    CHECK(w.id_of(fresh) == "e2");  // auto ids keep counting (e1 is "other")
 
     w.remove_observer(obs);
     w.destroy_immediate(fresh);
@@ -207,7 +207,9 @@ TEST_CASE("world: hierarchy matrices and parenting") {
     w.set_world_position(c, {0, 0, 0});
     CHECK(approx_equal(w.world_position(c).x, 0.0f, 1e-3f));
     CHECK(approx_equal(w.world_position(c).y, 0.0f, 1e-3f));
-    CHECK(approx_equal(w.get<Transform>(c)->position.x, -5.0f, 1e-3f));  // (-10)/scale 2, rotated back
+    Vec3 local = w.get<Transform>(c)->position;  // (-10,0,0) un-rotated by 90 deg, divided by scale 2
+    CHECK(approx_equal(local.x, 0.0f, 1e-3f));
+    CHECK(approx_equal(local.y, 5.0f, 1e-3f));
 
     // cycles are refused
     w.set_parent(p, c);
