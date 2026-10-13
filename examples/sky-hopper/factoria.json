@@ -4,16 +4,51 @@
   "id": "com.factoria.examples.skyhopper",
   "version": "0.1.0",
   "engine": "0.1.0",
-  "mainScene": "scenes/main.scene.json",
-  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
-  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "mainScene": "scenes/level1.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "scaleMode": "fit",
+    "fullscreen": false,
+    "vsync": true,
+    "orientation": "landscape",
+    "pixelArt": false
+  },
+  "physics": {
+    "fixedHz": 60,
+    "pixelsPerMeter": 100
+  },
   "input": {
     "actions": {
-      "move_left": ["A", "Left"],
-      "move_right": ["D", "Right"],
-      "jump": ["Space", "W", "Up"]
+      "move_left": [
+        "A",
+        "Left"
+      ],
+      "move_right": [
+        "D",
+        "Right"
+      ],
+      "jump": [
+        "Space",
+        "W",
+        "Up"
+      ],
+      "restart": [
+        "R",
+        "Enter"
+      ],
+      "confirm": [
+        "Space",
+        "Enter"
+      ]
     }
   },
-  "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "platforms": [
+    "windows",
+    "macos",
+    "linux",
+    "ios",
+    "android"
+  ],
   "feedbackFile": "ENGINE_FEEDBACK.json"
 }

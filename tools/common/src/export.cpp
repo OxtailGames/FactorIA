@@ -466,7 +466,7 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const stdfs::p
          "    *) echo \"unknown option: $arg\" >&2; exit 2 ;;\n  esac\ndone\n";
     s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
     s += "cmake -S \"$ENGINE_DIR\" -B \"$HERE/build\" -G Xcode \\\n"
-         "  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 -DCMAKE_OSX_SYSROOT=\"$SYSROOT\" \\\n"
+         "  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 -DCMAKE_OSX_SYSROOT=\"$SYSROOT\" \\\n"
          "  -DFA_BUILD_TOOLS=OFF -DFA_BUILD_TESTS=OFF \\\n"
          "  -DFA_GAME_PROJECT_DIR=\"$HERE/game\" \\\n"
          "  -DFA_GAME_BUNDLE_ID=" + sh_quote(p.id) + " \\\n"

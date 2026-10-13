@@ -1,0 +1,2599 @@
+{
+ "format": "factoria.scene/1",
+ "settings": {
+  "gravity2D": [
+   0,
+   -1800
+  ]
+ },
+ "entities": [
+  {
+   "id": "camera",
+   "name": "Main Camera",
+   "components": {
+    "Transform": {
+     "position": [
+      640,
+      256,
+      0
+     ]
+    },
+    "Camera": {
+     "projection": "orthographic",
+     "clearColor": [
+      0.31000000000000005,
+      0.45999999999999996,
+      0.6499999999999999,
+      1
+     ],
+     "primary": true
+    },
+    "Script": {
+     "path": "scripts/follow_camera.js",
+     "props": {
+      "target": "player",
+      "smoothing": 8,
+      "minX": 0,
+      "maxX": 2880,
+      "minY": 0,
+      "maxY": 512
+     }
+    }
+   }
+  },
+  {
+   "id": "map",
+   "name": "Tilemap",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      512,
+      0
+     ]
+    },
+    "Tilemap": {
+     "tileset": "assets/tileset.png",
+     "tileSize": [
+      32,
+      32
+     ],
+     "columns": 4,
+     "width": 90,
+     "height": 16,
+     "tiles": [
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      2,
+      2,
+      2,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      2,
+      2,
+      2,
+      -1,
+      2,
+      2,
+      -1,
+      -1,
+      2,
+      2,
+      2,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      2,
+      2,
+      2,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      -1,
+      -1,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      -1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      -1,
+      -1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      -1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ],
+     "solidTiles": [
+      0,
+      1,
+      2
+     ],
+     "layer": -10
+    }
+   }
+  },
+  {
+   "id": "player",
+   "name": "Player",
+   "tags": [
+    "player"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      80,
+      112,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/player.png",
+     "size": [
+      32,
+      48
+     ],
+     "layer": 3,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "dynamic",
+     "fixedRotation": true
+    },
+    "Collider2D": {
+     "shape": "box",
+     "size": [
+      26,
+      46
+     ],
+     "friction": 0
+    },
+    "Script": {
+     "path": "scripts/player.js"
+    }
+   }
+  },
+  {
+   "id": "coin_1",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      272,
+      176,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_2",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      400,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_3",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      432,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_4",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      464,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_5",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      720,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_6",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      752,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_7",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      784,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_8",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      848,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_9",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      816,
+      176,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_10",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      848,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_11",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      912,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_12",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      976,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_13",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1008,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_14",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1040,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_15",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1232,
+      176,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_16",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1584,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_17",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1616,
+      176,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_18",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1648,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_19",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1712,
+      144,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_20",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1968,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_21",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      2000,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_22",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      2032,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_23",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      2160,
+      208,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_24",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      2224,
+      144,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "coin_25",
+   "name": "Coin",
+   "tags": [
+    "coin"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      2288,
+      144,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/coin.png",
+     "size": [
+      24,
+      24
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "circle",
+     "radius": 12,
+     "isTrigger": true
+    }
+   }
+  },
+  {
+   "id": "enemy_1",
+   "name": "Crawler",
+   "tags": [
+    "enemy"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1136,
+      108,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/enemy.png",
+     "size": [
+      36,
+      28
+     ],
+     "layer": 2,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "dynamic",
+     "fixedRotation": true
+    },
+    "Collider2D": {
+     "shape": "box",
+     "size": [
+      34,
+      26
+     ],
+     "friction": 0
+    },
+    "Script": {
+     "path": "scripts/enemy.js",
+     "props": {
+      "speed": 76
+     }
+    }
+   }
+  },
+  {
+   "id": "enemy_2",
+   "name": "Crawler",
+   "tags": [
+    "enemy"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1456,
+      108,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/enemy.png",
+     "size": [
+      36,
+      28
+     ],
+     "layer": 2,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "dynamic",
+     "fixedRotation": true
+    },
+    "Collider2D": {
+     "shape": "box",
+     "size": [
+      34,
+      26
+     ],
+     "friction": 0
+    },
+    "Script": {
+     "path": "scripts/enemy.js",
+     "props": {
+      "speed": 76
+     }
+    }
+   }
+  },
+  {
+   "id": "enemy_3",
+   "name": "Crawler",
+   "tags": [
+    "enemy"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      1744,
+      108,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/enemy.png",
+     "size": [
+      36,
+      28
+     ],
+     "layer": 2,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "dynamic",
+     "fixedRotation": true
+    },
+    "Collider2D": {
+     "shape": "box",
+     "size": [
+      34,
+      26
+     ],
+     "friction": 0
+    },
+    "Script": {
+     "path": "scripts/enemy.js",
+     "props": {
+      "speed": 76
+     }
+    }
+   }
+  },
+  {
+   "id": "goal",
+   "name": "Goal Flag",
+   "tags": [
+    "goal"
+   ],
+   "components": {
+    "Transform": {
+     "position": [
+      2832,
+      160,
+      0
+     ]
+    },
+    "Sprite": {
+     "texture": "assets/flag.png",
+     "size": [
+      40,
+      96
+     ],
+     "layer": 1,
+     "pixelArt": false
+    },
+    "RigidBody2D": {
+     "type": "static"
+    },
+    "Collider2D": {
+     "shape": "box",
+     "size": [
+      30,
+      96
+     ],
+     "isTrigger": true
+    },
+    "Script": {
+     "path": "scripts/goal.js",
+     "props": {
+      "next": "scenes/win.scene.json"
+     }
+    }
+   }
+  },
+  {
+   "id": "level",
+   "name": "Level",
+   "components": {
+    "Script": {
+     "path": "scripts/level.js",
+     "props": {
+      "levelIndex": 3,
+      "spawnX": 80,
+      "spawnY": 112,
+      "killY": -200
+     }
+    }
+   }
+  },
+  {
+   "id": "hud",
+   "name": "HUD",
+   "components": {
+    "Transform": {
+     "position": [
+      24,
+      16,
+      0
+     ]
+    },
+    "Text": {
+     "text": "",
+     "fontSize": 30,
+     "color": [
+      1,
+      1,
+      1,
+      1
+     ],
+     "pivot": [
+      0,
+      1
+     ],
+     "space": "screen",
+     "layer": 100
+    },
+    "Script": {
+     "path": "scripts/hud.js"
+    }
+   }
+  }
+ ]
+}

@@ -61,7 +61,7 @@ jobs:
   # One command per step, so a failing command fails the step (PowerShell).
   windows:
     name: Windows (Visual Studio 2022, MSVC)
-    runs-on: windows-latest
+    runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

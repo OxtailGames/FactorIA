@@ -3,6 +3,9 @@
 // (sokol_gfx is a process singleton, so this must not share a process with the headless tests.)
 #include <doctest.h>
 
+// Desktop OpenGL readback: Linux only (macOS renders with Metal, Windows with D3D11).
+#if defined(__linux__)
+
 #include <cstdlib>
 #include <cstring>
 
@@ -91,3 +94,5 @@ TEST_CASE("windowed smoke: run_app opens, renders, presents with letterboxing an
     CHECK(box.r > 0.7f);
     test::expect_golden(window, "windowed_letterbox");
 }
+
+#endif  // __linux__

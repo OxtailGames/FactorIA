@@ -1,14 +1,9 @@
 // @ts-check
-// Shows the coin count. Listens to the "coin_collected" world event emitted by the player.
 import { Behaviour } from "factoria";
+import { state } from "scripts/game_state.js";
 
 export default class Hud extends Behaviour {
-  coins = 0;
-
-  onStart() {
-    this.world.on("coin_collected", () => {
-      this.coins += 1;
-      this.entity.get("Text").text = `Coins: ${this.coins}`;
-    });
+  onUpdate() {
+    this.entity.get("Text").text = `Level ${state.level}    Coins ${state.coins}    Lives ${"♥".repeat(0)}${state.lives}`;
   }
 }
