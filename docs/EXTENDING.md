@@ -112,10 +112,10 @@ export default {
   },
   readOnly: true,
   run({ maxSpeed }) {
-    const state = fa.call("game.state", {});
-    // Assumes game.state lists entities in the scene-file shape (id, tags, components).
-    // Confirm the shape with game_state once before you rely on it.
-    const enemies = (state.entities ?? []).filter((e) => (e.tags ?? []).includes("enemy"));
+    // Ask only for the Script component, and raise the default cap of 200 entities.
+    const state = fa.call("game.state", { components: ["Script"], maxEntities: 1000 });
+    // Entities have the scene-file shape (id, name, tags, components).
+    const enemies = state.entities.filter((e) => (e.tags ?? []).includes("enemy"));
     if (enemies.length === 0) {
       throw new Error("No entity tagged 'enemy' in the running game. Load the level, or check the tags in its scene file.");
     }
@@ -124,7 +124,8 @@ export default {
       const speed = e.components?.Script?.props?.speed;
       if (typeof speed === "number" && speed > maxSpeed) flagged.push({ id: e.id, speed });
     }
-    return { enemies: enemies.length, flagged };
+    // game.state sets "truncated" when some entities were left out.
+    return { enemies: enemies.length, truncated: state.truncated === true, flagged };
   },
 };
 ```
@@ -218,7 +219,7 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 
 The command returns the ids of the entities that carry a tag. It needs the `World`, so it lives in the runtime, which owns the world. Three new files and one call.
 
-Header, `engine/runtime/include/fa/runtime/scene_commands.h`:
+Header, `engine/runtime/include/fa/runtime/scene_commands.h` (new file):
 
 ```cpp
 #pragma once
@@ -234,7 +235,7 @@ void register_scene_commands(CommandRegistry& registry, World& world);
 }  // namespace fa
 ```
 
-Source, `engine/runtime/src/scene_commands.cpp`:
+Source, `engine/runtime/src/scene_commands.cpp` (new file):
 
 ```cpp
 #include "fa/runtime/scene_commands.h"
@@ -272,13 +273,13 @@ void register_scene_commands(CommandRegistry& registry, World& world) {
 }  // namespace fa
 ```
 
-Call it from `register_builtin_commands` in `engine/runtime/src/commands.cpp`, which already receives `impl`:
+Call it from `register_builtin_commands` in `engine/runtime/src/commands.cpp`, where the registry is `I.commands` and the world is `I.world`. Add this line next to the other registrations:
 
 ```cpp
-register_scene_commands(impl.commands, impl.world);
+register_scene_commands(I.commands, I.world);
 ```
 
-Test, `engine/runtime/tests/test_scene_commands.cpp`. `fa_add_tests(runtime)` in `engine/runtime/CMakeLists.txt` builds every `tests/*.cpp` into `fa_test_runtime`:
+Test, `engine/runtime/tests/test_scene_commands.cpp` (new file). `fa_add_tests(runtime)` in `engine/runtime/CMakeLists.txt` builds every `tests/*.cpp` into `fa_test_runtime`:
 
 ```cpp
 #include <doctest.h>
@@ -383,7 +384,7 @@ Registration, in `register_builtin_components` in `engine/scene/src/components.c
         .field("started", &Wobble::started, "Runtime state: true once baseY has been captured.").runtime_only();
 ```
 
-Test, `engine/scene/tests/test_wobble.cpp`. The second case calls the system from section D:
+Test, `engine/scene/tests/test_wobble.cpp` (new file). The second case calls the system from section D:
 
 ```cpp
 #include <doctest.h>
@@ -464,7 +465,7 @@ world.flush() (deferred destroys), pending scene change, hot-reload poll
 
 The Wobble system from section C belongs to the scene module, because it only touches `World` data. It is a fixed-step system, so physics sees the moved transform.
 
-Header, `engine/scene/include/fa/scene/wobble_system.h`:
+Header, `engine/scene/include/fa/scene/wobble_system.h` (new file):
 
 ```cpp
 #pragma once
@@ -479,7 +480,7 @@ void update_wobble(World& world, float fixedDt);
 }  // namespace fa
 ```
 
-Source, `engine/scene/src/wobble_system.cpp`:
+Source, `engine/scene/src/wobble_system.cpp` (new file):
 
 ```cpp
 #include "fa/scene/wobble_system.h"
@@ -507,14 +508,16 @@ void update_wobble(World& world, float fixedDt) {
 }  // namespace fa
 ```
 
-Call site, in `Engine::Impl::run_frame` (`engine/runtime/src/engine.cpp`). This shows the order to keep; the real loop may differ in detail:
+Call site: the fixed-step loop of `Engine::Impl::run_frame` in `engine/runtime/src/engine.cpp`. The new line goes after `scripts.fixed_update` and before `physics.step`, so physics reads the moved transform:
 
 ```cpp
+const float fdt = float(fixedDt);
 for (int i = 0; i < fixedSteps; ++i) {
-    scripts.fixed_update(static_cast<float>(fixedDt));
-    update_wobble(world, static_cast<float>(fixedDt));  // new: before physics
-    physics.step(world, static_cast<float>(fixedDt));
+    scripts.fixed_update(fdt);
+    update_wobble(world, fdt);  // new: moves Wobble entities before physics reads them
+    physics.step(world, fdt);
     scripts.dispatch_events();
+    world.advance_clock(fixedDt);
 }
 ```
 

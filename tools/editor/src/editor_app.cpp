@@ -222,6 +222,10 @@ void Editor::on_cleanup() {
         ui::gfx_shutdown();
         gfxUp_ = false;
     }
+    if (!atTempProject_.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(atTempProject_, ec);
+    }
 }
 
 bool Editor::open_project(const std::string& dir) {

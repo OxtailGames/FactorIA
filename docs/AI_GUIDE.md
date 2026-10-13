@@ -109,16 +109,22 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 |---|---|---|
 | `docs_list`, `docs_read`, `docs_search`, `docs_components`, `docs_commands` | `docs.*` | Read the built-in docs, the component reference and the command list. |
 | `project_validate` | `project.validate` | Check the whole project. Returns `ok`, `errors[]`, `warnings[]`; each issue has `file`, `pointer`, `message` and `hint`. |
-| `project_test` | `project.test` (if your build has it) | Run `tests/*.test.js` headless. Otherwise use `factoria test` (planned). |
-| `scene_list_entities`, `scene_get_entity` | `scene.*` | Inspect the running scene. |
-| `scene_spawn`, `scene_destroy`, `scene_set_component`, `scene_remove_component` | `scene.*` | Change the running game. To keep a change, edit the scene file. |
-| `scene_load`, `scene_save`, `scene_reload` | `scene.*` | Load, save or reload a scene. |
-| `game_step` | `game.step` | Advance the simulation: `{"frames":120}` is 2 seconds at 60 Hz. |
-| `game_input` | `game.input` | Press or release actions and keys for the frames that follow. See its inputSchema. |
-| `game_screenshot` | `game.screenshot` | Capture the current frame as an image. |
-| `game_state`, `game_logs`, `game_pause`, `game_resume` | `game.*` | Dump entities, components, physics and errors; read the log; pause or resume. |
-| `script_eval`, `script_errors` | `script.*` | Evaluate a JavaScript expression in the running game; list script errors. |
-| `physics_raycast` | `physics.raycast` | Cast a ray in the running game. |
+| `project_test` | `project.test` | Run `tests/*.test.js` headless, optionally `{"filter":"player"}`. Tests change the running world, so call `scene_reload` afterwards. |
+| `scene_list_entities` | `scene.list_entities` | List entities. Filters: `name`, `tag`, `component`. |
+| `scene_get_entity` | `scene.get_entity` | One entity with every field, by `id`. |
+| `scene_spawn` | `scene.spawn` | Create an entity: `{"prefab":"prefabs/enemy.prefab.json","position":[300,0]}`, or entity JSON with `name`, `tags` and `components`. |
+| `scene_set_component`, `scene_remove_component` | `scene.set_component`, `scene.remove_component` | Set fields with `{"id":"player","component":"Shape2D","fields":{...}}`, or remove a component by `id` and `component`. |
+| `scene_destroy` | `scene.destroy` | Destroy an entity and its children: `{"id":"coin_1"}`. |
+| `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
+| `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
+| `game_input` | `game.input` | Press or release an action or key now, or move the mouse. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`. The next `game_step` sees the input. |
+| `game_screenshot` | `game.screenshot` | Capture the current frame as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. |
+| `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
+| `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. |
+| `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
+| `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
+| `script_errors` | `script.errors` | Exceptions thrown by scripts. |
+| `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction` and `maxDistance`. |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder. Use them if your client has no file tools. |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
@@ -130,14 +136,19 @@ Examples:
 docs_read {"name":"scripting"}
 docs_search {"query":"raycast"}
 project_validate {}
+scene_spawn {"prefab":"prefabs/enemy.prefab.json","position":[300,0]}
 game_step {"frames":120}
+game_step {"frames":60,"press":["move_right"]}
 game_screenshot {}
+game_state {"components":["Transform","RigidBody2D"],"maxEntities":50}
+game_logs {"minLevel":"warn","max":50}
+script_eval {"code":"world.findByTag(\"coin\").length"}
 fs_read {"path":"scripts/player.js","startLine":1,"endLine":40}
 fs_edit {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}
 feedback_list {"status":"open"}
 ```
 
-`fs_edit` requires the text in `find` to match exactly once, unless you pass `"replaceAll": true`.
+The argument names above are the ones the engine accepts. `fs_edit` requires the text in `find` to match exactly once, unless you pass `"replaceAll": true`.
 
 The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature` (`feature`), `fix-bug` (`description`) and `report-engine-gap`.
 
@@ -353,7 +364,7 @@ export default class Spawner extends Behaviour {
 }
 ```
 
-To spawn without a prefab, pass the entity object itself, as in `tools/spawn_coin.js`:
+To spawn without a prefab, pass the entity object itself, as in `templates/2d-platformer/tools/spawn_coin.js`:
 
 ```js
 const coin = world.spawn({

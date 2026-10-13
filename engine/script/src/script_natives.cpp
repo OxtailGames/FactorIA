@@ -30,8 +30,8 @@ Impl* impl_of(JSContext* ctx) { return static_cast<Impl*>(JS_GetContextOpaque(ct
 // ---- small conversion helpers -------------------------------------------------------------------------------------
 struct CStr {
     JSContext* ctx;
-    const char* p;
     size_t len = 0;
+    const char* p;
     CStr(JSContext* c, JSValueConst v) : ctx(c), p(JS_ToCStringLen(c, &len, v)) {}
     ~CStr() { if (p) JS_FreeCString(ctx, p); }
     CStr(const CStr&) = delete;
@@ -1361,6 +1361,12 @@ NATIVE(resetInput) {
     return JS_UNDEFINED;
 }
 
+NATIVE(pumpJobs) {
+    SETUP;
+    I->run_jobs();
+    return JS_UNDEFINED;
+}
+
 struct Reg {
     const char* name;
     JSCFunction* fn;
@@ -1385,7 +1391,7 @@ const Reg kRegs[] = {
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testStep, 1), R(testScreenshot, 1),
-    R(testState, 0), R(resetInput, 0),
+    R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R
 
