@@ -32,6 +32,7 @@ struct ToolCall {
     std::string id;
     std::string name;
     Json input = Json::object();
+    std::string inputError;  // non-empty when the model's arguments were not valid JSON
 };
 
 struct ImageData {
@@ -105,6 +106,7 @@ struct ChatHooks {
     std::function<void(std::string_view)> onText;
     std::function<void(std::string_view)> onThinking;
     std::function<void(const std::string& toolName)> onToolUseStart;
+    std::function<void(const std::string& message)> onRetry;  // transient failure, about to retry
 };
 
 // An event for UIs. Emitted by AgentSession and by CLI agents.

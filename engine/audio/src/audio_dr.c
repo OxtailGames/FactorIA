@@ -1,0 +1,8 @@
+/* dr_wav / dr_mp3 implementations (single C translation unit). */
+#define DR_WAV_IMPLEMENTATION
+#define DR_WAV_NO_STDIO
+#include "dr_wav.h"
+
+#define DR_MP3_IMPLEMENTATION
+#define DR_MP3_NO_STDIO
+#include "dr_mp3.h"
