@@ -106,6 +106,18 @@ namespace {
 void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::string>& problems, int frame) {
     auto note = [&](const std::string& m) { problems.push_back("replay frame " + std::to_string(frame) + ": " + m); };
     std::string err;
+    if (!entry.is_object()) {
+        note("a frame entry must be an object like {\"press\": [\"jump\"]}, got " + describe_json_value(entry));
+        return;
+    }
+    {
+        // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse"};
+        for (auto it = entry.begin(); it != entry.end(); ++it)
+            if (std::find(known.begin(), known.end(), it.key()) == known.end())
+                note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
+                     " A frame entry takes press, release, keys and mouse.");
+    }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
         if (!entry[key].is_array()) { note(std::string("'") + key + "' must be an array of names"); continue; }
@@ -114,14 +126,25 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
             if (!I.inject_named(n.get<std::string>(), std::string(key) == "press", &err)) note(err);
         }
     }
+    if (entry.contains("keys") && !entry["keys"].is_object()) note("'keys' must be an object like {\"A\": true}");
+    if (entry.contains("mouse") && !entry["mouse"].is_object()) note("'mouse' must be an object like {\"position\": [10, 20], \"left\": true}");
     if (entry.contains("keys") && entry["keys"].is_object())
         for (auto it = entry["keys"].begin(); it != entry["keys"].end(); ++it) {
             Key k = key_from_name(it.key());
-            if (k == Key::Unknown) { note("unknown key '" + it.key() + "'"); continue; }
+            if (k == Key::Unknown) {
+                std::vector<std::string> names;
+                for (int i = 1; i < int(Key::Count); ++i) names.emplace_back(key_name(Key(i)));
+                note("unknown key '" + it.key() + "' (ignored). " + did_you_mean(it.key(), names));
+                continue;
+            }
             I.input.on_key(k, it->is_boolean() ? it->get<bool>() : true);
         }
     if (entry.contains("mouse") && entry["mouse"].is_object()) {
         const Json& m = entry["mouse"];
+        static const std::vector<std::string> mouseKnown = {"position", "left", "right", "middle"};
+        for (auto it = m.begin(); it != m.end(); ++it)
+            if (std::find(mouseKnown.begin(), mouseKnown.end(), it.key()) == mouseKnown.end())
+                note("unknown mouse field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), mouseKnown));
         if (m.contains("position")) {
             Vec2 p;
             if (json_to(m["position"], p, &err)) I.input.on_mouse_move(p);

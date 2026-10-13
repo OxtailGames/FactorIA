@@ -206,6 +206,39 @@ def test_template(tmp, template):
           "fs.* works inside factoria test; each result printed once")
     os.remove(os.path.join(proj, "tests", "zz_fs.test.js"))
 
+    # console.log in tests/behaviours is shown by default, indented under the test, even with --log-level warn
+    with open(os.path.join(proj, "tests", "zz_log.test.js"), "w") as f:
+        f.write('import { test, expect } from "factoria:test";\n'
+                'test("logs something", () => { console.log("hello-from-test"); console.warn("careful-now"); expect(1).toBe(1); });\n')
+    code, out, err = run(["test", proj, "--filter", "logs something", "--log-level", "warn"])
+    lines = out.splitlines()
+    idx = next((i for i, l in enumerate(lines) if "logs something" in l), -1)
+    check(code == 0 and idx >= 0 and any("hello-from-test" in l and l.startswith("        |") for l in lines[idx + 1:])
+          and any("warn: careful-now" in l for l in lines[idx + 1:]), "factoria test shows console output under the test")
+    check("hello-from-test" not in err and "INFO" not in err, "factoria test keeps engine info logs off stderr")
+    code, rep, err = jrun(["test", proj, "--filter", "logs something", "--json"])
+    check(code == 0 and rep is not None and rep["cases"][0].get("logs", [{}])[0].get("message") == "hello-from-test", "factoria test --json has per-case logs")
+    os.remove(os.path.join(proj, "tests", "zz_log.test.js"))
+
+    # factoria call: ToolError data is printed (human + --json), exit 1
+    os.makedirs(os.path.join(proj, "tools"), exist_ok=True)
+    with open(os.path.join(proj, "tools", "chk.js"), "w") as f:
+        f.write('import { ToolError } from "factoria";\n'
+                'export default { name: "chk", summary: "always fails", run() { throw new ToolError("bad level", "edit levels.json", { errors: ["row 3 is empty"] }); } };\n')
+    code, out, err = run(["call", "project.chk", "--project", proj])
+    check(code == 1 and "bad level" in err and "edit levels.json" in err and "row 3 is empty" in err, "call prints ToolError data (human)")
+    code, rep, err = jrun(["call", "project.chk", "--project", proj, "--json"])
+    check(code == 1 and rep is not None and rep["error"]["data"]["errors"] == ["row 3 is empty"] and rep["error"]["code"] == "tool_error",
+          "call --json prints error.data")
+    os.remove(os.path.join(proj, "tools", "chk.js"))
+
+    # input replay typos warn instead of being ignored
+    replay = os.path.join(tmp, "typo_replay.json")
+    with open(replay, "w") as f:
+        json.dump({"frames": {"0": {"pres": ["jump"]}}}, f)
+    code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", replay])
+    check(code == 0 and "unknown field 'pres'" in err and "press" in err, "run --input warns about a misspelled field")
+
     # unknown component names fail instead of creating a half-built entity
     code, out, err = run(["call", "scene.spawn", '{"components":{"Transform2D":{"position":[1,2]}}}', "--project", proj])
     check(code == 1 and "Transform" in (out + err), "scene.spawn with an unknown component exits 1 with a did-you-mean")
@@ -315,6 +348,18 @@ def test_misc(tmp):
     check(code == 2, "feedback add without required flags -> exit 2")
     code, rep, err = jrun(["feedback", "list", proj, "--json"])
     check(code == 0 and len(rep) == 1 and rep[0]["occurrences"] == 2, "feedback list")
+    fb_id = rep[0]["id"]
+    code, out, err = run(["feedback", "update", proj, fb_id, "--status", "fixed-in-engine", "--engine-issue", "abc123", "--note", "triaged"])
+    check(code == 0 and "fixed-in-engine" in out, "feedback update")
+    code, rep, err = jrun(["feedback", "update", proj, fb_id, "--note", "again", "--json"])
+    check(code == 0 and rep["status"] == "fixed-in-engine" and rep["engineIssue"] == "abc123" and rep["notes"][-2:] == ["triaged", "again"],
+          "feedback update --json keeps status/engineIssue and appends notes")
+    code, out, err = run(["feedback", "update", proj, fb_id, "--status", "bogus"])
+    check(code != 0 and "status" in err, "feedback update rejects an invalid status")
+    code, out, err = run(["feedback", "update", proj, "FB-999", "--status", "open"])
+    check(code != 0 and "FB-999" in err, "feedback update unknown id fails")
+    code, rep, err = jrun(["feedback", "update", proj, fb_id, "--status", "open", "--json"])
+    check(code == 0 and rep["status"] == "open", "feedback update back to open")
     code, out, err = run(["feedback", "validate", proj])
     check(code == 0, "feedback validate")
     report = os.path.join(tmp, "roadmap.md")

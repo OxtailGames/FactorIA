@@ -77,12 +77,17 @@ Runs `tests/**/*.test.js` on a headless engine; prints one line per test, failur
 the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
 screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
 and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.
+`console.log/warn/error` output of test files and behaviours is shown by default, indented under the test as
+`| text` (also with `--log-level warn`); engine info logs stay hidden. With `--json` it is `logs` per case (and a
+top-level `logs` for output outside tests).
 
 ## Commands (the tool surface of MCP and the AI agent)
 
 ### `factoria call <command> ['<json args>'] [options]` / `factoria call --batch '<json array>'`
 Runs registered commands on a headless engine and prints the JSON result. Arguments: inline JSON, `@file.json`, or
-`-` (stdin). Failures print `error: code: message` and the hint on stderr, exit 1. Outside a project a scratch
+`-` (stdin). Failures print `error: code: message`, the hint and, when the command returned structured `data`
+(e.g. a project tool's `ToolError`), `data: {...}` on stderr, exit 1; `--json` also prints
+`{"ok":false,"error":{code,message,hint,data}}` on stdout. Outside a project a scratch
 project is used, so `docs.*` and `project.create` work anywhere. Options: `--project DIR`, `--scene S` (start scene),
 `--seed N`, `--press a,b` (hold actions/keys before the command), `--input replay.json` (input replay applied while
 stepping; steps through its last frame unless `--frames-before N` is given), `--frames-before N`, `--no-graphics`,
@@ -91,7 +96,7 @@ stepping; steps through its last frame unless `--frames-before N` is given), `--
 **Every `call` starts a new engine**, so `game.step` in one call is not seen by `script.eval` in the next. To run
 several commands against the SAME game use `--batch` (or `--batch-file F.json`, `-` = stdin): an array of
 `{"command": "...", "args": {...}}` executed in order on one engine. It prints
-`{"ok": bool, "results": [{"ok": true, "result": ...} | {"ok": false, "error": {code, message, hint}}]}`, stops at
+`{"ok": bool, "results": [{"ok": true, "result": ...} | {"ok": false, "error": {code, message, hint, data?}}]}`, stops at
 the first failure (`--keep-going` continues) and exits 1 if any command failed.
 ```
 factoria call scene.list_entities
@@ -159,16 +164,17 @@ Command results containing `"$image": {"path"|"base64", "mimeType"}` are sent to
 
 ## Feedback and docs
 
-### `factoria feedback init|add|list|validate|collect`
+### `factoria feedback init|add|list|update|validate|collect`
 ```
 factoria feedback add --category physics --severity major --title "No one-way platforms" \
     --missing "Collider2D has no one-way option" --workaround "scripts/one_way.js" --files scripts/one_way.js
 factoria feedback add --json '{"category":"docs","severity":"minor","title":"...","missing":"...","workaround":"..."}'
 factoria feedback list --status open
+factoria feedback update games/my-game FB-001 --status fixed-in-engine --engine-issue abc123 [--note TEXT] [--json]
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
 ```
-`add` merges into a similar open entry (occurrences++). `collect` groups reports of the same gap across projects even
+`add` merges into a similar open entry (occurrences++). `update [project] <id>` triages an entry: `--status open|fixed-in-engine|wont-fix|duplicate`, `--engine-issue REF`, `--note TEXT` (appended to `notes`). `collect` groups reports of the same gap across projects even
 when the titles differ ("Bug:" prefixes, plurals, stop words and synonyms such as stub/placeholder are ignored; a
 short title contained in a longer one counts; same-category or similar-suggestion entries score higher, and a
 cluster may span categories). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).

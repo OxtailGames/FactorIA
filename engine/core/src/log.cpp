@@ -32,6 +32,7 @@ struct LogState {
     std::uint64_t frame = 0;
     LogLevel minLevel = LogLevel::Info;
     LogFormat format = LogFormat::Text;
+    LogFilter stderrFilter;
     std::size_t errors = 0;
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 };
@@ -119,7 +120,7 @@ void log(LogLevel level, std::string_view category, std::string message) {
         if (s.ring.size() > kRingSize) s.ring.pop_front();
         for (auto& [id, sink] : s.sinks) sinks.push_back(sink);
         format = s.format;
-        write_stderr(entry, format);  // under the lock so lines never interleave
+        if (!s.stderrFilter || s.stderrFilter(entry)) write_stderr(entry, format);  // under the lock so lines never interleave
     }
     // Sinks run outside the lock so they may call log() themselves.
     for (auto& sink : sinks) sink(entry);
@@ -136,6 +137,14 @@ LogLevel log_level() {
 void set_log_format(LogFormat format) {
     std::lock_guard<std::mutex> lock(state().mutex);
     state().format = format;
+}
+void set_log_stderr_filter(LogFilter filter) {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().stderrFilter = std::move(filter);
+}
+std::uint64_t log_last_seq() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().nextSeq - 1;
 }
 void set_log_frame(std::uint64_t frame) {
     std::lock_guard<std::mutex> lock(state().mutex);

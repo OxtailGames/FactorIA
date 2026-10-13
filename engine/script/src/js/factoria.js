@@ -1020,6 +1020,7 @@
       N.resetInput();
       N.setTimeScale(1);
       const start = N.nowMs();
+      const seq0 = N.logSeq();
       let passed = true, message = "";
       N.guardBegin(`test '${t.name}'`, 60.0);
       try {
@@ -1041,7 +1042,7 @@
           "\n  (an exception was thrown inside the test; check the game scripts too: `factoria` logs script errors)";
       }
       N.guardEnd();
-      results.push({ name: t.name, passed, message, ms: N.nowMs() - start });
+      results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();
     N.setTimeScale(1);

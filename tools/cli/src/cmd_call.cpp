@@ -111,6 +111,7 @@ void print_command_error(Context& ctx, const Json& error) {
     ctx.err << "error: " << error.value("code", std::string("failed")) << ": " << error.value("message", std::string()) << "\n";
     if (error.contains("hint") && error["hint"].is_string() && !error["hint"].get<std::string>().empty())
         ctx.err << "  hint: " << error["hint"].get<std::string>() << "\n";
+    if (error.contains("data") && !error["data"].is_null()) ctx.err << "  data: " << error["data"].dump(2, ' ', false, Json::error_handler_t::replace) << "\n";
 }
 
 std::string read_all(std::istream& in) { return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()); }
@@ -161,6 +162,7 @@ Command make_call_command() {
     c.flags = engine_flags();
     c.flags.push_back({"batch", "JSON", "Array of {\"command\", \"args\"} to run in order on one engine (instead of a positional command)."});
     c.flags.push_back({"batch-file", "FILE", "Same as --batch, read from a file ('-' = stdin)."});
+    c.flags.push_back({"json", "", "On a failed single command also print {\"ok\":false,\"error\":{code,message,hint,data}} on stdout (batch always does)."});
     c.flags.push_back({"keep-going", "", "Batch: continue after a failed command."});
     c.examples = {"factoria call scene.list_entities",
                   "factoria call scene.spawn '{\"name\":\"Enemy\",\"components\":{\"Transform\":{\"position\":[100,50,0]}}}'",
@@ -210,6 +212,7 @@ Command make_call_command() {
             Json out = run_command_json(ts.session->registry(), requests[0]);
             if (!out["ok"].get<bool>()) {
                 print_command_error(ctx, out["error"]);
+                if (ctx.args.has("json")) print_json(ctx.out, out);  // {ok:false, error:{code,message,hint,data}}
                 return 1;
             }
             print_json(ctx.out, out["result"]);

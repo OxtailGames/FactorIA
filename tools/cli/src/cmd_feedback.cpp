@@ -155,6 +155,47 @@ Command make_feedback_command() {
         return 0;
     };
 
+    Command update = project_flag_cmd("update", "Change an entry's status and/or engine issue reference (triage).");
+    update.usage = "[project] <id> [--status S] [--note TEXT] [--engine-issue REF] [--json]";
+    update.maxPositional = 2;
+    update.details = "The project folder is optional: 'factoria feedback update <id> --status fixed-in-engine' works inside a project.";
+    update.flags.insert(update.flags.end(), {{"status", "S", "open | fixed-in-engine | wont-fix | duplicate."},
+                                             {"note", "TEXT", "Triage note appended to the entry's notes."},
+                                             {"engine-issue", "REF", "Engine issue/commit that handles it (stored as engineIssue)."},
+                                             {"json", "", "Print the updated entry as JSON."}});
+    update.examples = {"factoria feedback update games/my-game fb-001 --status fixed-in-engine --engine-issue \"abc123\"",
+                       "factoria feedback update fb-002 --status wont-fix --note \"by design\""};
+    update.run = [](Context& ctx) {
+        const Args& a = ctx.args;
+        const auto& pos = a.positional();
+        if (pos.empty()) throw UsageError("Missing entry id.", "Usage: factoria feedback update [project] <id> --status S");
+        std::string id = pos.back();
+        std::string dir = pos.size() > 1 ? absolute_path(pos[0]) : resolve_project_dir(ctx, 99);
+        if (!a.has("status") && !a.has("note") && !a.has("engine-issue"))
+            throw UsageError("Nothing to update.", "Pass --status, --note and/or --engine-issue.");
+        std::string path = feedback_path(dir);
+        auto doc = load_feedback(path);
+        if (!doc.ok()) return report_failure(ctx.err, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
+        auto r = update_feedback_entry(*doc, id, a.str("status"), a.str("engine-issue"));
+        if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
+        if (a.has("note")) {
+            for (auto& e : (*doc)["entries"]) {
+                if (e.value("id", std::string()) != id) continue;
+                if (!e.contains("notes") || !e["notes"].is_array()) e["notes"] = Json::array();
+                e["notes"].push_back(a.str("note"));
+                r = e;
+            }
+        }
+        auto saved = save_feedback(path, *doc);
+        if (!saved.ok()) return report_failure(ctx.err, saved.error().message, saved.error().hint);
+        if (a.has("json")) {
+            print_json(ctx.out, *r);
+            return 0;
+        }
+        ctx.out << "Updated " << id << ": status=" << r->value("status", std::string()) << "\n";
+        return 0;
+    };
+
     Command validate = project_flag_cmd("validate", "Check ENGINE_FEEDBACK.json against the schema.");
     validate.usage = "[project] [--json]";
     validate.flags.push_back({"json", "", "Machine-readable output."});
@@ -215,7 +256,7 @@ Command make_feedback_command() {
         return 0;
     };
 
-    g.subs = {init, add, list, validate, collect};
+    g.subs = {init, add, list, update, validate, collect};
     return g;
 }
 

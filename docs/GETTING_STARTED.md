@@ -1,8 +1,10 @@
 # Primeros pasos con FactorIA
 
+> AI agents: read [AI_GUIDE.md](AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
+
 FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree juegos sin depender de un editor gráfico. Las escenas son JSON, la lógica va en JavaScript y cada capacidad del motor es un comando que la IA puede invocar. Esta guía explica cómo compilar el motor, crear un juego y conectar una IA.
 
-> **Estado del proyecto.** Está en desarrollo temprano. La compilación en Linux está probada. macOS, Windows, iOS y Android tienen scripts y presets definidos, pero todavía no se han probado en esas plataformas. Todo lo que aparece marcado como **(en desarrollo)** no está disponible en la versión actual. La sección 8 resume qué falta.
+> **Estado del proyecto.** Está en desarrollo temprano. En Linux funciona el flujo completo: crear un proyecto, validarlo, probarlo, simularlo sin ventana con capturas, exportarlo y conectar una IA por MCP. macOS, Windows, iOS y Android tienen scripts y presets definidos, pero no se han probado en esas plataformas, y el código móvil todavía no se ha podido compilar en la máquina de desarrollo (ver `docs/MOBILE.md`). La sección 8 resume lo que funciona y lo que falta.
 
 ## 1. Requisitos e instalación
 
@@ -84,7 +86,7 @@ Si el equipo se queda sin memoria, limita los procesos: `cmake --build --preset 
 
 Más detalles en `docs/BUILDING.md`.
 
-## 2. Crear tu primer juego (en desarrollo)
+## 2. Crear tu primer juego
 
 Con la CLI `factoria` crearás un proyecto a partir de una plantilla:
 
@@ -108,12 +110,13 @@ El proyecto contiene:
 - `scripts/`: comportamientos en JavaScript.
 - `tools/`: herramientas de proyecto que la IA puede invocar.
 - `tests/`: pruebas headless.
-- `AGENTS.md`: guía para la IA.
+- `types/factoria.d.ts`: tipos de la API de scripts, generados por el motor.
+- `AGENTS.md`: guía corta para la IA.
 - `ENGINE_FEEDBACK.json`: lo que le faltó al motor (sección 7).
 - `.mcp.json`: conexión con Claude Code.
 - `jsconfig.json`: comprobación de tipos para el JavaScript.
 
-## 3. Ejecutar el juego (en desarrollo)
+## 3. Ejecutar el juego
 
 ```bash
 factoria run
@@ -125,9 +128,9 @@ Se abre una ventana con el juego. Los controles están definidos en `factoria.js
 - `2d-platformer`: A y D o las flechas para moverte; Espacio, W o la flecha arriba para saltar.
 - `3d-empty`: W y S o las flechas para avanzar y retroceder; A y D para moverte de lado; E o Espacio para subir; Q o LeftShift para bajar.
 
-## 4. Modo sin ventana y capturas (en desarrollo)
+## 4. Modo sin ventana y capturas
 
-Sin ventana, el juego avanza sin dibujar en pantalla. El resultado es determinista: con la misma semilla y las mismas entradas se obtienen los mismos fotogramas.
+Sin ventana, el juego avanza sin abrir ninguna ventana. Solo dibuja las capturas que pides y el último fotograma, así que es rápido. El resultado es determinista: con la misma semilla y las mismas entradas se obtienen los mismos fotogramas.
 
 ```bash
 factoria run --headless --frames 120 --screenshot-at 119
@@ -138,16 +141,18 @@ factoria run --headless --frames 120 --screenshot-at 119
 - Los fotogramas empiezan en 0 y la captura del fotograma N se toma después de simularlo. Por eso, con 120 fotogramas, la captura es la 119.
 - `--state-out out.json` guarda el estado del mundo en JSON: entidades, componentes, registros y errores.
 - `--record-audio out.wav` guarda el sonido mezclado, para comprobar que el juego suena.
-- `--input replay.json` aplica una secuencia de pulsaciones fotograma a fotograma, por ejemplo `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
+- `--input replay.json` aplica una secuencia de pulsaciones fotograma a fotograma (acciones, teclas y ratón), por ejemplo `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
 - Para una sola captura, `factoria screenshot --frames 120 --out shot.png` simula los fotogramas indicados y guarda la imagen.
 - `--json` imprime el informe en JSON, con las rutas de las capturas.
 
-## 5. Validación y tests (en desarrollo)
+## 5. Validación y tests
 
 ```bash
 factoria validate    # comprueba el proyecto: JSON, escenas, recursos, controles y scripts
 factoria test        # ejecuta tests/*.test.js sin ventana
 ```
+
+`factoria validate --fix-types` regenera `types/factoria.d.ts` a partir de la API del motor.
 
 Un test de la plantilla `2d-empty` tiene este aspecto:
 
@@ -223,9 +228,11 @@ command = "factoria"
 args = ["mcp", "--project", "/ruta/a/mi-juego"]
 ```
 
-El servidor MCP expone cada comando como herramienta, la documentación como recursos `factoria://docs/...` y las capturas de pantalla como imágenes. Incluye también los prompts `make-game`, `add-feature`, `fix-bug` y `report-engine-gap`, que guían a la IA paso a paso. Normalmente el cliente lo arranca por ti. Para depurarlo, puedes arrancarlo a mano con `factoria mcp --project mi-juego` (en desarrollo).
+El servidor MCP expone cada comando como herramienta, la documentación como recursos `factoria://docs/...` y las capturas de pantalla como imágenes. Incluye también los prompts `make-game`, `add-feature`, `fix-bug` y `report-engine-gap`, que guían a la IA paso a paso. Normalmente el cliente lo arranca por ti. Para depurarlo, puedes arrancarlo a mano con `factoria mcp --project mi-juego`.
 
-### Opción B: IA integrada con clave de API (en desarrollo)
+### Opción B: IA integrada con clave de API
+
+`factoria ai doctor` y `factoria ai providers` no necesitan clave: muestran qué proveedores están listos en tu equipo.
 
 1. Guarda tu clave en una variable de entorno. Nunca la pongas dentro de un proyecto:
 
@@ -276,7 +283,7 @@ FactorIA solo lee claves de variables de entorno o de `~/.factoria/ai.json`. Si 
 Cada juego tiene un archivo `ENGINE_FEEDBACK.json` en su raíz. En él, la IA anota lo que le faltó al motor (una función, un comando o un dato de la documentación) y cómo lo resolvió.
 
 - **Para qué sirve.** El equipo de FactorIA junta estos archivos de muchos juegos. Lo que aparece una y otra vez sube en la lista de lo que hay que construir. Así el motor mejora con el uso real.
-- **Qué hace la IA.** En cuanto le falta algo, llama a la herramienta `feedback_report` (MCP). Sin MCP, usa `factoria feedback add` (en desarrollo) o edita el archivo a mano. Si el mismo hueco aparece otra vez, no se duplica la entrada: se suma un caso.
+- **Qué hace la IA.** En cuanto le falta algo, llama a la herramienta `feedback_report` (MCP). Sin MCP, usa `factoria feedback add` o edita el archivo a mano. Si el mismo hueco aparece otra vez, no se duplica la entrada: se suma un caso.
 - **Qué tienes que hacer tú.** Nada. Puedes leerlo cuando quieras. Es texto normal y puedes editarlo o borrar entradas.
 - **Privacidad.** El archivo no se envía a ningún sitio por sí solo. Cuando usas la IA integrada con una API, los títulos de estas entradas forman parte de lo que se envía al proveedor (ver `docs/AI_PROVIDERS.md`).
 
@@ -284,13 +291,13 @@ Ejemplo de entrada:
 
 ```json
 {
-  "category": "physics",
+  "category": "input",
   "severity": "major",
-  "title": "No one-way platforms",
-  "missing": "Collider2D has no one-way option, so the player cannot jump up through platforms.",
-  "workaround": "scripts/one_way.js disables the platform collider while the player moves upward.",
-  "workaroundFiles": ["scripts/one_way.js"],
-  "suggestion": "Add Collider2D.oneWay (bool) with a configurable direction.",
+  "title": "No gamepad input",
+  "missing": "The game needs a controller, but gamepad bindings such as GamepadA are reserved and not supported yet.",
+  "workaround": "none: feature dropped. The game is keyboard and touch only.",
+  "workaroundFiles": [],
+  "suggestion": "Support GamepadA/B/X/Y and D-pad bindings in factoria.json input.actions.",
   "effort": "small"
 }
 ```
@@ -306,27 +313,28 @@ Qué significa cada campo:
 
 Las claves y los valores fijos (`category`, `severity`) van en inglés, como en el ejemplo. El texto libre puede escribirse en el idioma que quieras. `factoria validate` falla si el archivo falta o no cumple el esquema `schemas/engine-feedback.schema.json`.
 
-## 8. Qué está en desarrollo
+## 8. Qué funciona y qué falta
 
 | Parte | Estado |
 |---|---|
 | Compilación en Linux (`./scripts/build.sh`) | Probada |
-| Compilación en macOS, Windows, iOS y Android | Scripts y presets listos; sin probar todavía en esas plataformas |
-| Motor: escenas, scripts de JavaScript, render 2D y 3D, física y audio | En desarrollo |
-| CLI `factoria` (`new`, `run`, `validate`, `test`, `mcp`, `call`, `docs`, `api`, `ai`, `feedback`) | En desarrollo |
-| Plantillas de proyecto (`factoria new`) | En desarrollo |
-| Servidor MCP para Claude Code y Codex (`factoria mcp`) | En desarrollo |
-| IA integrada con clave de API (`factoria ai`) | En desarrollo |
-| Exportar juegos (`factoria export`) | En desarrollo; ver `docs/EXPORTING.md` |
-| Editor visual | En desarrollo |
+| Compilación en macOS, Windows, iOS y Android | Scripts y presets listos; sin probar todavía en esas plataformas. El código móvil no se ha podido compilar en la máquina de desarrollo (`docs/MOBILE.md`) |
+| Motor: escenas, scripts de JavaScript, render 2D y 3D, física (incluidas plataformas de un sentido y tilemaps), partículas y capturas | Funciona en Linux. El audio no se ha probado en el entorno de documentación |
+| CLI `factoria`: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Funciona en Linux |
+| `factoria editor` (editor visual) | Incluido en las builds de escritorio. Necesita pantalla; no probado en el entorno de documentación |
+| Plantillas de proyecto (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Funciona |
+| Servidor MCP para Claude Code y Codex (`factoria mcp`) | Funciona |
+| IA integrada con clave de API (`factoria ai`) | `doctor`, `providers` y `config` funcionan. `ai run` necesita una clave de API o una CLI instalada (Claude Code o Codex) |
+| Exportar juegos (`factoria export`) | Linux probado (`--platform linux`). Windows, macOS, Android e iOS: ver `docs/EXPORTING.md` y `docs/MOBILE.md` |
+| Documentación para IA | En inglés: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
 | Mandos (gamepad) | Planificado. Los nombres de los botones están reservados, pero aún no funcionan |
 
 ## 9. Dónde seguir leyendo
 
-- `factoria help <comando>` muestra la ayuda y ejemplos de cada comando (en desarrollo). `docs/CLI.md` describe todos los comandos y opciones.
+- `factoria help <comando>` muestra la ayuda y ejemplos de cada comando. `docs/CLI.md` describe todos los comandos y opciones.
+- `docs/AI_GUIDE.md` (en inglés): la guía completa para una IA que construye un juego. Si eres una IA, léela antes de tocar un juego. Está disponible también con `factoria docs read ai-guide`.
 - `docs/ARCHITECTURE.md`: diseño, módulos y convenciones.
 - `docs/SCRIPTING.md`: la API de JavaScript: comportamientos, herramientas y tests.
-- `docs/AI_GUIDE.md`: la guía completa para una IA que construye un juego. Si eres una IA, léela antes de tocar un juego. Está disponible también con `factoria docs read ai-guide` (en desarrollo).
 - `docs/EXTENDING.md`: cómo añadir herramientas de proyecto y comandos del motor.
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` y `docs/ENGINE_FEEDBACK.md`: conexión con IA y registro de lo que le falta al motor.
 - `docs/BUILDING.md`: requisitos y compilación por plataforma.
