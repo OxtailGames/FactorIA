@@ -72,10 +72,12 @@ elseif(FA_PLATFORM STREQUAL "ios")
                 "Point it at the game folder, e.g. -DFA_GAME_PROJECT_DIR=/path/to/mygame")
         endif()
         add_custom_command(TARGET factoria_player POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -DSRC=${FA_GAME_PROJECT_DIR} "-DDST=$<TARGET_BUNDLE_CONTENT_DIR:factoria_player>/game"
+            # Not VERBATIM on purpose: with the Xcode generator the bundle path contains
+            # ${EFFECTIVE_PLATFORM_NAME}, which the build-phase shell must expand (VERBATIM escapes
+            # it, and the game ends up in a literal "Debug${EFFECTIVE_PLATFORM_NAME}" folder).
+            COMMAND ${CMAKE_COMMAND} "-DSRC=${FA_GAME_PROJECT_DIR}" "-DDST=$<TARGET_BUNDLE_CONTENT_DIR:factoria_player>/game"
                 -P ${FA_ROOT}/platforms/common/copy_game.cmake
-            COMMENT "Copying game '${FA_GAME_PROJECT_DIR}' into the app bundle"
-            VERBATIM)
+            COMMENT "Copying game into the app bundle")
     else()
         message(STATUS "factoria_player (iOS): FA_GAME_PROJECT_DIR not set; the app will show an error screen. "
             "Use -DFA_GAME_PROJECT_DIR=<game folder> or `factoria export --platform ios`.")

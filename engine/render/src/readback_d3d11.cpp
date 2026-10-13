@@ -4,7 +4,9 @@
 #if defined(SOKOL_D3D11)
 
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <d3d11.h>
 
 #include <cstring>
