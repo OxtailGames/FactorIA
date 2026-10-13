@@ -38,7 +38,7 @@
       "active": false,
       "components": {
         "Transform": { "position": [640, 360, 0] },
-        "Shape2D": { "shape": "rectangle", "size": [560, 150], "color": [0.02, 0.03, 0.05, 0.8], "layer": 150, "space": "screen" }
+        "Shape2D": { "shape": "rectangle", "size": [920, 170], "color": [0.02, 0.03, 0.05, 0.8], "layer": 150, "space": "screen" }
       }
     },
     {

@@ -2,5 +2,371 @@
   "format": "factoria.feedback/1",
   "project": "Block Push",
   "engineVersion": "0.1.0",
-  "entries": []
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "AI_GUIDE marks working CLI commands as planned",
+      "missing": "docs/AI_GUIDE.md labels several CLI forms as (planned) or says they may not run: factoria validate, factoria test, factoria run --input and --state-out, factoria commands, factoria call feedback.report, and factoria docs read ai-guide. In this build all of them run: validate, test, commands, run --headless --input replay.json --state-out, and docs read ai-guide were each run successfully. An agent that trusts the label falls back to MCP-only steps or skips a check.",
+      "workaround": "Ran the CLI commands directly, checked each with --help and its output, and ignored the (planned) labels.",
+      "workaroundFiles": [
+        "README.md"
+      ],
+      "suggestion": "Remove the (planned) labels for commands that ship, keep them only for real gaps, and add a short list of which commands work from the CLI.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "getting-started is in Spanish and marks working features as in development",
+      "missing": "docs/GETTING_STARTED (factoria docs read getting-started) is entirely in Spanish while every other doc is in English. Its status table marks factoria new, run, validate, test, call, docs, api, feedback add and ai as (en desarrollo) or in development, but these run in this build. It is the first doc a new user is pointed to, so an English-speaking agent gets a misleading picture of what is available.",
+      "workaround": "Read AI_GUIDE.md, CLI.md and SCRIPTING.md instead, and trusted each command's --help over the status table.",
+      "workaroundFiles": [
+        "README.md"
+      ],
+      "suggestion": "Publish getting-started in English (or add an English version), and update its status table to match the CLI that ships.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "tooling",
+      "severity": "major",
+      "title": "Bug: validate rejects ../ imports that stay inside the project",
+      "missing": "factoria validate fails with: cannot resolve import \"../levels/levels.js\": Path '../levels/levels.js' escapes the project root. It reports this for scripts/board.js and tools/check_levels.js, labelled as a Syntax error. The path scripts/../levels/levels.js resolves to levels/levels.js, which is inside the project. The same imports load at runtime: factoria run --headless, factoria test and factoria call project.check_levels all work with them. Validate and runtime disagree, and the false error blocks the clean-validate step.",
+      "workaround": "Changed both imports to the project-root form \"levels/levels.js\", which validate and the runtime both accept.",
+      "workaroundFiles": [
+        "scripts/board.js",
+        "tools/check_levels.js"
+      ],
+      "suggestion": "Resolve the import against the importing file's folder, normalise the result, then check it is inside the project root. Report import failures as import errors, not syntax errors.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "scripting",
+      "severity": "major",
+      "title": "No JSON data import from scripts",
+      "missing": "Level data is most natural as JSON, but import data from \"levels/levels.json\" fails: the engine parses the JSON file as JavaScript (SyntaxError at 1:11, the colon after the first key). validate blames scripts/board.js:1:11, while the runtime reports levels/levels.json:1:11. The docs describe no way for a behaviour to read a data file: the scripting API has no text or JSON read, and fs.read is an AI command, not a gameplay API.",
+      "workaround": "Stored the level text in a JavaScript module that exports LEVELS (levels/levels.js), imported by the board script and by the check tool.",
+      "workaroundFiles": [
+        "levels/levels.js",
+        "scripts/board.js",
+        "tools/check_levels.js"
+      ],
+      "suggestion": "Support JSON modules (import x from \"x.json\") or add assets.readJson(path) and assets.readText(path) to the scripting API. Attribute parse errors to the file that failed.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Module import path rules are undocumented",
+      "missing": "SCRIPTING.md and AI_GUIDE.md never say how one project script imports another: whether ../ is allowed, whether ./ is, whether file extensions are required, or whether a project-root path works. Validate and the runtime disagree on ../ (see the validate bug). The only rule I found is 'project-relative paths', and that is written for assets.",
+      "workaround": "Tried several forms, and used the project-root form levels/levels.js, which both validate and the runtime accept.",
+      "workaroundFiles": [
+        "scripts/board.js",
+        "tools/check_levels.js"
+      ],
+      "suggestion": "Add a Modules section to SCRIPTING.md with the resolution rules and a worked example of a shared data module used by both a behaviour and a project tool.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "game.load does not run onStart until a frame is stepped",
+      "missing": "After game.load(scene), the board script's onStart (which spawns the level) has not run, so game.world.findByTag(\"player\") is empty and the test fails with TypeError: cannot read property 'position' of undefined at the first expect. Nothing in the error points at the cause. The factoria:test docs say only that game.load 'loads a scene immediately'.",
+      "workaround": "Added a load() helper in tests/board.test.js that calls game.step(1) after game.load.",
+      "workaroundFiles": [
+        "tests/board.test.js"
+      ],
+      "suggestion": "Run one frame inside game.load (or start behaviours there), or report a missing entity as 'no entity matched; did you step a frame after game.load?'. Document that onStart runs on the first step.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "factoria test prints every result twice",
+      "missing": "Each test is printed once as it finishes (with timing) and again in the summary, so a ten-test file prints twenty PASS lines. Failures are printed twice too. Nothing is wrong, but the output is longer than it needs to be.",
+      "workaround": "none: ignored the second list of results.",
+      "workaroundFiles": [
+        "tests/board.test.js"
+      ],
+      "suggestion": "Print each result once. Optionally add a summary-only flag, or print only failures with their details at the end.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "New projects ship a placeholder types/factoria.d.ts",
+      "missing": "factoria new writes types/factoria.d.ts as a stub that declares the factoria modules as any, so // @ts-check and tsc check nothing. The real typings come from factoria api --dts --project <dir>, but the new-project next steps and README never mention that step.",
+      "workaround": "Ran factoria api --dts --project . which wrote 48 KB of declarations to types/factoria.d.ts.",
+      "workaroundFiles": [
+        "types/factoria.d.ts"
+      ],
+      "suggestion": "Generate the real typings in factoria new, or add the regeneration command to the next-steps output.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "AGENTS.md regenerate command only prints the typings",
+      "missing": "AGENTS.md and CLAUDE.md, written by factoria new, say to regenerate the types with factoria api --dts. Run inside the project, that command prints the declarations to stdout and leaves types/factoria.d.ts unchanged (file size and mtime checked). Only factoria api --dts --project . writes the file, as CLI.md describes.",
+      "workaround": "Used factoria api --dts --project . instead.",
+      "workaroundFiles": [
+        "types/factoria.d.ts"
+      ],
+      "suggestion": "Change the generated guide to say factoria api --dts --project ., or make --dts write into the enclosing project when run inside one.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "CLI.md scene.spawn example uses a component that does not exist",
+      "missing": "The factoria call scene.spawn example in CLI.md uses Transform2D, but the component is named Transform (see COMPONENTS.md). The call still exits 0 with a default position. See the related entry on scene.spawn accepting unknown names.",
+      "workaround": "Used Transform, as the component reference says.",
+      "workaroundFiles": [
+        "scenes/main.scene.json"
+      ],
+      "suggestion": "Fix the example, and run the documentation examples through validate in CI so wrong names are caught.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "scene.spawn exits 0 with unknown component or field names",
+      "missing": "factoria call scene.spawn with Transform2D, or Shape2D with colour instead of color, creates the entity, exits 0 with empty stderr, and drops the bad component. The only signal is a 'messages' entry in the stdout JSON: Unknown component 'Transform2D' with a did-you-mean hint. factoria validate rejects the same names in a scene file, so the CLI and the file path behave differently.",
+      "workaround": "Read the messages array after each spawn call and used the valid names.",
+      "workaroundFiles": [
+        "scenes/main.scene.json"
+      ],
+      "suggestion": "Make scene.spawn return ok false (exit 1) for unknown component or field names, as validate does, or print them to stderr.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "No touch input in the test harness",
+      "missing": "The factoria:test game object offers tap, press, release, keyDown, mouseMove and click, but no touch. The click-to-step code reads input.touches, so the touch path cannot be tested headless. Only the mouse path is covered.",
+      "workaround": "Tests cover mouse clicks through game.click. The touch branch is written but untested.",
+      "workaroundFiles": [
+        "scripts/board.js",
+        "tests/board.test.js"
+      ],
+      "suggestion": "Add game.touch(screenPos) (or a tap variant) that fills input.touches for one frame, with pressed set on the first frame of contact.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "TouchInfo.pressed is undocumented",
+      "missing": "SCRIPTING.md lists input.touches as [{ id, position, world, pressed }] without saying what pressed means, and the generated typings carry no comment on it. Does it mean the touch went down this frame, as with input.pressed, or that it is still held? I assumed the first and could not check it in tests.",
+      "workaround": "Assumed pressed means the touch started this frame, and reacted only to that.",
+      "workaroundFiles": [
+        "scripts/board.js"
+      ],
+      "suggestion": "Document each TouchInfo field, for example: pressed is true only on the frame the touch starts. Add a held or down field for a touch that is still in contact.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "No text measurement for layout",
+      "missing": "Nothing in the scripting API or the Text component reports the rendered width or height of a string, so a panel behind centred text cannot be sized from its content. My banner panel (560 px wide) was narrower than 'Press Space or click for the next level' (about 830 px at fontSize 44), so the text ran outside it.",
+      "workaround": "Measured the text from a screenshot and hard-coded a wider panel in scenes/main.scene.json.",
+      "workaroundFiles": [
+        "scenes/main.scene.json"
+      ],
+      "suggestion": "Expose Text.measure(text, fontSize) in the scripting API, or a read-only width and height on Text after layout, so UI panels can size to their content.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Shape2D anchor not documented",
+      "missing": "COMPONENTS.md documents a pivot for Sprite but not for Shape2D, and never says where a rectangle or circle is anchored. Rectangles are centred on the Transform position: a 560x150 panel at [640, 360] in screen space covered x 360 to 920 and y 285 to 435. I had to measure that from a screenshot.",
+      "workaround": "Placed panels by measuring screenshots.",
+      "workaroundFiles": [
+        "scenes/main.scene.json"
+      ],
+      "suggestion": "State in COMPONENTS.md that rectangles and circles are centred on the entity position, or add a pivot field to Shape2D.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "world.spawn parent option is undocumented",
+      "missing": "world.spawn(json, {parent}) exists in the generated typings, but SCRIPTING.md shows only spawn(entityJson). I found the option only by reading factoria.d.ts. It is what lets one root entity own every piece of a level, so a single destroy() removes them all (verified by counting entities after a reload).",
+      "workaround": "Used the option: each level's pieces are spawned under a root entity that is destroyed on reload.",
+      "workaroundFiles": [
+        "scripts/board.js"
+      ],
+      "suggestion": "Document the spawn options in SCRIPTING.md, with the root-and-destroy pattern as an example.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "EXTENDING.md marks project tools and factoria call as planned",
+      "missing": "docs/EXTENDING.md says the tools/*.js contract is 'planned until the script module loads tools/*.js in your build', and that factoria call project.<name> is '(planned)'. Both work in this build: project.check_levels runs from factoria call, and from factoria test through fa.call. This is the same stale-label problem as the AI_GUIDE entry, in a second doc.",
+      "workaround": "Used project tools and factoria call anyway, after confirming them with factoria commands and a test run.",
+      "workaroundFiles": [
+        "tools/check_levels.js"
+      ],
+      "suggestion": "Update EXTENDING.md and every (planned) label to match the build. Add a docs check that fails when a command documented as planned already runs.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "Claude Code",
+        "model": "claude-haiku-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Project tools cannot fail a check and still return a report",
+      "missing": "A check tool such as project.check_levels returns {ok: false, errors, levels} for bad level data, but factoria call exits 0, so CI cannot use the exit code. Throwing an Error gives exit 1, but stdout is then empty, the report is lost, and the hint says 'Fix the error in tools/check_levels.js (see script errors)', which points at the tool instead of the level data. EXTENDING.md says errors should carry the fix in the message, but a tool has no way to return a structured error with its own hint.",
+      "workaround": "Kept returning the full report with ok: false and exit 0, so CI would have to parse the JSON. The throw path was tested in a scratch copy only.",
+      "workaroundFiles": [
+        "tools/check_levels.js"
+      ],
+      "suggestion": "Let a tool return a result with ok: false that makes factoria call exit 1 while still printing the result. Or let it throw an error that carries both a result and a hint. Document which one a check tool should use.",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
 }

@@ -3,7 +3,7 @@
 // the player as entities, and applies the rules: push, undo, restart, click-to-step and
 // level complete.
 import { Behaviour, input, world } from "factoria";
-import { LEVELS } from "../levels/levels.js";
+import { LEVELS } from "levels/levels.js";
 
 const MAX_TILE = 64; // largest cell size, in design pixels
 const AREA_W = 1180; // room the board may take, in design pixels

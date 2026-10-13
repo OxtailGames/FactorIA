@@ -29,8 +29,8 @@ export default class Gem extends Behaviour {
       components: {
         Transform: { position: [p.x, p.y, p.z] },
         ParticleEmitter: {
-          is3D: true, emitting: false, burst: 40, rate: 0, lifetime: 0.8, speed: 4, spread: 180,
-          gravity: [0, -6, 0], startSize: 0.25, endSize: 0,
+          is3D: true, emitting: true, burst: 40, rate: 0, lifetime: 0.8, speed: 4, spread: 180,
+          gravity: [0, -6, 0], startSize: 0.3, endSize: 0.05,
           startColor: [0.4, 0.95, 1, 1], endColor: [1, 1, 1, 0],
         },
       },
