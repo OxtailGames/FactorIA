@@ -23,3 +23,12 @@ if(TARGET fa_test_render)
     # Golden images live next to the tests.
     target_compile_definitions(fa_test_render PRIVATE FA_RENDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden")
 endif()
+
+# Windowed smoke test (needs a display; runs under xvfb when available).
+find_program(FA_XVFB_RUN xvfb-run)
+if(TARGET fa_test_render AND FA_XVFB_RUN AND FA_PLATFORM STREQUAL "linux")
+    add_test(NAME render_windowed_smoke
+        COMMAND ${CMAKE_COMMAND} -E env FA_WINDOWED_SMOKE=1 ${FA_XVFB_RUN} -a -s "-screen 0 1280x720x24"
+                $<TARGET_FILE:fa_test_render> -tc=windowed*
+        WORKING_DIRECTORY ${FA_ROOT})
+endif()

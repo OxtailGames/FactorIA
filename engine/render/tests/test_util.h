@@ -23,7 +23,7 @@ struct Gfx {
     bool ok = false;
     std::string error;
 
-    Gfx(int w = 320, int h = 180, int samples = 1) {
+    Gfx(int w = 320, int h = 180, int samples = std::getenv("FA_TEST_SAMPLES") ? std::atoi(std::getenv("FA_TEST_SAMPLES")) : 1) {
         projectDir = std::filesystem::temp_directory_path() / "fa_render_test_project";
         std::filesystem::create_directories(projectDir / "assets");
         fs::set_project_root(projectDir);
