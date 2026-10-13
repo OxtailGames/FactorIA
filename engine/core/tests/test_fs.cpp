@@ -232,7 +232,7 @@ TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
     CHECK(stdfs::is_directory(a));
     CHECK(stdfs::is_empty(a));
     CHECK(a.filename().string().rfind("fa_test_tmp_", 0) == 0);
-    CHECK(stdfs::equivalent(a.parent_path(), stdfs::temp_directory_path()));  // temp path may end in a separator (Windows)
+    CHECK(stdfs::is_directory(stdfs::temp_directory_path() / a.filename()));  // directly inside the system temp folder
     stdfs::remove_all(a);
     stdfs::remove_all(b);
 }

@@ -58,7 +58,7 @@ std::string resolve_input_path(const std::string& path, const std::string& proje
     }
     std::string msg = "Cannot find " + what + " '" + path + "'" + (isFolder ? " (a folder of that name exists, but a file is needed)" : "") +
                       ". Looked in:";
-    for (const Tried& t : tried) msg += "\n  - " + t.candidate.string() + " (" + t.where + ")";
+    for (const Tried& t : tried) msg += "\n  - " + t.candidate.generic_string() + " (" + t.where + ")";  // '/' on every platform
     // A similarly named file next to where it was expected.
     std::string similar;
     std::vector<std::string> names;

@@ -1,0 +1,4 @@
+# JSON files are checked out with LF line endings on every platform. The engine writes scenes, prefabs and other JSON
+# with LF, and tests compare committed scene files with what the engine writes byte for byte (scene.format also treats
+# CRLF as not canonical), so a CRLF checkout on Windows would fail them.
+*.json text eol=lf

@@ -253,9 +253,13 @@ def test_template(tmp, template):
     code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", "replays/probe.json"], cwd=elsewhere)
     check(code == 0, "run --input replays/probe.json from another folder finds the file in the project (exit %d)" % code)
     code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", "replays/prob.json"], cwd=elsewhere)
-    check(code == 2 and os.path.join(os.path.realpath(elsewhere), "replays", "prob.json") in err
-          and os.path.join(proj, "replays", "prob.json") in err and "Did you mean 'replays/probe.json'" in err
-          and "relative to the project root" not in err, "run --input: a missing file lists both places tried and suggests a name")
+    # The CLI prints the places with '/' separators; the absolute prefixes differ between platforms (symlinked or short
+    # temp folders), so check the file in both places and the two labels rather than whole paths.
+    shown = err.replace("\\", "/")
+    check(code == 2 and shown.count("replays/prob.json (relative to the current directory)") == 1
+          and shown.count("replays/prob.json (relative to the project folder)") == 1
+          and "Did you mean 'replays/probe.json'" in err and "relative to the project root" not in err,
+          "run --input: a missing file lists both places tried and suggests a name")
     code, rep, err = jrun(["run", proj, "--headless", "--frames", "3", "--state-out", "out/state.json", "--json"], cwd=elsewhere)
     check(code == 0 and os.path.exists(os.path.join(elsewhere, "out", "state.json"))
           and not os.path.exists(os.path.join(proj, "out", "state.json")), "run --state-out is relative to the current directory")

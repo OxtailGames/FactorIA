@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "fa/cli/cli.h"
+#include "fa/core/json.h"
 
 namespace {
 struct Result {
@@ -108,6 +109,8 @@ struct PathsFixture {
         std::ofstream(p, std::ios::binary) << text;
     }
 };
+// A path the way the CLI prints it in messages: normalized, with '/' separators on every platform.
+std::string shown(const stdfs::path& p) { return p.lexically_normal().generic_string(); }
 }  // namespace
 
 TEST_CASE("run --input: an existing path relative to the current directory wins, else the project's") {
@@ -133,9 +136,9 @@ TEST_CASE("run --input: a missing file lists the places tried and suggests a clo
     auto r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input", "replays/jmp.json"});
     CHECK(r.code == 2);
     CHECK(r.err.find("the --input file 'replays/jmp.json'") != std::string::npos);
-    CHECK(r.err.find((f.elsewhere / "replays/jmp.json").string()) != std::string::npos);
+    CHECK(r.err.find(shown(f.elsewhere / "replays/jmp.json")) != std::string::npos);
     CHECK(r.err.find("relative to the current directory") != std::string::npos);
-    CHECK(r.err.find((f.project / "replays/jmp.json").string()) != std::string::npos);
+    CHECK(r.err.find(shown(f.project / "replays/jmp.json")) != std::string::npos);
     CHECK(r.err.find("relative to the project folder") != std::string::npos);
     CHECK(r.err.find("Did you mean 'replays/jump.json'") != std::string::npos);
     // The old, wrong claim ("relative to the project root") is gone from the hint.
@@ -161,7 +164,12 @@ TEST_CASE("run output options are relative to the current directory and the repo
     REQUIRE_MESSAGE(r.code == 0, (r.out + r.err));
     CHECK(stdfs::exists(f.elsewhere / "out/state.json"));
     CHECK_FALSE(stdfs::exists(f.project / "out/state.json"));
-    CHECK(r.out.find((f.elsewhere / "out/state.json").string()) != std::string::npos);
+    // The report names the file it wrote (an absolute path; compare the files, not the spellings).
+    const fa::Json report = fa::Json::parse(r.out, nullptr, false);
+    REQUIRE(report.is_object());
+    REQUIRE(report.contains("stateOut"));
+    std::error_code ec;
+    CHECK(stdfs::equivalent(stdfs::path(report["stateOut"].get<std::string>()), f.elsewhere / "out/state.json", ec));
 }
 
 TEST_CASE("call: @args.json, --batch-file and --input are found in the current directory, then in the project") {
@@ -176,5 +184,5 @@ TEST_CASE("call: @args.json, --batch-file and --input are found in the current d
     CHECK_MESSAGE(r.code == 0, (r.out + r.err));
     r = run({"call", "project.info", "@levels/nope.json", "--project", f.project.string()});
     CHECK(r.code == 2);
-    CHECK(r.err.find((f.project / "levels/nope.json").string()) != std::string::npos);
+    CHECK(r.err.find(shown(f.project / "levels/nope.json")) != std::string::npos);
 }
