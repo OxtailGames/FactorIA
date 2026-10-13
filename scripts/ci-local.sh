@@ -10,10 +10,11 @@
 # Jobs
 #   linux    Linux build (GCC/Clang) + full ctest. GPU tests use Mesa llvmpipe
 #            through Xvfb when there is no display.
-#   windows  Windows x64 cross-build with MinGW-w64 (D3D11 backend) + every
-#            unit-test executable and a CLI smoke test under Wine. Catches
-#            Windows API/backend bugs; MSVC-only quirks still need
-#            scripts/build.ps1 on a Windows PC.
+#   windows  On a Windows host: MSVC build + ctest through scripts/build.ps1
+#            (Visual Studio 2022+). On Linux: Windows x64 cross-build with
+#            MinGW-w64 (D3D11 backend) + every unit-test executable and a CLI
+#            smoke test under Wine (catches Windows API/backend bugs; MSVC-only
+#            quirks need the Windows host).
 #   android  factoria_player for arm64-v8a (needs ANDROID_NDK_HOME, NDK r27+).
 #   macos    macOS build + ctest (only on a Mac).
 #   ios      iOS Simulator build of factoria_player (only on a Mac with Xcode).
@@ -25,6 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 JOBS="${FA_CI_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 HOST="$(uname -s)"
+case "$HOST" in MINGW*|MSYS*|CYGWIN*) HOST=Windows ;; esac
 LOGDIR="$ROOT/build/ci-logs"
 mkdir -p "$LOGDIR"
 
@@ -62,7 +64,18 @@ job_linux() {
     fi
 }
 
+job_windows_native() {
+    note "windows (MSVC via scripts/build.ps1)"
+    local ps=powershell; command -v pwsh >/dev/null && ps=pwsh
+    if run_logged "$LOGDIR/windows-msvc.log" "$ps" -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 release -Test; then
+        record windows PASS "MSVC build + ctest (windows-release preset)"
+    else
+        record windows FAIL "see $LOGDIR/windows-msvc.log"
+    fi
+}
+
 job_windows() {
+    if [ "$HOST" = "Windows" ]; then job_windows_native; return; fi
     note "windows (MinGW-w64 cross build + Wine)"
     if ! command -v x86_64-w64-mingw32-g++-posix >/dev/null && ! command -v x86_64-w64-mingw32-g++ >/dev/null; then
         record windows SKIP "no MinGW-w64 (Debian/Ubuntu: apt install g++-mingw-w64-x86-64-posix)"; return

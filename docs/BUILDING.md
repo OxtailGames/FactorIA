@@ -199,11 +199,16 @@ Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran faile
 MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
 Windows PC.
 
-The GitHub workflow (`.github/workflows/ci.yml`) is kept for **manual** runs only
-(Actions tab, "Run workflow"), because GitHub-hosted runners consume Actions
-minutes. To use GitHub's UI for free with your own computer, register it as a
-self-hosted runner (repository Settings > Actions > Runners > New self-hosted
-runner) and change the job's `runs-on` to `self-hosted`.
+On GitHub, `.github/workflows/ci.yml` runs this same script on every push, on
+the repository's **self-hosted runner** (your own computer, registered under
+Settings > Actions > Runners), so it costs no Actions minutes. The runner needs
+the normal build prerequisites for its OS (see Requirements); for the Android
+job, set `ANDROID_NDK_HOME` in the runner's environment (`.env` file in the
+runner folder). Pull requests from forks never run on the self-hosted machine.
+
+`.github/workflows/ci-github-hosted.yml` keeps the full five-platform matrix on
+GitHub-hosted runners. It only runs when started by hand (Actions tab, "Run
+workflow") because it consumes Actions minutes.
 
 ## Troubleshooting
 
