@@ -2,32 +2,19 @@
   "format": "factoria.prefab/1",
   "entity": {
     "name": "Splitter",
-    "tags": [
-      "enemy",
-      "splitter"
-    ],
+    "tags": ["enemy", "splitter"],
     "components": {
       "Transform": {
-        "position": [
-          0,
-          0,
-          0
-        ]
+        "position": [0, 0, 0]
       },
-      "Sprite": {
-        "texture": "assets/img/glow_circle.png",
-        "size": [
-          60.0,
-          60.0
-        ],
-        "color": [
-          0.6,
-          0.3,
-          1,
-          1
-        ],
+      "Shape2D": {
+        "shape": "circle",
+        "size": [54, 54],
+        "color": [0.6, 0.3, 1, 1],
+        "filled": false,
+        "thickness": 7,
         "layer": 5,
-        "pixelArt": false
+        "blend": "additive"
       },
       "RigidBody2D": {
         "type": "kinematic"

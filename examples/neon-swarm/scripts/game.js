@@ -145,7 +145,7 @@ export default class Game extends Behaviour {
         ParticleEmitter: {
           emitting: true, rate: 0, burst: count, maxParticles: count, lifetime: 0.7, speed: 300, speedVariance: 0.5,
           direction: 0, spread: 180, gravity: [0, 0, 0], startSize: 16, endSize: 2,
-          startColor: [c[0], c[1], c[2], 1], endColor: [c[0], c[1], c[2], 0], layer: 20,
+          startColor: [c[0], c[1], c[2], 1], endColor: [c[0], c[1], c[2], 0], blend: "additive", layer: 20,
         },
       },
     });
@@ -156,7 +156,7 @@ export default class Game extends Behaviour {
     this.state = "over";
     this.gameOverTimer = 1.0;
     const p = world.find("player");
-    if (p) { this.explode(p.position.x, p.position.y, [0.3, 1, 1], 80); p.get("Sprite").color.a = 0; }
+    if (p) { this.explode(p.position.x, p.position.y, [0.3, 1, 1], 80); p.get("Shape2D").color.a = 0; }
     this.shake = 18;
     if (this.score > storage.get("highScore", 0)) storage.set("highScore", this.score);
     storage.set("lastScore", this.score);

@@ -2,32 +2,18 @@
   "format": "factoria.prefab/1",
   "entity": {
     "name": "Bullet",
-    "tags": [
-      "projectile",
-      "bullet"
-    ],
+    "tags": ["projectile", "bullet"],
     "components": {
       "Transform": {
-        "position": [
-          0,
-          0,
-          0
-        ]
+        "position": [0, 0, 0]
       },
-      "Sprite": {
-        "texture": "assets/img/glow_circle.png",
-        "size": [
-          22.0,
-          22.0
-        ],
-        "color": [
-          0.3,
-          1,
-          1,
-          1
-        ],
+      "Shape2D": {
+        "shape": "circle",
+        "size": [14, 14],
+        "color": [0.35, 1, 1, 1],
+        "filled": true,
         "layer": 8,
-        "pixelArt": false
+        "blend": "additive"
       },
       "RigidBody2D": {
         "type": "kinematic"

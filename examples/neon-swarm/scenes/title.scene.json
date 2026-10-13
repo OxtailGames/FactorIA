@@ -1,613 +1,346 @@
 {
- "format": "factoria.scene/1",
- "settings": {
-  "gravity2D": [
-   0,
-   0
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, 0.0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Camera": {
+          "clearColor": [0.03, 0.02, 0.07, 1.0],
+          "bloom": true,
+          "bloomThreshold": 0.5,
+          "bloomIntensity": 1.5,
+          "bloomRadius": 26.0
+        }
+      }
+    },
+    {
+      "id": "deco_0",
+      "components": {
+        "Transform": {
+          "position": [-540.0, -280.0, 0.0],
+          "rotation": [0.0, 0.0, 278.0]
+        },
+        "Shape2D": {
+          "size": [44.0, 44.0],
+          "color": [0.8, 0.16, 0.4, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_1",
+      "components": {
+        "Transform": {
+          "position": [-333.0, 48.0, 0.0],
+          "rotation": [0.0, 0.0, 309.0]
+        },
+        "Shape2D": {
+          "shape": "triangle",
+          "size": [58.0, 58.0],
+          "color": [0.8, 0.68, 0.16, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_2",
+      "components": {
+        "Transform": {
+          "position": [370.0, 310.0, 0.0],
+          "rotation": [0.0, 0.0, 297.0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [52.0, 52.0],
+          "color": [0.5, 0.25, 0.8, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_3",
+      "components": {
+        "Transform": {
+          "position": [-466.0, 290.0, 0.0],
+          "rotation": [0.0, 0.0, 6.0]
+        },
+        "Shape2D": {
+          "size": [44.0, 44.0],
+          "color": [0.8, 0.16, 0.4, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_4",
+      "components": {
+        "Transform": {
+          "position": [360.0, -65.0, 0.0],
+          "rotation": [0.0, 0.0, 282.0]
+        },
+        "Shape2D": {
+          "shape": "triangle",
+          "size": [58.0, 58.0],
+          "color": [0.8, 0.68, 0.16, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_5",
+      "components": {
+        "Transform": {
+          "position": [560.0, -250.0, 0.0],
+          "rotation": [0.0, 0.0, 240.0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [52.0, 52.0],
+          "color": [0.5, 0.25, 0.8, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_6",
+      "components": {
+        "Transform": {
+          "position": [507.0, 232.0, 0.0],
+          "rotation": [0.0, 0.0, 243.0]
+        },
+        "Shape2D": {
+          "size": [44.0, 44.0],
+          "color": [0.8, 0.16, 0.4, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_7",
+      "components": {
+        "Transform": {
+          "position": [213.0, 324.0, 0.0],
+          "rotation": [0.0, 0.0, 77.0]
+        },
+        "Shape2D": {
+          "shape": "triangle",
+          "size": [58.0, 58.0],
+          "color": [0.8, 0.68, 0.16, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_8",
+      "components": {
+        "Transform": {
+          "position": [-126.0, 320.0, 0.0],
+          "rotation": [0.0, 0.0, 77.0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [52.0, 52.0],
+          "color": [0.5, 0.25, 0.8, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_9",
+      "components": {
+        "Transform": {
+          "position": [471.0, 69.0, 0.0],
+          "rotation": [0.0, 0.0, 7.0]
+        },
+        "Shape2D": {
+          "size": [44.0, 44.0],
+          "color": [0.8, 0.16, 0.4, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_10",
+      "components": {
+        "Transform": {
+          "position": [-469.0, -167.0, 0.0],
+          "rotation": [0.0, 0.0, 302.0]
+        },
+        "Shape2D": {
+          "shape": "triangle",
+          "size": [58.0, 58.0],
+          "color": [0.8, 0.68, 0.16, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_11",
+      "components": {
+        "Transform": {
+          "position": [-513.0, -22.0, 0.0],
+          "rotation": [0.0, 0.0, 15.0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [52.0, 52.0],
+          "color": [0.5, 0.25, 0.8, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_12",
+      "components": {
+        "Transform": {
+          "position": [-380.0, -80.0, 0.0],
+          "rotation": [0.0, 0.0, 304.0]
+        },
+        "Shape2D": {
+          "size": [44.0, 44.0],
+          "color": [0.8, 0.16, 0.4, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "deco_13",
+      "components": {
+        "Transform": {
+          "position": [440.0, -190.0, 0.0],
+          "rotation": [0.0, 0.0, 202.0]
+        },
+        "Shape2D": {
+          "shape": "triangle",
+          "size": [58.0, 58.0],
+          "color": [0.8, 0.68, 0.16, 1.0],
+          "filled": false,
+          "thickness": 4.0,
+          "layer": -5,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "title",
+      "name": "title",
+      "components": {
+        "Transform": {
+          "position": [640.0, 200.0, 0.0]
+        },
+        "Text": {
+          "text": "NEON SWARM",
+          "fontSize": 84.0,
+          "color": [0.3, 1.0, 1.0, 1.0],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "best",
+      "name": "best",
+      "components": {
+        "Transform": {
+          "position": [640.0, 320.0, 0.0]
+        },
+        "Text": {
+          "text": "HIGH SCORE 0",
+          "fontSize": 28.0,
+          "color": [0.4, 1.0, 1.0, 1.0],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "prompt",
+      "name": "prompt",
+      "components": {
+        "Transform": {
+          "position": [640.0, 520.0, 0.0]
+        },
+        "Text": {
+          "text": "PRESS SPACE OR CLICK TO PLAY",
+          "fontSize": 30.0,
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "help",
+      "name": "help",
+      "components": {
+        "Transform": {
+          "position": [640.0, 640.0, 0.0]
+        },
+        "Text": {
+          "text": "WASD move   MOUSE aim   SPACE / LEFT CLICK shoot",
+          "fontSize": 20.0,
+          "color": [0.6, 0.6, 0.8, 1.0],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "menu",
+      "components": {
+        "Script": {
+          "path": "scripts/menu.js",
+          "props": {
+            "mode": "title"
+          }
+        }
+      }
+    }
   ]
- },
- "entities": [
-  {
-   "id": "camera",
-   "name": "Main Camera",
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      0
-     ]
-    },
-    "Camera": {
-     "projection": "orthographic",
-     "clearColor": [
-      0.03,
-      0.02,
-      0.07,
-      1
-     ],
-     "primary": true
-    }
-   }
-  },
-  {
-   "id": "deco_0",
-   "components": {
-    "Transform": {
-     "position": [
-      -113,
-      276,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      278
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_diamond.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.2,
-      0.5,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_1",
-   "components": {
-    "Transform": {
-     "position": [
-      -333,
-      48,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      309
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_tri.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.85,
-      0.2,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_2",
-   "components": {
-    "Transform": {
-     "position": [
-      370,
-      310,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      297
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_circle.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      0.6,
-      0.3,
-      1,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_3",
-   "components": {
-    "Transform": {
-     "position": [
-      -466,
-      290,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      6
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_diamond.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.2,
-      0.5,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_4",
-   "components": {
-    "Transform": {
-     "position": [
-      360,
-      -65,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      282
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_tri.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.85,
-      0.2,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_5",
-   "components": {
-    "Transform": {
-     "position": [
-      -121,
-      -134,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      240
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_circle.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      0.6,
-      0.3,
-      1,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_6",
-   "components": {
-    "Transform": {
-     "position": [
-      507,
-      232,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      243
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_diamond.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.2,
-      0.5,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_7",
-   "components": {
-    "Transform": {
-     "position": [
-      213,
-      324,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      77
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_tri.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.85,
-      0.2,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_8",
-   "components": {
-    "Transform": {
-     "position": [
-      -126,
-      320,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      77
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_circle.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      0.6,
-      0.3,
-      1,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_9",
-   "components": {
-    "Transform": {
-     "position": [
-      471,
-      69,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      7
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_diamond.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.2,
-      0.5,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_10",
-   "components": {
-    "Transform": {
-     "position": [
-      -469,
-      -167,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      302
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_tri.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.85,
-      0.2,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_11",
-   "components": {
-    "Transform": {
-     "position": [
-      -513,
-      -22,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      15
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_circle.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      0.6,
-      0.3,
-      1,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_12",
-   "components": {
-    "Transform": {
-     "position": [
-      -49,
-      154,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      304
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_diamond.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.2,
-      0.5,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "deco_13",
-   "components": {
-    "Transform": {
-     "position": [
-      193,
-      107,
-      0
-     ],
-     "rotation": [
-      0,
-      0,
-      202
-     ]
-    },
-    "Sprite": {
-     "texture": "assets/img/glow_tri.png",
-     "size": [
-      90,
-      90
-     ],
-     "color": [
-      1,
-      0.85,
-      0.2,
-      0.5
-     ],
-     "layer": -5,
-     "pixelArt": false
-    }
-   }
-  },
-  {
-   "id": "title",
-   "name": "title",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      200,
-      0
-     ]
-    },
-    "Text": {
-     "text": "NEON SWARM",
-     "fontSize": 84,
-     "color": [
-      0.3,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "best",
-   "name": "best",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      320,
-      0
-     ]
-    },
-    "Text": {
-     "text": "HIGH SCORE 0",
-     "fontSize": 28,
-     "color": [
-      0.4,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "prompt",
-   "name": "prompt",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      520,
-      0
-     ]
-    },
-    "Text": {
-     "text": "PRESS SPACE OR CLICK TO PLAY",
-     "fontSize": 30,
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "help",
-   "name": "help",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      640,
-      0
-     ]
-    },
-    "Text": {
-     "text": "WASD move   MOUSE aim   SPACE / LEFT CLICK shoot",
-     "fontSize": 20,
-     "color": [
-      0.6,
-      0.6,
-      0.8,
-      1
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  },
-  {
-   "id": "menu",
-   "components": {
-    "Script": {
-     "path": "scripts/menu.js",
-     "props": {
-      "mode": "title"
-     }
-    }
-   }
-  }
- ]
 }

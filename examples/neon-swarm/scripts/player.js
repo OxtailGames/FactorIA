@@ -16,7 +16,7 @@ export default class Player extends Behaviour {
 
   onStart() {
     this.hp = this.maxHp;
-    this.sprite = this.entity.get("Sprite");
+    this.shape = this.entity.get("Shape2D");
   }
 
   onUpdate(dt) {
@@ -26,7 +26,7 @@ export default class Player extends Behaviour {
     p.x = math.clamp(p.x + dir.x * this.speed * dt, -this.boundsX, this.boundsX);
     p.y = math.clamp(p.y + dir.y * this.speed * dt, -this.boundsY, this.boundsY);
 
-    // aim at the mouse (the sprite triangle points up, so subtract 90 degrees)
+    // aim at the mouse (the Shape2D triangle points up, so subtract 90 degrees)
     const m = input.mouse.world;
     const aim = vec2(m.x - p.x, m.y - p.y);
     if (aim.length() > 1) {
@@ -40,9 +40,9 @@ export default class Player extends Behaviour {
 
     if (this.invuln > 0) {
       this.invuln -= dt;
-      this.sprite.color.a = Math.floor(time.elapsed * 14) % 2 === 0 ? 0.25 : 1;
+      this.shape.color.a = Math.floor(time.elapsed * 14) % 2 === 0 ? 0.25 : 1;
     } else {
-      this.sprite.color.a = 1;
+      this.shape.color.a = 1;
     }
   }
 
