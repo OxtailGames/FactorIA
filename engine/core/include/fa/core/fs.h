@@ -35,7 +35,11 @@ void set_android_asset_manager(void* aassetManager);
 
 // Normalizes "./a\\b/../c" -> "a/c". Rejects paths escaping the root ("../x")
 // for project-relative input.
+// Returns "" if a project-relative path escapes the root; use normalize_checked
+// when you want the explanation.
 std::string normalize(std::string_view path);
+// Same, but the error says why and how to fix it.
+Result<std::string> normalize_checked(std::string_view path);
 bool is_absolute(std::string_view path);
 std::filesystem::path resolve(std::string_view path);  // absolute host path (desktop)
 
