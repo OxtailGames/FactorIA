@@ -125,10 +125,10 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 |---|---|---|---|
 | `tileset` | asset (texture) | `""` | Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom). |
 | `tileSize` | vec2 | `[16.0,16.0]` | Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units). |
-| `columns` | int | `1` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Range 1.0..4096.0. |
-| `width` | int | `0` | Map width in tiles. Range 0.0..65536.0. |
-| `height` | int | `0` | Map height in tiles. Range 0.0..65536.0. |
-| `tiles` | json | `[]` | Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array of rows. -1 = empty. |
+| `columns` | int | `0` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout. Range 0.0..4096.0. |
+| `width` | int | `0` | Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it). Range 0.0..65536.0. |
+| `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
+| `tiles` | json | `[]` | Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. |
 | `solidTiles` | json | `[]` | List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the tileset. |
 | `layer` | int | `-10` | Draw order. Defaults below sprites (-10). |
@@ -753,7 +753,7 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; when you pass tileset or tileSize without columns, columns is set to the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `save` writes the current scene file like scene.save. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"save":true}
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. `save` writes the current scene file like scene.save. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"save":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2007,19 +2007,19 @@ declare module "factoria" {
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
     /**
-     * Number of tile columns in the tileset texture (used to find a tile's source rectangle).
+     * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
     /**
-     * Map width in tiles.
+     * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
     width: number;
     /**
-     * Map height in tiles.
+     * Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.
      */
     height: number;
     /**
-     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array of rows. -1 = empty. Returns a plain-object COPY; assign a new value to write.
+     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. Returns a plain-object COPY; assign a new value to write.
      */
     tiles: any;
     /**
