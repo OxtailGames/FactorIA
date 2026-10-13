@@ -1,0 +1,14 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Crawler",
+    "tags": ["enemy"],
+    "components": {
+      "Transform": { "position": [0, 0, 0] },
+      "Sprite": { "texture": "assets/enemy.png", "size": [36, 28], "layer": 2, "pixelArt": false },
+      "RigidBody2D": { "type": "dynamic", "fixedRotation": true },
+      "Collider2D": { "shape": "box", "size": [34, 26], "friction": 0 },
+      "Script": { "path": "scripts/enemy.js", "props": { "speed": 60 } }
+    }
+  }
+}

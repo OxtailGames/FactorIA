@@ -1,0 +1,61 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, -1800.0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [640.0, 256.0, 0.0]
+        },
+        "Camera": {
+          "clearColor": [0.45, 0.7, 0.95, 1.0]
+        },
+        "Script": {
+          "path": "scripts/follow_camera.js",
+          "props": {
+            "target": "player",
+            "smoothing": 8,
+            "minX": 0,
+            "maxX": 1920,
+            "minY": 0,
+            "maxY": 512
+          }
+        }
+      }
+    },
+    {
+      "id": "level",
+      "name": "Level",
+      "components": {
+        "Script": {
+          "path": "scripts/level.js",
+          "props": {
+            "levelIndex": 1,
+            "killY": -200
+          }
+        }
+      }
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "components": {
+        "Transform": {
+          "position": [24.0, 16.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 30.0,
+          "space": "screen"
+        },
+        "Script": {
+          "path": "scripts/hud.js"
+        }
+      }
+    }
+  ]
+}

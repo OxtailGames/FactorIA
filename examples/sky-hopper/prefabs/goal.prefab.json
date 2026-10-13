@@ -1,0 +1,14 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Goal Flag",
+    "tags": ["goal"],
+    "components": {
+      "Transform": { "position": [0, 0, 0] },
+      "Sprite": { "texture": "assets/flag.png", "size": [40, 96], "layer": 1, "pixelArt": false },
+      "RigidBody2D": { "type": "static" },
+      "Collider2D": { "shape": "box", "size": [30, 96], "isTrigger": true },
+      "Script": { "path": "scripts/goal.js", "props": { "next": "scenes/win.scene.json" } }
+    }
+  }
+}
