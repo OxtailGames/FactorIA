@@ -30,7 +30,7 @@ TEST_CASE("scaffold: every template produces a valid project") {
     for (const char* tpl : {"2d-empty", "2d-platformer", "3d-empty"}) {
         CAPTURE(tpl);
         testing::TempDir tmp;
-        std::string dir = tmp.sub("My \"Cool\" Game");
+        std::string dir = tmp.sub("My Cool Game");  // quotes are not valid in Windows paths; the name keeps them
         ScaffoldOptions opt;
         opt.name = "My \"Cool\" Game";
         auto r = create_project(dir, tpl, opt);
