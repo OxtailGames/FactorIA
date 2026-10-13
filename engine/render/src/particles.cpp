@@ -25,8 +25,9 @@ struct EmitterState {
 };
 
 std::unordered_map<std::uint64_t, EmitterState>& states() {
-    static std::unordered_map<std::uint64_t, EmitterState> s;
-    return s;
+    // Intentionally leaked: Renderer::shutdown() may run during static destruction.
+    static auto* s = new std::unordered_map<std::uint64_t, EmitterState>();
+    return *s;
 }
 
 std::uint64_t hash_id(const std::string& id) {
@@ -48,7 +49,7 @@ void gather_particles(World& world, Frame& f) {
         Mat4 m = world.world_matrix(e);
         auto it = all.find(e.bits());
         if (it == all.end()) {
-            it = all.emplace(e.bits(), EmitterState{}).first;
+            it = all.try_emplace(e.bits()).first;
             it->second.rng.reseed(hash_id(world.id_of(e)));
         }
         EmitterState& st = it->second;

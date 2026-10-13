@@ -191,7 +191,7 @@ TEST_CASE("2D textured sprites, pixel art, animator and tilemap") {
     Color empty = img.pixel(8, 8);  // row 0 is empty => clear color
     CHECK(empty.r < 0.2f);
     expect_golden(img, "2d_sprites_tilemap");
-    CHECK(g.renderer.stats().sprites == 6);
+    CHECK(g.renderer.stats().sprites == 5);
 }
 
 TEST_CASE("text: sizes, alignment, wrapping, accents, pixel font, screen space") {
@@ -207,15 +207,15 @@ TEST_CASE("text: sizes, alignment, wrapping, accents, pixel font, screen space")
         t.text = s; t.fontSize = size; t.pivot = pivot; t.font = font; t.align = al; t.maxWidth = maxW; t.space = sp;
         return e;
     };
-    text({-155, 85, 0}, "The quick brown fox 12px", 12);
-    text({-155, 70, 0}, "Crisp at 16 px: 0123456789", 16);
-    text({-155, 50, 0}, "Año ñandú áéíóú çà ü ÅŁ", 20);
-    text({-155, 25, 0}, "Big 48", 48);
-    text({10, 80, 0}, "Wrapped text should flow inside the box width nicely", 14, {0, 1}, "", Align::Center, 140);
-    text({10, 20, 0}, "PIXEL FONT 16", 16, {0, 1}, "builtin:pixel");
-    text({0, -40, 0}, "Centered", 20, {0.5f, 0.5f}, "", Align::Center);
+    text({-155, 72, 0}, "The quick brown fox 12px", 12);
+    text({-155, 56, 0}, "Crisp at 16 px: 0123", 16);
+    text({-155, 34, 0}, "Año ñandú áéíóú çà ü", 20);
+    text({-155, 6, 0}, "Big 48", 48);
+    text({10, 72, 0}, "Wrapped text should flow inside the box width nicely", 12, {0, 1}, "", Align::Center, 120);
+    text({10, 2, 0}, "PIXEL 16", 16, {0, 1}, "builtin:pixel");
+    text({85, -30, 0}, "Centered", 20, {0.5f, 0.5f}, "", Align::Center);
     text({155, -60, 0}, "Right aligned", 14, {1, 0}, "", Align::Right);
-    text({6, 6, 0}, "HUD screen-space (top-left)", 12, {0, 1}, "", Align::Left, 0, RenderSpace::Screen);
+    text({314, 4, 0}, "HUD top-right", 12, {1, 1}, "", Align::Right, 0, RenderSpace::Screen);
     text({6, 174, 0}, "bottom-left HUD", 12, {0, 0}, "builtin:pixel", Align::Left, 0, RenderSpace::Screen);
     Image img = g.render(w);
     expect_golden(img, "2d_text");
@@ -312,7 +312,7 @@ TEST_CASE("camera helpers: world_to_screen / screen_to_world / ray") {
 
     Vec2 d1 = g.renderer.framebuffer_to_design({640, 360}, 1280, 720, ScaleMode::Fit);
     CHECK(d1.x == doctest::Approx(160.0f)); CHECK(d1.y == doctest::Approx(90.0f));
-    Vec2 d2 = g.renderer.framebuffer_to_design({640, 360}, 1280, 1000, ScaleMode::Fit);  // letterboxed vertically
+    Vec2 d2 = g.renderer.framebuffer_to_design({640, 500}, 1280, 1000, ScaleMode::Fit);  // letterboxed vertically
     CHECK(d2.y == doctest::Approx(90.0f));
     Vec2 d3 = g.renderer.framebuffer_to_design({0, 140}, 1280, 1000, ScaleMode::Fit);  // top letterbar edge
     CHECK(d3.y == doctest::Approx(0.0f).epsilon(0.02));

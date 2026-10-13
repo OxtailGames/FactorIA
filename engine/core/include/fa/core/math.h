@@ -450,7 +450,8 @@ struct Mat4 {
 // ---------------------------------------------------------------------------
 class Rng {
 public:
-    explicit Rng(std::uint64_t seed = 0x853c49e6748fea9bULL) { reseed(seed); }
+    Rng() { reseed(0x853c49e6748fea9bULL); }
+    explicit Rng(std::uint64_t seed) { reseed(seed); }
     void reseed(std::uint64_t seed) {
         state_ = 0;
         next_u32();

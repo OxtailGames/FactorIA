@@ -210,11 +210,11 @@ TEST_CASE("audio: missing and unsupported clips fail with one helpful error") {
     CHECK(logs.back().message.find("sounds/sine2.wav") != std::string::npos);
     CHECK(logs.back().message.find("sounds/sine.wav") != std::string::npos);  // did-you-mean
 
-    fs::write_text("sounds/notes.txt", "hello");
+    REQUIRE(fs::write_text("sounds/notes.txt", "hello").ok());
     CHECK_FALSE(fx.audio.load("sounds/notes.txt"));
     logs = recent_logs(1, LogLevel::Error);
     CHECK(logs.back().message.find(".wav") != std::string::npos);
-    fs::write_text("sounds/bad.wav", "not a wav file at all");
+    REQUIRE(fs::write_text("sounds/bad.wav", "not a wav file at all").ok());
     CHECK_FALSE(fx.audio.load("sounds/bad.wav"));
 }
 

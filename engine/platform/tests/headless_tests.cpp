@@ -12,7 +12,7 @@ TEST_CASE("headless GPU initializes (EGL on Linux) and runs sokol_gfx") {
     INFO("init error: " << error);
     REQUIRE(ok);
     CHECK(gpu.valid());
-    MESSAGE("headless GPU: " << gpu.description());
+    MESSAGE("headless GPU: " << std::string(gpu.description()));
 
     GfxEnvironment env = gpu.environment();
     sg_desc desc{};
