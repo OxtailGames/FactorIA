@@ -34,10 +34,14 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             "action":{"type":"string","enum":["list","doctor"],"default":"list","description":"list or doctor."}},
             "additionalProperties":false})");
         info.readOnly = true;
-        registry.add(std::move(info), [load](const Json& args) -> Json {
+        registry.add(std::move(info), [load, project_dir](const Json& args) -> Json {
             auto cfg = load();
             if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
             const bool doctor = str(args, "action", "list") == "doctor";
+            if (doctor) {
+                std::string dir = project_dir();
+                if (!dir.empty()) for (const auto& w : scan_project_for_keys(dir, 500)) cfg->warnings.push_back(w);
+            }
             DetectOptions dopt;
             dopt.probeVersions = doctor;
             auto status = detect_providers(*cfg, dopt);
