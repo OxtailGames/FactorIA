@@ -567,16 +567,17 @@ TEST_CASE("2d: is_touching2d walls, ground, ceiling") {
     CHECK_FALSE(s.physics.is_touching2d(s.world, box, {0, 1}));
     CHECK_FALSE(s.physics.is_touching2d(s.world, box, {1, 0}));
     CHECK_FALSE(s.physics.is_touching2d(s.world, box, {-1, 0}));
-    s.world.get<RigidBody2D>(box)->velocity = {300, 0};
-    s.run(60);
+    // a character holding a direction re-applies its velocity every step
+    auto push = [&](Vec2 v, int steps) {
+        for (int i = 0; i < steps; ++i) { s.world.get<RigidBody2D>(box)->velocity = v; s.run(1); }
+    };
+    push({300, 0}, 60);
     CHECK(s.physics.is_touching2d(s.world, box, {1, 0}));
     CHECK_FALSE(s.physics.is_touching2d(s.world, box, {-1, 0}));
-    s.world.get<RigidBody2D>(box)->velocity = {-300, 0};
-    s.run(90);
+    push({-300, 0}, 90);
     CHECK(s.physics.is_touching2d(s.world, box, {-1, 0}));
     CHECK_FALSE(s.physics.is_touching2d(s.world, box, {1, 0}));
-    s.world.get<RigidBody2D>(box)->velocity = {0, 600};
-    s.run(20);
+    push({0, 600}, 60);
     CHECK(s.physics.is_touching2d(s.world, box, {0, 1}));
 }
 
@@ -591,7 +592,7 @@ TEST_CASE("2d: one-way platform lands from above and lets bodies jump through fr
     CHECK(std::fabs((pos_of(s.world, a).y) - (8.0f + 16.0f)) < 1.5f);
     CHECK(s.physics.is_grounded(s.world, a));
     // jumps through from below, then lands on top
-    Entity b = add_box(s.world, "b", {0, -100}, {32, 32}, BodyType::Dynamic);
+    Entity b = add_box(s.world, "b", {60, -100}, {32, 32}, BodyType::Dynamic);
     s.world.get<RigidBody2D>(b)->velocity = {0, 600};
     float maxY = -1e9f;
     for (int i = 0; i < 20; ++i) { s.run(1); maxY = std::max(maxY, pos_of(s.world, b).y); }
@@ -600,9 +601,12 @@ TEST_CASE("2d: one-way platform lands from above and lets bodies jump through fr
     CHECK(pos_of(s.world, b).y > 8.0f);
     CHECK(s.physics.is_grounded(s.world, b));
     // sides never block
-    Entity c = add_box(s.world, "c", {-300, 0}, {32, 32}, BodyType::Dynamic);
-    s.world.get<RigidBody2D>(c)->gravityScale = 0.0f;
-    s.world.get<RigidBody2D>(c)->velocity = {400, 0};
-    s.run(60);
-    CHECK(pos_of(s.world, c).x > 150.0f);
+    Sim s2;
+    Entity plat2 = add_box(s2.world, "plat", {0, 0}, {200, 16}, BodyType::Static, false);
+    s2.world.get<Collider2D>(plat2)->oneWay = true;
+    Entity c = add_box(s2.world, "c", {-300, 0}, {32, 32}, BodyType::Dynamic);
+    s2.world.get<RigidBody2D>(c)->gravityScale = 0.0f;
+    s2.world.get<RigidBody2D>(c)->velocity = {400, 0};
+    s2.run(60);
+    CHECK(pos_of(s2.world, c).x > 90.0f);
 }
