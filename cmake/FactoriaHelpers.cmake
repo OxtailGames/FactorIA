@@ -9,6 +9,8 @@
 add_library(fa_warnings INTERFACE)
 if(MSVC)
     target_compile_options(fa_warnings INTERFACE /W4 /permissive- /utf-8 /wd4100 /wd4201)
+    # windows.h defines min/max macros that break std::min/std::max;  silence the CRT "unsafe" (getenv, fopen) warnings.
+    target_compile_definitions(fa_warnings INTERFACE NOMINMAX _CRT_SECURE_NO_WARNINGS)
     if(FA_WARNINGS_AS_ERRORS)
         target_compile_options(fa_warnings INTERFACE /WX)
     endif()

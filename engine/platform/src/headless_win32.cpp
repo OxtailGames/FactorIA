@@ -2,7 +2,9 @@
 // to the WARP software rasterizer). UNTESTED: written without a Windows
 // toolchain available on the development machine.
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <d3d11.h>
 #include <dxgi.h>
 
