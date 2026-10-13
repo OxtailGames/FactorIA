@@ -1138,19 +1138,19 @@ declare module "factoria" {
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
     /**
-     * Number of tile columns in the tileset texture (used to find a tile's source rectangle).
+     * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
     /**
-     * Map width in tiles.
+     * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
     width: number;
     /**
-     * Map height in tiles.
+     * Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.
      */
     height: number;
     /**
-     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array of rows. -1 = empty. Returns a plain-object COPY; assign a new value to write.
+     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. Returns a plain-object COPY; assign a new value to write.
      */
     tiles: any;
     /**
