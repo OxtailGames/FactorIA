@@ -132,7 +132,7 @@ void gather_2d(World& world, Frame& f) {
             case ShapeType::Circle: {
                 float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
                 float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
-                em.mode = s.filled ? kModeCircle : kModeRing;
+                em.mode = float(s.filled ? kModeCircle : kModeRing);
                 em.aux = s.filled ? 0.0f : std::clamp(1.0f - t / std::max(r, 1e-4f), 0.0f, 1.0f);
                 em.rect(cx - r, cy - r, cx + r, cy + r, -1, -1, 1, 1);
                 break;

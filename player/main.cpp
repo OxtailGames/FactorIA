@@ -65,13 +65,14 @@ bool has_project(const stdfs::path& dir) {
 
 // Writable per-user directory for save games of a shipped game.
 stdfs::path desktop_user_dir(const std::string& gameId) {
-    const char* home = std::getenv("HOME");
 #if defined(_WIN32)
     const char* base = std::getenv("APPDATA");
     stdfs::path root = base ? stdfs::path(base) : stdfs::temp_directory_path();
 #elif defined(__APPLE__)
+    const char* home = std::getenv("HOME");
     stdfs::path root = stdfs::path(home ? home : ".") / "Library" / "Application Support";
 #else
+    const char* home = std::getenv("HOME");
     const char* xdg = std::getenv("XDG_DATA_HOME");
     stdfs::path root = xdg && *xdg ? stdfs::path(xdg) : stdfs::path(home ? home : ".") / ".local" / "share";
 #endif
