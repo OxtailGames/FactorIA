@@ -1,35 +1,60 @@
 {
   "format": "factoria.scene/1",
-  "settings": { "gravity2D": [0, 0] },
+  "settings": {
+    "gravity2D": [0.0, 0.0]
+  },
   "entities": [
     {
       "id": "camera",
       "name": "Main Camera",
       "components": {
-        "Camera": { "projection": "orthographic", "clearColor": [0.07, 0.08, 0.12, 1], "primary": true }
+        "Camera": {
+          "clearColor": [0.07, 0.08, 0.12, 1.0]
+        }
       }
     },
     {
       "id": "board",
       "name": "Board",
       "components": {
-        "Script": { "path": "scripts/board.js", "props": { "levelIndex": 0 } }
+        "Script": {
+          "path": "scripts/board.js",
+          "props": {
+            "levelIndex": 0
+          }
+        }
       }
     },
     {
       "id": "hud",
       "name": "HUD",
       "components": {
-        "Transform": { "position": [24, 20, 0] },
-        "Text": { "text": "", "fontSize": 24, "color": [1, 1, 1, 1], "pivot": [0, 1], "space": "screen", "layer": 200 }
+        "Transform": {
+          "position": [24.0, 20.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "layer": 200,
+          "space": "screen"
+        }
       }
     },
     {
       "id": "help",
       "name": "Help",
       "components": {
-        "Transform": { "position": [24, 684, 0] },
-        "Text": { "text": "Arrows/WASD move   click a neighbouring tile to step   Z undo   R restart", "fontSize": 18, "color": [0.62, 0.68, 0.8, 1], "pivot": [0, 1], "space": "screen", "layer": 200 }
+        "Transform": {
+          "position": [24.0, -14.0, 0.0]
+        },
+        "Text": {
+          "text": "Arrows/WASD move   click a neighbouring tile to step   Z undo   R restart",
+          "fontSize": 18.0,
+          "color": [0.62, 0.68, 0.8, 1.0],
+          "pivot": [0.0, 0.0],
+          "layer": 200,
+          "space": "screen",
+          "anchor": [0.0, 1.0]
+        }
       }
     },
     {
@@ -37,16 +62,29 @@
       "name": "Banner background",
       "active": false,
       "components": {
-        "Transform": { "position": [640, 360, 0] },
-        "Shape2D": { "shape": "rectangle", "size": [920, 170], "color": [0.02, 0.03, 0.05, 0.8], "layer": 150, "space": "screen" }
+        "Shape2D": {
+          "size": [920.0, 170.0],
+          "color": [0.02, 0.03, 0.05, 0.8],
+          "layer": 150,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
       }
     },
     {
       "id": "banner",
       "name": "Banner",
       "components": {
-        "Transform": { "position": [640, 360, 0] },
-        "Text": { "text": "", "fontSize": 44, "color": [1, 0.9, 0.4, 1], "pivot": [0.5, 0.5], "align": "center", "space": "screen", "layer": 201 }
+        "Text": {
+          "text": "",
+          "fontSize": 44.0,
+          "color": [1.0, 0.9, 0.4, 1.0],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "layer": 201,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
       }
     }
   ]

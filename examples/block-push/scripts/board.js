@@ -1,13 +1,15 @@
 // @ts-check
-// The Sokoban board. Reads the level text from levels/levels.js, spawns every tile, box and
+// The Sokoban board. Reads the level text from levels/levels.json, spawns every tile, box and
 // the player as entities, and applies the rules: push, undo, restart, click-to-step and
 // level complete.
-import { Behaviour, input, world } from "factoria";
-import { LEVELS } from "levels/levels.js";
+import { Behaviour, input, ui, world } from "factoria";
+import levels from "../levels/levels.json";
 
 const MAX_TILE = 64; // largest cell size, in design pixels
 const AREA_W = 1180; // room the board may take, in design pixels
 const AREA_H = 540;
+const BANNER_PAD_X = 48; // margin between the banner text and the edge of its panel, in design pixels
+const BANNER_PAD_Y = 32;
 
 const COLOR = {
   floor: [0.13, 0.15, 0.22, 1],
@@ -19,6 +21,7 @@ const COLOR = {
 };
 
 // [action, column step, row step]. Row 0 is the top row, so "up" is -1 in rows.
+/** @type {[string, number, number][]} */
 const MOVES = [
   ["move_left", -1, 0],
   ["move_right", 1, 0],
@@ -27,7 +30,7 @@ const MOVES = [
 ];
 
 export default class Board extends Behaviour {
-  /** Index into LEVELS to start from. Override in the scene via Script.props. */
+  /** Index into levels to start from. Override in the scene via Script.props. */
   levelIndex = 0;
 
   onStart() {
@@ -48,7 +51,7 @@ export default class Board extends Behaviour {
     }
     if (this.complete) {
       if (input.pressed("confirm") || input.mouse.pressed("left")) {
-        this.loadLevel((this.levelIndex + 1) % LEVELS.length);
+        this.loadLevel((this.levelIndex + 1) % levels.length);
       }
       return;
     }
@@ -66,7 +69,7 @@ export default class Board extends Behaviour {
 
   /** Builds level `index` from its text map, replacing whatever was on the board. */
   loadLevel(index) {
-    const rows = LEVELS[index].map;
+    const rows = levels[index].map;
     this.levelIndex = index;
     this.w = Math.max(...rows.map((r) => r.length));
     this.h = rows.length;
@@ -190,13 +193,25 @@ export default class Board extends Behaviour {
   settle() {
     this.complete = this.boxes.every((b) => this.goal[b.y][b.x]);
     this.bannerBg.active = this.complete;
-    const last = this.levelIndex === LEVELS.length - 1;
+    const last = this.levelIndex === levels.length - 1;
     let text = "";
     if (this.complete) {
       text = last ? "All levels solved!\nPress Space or click to play again" : "Level complete!\nPress Space or click for the next level";
     }
     this.banner.get("Text").text = text;
+    if (text !== "") this.fitBannerPanel();
     this.refresh();
+  }
+
+  /**
+   * Sizes the dark panel behind the banner from the measured banner text, so it always has the same margin
+   * around the longest line whatever the wording, the font size or the font. The panel and the text are both
+   * centred on the screen (anchor [0.5, 0.5] in the scene), so only the size needs to be set.
+   */
+  fitBannerPanel() {
+    const text = this.banner.get("Text");
+    const m = ui.measureText(text.text, { fontSize: text.fontSize, font: text.font });
+    this.bannerBg.get("Shape2D").size = [Math.ceil(m.width) + 2 * BANNER_PAD_X, Math.ceil(m.height) + 2 * BANNER_PAD_Y];
   }
 
   /** Copies the rules state onto the entities: positions, box colours and the HUD text. */
@@ -211,7 +226,7 @@ export default class Board extends Behaviour {
       place(b.e, b.x, b.y);
       b.e.set("Shape2D", { color: this.goal[b.y][b.x] ? COLOR.boxOnGoal : COLOR.box });
     }
-    const name = LEVELS[this.levelIndex].name;
-    this.hud.get("Text").text = `Level ${this.levelIndex + 1} of ${LEVELS.length}: ${name}\nMoves: ${this.history.length}`;
+    const name = levels[this.levelIndex].name;
+    this.hud.get("Text").text = `Level ${this.levelIndex + 1} of ${levels.length}: ${name}\nMoves: ${this.history.length}`;
   }
 }
