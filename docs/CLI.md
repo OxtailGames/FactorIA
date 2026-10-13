@@ -16,7 +16,8 @@ over MCP, run the built-in AI agent, manage `ENGINE_FEEDBACK.json`.
 
 ### `factoria new <dir> [--template T] [--name NAME] [--id ID] [--force] [--json]`
 Creates a project (default template `2d-empty`; also `2d-platformer`, `3d-empty`). Writes `factoria.json`, a scene,
-a script, a test, a project tool, `AGENTS.md`/`CLAUDE.md` (the guide for AIs), `ENGINE_FEEDBACK.json`, `.mcp.json`.
+a script, a test, a project tool, `AGENTS.md`/`CLAUDE.md` (the guide for AIs), `ENGINE_FEEDBACK.json`, `.mcp.json`
+and the real script typings `types/factoria.d.ts` (generated from the engine's script API, not a placeholder).
 ```
 factoria new my-game
 factoria new platformer --template 2d-platformer --name "Pixel Hop" --id com.acme.pixelhop
@@ -25,9 +26,11 @@ factoria new platformer --template 2d-platformer --name "Pixel Hop" --id com.acm
 ### `factoria templates [--json]`
 Lists templates with dimension and description.
 
-### `factoria validate [project] [--json] [--no-scenes]`
+### `factoria validate [project] [--json] [--no-scenes] [--fix-types]`
 Checks `factoria.json`, every scene/prefab, asset references, `ENGINE_FEEDBACK.json` and the JavaScript syntax of
 `scripts/**/*.js` and `tools/*.js`. Messages give file, JSON pointer, the problem and a fix. Exit 1 on any error.
+`Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
+warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
 ### `factoria export [project] [--platform P] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android Gradle project, iOS project). Without `--platform` the
@@ -55,6 +58,8 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--record-audio f.wav` | Record the audio mix |
 | `--seed N` | World RNG seed |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
+| `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
+| `--persist-storage` | Let scripts' `storage.*` use the real save file (default headless: in memory, so runs do not leak state) |
 | `--json` | Print the report as JSON (lists the PNG paths) |
 
 ```
@@ -67,21 +72,52 @@ Same seed + same input = same state and pixels.
 ### `factoria screenshot [project] [--frames N] [--out shot.png] [--json]`
 Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.factoria/screenshots/shot.png`).
 
-### `factoria test [project] [--filter TEXT] [--json]`
-Runs `tests/**/*.test.js` on a headless engine; prints one line per test and failure messages with expected/actual.
-Exit 1 if a test fails or a test file does not load.
+### `factoria test [project] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
+Runs `tests/**/*.test.js` on a headless engine; prints one line per test, failure messages with expected/actual and
+the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
+screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
+and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.
 
 ## Commands (the tool surface of MCP and the AI agent)
 
-### `factoria call <command> ['<json args>'] [--project DIR] [--frames-before N] [--scene S] [--seed N]`
-Runs any registered command on a headless engine and prints its JSON result. Arguments: inline JSON, `@file.json`,
-or `-` (stdin). Failures print `error: code: message` and the hint on stderr, exit 1. Outside a project a scratch
-project is used, so `docs.*` and `project.create` work anywhere.
+### `factoria call <command> ['<json args>'] [options]` / `factoria call --batch '<json array>'`
+Runs registered commands on a headless engine and prints the JSON result. Arguments: inline JSON, `@file.json`, or
+`-` (stdin). Failures print `error: code: message` and the hint on stderr, exit 1. Outside a project a scratch
+project is used, so `docs.*` and `project.create` work anywhere. Options: `--project DIR`, `--scene S` (start scene),
+`--seed N`, `--press a,b` (hold actions/keys before the command), `--input replay.json` (input replay applied while
+stepping; steps through its last frame unless `--frames-before N` is given), `--frames-before N`, `--no-graphics`,
+`--render-all`, `--persist-storage`.
+
+**Every `call` starts a new engine**, so `game.step` in one call is not seen by `script.eval` in the next. To run
+several commands against the SAME game use `--batch` (or `--batch-file F.json`, `-` = stdin): an array of
+`{"command": "...", "args": {...}}` executed in order on one engine. It prints
+`{"ok": bool, "results": [{"ok": true, "result": ...} | {"ok": false, "error": {code, message, hint}}]}`, stops at
+the first failure (`--keep-going` continues) and exits 1 if any command failed.
 ```
 factoria call scene.list_entities
-factoria call scene.spawn '{"name":"Enemy","components":{"Transform2D":{"position":[100,50]}}}'
+factoria call scene.spawn '{"name":"Enemy","components":{"Transform":{"position":[100,50,0]}}}'
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
+factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
+factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"game.time"}}]'
 ```
+Commands that create or patch entities (`scene.spawn`, `scene.set_component`) fail (exit 1, with a "did you mean"
+hint) on unknown component or field names instead of creating a half-built entity.
+
+### `factoria session [project] [options]`
+A JSON-lines loop on ONE engine for AIs without MCP: read one request per stdin line, write one JSON answer per stdout
+line. State persists between lines. Same options as `call` (`--scene`, `--press`, `--input`, `--frames-before`, ...).
+```
+$ factoria session
+{"ready":true,"project":"/work/game","graphics":true,"frame":0,"commands":46}
+> {"command":"game.step","args":{"frames":30}}
+{"ok":true,"result":{"frame":30,"time":0.5,"scene":"scenes/main.scene.json",...}}
+> {"command":"script.eval","args":{"code":"game.world.findByTag('player')[0].position"}}
+{"ok":true,"result":{"value":[0,0,0]}}
+> {"command":"nope"}
+{"ok":false,"error":{"code":"unknown_command","message":"Unknown command 'nope'","hint":"Valid: ..."}}
+```
+A line may also be an array of requests (answered with an array of results). `{"command":"session.quit"}` or EOF
+ends the session. Logs go to stderr, so stdout is pure JSON lines.
 
 ### `factoria commands [prefix-or-name] [--project DIR] [--json]`
 Lists commands by category (`*` = modifies state). With an exact name it prints the description and argument schema.
@@ -95,7 +131,10 @@ Prints the API reference: components, commands, scripting. `--dts` writes the Ty
 ### `factoria mcp [--project DIR] [--scene S] [--no-graphics] [--no-hot-reload]`
 Model Context Protocol server on stdio (details: [MCP.md](MCP.md)). Creates a headless engine for the project
 (GPU if available, otherwise logic-only: `game_screenshot` then reports why), registers the engine, tooling,
-project (`project.create`, `project.templates`, `project.test`) and `ai.*` commands, and serves them. Scripts
+project (`project.create`, `project.templates`, `project.test`) and `ai.*` commands, and serves them. `mcp`, `call`,
+`session`, `test` and the editor all register the same command set (`fa::register_project_commands`), so `fs.*`,
+`docs.*`, `feedback.*` and `project.validate` work everywhere, including inside tests. Frames are simulated but only
+drawn when `game_screenshot` asks (`--render-all` draws every frame); `storage.*` is in memory (`--persist-storage`). Scripts
 and `tools/*.js` are watched; clients receive `notifications/tools/list_changed` when the tool set changes.
 stdout carries protocol messages only. Without a project it starts with documentation and project-creation
 tools so an AI can bootstrap one.
@@ -129,7 +168,10 @@ factoria feedback list --status open
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
 ```
-`add` merges into a similar open entry (occurrences++). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
+`add` merges into a similar open entry (occurrences++). `collect` groups reports of the same gap across projects even
+when the titles differ ("Bug:" prefixes, plurals, stop words and synonyms such as stub/placeholder are ignored; a
+short title contained in a longer one counts; same-category or similar-suggestion entries score higher, and a
+cluster may span categories). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
 
 ### `factoria docs [name] | list | read <name> | search <query...>`
 The docs embedded in the binary (offline). `factoria docs scripting` prints SCRIPTING.md.

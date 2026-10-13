@@ -36,6 +36,11 @@ declare module "factoria" {
   export type Json = any;
 
   /**
+   * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
+   */
+  export type SpawnOptions = { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> };
+
+  /**
    * 2D vector value. Views returned by component fields (e.g. body.velocity) are live: writing .x/.y writes into the engine.
    */
   export class Vec2 {
@@ -288,21 +293,29 @@ declare module "factoria" {
     addTag(tag: string): void;
     removeTag(tag: string): void;
     /**
-     * The script instance attached to this entity.
+     * The script instance attached to this entity (constructed as soon as the entity is spawned or its scene loaded), or null. Its own fields are reachable: game.find("p").behaviour.hp.
      */
-    readonly behaviour: Behaviour | null;
+    readonly behaviour: (Behaviour & Record<string, any>) | null;
     /**
      * Calls behaviour[method](...args) if it exists.
      */
     send(method: string, ...args: any[]): any;
     /**
-     * 2D physics: touching ground below.
+     * Touching ground below (2D pixels tolerance, default 2; 3D meters, default 0.05).
      */
-    isGrounded(): boolean;
+    isGrounded(tolerance?: number): boolean;
     /**
      * Entity JSON as in scene files.
      */
     toJSON(): Json;
+    /**
+     * Solid contact against the body in `direction` (the obstacle lies that way): isTouching(vec2(1, 0)) = wall on the right, vec2(0, 1) = ceiling. Triggers never count.
+     */
+    isTouching(direction: Vec3Like, tolerance?: number): boolean;
+    /**
+     * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
+     */
+    emitBurst(count?: number): void;
   }
 
   /**
@@ -331,7 +344,7 @@ declare module "factoria" {
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
-     * Once, before the first update (props already applied).
+     * Once, before the first update (props already applied). The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded; onStart runs on the next step.
      */
     onStart?(): void;
     /**
@@ -385,13 +398,13 @@ declare module "factoria" {
      */
     entities(): Entity[];
     /**
-     * Creates an entity from scene-file JSON ({ name, tags, components }).
+     * Creates an entity from scene-file JSON ({ name, tags, components }). Vectors in component fields may be Vec2/Vec3, {x,y,z} objects or arrays (2D values get z = 0). The Script behaviour is constructed immediately (entity.behaviour), onStart runs before its first update.
      */
-    spawn(entityJson: Json, opts?: { parent?: Entity }): Entity;
+    spawn(entityJson: Json, opts?: SpawnOptions): Entity;
     /**
-     * Instantiates a prefab file.
+     * Instantiates a prefab file. `props` is merged into Script.props; `overrides` is entity JSON merged over the prefab (components deep-merge).
      */
-    spawnPrefab(path: string, opts?: { position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; overrides?: Json }): Entity;
+    spawnPrefab(path: string, opts?: SpawnOptions & { overrides?: Json }): Entity;
     /**
      * Queue a game event; delivered to onEvent and world.on listeners.
      */
@@ -492,18 +505,36 @@ declare module "factoria" {
   }
 
   /**
-   * Queries and direct body control.
+   * Options of physics.raycast / raycast3d.
+   */
+  export interface RaycastOptions {
+    /**
+     * Layer mask the ray can hit (default all).
+     */
+    mask?: number;
+    /**
+     * Entity whose colliders (and its children's) are skipped; use the caster: { ignore: this.entity }.
+     */
+    ignore?: Entity | string;
+    /**
+     * Skip trigger colliders (default true); false hits them too.
+     */
+    ignoreTriggers?: boolean;
+  }
+
+  /**
+   * Queries and direct body control. All vectors accept Vec2/Vec3, {x, y(, z)} objects and [x, y(, z)] arrays.
    */
   export interface PhysicsAPI {
     /**
-     * 3D raycast between two points (when given Vec3).
+     * 3D raycast between two points (when `from` has a z). A ray that starts inside a collider skips it. From a behaviour pass { ignore: this.entity }.
      */
-    raycast(from: Vec3, to: Vec3, opts?: { mask?: number }): RayHit<Vec3> | null;
+    raycast(from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: RaycastOptions): RayHit<Vec3> | null;
     /**
-     * 2D raycast between two points (when given Vec2).
+     * 2D raycast between two points. A ray that starts inside a collider skips it. From a behaviour pass { ignore: this.entity } so it does not hit itself.
      */
-    raycast(from: Vec2Like, to: Vec2Like, opts?: { mask?: number }): RayHit<Vec2> | null;
-    raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: { mask?: number }): RayHit<Vec3> | null;
+    raycast(from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2> | null;
+    raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null;
     overlapCircle(center: Vec2Like, radius: number, opts?: { mask?: number }): Entity[];
     overlapBox(rect: RectLike, opts?: { mask?: number }): Entity[];
     overlapSphere(center: Vec3Like, radius: number, opts?: { mask?: number }): Entity[];
@@ -550,6 +581,10 @@ declare module "factoria" {
   export interface DebugAPI {
     line(a: Vec3Like, b: Vec3Like, color?: ColorLike): void;
     rect(x: number, y: number, w: number, h: number, color?: ColorLike): void;
+    /**
+     * Rect as { x, y, w, h } or [x, y, w, h].
+     */
+    rect(rect: RectLike, color?: ColorLike): void;
     circle(center: Vec2Like, radius: number, color?: ColorLike): void;
     text(screenPos: Vec2Like, text: string, color?: ColorLike): void;
     box(center: Vec3Like, size: Vec3Like, color?: ColorLike): void;
@@ -579,7 +614,7 @@ declare module "factoria" {
   }
 
   /**
-   * Persistent JSON save data.
+   * Persistent JSON save data (<user dir>/storage.json). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
     get<T = any>(key: string, fallback?: T): T;
@@ -605,6 +640,10 @@ declare module "factoria" {
     chance(p?: number): boolean;
     pick<T>(items: readonly T[]): T | undefined;
     shuffle<T>(items: readonly T[]): T[];
+    /**
+     * Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism).
+     */
+    seed(n: number): void;
   }
 
   export interface MathAPI {
@@ -645,6 +684,41 @@ declare module "factoria" {
      */
     call(name: string, args?: Json): any;
     commands(): CommandInfoJS[];
+  }
+
+  /**
+   * Throw from a tool's run() for an EXPECTED failure: the caller gets the message, the hint (how to fix) and optional structured data. Any other Error becomes a generic "failed" error.
+   */
+  export class ToolError extends Error {
+    constructor(message: string, hint?: string, data?: Json);
+    /**
+     * How to fix it.
+     */
+    readonly hint: string;
+    /**
+     * Optional details (e.g. a report) delivered with the error.
+     */
+    readonly data?: Json;
+  }
+
+  /**
+   * Particle helpers.
+   */
+  export interface ParticlesAPI {
+    /**
+     * Immediately spawns `count` particles at the entity's ParticleEmitter (works with emitting = false). No-op with a warning without a renderer.
+     */
+    burst(entity: Entity | string, count?: number): void;
+  }
+
+  /**
+   * Text/UI helpers.
+   */
+  export interface UIAPI {
+    /**
+     * Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning).
+     */
+    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number };
   }
 
   /**
@@ -711,6 +785,21 @@ declare module "factoria" {
    * Math helpers.
    */
   export const math: MathAPI;
+
+  /**
+   * Plain object that persists across scene loads for the whole run (score, lives, current level). Not saved to disk; reset for every test file. Module-level variables persist across scene loads too.
+   */
+  export const session: Record<string, any>;
+
+  /**
+   * Particle helpers.
+   */
+  export const particles: ParticlesAPI;
+
+  /**
+   * Text measurement.
+   */
+  export const ui: UIAPI;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
@@ -863,6 +952,15 @@ declare module "factoria" {
      * true = nearest-neighbour filtering (crisp pixels), false = smooth linear filtering.
      */
     pixelArt: boolean;
+    /**
+     * Compositing: alpha (normal), additive (glow, neon, fire, lasers; brightens), multiply (darkens/tints).
+     */
+    blend: "alpha" | "additive" | "multiply";
+    /**
+     * Screen space only: screen point the position is relative to. [0,0] top-left (default), [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right. Keeps HUD elements glued to screen edges on any aspect ratio.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
@@ -943,6 +1041,20 @@ declare module "factoria" {
      * world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down.
      */
     space: "world" | "screen";
+    /**
+     * Anchor point within the shape for rectangle/circle/triangle: [0.5,0.5] = centered on the position (default), [0,0] bottom-left, [1,1] top-right. In screen space +Y is down, so [0,1] puts the top-left corner at the position.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Compositing: alpha (normal), additive (glow/neon), multiply (darken).
+     */
+    blend: "alpha" | "additive" | "multiply";
+    /**
+     * Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right).
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
   }
   /**
    * Draws a string with a TrueType font (or the built-in font). Works in world and screen space.
@@ -988,6 +1100,11 @@ declare module "factoria" {
      * world: affected by cameras. screen: HUD/UI in design pixels, origin TOP-LEFT, +Y down.
      */
     space: "world" | "screen";
+    /**
+     * Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0] top-center, [1,1] bottom-right). Combine with pivot, e.g. anchor [1,0] + pivot [1,1] + position [-20, 20] = right-aligned 20px from the top-right corner.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
   }
   /**
    * A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is the TOP row. Solid tiles can generate static 2D collision.
@@ -1119,6 +1236,14 @@ declare module "factoria" {
      * Draw order. Higher layers draw on top.
      */
     layer: number;
+    /**
+     * Compositing of particles: additive is ideal for sparks, fire, magic and neon effects.
+     */
+    blend: "alpha" | "additive" | "multiply";
+    /**
+     * Destroy the entity automatically once it is not emitting and all its particles died. Use with burst > 0 and emitting = false for one-shot effects (explosions, pickups).
+     */
+    autoDestroy: boolean;
   }
   /**
    * Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) a Light to be visible.
@@ -1290,6 +1415,10 @@ declare module "factoria" {
      * Bitmask of layers this collider collides with. -1 = all layers (bit i = layer i).
      */
     mask: number;
+    /**
+     * One-way platform: only blocks bodies landing on it from above (the entity's +Y side); bodies can jump up through it from below and pass sideways.
+     */
+    oneWay: boolean;
   }
   /**
    * Simple 3D physics body for arcade games (spheres and axis-aligned boxes; no rotation dynamics). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D).
@@ -1318,6 +1447,15 @@ declare module "factoria" {
      */
     get velocity(): Vec3;
     set velocity(value: Vec3Like);
+    /**
+     * Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step.
+     */
+    get angularVelocity(): Vec3;
+    set angularVelocity(value: Vec3Like);
+    /**
+     * Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity).
+     */
+    rollWithMotion: boolean;
   }
   /**
    * Collision shape for 3D physics (axis-aligned box or sphere). Scaled by the Transform scale.
@@ -1509,17 +1647,17 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen" };
-    Text: { text?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen" };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
+    Text: { text?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
-    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number };
+    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
-    Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number };
-    RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like };
+    Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
+    RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean };
     Collider3D: { shape?: "box" | "sphere"; size?: Vec3Like; radius?: number; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
@@ -1582,7 +1720,7 @@ declare module "factoria:test" {
    */
   export interface TestGame {
     /**
-     * Loads a scene immediately (reseeds the RNG).
+     * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
      */
     load(path: string): void;
     /**
@@ -1602,6 +1740,20 @@ declare module "factoria:test" {
     keyUp(key: string): void;
     mouseMove(screenPos: Vec2Like): void;
     click(screenPos: Vec2Like, button?: "left" | "right" | "middle"): void;
+    /**
+     * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file.
+     */
+    loadJson(scene: Json): void;
+    /**
+     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released.
+     */
+    touch(screenPos: Vec2Like, frames?: number): void;
+    /**
+     * Finger down (stays down until touchEnd).
+     */
+    touchStart(screenPos: Vec2Like, id?: number): void;
+    touchMove(screenPos: Vec2Like, id?: number): void;
+    touchEnd(id?: number): void;
     find(idOrName: string): Entity | null;
     readonly world: WorldAPI;
     readonly time: TimeAPI;

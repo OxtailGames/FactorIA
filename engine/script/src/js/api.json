@@ -519,8 +519,8 @@
        "doc": ""
       },
       {
-       "sig": "readonly behaviour: Behaviour | null",
-       "doc": "The script instance attached to this entity."
+       "sig": "readonly behaviour: (Behaviour & Record<string, any>) | null",
+       "doc": "The script instance attached to this entity (constructed as soon as the entity is spawned or its scene loaded), or null. Its own fields are reachable: game.find(\"p\").behaviour.hp."
       },
       {
        "sig": "send(method: string, ...args: any[]): any",

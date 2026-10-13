@@ -440,3 +440,86 @@ TEST_CASE("make_app_desc: title and size come from the project") {
     CHECK(static_cast<bool>(d.frame));
     CHECK(static_cast<bool>(d.event));
 }
+
+// ------------------------------------------------------- render on demand --
+namespace {
+const char* kSceneWithEmitter = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "name": "Camera", "components": { "Camera": { "clearColor": "#203040" } } },
+    { "id": "ball", "name": "Ball", "tags": ["dynamic"],
+      "components": { "Transform": { "position": [0, 60, 0] },
+                      "Shape2D": { "shape": "circle", "size": [20, 20], "color": "#e0a020" },
+                      "RigidBody2D": {}, "Collider2D": { "shape": "circle", "radius": 10 } } },
+    { "id": "sparks", "components": { "Transform": { "position": [40, 0, 0] },
+                      "ParticleEmitter": { "emitting": true, "rate": 40 } } }
+  ]
+})";
+}  // namespace
+
+TEST_CASE("engine: a screenshot at frame N is pixel-identical in Always and OnDemand render modes") {
+    TempProject p("render_modes", kProject, kSceneWithEmitter);
+    Image shots[2];
+    int i = 0;
+    for (RenderMode mode : {RenderMode::Always, RenderMode::OnDemand}) {
+        EngineConfig cfg = headless_cfg(p);
+        cfg.renderMode = mode;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+        REQUIRE(e.renderer() != nullptr);
+        e.step(45);
+        CHECK(e.render_pending() == (mode == RenderMode::OnDemand));
+        std::string path = (p.dir / ("shot" + std::to_string(i) + ".png")).generic_string();
+        REQUIRE_MESSAGE(e.screenshot(path, &err), err);
+        CHECK_FALSE(e.render_pending());
+        auto img = load_image(path);
+        REQUIRE(img.ok());
+        shots[i] = img.value();
+        e.shutdown();
+        ++i;
+    }
+    REQUIRE(shots[0].width == shots[1].width);
+    REQUIRE(shots[0].height == shots[1].height);
+    CHECK(shots[0].rgba == shots[1].rgba);
+}
+
+TEST_CASE("engine: OnDemand simulates every frame but does not draw until asked") {
+    TempProject p("render_ondemand");
+    EngineConfig cfg = headless_cfg(p);
+    cfg.renderMode = RenderMode::OnDemand;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    double y0 = entity_y(e.state(), "ball");
+    e.step(30);
+    CHECK(entity_y(e.state(), "ball") < y0);  // physics ran
+    CHECK(e.render_pending());
+    CHECK(e.state()["renderedFrame"].get<int>() == 0);
+    e.render_now();
+    CHECK_FALSE(e.render_pending());
+    CHECK(e.state()["renderedFrame"].get<int>() == 29);
+}
+
+TEST_CASE("engine: load_scene_json replaces the world but keeps the current scene path") {
+    TempProject p("load_scene_json");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    REQUIRE(e.world().entity_count() == 3);
+    Json scene = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"only","components":{"Transform":{"position":[1,2,0]}}}]})");
+    REQUIRE_MESSAGE(e.load_scene_json(scene, "snapshot", &err), err);
+    CHECK(e.world().entity_count() == 1);
+    CHECK(e.world().scene_path() == "scenes/main.scene.json");
+    CHECK(e.state()["scene"] == "scenes/main.scene.json");
+    CHECK(e.load_scene_json_now(scene, "snapshot").empty());
+    // Errors are reported, the path still does not change.
+    Json bad = Json::parse(R"({"format":"factoria.scene/1","entities":[{"id":"x","components":{"Nope":{}}}]})");
+    CHECK_FALSE(e.load_scene_json(bad, "bad-snapshot", &err));
+    CHECK(err.find("Nope") != std::string::npos);
+    CHECK(e.state()["scene"] == "scenes/main.scene.json");
+    // scene.reload still reloads the file on disk.
+    auto r = e.commands().call("scene.reload", Json::object());
+    REQUIRE(r.ok);
+    CHECK(e.world().entity_count() == 3);
+}

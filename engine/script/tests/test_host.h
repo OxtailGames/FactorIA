@@ -77,6 +77,13 @@ struct TestHost : ScriptHost {
         scripts.on_scene_loaded();
         return r.ok() ? "" : r.summary();
     }
+    std::string load_scene_json_now(const Json& scene, std::string_view name) override {
+        LoadReport r = load_scene(w, scene, name);
+        ph.reset();
+        w.reset_clock();
+        scripts.on_scene_loaded();
+        return r.ok() ? "" : r.summary();
+    }
     void step_frames(int n) override {
         for (int i = 0; i < n; ++i) {
             float dt = static_cast<float>(fdt);

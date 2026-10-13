@@ -33,3 +33,18 @@ if(FA_BUILD_TESTS)
         set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 ENVIRONMENT "FA_CLI_STRICT_TESTS=1" LABELS "gpu")
     endif()
 endif()
+
+# The example games (examples/*) are integration tests too: each must validate cleanly and pass its
+# own JS tests. They were written by AI agents through the public interface only, so a failure here
+# usually means a behaviour change that would also break games made by users.
+if(FA_BUILD_TESTS)
+    file(GLOB FA_EXAMPLE_PROJECTS LIST_DIRECTORIES true ${FA_ROOT}/examples/*)
+    foreach(ex ${FA_EXAMPLE_PROJECTS})
+        if(EXISTS ${ex}/factoria.json)
+            get_filename_component(ex_name ${ex} NAME)
+            add_test(NAME example_${ex_name}_validate COMMAND factoria validate ${ex} WORKING_DIRECTORY ${FA_ROOT})
+            add_test(NAME example_${ex_name}_test COMMAND factoria test ${ex} WORKING_DIRECTORY ${FA_ROOT})
+            set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+        endif()
+    endforeach()
+endif()

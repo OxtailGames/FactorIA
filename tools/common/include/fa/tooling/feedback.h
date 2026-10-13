@@ -58,6 +58,11 @@ struct FeedbackAddResult {
 
 // Title similarity in [0,1] used for dedupe/grouping (token overlap + edit distance).
 double feedback_title_similarity(std::string_view a, std::string_view b);
+// Similarity of two entries used by `collect` to group reports of the same gap across projects: title similarity on
+// significant tokens (case, punctuation, plurals, "Bug:"/"Generated"-style prefixes and stop words ignored; a short
+// title contained in a longer one counts), plus a bonus for the same category (or family: rendering-2d ~
+// rendering-3d) and for similar suggestions. Deterministic. Entries are {title, category, suggestion}.
+double feedback_entry_similarity(const Json& a, const Json& b);
 
 // Modifies `doc` in place; validates the input (errors teach valid values).
 Result<FeedbackAddResult> add_feedback_entry(Json& doc, const FeedbackInput& input);

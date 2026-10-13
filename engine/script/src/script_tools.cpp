@@ -134,8 +134,7 @@ void Impl::reload_tools() {
                     std::string msg = str("message"), hint = str("hint"), code = str("code");
                     JsVal dv(ctx, JS_GetPropertyStr(ctx, exc, "data"));
                     Json data = JS_IsUndefined(dv.get()) ? Json(nullptr) : to_json(dv.get());
-                    if (!data.is_null()) msg += "\ndata: " + data.dump();
-                    throw CommandError(code.empty() ? "tool_error" : code, msg, hint);
+                    throw CommandError(code.empty() ? "tool_error" : code, msg, hint, std::move(data));
                 }
                 ScriptError e = error_from_exception(exc, "", toolFile);
                 record_error(e, cname);

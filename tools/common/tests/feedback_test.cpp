@@ -192,3 +192,79 @@ TEST_CASE("feedback: commands report/list/update work on a project dir") {
     CHECK((*loaded)["project"] == "Cmd Game");
     CHECK(validate_feedback(*loaded).empty());
 }
+
+namespace {
+Json entry(const std::string& title, const std::string& cat, const std::string& suggestion = "") {
+    return Json{{"title", title}, {"category", cat}, {"suggestion", suggestion}};
+}
+}  // namespace
+
+TEST_CASE("feedback: the same gap reported with different titles is recognised (real example titles)") {
+    // Titles copied from examples/*/ENGINE_FEEDBACK.json.
+    const std::vector<Json> placeholder = {
+        entry("Generated types/factoria.d.ts is a placeholder (any)", "tooling"),
+        entry("Project types/factoria.d.ts is a placeholder", "tooling"),
+        entry("types/factoria.d.ts is a placeholder stub", "docs"),
+        entry("New projects ship a placeholder types/factoria.d.ts", "tooling"),
+        entry("factoria.d.ts placeholder", "tooling"),
+        entry("Bug: factoria.d.ts placeholders", "docs")};
+    for (size_t i = 1; i < placeholder.size(); ++i)
+        CHECK_MESSAGE(feedback_entry_similarity(placeholder[0], placeholder[i]) >= 0.7, placeholder[i]["title"].get<std::string>());
+
+    const std::vector<Json> planned = {entry("AI_GUIDE marks working CLI commands as planned", "docs"),
+                                       entry("AI guide marks working CLI commands as planned", "docs"),
+                                       entry("Docs mark working CLI commands as planned", "docs")};
+    for (size_t i = 1; i < planned.size(); ++i) CHECK(feedback_entry_similarity(planned[0], planned[i]) >= 0.7);
+
+    const std::vector<Json> burst = {entry("ParticleEmitter burst does nothing when emitting is false", "rendering-3d"),
+                                     entry("ParticleEmitter burst silently does nothing when emitting is false", "rendering-2d"),
+                                     entry("ParticleEmitter burst is silently suppressed when emitting=false; no one-shot auto-destroy", "rendering-2d")};
+    for (size_t i = 1; i < burst.size(); ++i) CHECK(feedback_entry_similarity(burst[0], burst[i]) >= 0.7);
+
+    // Different gaps stay apart, in the same or another category.
+    CHECK(feedback_entry_similarity(placeholder[0], planned[0]) < 0.5);
+    CHECK(feedback_entry_similarity(entry("No one-way platforms", "physics"), entry("No additive blend mode / glow for neon looks", "rendering-2d")) < 0.4);
+    CHECK(feedback_entry_similarity(entry("Kinematic 3D platforms do not carry bodies standing on them", "physics"),
+                                    entry("No one-way platforms", "physics")) < 0.7);
+    CHECK(feedback_entry_similarity(entry("Docs mark working CLI commands as planned", "docs"),
+                                    entry("EXTENDING.md marks project tools and factoria call as planned", "docs")) < 0.7);
+    // Deterministic and symmetric.
+    CHECK(feedback_entry_similarity(burst[0], burst[2]) == feedback_entry_similarity(burst[2], burst[0]));
+}
+
+TEST_CASE("feedback: collect groups reports of one gap across projects and categories") {
+    testing::TempDir tmp;
+    auto make_doc = [&](const std::string& name, const std::vector<std::pair<std::string, std::string>>& titleCat) {
+        Json doc = create_empty_feedback(name, "0.1.0");
+        int n = 0;
+        for (const auto& [title, cat] : titleCat) {
+            FeedbackInput in = make(title, cat, "minor");
+            in.suggestion = "";
+            auto r = add_feedback_entry(doc, in);
+            REQUIRE(r.ok());
+            (void)n;
+        }
+        REQUIRE(save_feedback((tmp.path / name / "ENGINE_FEEDBACK.json").string(), doc).ok());
+    };
+    make_doc("a", {{"Generated types/factoria.d.ts is a placeholder (any)", "tooling"}, {"Docs mark working CLI commands as planned", "docs"}});
+    make_doc("b", {{"Project types/factoria.d.ts is a placeholder", "tooling"}});
+    make_doc("c", {{"types/factoria.d.ts is a placeholder stub", "docs"}, {"AI guide marks working CLI commands as planned", "docs"}});
+    make_doc("d", {{"New projects ship a placeholder types/factoria.d.ts", "tooling"}});
+    auto report = collect_feedback({tmp.str()});
+    REQUIRE(report.ok());
+    const Json& cl = report->json["clusters"];
+    REQUIRE(cl.size() == 2);
+    CHECK(cl[0]["projects"].size() == 4);
+    CHECK(cl[0]["category"] == "tooling");  // majority category of the cluster
+    CHECK(cl[1]["projects"].size() == 2);
+#ifdef FA_REPO_ROOT
+    // The real example games: the placeholder-typings gap is one cluster, reported by several projects.
+    auto real = collect_feedback({std::string(FA_REPO_ROOT) + "/examples"}, [] { CollectOptions o; o.includeClosed = true; return o; }());
+    if (real.ok() && real->json["totalEntries"].get<int>() > 0) {
+        bool found = false;
+        for (const Json& c : real->json["clusters"])
+            if (c["title"].get<std::string>().find("d.ts") != std::string::npos && c["projects"].size() >= 3) found = true;
+        CHECK_MESSAGE(found, "placeholder d.ts reports from the examples form one cluster");
+    }
+#endif
+}

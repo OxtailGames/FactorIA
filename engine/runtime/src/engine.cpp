@@ -102,7 +102,9 @@ bool Engine::Impl::load_scene_json_impl(const Json& scene, std::string_view sour
     hasPendingScene = false;
     audio.stop_all();
     physics.reset();
+    const std::string keptPath = world.scene_path();
     LoadReport report = fa::load_scene(world, scene, sourceName);
+    world.set_scene_path(keptPath);
     // The scene path (world + currentScene) is deliberately left alone.
     finish_scene_load(report, std::string(sourceName), error);
     return report.ok();
@@ -135,7 +137,7 @@ void Engine::Impl::draw(double dt) {
         renderer->present(app_gfx_swapchain(), app_framebuffer_width(), app_framebuffer_height(), project.scaleMode);
     renderStale = false;
     lastRenderDt = dt;
-    renderedFrame = frame;
+    renderedFrame = inFrame || frame == 0 ? frame : frame - 1;  // index of the frame this picture shows
 }
 
 void Engine::Impl::render(double dt) {
@@ -509,7 +511,13 @@ World& Engine::world() { return impl_->world; }
 Input& Engine::input() { return impl_->input; }
 Audio& Engine::audio() { return impl_->audio; }
 Physics& Engine::physics() { return impl_->physics; }
-Renderer* Engine::renderer() { return impl_->renderer.get(); }
+// Scripts reach the renderer for camera helpers (screen<->world conversion, screen size). In OnDemand mode those need
+// the camera of a drawn frame, so the first access after simulated-but-undrawn frames draws the current state.
+Renderer* Engine::renderer() {
+    // No draw needed here: camera queries (world_to_screen, screen_to_world...) are refreshed by
+    // Renderer::update, which runs every simulated frame even when drawing is skipped (OnDemand).
+    return impl_->renderer.get();
+}
 CommandRegistry& Engine::commands() { return impl_->commands; }
 Json Engine::project_settings() const {
     Json j = impl_->project.to_json();
