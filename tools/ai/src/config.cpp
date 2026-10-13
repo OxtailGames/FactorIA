@@ -266,7 +266,12 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (c.kind == ProviderKind::OpenAICompatible && c.defaultModel.empty()) c.defaultModel = kPlaceholderModel;
             if (pj.contains("baseUrl")) c.baseUrl = str(pj, "baseUrl");
             if (pj.contains("apiKeyEnv")) c.apiKeyEnv = str(pj, "apiKeyEnv");
-            if (pj.contains("apiKey")) { c.apiKey = str(pj, "apiKey"); anyApiKey = anyApiKey || !c.apiKey.empty(); }
+            if (pj.contains("apiKey")) {
+                c.apiKey = str(pj, "apiKey");
+                anyApiKey = anyApiKey || !c.apiKey.empty();
+                // A key written in the file beats the preset's conventional env var (unless apiKeyEnv is also given).
+                if (!pj.contains("apiKeyEnv")) c.apiKeyEnv.clear();
+            }
             if (const Json* h = child(pj, "headers")) {
                 c.headers.clear();
                 for (auto hi = h->begin(); hi != h->end(); ++hi) {

@@ -93,7 +93,9 @@ TEST_CASE("API key resolution: apiKeyEnv > apiKey > conventional env; never empt
     auto k1 = resolve_api_key(p, fake_env({{"OPENAI_API_KEY", "env-key"}}));
     CHECK(k1.key == "env-key");
     CHECK(k1.source == "env:OPENAI_API_KEY");
-    p.apiKey = "file-key";
+    auto fromFile = parse_config(Json::parse(R"({"providers":{"openai":{"apiKey":"file-key"}}})"), "x");
+    REQUIRE(fromFile);
+    p = *fromFile->provider("openai");
     CHECK(resolve_api_key(p, fake_env({{"OPENAI_API_KEY", "env-key"}})).key == "file-key");  // config beats implicit env
     CHECK(resolve_api_key(p, fake_env({{"OPENAI_API_KEY", "env-key"}})).source == "config");
     p.apiKeyEnv = "CUSTOM_KEY";
