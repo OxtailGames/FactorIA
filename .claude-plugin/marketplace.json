@@ -1,0 +1,14 @@
+{
+  "name": "factoria",
+  "owner": {
+    "name": "OxtailGames"
+  },
+  "description": "Claude Code mods for working on the FactorIA engine.",
+  "plugins": [
+    {
+      "name": "ci",
+      "source": "./.claude/mods/ci",
+      "description": "/ci shows the CI checks of the current branch's GitHub pull request and watches them until they finish."
+    }
+  ]
+}

@@ -19,6 +19,9 @@ ctest --test-dir build/dev --output-on-failure
   windowed code use `xvfb-run -a -s "-screen 0 1280x720x24" <cmd>`.
 - When several agents work in the same checkout, each uses its OWN build dir
   (`build/agent-<name>`) and builds with `-j2`.
+- CI: `scripts/ci-local.sh linux windows` reproduces the Linux job and a Windows build (MinGW-w64 + Wine, D3D11)
+  locally; run it before pushing a CI fix. The `/ci` Claude Code mod in `.claude/mods/ci` shows the GitHub checks
+  of the branch's PR (`/plugin install ci --marketplace OxtailGames/FactorIA`, or `claude --plugin-dir .claude/mods/ci`).
 - Shaders: edit `engine/render/shaders/*.glsl`, then run
   `tools/shaders/compile_shaders.sh` (fetches sokol-shdc into `.cache/` if
   needed) and commit the regenerated headers.
