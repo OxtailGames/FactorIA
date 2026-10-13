@@ -2,7 +2,11 @@
 
 #include <algorithm>
 #include <iostream>
-#include <unistd.h>
+#if defined(_WIN32)
+#include <process.h>  // _getpid
+#else
+#include <unistd.h>   // getpid
+#endif
 
 #include "fa/ai/commands.h"
 #include "fa/core/fs.h"
@@ -84,7 +88,13 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     s->projectDir_ = projectDirIn;
     if (projectDirIn.empty()) {
         std::error_code ec;
-        s->scratchDir_ = fsys::temp_directory_path(ec) / ("factoria-scratch-" + std::to_string(::getpid()));
+        s->scratchDir_ = fsys::temp_directory_path(ec) / ("factoria-scratch-" + std::to_string(
+#if defined(_WIN32)
+                                                                       ::_getpid()
+#else
+                                                                       ::getpid()
+#endif
+                                                                           ));
         fsys::remove_all(s->scratchDir_, ec);
         auto made = create_project(s->scratchDir_.string(), "2d-empty", {});
         if (!made.ok()) throw CliError("Cannot create scratch project: " + made.error().message, made.error().hint);

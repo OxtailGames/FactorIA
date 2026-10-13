@@ -155,7 +155,7 @@ export default class B extends Behaviour {
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
     h.step_frames(1);
-    h.scripts.eval("world.emit('ping', {n: 7})");
+    REQUIRE(h.scripts.eval("world.emit('ping', {n: 7})").ok());
     h.in.set_action_override("jump", true);
     h.step_frames(40);
     h.in.set_action_override("jump", false);
@@ -236,14 +236,14 @@ TEST_CASE("JS tools, hot reload, rng determinism, eval, runner failures") {
     // determinism
     auto a = h.scripts.eval("[rng.float(), rng.int(0, 100), Math.random()]");
     h.w.rng().reseed(1);
-    h.scripts.eval("rng.float()");  // advance
+    REQUIRE(h.scripts.eval("rng.float()").ok());  // advance
     h.w.rng().reseed(1);
     auto b = h.scripts.eval("[rng.float(), rng.int(0, 100), Math.random()]");
     h.w.rng().reseed(1);
     auto c = h.scripts.eval("[rng.float(), rng.int(0, 100), Math.random()]");
     CHECK(*b == *c);
     // storage
-    h.scripts.eval("storage.set('hs', {a: 1})");
+    REQUIRE(h.scripts.eval("storage.set('hs', {a: 1})").ok());
     CHECK(h.scripts.eval("storage.get('hs').a")->get<int>() == 1);
     CHECK(h.scripts.eval("storage.get('zz', 'fb')")->get<std::string>() == "fb");
     CHECK(notified >= 1);

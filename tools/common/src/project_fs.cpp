@@ -281,7 +281,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             if (positions.size() > 1 && !all) {
                 std::string lines;
                 for (size_t pos : positions) {
-                    long ln = 1 + std::count(text->begin(), text->begin() + long(pos), '\n');
+                    auto ln = 1 + std::count(text->begin(), text->begin() + std::ptrdiff_t(pos), '\n');
                     lines += (lines.empty() ? "" : ", ") + std::to_string(ln);
                 }
                 fail("ambiguous", "Text matches " + std::to_string(positions.size()) + " places in '" + rel + "' (lines " + lines + ").",

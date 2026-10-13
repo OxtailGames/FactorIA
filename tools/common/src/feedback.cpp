@@ -15,7 +15,6 @@
 namespace fa {
 
 namespace stdfs = std::filesystem;
-using tooling_detail::arg_bool;
 using tooling_detail::arg_string;
 
 // ----------------------------------------------------------------- enums ----
@@ -671,7 +670,6 @@ void register_feedback_commands(CommandRegistry& registry, const std::string& pr
             return r.value();
         });
     }
-    (void)arg_bool;
 }
 
 }  // namespace fa

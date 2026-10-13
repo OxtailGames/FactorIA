@@ -119,8 +119,8 @@ Entity Editor::pick_at(Vec2 design) {
     }
     const Vec3 wp = r->screen_to_world(design, 0.0f);
     Entity best = kNullEntity;
-    long bestKey = -(1L << 40);
-    long order = 0;
+    std::int64_t bestKey = -(std::int64_t(1) << 40);  // int64: `long` is 32-bit on Windows
+    std::int64_t order = 0;
     for (Entity e : all) {
         ++order;
         if (!w.active_in_hierarchy(e)) continue;
@@ -136,7 +136,7 @@ Entity Editor::pick_at(Vec2 design) {
         }
         if (std::fabs(local.x - b.center.x) > b.half.x || std::fabs(local.y - b.center.y) > b.half.y) continue;
         if (b.layer > -500 && b.layer <= -500) continue;
-        long key = long(b.layer) * 1000000L + order + (b.screenSpace ? 100000000000L : 0L);
+        std::int64_t key = std::int64_t(b.layer) * 1000000 + order + (b.screenSpace ? std::int64_t(100000000000) : 0);
         if (key > bestKey) {
             bestKey = key;
             best = e;
