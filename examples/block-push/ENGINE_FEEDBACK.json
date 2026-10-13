@@ -21,7 +21,10 @@
       ],
       "suggestion": "Remove the (planned) labels for commands that ship, keep them only for real gaps, and add a short list of which commands work from the CLI.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: docs/AI_GUIDE.md still marks validate/test/call/commands/--input as (planned); all of them work (verified)."
+      ]
     },
     {
       "id": "FB-0002",
@@ -41,7 +44,10 @@
       ],
       "suggestion": "Publish getting-started in English (or add an English version), and update its status table to match the CLI that ships.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: docs/GETTING_STARTED.md is still Spanish and its status table still says 'en desarrollo'."
+      ]
     },
     {
       "id": "FB-0003",
@@ -62,7 +68,11 @@
       ],
       "suggestion": "Resolve the import against the importing file's folder, normalise the result, then check it is inside the project root. Report import failures as import errors, not syntax errors.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: '../x.js' imports inside the project now resolve and validate; only paths that leave the project root fail, and the error names the import."
+      ]
     },
     {
       "id": "FB-0004",
@@ -84,7 +94,11 @@
       ],
       "suggestion": "Support JSON modules (import x from \"x.json\") or add assets.readJson(path) and assets.readText(path) to the scripting API. Attribute parse errors to the file that failed.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: import levels from '../data/levels.json' works (default export = parsed JSON, hot-reload aware); JSON syntax errors are reported against the .json file. Verified."
+      ]
     },
     {
       "id": "FB-0005",
@@ -105,7 +119,11 @@
       ],
       "suggestion": "Add a Modules section to SCRIPTING.md with the resolution rules and a worked example of a shared data module used by both a behaviour and a project tool.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: docs/SCRIPTING.md > Imports documents the resolution rules and JSON imports."
+      ]
     },
     {
       "id": "FB-0006",
@@ -125,7 +143,11 @@
       ],
       "suggestion": "Run one frame inside game.load (or start behaviours there), or report a missing entity as 'no entity matched; did you step a frame after game.load?'. Document that onStart runs on the first step.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: game.load constructs behaviours immediately; onStart runs on the first game.step (documented). game.find returns null for a missing entity."
+      ]
     },
     {
       "id": "FB-0007",
@@ -145,7 +167,11 @@
       ],
       "suggestion": "Print each result once. Optionally add a summary-only flag, or print only failures with their details at the end.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria test prints each result once (verified)."
+      ]
     },
     {
       "id": "FB-0008",
@@ -165,7 +191,11 @@
       ],
       "suggestion": "Generate the real typings in factoria new, or add the regeneration command to the next-steps output.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: factoria new writes the real generated typings; refresh with 'factoria api --dts --project .'."
+      ]
     },
     {
       "id": "FB-0009",
@@ -185,7 +215,11 @@
       ],
       "suggestion": "Change the generated guide to say factoria api --dts --project ., or make --dts write into the enclosing project when run inside one.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: The generated AGENTS.md/CLAUDE.md now say 'factoria api --dts --project .' (writes the file; plain --dts only prints)."
+      ]
     },
     {
       "id": "FB-0010",
@@ -205,7 +239,11 @@
       ],
       "suggestion": "Fix the example, and run the documentation examples through validate in CI so wrong names are caught.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: docs/CLI.md scene.spawn example now uses Transform."
+      ]
     },
     {
       "id": "FB-0011",
@@ -225,7 +263,11 @@
       ],
       "suggestion": "Make scene.spawn return ok false (exit 1) for unknown component or field names, as validate does, or print them to stderr.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: scene.spawn / scene.set_component fail with exit 1 and nothing created on unknown component or field names, with did-you-mean hints (verified)."
+      ]
     },
     {
       "id": "FB-0012",
@@ -246,7 +288,11 @@
       ],
       "suggestion": "Add game.touch(screenPos) (or a tap variant) that fills input.touches for one frame, with pressed set on the first frame of contact.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: game.touch(pos, frames=1), game.touchStart(pos, id?), touchMove, touchEnd fill input.touches in tests (touch.pressed is true on the first frame only; verified)."
+      ]
     },
     {
       "id": "FB-0013",
@@ -266,7 +312,10 @@
       ],
       "suggestion": "Document each TouchInfo field, for example: pressed is true only on the frame the touch starts. Add a held or down field for a touch that is still in contact.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: TouchInfo.pressed is still undocumented in docs/SCRIPTING.md and the typings. Verified behaviour: true only on the first frame of a touch, false while it is held."
+      ]
     },
     {
       "id": "FB-0014",
@@ -286,7 +335,11 @@
       ],
       "suggestion": "Expose Text.measure(text, fontSize) in the scripting API, or a read-only width and height on Text after layout, so UI panels can size to their content.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: ui.measureText(text, { fontSize, font, maxWidth }) -> { width, height }. Headless runs approximate (0.6 x fontSize per char) and warn once."
+      ]
     },
     {
       "id": "FB-0015",
@@ -306,7 +359,10 @@
       ],
       "suggestion": "State in COMPONENTS.md that rectangles and circles are centred on the entity position, or add a pivot field to Shape2D.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: Shape2D now has pivot (default [0.5,0.5], centered) and anchor, described in the engine's api output, but docs/COMPONENTS.md has not been regenerated. Use pivot/anchor now."
+      ]
     },
     {
       "id": "FB-0016",
@@ -326,7 +382,11 @@
       ],
       "suggestion": "Document the spawn options in SCRIPTING.md, with the root-and-destroy pattern as an example.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "e2b0090",
+      "notes": [
+        "Fixed in e2b0090: world.spawn(json, { position, rotation, scale, parent, props }) and spawnPrefab options are documented in docs/SCRIPTING.md (world section)."
+      ]
     },
     {
       "id": "FB-0017",
@@ -346,7 +406,10 @@
       ],
       "suggestion": "Update EXTENDING.md and every (planned) label to match the build. Add a docs check that fails when a command documented as planned already runs.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Still open after e2b0090: docs/EXTENDING.md still marks tools/*.js and 'factoria call' as (planned); both work (verified)."
+      ]
     },
     {
       "id": "FB-0018",
@@ -366,7 +429,10 @@
       ],
       "suggestion": "Let a tool return a result with ok: false that makes factoria call exit 1 while still printing the result. Or let it throw an error that carries both a result and a hint. Document which one a check tool should use.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "Partly fixed in e2b0090: throw new ToolError(message, hint, data) makes the call exit 1 and keeps data via 'call --batch', 'session' and MCP. Still open: a plain 'factoria call project.x' prints only message+hint (verified), so the data/report is lost on the CLI single-call path; a returned {ok:false} still exits 0."
+      ]
     }
   ]
 }
