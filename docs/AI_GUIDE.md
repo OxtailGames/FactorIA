@@ -2,7 +2,7 @@
 
 Read this guide before you change a FactorIA game. Through MCP, read it with `docs_read {"name":"ai-guide"}` or the resource `factoria://docs/AI_GUIDE.md`. The CLI form, `factoria docs read ai-guide`, is planned. The `AGENTS.md` in your project repeats the short rules.
 
-Every name here is part of the engine contracts. Your build may not have all of them yet, so the tools in your tool list are the ones that exist. To check a name, call `docs_search` or `docs_commands`. Do not guess component fields or command arguments.
+Every name here is part of the engine contracts. Your build may not have all of them yet, so the tools in your tool list are the ones that exist. The `factoria` CLI is still being built, so a CLI command marked (planned) may not run; the MCP tools are the reliable interface. To check a name, call `docs_search` or `docs_commands`. Do not guess component fields or command arguments.
 
 ## 1. Mental model
 
@@ -34,7 +34,7 @@ Repeat it for every change. Make small steps: change one thing, validate, run, l
 
 1. **Read.** `docs_list`, then `docs_read {"name":"scripting"}` for the script API, `docs_components` for component fields, and `docs_search {"query":"..."}` for everything else.
 2. **Edit** scenes, prefabs, `scripts/`, `tools/`, `tests/` or `factoria.json`.
-3. **Validate.** Run `project_validate` (CLI: `factoria validate`). Fix every error using its file, JSON pointer and hint. It must be clean before you go on.
+3. **Validate.** Run `project_validate` (CLI: `factoria validate`, planned). Fix every error using its file, JSON pointer and hint. It must be clean before you go on.
 4. **Run and LOOK.** Run `game_step {"frames":120}`, then `game_screenshot`. Open the image and check that it shows what you intended. Check `game_logs` and `script_errors`. A clean validation does not prove that the scene is right.
 5. **Test.** Add or update a test in `tests/*.test.js` for every behaviour. Run it with `project_test` (CLI: `factoria test`, planned). A bug fix starts with a test that fails.
 6. **Report gaps** as soon as you meet them (next section).
@@ -56,7 +56,7 @@ Call the MCP tool `feedback_report` with:
 | `workaround` | what you did instead, with `workaroundFiles` (project-relative paths) |
 | `suggestion` | the engine change that would remove the workaround: a field, a command or an API |
 
-Optional: `effort` (`small`, `medium`, `large`) and `reporter` (`{"kind":"ai","agent":"...","model":"..."}`). Call `feedback_list {"status":"open"}` to see what is already recorded.
+The tool requires `category`, `severity`, `title`, `missing` and `workaround`. Always add `workaroundFiles` and `suggestion` as well, because the engine team needs them. `effort` (`small`, `medium`, `large`) and `reporter` (`{"kind":"ai","agent":"...","model":"..."}`) are optional. Call `feedback_list {"status":"open"}` to see what is already recorded.
 
 Good example, a missing physics option:
 
@@ -503,7 +503,7 @@ A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is
 }
 ```
 
-`tiles` has `width * height` entries. Add a real tileset image at `assets/tiles.png`, or validation will report the missing asset.
+The flat `tiles` array has `width * height` entries (the field also accepts an array of rows). Add a real tileset image at `assets/tiles.png`, or validation will report the missing asset.
 
 ### 9.9 3D scene with a light
 

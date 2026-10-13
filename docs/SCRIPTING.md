@@ -203,5 +203,28 @@ test("player jumps", () => {
   `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path)`, `state()`
 
-Each test file runs in a fresh engine instance with the project's seed, so
-results are deterministic.
+Tests run inside the current engine (only one renderer can exist per
+process). Between test files the runner reloads the project's start scene,
+reseeds the world RNG with the project seed, clears input overrides, timers and
+behaviours; `game.load` also reseeds. Before each test input overrides and
+`time.scale` are reset. Results are deterministic. Extras: `describe.skip`,
+`beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
+`toBeNaN`, `toMatch`, `toBeInstanceOf`. Failures print expected/received and
+`file:line` of the failing `expect`.
+
+## Runtime notes
+- `Math.random()` is routed to the deterministic world RNG (`rng.*`); never use
+  wall-clock time in simulation.
+- Callbacks running longer than 2 s are aborted ("script took too long") and the
+  behaviour is disabled until its file is reloaded. Exceptions are recorded once
+  per (file, line, message) with a hint; the behaviour keeps running.
+- `world.on(name, fn)` listeners get `(data, source)`; `this.on(name, fn)` is the
+  same. All listeners/timers are dropped when a scene loads.
+- Unknown input actions, keys, components and fields throw errors with
+  "did you mean" suggestions. Component views reject unknown field assignment.
+- Hot reload (`reload_module`) re-imports the module and every module that
+  imports it, recreates affected behaviours (entity state kept, props re-applied,
+  `onStart` runs again, `onDestroy` is NOT called) and reloads tools.
+- A tool never replaces a built-in command: a tool whose `project.<name>`
+  already exists is rejected with a script error.
+- `entity.get("Script").props` (a JSON field) returns a copy; assign to write.

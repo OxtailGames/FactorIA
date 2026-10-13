@@ -15,7 +15,7 @@ Necesitas CMake 3.24 o superior y un compilador de C++20. En Linux y macOS los p
 ./scripts/build.sh debug --test   # configura, compila y ejecuta los tests
 ```
 
-El script usa `sudo` si no eres root. Si usas Fedora o Arch, imprime los paquetes equivalentes. En otra distribución, instala los mismos componentes con tu gestor de paquetes.
+El script funciona solo en sistemas con `apt` (Debian y Ubuntu) y usa `sudo` si no eres root. En otras distribuciones se detiene e imprime los paquetes equivalentes para Fedora y Arch; instala esos mismos componentes con tu gestor de paquetes y después ejecuta `./scripts/build.sh debug --test`.
 
 ### macOS
 
@@ -214,7 +214,7 @@ command = "factoria"
 args = ["mcp", "--project", "/ruta/a/mi-juego"]
 ```
 
-El servidor MCP expone cada comando como herramienta, la documentación como recursos `factoria://docs/...` y las capturas de pantalla como imágenes. Incluye también las instrucciones `make-game`, `add-feature`, `fix-bug` y `report-engine-gap`. Normalmente el cliente lo arranca por ti. Para depurarlo, puedes arrancarlo a mano con `factoria mcp --project mi-juego` (en desarrollo).
+El servidor MCP expone cada comando como herramienta, la documentación como recursos `factoria://docs/...` y las capturas de pantalla como imágenes. Incluye también los prompts `make-game`, `add-feature`, `fix-bug` y `report-engine-gap`, que guían a la IA paso a paso. Normalmente el cliente lo arranca por ti. Para depurarlo, puedes arrancarlo a mano con `factoria mcp --project mi-juego` (en desarrollo).
 
 ### Opción B: IA integrada con clave de API (en desarrollo)
 

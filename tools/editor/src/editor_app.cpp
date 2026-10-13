@@ -263,7 +263,7 @@ bool Editor::boot(const std::string& dirIn) {
     play_ = PlayState::Edit;
     dirty_ = false;
     assetsScanned_ = -10;
-    feedbackMtime_ = -2;
+    feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
     layoutBuilt_ = false;
     bootError_.clear();
@@ -461,7 +461,12 @@ void Editor::on_frame(double dt) {
         });
         sync_scene_path();
         ai_drain_events();
-        engine_->frame(dt);
+        if (stepPending_ > 0) {
+            --stepPending_;
+            engine_->step(1);
+        } else {
+            engine_->frame(dt);
+        }
     }
 
     const int fbW = sapp_width(), fbH = sapp_height();
@@ -584,9 +589,8 @@ void Editor::step_once() {
     } else if (play_ == PlayState::Playing) {
         pause();
     }
-    engine_->set_paused(false);
-    engine_->step(1);
-    engine_->set_paused(true);
+    // Engine::step renders; run it INSTEAD of engine.frame() next frame (sokol allows one render per frame).
+    ++stepPending_;
 }
 
 void Editor::stop() {
@@ -594,6 +598,7 @@ void Editor::stop() {
     engine_->set_paused(true);
     engine_->input().release_all();
     play_ = PlayState::Edit;
+    stepPending_ = 0;
     restore_scene(playSnapshot_);
     playSnapshot_ = Json();
     dragging_ = false;
