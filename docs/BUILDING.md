@@ -199,10 +199,11 @@ Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran faile
 MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
 Windows PC.
 
-`.github/workflows/ci.yml` keeps the full five-platform matrix on GitHub-hosted
-runners, but it never runs automatically: start it by hand (Actions tab, "CI",
-"Run workflow") when you want Windows/MSVC, macOS, iOS and Android checked in
-the cloud. Day-to-day CI is `./scripts/ci-local.sh` on a developer machine.
+`.github/workflows/ci.yml` runs the full five-platform matrix (Linux, Windows/MSVC,
+macOS, iOS Simulator, Android) on GitHub-hosted runners on every push and pull
+request; standard hosted runners are free for public repositories. A newer push
+to the same branch cancels the older run. `./scripts/ci-local.sh` runs the same
+kind of checks on your own machine before you push.
 
 ## Troubleshooting
 

@@ -3,18 +3,18 @@
 # commands work on that platform too.
 name: CI
 
-# All five platforms on GitHub-hosted runners. This workflow never runs
-# automatically (no Actions minutes are spent on pushes): start it by hand from
-# the Actions tab ("CI" -> Run workflow) when you want a cloud check of
-# Windows/MSVC, macOS, iOS and Android. Day-to-day CI runs locally with
-# ./scripts/ci-local.sh (see docs/BUILDING.md, "Continuous integration").
+# All five platforms on GitHub-hosted runners, on every push and pull request
+# (standard hosted runners are free for public repositories). The same checks
+# can run locally with ./scripts/ci-local.sh (see docs/BUILDING.md).
 on:
+  push:
+  pull_request:
   workflow_dispatch:
 
 # Keep only the newest run per branch or pull request.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
