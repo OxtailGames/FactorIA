@@ -47,11 +47,16 @@ bool json_to(const Json& j, Vec4& out, std::string* err);
 bool json_to(const Json& j, Color& out, std::string* err);
 bool json_to(const Json& j, Rect& out, std::string* err);
 
+// Floats are rounded to 4 decimals so files stay clean (0.1f -> 0.1, not 0.10000000149).
+Json to_json(float v);
 Json to_json(Vec2 v);
 Json to_json(Vec3 v);
 Json to_json(Vec4 v);
 Json to_json(Color c);  // [r, g, b, a] rounded to 4 decimals
 Json to_json(const Rect& r);
+
+// Short description of a JSON value for error messages: string "abc", number 3, array [..] (truncated).
+std::string describe_json_value(const Json& j);
 
 bool parse_color(std::string_view text, Color& out);  // "#..", names
 std::span<const std::string_view> color_names();
