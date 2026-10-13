@@ -1,6 +1,8 @@
 // @ts-check
 // The player's ball: camera-relative rolling, jumping, checkpoints and respawn after a fall.
-import { Behaviour, input, math, audio, physics, vec3 } from "factoria";
+// Physics does the rest: RigidBody3D.rollWithMotion spins the mesh, and a kinematic platform carries the ball
+// standing on it, so `velocity` here is always relative to the ground the ball rests on.
+import { Behaviour, input, math, audio, physics } from "factoria";
 
 export default class Ball extends Behaviour {
   cameraId = "camera";
@@ -20,7 +22,6 @@ export default class Ball extends Behaviour {
     const p = this.entity.position;
     this.checkpoint = [p.x, p.y, p.z];
     this.falls = 0;
-    this.roll = 0;
   }
 
   setCheckpoint(pos, id) {
@@ -30,10 +31,9 @@ export default class Ball extends Behaviour {
     this.world.emit("checkpoint", { id });
   }
 
-  /** Ray straight down from the ball center, only against layer 0 (the ball is on layer 1). Returns the hit or null. */
+  /** Ray straight down from the ball center, skipping the ball's own collider. Returns the hit or null. */
   ground() {
-    const p = this.entity.worldPosition;
-    return physics.raycast3d(vec3(p.x, p.y, p.z), vec3(0, -1, 0), this.radius + 0.15, { mask: 1 });
+    return physics.raycast3d(this.entity.worldPosition, [0, -1, 0], this.radius + 0.15, { ignore: this.entity });
   }
 
   onFixedUpdate(dt) {
@@ -51,20 +51,9 @@ export default class Ball extends Behaviour {
     let wz = -ix * Math.sin(yaw) - iz * Math.cos(yaw);
     const len = Math.hypot(wx, wz);
     if (len > 1) { wx /= len; wz /= len; }
-    // Kinematic platforms do not carry riders in the engine, so move relative to the ground body's velocity.
-    const hit = this.ground();
-    let px = 0, pz = 0;
-    if (hit && hit.entity.has("RigidBody3D")) {
-      const pv = hit.entity.get("RigidBody3D").velocity;
-      px = pv.x; pz = pv.z;
-    }
-    v.x = px + math.moveTowards(v.x - px, wx * this.maxSpeed, this.accel * dt);
-    v.z = pz + math.moveTowards(v.z - pz, wz * this.maxSpeed, this.accel * dt);
-    if (this.enabledInput && input.pressed("jump") && hit) v.y = this.jumpSpeed;
-    // Visual roll: physics ignores rotation, so spin the mesh by hand.
-    const rot = this.entity.transform.rotation;
-    rot.x += math.radToDeg(v.z * dt / this.radius);
-    rot.z -= math.radToDeg(v.x * dt / this.radius);
+    v.x = math.moveTowards(v.x, wx * this.maxSpeed, this.accel * dt);
+    v.z = math.moveTowards(v.z, wz * this.maxSpeed, this.accel * dt);
+    if (this.enabledInput && input.pressed("jump") && this.ground()) v.y = this.jumpSpeed;
   }
 
   respawn() {
