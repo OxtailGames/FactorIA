@@ -9,6 +9,13 @@ if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
 
+# Faster rebuilds when ccache is available (optional).
+find_program(FA_CCACHE ccache)
+if(FA_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE})
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${FA_CCACHE})
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
