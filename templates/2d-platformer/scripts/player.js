@@ -1,5 +1,6 @@
 // @ts-check
 // Platformer character: run with move_left/move_right, jump with the jump action, collect coins.
+// Plays assets/sfx/jump.wav and coin.wav (tests check them with game.audioLog()).
 import { Behaviour, input, audio } from "factoria";
 
 export default class Player extends Behaviour {
@@ -16,12 +17,14 @@ export default class Player extends Behaviour {
     this.body.velocity.x = input.axis("move_left", "move_right") * this.speed;
     if (input.pressed("jump") && this.entity.isGrounded()) {
       this.body.velocity.y = this.jumpSpeed;
+      audio.play("assets/sfx/jump.wav", { volume: 0.6 });
     }
   }
 
   onTriggerEnter(other) {
     if (other.hasTag("coin")) {
       other.destroy();
+      audio.play("assets/sfx/coin.wav", { volume: 0.6 });
       this.world.emit("coin_collected", { by: this.entity.id });
     }
   }

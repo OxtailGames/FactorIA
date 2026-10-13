@@ -418,7 +418,7 @@ export default class Spawner extends Behaviour {
 }
 ```
 
-To spawn without a prefab, pass the entity object itself, as in `templates/2d-platformer/tools/spawn_coin.js`:
+To spawn without a prefab, pass the entity object itself (the 2d-platformer template's `tools/spawn_coin.js` spawns its coin from `prefabs/coin.prefab.json` instead):
 
 ```js
 // x and y are the coordinates you want (world pixels, +Y up).

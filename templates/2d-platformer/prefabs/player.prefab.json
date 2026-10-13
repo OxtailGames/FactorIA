@@ -1,0 +1,31 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Player",
+    "tags": ["player"],
+    "components": {
+      "Shape2D": {
+        "shape": "rectangle",
+        "size": [32, 48],
+        "color": [0.95, 0.35, 0.3, 1],
+        "layer": 2
+      },
+      "RigidBody2D": {
+        "type": "dynamic",
+        "fixedRotation": true
+      },
+      "Collider2D": {
+        "shape": "box",
+        "size": [32, 48],
+        "friction": 0
+      },
+      "Script": {
+        "path": "scripts/player.js",
+        "props": {
+          "speed": 300,
+          "jumpSpeed": 620
+        }
+      }
+    }
+  }
+}

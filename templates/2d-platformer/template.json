@@ -1,1 +1,1 @@
-{ "name": "2d-platformer", "description": "Side-scrolling platformer starter: physics player with run/jump, platforms, collectible coins, score HUD, follow camera, tests. Uses Shape2D only (no assets).", "dimension": "2d" }
+{ "name": "2d-platformer", "description": "Side-scrolling platformer starter: an ASCII-map level (scene.import_ascii) over a small tileset, run/jump player, coins with sounds, score HUD, follow camera clamped to the level, tests. Player and coins are Shape2D; the only binary assets are a tileset PNG and two tiny WAVs.", "dimension": "2d" }
