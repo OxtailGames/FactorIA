@@ -14,6 +14,7 @@ namespace fa {
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
+    std::uint64_t logSeqAtInit = 0;  // state() only reports logs emitted by THIS engine
     ProjectSettings project;
     bool initialized = false;
     bool windowed = false;  // GPU comes from the platform window (GfxEnvironment passed to init)
