@@ -2,7 +2,7 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
-#include <cstdlib>
+#include <cstdio>
 #include <cstring>
 
 #include <fcntl.h>
@@ -86,27 +86,22 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     set_cloexec(errPipe[0]);
     set_cloexec(execPipe[0]);
 
-    // The child's standard input: /dev/null, or an unlinked temporary file holding stdinText, so there is no pipe to
+    // The child's standard input: /dev/null, or an anonymous temporary file holding stdinText, so there is no pipe to
     // keep writing while stdout is read.
     int inFd = -1;
     if (!opt.stdinText.empty()) {
-        const char* tmp = std::getenv("TMPDIR");
-        std::string path = std::string(tmp && *tmp ? tmp : "/tmp") + "/factoria-stdin-XXXXXX";
-        inFd = mkstemp(path.data());
-        if (inFd >= 0) unlink(path.c_str());
-        for (std::size_t off = 0; inFd >= 0 && off < opt.stdinText.size();) {
-            ssize_t w = write(inFd, opt.stdinText.data() + off, opt.stdinText.size() - off);
-            if (w < 0 && errno == EINTR) continue;
-            if (w <= 0) { close(inFd); inFd = -1; break; }
-            off += static_cast<std::size_t>(w);
-        }
+        std::FILE* f = std::tmpfile();
+        if (f && std::fwrite(opt.stdinText.data(), 1, opt.stdinText.size(), f) == opt.stdinText.size() &&
+            std::fflush(f) == 0)
+            inFd = dup(fileno(f));
+        if (f) std::fclose(f);
         if (inFd < 0 || lseek(inFd, 0, SEEK_SET) != 0) {
             int e = errno;
             if (inFd >= 0) close(inFd);
             for (int fd : {outPipe[0], outPipe[1], errPipe[0], errPipe[1], execPipe[0], execPipe[1]}) close(fd);
             return make_error("Cannot write the standard input of '" + opt.argv[0] + "' to a temporary file: " +
                                   std::strerror(e),
-                              "Check that TMPDIR (or /tmp) exists and is writable.");
+                              "Check that /tmp exists and is writable.");
         }
         set_cloexec(inFd);
     }
