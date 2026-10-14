@@ -47,7 +47,7 @@ engine/            runtime modules (ship inside every game)
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
   common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export
-  mcp/             fa_mcp      Model Context Protocol server (stdio)
+  mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
@@ -149,7 +149,8 @@ without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
   `anthropic` (API key or `ant` CLI profile), `openai-compatible`
   (OpenAI, OpenRouter, Gemini, Groq, Ollama, LM Studio...), and CLI agents
   `claude-code`, `codex`, `generic-cli` (spawned with the FactorIA MCP server
-  attached). API keys live in the user config (`~/.factoria/ai.json`) or env
+  attached; in the editor, Claude Code attaches the editor's own MCP endpoint,
+  so it edits the open scene). API keys live in the user config (`~/.factoria/ai.json`) or env
   vars — never in projects.
 - **Roles**: `orchestrator` plans and delegates, `worker` implements, `fast`
   handles small mechanical tasks. Defaults: Claude Opus 5.5 (effort `xhigh`),

@@ -245,6 +245,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     }
     req.model = rc.model == kPlaceholderModel ? std::string() : rc.model;
     req.projectDir = opt_.projectDir;
+    req.mcpUrl = opt_.mcpUrl;
 
     AgentEvent start;
     start.type = AgentEvent::Type::SessionStart;

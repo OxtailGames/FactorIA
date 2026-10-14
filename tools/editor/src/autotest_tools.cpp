@@ -353,6 +353,51 @@ void Editor::at_build_tools_script() {
     });
     snap("editor_bloom.png");
 
+    // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
+    // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
+    // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
+    // Play must wait meanwhile. Needs the fixture (the autotest runs from the repository root) and curl.
+    step(2, [this] {
+#ifdef _WIN32
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
+#else
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.sh");
+#endif
+        if (!stdfs::exists(fake) || ai::which("curl").empty()) {
+            atLog_.push_back("SKIP CLI agent through the editor's MCP endpoint (no " + fake.string() + " or no curl)");
+            return;
+        }
+        ai::ProviderConfig cc;
+        cc.name = "claude-code";
+        cc.kind = ai::ProviderKind::ClaudeCode;
+        cc.command = fake.make_preferred().string();
+        cc.env["FAKE_MODE"] = "mcp_spawn";
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            aiConfig_.providers[cc.name] = cc;
+            aiConfig_.roles[ai::kRoleOrchestrator] = ai::RoleConfig{cc.name};
+        }
+        atUndoBeforeAi_ = undo_depth();
+        ai_start("Add a coin.");
+        at_check(ai_running(), "a message to a Claude Code orchestrator starts the agent");
+        play();
+        at_check(play_state() == PlayState::Edit, "Play waits while the CLI agent is changing the scene");
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
+    });
+    step(2, [this] {
+        if (!atSavedConfig_) return;
+        at_check(!ai_running(), "the CLI agent finished");
+        at_check(!world().find("CliCoin").is_null(), "the CLI agent's tool call (scene_spawn over MCP) created the entity in the editor's world");
+        at_check(undo_depth() > atUndoBeforeAi_, "the CLI agent's edit recorded an undo step");
+        undo();
+        at_check(world().find("CliCoin").is_null(), "Ctrl+Z (undo) removes the entity the CLI agent created");
+        std::lock_guard<std::mutex> lock(aiMu_);
+        aiConfig_ = std::move(*atSavedConfig_);
+        atSavedConfig_.reset();
+    });
+
     // ------------------------------------------------------------------------------------------------------ done
     step(2, [this] {
         select_id("");

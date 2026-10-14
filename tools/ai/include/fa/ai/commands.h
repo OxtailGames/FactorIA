@@ -16,6 +16,10 @@ struct AiCommandOptions {
     ProviderFactory providerFactory;
     // Project directory when the call does not pass one. Default: fa::fs::project_root().
     std::function<std::string()> projectDir;
+    // Stops a running ai.run (the editor's Stop). nullptr = it runs to the end.
+    const CancelFlag* cancel = nullptr;
+    // MCP endpoint a CLI sub-agent attaches (SessionOptions::mcpUrl): the editor's, so ai.run edits its world too.
+    std::string mcpUrl;
 };
 
 // Registers "ai.providers" (list/doctor) and "ai.run" (run a task synchronously

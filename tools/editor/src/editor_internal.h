@@ -1,9 +1,10 @@
 // Editor state shared by all panels. One instance lives for the whole run_editor() call.
 //
 // THREADING: everything here runs on the main (UI/GPU) thread EXCEPT the AI agent
-// thread (ai_panel.cpp). The agent never touches the engine directly: its command
-// registry is a proxy whose handlers enqueue jobs into MainThreadQueue and block
-// until the main thread has executed them (Editor::on_frame -> queue.pump()).
+// thread and the MCP endpoint's connection threads (ai_panel.cpp). Neither touches
+// the engine directly: the command registry they use is a proxy whose handlers
+// enqueue jobs into MainThreadQueue and block until the main thread has executed
+// them (Editor::on_frame -> queue.pump()).
 #pragma once
 
 #include <array>
@@ -29,6 +30,7 @@
 #include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/editor/editor.h"
+#include "fa/mcp/http_server.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
@@ -323,7 +325,10 @@ public:
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
     bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
-    std::shared_ptr<CommandRegistry> aiProxy_;
+    std::shared_ptr<CommandRegistry> aiProxy_;  // the current run's proxy (under aiMu_: the MCP endpoint reads it)
+    // The editor's MCP endpoint for CLI agents (Claude Code): it serves aiProxy_, so their tool calls run here like an
+    // API provider's. Started by the first ai_start, stopped by ai_stop (project switch, quit).
+    McpHttpServer aiMcp_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
 
     // autotest
@@ -367,6 +372,7 @@ public:
     size_t atUndoBeforeAi_ = 0;
     bool atWaitAi_ = false;
     std::vector<ai::ProviderStatus> atSavedStatus_;
+    std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
     int atWaitCount_ = 0;
     void save_screenshot_now(const std::string& path);
 };

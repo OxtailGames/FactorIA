@@ -36,11 +36,10 @@ bool looks_like_auth_failure(std::string_view text) {
     return false;
 }
 
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand) {
-    return Json::object(
-        {{"mcpServers",
-          Json::object({{"factoria", Json::object({{"command", factoriaCommand},
-                                                   {"args", Json::array({"mcp", "--project", projectDir})}})}})}});
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl) {
+    Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
+                                 : Json::object({{"type", "http"}, {"url", mcpUrl}});
+    return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
 }
 
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
@@ -465,7 +464,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     }
     std::string projectDir = req.projectDir.empty() ? fsys::current_path().string() : fsys::absolute(req.projectDir).string();
 
-    // MCP config file for CLIs that take one (Claude Code). It contains no secrets.
+    // MCP config file for CLIs that take one (Claude Code). The editor's endpoint URL carries a per-session token for a
+    // loopback port; the file stays in the project's git-ignored .factoria folder.
     std::string mcpPath;
     bool needsMcp = cfg_.kind == ProviderKind::ClaudeCode;
     for (const auto& a : tmpl) needsMcp = needsMcp || a.find("{mcp_config}") != std::string::npos;
@@ -476,7 +476,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         fsys::path file = dir / ("mcp-" + cfg_.name + ".json");
         std::ofstream f(file, std::ios::binary | std::ios::trunc);
         if (!f) return make_error("Cannot write " + file.string(), "Is the project directory writable?");
-        f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand)) << "\n";
+        f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)) << "\n";
         mcpPath = file.string();
     }
     CliRunRequest effective = req;
