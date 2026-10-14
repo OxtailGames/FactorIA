@@ -201,6 +201,7 @@ public:
     std::shared_ptr<CommandRegistry> make_proxy_registry();
     MainThreadQueue& queue() { return queue_; }
     bool ai_running() const { return aiRunning_.load(); }
+    bool ai_blocks_play();  // true (and says why) while the assistant is editing: Play / Step must wait
     const std::vector<ChatItem>& chat() const { return chat_.current().items; }  // transcript of the active chat
 
     // autotest

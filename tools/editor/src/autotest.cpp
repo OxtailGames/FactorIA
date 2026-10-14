@@ -218,6 +218,9 @@ void Editor::autotest_pre_frame() {
         pause();
         at_check(play_state() == PlayState::Paused, "Pause");
         atStepFrame_ = engine_->frame_index();
+        const std::size_t items = chat().size();
+        ai_start("Add a coin while the game is paused.");
+        at_check(!ai_running() && chat().size() == items, "the assistant takes no message while the game runs");
         step_once();
     } else if (f == 52) {
         at_check(engine_->frame_index() == atStepFrame_ + 1, "Step advances exactly one frame");
@@ -252,6 +255,8 @@ void Editor::autotest_pre_frame() {
         }
         atUndoBeforeAi_ = undo_depth();
         ai_start("Add a gold coin above the origin of the scene.");
+        play();
+        at_check(play_state() == PlayState::Edit, "Play waits while the assistant is changing the scene");
         atWaitAi_ = true;
     } else if (f == 62) {
         at_check(!ai_running(), "scripted AI session finished");

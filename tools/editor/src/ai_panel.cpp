@@ -277,6 +277,10 @@ void Editor::ai_on_files_dropped() {
 
 void Editor::ai_start(const std::string& task) {
     if (!engine_ || task.empty()) return;
+    if (play_ != PlayState::Edit) {  // its scene edits would be thrown away at Stop
+        notify("Stop the game first (F5): changes made while it runs are thrown away at Stop.", 1);
+        return;
+    }
     ai_sync_chats();
     ai_drain_events();  // the result of the previous run may still be waiting
     // ponytail: one agent run at a time. The editor has one proxy registry, one command queue and one cancel flag, so
@@ -838,10 +842,13 @@ void Editor::draw_ai_panel() {
                                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
     const bool inputActive = ImGui::IsItemActive();
     ImGui::EndDisabled();
+    const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
     if (!isRunTab && chat.input.empty()) {
         // hint text drawn over the empty box
         ImVec2 p = ImGui::GetItemRectMin();
-        ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(120, 125, 140, 255), "Ask the assistant...  (Enter sends, Ctrl+Enter newline)");
+        ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + 6, p.y + 4), IM_COL32(120, 125, 140, 255),
+                                            gameRuns ? "The game is running: press Stop (F5) to talk to the assistant."
+                                                     : "Ask the assistant...  (Enter sends, Ctrl+Enter newline)");
     }
     // Ctrl+V with a picture on the clipboard. ImGui pastes text by itself; a clipboard with text keeps doing just that.
     if (inputActive && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) {
@@ -849,14 +856,17 @@ void Editor::draw_ai_panel() {
         if (!clipboardText || !*clipboardText) ai_paste_image();
     }
     const bool canRun = anyListed || !detected;
-    ImGui::BeginDisabled(running || chat.input.empty() || !canRun);
-    if (ImGui::Button("Run") || (submit && !running && !chat.input.empty() && canRun)) {
+    ImGui::BeginDisabled(running || chat.input.empty() || !canRun || gameRuns);
+    if (ImGui::Button("Run") || (submit && !running && !chat.input.empty() && canRun && !gameRuns)) {
         std::string task = chat.input;
         chat.input.clear();
         ai_start(task);
     }
     ImGui::EndDisabled();
-    if (otherRunning && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    if (gameRuns && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("The game is running. Press Stop (F5) first: what the assistant changed while it runs\n"
+                          "would be thrown away at Stop, which puts the scene back as it was before Play.");
+    } else if (otherRunning && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         const AiChat* busy = chat_.find(aiRunChat_);
         ImGui::SetTooltip("The assistant is busy in another chat (%s).\nOne run at a time: wait for it, or press Stop in that tab.",
                           busy && !busy->title.empty() ? busy->title.c_str() : "New chat");
@@ -874,6 +884,7 @@ void Editor::draw_ai_panel() {
     ImGui::SameLine();
     if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
     else if (otherRunning) ImGui::TextDisabled("busy in another chat");
+    else if (gameRuns) ImGui::TextDisabled("game running: Stop it to send");
     ImGui::PopID();
     ImGui::End();
 }
