@@ -6,8 +6,11 @@
 #include <fstream>
 #include <sstream>
 
+#include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
 #include "fa/cli/cli.h"
+#include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/tooling/scaffold.h"
 
 namespace {
 struct Result {
@@ -185,4 +188,47 @@ TEST_CASE("call: @args.json, --batch-file and --input are found in the current d
     r = run({"call", "project.info", "@levels/nope.json", "--project", f.project.string()});
     CHECK(r.code == 2);
     CHECK(r.err.find(shown(f.project / "levels/nope.json")) != std::string::npos);
+}
+
+// The engine's own check that the templates are healthy, with the full command set. A project made from each template
+// runs its tests/*.test.js on the engine `factoria test` builds (Session::open + run_project_tests: the project, tooling
+// and runtime commands, headless, graphics off). The template tests use fs.*, scene.import_ascii and scene.format, which
+// the minimal host of fa_test_script does not have; that test only checks that the template scripts load and compile.
+// `cli_integration` runs the same tests through the real binary (with a GPU when there is one) and also covers new,
+// validate, run and screenshots; this one needs no GPU and no Python, so it runs wherever the unit tests do (Wine too).
+TEST_CASE("templates: every template's tests pass on the engine that factoria test builds") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
+        CAPTURE(name);
+        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_template_") + name);
+        const std::string dir = (root / "game").string();
+        fa::ScaffoldOptions opt;
+        opt.writeTypings = false;  // types/factoria.d.ts is for editors; the tests do not read it
+        auto made = fa::create_project(dir, name, opt);
+        REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+        {
+            fa::cli::SessionOptions so;
+            so.gfx = fa::cli::Gfx::None;
+            auto session = fa::cli::Session::open(dir, so);
+            REQUIRE(session->registry().has("scene.format"));  // the engine, tooling and project commands are all there
+            REQUIRE(session->registry().has("fs.read"));
+            fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+            CHECK_MESSAGE(rep.ok(), rep.summary());
+            CHECK(rep.loadErrors.empty());
+            CHECK(rep.failed == 0);
+            CHECK(rep.passed >= 2);
+            if (std::string(name) == "2d-platformer") {
+                // The map-vs-scene and canonical-layout checks need the commands: they must really run here.
+                int levelChecks = 0;
+                for (const auto& c : rep.cases)
+                    if (c.file == "tests/level.test.js" && c.passed) ++levelChecks;
+                CHECK(levelChecks == 2);
+            }
+            for (const auto& e : session->engine().scripts().errors()) MESSAGE(e.to_string());
+            CHECK(session->engine().scripts().errors().empty());
+        }
+        std::error_code ec;
+        stdfs::remove_all(root, ec);
+    }
+    fa::fs::set_project_root(oldRoot);
 }

@@ -342,7 +342,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"scene.save", "Save the running world to a scene file (current scene path by default).",
-           "Writes canonical scene JSON (only non-default fields). Files inside .factoria/ belong to the engine and its tools: "
+           "Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are "
+           "always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: "
            "only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a "
            "scene FILE without touching the running world use scene.import_ascii with `path`. Example: "
            "scene.save {\"path\":\"scenes/snapshot.scene.json\"}",

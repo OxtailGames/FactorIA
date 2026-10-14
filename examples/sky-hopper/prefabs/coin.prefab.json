@@ -4,10 +4,23 @@
     "name": "Coin",
     "tags": ["coin"],
     "components": {
-      "Transform": { "position": [0, 0, 0] },
-      "Sprite": { "texture": "assets/coin.png", "size": [24, 24], "layer": 1, "pixelArt": false },
-      "RigidBody2D": { "type": "static" },
-      "Collider2D": { "shape": "circle", "radius": 12, "isTrigger": true }
+      "Transform": {
+        "position": [0, 0, 0]
+      },
+      "Sprite": {
+        "texture": "assets/coin.png",
+        "size": [24, 24],
+        "layer": 1,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "static"
+      },
+      "Collider2D": {
+        "shape": "circle",
+        "radius": 12,
+        "isTrigger": true
+      }
     }
   }
 }

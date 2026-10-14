@@ -62,7 +62,8 @@ struct SceneLoadOptions {
 // Scenes
 LoadReport load_scene(World& world, const Json& scene, std::string_view sourceName, const SceneLoadOptions& opts = {});
 LoadReport load_scene_file(World& world, std::string_view path, const SceneLoadOptions& opts = {});
-// Canonical JSON: nested children, only non-default fields, stable key order.
+// Canonical JSON: nested children, only non-default fields, stable key order. The one exception is the gravity: `settings`
+// always carries gravity2D and gravity3D, even at their defaults, so a reader of the file sees what the level uses.
 Json save_scene(const World& world);
 // Writes the scene with the reviewable layout of dump_scene_json (below).
 Result<void> save_scene_file(const World& world, std::string_view path);

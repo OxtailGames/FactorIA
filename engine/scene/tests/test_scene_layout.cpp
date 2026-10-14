@@ -43,7 +43,10 @@ const char* kLevelScene = R"({
 const char* kLevelText =
     "{\n"
     "  \"format\": \"factoria.scene/1\",\n"
-    "  \"settings\": {},\n"
+    "  \"settings\": {\n"
+    "    \"gravity2D\": [0.0, -980.0],\n"
+    "    \"gravity3D\": [0.0, -9.81, 0.0]\n"
+    "  },\n"
     "  \"entities\": [\n"
     "    {\n"
     "      \"id\": \"level\",\n"

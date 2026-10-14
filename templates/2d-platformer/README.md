@@ -12,7 +12,7 @@ factoria test
 ```
 
 - `levels/level1.json` the level as an ASCII map: the arguments of `scene.import_ascii`, the source of truth of its tiles, coins and player spawn
-- `scenes/main.scene.json` the camera, the HUD and the level built from that map (gravity is the engine default, 980 px/s² down; `settings.gravity2D` changes it)
+- `scenes/main.scene.json` the camera, the HUD and the level built from that map
 - `prefabs/` `coin.prefab.json` and `player.prefab.json`, placed by the map
 - `assets/` `tileset.png` (32x32 tiles: grass 0, dirt 1, brick 2, flowers 3) and `sfx/jump.wav`, `sfx/coin.wav`
 - `scripts/player.js` run/jump/collect (plays the sounds), `follow_camera.js` (follows on both axes, stays inside the map), `hud.js` (listens to `coin_collected`)

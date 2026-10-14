@@ -211,7 +211,19 @@ A scene is `factoria.scene/1`. Each entity has `id`, `name`, `tags`, `active`, `
 }
 ```
 
-`settings` holds the scene-wide values: `gravity2D`, `gravity3D`, `ambientLight`, `skyColor`, `horizonColor`, `fogColor`, `fogDensity`, `music`, `musicVolume`. A prefab is `factoria.prefab/1` with one `entity`:
+`settings` holds the scene-wide values: `gravity2D`, `gravity3D`, `ambientLight`, `skyColor`, `horizonColor`, `fogColor`, `fogDensity`, `music`, `musicVolume`. A hand-written scene may leave out any of them (or all of `settings`) and gets the defaults. When the engine writes a scene (`scene_save`, `scene_import_ascii` with `path`, the editor) it saves only the settings that differ from their defaults, EXCEPT the gravity: `gravity2D` (default `[0, -980]`, pixels/s² in 2D) and `gravity3D` (default `[0, -9.81, 0]`, m/s² in 3D) are always written, so the file itself shows what pulls the bodies down, even at the default. A saved 2D level therefore starts like this, and a 2D game reads only `gravity2D`:
+
+```json
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, -980.0],
+    "gravity3D": [0.0, -9.81, 0.0]
+  },
+  "entities": [
+```
+
+A prefab is `factoria.prefab/1` with one `entity`:
 
 ```json
 {
@@ -620,7 +632,7 @@ Run `project_validate`, then take a screenshot to check the picture: the tiles, 
 factoria call scene.import_ascii @levels/level1.json       # level1.json carries "path": "scenes/level1.scene.json"
 ```
 
-- `path` (project-relative, e.g. `scenes/level1.scene.json`) is the scene file to edit. The file is loaded into a scratch world that the engine throws away, the map is imported into it, and the result is written back to `path` in the same layout as `scene_save` (compact `tiles` rows, stable key order, so a diff shows what changed). The running world, its scene, the audio, the physics and the scripts are not touched, and nothing is reloaded, so it is safe to call from a project tool, from a script or while a game is running. If the running scene is that file and hot reload is on (windowed play), the game reloads it from disk like after any other edit of the file.
+- `path` (project-relative, e.g. `scenes/level1.scene.json`) is the scene file to edit. The file is loaded into a scratch world that the engine throws away, the map is imported into it, and the result is written back to `path` in the same layout as `scene_save` (compact `tiles` rows, the gravity always in `settings`, stable key order, so a diff shows what changed). The running world, its scene, the audio, the physics and the scripts are not touched, and nothing is reloaded, so it is safe to call from a project tool, from a script or while a game is running. If the running scene is that file and hot reload is on (windowed play), the game reloads it from disk like after any other edit of the file.
 - `from` (needs `path`) is a scene file to START from instead of `path`. A generator uses it to build `path` from a base scene that has the settings, camera, HUD and level script but no map (`"from": "levels/base.scene.json"`); `path` is then replaced. `from` must exist (the error suggests close scene names).
 - A `path` that does not exist yet and no `from`: the scene starts empty (default settings, no camera) and is created. That makes a new level one call; the result says so in `notes`. If `path` looks like a typo of an existing scene (`scenes/mian.scene.json`), `warnings` says "Did you mean 'scenes/main.scene.json'?" after creating it. Pass `from` to build on an existing scene.
 - `dryRun: true` (needs `path`) writes nothing and returns the resulting scene in `scene`, for a preview or a test. The same call without `dryRun` writes exactly that scene.
