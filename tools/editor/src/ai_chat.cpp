@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <iterator>
 
 #include "fa/core/strings.h"
 
@@ -428,9 +429,59 @@ std::string unique_file_name(const std::string& dir, const std::string& fileName
     return name;
 }
 
+Image shrink_image(const Image& src, int maxSide) {
+    const int side = std::max(src.width, src.height);
+    if (src.empty() || side <= maxSide) return src;
+    Image out;
+    out.width = std::max(1, static_cast<int>(static_cast<long long>(src.width) * maxSide / side));
+    out.height = std::max(1, static_cast<int>(static_cast<long long>(src.height) * maxSide / side));
+    out.rgba.resize(static_cast<std::size_t>(out.width) * out.height * 4);
+    for (int y = 0; y < out.height; ++y) {
+        const int y0 = y * src.height / out.height, y1 = std::max(y0 + 1, (y + 1) * src.height / out.height);
+        for (int x = 0; x < out.width; ++x) {
+            const int x0 = x * src.width / out.width, x1 = std::max(x0 + 1, (x + 1) * src.width / out.width);
+            unsigned sum[4] = {0, 0, 0, 0};
+            for (int sy = y0; sy < y1; ++sy)
+                for (int sx = x0; sx < x1; ++sx)
+                    for (int c = 0; c < 4; ++c) sum[c] += src.rgba[(static_cast<std::size_t>(sy) * src.width + sx) * 4 + c];
+            const unsigned n = static_cast<unsigned>((y1 - y0) * (x1 - x0));
+            for (int c = 0; c < 4; ++c)
+                out.rgba[(static_cast<std::size_t>(y) * out.width + x) * 4 + c] = static_cast<std::uint8_t>(sum[c] / n);
+        }
+    }
+    return out;
+}
+
 namespace {
 constexpr const char* kAttachmentsRel = ".factoria/ai/attachments";
+
+// Claude scales a picture down to 1568 px on its long side anyway, and the API refuses one over 5 MB (base64 makes
+// 3.5 MB of PNG about 4.7 MB). A big screenshot is shrunk here: the model sees the same picture, for fewer tokens and
+// with no refusal. A file that does not decode (webp, a broken file) is left as it is.
+constexpr int kMaxImageSide = 1568;
+constexpr std::size_t kMaxSentImageBytes = 3500u << 10;
+
+Result<std::string> fit_for_ai(const stdfs::path& dir, const std::string& name) {
+    std::ifstream in(dir / utf8_path(name), std::ios::binary);
+    const std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    auto img = decode_image(bytes.data(), bytes.size());
+    if (!img || (std::max(img->width, img->height) <= kMaxImageSide && bytes.size() <= kMaxSentImageBytes)) return name;
+    Image small = shrink_image(*img, kMaxImageSide);
+    std::vector<std::uint8_t> png = encode_png(small);
+    while (png.size() > kMaxSentImageBytes && std::max(small.width, small.height) > 64) {
+        small = shrink_image(small, std::max(small.width, small.height) * 3 / 4);
+        png = encode_png(small);
+    }
+    std::error_code ec;
+    stdfs::remove(dir / utf8_path(name), ec);  // the copy made a moment ago; the user's own file is untouched
+    const std::string shrunk = unique_file_name(utf8_string(dir), utf8_string(utf8_path(name).stem()) + ".png");
+    std::ofstream out(dir / utf8_path(shrunk), std::ios::binary | std::ios::trunc);
+    if (out) out.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+    if (!out) return make_error("Cannot write " + std::string(kAttachmentsRel) + "/" + shrunk, "Is the project folder writable?");
+    return shrunk;
 }
+}  // namespace
 
 Result<ChatAttachment> attach_file(const std::string& projectDir, const std::string& source) {
     if (std::string problem = attachment_problem(source); !problem.empty()) return make_error(problem);
@@ -443,7 +494,9 @@ Result<ChatAttachment> attach_file(const std::string& projectDir, const std::str
         return make_error("Cannot copy '" + source + "' into the project: " + ec.message(),
                           "Is the project folder writable? The copy goes to " + std::string(kAttachmentsRel) + "/.");
     }
-    return ChatAttachment{std::string(kAttachmentsRel) + "/" + name, name};
+    auto fitted = fit_for_ai(dir, name);
+    if (!fitted) return fitted.error();
+    return ChatAttachment{std::string(kAttachmentsRel) + "/" + *fitted, *fitted};
 }
 
 Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::string& fileName, const std::vector<std::uint8_t>& bytes) {
@@ -458,7 +511,10 @@ Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::st
         return make_error("Cannot write " + std::string(kAttachmentsRel) + "/" + name,
                           "Is the project folder writable?");
     }
-    return ChatAttachment{std::string(kAttachmentsRel) + "/" + name, name};
+    out.close();
+    auto fitted = fit_for_ai(dir, name);
+    if (!fitted) return fitted.error();
+    return ChatAttachment{std::string(kAttachmentsRel) + "/" + *fitted, *fitted};
 }
 
 std::string selection_line(const std::string& entityName, const std::string& entityId) {

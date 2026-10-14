@@ -316,7 +316,7 @@ void Editor::ai_start(const std::string& task) {
     chat.runUsage = {};
     chat.runCostUsd = 0;
 
-    // The entity selected in the viewport/hierarchy is what "this" and "it" mean. The transcript shows only what was typed.
+    // The entity selected in the viewport is what "this" and "it" mean. The transcript shows only what was typed.
     std::string prompt = task;
     if (const Entity sel = selected(); !sel.is_null()) {
         prompt = selection_line(world().info(sel).name, world().id_of(sel)) + "\n" + task;
