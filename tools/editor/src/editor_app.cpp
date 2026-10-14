@@ -156,6 +156,7 @@ int Editor::run() {
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
+    if (autotest_) showHierarchy_ = showInspector_ = showAssets_ = true;  // it drives the manual panels too
     AppDesc d;
     d.title = "FactorIA Editor";
     d.width = autotest_ ? 1600 : 1440;
@@ -194,7 +195,9 @@ void Editor::on_init() {
         }
     } else {
         std::string h = home_dir();
-        if (!h.empty()) iniPath_ = (std::filesystem::path(h) / ".factoria" / "editor.ini").string();
+        // layout2: a new name, so everyone starts on the AI layout once
+        if (!h.empty()) iniPath_ = (std::filesystem::path(h) / ".factoria" / "editor_layout2.ini").string();
+        maximize_window();  // the game view and the AI chat use the whole screen
     }
     if (!dir.empty() && !fs::exists((std::filesystem::path(dir) / kProjectFileName).string())) {
         std::string root = find_project_root(dir);
@@ -781,19 +784,23 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderRemoveNode(dockId);
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, size);
-    ImGuiID center = dockId, left, right, bottom, leftBottom, rightBottom;
-    left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, nullptr, &center);
-    right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.29f, nullptr, &center);
-    bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.27f, nullptr, &center);
-    leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.42f, nullptr, &left);
-    rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
-    ImGui::DockBuilderDockWindow("Hierarchy", left);
-    ImGui::DockBuilderDockWindow("Assets", leftBottom);
+    ImGuiID center = dockId;
+    if (showHierarchy_ || showInspector_ || showAssets_) {
+        // The manual editing panels (hidden by default; the autotest drives them) get their own columns.
+        ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, nullptr, &center);
+        ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.42f, nullptr, &left);
+        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.29f, nullptr, &center);
+        ImGui::DockBuilderDockWindow("Hierarchy", left);
+        ImGui::DockBuilderDockWindow("Assets", leftBottom);
+        ImGui::DockBuilderDockWindow("Inspector", right);
+    }
+    // The AI builds the game: the game view and the AI chat fill the window, logs and feedback sit under the view.
+    ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.38f, nullptr, &center);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
     ImGui::DockBuilderDockWindow("Viewport", center);
-    ImGui::DockBuilderDockWindow("Inspector", right);
-    ImGui::DockBuilderDockWindow("AI Assistant", rightBottom);
-    ImGui::DockBuilderDockWindow("Engine Feedback", rightBottom);
+    ImGui::DockBuilderDockWindow("AI Assistant", ai);
     ImGui::DockBuilderDockWindow("Console", bottom);
+    ImGui::DockBuilderDockWindow("Engine Feedback", bottom);
     ImGui::DockBuilderDockWindow("Audio", bottom);
     ImGui::DockBuilderFinish(dockId);
 }
