@@ -212,6 +212,9 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     s.max_dropped_files = 8;
     s.depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL;
     s.logger.func = fa_sokol_log_func;
+#if defined(__ANDROID__)
+    s.android.native_event_cb = android_gamepad_event;  // pads: see gamepad_android.cpp
+#endif
     return s;
 }
 
