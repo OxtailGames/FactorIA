@@ -473,7 +473,11 @@
       "suggestion": "Copy error.data onto the thrown Error (e.data).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 303db3e: fa.call copies the command error's data onto the thrown Error (e.data), next to code and hint. Workaround removed: the check_levels test in tests/board.test.js asserts on e.data (the report)."
+      ],
+      "engineIssue": "303db3e"
     },
     {
       "id": "FB-0020",
@@ -493,7 +497,11 @@
       "suggestion": "Mirror the first touch to the mouse in the test harness, or document the difference.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 303db3e: the first finger drives the mouse (position + MouseLeft) inside fa::Input, so game.touch/touchStart in tests behave like a device. Workaround removed: the tap tests in tests/board.test.js use game.touch only."
+      ],
+      "engineIssue": "303db3e"
     },
     {
       "id": "FB-0021",
@@ -510,7 +518,11 @@
       "suggestion": "Report the JSON parse error once, as file:line:column.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 6e5b5b2: an imported .json that is not valid JSON is reported once by factoria validate, as that file with line and column (\"levels/x.json:3:14: invalid JSON: ...\"), and the importing scripts get no extra Script props warnings."
+      ],
+      "engineIssue": "6e5b5b2"
     }
   ]
 }
