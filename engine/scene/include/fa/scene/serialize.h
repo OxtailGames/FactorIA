@@ -87,6 +87,12 @@ struct CanonicalScene {
 // is not a JSON object, or its canonical layout would not read back as the same data.
 Result<CanonicalScene> canonical_scene_layout(std::string_view file);
 
+// Every *.scene.json and *.prefab.json below `dir` (project-relative, "" = the whole project), sorted: the files
+// scene.format formats and project.validate checks, wherever the project keeps them (scenes/, prefabs/, levels/...).
+// Folders that hold copies or tool state are skipped: names starting with '.', node_modules, and build/ at the project
+// root (exports go to build/export).
+std::vector<std::string> project_scene_files(std::string_view dir = {});
+
 // Entities
 struct EntityJsonOptions {
     bool includeChildren = true;
