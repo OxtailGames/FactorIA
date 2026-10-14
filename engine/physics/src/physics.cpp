@@ -15,6 +15,10 @@ WorldPose world_pose(const World& world, Entity e) {
     };
     p.scale = {col_len(0), col_len(1), col_len(2)};
     p.rotZ = degrees(std::atan2(m.at(0, 1), m.at(0, 0)));
+    for (int c = 0; c < 3; ++c) {
+        const float l = p.scale[c];
+        if (l > 1e-9f) p.axis[c] = {m.at(c, 0) / l, m.at(c, 1) / l, m.at(c, 2) / l};
+    }
     return p;
 }
 }  // namespace detail
