@@ -1,119 +1,11 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games; 63 verified fixed-in-engine, 10 open (below; work package M6).
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open; M5 is the only package left and no game has reported its gaps yet.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
-10 entries from 4 project(s), 10 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-## 1. Bug: fa.call drops ToolError data
-
-- **Category:** scripting
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Block Push
-- **Entries:** Block Push/FB-0019
-- **Suggestion:** Copy error.data onto the thrown Error (e.data).
-- **Workarounds seen:**
-  - The check_levels test asserts on message and hint instead of the report.
-
-## 2. Invalid JSON import error has no line or column
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Block Push
-- **Entries:** Block Push/FB-0021
-- **Suggestion:** Report the JSON parse error once, as file:line:column.
-- **Workarounds seen:**
-  - Located the error with an external JSON linter.
-
-## 3. No file-targeted component edits
-
-- **Category:** scene
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0021
-- **Suggestion:** An 'edits' argument on scene.import_ascii, or scene.set_component with a path.
-- **Workarounds seen:**
-  - tools/generate_level.js writes .factoria/tmp/generate_level.base.scene.json and passes it as 'from'.
-
-## 4. game.touch does not drive the mouse like a device
-
-- **Category:** input
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Block Push
-- **Entries:** Block Push/FB-0020
-- **Suggestion:** Mirror the first touch to the mouse in the test harness, or document the difference.
-- **Workarounds seen:**
-  - A device-style test combines touchStart with game.click.
-
-## 5. No polygon or star shape in Shape2D
-
-- **Category:** rendering-2d
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0017
-- **Suggestion:** A 'polygon' shape with a number of sides, and a 'star'.
-- **Workarounds seen:**
-  - None.
-
-## 6. No script query for a texture's size
-
-- **Category:** scripting
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0023
-- **Suggestion:** A renderer-side texture size query exposed to scripts.
-- **Workarounds seen:**
-  - None in the game.
-
-## 7. ParticleEmitter has no screen space
-
-- **Category:** rendering-2d
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0015
-- **Suggestion:** ParticleEmitter.space like Sprite and Shape2D.
-- **Workarounds seen:**
-  - None needed yet.
-
-## 8. Scene files are not written atomically
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0022
-- **Suggestion:** Write to a temporary file and rename it over the target.
-- **Workarounds seen:**
-  - None.
-
-## 9. Triangle outline is centred on its edges
-
-- **Category:** rendering-2d
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0016
-- **Suggestion:** Draw triangle outlines inward like the other shapes (moves existing goldens).
-- **Workarounds seen:**
-  - None.
-
-## 10. Validate does not flag non-canonical scene files
-
-- **Category:** tooling
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0018
-- **Suggestion:** A validate warning or an exit-code option on scene.format check.
-- **Workarounds seen:**
-  - Ran scene.format --check by hand.
+_No open feedback entries._
 
 # Next engine milestones
 
@@ -130,6 +22,10 @@ Re-triage 2026-10-13, after `99eebad`: the four examples were migrated off their
 Sky Hopper `9dc7fd5`, Block Push `53fab56`, Gem Roller `99eebad`; each removed workaround has a note on its entry).
 The migrations found 18 new gaps: 8 were fixed right away (NS/FB-0011..0014 in `f649d8d`/`afbd0e9`, SH/FB-0017..0020
 in `cc789f7`) and 10 are open, grouped in M6 below.
+
+Re-triage 2026-10-14, after M6 (`303db3e`, `6e5b5b2`, `2ff6faa`): the 10 open entries are fixed and each has a
+`Fixed in <commit>` note; the three that had a workaround in an example (BP/FB-0019, BP/FB-0020, SH/FB-0021) had it
+removed in the same commit. No entry is open.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
@@ -223,7 +119,7 @@ Acceptance criteria:
 - Gamepad: `input.actions` bindings `"Gamepad:A"`, `"Gamepad:LeftStickX"` (+/-), `axis()` and `vector()` work;
   `game.gamepad(index).press/axis(...)` in tests; replay JSON accepts the same.
 
-## M6. Polish found while migrating the examples (S-M)
+## M6. Polish found while migrating the examples (S-M) — DONE (`303db3e`, `6e5b5b2`, `2ff6faa`)
 
 Closes: BP/FB-0019 (fa.call drops ToolError data), BP/FB-0020 (game.touch vs mouse), BP/FB-0021 (JSON import errors
 without position), NS/FB-0015 (screen-space particles), NS/FB-0016 (triangle outline), NS/FB-0017 (polygon/star),
@@ -246,6 +142,26 @@ Acceptance criteria:
   Sky Hopper's generator drops its scratch base copy.
 - Scene/prefab/JSON files are written to a temporary file and renamed over the target.
 - A script can read a texture's pixel size (e.g. `assets.textureSize(path)`), and `entity.bounds()` uses it.
+
+Outcome: three packages, one per commit. Scripting and input (`303db3e`): `fa.call` sets `e.data`; the first finger
+drives the mouse inside `fa::Input`, so a device, `game.touch` and any other feed behave the same; `assets.textureSize`.
+Files and tooling (`6e5b5b2`): `fs::write_bytes` writes a temporary file and renames it over the target, and the
+tooling writer behind `fs.write`, scaffold and export now goes through it; the JSON module loader and validate report a
+broken imported `.json` once as `file:line:column`; `scene.format` takes `strict` (with `check`: error `not_canonical`)
+and `project.validate` warns per non-canonical scene/prefab through the shared `canonical_scene_layout`; the file-edit
+API is an `edits` argument on `scene.import_ascii` (file mode only), applied with the `scene.set_component` code.
+2D rendering (`2ff6faa`): one inward, mitred outline for triangle, diamond, polygon and star; `Shape2D` `polygon`
+(`sides`) and `star` (`points`, `innerRadius`); `ParticleEmitter.space` + `anchor`. The `2d_shapes` and `2d_bloom`
+goldens were regenerated and `2d_polygons` added on Windows (D3D11/WARP), not on Mesa llvmpipe: the first Linux CI run
+confirms they stay within tolerance there.
+
+Found while implementing M6, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
+- `--input` replay files have no touch events (only `press`, `release`, `keys`, `mouse`), so a replay cannot tap.
+- The scene loader does not enforce reflected `range()`: `"sides": 200` loads silently (the renderer clamps it to 64).
+- `edits`, like `scene.set_component`, replaces `Script.props` as a whole; Sky Hopper's generator still reads the base
+  scene once to keep `killY`. A merge mode would remove that read.
+- `project.validate` checks the canonical layout only under `scenes/` and `prefabs/`; a scene kept elsewhere (Sky
+  Hopper's `levels/generator_base.scene.json`) is covered by `scene.format {check, strict}` only.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

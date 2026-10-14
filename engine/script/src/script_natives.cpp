@@ -635,6 +635,12 @@ Vec2 texture_pixel_size(Impl* I, const std::string& path) {
     return {static_cast<float>(it->second.w), static_cast<float>(it->second.h)};
 }
 
+NATIVE(textureSize) {  // (path) -> [w, h]; assets.textureSize
+    SETUP;
+    Vec2 s = texture_pixel_size(I, arg_str(ctx, argc, argv, 0));
+    return array_of(ctx, {s.x, s.y});
+}
+
 NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     SETUP;
     ENTITY(e, 0);
@@ -1521,7 +1527,7 @@ const Reg kRegs[] = {
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

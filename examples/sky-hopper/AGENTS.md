@@ -74,9 +74,9 @@ without `--scene` runs `scenes/level1.scene.json` (the main scene), so the engin
   legend `next` at the new scene. (Do not put `"from"` in a hand-made level's map file: `from` replaces the scene, so the
   camera, HUD and settings you set in it would be lost on every rebuild.)
 - `project.generate_level` (`tools/generate_level.js`) makes a random level the same way: it composes `rows` and a
-  `legend` from `width`, `seed` and `difficulty`, writes a copy of `levels/generator_base.scene.json` with this level's
-  sky colour and level number to `.factoria/tmp/` (the scratch folder), and calls
-  `scene.import_ascii {path, from: <that copy>, dryRun}`. The running game is never touched (nothing to save or
+  `legend` from `width`, `seed` and `difficulty`, and calls
+  `scene.import_ascii {path, from: "levels/generator_base.scene.json", edits, dryRun}`, where `edits` set this level's
+  sky colour, camera height and level number on the base scene. The running game is never touched (nothing to save or
   restore), `dryRun` writes nothing. `scenes/generated.scene.json` is
   `factoria call project.generate_level '{"width":90,"seed":7,"difficulty":3}'`. The result lists the `rows`.
 

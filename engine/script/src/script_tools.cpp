@@ -232,7 +232,7 @@ Result<Json> Impl::eval(std::string_view code) {
 // ---------------------------------------------------------------------------------------------------------------------
 // check_syntax
 // ---------------------------------------------------------------------------------------------------------------------
-Result<void> Impl::check_syntax(std::string_view modulePath) {
+Result<void> Impl::check_syntax(std::string_view modulePath, std::string* brokenImport) {
     auto norm = fs::normalize_checked(modulePath);
     if (!norm) return Error{norm.error().message, norm.error().hint};
     std::string path = *norm;
@@ -243,9 +243,15 @@ Result<void> Impl::check_syntax(std::string_view modulePath) {
                      candidates.empty() ? text.error().hint : did_you_mean(path, candidates)};
     }
     std::string unique = "<syntax>/" + path;
+    brokenData.reset();
     JSValue r = JS_Eval(ctx, text->c_str(), text->size(), unique.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
     if (JS_IsException(r)) {
         JSValue exc = JS_GetException(ctx);
+        if (brokenData) {  // an imported .json that does not parse: report that file, not the importer
+            JS_FreeValue(ctx, exc);
+            if (brokenImport) *brokenImport = brokenData->file;
+            return brokenData->error;
+        }
         std::string name, msg;
         {
             JSValue n = JS_GetPropertyStr(ctx, exc, "name");

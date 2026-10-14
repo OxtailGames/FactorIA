@@ -90,16 +90,19 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `shape` | enum: rectangle \\| circle \\| line \\| triangle \\| diamond | `"rectangle"` | Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers). |
-| `size` | vec2 | `[32.0,32.0]` | rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. |
+| `shape` | enum: rectangle \\| circle \\| line \\| triangle \\| diamond \\| polygon \\| star | `"rectangle"` | Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers). polygon: a regular polygon with `sides` sides whose vertices lie on the ellipse inscribed in the size box, first vertex pointing up (hexagons, pentagons, octagons; many sides approach a circle). star: `points` tips on that ellipse, first tip pointing up, with notches at `innerRadius` of the outer radius in between. Outlines (filled = false) of triangle, diamond, polygon and star grow INWARD from the silhouette, like the rectangle's, so a thick outline never pokes out of the size box. |
+| `size` | vec2 | `[32.0,32.0]` | rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Fill or outline color. |
 | `filled` | bool | `true` | true = solid shape, false = outline only (lines are always drawn as strokes). |
 | `thickness` | float | `2.0` | Outline / line thickness in world units. Range 0.0..10000.0. |
 | `layer` | int | `0` | Draw order. Higher layers draw on top. |
 | `space` | enum: world \\| screen | `"world"` | world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down. |
-| `pivot` | vec2 | `[0.5,0.5]` | Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place. |
+| `pivot` | vec2 | `[0.5,0.5]` | Anchor point within the shape's size box for every shape but line: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place. |
 | `blend` | enum: alpha \\| additive \\| multiply | `"alpha"` | Compositing: alpha (normal), additive (glow/neon), multiply (darken). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right). |
+| `sides` | int | `6` | polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon). Range 3.0..64.0. |
+| `points` | int | `5` | star only: number of tips (5 = the classic star). Range 3.0..64.0. |
+| `innerRadius` | float | `0.5` | star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, near 1 = a fat spiky polygon, near 0 = thin needles. Range 0.0..1.0. |
 
 ### Text
 
@@ -161,6 +164,8 @@ Emits short-lived particles (smoke, sparks, explosions). Particles interpolate s
 | `layer` | int | `50` | Draw order. Higher layers draw on top. |
 | `blend` | enum: alpha \\| additive \\| multiply | `"alpha"` | Compositing of particles: additive is ideal for sparks, fire, magic and neon effects. |
 | `autoDestroy` | bool | `false` | Destroy the entity automatically once it is not emitting and all its particles died. Use with burst > 0 and emitting = false for one-shot effects (explosions, pickups). |
+| `space` | enum: world \\| screen | `"world"` | world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with Camera.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right). |
 
 ## 3D
 
@@ -740,7 +745,7 @@ Tests run inside this engine instance and change the world; reload the scene aft
 
 Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
 
-Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Loads every scene into a temporary world, so it does not disturb a running game. Example: {} Warns about Script.props keys that do not exist on the behaviour.
+Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Loads every scene into a temporary world, so it does not disturb a running game. Warns once per scene or prefab file that is not in the canonical layout (fix: scene.format), and reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Example: {} Warns about Script.props keys that do not exist on the behaviour.
 
 ## scene
 
@@ -758,12 +763,13 @@ Destruction is applied immediately when called outside a frame. Example: scene.d
 
 Rewrite scene and prefab files in the canonical compact layout, without loading them.
 
-Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values and key order are kept, and every file is read back and compared with the original data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or folders (searched recursively), project-relative; default: the whole project, skipping folders that start with '.', node_modules and a top-level build/. With `check` true nothing is written: the files that are not canonical are listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, notes?}. Example: scene.format {"paths":["prefabs"],"check":true}
+Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values and key order are kept, and every file is read back and compared with the original data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or folders (searched recursively), project-relative; default: the whole project, skipping folders that start with '.', node_modules and a top-level build/. With `check` true nothing is written: the files that are not canonical are listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint says to run scene.format without `check`) when any file is not canonical: `factoria call` exits non-zero, so a CI step can gate on it. project.validate also warns once per non-canonical scene or prefab. Example: scene.format {"paths":["prefabs"],"check":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `paths` | array | no | Scene/prefab files or folders (recursive), project-relative. Default: every *.scene.json and *.prefab.json in the project. |
 | `check` | boolean | no | true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one. Default false. |
+| `strict` | boolean | no | With check: fail with error code not_canonical when any file is not canonical, instead of only listing it. Ignored without check. Default false. |
 
 ### `scene.get_entity`
 
@@ -779,7 +785,7 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 
 Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 
-Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` (file mode only) patches components of that scene's entities right after the map is imported and before the write, e.g. the camera and sky colour of a base scene: {"<entity id>": {"<Component>": {field: value}}}, each entry exactly scene.set_component (a missing component is added, only the given fields change, Script.props is replaced as a whole); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -791,6 +797,7 @@ Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTE
 | `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
 | `from` | string | no | File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist. |
 | `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Default false. |
+| `edits` | object | no | File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {"camera": {"Camera": {"clearColor": [0.5, 0.7, 0.9, 1]}}}). A wrong entity/component/field fails and nothing is written. |
 | `save` | boolean | no | Running-world mode: also write the current scene file (like scene.save). Refused when the running scene is only the default mainScene (no --scene, no scene.load): pass `path` instead. Ignored when `path` is given. Default false. |
 | `position` | array | no | [x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is. |
 | `anchor` | string ["top-left","bottom-left","center"] | no | Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin. |
@@ -1620,7 +1627,7 @@ declare module "factoria" {
    */
   export interface FaAPI {
     /**
-     * Runs a command; throws an Error with message and hint on failure.
+     * Runs a command and returns its result. On failure it throws an Error with `code`, `hint` and, when the command reported structured details (for example a project tool's ToolError(message, hint, data)), `data`.
      */
     call(name: string, args?: Json): any;
     commands(): CommandInfoJS[];
@@ -1659,6 +1666,16 @@ declare module "factoria" {
      * Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning).
      */
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number };
+  }
+
+  /**
+   * Asset queries.
+   */
+  export interface AssetsAPI {
+    /**
+     * Pixel size of the texture file at the project-relative `path`, e.g. assets.textureSize("assets/hero.png"). This is the size a Sprite without `size` or `region` is drawn at and that entity.bounds() uses. A missing or unreadable file gives 32 x 32, the size of the missing-texture checker. Cached per file and modification time, so it is cheap to call every frame. Works headless (it reads the file, not the GPU texture). Throws for an empty or non-string path.
+     */
+    textureSize(path: string): { width: number; height: number };
   }
 
   /**
@@ -1740,6 +1757,11 @@ declare module "factoria" {
    * Text measurement.
    */
   export const ui: UIAPI;
+
+  /**
+   * Asset queries (texture size).
+   */
+  export const assets: AssetsAPI;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
@@ -1972,11 +1994,11 @@ declare module "factoria" {
    */
   export interface Shape2DComponent {
     /**
-     * Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers).
+     * Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers). polygon: a regular polygon with `sides` sides whose vertices lie on the ellipse inscribed in the size box, first vertex pointing up (hexagons, pentagons, octagons; many sides approach a circle). star: `points` tips on that ellipse, first tip pointing up, with notches at `innerRadius` of the outer radius in between. Outlines (filled = false) of triangle, diamond, polygon and star grow INWARD from the silhouette, like the rectangle's, so a thick outline never pokes out of the size box.
      */
-    shape: "rectangle" | "circle" | "line" | "triangle" | "diamond";
+    shape: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star";
     /**
-     * rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.
+     * rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2002,7 +2024,7 @@ declare module "factoria" {
      */
     space: "world" | "screen";
     /**
-     * Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place.
+     * Anchor point within the shape's size box for every shape but line: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place.
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
@@ -2015,6 +2037,18 @@ declare module "factoria" {
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
+    /**
+     * polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon).
+     */
+    sides: number;
+    /**
+     * star only: number of tips (5 = the classic star).
+     */
+    points: number;
+    /**
+     * star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, near 1 = a fat spiky polygon, near 0 = thin needles.
+     */
+    innerRadius: number;
   }
   /**
    * Draws a string with a TrueType font (or the built-in font). Works in world and screen space.
@@ -2204,6 +2238,15 @@ declare module "factoria" {
      * Destroy the entity automatically once it is not emitting and all its particles died. Use with burst > 0 and emitting = false for one-shot effects (explosions, pickups).
      */
     autoDestroy: boolean;
+    /**
+     * world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with Camera.bloomScreenSpace = false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.
+     */
+    space: "world" | "screen";
+    /**
+     * Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right).
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
   }
   /**
    * Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) a Light to be visible.
@@ -2609,10 +2652,10 @@ declare module "factoria" {
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; sides?: number; points?: number; innerRadius?: number };
     Text: { text?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
-    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean };
+    ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like };
     MeshRenderer: { mesh?: string; texture?: string; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
@@ -2752,14 +2795,20 @@ declare module "factoria:test" {
      */
     loadJson(scene: Json): void;
     /**
-     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released.
+     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart).
      */
     touch(screenPos: Vec2Like, frames?: number): void;
     /**
-     * Finger down (stays down until touchEnd).
+     * Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed("left") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse.
      */
     touchStart(screenPos: Vec2Like, id?: number): void;
+    /**
+     * Moves a finger; the first finger drags the mouse with it.
+     */
     touchMove(screenPos: Vec2Like, id?: number): void;
+    /**
+     * Lifts a finger; when it is the first finger, the left mouse button is released where it lifted.
+     */
     touchEnd(id?: number): void;
     find(idOrName: string): Entity | null;
     readonly world: WorldAPI;

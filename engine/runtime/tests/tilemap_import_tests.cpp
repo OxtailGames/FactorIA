@@ -833,6 +833,81 @@ TEST_CASE("import_ascii path: from starts the scene from a base scene and replac
     CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/second.scene.json"));
 }
 
+TEST_CASE("import_ascii path: edits patch the scene's components like scene.set_component, and a wrong one writes nothing") {
+    Session s("file_edits");
+    s.project.write("levels/base.scene.json", kBaseScene);
+    const std::string baseBefore = slurp(s.project.dir / "levels/base.scene.json");
+    const std::string mainBefore = slurp(s.project.dir / "scenes/main.scene.json");
+
+    // Same result as the base scene file patched by hand, then imported: that is what the sky-hopper generator did.
+    auto r = s.import(level(R"({"path":"scenes/edited.scene.json","from":"levels/base.scene.json","edits":{
+        "camera":{"Camera":{"clearColor":[0.5,0.25,0.75,1]},"Transform":{"position":[640,256,0]}},
+        "hud":{"Script":{"path":"scripts/hud.js","props":{"levelIndex":3}}}}})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    Json out = scene_file(s, "scenes/edited.scene.json");
+    const Json* camera = nullptr;
+    const Json* hud = nullptr;
+    for (const Json& e : out["entities"]) {
+        if (e["id"] == "camera") camera = &e;
+        if (e["id"] == "hud") hud = &e;
+    }
+    REQUIRE((camera != nullptr && hud != nullptr));
+    CHECK((*camera)["components"]["Camera"]["clearColor"] == Json::parse("[0.5,0.25,0.75,1]"));
+    CHECK((*camera)["components"]["Transform"]["position"] == Json::parse("[640,256,0]"));
+    CHECK((*hud)["components"]["Script"]["props"] == Json::parse(R"({"levelIndex":3})"));  // a component the base did not have is added
+    CHECK(slurp(s.project.dir / "levels/base.scene.json") == baseBefore);
+    CHECK(slurp(s.project.dir / "scenes/main.scene.json") == mainBefore);
+    CHECK(s.engine.world().find_by_id("hud").is_null());  // the running world is untouched
+    CHECK(s.engine.world().entity_count() == 1);
+
+    // Edits reach the entities the import placed, and dryRun shows them without writing.
+    r = s.import(level(R"({"path":"scenes/dry.scene.json","from":"levels/base.scene.json","dryRun":true,
+                           "edits":{"player":{"Transform":{"scale":[2,2,1]}}}})"));
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/dry.scene.json"));
+    Json playerScale;
+    for (const Json& e : r.result["scene"]["entities"])
+        if (e["id"] == "player") playerScale = e["components"]["Transform"]["scale"];
+    CHECK(playerScale == Json::parse("[2,2,1]"));
+
+    // Wrong edits name the entity, component and field with suggestions; nothing is written (also not over an existing file).
+    const std::string editedBefore = slurp(s.project.dir / "scenes/edited.scene.json");
+    auto fails = [&](const char* edits, std::initializer_list<const char*> needles) {
+        Json a = level(R"({"path":"scenes/edited.scene.json","from":"levels/base.scene.json"})");
+        a["edits"] = Json::parse(edits);
+        auto bad = s.import(a);
+        CAPTURE(std::string(edits));
+        INFO(error_text(bad));
+        REQUIRE_FALSE(bad.ok);
+        for (const char* needle : needles) CHECK_MESSAGE(contains(error_text(bad), needle), std::string(needle));
+        CHECK(slurp(s.project.dir / "scenes/edited.scene.json") == editedBefore);
+    };
+    fails(R"({"camra":{"Camera":{"clearColor":"red"}}})", {"edits[\"camra\"][\"Camera\"]", "No entity", "camera", "Nothing was written"});
+    fails(R"({"camera":{"Camra":{"clearColor":"red"}}})", {"edits[\"camera\"][\"Camra\"]", "Unknown component", "Camera", "Nothing was written"});
+    fails(R"({"camera":{"Camera":{"clearColr":"red"}}})", {"edits[\"camera\"][\"Camera\"]", "clearColr", "clearColor", "Nothing was written"});
+    fails(R"({"camera":{"Camera":{"clearColor":"nocolor"}}})", {"edits[\"camera\"][\"Camera\"]", "clearColor", "Nothing was written"});
+
+    // The shape is checked by the input schema, which names the JSON pointer.
+    fails(R"([])", {"/edits: expected object"});
+    fails(R"({"camera":[]})", {"/edits/camera: expected object"});
+    fails(R"({"camera":{"Camera":3}})", {"/edits/camera/Camera: expected object"});
+}
+
+TEST_CASE("import_ascii: edits need path (the running world has scene.set_component)") {
+    Session s("file_edits_args");
+    auto r = s.import(level(R"({"edits":{"cam":{"Camera":{"clearColor":"red"}}}})"));
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(error_text(r), "'edits' needs 'path'"));
+    CHECK(contains(error_text(r), "scene.set_component"));
+    CHECK(s.entities() == 1);
+    // An empty edits object is harmless.
+    CHECK(s.import(level(R"({"edits":{}})")).ok);
+    const CommandInfo* info = s.engine.commands().info("scene.import_ascii");
+    REQUIRE(info != nullptr);
+    CHECK(info->inputSchema["properties"].contains("edits"));
+    CHECK(contains(info->description, "edits"));
+}
+
 TEST_CASE("import_ascii path: a typo in path warns with a did-you-mean instead of silently creating a different scene") {
     Session s("file_typo");
     auto r = s.import(level(R"({"path":"scenes/mian.scene.json"})"));

@@ -1226,7 +1226,7 @@
      "members": [
       {
        "sig": "call(name: string, args?: Json): any",
-       "doc": "Runs a command; throws an Error with message and hint on failure."
+       "doc": "Runs a command and returns its result. On failure it throws an Error with `code`, `hint` and, when the command reported structured details (for example a project tool's ToolError(message, hint, data)), `data`."
       },
       {
        "sig": "commands(): CommandInfoJS[]",
@@ -1270,6 +1270,17 @@
       {
        "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number }",
        "doc": "Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "AssetsAPI",
+     "doc": "Asset queries.",
+     "members": [
+      {
+       "sig": "textureSize(path: string): { width: number; height: number }",
+       "doc": "Pixel size of the texture file at the project-relative `path`, e.g. assets.textureSize(\"assets/hero.png\"). This is the size a Sprite without `size` or `region` is drawn at and that entity.bounds() uses. A missing or unreadable file gives 32 x 32, the size of the missing-texture checker. Cached per file and modification time, so it is cheap to call every frame. Works headless (it reads the file, not the GPU texture). Throws for an empty or non-string path."
       }
      ]
     },
@@ -1368,6 +1379,12 @@
      "name": "ui",
      "type": "UIAPI",
      "doc": "Text measurement."
+    },
+    {
+     "kind": "const",
+     "name": "assets",
+     "type": "AssetsAPI",
+     "doc": "Asset queries (texture size)."
     },
     {
      "kind": "function",
@@ -1611,19 +1628,19 @@
       },
       {
        "sig": "touch(screenPos: Vec2Like, frames?: number): void",
-       "doc": "A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released."
+       "doc": "A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart)."
       },
       {
        "sig": "touchStart(screenPos: Vec2Like, id?: number): void",
-       "doc": "Finger down (stays down until touchEnd)."
+       "doc": "Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed(\"left\") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse."
       },
       {
        "sig": "touchMove(screenPos: Vec2Like, id?: number): void",
-       "doc": ""
+       "doc": "Moves a finger; the first finger drags the mouse with it."
       },
       {
        "sig": "touchEnd(id?: number): void",
-       "doc": ""
+       "doc": "Lifts a finger; when it is the first finger, the left mouse button is released where it lifted."
       },
       {
        "sig": "find(idOrName: string): Entity | null",

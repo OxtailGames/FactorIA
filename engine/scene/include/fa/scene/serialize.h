@@ -76,6 +76,17 @@ Result<void> save_scene_file(const World& world, std::string_view path);
 std::string dump_scene_json(const Json& sceneOrPrefab);
 Result<void> save_scene_json_file(std::string_view path, const Json& sceneOrPrefab);
 
+// A scene/prefab file laid out the way dump_scene_json writes it, and whether the file on disk already is that text.
+// scene.format writes `text`; project.validate warns when `same` is false. Only whitespace may differ: the new text is read
+// back and compared with the data of the file (values and key order).
+struct CanonicalScene {
+    std::string text;
+    bool same = false;
+};
+// Fails, with the reason, when the file cannot be read, is not valid JSON (message "file:line:column: invalid JSON: ..."),
+// is not a JSON object, or its canonical layout would not read back as the same data.
+Result<CanonicalScene> canonical_scene_layout(std::string_view file);
+
 // Entities
 struct EntityJsonOptions {
     bool includeChildren = true;

@@ -353,7 +353,11 @@
       "suggestion": "ParticleEmitter.space like Sprite and Shape2D.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 2ff6faa: ParticleEmitter.space (\"world\" | \"screen\") and anchor, like Sprite and Shape2D. Screen particles use design pixels, keep direction/gravity as in the world (90 = up) and are drawn in the HUD pass, so Camera.bloomScreenSpace = false keeps them crisp."
+      ],
+      "engineIssue": "2ff6faa"
     },
     {
       "id": "FB-0016",
@@ -370,7 +374,11 @@
       "suggestion": "Draw triangle outlines inward like the other shapes (moves existing goldens).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 2ff6faa: triangle outlines grow inward (mitred, capped at the inradius) like rectangle, diamond, polygon and star; the 2d_shapes and 2d_bloom goldens were regenerated."
+      ],
+      "engineIssue": "2ff6faa"
     },
     {
       "id": "FB-0017",
@@ -387,7 +395,11 @@
       "suggestion": "A 'polygon' shape with a number of sides, and a 'star'.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 2ff6faa: Shape2D shape \"polygon\" (sides, default 6) and \"star\" (points, default 5, innerRadius 0.5), on the ellipse inscribed in the size box, first vertex up, filled or outlined inward."
+      ],
+      "engineIssue": "2ff6faa"
     },
     {
       "id": "FB-0018",
@@ -404,7 +416,11 @@
       "suggestion": "A validate warning or an exit-code option on scene.format check.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 6e5b5b2: scene.format {\"check\": true, \"strict\": true} fails (error not_canonical, non-zero exit from factoria call) when a file is not canonical, and project.validate warns once per non-canonical scene/prefab in scenes/ and prefabs/."
+      ],
+      "engineIssue": "6e5b5b2"
     }
   ]
 }

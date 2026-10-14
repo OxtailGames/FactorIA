@@ -75,4 +75,8 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");
 
+// scene.set_component on any World: `args` = {id, component, fields?}. Adds the component if missing and patches the given
+// fields (all-or-nothing). Throws CommandError (not_found / invalid_argument) with did-you-mean. Returns {id, component, value}.
+Json set_component(World& world, const Json& args);
+
 }  // namespace fa

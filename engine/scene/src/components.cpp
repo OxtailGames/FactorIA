@@ -129,12 +129,17 @@ void register_builtin_components(TypeRegistry& r) {
     r.add<Shape2D>("Shape2D",
                    "Untextured 2D primitive for prototypes, UI panels and debug visuals.",
                    "2D")
-        .enum_field("shape", &Shape2D::shape, {"rectangle", "circle", "line", "triangle", "diamond"},
+        .enum_field("shape", &Shape2D::shape, {"rectangle", "circle", "line", "triangle", "diamond", "polygon", "star"},
                     "Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along "
                     "the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square "
-                    "rotated 45 degrees when size is square; handy for gems, enemies and neon markers).")
+                    "rotated 45 degrees when size is square; handy for gems, enemies and neon markers). polygon: a regular polygon "
+                    "with `sides` sides whose vertices lie on the ellipse inscribed in the size box, first vertex pointing up "
+                    "(hexagons, pentagons, octagons; many sides approach a circle). star: `points` tips on that ellipse, first tip "
+                    "pointing up, with notches at `innerRadius` of the outer radius in between. Outlines (filled = false) of triangle, "
+                    "diamond, polygon and star grow INWARD from the silhouette, like the rectangle's, so a thick outline never "
+                    "pokes out of the size box.")
         .field("size", &Shape2D::size,
-               "rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.")
+               "rectangle/triangle/diamond/polygon/star: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.")
         .field("color", &Shape2D::color, "Fill or outline color.")
         .field("filled", &Shape2D::filled, "true = solid shape, false = outline only (lines are always drawn as strokes).")
         .field("thickness", &Shape2D::thickness, "Outline / line thickness in world units.").range(0, 10000)
@@ -142,7 +147,7 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("space", &Shape2D::space, {"world", "screen"},
                     "world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down.")
         .field("pivot", &Shape2D::pivot,
-               "Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits "
+               "Anchor point within the shape's size box for every shape but line: [0.5,0.5] = the box centre sits "
                "on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and "
                "scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a "
                "triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the "
@@ -151,7 +156,12 @@ void register_builtin_components(TypeRegistry& r) {
         .enum_field("blend", &Shape2D::blend, {"alpha", "additive", "multiply"},
                     "Compositing: alpha (normal), additive (glow/neon), multiply (darken).")
         .field("anchor", &Shape2D::anchor,
-               "Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right).");
+               "Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right).")
+        .field("sides", &Shape2D::sides, "polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon).").range(3, 64)
+        .field("points", &Shape2D::points, "star only: number of tips (5 = the classic star).").range(3, 64)
+        .field("innerRadius", &Shape2D::innerRadius,
+               "star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, "
+               "near 1 = a fat spiky polygon, near 0 = thin needles.").range(0, 1);
 
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
@@ -221,7 +231,15 @@ void register_builtin_components(TypeRegistry& r) {
                     "Compositing of particles: additive is ideal for sparks, fire, magic and neon effects.")
         .field("autoDestroy", &ParticleEmitter::autoDestroy,
                "Destroy the entity automatically once it is not emitting and all its particles died. Use with "
-               "burst > 0 and emitting = false for one-shot effects (explosions, pickups).");
+               "burst > 0 and emitting = false for one-shot effects (explosions, pickups).")
+        .enum_field("space", &ParticleEmitter::space, {"world", "screen"},
+                    "world: affected by cameras. screen: HUD/UI effects (menu sparks, score bursts) in design pixels, origin "
+                    "TOP-LEFT, +Y down, unaffected by cameras and drawn in the screen-space pass (so with Camera.bloomScreenSpace "
+                    "= false they are not bloomed). direction, gravity and speed keep their world meaning on screen: 90 = up, "
+                    "negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.")
+        .field("anchor", &ParticleEmitter::anchor,
+               "Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0.5] "
+               "center, [1,1] bottom-right).");
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",

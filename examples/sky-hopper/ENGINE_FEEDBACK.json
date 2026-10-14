@@ -486,7 +486,11 @@
       "suggestion": "An 'edits' argument on scene.import_ascii, or scene.set_component with a path.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 6e5b5b2: scene.import_ascii takes edits {\"<entity id>\": {\"<Component>\": {fields}}} in file mode, applied like scene.set_component before the file is written. Workaround removed: tools/generate_level.js passes from + edits and no longer writes a scratch base copy."
+      ],
+      "engineIssue": "6e5b5b2"
     },
     {
       "id": "FB-0022",
@@ -503,7 +507,11 @@
       "suggestion": "Write to a temporary file and rename it over the target.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 6e5b5b2: fs::write_bytes (and the tooling writer behind fs.write, scaffold and export) writes a temporary file next to the target and renames it over it; on any failure the original is left untouched."
+      ],
+      "engineIssue": "6e5b5b2"
     },
     {
       "id": "FB-0023",
@@ -520,7 +528,11 @@
       "suggestion": "A renderer-side texture size query exposed to scripts.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in 303db3e: assets.textureSize(path) returns { width, height }, the same cached size entity.bounds() uses (32 x 32 for a missing file)."
+      ],
+      "engineIssue": "303db3e"
     }
   ]
 }
