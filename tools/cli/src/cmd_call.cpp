@@ -23,11 +23,6 @@ namespace fsys = std::filesystem;
 namespace {
 
 // Opens a session with every CLI command registered. Empty project => scratch project.
-struct ToolSession {
-    std::unique_ptr<Session> session;
-    ~ToolSession() { set_script_check_hook(nullptr); }
-};
-
 std::unique_ptr<Session> open_tool_session(const Context& ctx, Gfx gfx, const SessionOptions* base = nullptr,
                                           std::size_t posIndex = 99) {
     std::string dir = find_project_dir_or_empty(ctx, posIndex);
@@ -208,12 +203,11 @@ Command make_call_command() {
         } else {
             requests.push_back(Json::object({{"command", ctx.args.pos(0)}, {"args", parse_call_args(ctx, ctx.args.pos(1))}}));
         }
-        ToolSession ts;
         SessionOptions so = session_options(ctx);
-        ts.session = open_tool_session(ctx, so.gfx, &so);
-        prepare_session(ctx, *ts.session);
+        auto session = open_tool_session(ctx, so.gfx, &so);
+        prepare_session(ctx, *session);
         if (!batch) {
-            Json out = run_command_json(ts.session->registry(), requests[0]);
+            Json out = run_command_json(session->registry(), requests[0]);
             if (!out["ok"].get<bool>()) {
                 print_command_error(ctx, out["error"]);
                 if (ctx.args.has("json")) print_json(ctx.out, out);  // {ok:false, error:{code,message,hint,data}}
@@ -225,7 +219,7 @@ Command make_call_command() {
         Json results = Json::array();
         bool allOk = true;
         for (const Json& req : requests) {
-            Json out = run_command_json(ts.session->registry(), req);
+            Json out = run_command_json(session->registry(), req);
             results.push_back(out);
             if (!out["ok"].get<bool>()) {
                 allOk = false;
@@ -257,14 +251,13 @@ Command make_session_command() {
     c.examples = {"printf '%s\\n' '{\"command\":\"game.step\",\"args\":{\"frames\":30}}' '{\"command\":\"game.state\"}' | factoria session",
                   "factoria session games/my-game --scene scenes/level2.scene.json"};
     c.run = [](Context& ctx) {
-        ToolSession ts;
         SessionOptions so = session_options(ctx);
-        ts.session = open_tool_session(ctx, so.gfx, &so, 0);
-        prepare_session(ctx, *ts.session);
-        CommandRegistry& reg = ts.session->registry();
+        auto session = open_tool_session(ctx, so.gfx, &so, 0);
+        prepare_session(ctx, *session);
+        CommandRegistry& reg = session->registry();
         auto emit = [&](const Json& j) { ctx.out << j.dump() << "\n" << std::flush; };
-        emit(Json::object({{"ready", true}, {"project", ts.session->project_dir()}, {"graphics", ts.session->has_graphics()},
-                           {"frame", ts.session->engine().frame_index()}, {"commands", reg.list().size()}}));
+        emit(Json::object({{"ready", true}, {"project", session->project_dir()}, {"graphics", session->has_graphics()},
+                           {"frame", session->engine().frame_index()}, {"commands", reg.list().size()}}));
         std::string line;
         while (std::getline(ctx.in, line)) {
             if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -311,9 +304,8 @@ Command make_commands_command() {
                {"json", "", "Machine-readable list (name, summary, description, inputSchema, readOnly, category)."}};
     c.examples = {"factoria commands", "factoria commands scene", "factoria commands scene.spawn", "factoria commands --json"};
     c.run = [](Context& ctx) {
-        ToolSession ts;
-        ts.session = open_tool_session(ctx, Gfx::None);
-        CommandRegistry& reg = ts.session->registry();
+        auto session = open_tool_session(ctx, Gfx::None);
+        CommandRegistry& reg = session->registry();
         std::string filter = ctx.args.pos(0);
         if (!filter.empty() && reg.has(filter)) {
             const CommandInfo* info = reg.info(filter);
@@ -383,9 +375,8 @@ Command make_api_command() {
             else throw UsageError("Unknown schema '" + kind + "'.", "Valid: scene, prefab, project.");
             text = dump_json(schema);
         } else {
-            ToolSession ts;
-            ts.session = open_tool_session(ctx, Gfx::None);
-            Session& s = *ts.session;
+            auto session = open_tool_session(ctx, Gfx::None);
+            Session& s = *session;
             if (a.has("dts")) {
                 text = s.engine().scripts().typescript_declarations();
                 if (out.empty() && !s.scratch() && a.has("project")) out = (fsys::path(s.project_dir()) / "types" / "factoria.d.ts").string();

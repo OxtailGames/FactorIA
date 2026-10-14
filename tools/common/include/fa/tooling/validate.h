@@ -36,18 +36,16 @@ struct ValidationReport {
 };
 
 // Checks one script file (project-relative path) and returns syntax errors.
-// Installed by the CLI when the script module is available.
+// engine_validate_options (fa/tooling/tooling.h) builds this and the props check from an Engine.
 using ScriptCheckHook = std::function<std::vector<ValidationIssue>(const std::string& projectDir, const std::string& scriptPath)>;
-void set_script_check_hook(ScriptCheckHook hook);  // process-wide default
 
 // Checks `Script.props` of a scene/prefab entity against the behaviour module: returns one message per prop that does
-// not exist on the behaviour (empty = fine). Reported as warnings. Installed by the CLI (ScriptSystem::check_props).
+// not exist on the behaviour (empty = fine). Reported as warnings (ScriptSystem::check_props).
 using ScriptPropsCheckHook = std::function<std::vector<std::string>(const std::string& modulePath, const Json& props)>;
-void set_script_props_check_hook(ScriptPropsCheckHook hook);  // process-wide default
 
 struct ValidateOptions {
-    ScriptPropsCheckHook propsCheck;  // overrides the process-wide hook when set
-    ScriptCheckHook scriptCheck;  // overrides the process-wide hook when set
+    ScriptPropsCheckHook propsCheck;  // empty: Script.props are not checked
+    ScriptCheckHook scriptCheck;      // empty: scripts are counted, not compiled
     bool checkScenes = true;      // load scenes into a temporary World
 };
 
