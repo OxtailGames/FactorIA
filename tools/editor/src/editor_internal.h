@@ -252,6 +252,7 @@ public:
     void ai_sync_chats();                     // the chat tabs belong to the open project: switch when it changed
     void ai_on_files_dropped();               // sokol file drop: images become pending attachments of the active chat
     void ai_attach_path(const std::string& path);
+    void ai_add_pending(Result<ChatAttachment> attached);
     void ai_paste_image();                    // clipboard picture -> pending attachment (does nothing without one)
     std::shared_ptr<CommandRegistry> make_proxy_registry();
     MainThreadQueue& queue() { return queue_; }

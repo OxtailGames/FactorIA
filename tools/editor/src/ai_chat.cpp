@@ -2,10 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
-#include <ctime>
-#include <filesystem>
+#include <cstdlib>
 #include <fstream>
-#include <optional>
+
+#include "fa/core/strings.h"
 
 namespace fa::editor {
 
@@ -21,12 +21,37 @@ std::string utf8_string(const stdfs::path& p) {
     return std::string(reinterpret_cast<const char*>(u.data()), u.size());
 }
 
-namespace {
-
-std::string lowercase(std::string s) {
-    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
+std::tm local_tm(i64 epoch, bool* ok) {
+    std::time_t t = static_cast<std::time_t>(epoch);
+    std::tm tm{};
+#ifdef _WIN32
+    const bool good = localtime_s(&tm, &t) == 0;
+#else
+    const bool good = localtime_r(&t, &tm) != nullptr;
+#endif
+    if (ok) *ok = good;
+    return tm;
 }
+
+// fa::load_json_file would read the path in the Windows ANSI code page
+std::optional<Json> read_json(const std::string& path) {
+    std::ifstream in(utf8_path(path), std::ios::binary);
+    if (!in) return std::nullopt;
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    Json j = Json::parse(text, nullptr, false);
+    if (j.is_discarded() || !j.is_object()) return std::nullopt;
+    return j;
+}
+
+bool write_json(const std::string& path, const Json& j) {
+    std::error_code ec;
+    stdfs::create_directories(utf8_path(path).parent_path(), ec);
+    std::ofstream out(utf8_path(path), std::ios::binary | std::ios::trunc);
+    if (out) out << j.dump(1, ' ', false, Json::error_handler_t::replace) << "\n";
+    return static_cast<bool>(out);
+}
+
+namespace {
 
 const char* kind_name(ChatItem::Kind k) {
     switch (k) {
@@ -66,7 +91,6 @@ Json clipped(const Json& j) {
     return j.is_string() ? Json(j.get<std::string>().substr(0, kMax) + "...") : Json(text.substr(0, kMax) + "...");
 }
 
-Json usage_json(const ai::Usage& u) { return u.to_json(); }
 ai::Usage usage_from(const Json& j) {
     ai::Usage u;
     u.inputTokens = static_cast<u64>(num_of(j, "inputTokens"));
@@ -77,31 +101,11 @@ ai::Usage usage_from(const Json& j) {
 }
 
 std::string local_stamp(i64 now) {
-    std::time_t t = static_cast<std::time_t>(now);
-    std::tm tm{};
-#ifdef _WIN32
-    const bool ok = localtime_s(&tm, &t) == 0;
-#else
-    const bool ok = localtime_r(&t, &tm) != nullptr;
-#endif
+    bool ok = false;
+    const std::tm tm = local_tm(now, &ok);
     char buf[32];
     if (!ok || std::strftime(buf, sizeof buf, "%Y%m%d-%H%M%S", &tm) == 0) return "chat-" + std::to_string(now);  // no clock: still unique
     return buf;
-}
-
-// JSON files at UTF-8 paths (fa::load_json_file would read the path in the Windows ANSI code page). nullopt when missing/bad.
-std::optional<Json> read_json(const std::string& path) {
-    std::ifstream in(utf8_path(path), std::ios::binary);
-    if (!in) return std::nullopt;
-    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    Json j = Json::parse(text, nullptr, false);
-    if (j.is_discarded() || !j.is_object()) return std::nullopt;
-    return j;
-}
-
-void write_json(const std::string& path, const Json& j) {
-    std::ofstream out(utf8_path(path), std::ios::binary | std::ios::trunc);
-    if (out) out << j.dump(1, ' ', false, Json::error_handler_t::replace) << "\n";
 }
 
 constexpr const char* kChatFormat = "factoria.ai_chat/1";
@@ -158,8 +162,8 @@ Json AiChat::to_json() const {
                          {"updated", updated},
                          {"provider", provider},
                          {"role", role},
-                         {"conversation", conversation.to_json(false)},
-                         {"usage", usage_json(usage)},
+                         {"conversation", conversation.to_json()},
+                         {"usage", usage.to_json()},
                          {"costUsd", costUsd},
                          {"contextTokens", contextTokens},
                          {"contextWindow", contextWindow},
@@ -326,8 +330,6 @@ void AiChats::clear() {
 
 void AiChats::save(const AiChat& chat) const {
     if (dir.empty() || chat.empty()) return;
-    std::error_code ec;
-    stdfs::create_directories(utf8_path(dir), ec);
     write_json(path_of(chat.id), chat.to_json());
 }
 
@@ -339,7 +341,6 @@ void AiChats::save_open_list() const {
     }
     std::error_code ec;
     if (ids.empty() && !stdfs::exists(utf8_path(path_of(kOpenFile)), ec)) return;  // never used the AI here: write nothing
-    stdfs::create_directories(utf8_path(dir), ec);
     const AiChat& a = current();
     write_json(path_of(kOpenFile), Json::object({{"format", kOpenFormat}, {"open", ids}, {"active", a.empty() ? "" : a.id}}));
 }
@@ -416,7 +417,7 @@ std::string attachment_problem(const std::string& path) {
 
 std::string unique_file_name(const std::string& dir, const std::string& fileName) {
     const stdfs::path given = utf8_path(fileName);
-    std::string stem, ext = lowercase(utf8_string(given.extension()));
+    std::string stem, ext = to_lower(utf8_string(given.extension()));
     for (char c : utf8_string(given.stem())) {  // ASCII only: the name goes into prompts and onto every OS
         stem += (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_';
     }
@@ -470,73 +471,27 @@ std::string selection_line(const std::string& entityName, const std::string& ent
 // ---------------------------------------------------------------------------------------------------------------------
 
 Image image_from_dib(const std::uint8_t* d, std::size_t size) {
-    Image none;
-    auto u16 = [&](std::size_t o) -> std::uint32_t { return std::uint32_t(d[o]) | std::uint32_t(d[o + 1]) << 8; };
-    auto u32 = [&](std::size_t o) -> std::uint32_t { return u16(o) | u16(o + 2) << 16; };
-    if (!d || size < 40) return none;
-    const std::uint32_t headerSize = u32(0);
-    if (headerSize < 40 || headerSize > size) return none;
-    int w = static_cast<std::int32_t>(u32(4));
-    int h = static_cast<std::int32_t>(u32(8));
-    const bool topDown = h < 0;
-    if (topDown) h = -h;
-    const std::uint32_t planes = u16(12), bpp = u16(14), compression = u32(16), clrUsed = u32(32);
-    const bool bitfields = compression == 3;
-    if (w <= 0 || h <= 0 || w > 16384 || h > 16384 || planes != 1 || (bpp != 24 && bpp != 32) ||
-        (compression != 0 && !bitfields)) {
-        return none;
+    if (!d || size < 40) return {};
+    auto u32 = [&](std::size_t o) { return std::uint32_t(d[o]) | std::uint32_t(d[o + 1]) << 8 | std::uint32_t(d[o + 2]) << 16 | std::uint32_t(d[o + 3]) << 24; };
+    const std::uint32_t header = u32(0), compression = u32(16);
+    const std::int64_t w = static_cast<std::int32_t>(u32(4)), h = std::abs(static_cast<std::int32_t>(u32(8))), bpp = u32(12) >> 16;
+    // the pixels follow the header, the three masks of a plain BITFIELDS header and the palette
+    const std::int64_t pixels = header + (header == 40 && compression == 3 ? 12 : 0) + std::int64_t(u32(32)) * 4;
+    // stb_image reads .bmp files and does not notice truncated pixels: check them here (no RLE either)
+    if (w <= 0 || h == 0 || w > 16384 || h > 16384 || (compression != 0 && compression != 3) ||
+        std::int64_t(size) < pixels + (w * bpp + 31) / 32 * 4 * h) {
+        return {};
     }
-    std::uint32_t mask[4] = {0x00FF0000u, 0x0000FF00u, 0x000000FFu, 0xFF000000u};  // R G B A of a 32-bit pixel
-    std::size_t offset = headerSize;
-    if (bitfields && bpp == 32) {
-        if (headerSize >= 52) {  // V2+ headers carry the masks
-            for (int i = 0; i < 3; ++i) mask[i] = u32(40 + 4 * static_cast<std::size_t>(i));
-            mask[3] = headerSize >= 56 ? u32(52) : 0;
-        } else {  // a 40-byte header is followed by the three masks
-            if (size < offset + 12) return none;
-            for (int i = 0; i < 3; ++i) mask[i] = u32(offset + 4 * static_cast<std::size_t>(i));
-            mask[3] = 0;
-            offset += 12;
-        }
+    std::vector<std::uint8_t> bmp(14 + size);  // the 14-byte file header: "BM", file size, 0, pixel offset
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    for (int i = 0; i < 4; ++i) {
+        bmp[2 + i] = std::uint8_t((14 + size) >> (8 * i));
+        bmp[10 + i] = std::uint8_t((14 + pixels) >> (8 * i));
     }
-    offset += static_cast<std::size_t>(clrUsed) * 4;
-    const std::size_t stride = ((static_cast<std::size_t>(w) * bpp + 31) / 32) * 4;
-    if (offset > size || size - offset < stride * static_cast<std::size_t>(h)) return none;
-    auto shift_of = [](std::uint32_t m) { int s = 0; while (m && !(m & 1u)) { m >>= 1; ++s; } return s; };
-    // Only plain 8-bit channels (every Windows screenshot tool); anything else is not worth guessing at.
-    for (int i = 0; i < 3 && bpp == 32; ++i) {
-        if ((mask[i] >> shift_of(mask[i])) != 0xFFu) return none;
-    }
-    Image img;
-    img.width = w;
-    img.height = h;
-    img.rgba.assign(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4, 255);
-    bool anyAlpha = false;
-    for (int y = 0; y < h; ++y) {
-        const std::uint8_t* row = d + offset + stride * static_cast<std::size_t>(topDown ? y : h - 1 - y);
-        std::uint8_t* dst = &img.rgba[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) * 4];
-        for (int x = 0; x < w; ++x, dst += 4) {
-            if (bpp == 24) {
-                dst[0] = row[x * 3 + 2];
-                dst[1] = row[x * 3 + 1];
-                dst[2] = row[x * 3];
-            } else {
-                const std::uint32_t px = u32(static_cast<std::size_t>(row - d) + static_cast<std::size_t>(x) * 4);
-                dst[0] = static_cast<std::uint8_t>((px & mask[0]) >> shift_of(mask[0]));
-                dst[1] = static_cast<std::uint8_t>((px & mask[1]) >> shift_of(mask[1]));
-                dst[2] = static_cast<std::uint8_t>((px & mask[2]) >> shift_of(mask[2]));
-                if (mask[3]) {
-                    dst[3] = static_cast<std::uint8_t>((px & mask[3]) >> shift_of(mask[3]));
-                    anyAlpha = anyAlpha || dst[3] != 0;
-                }
-            }
-        }
-    }
-    // Screenshot tools often leave the alpha byte of a 32-bit DIB at 0 for every pixel: that means "opaque", not invisible.
-    if (bpp == 32 && !anyAlpha) {
-        for (std::size_t i = 3; i < img.rgba.size(); i += 4) img.rgba[i] = 255;
-    }
-    return img;
+    std::copy(d, d + size, bmp.begin() + 14);
+    auto img = decode_image(bmp.data(), bmp.size());  // 32-bit bitmaps whose alpha bytes are all 0 come out opaque
+    return img ? std::move(*img) : Image{};
 }
 
 }  // namespace fa::editor

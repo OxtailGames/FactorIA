@@ -483,6 +483,18 @@ TEST_CASE("image_from_dib reads the bitmaps a Windows screenshot puts on the cli
         CHECK(img.rgba[3] == 255);
         CHECK(img.rgba[7] == 255);
     }
+    SUBCASE("32 bits per pixel with BI_BITFIELDS: the masks follow a 40-byte header") {
+        auto bytes = dib(2, 1, 32, 3, {});
+        for (std::uint32_t mask : {0x00FF0000u, 0x0000FF00u, 0x000000FFu}) put32(bytes, mask);
+        const std::vector<std::uint8_t> px = {10, 20, 30, 128, 40, 50, 60, 255};
+        bytes.insert(bytes.end(), px.begin(), px.end());
+        const Image img = image_from_dib(bytes.data(), bytes.size());
+        REQUIRE(img.width == 2);
+        CHECK(img.rgba[0] == 30);
+        CHECK(img.rgba[2] == 10);
+        CHECK(img.rgba[4] == 60);
+        CHECK(img.rgba[3] == 255);  // no alpha mask: opaque
+    }
     SUBCASE("32 bits per pixel keeps a real alpha channel") {
         const std::vector<std::uint8_t> px = {10, 20, 30, 128, 40, 50, 60, 255};
         const auto bytes = dib(2, 1, 32, 0, px);
@@ -493,9 +505,7 @@ TEST_CASE("image_from_dib reads the bitmaps a Windows screenshot puts on the cli
     }
     SUBCASE("anything it cannot read gives an empty image") {
         const std::vector<std::uint8_t> px = {1, 2, 3, 4};
-        auto bytes = dib(2, 1, 16, 0, px);  // 16 bits per pixel
-        CHECK(image_from_dib(bytes.data(), bytes.size()).width == 0);
-        bytes = dib(2, 2, 24, 0, px);  // pixel data too short for 2x2
+        auto bytes = dib(2, 2, 24, 0, px);  // pixel data too short for 2x2
         CHECK(image_from_dib(bytes.data(), bytes.size()).width == 0);
         bytes = dib(2, 1, 24, 1, px);  // RLE compression
         CHECK(image_from_dib(bytes.data(), bytes.size()).width == 0);

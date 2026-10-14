@@ -132,12 +132,10 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     REQUIRE(ctx);
     CHECK(ctx->contextTokens == 46968);
     CHECK(ctx->limits.empty());
-    CHECK(p.context_tokens() == 46968);
-    CHECK(p.context_window() == 0);  // only the final result says
+    CHECK(ctx->contextWindow == 0);  // only the final result says
     ev.clear();
     // a sub-agent's call has its own context: ignored
     p.feed_line(R"({"type":"assistant","message":{"content":[],"usage":{"input_tokens":9,"cache_read_input_tokens":99999}},"parent_tool_use_id":"toolu_1"})", ev);
-    CHECK(p.context_tokens() == 46968);
     CHECK_FALSE(find_usage(ev, [](const AgentEvent&) { return true; }));
     ev.clear();
 
@@ -154,27 +152,30 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     CHECK(lim->limits[2].name == "seven_day_opus");
     CHECK(lim->contextTokens == 46968);  // the snapshot keeps what is known
     ev.clear();
-    // a newer event replaces a window by name and keeps the others
+    // a newer event carries only the windows it reports (the consumer merges them by name: merge_limit_windows)
     p.feed_line(R"({"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1792021800}}}})", ev);
-    REQUIRE(p.limits().size() == 3);
-    CHECK(p.limits()[0].usedFraction == doctest::Approx(0.1));
-    CHECK(p.limits()[1].usedFraction == doctest::Approx(0.07));
+    const AgentEvent* newer = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
+    REQUIRE(newer);
+    REQUIRE(newer->limits.size() == 1);
+    CHECK(newer->limits[0].usedFraction == doctest::Approx(0.1));
     ev.clear();
     // old shape: only the window that applies, with no utilization
     CliStreamParser old(ProviderKind::ClaudeCode);
     old.feed_line(R"({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour"}})", ev);
-    REQUIRE(old.limits().size() == 1);
-    CHECK(old.limits()[0].name == "five_hour");
-    CHECK(old.limits()[0].usedFraction < 0);
-    CHECK(old.limits()[0].resetsAt == 1792021800);
+    const AgentEvent* oldLim = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
+    REQUIRE(oldLim);
+    REQUIRE(oldLim->limits.size() == 1);
+    CHECK(oldLim->limits[0].name == "five_hour");
+    CHECK(oldLim->limits[0].usedFraction < 0);
+    CHECK(oldLim->limits[0].resetsAt == 1792021800);
     ev.clear();
 
     // the context window arrives with the result (the model that used the most tokens is the main one)
     p.feed_line(R"({"type":"result","subtype":"success","is_error":false,"result":"OK","total_cost_usd":0.004112,"num_turns":1,"session_id":"s-1","usage":{"input_tokens":2,"output_tokens":5,"cache_creation_input_tokens":19156,"cache_read_input_tokens":27810},"modelUsage":{"claude-haiku-5-5":{"inputTokens":2,"outputTokens":5,"cacheReadInputTokens":27810,"cacheCreationInputTokens":19156,"costUSD":0.004112,"contextWindow":1000000,"maxOutputTokens":128000},"claude-tiny":{"inputTokens":1,"outputTokens":1,"contextWindow":200000}}})", ev);
-    CHECK(p.context_window() == 1000000);
     CHECK(p.cost_usd() == doctest::Approx(0.004112));
     const AgentEvent* done = find_usage(ev, [](const AgentEvent& e) { return e.contextWindow > 0; });
     REQUIRE(done);
+    CHECK(done->contextWindow == 1000000);
     CHECK(done->contextTokens == 46968);
     CHECK(done->usage.cacheReadTokens == 27810);
     CHECK(done->costUsd == doctest::Approx(0.004112));
@@ -202,8 +203,8 @@ TEST_CASE("codex rate limits: windows are named by their length") {
 
     auto other = parse_codex_rate_limits(Json::parse(R"({"primary":{"used_percent":1,"window_minutes":60},"secondary":{"window_minutes":1440},"tertiary":{"used_percent":250}})"), 0);
     REQUIRE(other.size() == 3);
-    CHECK(other[0].name == "1_hour");
-    CHECK(other[1].name == "1_day");
+    CHECK(other[0].name == "primary");  // other lengths than 5 h / 7 days: the key names the window
+    CHECK(other[1].name == "secondary");
     CHECK(other[1].usedFraction < 0);  // no used_percent
     CHECK(other[2].name == "tertiary");  // no window_minutes: the key stays
     CHECK(other[2].usedFraction == 1.0);  // clamped
@@ -217,16 +218,18 @@ TEST_CASE("codex rate limits: windows are named by their length") {
     REQUIRE(lim);
     CHECK(lim->limits[0].name == "five_hour");
     CHECK(lim->limits[0].usedFraction == doctest::Approx(0.03));
-    CHECK(legacy.limits().size() == 1);
+    CHECK(lim->limits.size() == 1);
 
     for (const char* line : {R"({"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1},"rate_limits":{"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1792584000}}})",
                              R"({"type":"event_msg","payload":{"type":"token_count","rate_limits":{"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1792584000}}}})"}) {
         CliStreamParser modern(ProviderKind::Codex);
         ev.clear();
         modern.feed_line(line, ev);
-        REQUIRE(modern.limits().size() == 1);
-        CHECK(modern.limits()[0].name == "seven_day");
-        CHECK(modern.limits()[0].usedFraction == doctest::Approx(0.4));
+        const AgentEvent* m = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
+        REQUIRE(m);
+        REQUIRE(m->limits.size() == 1);
+        CHECK(m->limits[0].name == "seven_day");
+        CHECK(m->limits[0].usedFraction == doctest::Approx(0.4));
     }
 }
 
@@ -286,28 +289,23 @@ TEST_CASE("message JSON: the saved form keeps the history but not the base64 pic
     tr.images.push_back({"image/png", "REVG"});
     Message results = Message::tool_results({tr});
 
-    // full form round trip
-    Message back = message_from_json(message_to_json(user, true));
-    REQUIRE(back.images.size() == 1);
-    CHECK(back.images[0].base64 == "QUJD");
-    CHECK(back.text == "see this");
-    Message backA = message_from_json(message_to_json(assistant, true));
+    // round trip of what is kept
+    Message backA = message_from_json(saved_message_json(assistant));
     CHECK(backA.role == Role::Assistant);
     CHECK(backA.raw == assistant.raw);  // resent unchanged
     REQUIRE(backA.toolCalls.size() == 1);
     CHECK(backA.toolCalls[0].name == "scene_list_entities");
     CHECK(backA.toolCalls[0].input["limit"] == 3);
-    Message backR = message_from_json(message_to_json(results, true));
+    Message backR = message_from_json(saved_message_json(results));
     REQUIRE(backR.toolResults.size() == 1);
     CHECK(backR.toolResults[0].isError);
-    CHECK(backR.toolResults[0].images[0].base64 == "REVG");
 
-    // saved form: no base64, the text says pictures were there
-    Json small = message_to_json(user, false);
+    // no base64: the text says pictures were there
+    Json small = saved_message_json(user);
     CHECK_FALSE(small.contains("images"));
     CHECK(small["text"].get<std::string>().find("1 image(s)") != std::string::npos);
     CHECK(small.dump().find("QUJD") == std::string::npos);
-    Json smallR = message_to_json(results, false);
+    Json smallR = saved_message_json(results);
     CHECK(smallR.dump().find("REVG") == std::string::npos);
     CHECK(smallR["toolResults"][0]["content"].get<std::string>().find("1 image(s)") != std::string::npos);
 }

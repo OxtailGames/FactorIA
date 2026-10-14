@@ -44,15 +44,8 @@ Result<ImageData> load_image_data(const std::string& path) {
     return ImageData{mediaType, fa::base64_encode(bytes.data(), bytes.size())};
 }
 
-Json message_to_json(const Message& m, bool withImages) {
+Json saved_message_json(const Message& m) {
     Json j = Json::object({{"role", m.role == Role::User ? "user" : "assistant"}, {"text", m.text}});
-    std::size_t droppedImages = m.images.size();
-    if (withImages && !m.images.empty()) {
-        Json imgs = Json::array();
-        for (const auto& i : m.images) imgs.push_back(Json::object({{"mediaType", i.mediaType}, {"base64", i.base64}}));
-        j["images"] = std::move(imgs);
-        droppedImages = 0;
-    }
     if (!m.toolCalls.empty()) {
         Json calls = Json::array();
         for (const auto& c : m.toolCalls) {
@@ -67,11 +60,7 @@ Json message_to_json(const Message& m, bool withImages) {
         for (const auto& r : m.toolResults) {
             std::string content = r.content;
             Json rj = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}});
-            if (withImages && !r.images.empty()) {
-                Json imgs = Json::array();
-                for (const auto& i : r.images) imgs.push_back(Json::object({{"mediaType", i.mediaType}, {"base64", i.base64}}));
-                rj["images"] = std::move(imgs);
-            } else if (!r.images.empty()) {
+            if (!r.images.empty()) {
                 content += "\n[" + std::to_string(r.images.size()) + " image(s) returned here are not kept in the saved conversation]";
             }
             rj["content"] = std::move(content);
@@ -80,25 +69,17 @@ Json message_to_json(const Message& m, bool withImages) {
         j["toolResults"] = std::move(results);
     }
     if (!m.raw.is_null()) j["raw"] = m.raw;
-    if (droppedImages > 0) {
-        j["text"] = m.text + (m.text.empty() ? "" : "\n") + "[" + std::to_string(droppedImages) +
+    if (!m.images.empty()) {
+        j["text"] = m.text + (m.text.empty() ? "" : "\n") + "[" + std::to_string(m.images.size()) +
                     " image(s) attached here are not kept in the saved conversation]";
     }
     return j;
-}
-
-static std::vector<ImageData> images_from_json(const Json* arr) {
-    std::vector<ImageData> out;
-    if (!arr || !arr->is_array()) return out;
-    for (const auto& i : *arr) out.push_back({str(i, "mediaType"), str(i, "base64")});
-    return out;
 }
 
 Message message_from_json(const Json& j) {
     Message m;
     m.role = str(j, "role") == "assistant" ? Role::Assistant : Role::User;
     m.text = str(j, "text");
-    m.images = images_from_json(child(j, "images"));
     if (const Json* calls = child(j, "toolCalls"); calls && calls->is_array()) {
         for (const auto& c : *calls) {
             ToolCall tc;
@@ -115,7 +96,6 @@ Message message_from_json(const Json& j) {
             tr.toolUseId = str(r, "toolUseId");
             tr.content = str(r, "content");
             tr.isError = flag(r, "isError");
-            tr.images = images_from_json(child(r, "images"));
             m.toolResults.push_back(std::move(tr));
         }
     }

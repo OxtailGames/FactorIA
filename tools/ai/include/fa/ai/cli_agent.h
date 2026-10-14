@@ -79,9 +79,6 @@ public:
     const std::string& error_text() const { return errorText_; }
     int turns() const { return turns_; }
     const std::string& session_id() const { return sessionId_; }
-    const std::vector<LimitWindow>& limits() const { return limits_; }   // latest of each window the CLI reported
-    u64 context_tokens() const { return contextTokens_; }                // after the last model call (0 = unknown)
-    u64 context_window() const { return contextWindow_; }                // 0 until the CLI says
 
 private:
     void feed_claude(const Json& j, std::vector<AgentEvent>& out);
@@ -93,8 +90,7 @@ private:
     int turns_ = 0;
     bool sawResult_ = false, resultIsError_ = false;
     std::map<std::string, std::string> toolNames_;  // tool_use id -> name
-    std::vector<LimitWindow> limits_;
-    u64 contextTokens_ = 0, contextWindow_ = 0;
+    u64 contextTokens_ = 0, contextWindow_ = 0;  // after the last model call / the model's window (0 = unknown)
     void usage_event(std::vector<AgentEvent>& out, std::vector<LimitWindow> limits = {}) const;
 };
 

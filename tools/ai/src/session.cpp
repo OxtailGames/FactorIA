@@ -79,9 +79,9 @@ Json SessionResult::to_json() const {
     return j;
 }
 
-Json Conversation::to_json(bool withImages) const {
+Json Conversation::to_json() const {
     Json hist = Json::array();
-    for (const auto& m : history) hist.push_back(message_to_json(m, withImages));
+    for (const auto& m : history) hist.push_back(saved_message_json(m));
     return Json::object({{"key", key}, {"cliSessionId", cliSessionId}, {"cliCostUsd", cliCostUsd}, {"history", hist}});
 }
 
@@ -178,11 +178,10 @@ SessionResult AgentSession::run(const std::string& task, const std::vector<std::
             r.error = img.error().message;
             r.hint = img.error().hint;
             r.conversation = opt_.conversation;
-        } else {
-            images_.push_back(std::move(*img));
-            imagePaths_.push_back(path);
+            break;
         }
-        if (!r.error.empty()) break;
+        images_.push_back(std::move(*img));
+        imagePaths_.push_back(path);
     }
     if (r.error.empty()) r = run_role(opt_.role, task, 0);
     if (r.conversation.key.empty()) r.conversation = opt_.conversation;  // nothing ran: the conversation is as it was
@@ -272,9 +271,7 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
         // The CLI forgot the session (its data was cleaned up, or the project moved): carry on in a new one.
         AgentEvent info;
         info.type = AgentEvent::Type::Info;
-        std::string why = run->error;
-        while (!why.empty() && (why.back() == '\n' || why.back() == '\r' || why.back() == ' ')) why.pop_back();
-        info.text = "The earlier conversation could not be resumed (" + why + "); starting a new one.";
+        info.text = "The earlier conversation could not be resumed (" + std::string(fa::trim(run->error)) + "); starting a new one.";
         emit(info, depth, role);
         req.sessionId.clear();
         req.prompt = fullPrompt;
