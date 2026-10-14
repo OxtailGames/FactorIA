@@ -144,10 +144,6 @@ Result<ChatAttachment> attach_file(const std::string& projectDir, const std::str
 // Same for picture bytes that are not a file yet (the clipboard): `fileName` is "paste.png", made unique like the above.
 Result<ChatAttachment> attach_bytes(const std::string& projectDir, const std::string& fileName, const std::vector<std::uint8_t>& bytes);
 
-// `src` scaled down (box filter) so its long side is at most `maxSide`; unchanged when it already fits. Attached
-// pictures go through it: a big screenshot is shrunk to what the model actually looks at.
-Image shrink_image(const Image& src, int maxSide);
-
 // The line that tells the AI which entity the user is pointing at ("" when nothing is selected).
 std::string selection_line(const std::string& entityName, const std::string& entityId);
 

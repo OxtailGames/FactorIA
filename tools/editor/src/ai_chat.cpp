@@ -429,6 +429,10 @@ std::string unique_file_name(const std::string& dir, const std::string& fileName
     return name;
 }
 
+namespace {
+constexpr const char* kAttachmentsRel = ".factoria/ai/attachments";
+
+// `src` scaled down (box filter) so its long side is at most `maxSide`; unchanged when it already fits.
 Image shrink_image(const Image& src, int maxSide) {
     const int side = std::max(src.width, src.height);
     if (src.empty() || side <= maxSide) return src;
@@ -451,9 +455,6 @@ Image shrink_image(const Image& src, int maxSide) {
     }
     return out;
 }
-
-namespace {
-constexpr const char* kAttachmentsRel = ".factoria/ai/attachments";
 
 // Claude scales a picture down to 1568 px on its long side anyway, and the API refuses one over 5 MB (base64 makes
 // 3.5 MB of PNG about 4.7 MB). A big screenshot is shrunk here: the model sees the same picture, for fewer tokens and
