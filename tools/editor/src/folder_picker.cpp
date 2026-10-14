@@ -195,7 +195,7 @@ std::vector<std::uint8_t> clipboard_image_png() {
     std::error_code ec;
     const std::filesystem::path tmp = std::filesystem::temp_directory_path(ec) / ("factoria_clipboard_" + std::to_string(std::rand()) + ".png");
     ai::ProcessOptions po;
-    po.argv = {"osascript", "-e", "on run argv", "-e", "set theData to the clipboard as \xC2\xABclass PNGf\xC2\xBB", "-e",
+    po.argv = {"osascript", "-e", "on run argv", "-e", "set theData to the clipboard as \xC2\xAB" "class PNGf\xC2\xBB", "-e",
                "set fp to open for access (POSIX file (item 1 of argv)) with write permission", "-e", "set eof fp to 0", "-e",
                "write theData to fp", "-e", "close access fp", "-e", "end run", tmp.string()};
     std::vector<std::uint8_t> png;
