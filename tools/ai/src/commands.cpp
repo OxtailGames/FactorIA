@@ -50,6 +50,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             Json roles = Json::object();
             for (const auto& [name, r] : cfg->roles) {
                 roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}});
+                if (r.maxContextTokens > 0) roles[name]["maxContextTokens"] = r.maxContextTokens;
             }
             Json out = Json::object({{"configPath", cfg->sourcePath.empty() ? default_config_path() : cfg->sourcePath},
                                      {"configFound", !cfg->sourcePath.empty()},
@@ -68,7 +69,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.description =
             "Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers "
             "(claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in "
-            "tool loop. Example: {\"task\":\"Add a pause menu\",\"role\":\"orchestrator\",\"maxCostUsd\":2}";
+            "tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role \"worker\" or \"fast\" "
+            "and a self-contained task; the result's finalText is the sub-agent's report. Example: "
+            "{\"task\":\"Add a pause menu\",\"role\":\"orchestrator\",\"maxCostUsd\":2}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "task":{"type":"string","description":"What the agent should do."},
             "role":{"type":"string","enum":["orchestrator","worker","fast"],"default":"orchestrator"},
@@ -90,10 +93,12 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             so.maxTurns = static_cast<int>(num(args, "maxTurns"));
             if (args.contains("maxCostUsd")) so.maxCostUsd = num(args, "maxCostUsd");
             so.stream = flag(args, "stream", true);
+            so.mcpUrl = opts->mcpUrl;
             for (const auto& w : scan_project_for_keys(so.projectDir, 500)) cfg->warnings.push_back(w);
             AgentSession session(registry, *cfg, so);
             if (opts->onEvent) session.set_event_handler(opts->onEvent);
             if (opts->providerFactory) session.set_provider_factory(opts->providerFactory);
+            session.set_cancel_flag(opts->cancel);
             SessionResult r = session.run(str(args, "task"));
             Json out = r.to_json();
             out["warnings"] = cfg->warnings;

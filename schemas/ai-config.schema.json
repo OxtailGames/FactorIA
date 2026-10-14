@@ -43,7 +43,12 @@
         "provider": { "type": "string", "description": "Name of an entry in providers (or a built-in)." },
         "model": { "type": "string", "description": "Model id, e.g. claude-sonnet-5-5." },
         "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"] },
-        "maxTokens": { "type": "integer", "minimum": 1 }
+        "maxTokens": { "type": "integer", "minimum": 1 },
+        "maxContextTokens": {
+          "type": "integer",
+          "minimum": 100000,
+          "description": "Most context a session keeps, in tokens (e.g. 400000 on a 1M model). Past it the earlier turns are summarized. Claude Code and the anthropic provider honour it; other providers ignore it. Omit for the model's whole window."
+        }
       },
       "additionalProperties": false
     },
@@ -70,7 +75,7 @@
         "argv": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "CLI agents: argv template after the command. Placeholders: {prompt} {model} {project} {mcp_config} {project_json} {factoria_json}. Without {prompt} the prompt is sent on standard input."
+          "description": "CLI agents: argv template after the command. Placeholders: {prompt} {model} {project} {mcp_config} {session} {project_json} {factoria_json}. {session} is the CLI session id of the conversation (an argument whose placeholder is empty, like the first message's {session}, is dropped together with a bare flag before it). Without {prompt} the prompt is sent on standard input; with `--input-format stream-json` it is one JSON user message that can carry images."
         },
         "env": { "type": "object", "additionalProperties": { "type": "string" } },
         "unsetEnv": { "type": "array", "items": { "type": "string" } },

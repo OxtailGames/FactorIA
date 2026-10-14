@@ -57,7 +57,18 @@ Json build_request(const ChatRequest& req, const ProviderConfig& cfg) {
             continue;
         }
         if (m.toolResults.empty()) {
-            messages.push_back(Json::object({{"role", "user"}, {"content", m.text}}));
+            if (m.images.empty()) {
+                messages.push_back(Json::object({{"role", "user"}, {"content", m.text}}));
+                continue;
+            }
+            Json parts = Json::array();
+            if (!m.text.empty()) parts.push_back(Json::object({{"type", "text"}, {"text", m.text}}));
+            for (const auto& img : m.images) {
+                parts.push_back(Json::object(
+                    {{"type", "image_url"},
+                     {"image_url", Json::object({{"url", "data:" + img.mediaType + ";base64," + img.base64}})}}));
+            }
+            messages.push_back(Json::object({{"role", "user"}, {"content", std::move(parts)}}));
             continue;
         }
         // One "tool" message per result (all answered before any other message),

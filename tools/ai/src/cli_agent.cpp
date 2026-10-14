@@ -1,6 +1,7 @@
 #include "fa/ai/cli_agent.h"
 
 #include <algorithm>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 
@@ -35,11 +36,10 @@ bool looks_like_auth_failure(std::string_view text) {
     return false;
 }
 
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand) {
-    return Json::object(
-        {{"mcpServers",
-          Json::object({{"factoria", Json::object({{"command", factoriaCommand},
-                                                   {"args", Json::array({"mcp", "--project", projectDir})}})}})}});
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl) {
+    Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
+                                 : Json::object({{"type", "http"}, {"url", mcpUrl}});
+    return Json::object({{"mcpServers", Json::object({{"factoria", server}})}});
 }
 
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
@@ -52,6 +52,7 @@ std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, c
                         {"{model}", req.model},
                         {"{project}", req.projectDir},
                         {"{mcp_config}", mcpConfigPath},
+                        {"{session}", req.sessionId},
                         {"{project_json}", dump(Json(req.projectDir))},
                         {"{factoria_json}", dump(Json(factoriaCommand))},
                         {"{factoria}", factoriaCommand}};
@@ -64,7 +65,7 @@ std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, c
             std::string key = sub.key;
             if (s.find(key) == std::string::npos) continue;
             hadPlaceholder = true;
-            if (sub.value.empty() && (key == "{model}" || key == "{mcp_config}")) emptyPlaceholder = true;
+            if (sub.value.empty() && (key == "{model}" || key == "{mcp_config}" || key == "{session}")) emptyPlaceholder = true;
             s = fa::replace_all(std::move(s), key, sub.value);
         }
         if (emptyPlaceholder) {
@@ -76,6 +77,61 @@ std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, c
         }
         (void)hadPlaceholder;
         out.push_back(std::move(s));
+    }
+    return out;
+}
+
+bool cli_supports_resume(const ProviderConfig& cfg) {
+    const std::vector<std::string> tmpl = cfg.argv.empty() ? default_cli_argv(cfg.kind) : cfg.argv;
+    return std::any_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{session}") != std::string::npos; });
+}
+
+bool argv_wants_stream_json_input(const std::vector<std::string>& argv) {
+    for (std::size_t i = 0; i < argv.size(); ++i) {
+        if (argv[i] == "--input-format" && i + 1 < argv.size() && argv[i + 1] == "stream-json") return true;
+        if (argv[i] == "--input-format=stream-json") return true;
+    }
+    return false;
+}
+
+std::string make_stream_json_input(const std::string& text, const std::vector<ImageData>& images) {
+    Json content = Json::array();
+    content.push_back(Json::object({{"type", "text"}, {"text", text}}));
+    for (const auto& img : images) {
+        content.push_back(Json::object(
+            {{"type", "image"},
+             {"source", Json::object({{"type", "base64"}, {"media_type", img.mediaType}, {"data", img.base64}})}}));
+    }
+    Json msg = Json::object({{"type", "user"}, {"message", Json::object({{"role", "user"}, {"content", content}})}});
+    return dump(msg);  // compact: exactly one line
+}
+
+std::string prompt_with_image_paths(const std::string& prompt, const std::vector<std::string>& paths) {
+    if (paths.empty()) return prompt;
+    std::string out = prompt + "\n\nAttached images (read them): ";
+    for (std::size_t i = 0; i < paths.size(); ++i) out += (i ? ", " : "") + paths[i];
+    return out;
+}
+
+static std::string limit_name_for_minutes(double minutes, const std::string& fallback) {
+    const long m = static_cast<long>(minutes + 0.5);
+    return m == 300 ? "five_hour" : m == 10080 ? "seven_day" : fallback;  // other lengths: the JSON key names it
+}
+
+std::vector<LimitWindow> parse_codex_rate_limits(const Json& rateLimits, i64 now) {
+    std::vector<LimitWindow> out;
+    if (!rateLimits.is_object()) return out;
+    for (const auto& [key, w] : rateLimits.items()) {
+        if (!w.is_object()) continue;
+        LimitWindow lw;
+        lw.name = limit_name_for_minutes(num(w, "window_minutes"), key);
+        if (w.contains("used_percent") && w["used_percent"].is_number()) {
+            lw.usedFraction = std::clamp(num(w, "used_percent") / 100.0, 0.0, 1.0);
+        }
+        if (w.contains("resets_at") && w["resets_at"].is_number()) lw.resetsAt = static_cast<i64>(num(w, "resets_at"));
+        else if (w.contains("resets_in_seconds") && w["resets_in_seconds"].is_number())
+            lw.resetsAt = now + static_cast<i64>(num(w, "resets_in_seconds"));
+        out.push_back(std::move(lw));
     }
     return out;
 }
@@ -132,8 +188,56 @@ void CliStreamParser::feed_line(std::string_view line, std::vector<AgentEvent>& 
     }
 }
 
+// The UI-facing snapshot: cumulative usage + cost, the context numbers known so far, and `limits` when the CLI just
+// reported some. (A consumer applies what is non-empty.)
+void CliStreamParser::usage_event(std::vector<AgentEvent>& out, std::vector<LimitWindow> limits) const {
+    AgentEvent e;
+    e.type = AgentEvent::Type::Usage;
+    e.usage = usage_;
+    e.costUsd = costUsd_;
+    e.limits = std::move(limits);
+    e.contextTokens = contextTokens_;
+    e.contextWindow = contextWindow_;
+    out.push_back(std::move(e));
+}
+
+void merge_limit_windows(std::vector<LimitWindow>& into, const std::vector<LimitWindow>& from) {
+    for (const auto& w : from) {
+        auto it = std::find_if(into.begin(), into.end(), [&](const LimitWindow& l) { return l.name == w.name; });
+        if (it == into.end()) into.push_back(w);
+        else *it = w;
+    }
+}
+
+// Claude Code: {"rate_limit_info": {"unifiedWindows": {"five_hour": {"utilization": 0.06, "resetsAt": 1792021800}, ...}}}.
+// Every entry is taken (the CLI may add windows); without unifiedWindows the top-level window is used.
+static std::vector<LimitWindow> parse_claude_rate_limits(const Json& info) {
+    std::vector<LimitWindow> out;
+    auto window = [](const std::string& name, const Json& w) {
+        LimitWindow lw;
+        lw.name = name;
+        if (w.contains("utilization") && w["utilization"].is_number()) lw.usedFraction = std::clamp(num(w, "utilization"), 0.0, 1.0);
+        lw.resetsAt = static_cast<i64>(num(w, "resetsAt"));
+        return lw;
+    };
+    if (const Json* uw = child(info, "unifiedWindows"); uw && uw->is_object()) {
+        for (const auto& [name, w] : uw->items()) {
+            if (w.is_object()) out.push_back(window(name, w));
+        }
+    }
+    if (out.empty() && !str(info, "rateLimitType").empty()) out.push_back(window(str(info, "rateLimitType"), info));
+    return out;
+}
+
 void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
     const std::string type = str(j, "type");
+    if (type == "rate_limit_event") {
+        const Json* info = child(j, "rate_limit_info");
+        std::vector<LimitWindow> windows = info ? parse_claude_rate_limits(*info) : std::vector<LimitWindow>{};
+        if (windows.empty()) return;
+        usage_event(out, std::move(windows));
+        return;
+    }
     if (type == "system") {
         if (str(j, "subtype") == "init") {
             sessionId_ = str(j, "session_id");
@@ -152,6 +256,17 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         }
     } else if (type == "assistant") {
         const Json* msg = child(j, "message");
+        // Context in use = the prompt of the model's last call (input + cache). A sub-agent's calls have their own context.
+        const Json* parent = child(j, "parent_tool_use_id");
+        const bool fromSubAgent = parent && parent->is_string() && !parent->get<std::string>().empty();
+        if (const Json* u = msg ? child(*msg, "usage") : nullptr; u && u->is_object() && !fromSubAgent) {
+            const u64 ctx = static_cast<u64>(num(*u, "input_tokens")) + static_cast<u64>(num(*u, "cache_creation_input_tokens")) +
+                            static_cast<u64>(num(*u, "cache_read_input_tokens"));
+            if (ctx > 0 && ctx != contextTokens_) {
+                contextTokens_ = ctx;
+                usage_event(out);
+            }
+        }
         const Json* content = msg ? child(*msg, "content") : nullptr;
         if (!content || !content->is_array()) return;
         for (const auto& b : *content) {
@@ -192,12 +307,28 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         sawResult_ = true;
         resultIsError_ = flag(j, "is_error") || (str(j, "subtype") != "success" && !str(j, "subtype").empty());
         std::string result = str(j, "result");
+        if (resultIsError_ && result.empty()) {
+            // error_during_execution has no `result`; its reasons are in `errors` ("No conversation found with session ID: ...").
+            if (const Json* errs = child(j, "errors"); errs && errs->is_array()) {
+                for (const auto& er : *errs) result += (result.empty() ? "" : "; ") + (er.is_string() ? er.get<std::string>() : dump(er));
+            }
+        }
         if (resultIsError_) errorText_ = result.empty() ? str(j, "subtype") : result;
         else finalText_ = result;
-        if (result.empty() && !resultIsError_) {
-            // keep whatever text we streamed
-        }
         costUsd_ = num(j, "total_cost_usd", num(j, "cost_usd"));
+        // The context window comes with the totals per model; the main model is the one that used the most tokens.
+        if (const Json* mu = child(j, "modelUsage"); mu && mu->is_object()) {
+            double best = -1;
+            for (const auto& [model, m] : mu->items()) {
+                if (!m.is_object() || num(m, "contextWindow") <= 0) continue;
+                const double used = num(m, "inputTokens") + num(m, "outputTokens") + num(m, "cacheReadInputTokens") +
+                                    num(m, "cacheCreationInputTokens");
+                if (used > best) {
+                    best = used;
+                    contextWindow_ = static_cast<u64>(num(m, "contextWindow"));
+                }
+            }
+        }
         turns_ = static_cast<int>(num(j, "num_turns"));
         if (std::string sid = str(j, "session_id"); !sid.empty()) sessionId_ = sid;
         if (const Json* u = child(j, "usage")) {
@@ -206,15 +337,22 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
             usage_.cacheCreationTokens = static_cast<u64>(num(*u, "cache_creation_input_tokens"));
             usage_.cacheReadTokens = static_cast<u64>(num(*u, "cache_read_input_tokens"));
         }
-        AgentEvent e;
-        e.type = AgentEvent::Type::Usage;
-        e.usage = usage_;
-        e.costUsd = costUsd_;
-        out.push_back(e);
+        usage_event(out);
     }
 }
 
 void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
+    // Plan windows: legacy events carry them in msg.rate_limits (token_count), newer ones may carry the same object at the
+    // top level or in `payload`, on any event.
+    for (const char* holder : {"", "msg", "payload"}) {
+        const Json* h = *holder ? child(j, holder) : &j;
+        const Json* rl = h ? child(*h, "rate_limits") : nullptr;
+        if (!rl || !rl->is_object()) continue;
+        std::vector<LimitWindow> windows = parse_codex_rate_limits(*rl, static_cast<i64>(std::time(nullptr)));
+        if (windows.empty()) continue;
+        usage_event(out, std::move(windows));
+        break;
+    }
     std::string type = str(j, "type");
     // Older format wraps events as {"id": "..", "msg": {"type": ..}}.
     const Json* legacy = child(j, "msg");
@@ -326,7 +464,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     }
     std::string projectDir = req.projectDir.empty() ? fsys::current_path().string() : fsys::absolute(req.projectDir).string();
 
-    // MCP config file for CLIs that take one (Claude Code). It contains no secrets.
+    // MCP config file for CLIs that take one (Claude Code). The editor's endpoint URL carries a per-session token for a
+    // loopback port; the file stays in the project's git-ignored .factoria folder.
     std::string mcpPath;
     bool needsMcp = cfg_.kind == ProviderKind::ClaudeCode;
     for (const auto& a : tmpl) needsMcp = needsMcp || a.find("{mcp_config}") != std::string::npos;
@@ -337,21 +476,29 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         fsys::path file = dir / ("mcp-" + cfg_.name + ".json");
         std::ofstream f(file, std::ios::binary | std::ios::trunc);
         if (!f) return make_error("Cannot write " + file.string(), "Is the project directory writable?");
-        f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand)) << "\n";
+        f << dump_pretty(make_mcp_config(projectDir, cfg_.factoriaCommand, req.mcpUrl)) << "\n";
         mcpPath = file.string();
     }
     CliRunRequest effective = req;
     effective.projectDir = projectDir;
 
     ProcessOptions po;
+    std::vector<std::string> expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);
+    // Pictures: inline in the stdin JSON when the CLI reads stream-json, else the prompt names their files.
+    const bool jsonInput = argv_wants_stream_json_input(expanded);
+    if (!jsonInput && !req.imagePaths.empty()) {
+        effective.prompt = prompt_with_image_paths(req.prompt, req.imagePaths);
+        expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);  // {prompt} carries the paths too
+    }
     po.argv.push_back(exe);
-    for (auto& a : expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand)) po.argv.push_back(std::move(a));
+    for (auto& a : expanded) po.argv.push_back(std::move(a));
     po.workingDir = projectDir;
     po.env = cfg_.env;
     po.unsetEnv = cfg_.unsetEnv;
-    // A template without {prompt} gets the prompt on standard input.
-    if (std::none_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{prompt}") != std::string::npos; }))
-        po.stdinText = req.prompt;
+    // A template without {prompt} gets the prompt on standard input (one stream-json line when the CLI asks for that).
+    if (jsonInput) po.stdinText = make_stream_json_input(req.prompt, req.images);
+    else if (std::none_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{prompt}") != std::string::npos; }))
+        po.stdinText = effective.prompt;
     po.cancel = cancel;
     po.captureStdout = false;
     CliStreamParser parser(cfg_.kind);

@@ -135,9 +135,11 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
         case ProviderKind::ClaudeCode:
             // No {prompt}: the prompt goes to standard input (npm installs these CLIs as .cmd files on Windows, and
             // cmd.exe cannot pass a multi-line argument). In -p mode Claude Code asks before every MCP tool, so the
-            // engine's own tools are allowed up front.
-            return {"-p", "--output-format", "stream-json", "--verbose", "--model", "{model}", "--mcp-config",
-                    "{mcp_config}", "--allowedTools", "mcp__factoria", "--permission-mode", "acceptEdits"};
+            // engine's own tools are allowed up front. `--input-format stream-json` makes stdin one JSON message, which can
+            // carry images; `--resume {session}` continues the chat's session (the argument disappears for the first message).
+            return {"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--model",
+                    "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria",
+                    "--permission-mode", "acceptEdits"};
         case ProviderKind::Codex:
             return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}",
                     "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]", "-"};
@@ -350,6 +352,7 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (rj.contains("effort")) r.effort = str(rj, "effort");
             else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd.effort) r.effort = rd.effort;
             if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
+            if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
             cfg.roles[it.key()] = std::move(r);
         }
     }
@@ -422,6 +425,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         rj["model"] = r.model;
         if (!r.effort.empty()) rj["effort"] = r.effort;
         if (r.maxTokens > 0) rj["maxTokens"] = r.maxTokens;
+        if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
         roles[name] = rj;
     }
     out["roles"] = roles;
@@ -442,6 +446,35 @@ Result<void> save_config(const AiConfig& cfg, std::string_view path) {
     fsys::permissions(p, fsys::perms::owner_read | fsys::perms::owner_write, ec);
 #endif
     return {};
+}
+
+Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path) {
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the roles again.");
+        }
+        j = std::move(*parsed);
+    }
+    Json& out = j["roles"];
+    if (!out.is_object()) out = Json::object();
+    for (const auto& [name, r] : roles) {
+        Json& rj = out[name];
+        if (!rj.is_object()) rj = Json::object();
+        rj["provider"] = r.provider;
+        for (const auto& [key, value] : {std::pair<const char*, const std::string&>{"model", r.model}, {"effort", r.effort}}) {
+            if (value.empty()) rj.erase(key);
+            else rj[key] = value;
+        }
+        if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
+        else rj.erase("maxContextTokens");
+    }
+    return fs::write_text(path, dump_json(j));
 }
 
 ResolvedKey resolve_api_key(const ProviderConfig& p, const EnvLookup& env) {

@@ -266,7 +266,8 @@ factoria ai doctor
 factoria ai run "Add a coin counter on screen"
 ```
 
-Each task uses a role. In `~/.factoria/ai.json` you can assign a provider and a model to each one:
+Each task uses a role. In `~/.factoria/ai.json` you can assign a provider and a model to each one (in the editor: the
+**Roles...** button of the AI panel). Your requests go to the orchestrator, which hands work to the other two by itself:
 
 | Role (key in the file) | What it is for | Default (Anthropic) |
 |---|---|---|
