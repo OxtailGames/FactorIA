@@ -524,6 +524,56 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
 }
 
+TEST_CASE("setting an entity's position from JS on a body that fell asleep teleports a live body") {
+    TestHost h("sleepteleport");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-200]}, Collider2D:{size:[2000,40]}}})");
+    ev_ok(h, "world.spawn({id:'player', components:{Transform:{position:[0,-100]}, RigidBody2D:{}, Collider2D:{size:[32,32]}}})");
+    auto player_awake = [&] {  // Box2D's view of the body
+        for (const Json& j : h.ph.debug_state(h.w))
+            if (j.value("entity", std::string()) == "player") return j["awake"].get<bool>();
+        return true;
+    };
+    for (int i = 0; i < 600 && (i < 2 || player_awake()); ++i) h.step_frames(1);
+    REQUIRE_FALSE(player_awake());  // resting on the ground, asleep
+    CHECK(ev_ok(h, "world.find('player').isGrounded()") == true);
+    const double rest = ev_ok(h, "world.find('player').position.y").get<double>();
+    CHECK(rest == doctest::Approx(-180.0 + 16.0).epsilon(0.02));
+
+    // What a game does to respawn or nudge the player: write the entity's position.
+    ev_ok(h, "const p = world.find('player'); p.position = [p.position.x, p.position.y + 28]");
+    h.step_frames(1);
+    CHECK(player_awake());  // the write woke the body
+    CHECK(ev_ok(h, "world.find('player').isGrounded()") == false);  // no stale ground contact
+    h.step_frames(90);
+    CHECK(ev_ok(h, "world.find('player').position.y").get<double>() == doctest::Approx(rest).epsilon(0.02));  // fell back
+    CHECK(ev_ok(h, "world.find('player').isGrounded()") == true);
+
+    // The same from a behaviour's onUpdate, as a respawn would: teleport a body that is asleep.
+    h.file("scripts/respawn.js", R"(
+import { Behaviour } from "factoria";
+export default class Respawn extends Behaviour {
+  onUpdate() { if (globalThis.__respawn) { globalThis.__respawn = false; this.entity.position = [300, 60]; } }
+}
+)");
+    ev_ok(h, "world.spawn({id:'p2', components:{Transform:{position:[300,-100]}, RigidBody2D:{}, Collider2D:{size:[32,32]}, Script:{path:'scripts/respawn.js'}}})");
+    auto p2_awake = [&] {
+        for (const Json& j : h.ph.debug_state(h.w))
+            if (j.value("entity", std::string()) == "p2") return j["awake"].get<bool>();
+        return true;
+    };
+    for (int i = 0; i < 600 && (i < 2 || p2_awake()); ++i) h.step_frames(1);
+    REQUIRE_FALSE(p2_awake());
+    ev_ok(h, "globalThis.__respawn = true");
+    h.step_frames(10);
+    CHECK(ev_ok(h, "world.find('p2').position.y").get<double>() < 55.0);  // it left the respawn point...
+    CHECK(p2_awake());                                                    // ...because it is simulated again
+    h.step_frames(120);
+    CHECK(ev_ok(h, "world.find('p2').position.y").get<double>() == doctest::Approx(rest).epsilon(0.02));
+    CHECK(ev_ok(h, "world.find('p2').position.x").get<double>() == doctest::Approx(300.0).epsilon(0.01));
+    CHECK(h.scripts.errors().empty());
+}
+
 TEST_CASE("Script.props validation: one warning with did-you-mean, check_props without side effects") {
     TestHost h("props");
     h.file("scripts/foo.js", kBeh);

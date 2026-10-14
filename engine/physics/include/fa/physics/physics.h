@@ -15,7 +15,9 @@
 //
 // Conventions
 //   * Bodies use WORLD transforms (parents included); Transform.scale (x,y) scales colliders. Transform
-//     changes made by gameplay since the last step teleport the body (also for static colliders).
+//     changes made by gameplay since the last step teleport the body (also for static colliders). A teleport wakes
+//     the body and every body touching it, so a body that fell asleep falls again from its new place, and bodies
+//     asleep on a platform that was moved away do not hover; isGrounded() reflects the new place after one step.
 //     Inactive entities (active_in_hierarchy == false) have their body disabled.
 //   * Collider2D.layer is the category bit (1 << layer), mask the accepted categories (-1 = all). Triggers
 //     (isTrigger) are sensors: they never collide, and are invisible to raycasts; overlap_* queries DO report
