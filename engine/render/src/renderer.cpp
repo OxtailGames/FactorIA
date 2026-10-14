@@ -164,7 +164,7 @@ void Renderer::Impl::create_targets(int w, int h) {
     cd.pixel_format = SG_PIXELFORMAT_RGBA8;
     cd.sample_count = samples;
     cd.label = "game-color";
-    colorImg = sg_make_image(&cd);
+    colorImg = make_image(cd);
     sg_view_desc cv{};
     cv.color_attachment.image = colorImg;
     cv.label = "game-color-att";
@@ -177,7 +177,7 @@ void Renderer::Impl::create_targets(int w, int h) {
         rd.pixel_format = SG_PIXELFORMAT_RGBA8;
         rd.sample_count = 1;
         rd.label = "game-resolve";
-        resolveImg = sg_make_image(&rd);
+        resolveImg = make_image(rd);
         sg_view_desc rv{};
         rv.resolve_attachment.image = resolveImg;
         resolveAtt = sg_make_view(&rv);
@@ -196,7 +196,7 @@ void Renderer::Impl::create_targets(int w, int h) {
     dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
     dd.sample_count = samples;
     dd.label = "game-depth";
-    depthImg = sg_make_image(&dd);
+    depthImg = make_image(dd);
     sg_view_desc dv{};
     dv.depth_stencil_attachment.image = depthImg;
     depthAtt = sg_make_view(&dv);
@@ -221,13 +221,13 @@ void Renderer::Impl::create_shadow_targets() {
     cd.width = cd.height = kShadowSize;
     cd.pixel_format = SG_PIXELFORMAT_R32F;
     cd.label = "shadow-color";
-    shadowColor = sg_make_image(&cd);
+    shadowColor = make_image(cd);
     sg_image_desc dd{};
     dd.usage.depth_stencil_attachment = true;
     dd.width = dd.height = kShadowSize;
     dd.pixel_format = SG_PIXELFORMAT_DEPTH;
     dd.label = "shadow-depth";
-    shadowDepth = sg_make_image(&dd);
+    shadowDepth = make_image(dd);
     sg_view_desc v{};
     v.color_attachment.image = shadowColor;
     shadowColorAtt = sg_make_view(&v);

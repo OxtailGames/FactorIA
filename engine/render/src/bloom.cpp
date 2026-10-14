@@ -111,7 +111,7 @@ bool Bloom::ensure(int level, int targetW, int targetH, bool needSecond) {
         d.pixel_format = SG_PIXELFORMAT_RGBA8;
         d.sample_count = 1;
         d.label = "bloom-level";
-        l.img[i] = sg_make_image(&d);
+        l.img[i] = make_image(d);
         sg_view_desc av{};
         av.color_attachment.image = l.img[i];
         av.label = "bloom-level-att";
