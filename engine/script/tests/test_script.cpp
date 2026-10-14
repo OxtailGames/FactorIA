@@ -497,6 +497,14 @@ TEST_CASE("tools: ToolError carries hint and data, other errors are 'failed'") {
     CHECK(r.error["data"]["errors"] == Json::array({1, 2}));  // structured data travels in error.data
     CHECK(r.error["hint"] == "edit levels.json");
     CHECK(h.scripts.errors().empty());  // an expected failure is not a script bug
+    // fa.call rethrows it in a script with code, hint AND data (a plain failure has no data)
+    Json caught = ev_ok(h, "(() => { try { fa.call('project.chk', { mode: 'tool' }); } catch (e) { return { code: e.code, hint: e.hint, data: e.data }; } })()");
+    CHECK(caught["code"] == "tool_error");
+    CHECK(caught["hint"] == "edit levels.json");
+    CHECK(caught["data"]["errors"] == Json::array({1, 2}));
+    caught = ev_ok(h, "(() => { try { fa.call('project.chk', { mode: 'plain' }); } catch (e) { return { code: e.code, hasData: 'data' in e }; } })()");
+    CHECK(caught["code"] == "failed");
+    CHECK(caught["hasData"] == false);
     r = h.cmds.call("project.chk", Json::object({{"mode", "plain"}}));
     REQUIRE(!r.ok);
     CHECK(r.error["code"] == "failed");
@@ -612,6 +620,25 @@ test("touch", () => {
   game.touch([5, 5]);
   expect(input.touches.length).toBe(0);
 });
+test("the first finger drives the mouse like a device, so game.touch needs no game.click", () => {
+  game.touchStart([10, 20]);
+  expect(input.mouse.down("left")).toBe(true);
+  expect(input.mouse.pressed("left")).toBe(true);
+  expect(input.mouse.position.x).toBe(10);
+  game.step(1);
+  expect(input.mouse.pressed("left")).toBe(false);
+  game.touchStart([200, 200], 2); // a second finger does not touch the mouse
+  game.touchMove([30, 40]);
+  expect(input.mouse.position.y).toBe(40);
+  game.touchEnd(2);
+  expect(input.mouse.down("left")).toBe(true);
+  game.touchEnd();
+  expect(input.mouse.down("left")).toBe(false);
+  expect(input.mouse.released("left")).toBe(true);
+  game.step(1);
+  game.touch([7, 8], 2); // touch(): down for 2 frames, then up
+  expect(input.mouse.down("left")).toBe(false);
+});
 )");
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
@@ -634,7 +661,8 @@ TEST_CASE("typescript declarations cover the new APIs") {
     REQUIRE(h.start());
     std::string dts = h.scripts.typescript_declarations();
     for (const char* needle : {"export const session", "class ToolError extends Error", "seed(n: number): void", "burst(entity", "measureText(",
-                               "interface RaycastOptions", "ignore?:", "emitBurst(", "isTouching(", "loadJson(scene", "touchStart(", "SpawnOptions", "props?: Record<string, any>"}) {
+                               "interface RaycastOptions", "ignore?:", "emitBurst(", "isTouching(", "loadJson(scene", "touchStart(", "SpawnOptions", "props?: Record<string, any>",
+                               "textureSize(path: string): { width: number; height: number }", "export const assets: AssetsAPI"}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }
@@ -943,6 +971,41 @@ TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and
     // Screen-space sprites are not in the world: null.
     ev_ok(h, "world.spawn({id: 'hud', components: {Transform: {position: [24, 16]}, Sprite: {size: [64, 32], space: 'screen'}}})");
     CHECK(bounds_json(h, "hud").is_null());
+}
+
+TEST_CASE("assets.textureSize: a file's pixel size, 32 x 32 when missing, the size entity.bounds() uses") {
+    TestHost h("texture_size");
+    Image img;
+    img.width = 40;
+    img.height = 20;
+    img.rgba.assign(static_cast<std::size_t>(img.width) * img.height * 4, 255);
+    REQUIRE(h.start());
+    fs::set_project_root(h.root);
+    REQUIRE(save_png(img, "assets/tex.png").ok());
+    auto size = [&](const char* path) { return ev_ok(h, (std::string("assets.textureSize('") + path + "')").c_str()); };
+    CHECK(size("assets/tex.png") == Json::object({{"width", 40}, {"height", 20}}));
+    // The missing-texture checker is 32 x 32, like the renderer's.
+    CHECK(size("assets/nope.png") == Json::object({{"width", 32}, {"height", 32}}));
+    // entity.bounds() of a Sprite with size [0, 0] is the same size.
+    ev_ok(h, "world.spawn({id: 'tex', components: {Sprite: {texture: 'assets/tex.png', size: [0, 0], pivot: [0, 0]}}})");
+    ev_ok(h, "world.spawn({id: 'gone', components: {Sprite: {texture: 'assets/nope.png', size: [0, 0], pivot: [0, 0]}}})");
+    for (const char* id : {"tex", "gone"}) {
+        CAPTURE(id);
+        CHECK(ev_ok(h, (std::string("(() => { const b = world.find('") + id + "').bounds(); const s = assets.textureSize(world.find('" + id +
+                           "').get('Sprite').texture); return b.w === s.width && b.h === s.height; })()").c_str()) == true);
+    }
+    // A texture that changes on disk is read again.
+    img.width = 8;
+    img.height = 6;
+    img.rgba.assign(static_cast<std::size_t>(img.width) * img.height * 4, 255);
+    REQUIRE(save_png(img, "assets/tex.png").ok());
+    std::filesystem::last_write_time(h.root / "assets/tex.png", std::filesystem::file_time_type::clock::now() + std::chrono::seconds(30));
+    CHECK(size("assets/tex.png") == Json::object({{"width", 8}, {"height", 6}}));
+    // A path that is not a string teaches the call.
+    std::string err = ev_err(h, "assets.textureSize()");
+    CHECK(err.find("assets.textureSize(path)") != std::string::npos);
+    CHECK(err.find("assets/hero.png") != std::string::npos);
+    CHECK(ev_err(h, "assets.textureSize('')").find("expects a project path") != std::string::npos);
 }
 
 TEST_CASE("entity.bounds: Shape2D, Text, unions and destroyed entities") {

@@ -23,8 +23,6 @@ struct AppState {
     AppDesc desc;
     bool active = false;
     int fbW = 0, fbH = 0;
-    bool primaryTouchDown = false;
-    std::uint64_t primaryTouchId = 0;
 };
 AppState g;
 
@@ -144,26 +142,12 @@ void on_event(const sapp_event* e) {
                     if (!t.changed) continue;
                     std::uint64_t id = std::uint64_t(t.identifier);
                     Vec2 p = to_design(t.pos_x, t.pos_y);
-                    // Touch also drives the mouse (first finger = left button) so
-                    // mouse-based UI and scripts work on mobile unchanged.
-                    if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN) {
-                        in->on_touch_begin(id, p);
-                        if (!g.primaryTouchDown) {
-                            g.primaryTouchDown = true;
-                            g.primaryTouchId = id;
-                            in->on_mouse_move(p);
-                            in->on_mouse_button(MouseButton::Left, true);
-                        }
-                    } else if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED) {
-                        in->on_touch_move(id, p);
-                        if (g.primaryTouchDown && g.primaryTouchId == id) in->on_mouse_move(p);
-                    } else {
+                    // Input mirrors the first finger onto the mouse (see Input::on_touch_begin).
+                    if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN) in->on_touch_begin(id, p);
+                    else if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED) in->on_touch_move(id, p);
+                    else {
+                        in->on_touch_move(id, p);  // the lift position: the mouse button is released there
                         in->on_touch_end(id);
-                        if (g.primaryTouchDown && g.primaryTouchId == id) {
-                            g.primaryTouchDown = false;
-                            in->on_mouse_move(p);
-                            in->on_mouse_button(MouseButton::Left, false);
-                        }
                     }
                 }
             }

@@ -177,7 +177,7 @@ Everything is imported from `"factoria"`:
 ```js
 import { Behaviour, world, input, audio, physics, time, camera, debug, scene, game,
          storage, rng, fa, vec2, vec3, color, Vec2, Vec3, Color, math,
-         session, particles, ui, ToolError } from "factoria";
+         session, particles, ui, assets, ToolError } from "factoria";
 ```
 
 ### world
@@ -197,7 +197,9 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 - Keys: `keyDown("Space")`, `keyPressed("A")`, `keyReleased("Escape")`
 - Mouse: `mouse.position` (screen, top-left origin), `mouse.world` (world coords via main camera),
   `mouse.delta`, `mouse.wheel`, `mouse.down("left")`, `mouse.pressed("right")`
-- Touch: `touches` → `[{ id, position, world, pressed }]`
+- Touch: `touches` → `[{ id, position, world, pressed }]`. The first finger also drives the mouse (position, and the
+  left button down while it is down), on a device and in tests alike, so a script that reads both `input.mouse` and
+  `input.touches` sees one tap in both and should act on it once.
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
@@ -230,6 +232,13 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
 - `ui.measureText(text, { fontSize, font, maxWidth })` → `{ width, height }` laid out like `Text` rendering.
   Headless runs approximate (0.6 × fontSize per character) and warn once.
+
+### assets
+- `assets.textureSize(path)` → `{ width, height }` (same shape as `ui.measureText`): the pixel size of the texture file at
+  the project-relative `path`, for example `assets.textureSize("assets/hero.png")`. It is the size a `Sprite` without
+  `size` or `region` is drawn at and the one `entity.bounds()` uses. A missing or unreadable file gives 32 × 32 (the size
+  of the missing-texture checker). It reads the file, so it works headless; the result is cached per file and
+  modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
 
 ### scene / game / storage
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
@@ -281,8 +290,11 @@ r.seed(42);                            // start over; same as rng.create(42)
 - `console.log/warn/error` go to the engine log (category `script`).
 
 ### fa (commands)
-`fa.call(name, args)` runs any command (same as MCP tools; throws on error) ·
-`fa.commands()` lists them.
+`fa.call(name, args)` runs any command (same as MCP tools) and returns its result · `fa.commands()` lists them.
+On failure `fa.call` throws an `Error` whose message is `<name> failed: <message> (hint: <hint>)` and which also
+carries `e.code`, `e.hint` and, when the command reported structured details, `e.data`: a project tool that throws
+`ToolError(message, hint, data)` gives the caller `e.code === "tool_error"` and `e.data === data`, so a test can assert
+on the data instead of parsing the message.
 
 ## Tools (`tools/*.js`)
 
@@ -339,7 +351,9 @@ test("player jumps", () => {
   is a project path, a file name such as `"jump.wav"`, or a RegExp; plays whose clip failed to load do not count)
 - `game`: `load(path)` (behaviours are constructed immediately, `onStart` runs on the first `step`),
   `loadJson(sceneObject)`, `step(frames = 1)`, `touch(pos, frames = 1)`, `touchStart(pos, id?)`, `touchMove(pos, id?)`,
-  `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`), `press(action)`, `release(action)`, `tap(action)`,
+  `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`; like a finger on a device,
+  the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
+  `click` needed), `press(action)`, `release(action)`, `tap(action)`,
   `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path)`, `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),

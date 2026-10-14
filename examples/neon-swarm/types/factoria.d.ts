@@ -722,7 +722,7 @@ declare module "factoria" {
    */
   export interface FaAPI {
     /**
-     * Runs a command; throws an Error with message and hint on failure.
+     * Runs a command and returns its result. On failure it throws an Error with `code`, `hint` and, when the command reported structured details (for example a project tool's ToolError(message, hint, data)), `data`.
      */
     call(name: string, args?: Json): any;
     commands(): CommandInfoJS[];
@@ -761,6 +761,16 @@ declare module "factoria" {
      * Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning).
      */
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number };
+  }
+
+  /**
+   * Asset queries.
+   */
+  export interface AssetsAPI {
+    /**
+     * Pixel size of the texture file at the project-relative `path`, e.g. assets.textureSize("assets/hero.png"). This is the size a Sprite without `size` or `region` is drawn at and that entity.bounds() uses. A missing or unreadable file gives 32 x 32, the size of the missing-texture checker. Cached per file and modification time, so it is cheap to call every frame. Works headless (it reads the file, not the GPU texture). Throws for an empty or non-string path.
+     */
+    textureSize(path: string): { width: number; height: number };
   }
 
   /**
@@ -842,6 +852,11 @@ declare module "factoria" {
    * Text measurement.
    */
   export const ui: UIAPI;
+
+  /**
+   * Asset queries (texture size).
+   */
+  export const assets: AssetsAPI;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
@@ -1854,14 +1869,20 @@ declare module "factoria:test" {
      */
     loadJson(scene: Json): void;
     /**
-     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released.
+     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart).
      */
     touch(screenPos: Vec2Like, frames?: number): void;
     /**
-     * Finger down (stays down until touchEnd).
+     * Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed("left") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse.
      */
     touchStart(screenPos: Vec2Like, id?: number): void;
+    /**
+     * Moves a finger; the first finger drags the mouse with it.
+     */
     touchMove(screenPos: Vec2Like, id?: number): void;
+    /**
+     * Lifts a finger; when it is the first finger, the left mouse button is released where it lifted.
+     */
     touchEnd(id?: number): void;
     find(idOrName: string): Entity | null;
     readonly world: WorldAPI;
