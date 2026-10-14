@@ -94,9 +94,17 @@ TEST_CASE("scene: save is canonical and round trips") {
     REQUIRE(r.ok());
     Json saved = save_scene(a);
     CHECK(saved["format"] == "factoria.scene/1");
-    CHECK(saved["settings"].size() == 3);                       // only non-default fields
-    CHECK(saved["settings"].contains("gravity2D"));
-    CHECK(!saved["settings"].contains("gravity3D"));
+    // Non-default fields (gravity2D, fogDensity, music) plus the gravity that is ALWAYS written, even at its default.
+    CHECK(saved["settings"].size() == 4);
+    CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, -500]"));
+    CHECK(saved["settings"].contains("gravity3D"));
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
+    CHECK(!saved["settings"].contains("ambientLight"));         // every other default is left out
+    CHECK(!saved["settings"].contains("musicVolume"));
+    // Field order is the reflected order, not the order the always-written keys were added in.
+    std::vector<std::string> keys;
+    for (auto it = saved["settings"].begin(); it != saved["settings"].end(); ++it) keys.push_back(it.key());
+    CHECK(keys == std::vector<std::string>{"gravity2D", "gravity3D", "fogDensity", "music"});
     REQUIRE(saved["entities"].size() == 3);
     const Json& player = saved["entities"][0];
     CHECK(player["id"] == "player");
@@ -119,6 +127,39 @@ TEST_CASE("scene: save is canonical and round trips") {
     CHECK(r2.messages.empty());
     CHECK(save_scene(b) == saved);
     CHECK(dump_json(save_scene(b)) == dump_json(saved));
+}
+
+TEST_CASE("scene: a saved scene always shows its gravity, even at the default; nothing else is forced") {
+    // A scene file without settings (or with "settings": {}) loads with the default gravity...
+    World w;
+    REQUIRE(load_scene(w, Json::parse(R"({"format":"factoria.scene/1","settings":{},"entities":[]})"), "t").ok());
+    CHECK(w.settings().gravity2D == Vec2{0, -980});
+    // ...and the writer says so: the reader of the file sees what pulls the bodies down without knowing the defaults.
+    Json saved = save_scene(w);
+    REQUIRE(saved["settings"].is_object());
+    CHECK(saved["settings"].size() == 2);
+    CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, -980]"));
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
+    // Reading it back changes nothing: the written gravity is the default, so saving again gives the same document.
+    World again;
+    REQUIRE(load_scene(again, saved, "t2").ok());
+    CHECK(save_scene(again) == saved);
+    // A changed gravity is written once, in the same place; the other gravity stays visible.
+    w.settings().gravity2D = {0, 0};
+    saved = save_scene(w);
+    CHECK(saved["settings"].size() == 2);
+    CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, 0]"));
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
+    // The 3D gravity too.
+    w.settings().gravity3D = {0, -20, 0};
+    saved = save_scene(w);
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -20, 0]"));
+    // Other settings keep the non-default rule.
+    w.settings().fogDensity = 0.5f;
+    saved = save_scene(w);
+    CHECK(saved["settings"].size() == 3);
+    CHECK(saved["settings"].contains("fogDensity"));
+    CHECK(!saved["settings"].contains("skyColor"));
 }
 
 TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {

@@ -1,7 +1,8 @@
 {
   "format": "factoria.scene/1",
   "settings": {
-    "gravity2D": [0.0, 0.0]
+    "gravity2D": [0.0, 0.0],
+    "gravity3D": [0.0, -9.81, 0.0]
   },
   "entities": [
     {

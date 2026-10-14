@@ -113,21 +113,33 @@ void copy_template(TestHost& h, const char* name) {
 }
 }  // namespace
 
-TEST_CASE("templates: scripts, tools and tests run against the host") {
+// What this checks: every template's scripts, project tools and test files load and compile on the MINIMAL host
+// (TestHost: world, input, audio, physics and the script API, nothing from fa_runtime or fa_tooling), and the main scene
+// plays for half a second without a script error. It keeps the templates inside what fa_script alone can run.
+// It does NOT run the templates' tests: they use commands that live above fa_script (fs.*, scene.import_ascii,
+// scene.format), which this host does not have. fa_test_cli ("templates: every template's tests pass ...") runs them on
+// the engine the CLI builds for `factoria test`, with all the commands.
+TEST_CASE("templates: scripts, tools and test files load on the minimal host") {
     for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
         CAPTURE(name);
         TestHost h(std::string("tpl_") + name);
         copy_template(h, name);
         REQUIRE(h.start());
         CHECK(h.scripts.errors().empty());
-        std::vector<std::string> files = fs::list("tests", true, ".js");
-        REQUIRE(!files.empty());
-        TestReport rep = h.scripts.run_tests(files);
-        MESSAGE(rep.summary());
-        CHECK(rep.ok());
+        CHECK(h.cmds.has("project.spawn_" + std::string(name == std::string("2d-empty") ? "box" : name == std::string("3d-empty") ? "cube" : "coin")));
+        std::size_t checked = 0;
+        for (const char* dir : {"scripts", "tools", "tests"}) {
+            for (const std::string& file : fs::list(dir, true, ".js")) {
+                auto syntax = h.scripts.check_syntax(file);
+                CHECK_MESSAGE(syntax.ok(), file);
+                ++checked;
+            }
+        }
+        CHECK(checked >= 3);
+        REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+        h.step_frames(30);
         for (const auto& e : h.scripts.errors()) MESSAGE(e.to_string());
         CHECK(h.scripts.errors().empty());
-        CHECK(h.cmds.has("project.spawn_" + std::string(name == std::string("2d-empty") ? "box" : name == std::string("3d-empty") ? "cube" : "coin")));
     }
 }
 

@@ -1,6 +1,7 @@
 #include "fa/scene/serialize.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <span>
@@ -556,11 +557,32 @@ LoadReport load_scene_file(World& world, std::string_view path, const SceneLoadO
     return load_scene(world, json.value(), path, opts);
 }
 
+namespace {
+
+// `settings` of a saved scene: the non-default fields, plus the gravity ALWAYS, even at its default. A scene that says
+// `"settings": {}` hides what pulls its bodies down (and by how much), which a reader of the file cannot work out.
+// Fields keep the order of the reflected type.
+Json settings_to_json(const World& world) {
+    const TypeInfo* st = TypeRegistry::global().find("SceneSettings");
+    if (!st) return Json::object();
+    static const char* const kAlwaysWritten[] = {"gravity2D", "gravity3D"};
+    Json changed = object_to_json(*st, &world.settings(), false);
+    Json all = object_to_json(*st, &world.settings(), true);
+    Json out = Json::object();
+    for (auto it = all.begin(); it != all.end(); ++it) {
+        const bool always = std::find_if(std::begin(kAlwaysWritten), std::end(kAlwaysWritten),
+                                         [&](const char* name) { return it.key() == name; }) != std::end(kAlwaysWritten);
+        if (always || changed.contains(it.key())) out[it.key()] = *it;
+    }
+    return out;
+}
+
+}  // namespace
+
 Json save_scene(const World& world) {
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
-    const TypeInfo* st = TypeRegistry::global().find("SceneSettings");
-    scene["settings"] = st ? object_to_json(*st, &world.settings(), false) : Json::object();
+    scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
     for (Entity e : world.roots()) ents.push_back(entity_to_json(world, e));
     scene["entities"] = std::move(ents);

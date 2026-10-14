@@ -1,6 +1,9 @@
 {
   "format": "factoria.scene/1",
-  "settings": {},
+  "settings": {
+    "gravity2D": [0.0, -980.0],
+    "gravity3D": [0.0, -9.81, 0.0]
+  },
   "entities": [
     {
       "id": "camera",
