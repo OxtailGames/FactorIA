@@ -169,7 +169,6 @@ private:
         // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
         // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
         bool rotDyn = false;
-        bool orientKnown = false;
         bool rotDirty = false;     // orientation changed this step: Transform.rotation must be rewritten
         bool originDirty = false;  // the box turned about an offset collider centre: the entity origin must be rewritten
         Quat orient;

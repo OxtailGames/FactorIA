@@ -27,8 +27,6 @@ constexpr float kManifoldGap = 0.003f;  // box-box manifold points this far abov
 constexpr int kRigidIterations = 8;     // velocity iterations of the rigid-body solver, per sub-step
 constexpr int kMaxToiEvents = 6;        // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
 constexpr float kWarmRadius = 0.05f;    // a contact point inherits the impulses of the previous sub-step's one this close (m)
-constexpr float kRadPerDeg = 0.017453292519943295f;
-constexpr float kDegPerRad = 57.29577951308232f;
 
 const char* type_name(BodyType t) {
     switch (t) {
@@ -426,19 +424,16 @@ void Physics3D::sync(World& world) {
                 // A rotating box keeps its quaternion between steps; only a Transform.rotation that differs from what
                 // the solver wrote last (or a parent in the way) makes it re-read the orientation from the Transform.
                 const Transform* tr = world.get<Transform>(e);
-                const bool keep = b.rotDyn && b.orientKnown && tr && tr->rotation == b.lastEuler &&
+                const bool keep = b.rotDyn && tr && tr->rotation == b.lastEuler &&
                                   world.parent(e).is_null();
                 if (!keep) {
                     b.orient = quat_of(pose.axis);
                     b.lastEuler = tr ? tr->rotation : Vec3{};
-                    b.orientKnown = true;
                 }
                 axes_of(b.orient, ownAx);
                 r = ownAx;
                 const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
                 b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
-            } else {
-                b.orientKnown = false;
             }
             b.rotDyn = wantRot;
             const bool turned = is_turned(r);
@@ -456,7 +451,6 @@ void Physics3D::sync(World& world) {
             b.localOffset = {};
             b.rotated = false;
             b.rotDyn = false;
-            b.orientKnown = false;
             b.trigger = false;
         }
         b.rollMu = (rb && col && rb->type == BodyType::Dynamic && rb->rollWithMotion && !b.box)
@@ -512,7 +506,7 @@ void Physics3D::refresh_frame(Body& b) {
 
 // Turns a rotating box by its angular velocity for `seconds` (about its centre, world axes).
 void Physics3D::integrate_orient(Body& b, float seconds) {
-    const Vec3 w = b.angVel * kRadPerDeg;
+    const Vec3 w = b.angVel * kDegToRad;
     const float len = length(w);
     if (!(len > 0.0f)) return;
     const float half = 0.5f * len * seconds, s = std::sin(half) / len;
@@ -525,7 +519,7 @@ void Physics3D::integrate_orient(Body& b, float seconds) {
 // spin of a rolling sphere (rollWithMotion), a kinematic bar or a locked box is not part of the contact velocity, as in
 // the single-point solver (a rolling sphere would otherwise be at rest at its contact point and feel no friction).
 Vec3 Physics3D::point_velocity(const Body& b, Vec3 r) {
-    return b.rotDyn ? b.vel + cross(b.angVel * kRadPerDeg, r) : b.vel;
+    return b.rotDyn ? b.vel + cross(b.angVel * kDegToRad, r) : b.vel;
 }
 
 // World inverse inertia times v: R * diag(invI) * R^T * v. Zero for bodies contacts cannot turn.
@@ -614,7 +608,7 @@ void Physics3D::solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool
     const Vec3 n = rc.n;
     auto push = [](Body& x, Vec3 r, Vec3 impulse) {  // impulse at lever arm r
         x.vel += impulse * x.invMass;
-        x.angVel += inv_inertia_mul(x, cross(r, impulse)) * kDegPerRad;
+        x.angVel += inv_inertia_mul(x, cross(r, impulse)) * kRadToDeg;
     };
     for (int step = 0; step < rc.count; ++step) {
         RigidContact::Pt& p = rc.pt[reverse ? rc.count - 1 - step : step];  // alternate the sweep order: no bias
@@ -781,9 +775,9 @@ void Physics3D::step(World& world, float dt) {
                             p.jt = old[best].jt;
                             const Vec3 impulse = rc.n * p.jn + p.jt;
                             b.vel += impulse * b.invMass;
-                            b.angVel += inv_inertia_mul(b, cross(p.rb, impulse)) * kDegPerRad;
+                            b.angVel += inv_inertia_mul(b, cross(p.rb, impulse)) * kRadToDeg;
                             a.vel -= impulse * a.invMass;
-                            a.angVel -= inv_inertia_mul(a, cross(p.ra, impulse)) * kDegPerRad;
+                            a.angVel -= inv_inertia_mul(a, cross(p.ra, impulse)) * kRadToDeg;
                         }
                     }
                 }
