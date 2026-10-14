@@ -6,7 +6,7 @@
 
 FactorIA is a 2D and 3D game engine in C++20 designed so that an AI can create games without depending on a graphical editor. Scenes are JSON, game logic is written in JavaScript, and each engine capability is a command the AI can invoke. This guide explains how to build the engine, create a game and connect an AI.
 
-> **Project status.** It is in early development. On Linux the full workflow works: create a project, validate it, test it, simulate it without a window with screenshots, export it and connect an AI over MCP. macOS, Windows, iOS and Android have scripts and presets defined, but they have not been tested on those platforms, and the mobile code has not yet been built on the development machine (see `docs/MOBILE.md`). Section 8 summarizes what works and what is missing.
+> **Project status.** It is in early development. On Linux the full workflow works: create a project, validate it, test it, simulate it without a window with screenshots, export it and connect an AI over MCP. CI builds and tests the engine on Windows (MSVC) and macOS (GPU tests excluded), and builds the iOS Simulator app, the Android player and an exported Android APK on every push; the mobile builds have not run on a device yet (see `docs/MOBILE.md`). Section 8 summarizes what works and what is missing.
 
 ## 1. Requirements and installation
 
@@ -320,14 +320,14 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 | Part | Status |
 |---|---|
 | Build on Linux (`./scripts/build.sh`) | Tested |
-| Build on macOS, Windows, iOS and Android | Scripts and presets ready; not yet tested on those platforms. The mobile code could not be built on the development machine (`docs/MOBILE.md`) |
+| Build on Windows, macOS, iOS and Android | Built by CI on every push. Windows (MSVC) and macOS run the test suite (macOS without GPU tests); iOS Simulator and Android build only, not yet run on a device (`docs/MOBILE.md`) |
 | Engine: scenes, JavaScript scripts, 2D and 3D rendering, physics (including one-way platforms and tilemaps), particles and screenshots | Works on Linux. Audio has not been tested in the documentation environment |
 | `factoria` CLI: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Works on Linux |
 | `factoria editor` (visual editor) | Included in the desktop builds (`docs/EDITOR.md`). Needs a display. On Linux the ctest entries `editor_autotest` drive it end to end under `xvfb-run` |
 | Project templates (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Works |
 | MCP server for Claude Code and Codex (`factoria mcp`) | Works |
 | Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |
-| Exporting games (`factoria export`) | Linux tested (`--platform linux`). Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md` |
+| Exporting games (`factoria export`) | Linux tested (`--platform linux`); CI exports an Android game and builds its APK. Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md` |
 | Documentation for AI | In English: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
 | Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput), Linux (joystick API) and macOS/iOS (GameController) are written but untested; Android and web have none yet (`docs/MOBILE.md`) |
 
