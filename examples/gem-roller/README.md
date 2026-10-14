@@ -34,7 +34,8 @@ The scripts are short because the engine covers these things (see `docs/AI_GUIDE
   it is carried by the platform, so the ball's own `velocity` is relative to the ground and `ball.js` needs no
   platform bookkeeping.
 - **Rolling.** The ball is a sphere `RigidBody3D` with the default `rollWithMotion`, so the engine spins its mesh to
-  match its motion. Its collider has friction 0, so `ball.js` sets the velocity directly and nothing slows it.
+  match its motion. A rolling sphere is slowed by `rollingFriction` (default 0.02), not by sliding friction, and
+  `ball.js` sets the velocity directly every frame, so nothing slows it noticeably.
 - **Ground check.** `physics.raycast3d(origin, [0, -1, 0], dist, { ignore: this.entity })` from the ball centre.
   No collider layers are needed to keep the ray from hitting the ball.
 - **HUD.** Panels and texts use `anchor` and `pivot`, so they stay glued to the screen corners (and the win/lose

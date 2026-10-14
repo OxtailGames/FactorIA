@@ -1,4 +1,4 @@
-// Physics: 2D (Box2D v3) and simple 3D (spheres + axis-aligned boxes).
+// Physics: 2D (Box2D v3) and simple 3D (spheres + oriented boxes).
 //
 // Each fixed step:
 //   physics.step(world, dt)
@@ -33,6 +33,10 @@
 //     collider area (meters^2) * density.
 //   * RAYCASTS: a collider that contains the ray origin is skipped (see RaycastOptions); `ignore` skips an entity and
 //     its children; triggers are skipped unless ignoreTriggers=false.
+//   * SHAPE CASTS (2D): b2World_CastShape with proxies built to stop ON the surface (raw Box2D stops a box 0.5 cm
+//     short of a wall and a circle 0.5 cm inside it). A collider the shape penetrates by more than 1 cm at `from` is
+//     skipped; one it only touches (resting contact) blocks the cast, at distance 0, only when the shape moves towards
+//     it. Tile boxes are reported as the Tilemap entity, like raycasts. Rotated colliders give the face normal.
 //   * ONE-WAY PLATFORMS (Collider2D.oneWay): contact enabled only while the other body's bottom is above the
 //     platform's top and it is not moving up relative to it (Box2D pre-solve; world runs single-threaded).
 //     Assumes the platform is unrotated or flipped 180 degrees (flipped = one-way from below). Sides never block.
@@ -45,20 +49,41 @@
 //     friction > 0 characters sliding along them); give characters friction 0 against walls, or use a capsule/circle
 //     foot. The tilemap body follows the Tilemap entity's world transform.
 //   * is_grounded2d: any touching contact whose normal points up (> 0.7) with a gap <= tolerance (pixels).
-//   * 3D: spheres + axis-aligned boxes only. Transform.rotation is IGNORED (never read or written); sizes are
-//     scaled by world scale. Semi-implicit Euler with subSteps sub-steps, positional correction, restitution
-//     (ignored below 0.5 m/s) and Coulomb friction; no continuous collision (very fast bodies can tunnel).
-//     Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a Collider3D
-//     alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger overlaps.
-//     Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
+//   * 3D: spheres + ORIENTED boxes. A box follows the entity's WORLD rotation (Transform.rotation with parents; the
+//     basis columns are normalised, so scale only sizes the box) and its Collider3D.offset is rotated and scaled with the
+//     entity. Box vs sphere clamps the sphere centre in the box frame; box vs box is a 15-axis SAT whose contact normal
+//     is the minimum-penetration axis. Queries (raycast3d, overlap_sphere3d, shape_cast3d, is_touching3d), riders,
+//     events and debug output all use the oriented shape (read from the Transform in sync(), so a spin applied by
+//     angularVelocity shows in queries from the next sync() on). An unrotated box takes an exact axis-aligned fast path.
+//     CEILING: rotation only comes from Transform / angularVelocity. Collisions apply no torque and bodies have no
+//     inertia tensor, so a box never tips over by itself and a spinning box resting on the ground hops along it.
+//     Semi-implicit Euler with subSteps sub-steps, positional correction, restitution (ignored below 0.5 m/s) and
+//     Coulomb friction. Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a
+//     Collider3D alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger
+//     overlaps. Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
+//   * 3D SHAPE CAST (shape_cast3d): the swept sphere / axis-aligned box is stepped along the path (at most half its
+//     smallest extent per step), the first step that overlaps a collider is bisected to ~0.1 mm, and normal/point come
+//     from the contact at that time. A collider cannot slip between two steps (the shape is at least two steps long),
+//     but a grazing touch at the very edge of the swept volume may be missed. Cost grows with path length / extent.
+//     At `from` it behaves like the 2D cast: a collider penetrated by more than 1 cm is skipped; one only touched
+//     (a body resting on the ground penetrates it ~1 mm) blocks the cast at distance 0 when the shape moves towards it.
+//   * 3D CONTINUOUS COLLISION (automatic): in a sub-step a dynamic body that would move farther than about half its
+//     smallest extent (sphere: its radius) is swept along that move against the solid static and kinematic colliders
+//     (the same stepping + bisection as shape_cast3d) and stops at the time of impact, slightly inside the surface, so
+//     the contact solver resolves the velocity (stop / bounce) as for any contact: a 60 m/s sphere does not pass a 0.2 m
+//     wall. Colliders the body already overlaps at the start of the sub-step are left to the solver. Dynamic-vs-dynamic
+//     pairs and kinematic motion within the sub-step are NOT swept (two fast dynamic bodies can still cross).
 //   * 3D RIDERS: dynamic bodies resting on top of a kinematic body (gap <= 2 cm, contact normal up) inherit its
 //     displacement every sub-step (horizontal; and downward), so they ride moving platforms; friction then acts
 //     on the velocity RELATIVE to the platform. A static/kinematic body teleported by gameplay carries its riders
 //     by the same displacement. Stacked riders (rider on a rider) are not carried.
 //   * 3D ROTATION: RigidBody3D.angularVelocity (deg/s about world x,y,z) is added to Transform.rotation (euler
-//     degrees) each step for dynamic and kinematic bodies. Collision shapes stay AXIS-ALIGNED and ignore the
-//     rotation; it is visual only. rollWithMotion: a dynamic sphere touching ground (contact normal up) gets
-//     angularVelocity = rolling rate: axis = up x velocity, rate = |horizontal v| / radius (deg/s).
+//     degrees) each step for dynamic and kinematic bodies; box colliders turn with it. rollWithMotion: a dynamic sphere
+//     touching ground (contact normal up) gets angularVelocity = rolling rate: axis = up x velocity,
+//     rate = |horizontal v| / radius (deg/s). ROLLING RESISTANCE: such a sphere's contacts cap the tangential impulse
+//     at RigidBody3D.rollingFriction * normalImpulse (default 0.02) instead of sqrt(muA * muB) * normalImpulse, so on flat
+//     ground its speed decays by about rollingFriction * g per second; with rollWithMotion false the sliding friction
+//     of the colliders applies and a ball stops quickly.
 #pragma once
 
 #include <memory>
@@ -95,6 +120,22 @@ struct RaycastHit {
     float distance = 0.0f;  // from ray origin, world units
 };
 
+// Shape swept by shape_cast2d/3d, centred on the cast position and axis-aligned. Sizes are full sizes in world units
+// (2D pixels, 3D meters), like Collider2D/Collider3D. 2D: Circle (radius) or Box (size.x, size.y). 3D: Circle is a
+// sphere (radius), Box uses size.x/y/z.
+struct CastShape {
+    enum class Kind { Circle, Box } kind = Kind::Circle;
+    float radius = 0.5f;
+    Vec3 size{1, 1, 1};
+};
+
+// Parses the JSON shape object of the physics.shape_cast command and physics.shapeCast(shape, ...) in scripts:
+//   2D: {"shape":"circle","radius":8}    {"shape":"box","size":[16,24]}
+//   3D: {"shape":"sphere","radius":0.5}  {"shape":"box","size":[1,2,1]}
+// `size` may also be {"x":..,"y":..(,"z":..)}; sizes and radii must be positive. Errors teach: what is wrong, an
+// example, "did you mean" for a misspelt shape or key, and a note when the 3D name is used in 2D or the other way round.
+Result<CastShape> cast_shape_from_json(const Json& j, bool is3d);
+
 class Physics {
 public:
     Physics();
@@ -119,6 +160,14 @@ public:
     std::optional<RaycastHit> raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
                                         const RaycastOptions& options);
     std::vector<Entity> overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask = -1);
+    // Sweep `shape` with its centre moving from `from` to `to` and return the first collider it would touch:
+    // distance = how far the centre travels before contact, point = contact point, normal = the hit surface's normal
+    // (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a raycast that
+    // starts inside a collider. Options as for raycasts (mask, ignore + descendants, ignoreTriggers).
+    std::optional<RaycastHit> shape_cast2d(World& world, const CastShape& shape, Vec2 from, Vec2 to,
+                                           const RaycastOptions& options = {});
+    std::optional<RaycastHit> shape_cast3d(World& world, const CastShape& shape, Vec3 from, Vec3 to,
+                                           const RaycastOptions& options = {});
 
     // ----- direct body control (applied immediately if the body exists)
     void apply_impulse(World& world, Entity e, Vec3 impulse);  // 2D uses x,y
@@ -138,7 +187,17 @@ public:
 
     // Debug: list of bodies and shapes (for the editor / AI inspection).
     Json debug_state(const World& world) const;
-    struct DebugShape { enum Kind { Box, Circle, Sphere } kind; Vec3 center; Vec3 size; float rotation; bool trigger; };
+    // 2D shapes: `rotation` = degrees about Z, `euler` stays zero. 3D shapes: `euler` = the WORLD rotation of an
+    // oriented box as euler degrees (pitch about X, yaw about Y, roll about Z; same convention as Transform.rotation,
+    // zero for spheres) and `rotation` = euler.z. `size` is the box's full local size (unrotated extents).
+    struct DebugShape {
+        enum Kind { Box, Circle, Sphere } kind;
+        Vec3 center;
+        Vec3 size;
+        float rotation;
+        bool trigger;
+        Vec3 euler{};
+    };
     std::vector<DebugShape> debug_shapes(const World& world) const;
 
     struct Impl;

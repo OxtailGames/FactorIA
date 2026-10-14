@@ -553,6 +553,78 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
 }
 
+TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and teaches on bad shapes") {
+    TestHost h("shapecast");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");  // top at -90
+    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");
+    ev_ok(h, "world.spawn({id:'trig', components:{Transform:{position:[200,-60]}, Collider2D:{size:[20,20], isTrigger:true}}})");
+    h.step_frames(1);  // bodies are created on the first physics step
+
+    // a circle and a box land on the ground: the result has the same shape as a raycast hit
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).distance").get<double>() ==
+          doctest::Approx(182.0).epsilon(0.005));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).point.y").get<double>() ==
+          doctest::Approx(-90.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).normal.y").get<double>() ==
+          doctest::Approx(1.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: vec2(16, 24) }, vec2(100, 100), {x: 100, y: -300}).distance")
+              .get<double>() == doctest::Approx(178.0).epsilon(0.005));  // half height 12
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'BOX', size: [16, 24] }, [100, 100], [100, -300]).entity.id") == "ground");
+    // nothing in the way
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, 50])").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, 100])").is_null());
+    // a collider overlapping the start is skipped (ball), the ground is hit; ignore and mask work as for raycast
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300]).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: 'ball' }).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: world.find('ground') })").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { mask: 0 })").is_null());
+    // triggers are skipped unless ignoreTriggers is false
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300]).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300], { ignoreTriggers: false }).entity.id") == "trig");
+
+    // 3D: nothing in the way is null
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, 5, 0])").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, vec3(0, 10, 0), vec3(0, 5, 0))").is_null());
+    // 3D hits: a sphere and a box land on a floor whose top is at y = 0.5
+    ev_ok(h, "world.spawn({id:'floor3', components:{Transform:{position:[0,0,0]}, Collider3D:{size:[10,1,10]}}})");
+    h.step_frames(1);
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).entity.id") == "floor3");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).distance").get<double>() ==
+          doctest::Approx(9.0).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).normal.y").get<double>() ==
+          doctest::Approx(1.0).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, vec3(0, 10, 0), vec3(0, -5, 0)).distance")
+              .get<double>() == doctest::Approx(8.5).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, [0, 10, 0], [0, -5, 0], { ignore: 'floor3' })").is_null());
+
+    // bad shapes throw an Error that says what is wrong and how to fix it
+    auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
+    std::string m = ev_err(h, "physics.shapeCast({ shape: 'circel', radius: 8 }, [0, 0], [1, 1])");
+    CHECK(has(m, "circel"));
+    CHECK(has(m, "Did you mean 'circle'"));
+    CHECK(has(m, "Example"));
+    m = ev_err(h, "physics.shapeCast({ shape: 'sphere', radius: 8 }, [0, 0], [1, 1])");  // 3D name in a 2D cast
+    CHECK(has(m, "3D shape"));
+    CHECK(has(m, "\"circle\""));
+    m = ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 1 }, [0, 0, 0], [1, 1, 1])");  // 2D name in a 3D cast
+    CHECK(has(m, "2D shape"));
+    CHECK(has(m, "\"sphere\""));
+    m = ev_err(h, "physics.shapeCast({ shape: 'sfere', radius: 1 }, [0, 0, 0], [1, 1, 1])");
+    CHECK(has(m, "Did you mean 'sphere'"));
+    m = ev_err(h, "physics.shapeCast({ shape: 'box' }, [0, 0], [1, 1])");
+    CHECK(has(m, "needs \"size\""));
+    m = ev_err(h, "physics.shapeCast({ shape: 'box', size: [1, 2] }, [0, 0, 0], [1, 1, 1])");
+    CHECK(has(m, "[x, y, z]"));
+    m = ev_err(h, "physics.shapeCast({ shape: 'circle' }, [0, 0], [1, 1])");
+    CHECK(has(m, "needs \"radius\""));
+    m = ev_err(h, "physics.shapeCast('box', [0, 0], [1, 1])");
+    CHECK(has(m, "must be an object"));
+    CHECK(has(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 1 }, 'x', [0, 0])"), "[x, y"));
+    CHECK(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 0 }, [0, 0], [1, 1])").find("positive") != std::string::npos);
+}
+
 TEST_CASE("setting an entity's position from JS on a body that fell asleep teleports a live body") {
     TestHost h("sleepteleport");
     REQUIRE(h.start());
@@ -1091,6 +1163,121 @@ TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
     REQUIRE(h.start());
     std::string dts = h.scripts.typescript_declarations();
     for (const char* needle : {"create(seed: number): Rng;", "export interface Rng {", "bounds(): Rect | null;", "BOTTOM-LEFT"}) {
+        CAPTURE(needle);
+        CHECK(dts.find(needle) != std::string::npos);
+    }
+}
+
+TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads, errors teach") {
+    Json settings = Json::object({{"input", Json::object({{"actions", Json::parse(R"({
+        "jump": ["Space", "GamepadA"],
+        "move_left": ["A", "GamepadLeftStickLeft"], "move_right": ["D", "GamepadLeftStickRight"],
+        "move_down": ["S", "GamepadLeftStickDown"], "move_up": ["W", "GamepadLeftStickUp"],
+        "fire": ["GamepadRightTrigger"]
+    })")}})}});
+    TestHost h("gamepad", settings);
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("a button drives an action; press/release mirror keyDown/keyUp, tap steps", () => {
+  const pad = game.gamepad(0);
+  expect(input.gamepad(0).connected).toBe(false);   // asking for the handle does not plug the pad in
+  pad.press("A");
+  expect(input.gamepad(0).connected).toBe(true);
+  expect(input.gamepad().down("a")).toBe(true);     // case-insensitive, index defaults to 0
+  expect(input.gamepad(1).connected).toBe(false);
+  expect(input.pressed("jump")).toBe(true);
+  expect(input.gamepad(0).pressed("A")).toBe(true);
+  game.step(1);
+  expect(input.pressed("jump")).toBe(false);
+  expect(input.down("jump")).toBe(true);
+  pad.release("A");
+  expect(input.released("jump")).toBe(true);
+  expect(input.gamepad(0).released("A")).toBe(true);
+  game.step(1);
+  expect(input.down("jump")).toBe(false);
+  pad.tap("A");
+  expect(input.down("jump")).toBe(false);
+});
+test("the pad does not leak into the next test; a second pad works too", () => {
+  expect(input.gamepad(0).connected).toBe(false);
+  expect(input.down("jump")).toBe(false);
+  const two = game.gamepad(1);
+  two.press("A");
+  expect(input.down("jump")).toBe(true);                // a binding matches ANY pad
+  expect(input.gamepad(0).down("A")).toBe(false);
+  expect(input.gamepad(1).down("A")).toBe(true);
+  two.disconnect();
+  expect(input.gamepad(1).connected).toBe(false);
+  expect(input.down("jump")).toBe(false);
+  expect(input.released("jump")).toBe(true);
+  two.connect();
+  expect(input.gamepad(1).connected).toBe(true);
+});
+test("a stick moves axis(), vector() and value(), after the deadzone", () => {
+  const pad = game.gamepad();
+  pad.axis("LeftX", -1);
+  expect(input.axis("move_left", "move_right")).toBe(-1);
+  expect(input.value("move_left")).toBe(1);
+  expect(input.pressed("move_left")).toBe(true);
+  expect(input.gamepad(0).axis("LeftX")).toBe(-1);
+  game.step(1);
+  expect(input.pressed("move_left")).toBe(false);
+  pad.axis("LeftX", 0.1);                                  // inside the 0.2 deadzone
+  expect(input.axis("move_left", "move_right")).toBe(0);
+  expect(input.gamepad().axis("LeftX")).toBe(0);
+  expect(input.gamepad().rawAxis("LeftX")).toBeCloseTo(0.1);
+  pad.axis("LeftX", 0.7);                                  // (0.7 - 0.2) / 0.8
+  expect(input.value("move_right")).toBeCloseTo(0.625);
+  expect(input.down("move_right")).toBe(true);
+  pad.axis("LeftX", 0);
+  pad.axis("LeftY", 1);                                    // +Y is up
+  expect(input.vector("move_left", "move_right", "move_down", "move_up").y).toBe(1);
+  pad.axis("LeftY", 0.6);
+  expect(input.vector("move_left", "move_right", "move_down", "move_up").y).toBeCloseTo(0.5);
+  pad.axis("RightTrigger", 1);
+  expect(input.down("fire")).toBe(true);
+  pad.axis("RightTrigger", 0);
+  expect(input.down("fire")).toBe(false);
+});
+test("the deadzone is a setting scripts can read and change", () => {
+  expect(input.deadzone).toBeCloseTo(0.2);
+  input.deadzone = 0.5;
+  game.gamepad().axis("LeftX", 0.4);
+  expect(input.value("move_right")).toBe(0);
+  input.deadzone = 0;
+  expect(input.value("move_right")).toBeCloseTo(0.4);
+  expect(() => { input.deadzone = 1; }).toThrow("deadzone");
+});
+test("a changed deadzone does not leak into the next test", () => {
+  expect(input.deadzone).toBeCloseTo(0.2);
+});
+test("bad names and indices throw with a suggestion", () => {
+  const pad = game.gamepad();
+  expect(() => pad.press("Strat")).toThrow("Did you mean 'Start'");
+  expect(() => pad.press("Dpadleft ")).not.toThrow();
+  expect(() => pad.axis("LeftZ", 1)).toThrow("unknown gamepad axis");
+  expect(() => pad.axis("LeftX", "left")).toThrow("must be a number");
+  expect(() => input.gamepad().down("Strat")).toThrow("Start");
+  expect(() => input.gamepad().axis("LeftTrigr")).toThrow("LeftTrigger");
+  expect(() => game.gamepad(4)).toThrow("0 to 3");
+  expect(() => input.gamepad(-1)).toThrow("0 to 3");
+  expect(() => input.value("nope")).toThrow("unknown input action");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("typescript declarations: gamepad input and the gamepad test API") {
+    TestHost h("dts_gamepad");
+    REQUIRE(h.start());
+    std::string dts = h.scripts.typescript_declarations();
+    for (const char* needle : {"export type GamepadButton =", "\"DpadLeft\"", "export interface GamepadAPI {", "gamepad(index?: number): GamepadAPI;",
+                               "value(action: string): number;", "deadzone: number;", "export interface TestGamepad {",
+                               "gamepad(index?: number): TestGamepad;", "GamepadButton, GamepadAxis } from \"factoria\""}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }

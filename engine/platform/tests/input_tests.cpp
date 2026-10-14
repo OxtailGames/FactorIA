@@ -1,5 +1,8 @@
 #include <doctest.h>
 
+#include <cmath>
+
+#include "fa/platform/gamepad.h"
 #include "fa/platform/input.h"
 
 using namespace fa;
@@ -214,4 +217,230 @@ TEST_CASE("mouse, wheel, text and snapshot") {
     in.release_all();
     CHECK_FALSE(in.key_down(Key::Enter));
     CHECK(in.key_released(Key::Enter));
+}
+
+// ---------------------------------------------------------------------------- gamepads
+TEST_CASE("gamepad button and axis names round-trip, case-insensitively") {
+    for (size_t i = 0; i < size_t(GamepadButton::Count); ++i) {
+        GamepadButton b{};
+        REQUIRE(gamepad_button_from_name(gamepad_button_name(GamepadButton(i)), b));
+        CHECK(b == GamepadButton(i));
+    }
+    for (size_t i = 0; i < size_t(GamepadAxis::Count); ++i) {
+        GamepadAxis a{};
+        REQUIRE(gamepad_axis_from_name(gamepad_axis_name(GamepadAxis(i)), a));
+        CHECK(a == GamepadAxis(i));
+    }
+    GamepadButton b = GamepadButton::A;
+    GamepadAxis a = GamepadAxis::LeftX;
+    CHECK(gamepad_button_from_name("dpadleft", b));
+    CHECK(b == GamepadButton::DpadLeft);
+    CHECK(gamepad_axis_from_name("righttrigger", a));
+    CHECK(a == GamepadAxis::RightTrigger);
+    CHECK_FALSE(gamepad_button_from_name("Z", b));
+    CHECK(b == GamepadButton::DpadLeft);  // an unknown name leaves the output alone
+    CHECK_FALSE(gamepad_axis_from_name("LeftZ", a));
+    CHECK(gamepad_button_names().size() == size_t(GamepadButton::Count));
+}
+
+TEST_CASE("gamepad buttons: edges, connected flags, a binding matches any pad") {
+    Input in;
+    CHECK(in.set_actions(Json::parse(R"({"jump": ["Space", "GamepadA"], "pause": ["gamepadstart"]})")).empty());
+    CHECK_FALSE(in.gamepad_connected(0));
+    in.begin_frame();
+    in.on_gamepad_button(2, GamepadButton::A, true);  // the first event of a pad connects it
+    CHECK(in.gamepad_connected(2));
+    CHECK_FALSE(in.gamepad_connected(0));
+    CHECK(in.gamepad_down(2, GamepadButton::A));
+    CHECK(in.gamepad_pressed(2, GamepadButton::A));
+    CHECK_FALSE(in.gamepad_down(0, GamepadButton::A));
+    CHECK(in.action_down("jump"));
+    CHECK(in.action_pressed("jump"));
+    CHECK_FALSE(in.action_down("pause"));
+
+    in.begin_frame();
+    CHECK(in.action_down("jump"));
+    CHECK_FALSE(in.action_pressed("jump"));
+    CHECK_FALSE(in.gamepad_pressed(2, GamepadButton::A));
+    in.on_gamepad_button(0, GamepadButton::A, true);  // a second pad on the same action: not a new press
+    CHECK_FALSE(in.action_pressed("jump"));
+
+    in.begin_frame();
+    in.on_gamepad_button(2, GamepadButton::A, false);
+    CHECK(in.gamepad_released(2, GamepadButton::A));
+    CHECK(in.action_down("jump"));  // pad 0 still holds it
+    CHECK_FALSE(in.action_released("jump"));
+    in.on_gamepad_connected(0, false);  // unplugging releases what was held
+    CHECK_FALSE(in.gamepad_connected(0));
+    CHECK_FALSE(in.action_down("jump"));
+    CHECK(in.action_released("jump"));
+    CHECK(in.gamepad_released(0, GamepadButton::A));
+
+    in.on_gamepad_button(7, GamepadButton::A, true);  // outside 0..3: ignored
+    in.on_gamepad_button(-1, GamepadButton::A, true);
+    in.on_gamepad_axis(4, GamepadAxis::LeftX, 1.0f);
+    CHECK_FALSE(in.gamepad_connected(4));
+    CHECK_FALSE(in.gamepad_down(7, GamepadButton::A));
+
+    in.on_gamepad_connected(1, true);  // connecting alone also works
+    CHECK(in.gamepad_connected(1));
+    in.on_gamepad_button(1, GamepadButton::Start, true);
+    CHECK(in.action_down("pause"));
+    in.release_all();  // focus lost / test reset: every pad goes away
+    CHECK_FALSE(in.gamepad_connected(1));
+    CHECK_FALSE(in.action_down("pause"));
+    CHECK(in.action_released("pause"));
+}
+
+TEST_CASE("analog bindings: radial deadzone, rescaling, the down threshold, any pad") {
+    Input in;
+    CHECK(in.set_actions(Json::parse(R"({
+        "left": ["A", "GamepadLeftStickLeft"], "right": ["D", "GamepadLeftStickRight"],
+        "down": ["S", "GamepadLeftStickDown"], "up": ["W", "GamepadLeftStickUp"],
+        "aim_right": ["GamepadRightStickRight"], "fire": ["GamepadRightTrigger"], "brake": ["GamepadLeftTrigger"]
+    })")).empty());
+    CHECK(in.gamepad_deadzone() == doctest::Approx(0.2f));
+    in.begin_frame();
+
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.15f);  // inside the deadzone
+    CHECK(in.action_value("right") == 0.0f);
+    CHECK(in.axis("left", "right") == 0.0f);
+
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.62f);  // (0.62 - 0.2) / 0.8 = 0.525: just above the down threshold
+    CHECK(in.action_value("right") == doctest::Approx(0.525f));
+    CHECK(in.action_down("right"));
+    CHECK(in.action_value("left") == 0.0f);
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.58f);  // 0.475
+    CHECK(in.action_value("right") < 0.5f);
+    CHECK_FALSE(in.action_down("right"));
+
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 1.0f);
+    CHECK(in.action_value("right") == doctest::Approx(1.0f));
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, -1.0f);
+    CHECK(in.action_value("left") == doctest::Approx(1.0f));
+    CHECK(in.action_value("right") == 0.0f);
+    CHECK(in.axis("left", "right") == doctest::Approx(-1.0f));
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, -3.0f);  // clamped
+    CHECK(in.gamepad_raw_axis(0, GamepadAxis::LeftX) == doctest::Approx(-1.0f));
+
+    // The deadzone is radial: the stick pair is measured together, so a small second component survives.
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.8f);
+    in.on_gamepad_axis(0, GamepadAxis::LeftY, 0.1f);
+    CHECK(in.action_value("right") == doctest::Approx(0.752f).epsilon(0.01));
+    CHECK(in.action_value("up") == doctest::Approx(0.094f).epsilon(0.02));
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.0f);
+    in.on_gamepad_axis(0, GamepadAxis::LeftY, 0.0f);
+
+    // +Y is up: pushing up gives "up"; vector() normalises only above length 1.
+    in.on_gamepad_axis(0, GamepadAxis::LeftY, 1.0f);
+    CHECK(in.action_value("up") == doctest::Approx(1.0f));
+    CHECK(in.action_value("down") == 0.0f);
+    Vec2 v = in.vector("left", "right", "down", "up");
+    CHECK(v.x == doctest::Approx(0.0f));
+    CHECK(v.y == doctest::Approx(1.0f));
+    in.on_gamepad_axis(0, GamepadAxis::LeftY, 0.6f);  // a half-tilted stick stays short
+    v = in.vector("left", "right", "down", "up");
+    CHECK(v.y == doctest::Approx(0.5f));
+    in.on_gamepad_axis(0, GamepadAxis::LeftY, 0.0f);
+    in.on_key(Key::D, true);  // keys give exactly 1, and a diagonal of two keys is a unit vector
+    in.on_key(Key::W, true);
+    v = in.vector("left", "right", "down", "up");
+    CHECK(v.x == doctest::Approx(0.7071f).epsilon(0.01));
+    CHECK(v.y == doctest::Approx(0.7071f).epsilon(0.01));
+    in.on_key(Key::W, false);
+    CHECK(in.axis("left", "right") == 1.0f);  // exactly
+    in.on_key(Key::D, false);
+    in.on_gamepad_connected(0, false);
+
+    // Triggers: 0..1 after the deadzone; sticks and triggers of any pad count.
+    in.on_gamepad_axis(3, GamepadAxis::RightTrigger, 0.5f);  // (0.5 - 0.2) / 0.8 = 0.375
+    CHECK(in.action_value("fire") == doctest::Approx(0.375f));
+    CHECK_FALSE(in.action_down("fire"));
+    in.on_gamepad_axis(3, GamepadAxis::RightTrigger, 1.0f);
+    CHECK(in.action_down("fire"));
+    CHECK(in.action_value("brake") == 0.0f);
+    in.on_gamepad_axis(1, GamepadAxis::RightX, 0.4f);
+    CHECK(in.action_value("aim_right") == doctest::Approx(0.25f));
+
+    // An override is a full press.
+    in.set_action_override("aim_right", true);
+    CHECK(in.action_value("aim_right") == 1.0f);
+    in.set_action_override("aim_right", false);
+
+    // The calibration knob.
+    in.set_gamepad_deadzone(0.5f);
+    CHECK(in.gamepad_deadzone() == 0.5f);
+    CHECK(in.action_value("aim_right") == 0.0f);  // 0.4 is inside a 0.5 deadzone
+    in.set_gamepad_deadzone(7.0f);  // clamped below 1: no division by zero
+    CHECK(in.gamepad_deadzone() < 1.0f);
+    in.set_gamepad_deadzone(0.0f);
+    CHECK(in.action_value("aim_right") == doctest::Approx(0.4f));
+}
+
+TEST_CASE("analog bindings produce pressed and released edges") {
+    Input in;
+    in.set_actions(Json::parse(R"({"right": ["GamepadLeftStickRight"], "fire": ["GamepadLeftTrigger", "Space"]})"));
+    in.begin_frame();
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 1.0f);
+    CHECK(in.action_pressed("right"));
+    CHECK_FALSE(in.action_released("right"));
+    in.begin_frame();
+    CHECK(in.action_down("right"));
+    CHECK_FALSE(in.action_pressed("right"));  // held across the frame boundary: not a new press
+    in.on_gamepad_axis(0, GamepadAxis::LeftX, 0.1f);  // back into the deadzone
+    CHECK_FALSE(in.action_down("right"));
+    CHECK(in.action_released("right"));
+    in.begin_frame();
+    CHECK_FALSE(in.action_released("right"));
+
+    // Another binding that is already down hides the analog one's press.
+    in.on_key(Key::Space, true);
+    in.begin_frame();
+    in.on_gamepad_axis(2, GamepadAxis::LeftTrigger, 1.0f);
+    CHECK_FALSE(in.action_pressed("fire"));
+    in.begin_frame();
+    in.on_key(Key::Space, false);
+    in.on_gamepad_axis(2, GamepadAxis::LeftTrigger, 0.0f);
+    CHECK(in.action_released("fire"));
+}
+
+TEST_CASE("unknown gamepad binding names are rejected with a suggestion") {
+    Input in;
+    auto problems = in.set_actions(Json::parse(R"({
+        "a": ["GamepadAA"], "b": ["Gamepad:A"], "c": ["GamepadLeftSitckLeft"], "d": ["GamepadFoo"],
+        "ok": ["GamepadDpadLeft", "GamepadRightStickUp"]
+    })"));
+    REQUIRE(problems.size() == 4);
+    CHECK(problems[0].find("input.actions.a") != std::string::npos);
+    CHECK(problems[0].find("Did you mean 'GamepadA'") != std::string::npos);
+    CHECK(problems[1].find("Did you mean 'GamepadA'") != std::string::npos);
+    CHECK(problems[2].find("GamepadLeftStickLeft") != std::string::npos);
+    CHECK(problems[3].find("GamepadFoo") != std::string::npos);
+    CHECK(in.has_action("ok"));
+    in.begin_frame();
+    in.on_gamepad_button(0, GamepadButton::DpadLeft, true);
+    CHECK(in.action_down("ok"));
+}
+
+TEST_CASE("poll_gamepads runs on this machine with or without a pad plugged in") {
+    Input in;
+    in.begin_frame();
+    poll_gamepads(in);  // the device backend (XInput, joystick API, GameController) or a no-op; never crashes
+    poll_gamepads(in);
+    for (int i = 0; i < kMaxGamepads; ++i) {
+        CAPTURE(i);
+        CHECK(std::abs(in.gamepad_raw_axis(i, GamepadAxis::LeftX)) <= 1.0f);
+    }
+}
+
+TEST_CASE("snapshot lists connected gamepads only") {
+    Input in;
+    CHECK_FALSE(in.snapshot().contains("gamepads"));
+    in.on_gamepad_button(1, GamepadButton::X, true);
+    in.on_gamepad_axis(1, GamepadAxis::LeftX, 0.5f);
+    Json s = in.snapshot();
+    REQUIRE(s["gamepads"].size() == 1);
+    CHECK(s["gamepads"][0]["index"] == 1);
+    CHECK(s["gamepads"][0]["buttonsDown"][0] == "X");
+    CHECK(s["gamepads"][0]["axes"]["LeftX"].get<double>() == doctest::Approx(0.5));
 }

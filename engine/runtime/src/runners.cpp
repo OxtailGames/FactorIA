@@ -112,11 +112,11 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys and mouse.");
+                     " A frame entry takes press, release, keys, mouse, gamepad and touch.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -155,6 +155,10 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
         for (const auto& [k, b] : buttons)
             if (m.contains(k) && m[k].is_boolean()) I.input.on_mouse_button(b, m[k].get<bool>());
     }
+    std::vector<std::string> pads;  // gamepad / touch problems come back without the frame prefix
+    if (entry.contains("gamepad")) apply_gamepad_json(I.input, entry["gamepad"], pads);
+    if (entry.contains("touch")) apply_touch_json(I.input, entry["touch"], pads);
+    for (const std::string& m : pads) note(m);
 }
 
 }  // namespace

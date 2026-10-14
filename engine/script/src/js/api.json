@@ -36,9 +36,33 @@
     },
     {
      "kind": "alias",
+     "name": "GamepadButton",
+     "type": "\"A\" | \"B\" | \"X\" | \"Y\" | \"Start\" | \"Back\" | \"Guide\" | \"DpadLeft\" | \"DpadRight\" | \"DpadUp\" | \"DpadDown\" | \"LeftShoulder\" | \"RightShoulder\" | \"LeftThumb\" | \"RightThumb\"",
+     "doc": "A gamepad button (Xbox layout: A bottom, B right, X left, Y top; LeftThumb/RightThumb are the stick clicks). Names are case-insensitive at run time."
+    },
+    {
+     "kind": "alias",
+     "name": "GamepadAxis",
+     "type": "\"LeftX\" | \"LeftY\" | \"RightX\" | \"RightY\" | \"LeftTrigger\" | \"RightTrigger\"",
+     "doc": "A gamepad axis: sticks run -1..1 with +Y up, triggers 0..1."
+    },
+    {
+     "kind": "alias",
      "name": "Json",
      "type": "any",
      "doc": "Plain JSON data (objects, arrays, numbers, strings, booleans, null)."
+    },
+    {
+     "kind": "alias",
+     "name": "CastShape2D",
+     "type": "{ shape: \"circle\"; radius: number } | { shape: \"box\"; size: Vec2Like }",
+     "doc": "Shape swept by physics.shapeCast in 2D, centred on the cast position and axis-aligned. Sizes are full sizes in pixels, like Collider2D: { shape: \"circle\", radius: 8 } or { shape: \"box\", size: [16, 24] }."
+    },
+    {
+     "kind": "alias",
+     "name": "CastShape3D",
+     "type": "{ shape: \"sphere\"; radius: number } | { shape: \"box\"; size: Vec3Like }",
+     "doc": "Shape swept by physics.shapeCast in 3D, centred on the cast position and axis-aligned. Sizes are full sizes in meters, like Collider3D: { shape: \"sphere\", radius: 0.5 } or { shape: \"box\", size: [1, 2, 1] }."
     },
     {
      "kind": "alias",
@@ -753,12 +777,43 @@
     },
     {
      "kind": "interface",
+     "name": "GamepadAPI",
+     "doc": "One gamepad, from input.gamepad(index). Raw device state for local multiplayer; actions bound to Gamepad* names already match any pad.",
+     "members": [
+      {
+       "sig": "readonly connected: boolean",
+       "doc": "A pad is plugged in at this index."
+      },
+      {
+       "sig": "down(button: GamepadButton): boolean",
+       "doc": "Button held. Unknown names throw with a suggestion."
+      },
+      {
+       "sig": "pressed(button: GamepadButton): boolean",
+       "doc": "Went down this frame."
+      },
+      {
+       "sig": "released(button: GamepadButton): boolean",
+       "doc": "Went up this frame (also when the pad was unplugged)."
+      },
+      {
+       "sig": "axis(axis: GamepadAxis): number",
+       "doc": "Stick -1..1 (+Y up) or trigger 0..1 with the deadzone applied, the same value the action bindings use (sticks: radial deadzone, the rest rescaled to the full range)."
+      },
+      {
+       "sig": "rawAxis(axis: GamepadAxis): number",
+       "doc": "The axis as the device reported it, without the deadzone."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "InputAPI",
-     "doc": "Input through named actions (factoria.json input.actions) or raw keys.",
+     "doc": "Input through named actions (factoria.json input.actions), raw keys or gamepads.",
      "members": [
       {
        "sig": "down(action: string): boolean",
-       "doc": "Action held. Unknown actions throw with a suggestion."
+       "doc": "Action held. For an analog binding (gamepad stick or trigger) it means value >= 0.5. Unknown actions throw with a suggestion."
       },
       {
        "sig": "pressed(action: string): boolean",
@@ -769,12 +824,24 @@
        "doc": ""
       },
       {
+       "sig": "value(action: string): number",
+       "doc": "0..1 strength of an action: 0 or 1 for keys, mouse, touch and pad buttons; for gamepad half-axis and trigger bindings the push after the deadzone (the maximum over the action's bindings). Unknown actions throw with a suggestion."
+      },
+      {
        "sig": "axis(negative: string, positive: string): number",
-       "doc": "-1..1 from two actions."
+       "doc": "-1..1 from two actions: value(positive) - value(negative). Analog with a gamepad stick bound to the actions; keys give exactly -1, 0 or 1."
       },
       {
        "sig": "vector(left: string, right: string, down: string, up: string): Vec2",
-       "doc": "Normalized 2D vector from four actions (+Y up)."
+       "doc": "2D vector from four actions (+Y up), normalized only when longer than 1: a half-tilted stick gives a short vector, two keys a unit diagonal."
+      },
+      {
+       "sig": "gamepad(index?: number): GamepadAPI",
+       "doc": "Pad 0..3 (default 0); a bad index throws."
+      },
+      {
+       "sig": "deadzone: number",
+       "doc": "Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu."
       },
       {
        "sig": "keyDown(key: string): boolean",
@@ -889,31 +956,39 @@
       },
       {
        "sig": "raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null",
-       "doc": ""
+       "doc": "3D raycast from an origin along a direction, at most maxDistance (default 1000) far."
+      },
+      {
+       "sig": "shapeCast(shape: CastShape3D, from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: RaycastOptions): RayHit<Vec3> | null",
+       "doc": "Sweeps a sphere or box from `from` to `to` (3D, when `from` has a z) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Answers 'will this fit / how far can it go' for shapes where a ray is too thin. Same options as raycast; from a behaviour pass { ignore: this.entity }."
+      },
+      {
+       "sig": "shapeCast(shape: CastShape2D, from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2> | null",
+       "doc": "Sweeps a circle or box from `from` to `to` (2D) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Example: physics.shapeCast({ shape: \"box\", size: [16, 24] }, vec2(x, y), vec2(x, y - 40), { ignore: this.entity }). Throws an Error that explains the fix when the shape is wrong (misspelt name, \"sphere\" in 2D, missing size)."
       },
       {
        "sig": "overlapCircle(center: Vec2Like, radius: number, opts?: { mask?: number }): Entity[]",
-       "doc": ""
+       "doc": "Entities whose 2D colliders (triggers included) overlap the circle."
       },
       {
        "sig": "overlapBox(rect: RectLike, opts?: { mask?: number }): Entity[]",
-       "doc": ""
+       "doc": "Entities whose 2D colliders (triggers included) overlap the rectangle."
       },
       {
        "sig": "overlapSphere(center: Vec3Like, radius: number, opts?: { mask?: number }): Entity[]",
-       "doc": ""
+       "doc": "Entities whose 3D colliders (triggers included) overlap the sphere."
       },
       {
        "sig": "applyImpulse(entity: Entity, v: Vec3Like): void",
-       "doc": ""
+       "doc": "Instant change of momentum on a dynamic body (world units; 2D uses x, y)."
       },
       {
        "sig": "applyForce(entity: Entity, v: Vec3Like): void",
-       "doc": ""
+       "doc": "Force applied to a dynamic body for the current step."
       },
       {
        "sig": "setVelocity(entity: Entity, v: Vec3Like): void",
-       "doc": ""
+       "doc": "Sets a body's velocity (same as writing RigidBody.velocity)."
       }
      ]
     },
@@ -1583,6 +1658,37 @@
     },
     {
      "kind": "interface",
+     "name": "TestGamepad",
+     "doc": "A gamepad driven by a test, from game.gamepad(index). Like keyDown/keyUp, press/release/axis act at once and the game sees them on the next step.",
+     "members": [
+      {
+       "sig": "press(button: GamepadButton): void",
+       "doc": "Holds a button down until release(); connects the pad. Unknown names throw with a suggestion."
+      },
+      {
+       "sig": "release(button: GamepadButton): void",
+       "doc": ""
+      },
+      {
+       "sig": "tap(button: GamepadButton): void",
+       "doc": "Press, step one frame, release, step one frame (like game.tap)."
+      },
+      {
+       "sig": "axis(axis: GamepadAxis, value: number): void",
+       "doc": "Sets a stick (-1..1, +Y up) or trigger (0..1) as the device would; it stays until set again. Bound actions see it after the deadzone, so axis(\"LeftX\", -1) is a full push left."
+      },
+      {
+       "sig": "connect(): void",
+       "doc": "Plugs the pad in (input.gamepad(i).connected becomes true)."
+      },
+      {
+       "sig": "disconnect(): void",
+       "doc": "Unplugs the pad; what it held is released."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "TestGame",
      "doc": "Drives the running game from a test.",
      "members": [
@@ -1613,6 +1719,10 @@
       {
        "sig": "keyUp(key: string): void",
        "doc": ""
+      },
+      {
+       "sig": "gamepad(index?: number): TestGamepad",
+       "doc": "Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad."
       },
       {
        "sig": "mouseMove(screenPos: Vec2Like): void",

@@ -46,7 +46,8 @@ struct AppDesc {
     bool vsync = true;
     bool highDpi = true;
     int sampleCount = 1;        // MSAA of the window swapchain
-    // Input is fed into this object; positions are converted with to_design_coords.
+    // Input is fed into this object; positions are converted with to_design_coords. Physical gamepads are polled into
+    // it once per frame, before `frame` runs (fa/platform/gamepad.h; not while the window is unfocused).
     Input* input = nullptr;
     // Converts framebuffer pixel coordinates to design coordinates (letterbox).
     std::function<Vec2(Vec2 framebufferPos)> to_design_coords;

@@ -57,6 +57,7 @@ Json ProjectSettings::to_json() const {
     j["physics"] = physics;
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
+    input["deadzone"] = inputDeadzone;
     j["input"] = input;
     Json plats = Json::array();
     for (const auto& p : platforms) plats.push_back(p);
@@ -215,6 +216,14 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             }
             s.inputActions = *a;
         }
+        if (auto d = it->find("deadzone"); d != it->end() && !d->is_null()) {
+            if (!d->is_number()) return field_error("/input/deadzone", "a number from 0 to 0.95", *d);
+            double v = d->get<double>();
+            if (!(v >= 0.0 && v < 1.0))
+                return make_error(at("/input/deadzone") + ": value " + std::to_string(v) + " must be at least 0 and below 1",
+                                  "Typical values: 0.1 (precise sticks) to 0.3 (worn or drifting sticks); the default is 0.2.");
+            s.inputDeadzone = v;
+        }
     }
     if (auto it = j.find("platforms"); it != j.end() && !it->is_null()) {
         if (!it->is_array()) return field_error("/platforms", "an array of platform names", *it);
@@ -362,7 +371,7 @@ constexpr const char* kSchemaText = R"JSON({
       "properties": {
         "actions": {
           "type": "object",
-          "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", \"GamepadA\"...",
+          "description": "Named input actions. Each maps to a list of bindings: key names (\"Space\", \"A\", \"Left\"), \"MouseLeft\"/\"MouseRight\"/\"MouseMiddle\", \"Touch\", gamepad buttons (\"GamepadA\", \"GamepadStart\", \"GamepadDpadLeft\"...) and gamepad half axes (\"GamepadLeftStickLeft\", \"GamepadRightStickUp\", \"GamepadRightTrigger\"...). Gamepad bindings match any connected pad.",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -370,6 +379,12 @@ constexpr const char* kSchemaText = R"JSON({
             },
             "description": "Bindings that trigger this action."
           }
+        },
+        "deadzone": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1,
+          "description": "Gamepad deadzone for sticks (radial) and triggers (default 0.2): pushes below it count as 0 and the rest is rescaled to 0..1. Raise it for worn sticks that drift, lower it for precise ones."
         }
       }
     },

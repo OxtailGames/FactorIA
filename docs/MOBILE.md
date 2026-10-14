@@ -103,6 +103,9 @@ The platform layer maps touches to the same `Input` object scripts use:
   UI and scripts written for the mouse work unchanged (this is done by `Input` itself, so `game.touch` in tests and
   any other feed behave the same);
 - input actions bound to `"Touch"` or `"MouseLeft"` in `factoria.json` fire on touch;
-- there is no on-screen keyboard or gamepad mapping yet: bind touch to actions
+- there is no on-screen keyboard or on-screen gamepad yet: bind touch to actions
   and build on-screen buttons as entities that read touches.
+- Physical gamepads: iOS reads them through the GameController framework (extended gamepads: MFi, Xbox, PlayStation;
+  written, not yet built or run). Android has NO gamepad support yet: `poll_gamepads()` reports no pad there, and so
+  does the web build. Bindings such as `"GamepadA"` are accepted everywhere; they simply never fire on Android.
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`.

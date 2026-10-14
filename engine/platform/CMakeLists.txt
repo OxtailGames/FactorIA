@@ -11,7 +11,7 @@ else()
 endif()
 if(APPLE)
     set_source_files_properties(src/sokol_impl_apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-w")
-    set_source_files_properties(src/headless_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set_source_files_properties(src/headless_apple.mm src/gamepad_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 if(FA_PLATFORM STREQUAL "linux")
@@ -35,10 +35,11 @@ elseif(FA_PLATFORM STREQUAL "windows")
     target_link_libraries(fa_platform PUBLIC d3d11 dxgi dxguid ole32 user32 gdi32 shell32 kernel32)
 elseif(FA_PLATFORM STREQUAL "macos")
     target_link_libraries(fa_platform PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
-        "-framework MetalKit" "-framework AudioToolbox" "-framework Foundation")
+        "-framework MetalKit" "-framework AudioToolbox" "-framework Foundation" "-framework GameController")
 elseif(FA_PLATFORM STREQUAL "ios")
     target_link_libraries(fa_platform PUBLIC "-framework UIKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Metal"
-        "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation")
+        "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation"
+        "-framework GameController")
 elseif(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_platform PUBLIC GLESv3 EGL android log aaudio)
 endif()

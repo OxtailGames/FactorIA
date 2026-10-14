@@ -229,8 +229,9 @@ struct Collider2D {
     bool oneWay = false;              // one-way platform: only blocks bodies coming from above (+Y side of the entity)
 };
 
-// Simple 3D physics (spheres and axis-aligned boxes, no rotation dynamics).
-// Good for arcade 3D games; a full 3D solver is on the roadmap.
+// Simple 3D physics for arcade games: spheres and oriented boxes (they follow the entity's world rotation), automatic
+// continuous collision against static/kinematic colliders. Rotation comes only from the Transform / angularVelocity:
+// collisions apply no torque and bodies have no inertia tensor. A full rigid-body solver is on the roadmap.
 struct RigidBody3D {
     BodyType type = BodyType::Dynamic;
     float mass = 1.0f;
@@ -239,14 +240,15 @@ struct RigidBody3D {
     Vec3 velocity{0, 0, 0};           // m/s, read/write
     Vec3 angularVelocity{0, 0, 0};    // deg/s around x,y,z, read/write; integrated into Transform.rotation
     bool rollWithMotion = true;       // sphere colliders spin to match their rolling motion while touching the ground
+    float rollingFriction = 0.02f;    // rollWithMotion spheres: rolling resistance instead of sliding friction (>= 0)
 };
 
 enum class ColliderShape3D : std::int32_t { Box, Sphere };
 struct Collider3D {
     ColliderShape3D shape = ColliderShape3D::Box;
-    Vec3 size{1, 1, 1};               // box extents (full size, axis-aligned, scaled by Transform.scale)
+    Vec3 size{1, 1, 1};               // box extents (full size, in the entity's rotated frame, scaled by Transform.scale)
     float radius = 0.5f;              // sphere radius
-    Vec3 offset{0, 0, 0};
+    Vec3 offset{0, 0, 0};             // shape centre from the entity origin; rotated and scaled with the entity
     bool isTrigger = false;
     float friction = 0.4f;
     float restitution = 0.0f;
