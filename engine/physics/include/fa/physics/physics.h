@@ -65,6 +65,8 @@
 //     smallest extent per step), the first step that overlaps a collider is bisected to ~0.1 mm, and normal/point come
 //     from the contact at that time. A collider cannot slip between two steps (the shape is at least two steps long),
 //     but a grazing touch at the very edge of the swept volume may be missed. Cost grows with path length / extent.
+//     At `from` it behaves like the 2D cast: a collider penetrated by more than 1 cm is skipped; one only touched
+//     (a body resting on the ground penetrates it ~1 mm) blocks the cast at distance 0 when the shape moves towards it.
 //   * 3D CONTINUOUS COLLISION (automatic): in a sub-step a dynamic body that would move farther than about half its
 //     smallest extent (sphere: its radius) is swept along that move against the solid static and kinematic colliders
 //     (the same stepping + bisection as shape_cast3d) and stops at the time of impact, slightly inside the surface, so

@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open; M5 is the only package left and no game has reported its gaps yet.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open and every milestone (M1-M6) is done; M5 closed the proactive 3D-physics and gamepad gaps.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -26,6 +26,10 @@ in `cc789f7`) and 10 are open, grouped in M6 below.
 Re-triage 2026-10-14, after M6 (`303db3e`, `6e5b5b2`, `2ff6faa`): the 10 open entries are fixed and each has a
 `Fixed in <commit>` note; the three that had a workaround in an example (BP/FB-0019, BP/FB-0020, SH/FB-0021) had it
 removed in the same commit. No entry is open.
+
+Re-triage 2026-10-14, after M5 (`d5ad914`, `c3b6073`, `022659c`; merges `bdff25f`, `fa07209`, `5c2296e`): the
+proactive package is done, so no milestone is left. What is still open is listed under "Found while implementing" in
+M5 and M6; no game has hit any of it yet.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
@@ -101,7 +105,7 @@ the bright-pass read and the full-screen add are each ~1.5-2 ms on the software 
 draw for screenshots, so they do not pay it. Only the GL backend was run; D3D11, Metal and GLES3 compile the same
 sokol-shdc shaders and fall back to "no bloom" with one error if creation fails.
 
-## M5. 3D physics 2.0 and gamepad input (L, *proactive*, no game reported these yet)
+## M5. 3D physics 2.0 and gamepad input (L, *proactive*, no game reported these yet) — DONE (`d5ad914`, `c3b6073`, `022659c`)
 
 Found while verifying GR/FB-0003/0005: rotation is visual only (colliders are axis-aligned), friction decelerates
 a rolling sphere like a sliding one (a ball launched at 3 m/s with friction 0.5 is stopped within 1 s), there is
@@ -118,6 +122,32 @@ Acceptance criteria:
 - `physics.shapeCast(shape, from, to, opts)` for 2D and 3D, honouring `ignore`/`mask`.
 - Gamepad: `input.actions` bindings `"Gamepad:A"`, `"Gamepad:LeftStickX"` (+/-), `axis()` and `vector()` work;
   `game.gamepad(index).press/axis(...)` in tests; replay JSON accepts the same.
+
+Outcome: three packages, one per commit. 3D physics (`d5ad914`): `Collider3D` boxes follow the entity's world rotation
+(sphere vs box in the box frame, box vs box by 15-axis SAT; raycasts, overlaps, riders, events and debug output use the
+oriented shape; unrotated boxes keep the exact axis-aligned paths); continuous collision is automatic (a dynamic body
+moving more than half its smallest extent in a sub-step is swept against static and kinematic colliders; the test fires
+900 spheres at 60 m/s through a 0.2 m wall); `RigidBody3D.rollingFriction` (default 0.02) replaces sliding friction for
+spheres with `rollWithMotion`; `shape_cast3d`. Shape casts (`c3b6073`): `shape_cast2d` on Box2D's `b2World_CastShape`
+(stops on the surface; a resting contact blocks only a cast moving towards it, as in 3D since the merge), one JSON
+parser for `physics.shapeCast(shape, from, to, opts)` in scripts and the `physics.shape_cast` command. Gamepads
+(`022659c`): the binding names keep the spelling reserved since 0.1 (`GamepadA`, `GamepadDpadLeft`,
+`GamepadLeftStickLeft/Right/Up/Down`, `GamepadRightStick*`, `GamepadLeftTrigger`...), not `Gamepad:A`; a binding matches
+any of 4 pads; `input.value(action)` is analog (max over bindings, radial deadzone from `input.deadzone`, default 0.2),
+`axis()`/`vector()` use it and an action is down at 0.5; `input.gamepad(i)`; `game.gamepad(i).press/release/tap/axis`
+in tests; replay frames and `game.input` take `gamepad` and `touch` (the M6 leftover). Device backends: XInput on Windows
+(run here), the Linux joystick API (xpad layout) and Apple's GameController framework, both written without a machine
+to run them on (CI compiles them); Android and web report no pads.
+
+Found while implementing M5, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
+- 3D bodies get no torque from collisions and have no inertia tensor: a box never tips over by itself.
+- Continuous collision does not sweep dynamic-vs-dynamic pairs or kinematic motion within a sub-step, and drops the
+  rest of a sub-step's movement after an impact.
+- Linux pads with a non-Xbox layout (PlayStation, Switch, generic HID) map to the wrong buttons; Android and web have
+  no gamepad backend.
+- After focus loss a Linux pad shows as disconnected until it sends its next event (the joystick API only reports
+  changes).
+- The `physics.raycast` command takes no `ignore`/`ignoreTriggers`, unlike `physics.shape_cast` and the script API.
 
 ## M6. Polish found while migrating the examples (S-M) — DONE (`303db3e`, `6e5b5b2`, `2ff6faa`)
 
@@ -156,7 +186,8 @@ goldens were regenerated and `2d_polygons` added on Windows (D3D11/WARP), not on
 confirms they stay within tolerance there.
 
 Found while implementing M6, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
-- `--input` replay files have no touch events (only `press`, `release`, `keys`, `mouse`), so a replay cannot tap.
+- ~~`--input` replay files have no touch events (only `press`, `release`, `keys`, `mouse`), so a replay cannot tap.~~
+  Done in M5 (`022659c`): replay frames take `touch` (and `gamepad`).
 - The scene loader does not enforce reflected `range()`: `"sides": 200` loads silently (the renderer clamps it to 64).
 - `edits`, like `scene.set_component`, replaces `Script.props` as a whole; Sky Hopper's generator still reads the base
   scene once to keep `killY`. A merge mode would remove that read.

@@ -19,6 +19,7 @@ constexpr int kIterations = 2;
 constexpr float kRiderGap = 0.02f;    // a dynamic body this close above a kinematic one is carried by it
 constexpr float kAlignedEps = 1e-6f;  // off-diagonal rotation below this = axis-aligned (exact AABB paths)
 constexpr float kSweepTol = 1e-4f;    // swept contacts are bisected to this distance (m)
+constexpr float kCastSkin = 0.01f;    // shape casts: penetration at `from` up to this is a resting touch, not an overlap
 
 const char* type_name(BodyType t) {
     switch (t) {
@@ -698,8 +699,18 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
         if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !world.alive(b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
+        // At `from`, like the 2D cast: a collider penetrated deeper than the skin is skipped; one only touched (a body
+        // resting on it penetrates ~1 mm) blocks the cast at distance 0, but only when the shape moves towards it.
+        const Contact c0 = collide(b, probe, 0.0f);  // normal: collider -> shape
+        if (c0.hit) {
+            if (c0.depth <= kCastSkin && dot(disp, c0.normal) < -1e-4f * len && bestT > 0.0f) {
+                bestT = 0.0f;
+                best = &b;
+            }
+            continue;
+        }
         float t = 0.0f;
-        if (sweep(probe, disp, b, t) && t < bestT) {  // a collider overlapping the shape at `from` is skipped by sweep
+        if (sweep(probe, disp, b, t) && t < bestT) {
             bestT = t;
             best = &b;
         }

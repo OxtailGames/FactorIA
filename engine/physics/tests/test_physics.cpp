@@ -1699,3 +1699,22 @@ TEST_CASE("3d: determinism with rotated boxes and fast bodies") {
     REQUIRE(a.size() == b.size());
     CHECK(std::memcmp(a.data(), b.data(), a.size() * sizeof(float)) == 0);
 }
+
+TEST_CASE("3d: shape_cast3d from a body resting on the ground hits the ground going down, not up or sideways") {
+    Sim s;
+    Entity ground = add_box3(s.world, "ground", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
+    Entity ball = add_sphere3(s.world, "ball", {0, 0.5f, 0}, 0.5f);
+    s.run(60);  // settles ~1 mm into the ground
+    const Vec3 c = s.world.world_position(ball);
+    REQUIRE(c.y < 0.5f);
+    CastShape sphere;  // radius 0.5, the ball's own shape
+    RaycastOptions o;
+    o.ignore = ball;
+    auto down = s.physics.shape_cast3d(s.world, sphere, c, c - Vec3{0, 2, 0}, o);
+    REQUIRE(down.has_value());
+    CHECK(down->entity == ground);
+    CHECK(down->distance < 0.001f);
+    CHECK(down->normal.y > 0.99f);
+    CHECK_FALSE(s.physics.shape_cast3d(s.world, sphere, c, c + Vec3{0, 2, 0}, o).has_value());
+    CHECK_FALSE(s.physics.shape_cast3d(s.world, sphere, c, c + Vec3{3, 0, 0}, o).has_value());
+}
