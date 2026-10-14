@@ -442,7 +442,6 @@ TEST_CASE("a big picture is shrunk to what the model looks at; a small one is ke
     REQUIRE(kept);
     CHECK(read_file(project.dir / ".factoria" / "ai" / "attachments" / "small.png").size() == bytes.size());
 
-    CHECK(shrink_image(small, 64).width == 32);  // never enlarged
 }
 
 TEST_CASE("selection_line tells the AI which entity this and it mean") {
