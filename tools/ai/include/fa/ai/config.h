@@ -46,6 +46,9 @@ struct RoleConfig {
     std::string model;
     std::string effort;
     int maxTokens = 0;
+    // Most context a session keeps (tokens; 0 = the model's whole window). Past it the earlier turns are summarized:
+    // Claude Code compacts (CLAUDE_CODE_AUTO_COMPACT_WINDOW), the Anthropic API compacts on the server.
+    u64 maxContextTokens = 0;
 };
 
 struct Limits {
@@ -90,6 +93,10 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName = "<mem
 // Missing file => defaults (ok). Present but invalid => error with JSON pointers.
 Result<AiConfig> load_config(std::string_view path = {}, const EnvLookup& env = system_env());
 Result<void> save_config(const AiConfig& cfg, std::string_view path);  // writes user-editable JSON (no defaults noise)
+// Writes only "roles" into the config file at `path` (created when missing) and keeps everything else in it: providers,
+// limits, a role's maxTokens. An empty model or effort (or maxContextTokens 0) removes that key, so the role's default
+// applies. A file that is not a JSON object is left alone (error).
+Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path);
 Json config_to_json(const AiConfig& cfg, bool redactKeys = true);
 
 struct ResolvedKey {

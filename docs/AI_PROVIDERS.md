@@ -13,8 +13,9 @@ role (see [Roles](#roles)) and can mix them.
 > **Subscriptions never go through FactorIA.** Using your Claude or ChatGPT
 > subscription works by spawning the *official* CLI that you install and log in
 > to yourself (`claude`, `codex`). FactorIA only starts that program and attaches
-> its MCP server (`factoria mcp --project <dir>`); it never reads, stores or
-> forwards subscription credentials or tokens.
+> its MCP server (`factoria mcp --project <dir>`, or in the editor the editor's own
+> endpoint, see [CLI agents in the editor](#cli-agents-in-the-editor)); it never
+> reads, stores or forwards subscription credentials or tokens.
 
 ## Quick start
 
@@ -29,17 +30,39 @@ factoria ai doctor        # what is installed / which keys are visible (never pr
    ```json
    { "roles": { "orchestrator": { "provider": "claude-code", "model": "opus" } } }
    ```
-FactorIA runs: `claude -p --output-format stream-json --verbose --model <model> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
-with the prompt on standard input,
-in the project directory. The MCP config file is generated at
-`<project>/.factoria/ai/mcp-claude-code.json` (no secrets in it).
+FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
+with the message on standard input (one `stream-json` line, which can carry pictures),
+in the project directory. `--resume <session>` is left out for the first message of a conversation
+(see [Conversations](#conversations-and-resume)). The MCP config file is generated at
+`<project>/.factoria/ai/mcp-claude-code.json`: a `factoria mcp --project <dir>` server, or the editor's endpoint when the
+editor started the CLI (see [below](#cli-agents-in-the-editor)).
 
 ### B) ChatGPT subscription (Codex CLI)
 1. `npm i -g @openai/codex`
 2. Run `codex` once (or `codex login`) and sign in with ChatGPT.
 3. Use provider `codex`. FactorIA runs
    `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' -`,
-   with the prompt on standard input.
+   with the prompt on standard input. Codex starts a **fresh session every message**: FactorIA does not resume it,
+   so a follow-up in the editor chat does not remember the earlier messages (the transcript on screen does).
+
+### CLI agents in the editor
+A CLI agent runs its own loop in a child process, so its tool calls have to come back to the editor to change the scene
+that is open. The editor serves MCP itself: an HTTP endpoint on `127.0.0.1` (a free port, and a path with a random token,
+`http://127.0.0.1:<port>/mcp/<token>`, new for each project the editor opens), started by the first message. The MCP
+config it writes for Claude Code is `{"mcpServers": {"factoria": {"type": "http", "url": "<that URL>"}}}` instead of a
+`factoria mcp` process. Every tool call then takes the same road as an API provider's: the editor's main thread runs the
+command between frames. So:
+
+* the viewport shows each edit while the agent works, and each one is a Ctrl+Z step;
+* the agent works in edit mode only, and Play / Step wait until it finishes (see `docs/EDITOR.md`);
+* `ai_run` (delegation) runs the worker or fast role inside the editor too; a CLI sub-agent gets the same endpoint.
+
+The endpoint speaks MCP Streamable HTTP without a server stream or a session (a POST with one JSON-RPC message gets its
+reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
+that hands a task to the worker, is answered as an event stream kept alive every 15 s, so the CLI does not give up on it
+after its HTTP timeout (5 minutes). Only the token's path is served, so other programs on
+the machine cannot drive the editor. **Codex** still starts its own `factoria mcp` (its argv names the command, not a
+config file): its scene edits happen in that process, not in the open scene.
 
 ### C) Any other CLI agent
 ```json
@@ -54,12 +77,16 @@ in the project directory. The MCP config file is generated at
 }
 ```
 Placeholders: `{prompt}` `{model}` `{project}` `{mcp_config}` (path of a generated
-MCP config JSON) plus `{project_json}` / `{factoria_json}` (JSON-quoted strings,
-used by the Codex template). A template without `{prompt}` gets the prompt on standard input: on Windows
+MCP config JSON) `{session}` (the CLI's session id of the conversation, see below) plus `{project_json}` / `{factoria_json}`
+(JSON-quoted strings, used by the Codex template). A template without `{prompt}` gets the prompt on standard input: on Windows
 prefer that, because CLIs installed with npm are `.cmd` files and `cmd.exe` cannot pass a multi-line argument
-(FactorIA refuses arguments with line breaks or `% & | < > ^` for them). If `{model}` is empty, that argument (and a bare
-flag right before it) is dropped. Output lines are shown as text; JSON lines
+(FactorIA refuses arguments with line breaks or `% & | < > ^` for them). If `{model}`, `{mcp_config}` or `{session}` is
+empty, that argument (and a bare flag right before it, like `--resume`) is dropped. Output lines are shown as text; JSON lines
 with `text`/`result`/`message` are unwrapped.
+
+A template with `--input-format stream-json` gets standard input as one JSON line
+`{"type":"user","message":{"role":"user","content":[{"type":"text",...},{"type":"image",...}]}}` (what Claude Code expects).
+Every other CLI gets the pictures as files: the prompt ends with `Attached images (read them): <absolute paths>`.
 
 ### D) Anthropic API key
 ```bash
@@ -130,14 +157,38 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 | `worker` | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
 | `fast` | small mechanical edits | `claude-haiku-5-5`, effort `max` |
 
-Each role is `{provider, model, effort?, maxTokens?}`. `effort` is one of
+Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
-(then mapped to `low|medium|high`). When a role uses a CLI provider, that CLI
-runs its own loop and `agent_delegate` is not offered.
+(then mapped to `low|medium|high`). A CLI provider runs its own loop and
+ignores `effort` (set the CLI's own option in `argv` if it has one).
 
-`factoria ai run "task"` / the `ai.run` command / the editor AI panel use the
-`orchestrator` role unless told otherwise (`role`, `provider`, `model` options).
+`maxContextTokens` (at least 100000) caps how much context a session of that
+role keeps, e.g. `400000` on a 1M model: when it gets there, the earlier turns
+are replaced by a summary, so every message reads (and costs) less. Without it a
+session uses the model's whole window.
+
+| Provider | How the limit is applied |
+|---|---|
+| `claude-code` | `CLAUDE_CODE_AUTO_COMPACT_WINDOW=<n>` in the CLI's environment: Claude Code auto-compacts at that window |
+| `anthropic` | server-side compaction (beta `compact-2026-01-12`, `context_management` edit `compact_20260112` with an `input_tokens` trigger); the summary block stays in the chat's history |
+| others | ignored |
+
+The panel's **Context** bar then shows the limit as the window (`47k / 400k`).
+
+The orchestrator delegates on its own: the built-in loop gives it the
+`agent_delegate {role, task}` tool; an orchestrator that is a CLI agent (Claude
+Code, Codex) is told to use the `ai_run {role, task}` tool of the FactorIA MCP
+server instead, which runs the `worker` or `fast` role from `ai.json` and returns
+its report. So `orchestrator: claude-code/opus`, `worker: claude-code/sonnet`,
+`fast: claude-code/haiku` works on a Claude subscription alone. `--no-delegate`
+turns delegation off.
+
+`factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
+unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
+always sends your messages to the orchestrator; its **Roles...** button sets the
+provider, model, effort and context limit of the three roles and saves them in `ai.json` (only
+`roles` is rewritten: providers, limits and a role's `maxTokens` stay).
 
 ## How the built-in agent behaves (API providers)
 
@@ -156,6 +207,43 @@ runs its own loop and `agent_delegate` is not offered.
   the model saw, never your API keys.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
+
+## Conversations and resume
+
+The editor's AI panel keeps a real conversation per chat tab: a follow-up message continues the earlier one instead of
+starting from scratch.
+
+| Provider kind | How the conversation continues |
+|---|---|
+| Claude Code | the session id the CLI reports is kept and passed back with `--resume {session}`; only the new message is sent |
+| API providers (`anthropic`, `openai`, ...) | the message history (text, tool calls and results; picture bytes are dropped from the saved copy) is sent again with the new message |
+| Codex, other CLIs | no resume: every message is a fresh session (add `{session}` to `argv` if your CLI can resume one, and make it report the id in a `session_id` JSON field) |
+
+If Claude Code no longer knows the session (`No conversation found`, e.g. its data was cleaned up), FactorIA says so in
+the transcript and starts a new session with the whole earlier text. A conversation switched to another provider or
+model starts fresh. The API history is not trimmed: a very long chat costs more per message, so open a new tab to start clean.
+The editor also puts one line before the message that names the selected entity
+(`[Viewport selection: entity "Player" (id "e3"). "this" and "it" in the request mean this entity.]`), so "make it bigger" works.
+Chats are saved in `<project>/.factoria/ai/chats/` (see [EDITOR.md](EDITOR.md)).
+
+## Pictures in messages
+
+A message can carry pictures (png, jpg, jpeg, gif, webp; up to 20 MB each). In the editor you drop files on the window,
+paste with Ctrl+V while the AI input has focus, or press **Attach image...**; each one is copied to
+`<project>/.factoria/ai/attachments/`. Claude Code and the API providers get the pixels in the request itself; other CLIs get
+the absolute paths of those files at the end of the prompt, so the agent can open them.
+
+## Usage display
+
+The AI panel shows what the provider reports, never a guess:
+
+* **Session (5h)** and **Week**: how much of the plan's limit is used, with the local time the window resets. Claude Code
+  reports them in `rate_limit_event` lines, Codex in its `rate_limits`. A window whose reset time has passed shows as 0%.
+  Plan limits are shared by all chats, so the last values are kept per provider in `~/.factoria/ai_limits.json`
+  and shown before the next message (a dim "Plan usage updates after the first message." while there are none).
+* **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
+* **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
+  plans, which are not billed per token.
 
 ## Costs
 
@@ -199,7 +287,7 @@ when they provide it. Set `limits.maxCostUsd` to cap a run.
 | `... is not logged in or its credentials were rejected` | Run the CLI in a terminal and log in again. |
 | Claude Code bills the API instead of your plan | `ANTHROPIC_API_KEY` is set in the environment; add `"unsetEnv": ["ANTHROPIC_API_KEY"]` to the `claude-code` provider. |
 | CLI exits at once / ignores flags | Flags changed in a newer CLI version: override `argv` in `ai.json`; test it in a terminal. |
-| MCP server `factoria` failed | `factoria` puts its own directory first on PATH for the agents it starts, so this only happens when `factoriaCommand` names another binary: fix it or set it to an absolute path. |
+| MCP server `factoria` failed | `factoria` puts its own directory first on PATH for the agents it starts, so this only happens when `factoriaCommand` names another binary: fix it or set it to an absolute path. (Claude Code started from the editor connects to the editor itself and needs neither.) |
 | `No Anthropic credentials found` | Set `ANTHROPIC_API_KEY` or log in with `ant auth login`. |
 | `No API key for provider 'openrouter'` | `export OPENROUTER_API_KEY=...` (see table above). |
 | `No model configured for role ...` | Set `roles.<role>.model` for non-Anthropic providers. |

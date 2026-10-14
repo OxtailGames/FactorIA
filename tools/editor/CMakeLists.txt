@@ -15,10 +15,6 @@ endif()
 fa_embed_files(fa_editor fa_editor_fonts editor_fonts
     FILES ${FA_ROOT}/engine/render/assets/fonts/DejaVuSans.ttf
     BASE ${FA_ROOT}/engine/render/assets/fonts)
-# Monospaced font (DejaVu Sans Mono, same license) for text boxes where columns must line up: ASCII level rows, JSON.
-fa_embed_files(fa_editor fa_editor_mono editor_mono_font
-    FILES ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/DejaVuSansMono.ttf
-    BASE ${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts)
 
 # The sokol_imgui implementation TU embeds third-party code: relax warnings there.
 if(MSVC)
@@ -37,7 +33,7 @@ if(FA_BUILD_TESTS)
         add_test(NAME editor COMMAND fa_test_editor WORKING_DIRECTORY ${FA_ROOT})
     endif()
     # Windowed end-to-end test: opens a temp project in the real editor window,
-    # exercises select/inspect/undo/play/stop/AI marshaling and writes screenshots.
+    # exercises select/edit commands/undo/play/stop/AI marshaling and writes screenshots.
     file(GLOB editor_autotest CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/gpu/*.cpp)
     find_program(FA_XVFB_RUN_EDITOR xvfb-run)
     if(editor_autotest)

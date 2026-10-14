@@ -268,7 +268,8 @@ factoria ai doctor
 factoria ai run "Añade un marcador de monedas en pantalla"
 ```
 
-Cada tarea usa un rol. En `~/.factoria/ai.json` puedes asignar un proveedor y un modelo a cada uno:
+Cada tarea usa un rol. En `~/.factoria/ai.json` puedes asignar un proveedor y un modelo a cada uno (en el editor: el
+botón **Roles...** del panel de IA). Tus peticiones van al orquestador, que reparte el trabajo a los otros dos por sí solo:
 
 | Rol (clave en el archivo) | Para qué sirve | Valor por defecto (Anthropic) |
 |---|---|---|

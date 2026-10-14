@@ -1,10 +1,11 @@
-// Autotest, second half (FA_EDITOR_AUTOTEST=1): the tools that wrap engine commands, driven through the REAL UI.
+// Autotest, second half (FA_EDITOR_AUTOTEST=1): what is left of the editor's UI, driven through the REAL window.
 //
-// The dialogs publish where their buttons are (Editor::at_track); this script moves, presses and releases the injected mouse over
-// them exactly as a person would: right-click an entity in the Hierarchy -> "Save as prefab...", File > Import ASCII level...,
-// File > Format scene files..., View > Audio. After each action it checks the effect on disk, in the world and in the editor
-// state, and takes window screenshots with the dialogs open. A script of small steps, one step per frame followed by a wait,
-// so a step never races the UI: a click is move, press, release on different frames.
+// The editor has no manual editing tools (the AI edits), so this half covers the Audio panel (View > Audio), commands that rebuild
+// the open scene file (the Console and the AI call them), picking and the selection outline against the real renderer, and bloom in
+// the viewport. Widgets publish where they are (Editor::at_track); the script moves, presses and releases the injected mouse over
+// them exactly as a person would. After each action it checks the effect on disk, in the world and in the editor state, and takes
+// window screenshots. A script of small steps, one step per frame followed by a wait, so a step never races the UI: a click is
+// move, press, release on different frames.
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -36,24 +37,6 @@ std::string silence_wav() {  // 0.1 s of silence, 16-bit mono PCM
     return b;
 }
 
-const char* kMessyScene = R"({
-    "format": "factoria.scene/1",
-    "entities": [
-        {
-            "id": "messy_box",
-            "tags": [
-                "level",
-                "solid"
-            ],
-            "components": {
-                "Transform": {
-                    "position": [ 100, 50, 0 ]
-                }
-            }
-        }
-    ]
-})";
-
 // The scene the second half of the autotest works on. The first half runs on whatever the 2d-platformer template ships; from here on
 // the checks must not depend on the template's entities, positions or levels, so the project's main scene is replaced by this fixture:
 // a camera at the origin looking at 1280 x 720 world units, a few shapes, a player, three coins. No scripts, no physics, no tags that
@@ -77,20 +60,6 @@ const char* kFixtureScene = R"({
       "components": { "Transform": { "position": [420, -266, 0] }, "Shape2D": { "shape": "circle", "size": [24, 24], "color": [1, 0.85, 0.2, 1], "layer": 1 } } }
   ]
 })";
-
-// A level argument file as `factoria call scene.import_ascii @levels/level1.json` takes it.
-const char* kLevelArgs = R"({
-  "rows": ["..o...o...", ".o........", "##########"],
-  "legend": { "#": 0, "o": { "prefab": "prefabs/coin_1.prefab.json" }, "x": 1 },
-  "entity": "map",
-  "tilemap": { "tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0] },
-  "anchor": "bottom-left",
-  "position": [-250, 70],
-  "path": "scenes/level1.scene.json",
-  "from": "scenes/main.scene.json"
-})";
-
-bool contains(const std::string& hay, const std::string& needle) { return hay.find(needle) != std::string::npos; }
 
 }  // namespace
 
@@ -116,10 +85,10 @@ void Editor::at_build_tools_script() {
     using Fn = std::function<void()>;
     auto step = [this](int wait, Fn fn) { atSteps_.push_back(AtStep{wait, std::move(fn)}); };
     // A click is three steps on different frames: move onto the widget, press, release.
-    auto click = [this, &step](const std::string& name, int button = 0) {
+    auto click = [this, &step](const std::string& name) {
         step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
-        step(2, [this, name, button] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), button); });
-        step(4, [this, name, button] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), button); });
+        step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name)); });
+        step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name)); });
     };
     // A screenshot: first the mouse is parked on the status bar (no hover tooltip) and the toasts are cleared, three frames
     // later the window is captured (after the UI of that frame was drawn).
@@ -138,70 +107,11 @@ void Editor::at_build_tools_script() {
         select_id("");
         write_file(project_file(scenePath_), kFixtureScene);
         reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
-        Image tiles;  // 64 x 32: two 32 x 32 tiles, one solid ground and one lighter
-        tiles.width = 64;
-        tiles.height = 32;
-        tiles.rgba.assign(size_t(tiles.width) * size_t(tiles.height) * 4, 255);
-        for (int y = 0; y < 32; ++y)
-            for (int x = 0; x < 64; ++x) {
-                std::uint8_t* px = &tiles.rgba[(size_t(y) * 64 + size_t(x)) * 4];
-                px[0] = x < 32 ? 90 : 190;
-                px[1] = x < 32 ? 150 : 120;
-                px[2] = x < 32 ? 70 : 60;
-            }
-        std::error_code ec;
-        stdfs::create_directories(stdfs::path(project_file("assets")), ec);
-        (void)save_png(tiles, project_file("assets/tiles.png"));
         write_file(project_file("assets/blip.wav"), silence_wav());
-        write_file(project_file("scenes/messy.scene.json"), kMessyScene);
-        write_file(project_file("levels/level_ui.json"), kLevelArgs);
-        refresh_asset_lists();
-        focus_window("Hierarchy");
+        focus_window("Viewport");
     });
 
-    // ----------------------------------------------------------------------------- A. Save as prefab (context menu)
-    click("hier:coin_1", 1);  // right-click the entity in the Hierarchy
-    step(3, [this] { at_check(at_visible("menu:save_as_prefab"), "right-click in the Hierarchy opens the entity menu with Save as prefab..."); });
-    click("menu:save_as_prefab");
-    step(4, [this] {
-        at_check(prefabDlg_.entityId == "coin_1" && prefabDlg_.path == "prefabs/coin_1.prefab.json", "Save as prefab suggests prefabs/<id>.prefab.json");
-        at_check(at_visible("prefab.save"), "the Save as prefab dialog is open");
-        atPrefabBefore_ = fs::exists("prefabs/coin_1.prefab.json");
-        at_check(!atPrefabBefore_, "the prefab file does not exist yet");
-    });
-    click("prefab.save");
-    step(3, [this] {
-        at_check(fs::exists("prefabs/coin_1.prefab.json"), "prefab.save wrote prefabs/coin_1.prefab.json");
-        at_check(prefabDlg_.done && prefabDlg_.result.ok, "the dialog reports the save");
-        bool noteAboutPosition = false;
-        for (const std::string& n : prefabDlg_.result.notes) noteAboutPosition = noteAboutPosition || contains(n, "Transform.position");
-        at_check(noteAboutPosition, "the dialog shows what the prefab does not carry (the root position)");
-        at_check(assetSelected_ == "prefabs/coin_1.prefab.json", "the Assets panel selects the new prefab");
-        atPrefabText_ = fs::read_text("prefabs/coin_1.prefab.json").value_or("");
-        at_check(contains(atPrefabText_, "factoria.prefab/1"), "the prefab file is a factoria.prefab/1 document");
-    });
-    snap("editor_prefab_saved.png");
-    click("prefab.close");
-    step(3, [this] { at_check(!at_visible("prefab.save") && !at_visible("prefab.close"), "closing the dialog closes the popup"); });
-    // Saving again asks before replacing the file.
-    step(2, [this] {
-        focus_window("Hierarchy");
-        open_prefab_dialog(world().find_by_id("coin_1"));
-    });
-    step(4, [] {});
-    click("prefab.save");
-    step(3, [this] {
-        at_check(prefabDlg_.askOverwrite && !prefabDlg_.done && prefabDlg_.result.alreadyExists, "saving over an existing prefab asks for confirmation");
-        at_check(fs::read_text("prefabs/coin_1.prefab.json").value_or("") == atPrefabText_, "nothing was overwritten before the user confirmed");
-    });
-    snap("editor_prefab_overwrite.png");
-    click("prefab.overwrite");
-    step(3, [this] {
-        at_check(prefabDlg_.done && prefabDlg_.result.ok && prefabDlg_.result.overwritten, "Overwrite retries prefab.save with overwrite: true");
-    });
-    click("prefab.close");
-
-    // ----------------------------------------------------------------------------------- B. Audio panel (View menu)
+    // ----------------------------------------------------------------------------------- A. Audio panel (View menu)
     click("menu:view");
     step(3, [] {});
     click("menu:audio");
@@ -211,8 +121,7 @@ void Editor::at_build_tools_script() {
         play();
     });
     step(12, [this] {
-        // The panel may already list sounds the game made earlier in this run (the template's jump and coin sounds): the checks are
-        // relative to what it shows now.
+        // The panel may already list sounds the game made earlier in this run: the checks are relative to what it shows now.
         atAudioBase_ = audioLog_.plays.size();
         run_console_line("> audio.play('assets/blip.wav', {bus: 'ui', volume: 0.6})");
         run_console_line("> audio.play('assets/missing.wav')");
@@ -259,171 +168,36 @@ void Editor::at_build_tools_script() {
         pendingFocus_ = "Console";
     });
 
-    // -------------------------------------------------------------------------- C. Import ASCII level (File menu)
-    click("menu:file");
-    step(3, [] {});
-    click("menu:import_ascii");
-    step(4, [this] {
-        at_check(importDlg_.visible, "File > Import ASCII level... opens the dialog");
-        at_check(at_visible("import.load"), "the dialog offers the project's levels/*.json files");
-    });
-    step(1, [this] { importDlg_.levelFile = "levels/level_ui.json"; });  // the template has its own levels/level1.json, which sorts first
-    click("import.load");
-    step(3, [this] {
-        const AsciiImportForm& f = importDlg_.form;
-        at_check(importDlg_.loadError.empty(), "Load reads the level argument file");
-        at_check(f.rows == "..o...o...\n.o........\n##########", "Load fills the rows box");
-        at_check(f.legend.find("prefabs/coin_1.prefab.json") != std::string::npos && f.tilemap.find("tileSize") != std::string::npos, "Load fills the legend and tilemap boxes");
-        at_check(f.toFile && f.path == "scenes/level1.scene.json" && f.from == "scenes/main.scene.json", "Load fills the target (path and from)");
-        at_check(f.options.find("\"anchor\"") != std::string::npos && f.options.find("position") != std::string::npos, "Load keeps the other arguments (entity, anchor, position)");
-        // A ragged row first: the preview reports the row.
-        importDlg_.form.rows = "..o...o...\n.o......\n##########";
-    });
-    click("import.preview");
-    step(3, [this] {
-        at_check(importDlg_.hasResult && importDlg_.resultIsPreview && !importDlg_.result.ok, "Preview of a ragged map reports an error");
-        at_check(contains(importDlg_.result.message, "row 1"), "the error names the row");
-        at_check(!fs::exists("scenes/level1.scene.json"), "a failed preview writes nothing");
-    });
-    snap("editor_import_error.png");
-    step(1, [this] { importDlg_.form.rows = "..o...o...\n.o........\n##########"; });
-    click("import.preview");
-    step(3, [this] {
-        const AsciiImportOutcome& r = importDlg_.result;
-        at_check(r.ok && importDlg_.resultIsPreview, "Preview of a valid map succeeds");
-        at_check(r.spawned == 3, "Preview counts the objects it would place (3 coins)");
-        at_check(r.width == 10 && r.height == 3, "Preview reports the map size");
-        bool unused = false;
-        for (const std::string& w : r.warnings) unused = unused || contains(w, "legend['x']");
-        at_check(unused, "Preview shows the warnings (unused legend glyph)");
-        at_check(!fs::exists("scenes/level1.scene.json"), "Preview (dry run) writes nothing");
-    });
-    snap("editor_import_preview.png");
-    click("import.import");
-    step(3, [this] {
-        at_check(importDlg_.result.ok && importDlg_.result.saved == "scenes/level1.scene.json", "Import wrote scenes/level1.scene.json");
-        auto scene = load_json_file("scenes/level1.scene.json");
-        bool hasMap = false, hasPlayer = false;
-        int coins = 0;
-        if (scene)
-            for (const Json& e : (*scene)["entities"]) {
-                const std::string id = e.value("id", std::string());
-                hasMap = hasMap || id == "map";
-                hasPlayer = hasPlayer || id == "player";
-                coins += id.rfind("coin_1_", 0) == 0 ? 1 : 0;  // generated ids: <prefab file name>_<n>
-            }
-        at_check(hasMap && hasPlayer, "the imported scene has the Tilemap and keeps the base scene's entities (from)");
-        at_check(coins == 3, "the imported scene has the 3 placed coins");
-        at_check(scenePath_ == "scenes/main.scene.json" && world().find_by_id("map").is_null(), "importing into another file does not touch the open scene");
-    });
-    // Into the scene being edited, with unsaved changes: asks, keeps the edit undoable, reloads.
+    // ---------------------------------------------------------- B. Commands that rebuild the open scene file (Console / AI)
+    // A file import into the OPEN scene reloads it in the viewport, and Ctrl+Z still brings back what was on screen.
     step(2, [this] {
-        importDlg_.form.path = scenePath_;
-        importDlg_.form.from.clear();
-        at_check(apply_field_by_name("player", "Transform", "position", Json::array({-300, -200, 0})), "an unsaved edit before the import");
-        at_check(dirty(), "the scene has unsaved changes");
-        atUndoBeforeAi_ = undo_depth();
-    });
-    step(2, [] {});
-    click("import.import");
-    step(4, [this] {
-        at_check(importDlg_.askUnsaved, "importing into the open scene with unsaved changes asks first");
-        at_check(world().find_by_id("map").is_null(), "nothing was imported before the answer");
-    });
-    snap("editor_import_unsaved.png");
-    click("import.keep");
-    step(4, [this] {
-        at_check(importDlg_.result.ok, "the import into the open scene succeeded");
-        at_check(!world().find_by_id("map").is_null(), "the open scene was reloaded: the viewport shows the Tilemap");
-        at_check(!dirty(), "the reloaded scene matches the disk");
-        at_check(undo_depth() == 1, "the unsaved edit is one Ctrl+Z away");
-        focus_window("Viewport");
-    });
-    snap("editor_import_result.png");
-    step(2, [this] {
-        importDlg_.visible = false;  // the dialog covers the viewport: hide it to see the reloaded level
-        focus_window("Viewport");
-    });
-    snap("editor_import_done.png");
-    step(2, [this] { importDlg_.visible = true; });
-    step(1, [this] {
-        undo();
-        at_check(world().find_by_id("map").is_null(), "Ctrl+Z returns to the scene as it was before the import");
-        Entity pl = world().find_by_id("player");
-        const Transform* t = pl.is_null() ? nullptr : world().get<Transform>(pl);
-        at_check(t && std::fabs(t->position.y + 200.0f) < 0.01f, "...including the unsaved edit");
-        redo();
-        at_check(!world().find_by_id("map").is_null(), "Ctrl+Y brings the imported level back");
-        pendingFocus_ = "Console";
-    });
-    // Into the running scene.
-    click("import.target_running");
-    step(2, [this] {
-        AsciiImportForm& f = importDlg_.form;
-        f.rows = "o..o\n####";
-        f.legend = "{\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin_1.prefab.json\"}}";
-        f.options = "{\"entity\": \"map2\", \"position\": [0, 0]}";
-        f.save = false;
-        atUndoBeforeAi_ = undo_depth();
-        at_check(!f.toFile, "the target switches to the running scene");
-    });
-    step(2, [] {});
-    click("import.import");
-    step(4, [this] {
-        at_check(importDlg_.result.ok, "Import into the running scene succeeds");
-        at_check(!world().find_by_id("map2").is_null(), "the running scene has the new Tilemap");
-        at_check(undo_depth() == atUndoBeforeAi_ + 1 && dirty(), "importing into the running scene is one undo step and marks the scene dirty");
-        undo();
-        at_check(world().find_by_id("map2").is_null(), "Ctrl+Z removes the imported level");
-        importDlg_.visible = false;
-    });
-
-    // The Console and the AI call commands directly: a file import into the OPEN scene reloads it, and Ctrl+Z still works.
-    step(2, [this] {
-        importDlg_.visible = false;
-        at_check(apply_field_by_name("player", "Transform", "position", Json::array({-305, -250, 0})), "an unsaved edit before a console import");
-        run_console_line("scene.import_ascii {\"rows\":[\"..o\",\"###\"],\"legend\":{\"#\":0,\"o\":{\"prefab\":\"prefabs/coin_1.prefab.json\"}},"
-                         "\"entity\":\"map3\",\"path\":\"" + scenePath_ + "\"}");
+        run_console_line("scene.set_component " +
+                         Json::object({{"id", "player"},
+                                       {"component", "Transform"},
+                                       {"fields", Json::object({{"position", Json::array({-305, -250, 0})}})}})
+                             .dump());
+        at_check(dirty(), "an unsaved edit before a console import");
+        run_console_line("scene.import_ascii {\"rows\":[\"...\",\"###\"],\"legend\":{\"#\":0},\"entity\":\"map3\",\"path\":\"" + scenePath_ + "\"}");
     });
     step(3, [this] {
         at_check(!world().find_by_id("map3").is_null(), "a console import into the open scene reloads it");
         at_check(!dirty() && undo_depth() == 1, "...and nothing is lost: the unsaved edit is one Ctrl+Z away");
         undo();
         at_check(world().find_by_id("map3").is_null() && dirty(), "Ctrl+Z restores the scene as it was before the import");
-        run_console_line("scene.import_ascii {\"rows\":[\"o\"],\"legend\":{\"o\":{\"prefab\":\"prefabs/coin_1.prefab.json\"}},\"path\":\"scenes/other_level.scene.json\"}");
+        redo();
+        at_check(!world().find_by_id("map3").is_null(), "Ctrl+Y brings the imported level back");
+        undo();
+        run_console_line("scene.import_ascii {\"rows\":[\"#\"],\"legend\":{\"#\":0},\"path\":\"scenes/other_level.scene.json\"}");
         at_check(dirty() && world().find_by_id("map3").is_null(), "an import into another file does not touch the open scene or its unsaved changes");
         at_check(fs::exists("scenes/other_level.scene.json"), "...it just writes the file");
     });
-
-    // ------------------------------------------------------------------------------ D. Format scene files (File menu)
-    click("menu:file");
-    step(3, [] {});
-    click("menu:format");
-    step(5, [this] {
-        bool listed = false;
-        for (const std::string& f : formatDlg_.check.files) listed = listed || f == "scenes/messy.scene.json";
-        at_check(formatDlg_.check.ok && listed, "Format scene files first checks and lists the files that are not canonical");
-        at_check(contains(fs::read_text("scenes/messy.scene.json").value_or(""), "\"position\": [ 100, 50, 0 ]"), "the check wrote nothing");
-    });
-    snap("editor_format.png");
-    click("format.run");
-    step(4, [this] {
-        at_check(formatDlg_.ran && formatDlg_.run.ok, "the confirmed run formats the files");
-        at_check(contains(fs::read_text("scenes/messy.scene.json").value_or(""), "\"position\": [100, 50, 0]"), "the messy scene is in the canonical layout now");
-        at_check(run_scene_format(engine_->commands(), true).files.empty(), "a second check finds nothing to do");
-    });
-    snap("editor_format_done.png");
-    click("format.close");
-    step(3, [this] {
-        // Scenes saved by the editor are already canonical.
+    step(2, [this, project_file] {  // back to the clean fixture for the checks below
+        write_file(project_file(scenePath_), kFixtureScene);
         reload_scene_from_disk();
-        at_check(apply_field_by_name("player", "Transform", "position", Json::array({-310, -250, 0})), "an edit to save");
-        at_check(save_scene_now(), "save the scene from the editor");
-        FormatOutcome c = run_scene_format(engine_->commands(), true, {scenePath_});
-        at_check(c.ok && c.files.empty(), "a scene saved by the editor is already in the canonical layout");
+        at_check(!dirty() && world().find_by_id("map3").is_null(), "the fixture is the open scene again, clean");
     });
 
-    // ------------------------------------------- E. Pick bounds and the selection outline against the real renderer
+    // ------------------------------------------- C. Pick bounds and the selection outline against the real renderer
     step(2, [this] {
         World& w = world();
         auto make = [&](const char* id, Vec3 pos, float rot) {
@@ -521,29 +295,9 @@ void Editor::at_build_tools_script() {
     step(1, [this] { select_id("test_hud_text"); });
     snap("editor_select_hud.png");
 
-    // ----------------------------------------------------------------------------------- F. Inspector and bloom
+    // ------------------------------------------------------------------------------------ D. Bloom in the viewport
     step(1, [this] {
-        // The Camera section with bloom still off: its tuning fields are greyed out.
-        select_id("camera");
-        pendingFocus_ = "Inspector";
-        atInspectorScrollEnd_ = true;
-    });
-    snap("editor_bloom_off_inspector.png");
-    step(2, [this] { atInspectorScrollEnd_ = false; });
-    step(1, [this] {
-        select_id("camera");
-        pendingFocus_ = "Inspector";
-        at_check(apply_field_by_name("camera", "Camera", "bloomThreshold", 0.8), "inspector: bloomThreshold within 0..1");
-        at_check(apply_field_by_name("camera", "Camera", "bloomIntensity", 1.6), "inspector: bloomIntensity within 0..10");
-        at_check(apply_field_by_name("camera", "Camera", "bloomRadius", 40), "inspector: bloomRadius within 1..128");
-        at_check(!apply_field_by_name("camera", "Camera", "bloomRadius", 500), "inspector: bloomRadius 500 is refused (range 1..128)");
-        Entity cam = world().find_by_id("camera");
-        at_check(std::fabs(world().get<Camera>(cam)->bloomRadius - 40.0f) < 0.001f, "the refused value left the field alone");
-        // Shape2D.shape = diamond and Tilemap.columns through the same path as the widgets.
-        at_check(apply_field_by_name("test_diamond", "Shape2D", "shape", "diamond"), "inspector: Shape2D.shape = diamond");
-        at_check(apply_field_by_name("test_rows_map", "Tilemap", "columns", 0), "inspector: Tilemap.columns 0 (derived) is accepted");
-        at_check(!apply_field_by_name("test_rows_map", "Tilemap", "columns", 5000), "inspector: Tilemap.columns above its range is refused");
-        // A glow source on an empty patch of sky; bloom is still off.
+        // A glow source on an empty patch of sky; bloom is still off, and nothing is selected (no outline in the way).
         Entity glow = world().create("test_glow", "test_glow");
         world().get<Transform>(glow)->position = Vec3{-420, 230, 0};
         Shape2D& g = world().add<Shape2D>(glow);
@@ -559,7 +313,13 @@ void Editor::at_build_tools_script() {
         atPostFrame_.push_back([this] { at_check(capture_window(atShotBefore_), "captured the window without bloom"); });
     });
     step(3, [this] {
-        at_check(apply_field_by_name("camera", "Camera", "bloom", true), "inspector: Camera.bloom on");
+        // The command the AI uses; the values are inside the documented ranges (threshold 0..1, intensity 0..10, radius 1..128).
+        const CommandResult r = engine_->commands().call(
+            "scene.set_component",
+            Json::parse(R"({"id":"camera","component":"Camera","fields":{"bloom":true,"bloomThreshold":0.8,"bloomIntensity":1.6,"bloomRadius":40}})"));
+        at_check(r.ok, "scene.set_component: Camera.bloom on");
+        Entity cam = world().find_by_id("camera");
+        at_check(!cam.is_null() && std::fabs(world().get<Camera>(cam)->bloomRadius - 40.0f) < 0.001f, "the Camera bloom fields were written");
     });
     step(5, [this] {
         atPostFrame_.push_back([this] {
@@ -591,13 +351,52 @@ void Editor::at_build_tools_script() {
             at_check(now > before + 6.0, "Camera.bloom is visible in the editor viewport (the glow brightens the area around the bright shape)");
         });
     });
-    step(3, [this] {
-        select_id("camera");
-        pendingFocus_ = "Inspector";
-        atInspectorScrollEnd_ = true;
+    snap("editor_bloom.png");
+
+    // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
+    // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
+    // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
+    // Play must wait meanwhile. Needs the fixture (the autotest runs from the repository root) and curl.
+    step(2, [this] {
+#ifdef _WIN32
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.cmd");
+#else
+        stdfs::path fake = stdfs::absolute("tools/ai/tests/fixtures/fake_claude.sh");
+#endif
+        if (!stdfs::exists(fake) || ai::which("curl").empty()) {
+            atLog_.push_back("SKIP CLI agent through the editor's MCP endpoint (no " + fake.string() + " or no curl)");
+            return;
+        }
+        ai::ProviderConfig cc;
+        cc.name = "claude-code";
+        cc.kind = ai::ProviderKind::ClaudeCode;
+        cc.command = fake.make_preferred().string();
+        cc.env["FAKE_MODE"] = "mcp_spawn";
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            atSavedConfig_ = aiConfig_;
+            aiConfig_.providers[cc.name] = cc;
+            aiConfig_.roles[ai::kRoleOrchestrator] = ai::RoleConfig{cc.name};
+        }
+        atUndoBeforeAi_ = undo_depth();
+        ai_start("Add a coin.");
+        at_check(ai_running(), "a message to a Claude Code orchestrator starts the agent");
+        play();
+        at_check(play_state() == PlayState::Edit, "Play waits while the CLI agent is changing the scene");
+        atWaitAi_ = true;
+        atWaitCount_ = 0;
     });
-    snap("editor_bloom_inspector.png");
-    step(4, [this] { atInspectorScrollEnd_ = false; });
+    step(2, [this] {
+        if (!atSavedConfig_) return;
+        at_check(!ai_running(), "the CLI agent finished");
+        at_check(!world().find("CliCoin").is_null(), "the CLI agent's tool call (scene_spawn over MCP) created the entity in the editor's world");
+        at_check(undo_depth() > atUndoBeforeAi_, "the CLI agent's edit recorded an undo step");
+        undo();
+        at_check(world().find("CliCoin").is_null(), "Ctrl+Z (undo) removes the entity the CLI agent created");
+        std::lock_guard<std::mutex> lock(aiMu_);
+        aiConfig_ = std::move(*atSavedConfig_);
+        atSavedConfig_.reset();
+    });
 
     // ------------------------------------------------------------------------------------------------------ done
     step(2, [this] {

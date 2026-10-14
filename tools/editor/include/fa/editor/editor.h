@@ -1,7 +1,7 @@
 // FactorIA visual editor (Dear ImGui docking + sokol), entry point for `factoria editor`.
 //
-// Panels: Toolbar, Viewport, Hierarchy, Inspector, Assets, Console, AI Assistant,
-// Engine Feedback, Status bar. See docs/ARCHITECTURE.md.
+// AI-first: no hand-editing UI. Panels: Toolbar, Viewport, AI Assistant, Console,
+// Engine Feedback, Audio, Status bar. See docs/EDITOR.md.
 //
 // Hidden test hook: environment FA_EDITOR_AUTOTEST=1 opens a temp project made
 // from templates/2d-platformer, exercises the editor programmatically, saves

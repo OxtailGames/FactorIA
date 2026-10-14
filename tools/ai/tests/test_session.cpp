@@ -295,6 +295,17 @@ TEST_CASE("provider/model overrides apply to the main role only") {
     for (auto& t : h.provider->requests[0].tools) CHECK(t.name != "agent_delegate");
 }
 
+TEST_CASE("a role's context limit reaches the request and is reported as the window") {
+    Harness h;
+    h.cfg.roles["orchestrator"].maxContextTokens = 400000;
+    h.provider->script = {text_response("done")};
+    REQUIRE(h.run("x").ok);
+    CHECK(h.provider->requests[0].maxContextTokens == 400000);
+    bool sawWindow = false;
+    for (const auto& e : h.events) sawWindow = sawWindow || (e.type == AgentEvent::Type::Usage && e.contextWindow == 400000);
+    CHECK(sawWindow);
+}
+
 TEST_CASE("system prompt: guide, rules, project context, feedback summary") {
     TempDir dir;
     std::ofstream(dir.path / "factoria.json") << R"({"name":"space-dodge","version":"0.1.0"})";

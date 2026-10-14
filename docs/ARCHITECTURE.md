@@ -9,7 +9,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 1. **Everything an AI needs is text.** Projects, scenes, prefabs and input maps
    are JSON with schemas; gameplay is JavaScript; docs ship inside the binary.
 2. **One registration, every surface.** A component is reflected once and is
-   then loadable from JSON, editable in the editor, scriptable, documented and
+   then loadable from JSON, editable by commands, scriptable, documented and
    type-checked. A command is registered once and is then an MCP tool, an AI
    tool, a CLI subcommand, an editor console command and a JS function.
 3. **AIs must be able to see and test.** Headless deterministic runs, input
@@ -47,7 +47,7 @@ engine/            runtime modules (ship inside every game)
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
   common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export
-  mcp/             fa_mcp      Model Context Protocol server (stdio)
+  mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
@@ -76,7 +76,7 @@ stable until removal. `destroy()` is deferred to the end of the frame.
 
 ### Reflection
 `fa::TypeRegistry::global()` (core/reflect.h) holds every component type with
-documented fields. From it we derive: JSON load/save, editor inspector, script
+documented fields. From it we derive: JSON load/save, `scene.set_component`, script
 property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
 ### Commands (the tool system)
@@ -149,7 +149,8 @@ without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
   `anthropic` (API key or `ant` CLI profile), `openai-compatible`
   (OpenAI, OpenRouter, Gemini, Groq, Ollama, LM Studio...), and CLI agents
   `claude-code`, `codex`, `generic-cli` (spawned with the FactorIA MCP server
-  attached). API keys live in the user config (`~/.factoria/ai.json`) or env
+  attached; in the editor, Claude Code attaches the editor's own MCP endpoint,
+  so it edits the open scene). API keys live in the user config (`~/.factoria/ai.json`) or env
   vars — never in projects.
 - **Roles**: `orchestrator` plans and delegates, `worker` implements, `fast`
   handles small mechanical tasks. Defaults: Claude Opus 5.5 (effort `xhigh`),

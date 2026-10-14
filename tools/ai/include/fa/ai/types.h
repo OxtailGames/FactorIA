@@ -40,6 +40,12 @@ struct ImageData {
     std::string base64;
 };
 
+// "image/png" | "image/jpeg" | "image/gif" | "image/webp" for a file name ending in .png .jpg .jpeg .gif .webp (any case),
+// "" for anything else. These are the image types the providers accept.
+std::string image_media_type_for_path(std::string_view path);
+// Reads an image file into base64. The error names the file and what is wrong (missing, not an accepted type, empty).
+Result<ImageData> load_image_data(const std::string& path);
+
 struct ToolResult {
     std::string toolUseId;
     std::string content;  // text (usually compact JSON)
@@ -53,10 +59,16 @@ struct Message {
     std::vector<ToolCall> toolCalls;     // assistant only
     std::vector<ToolResult> toolResults; // user only: ALL results of one assistant turn
     Json raw;                            // assistant only: provider-native payload, resent verbatim
+    std::vector<ImageData> images;       // user only: images the user attached to this message
 
-    static Message user(std::string text);
+    static Message user(std::string text, std::vector<ImageData> images = {});
     static Message tool_results(std::vector<ToolResult> results);
 };
+
+// Message <-> JSON (the editor saves a conversation's history with it). The base64 payloads are left out (user images and
+// tool-result images become a note in the text): a saved chat stays small, and the pictures are files in the project anyway.
+Json saved_message_json(const Message& m);
+Message message_from_json(const Json& j);
 
 enum class StopReason { EndTurn, ToolUse, MaxTokens, PauseTurn, Refusal, Other };
 const char* stop_reason_name(StopReason r);
@@ -89,6 +101,7 @@ struct ChatRequest {
     std::vector<ToolDef> tools;  // sorted by name by the caller for byte-stable caching
     std::vector<Message> messages;
     bool stream = false;
+    u64 maxContextTokens = 0;  // > 0: the API summarizes earlier turns past this many input tokens (Anthropic only)
 };
 
 struct ChatResponse {
@@ -96,6 +109,7 @@ struct ChatResponse {
     StopReason stopReason = StopReason::EndTurn;
     std::string rawStopReason;
     Usage usage;
+    u64 contextTokens = 0;  // input + cache of the call that answered, when the provider tells it apart from `usage`
     std::string model;
     std::string refusalCategory;     // only when stopReason == Refusal
     std::string refusalExplanation;
@@ -107,6 +121,14 @@ struct ChatHooks {
     std::function<void(std::string_view)> onThinking;
     std::function<void(const std::string& toolName)> onToolUseStart;
     std::function<void(const std::string& message)> onRetry;  // transient failure, about to retry
+};
+
+// One rate-limit window of a plan, as CLI agents report them: "five_hour" is the session limit, "seven_day" the weekly
+// one; other names may appear (a CLI can add windows at any time), so UIs treat names generically.
+struct LimitWindow {
+    std::string name;
+    double usedFraction = -1;  // 0..1; negative = the CLI did not say
+    i64 resetsAt = 0;          // epoch seconds when the window resets; 0 = unknown
 };
 
 // An event for UIs. Emitted by AgentSession and by CLI agents.
@@ -122,6 +144,10 @@ struct AgentEvent {
     bool isError = false;
     ai::Usage usage;      // cumulative for Type::Usage
     double costUsd = 0;   // cumulative for Type::Usage / Done
+    // Type::Usage only. An event may carry just one of these (the others stay empty / 0 = "nothing new"):
+    std::vector<LimitWindow> limits;  // plan windows the CLI reported (merge them by name)
+    u64 contextTokens = 0;            // tokens in the model's context after its last call (input + cache)
+    u64 contextWindow = 0;            // size of the model's context window
 };
 const char* event_type_name(AgentEvent::Type t);
 using EventHandler = std::function<void(const AgentEvent&)>;

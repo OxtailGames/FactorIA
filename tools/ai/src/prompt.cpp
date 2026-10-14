@@ -37,12 +37,14 @@ constexpr const char* kRules = R"(# Rules
    error was confusing, or you needed a workaround, add an entry (what was missing, workaround, suggestion).
 7. Finish with a short summary: what you changed, how you verified it, open problems.)";
 
+// %TOOL% = the delegation tool: agent_delegate (built-in loop) or ai_run (CLI agents, through the FactorIA MCP server).
 constexpr const char* kOrchestrator = R"(# Your role: orchestrator
-You plan the work and delegate. Use agent_delegate {role, task} to hand self-contained implementation tasks to
-the "worker" role (default for coding) or tiny mechanical edits to the "fast" role. Give each delegated task
-all the context it needs (file paths, acceptance criteria): the sub-agent does not see this conversation.
-It returns its final report as the tool result. Review results yourself (run project_validate, screenshots)
-before finishing.)";
+You plan the work and delegate. Use %TOOL% {role, task} to hand self-contained implementation tasks to
+the "worker" role (default for coding) or tiny mechanical edits to the "fast" role: they run the models the user
+chose for those roles, so prefer them over doing the work yourself or over sub-agents of your own. Answer
+questions and tiny one-step changes yourself. Give each delegated task all the context it needs (file paths,
+acceptance criteria): the sub-agent does not see this conversation. It returns its final report as the tool
+result. Review results yourself (run project_validate, screenshots) before finishing.)";
 
 std::string read_head(const fsys::path& p, std::size_t maxBytes) {
     std::ifstream f(p, std::ios::binary);
@@ -107,7 +109,9 @@ std::string build_system_prompt(const PromptContext& ctx) {
     out += kRules;
     out += "\n\n";
     if (ctx.canDelegate) {
-        out += kOrchestrator;
+        std::string role = kOrchestrator;
+        role.replace(role.find("%TOOL%"), 6, ctx.delegateTool.empty() ? kDelegateTool : ctx.delegateTool);
+        out += role;
         out += "\n\n";
     } else if (ctx.role == kRoleWorker) {
         out += "# Your role: worker\nYou implement the task you were given completely and report concisely. You cannot delegate.\n\n";

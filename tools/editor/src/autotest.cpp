@@ -1,6 +1,7 @@
 // Hidden end-to-end test hook (FA_EDITOR_AUTOTEST=1). Drives the real editor window:
-// select -> inspector edit -> undo/redo -> save -> play -> stop -> console -> AI thread
+// select -> edit through an engine command -> undo/redo -> save -> play -> stop -> console -> AI thread
 // marshaling, then saves screenshots of the WHOLE window (swapchain read-back) and quits.
+// The editor has no manual editing UI (the AI edits), so edits go through the same commands the AI and the Console call.
 // Output directory: FA_EDITOR_AUTOTEST_OUT (default: <tmp>/fa_editor_autotest_out).
 #include <cmath>
 #include <filesystem>
@@ -174,11 +175,13 @@ void Editor::autotest_pre_frame() {
         Entity none = pick_at(Vec2{4, 4});  // top-left corner: sky/ground only, never the player
         at_check(none != pl, "picking elsewhere does not select the player");
     } else if (f == 10) {
+        // The Console runs a command the way the AI does: an undo snapshot first, then the call.
         atOriginalPos_ = player_pos();
-        at_check(apply_field_by_name("player", "Transform", "position", Json::array({atOriginalPos_.x + 40, atOriginalPos_.y, atOriginalPos_.z})),
-                 "inspector edit via patch_component");
-        at_check(near(player_pos(), Vec3{atOriginalPos_.x + 40, atOriginalPos_.y, 0}), "edit changed Transform.position");
-        at_check(dirty() && undo_depth() >= 1, "edit marks the scene dirty and records undo");
+        const Json fields = Json::object({{"position", Json::array({atOriginalPos_.x + 40, atOriginalPos_.y, atOriginalPos_.z})}});
+        run_console_line("scene.set_component " +
+                         Json::object({{"id", "player"}, {"component", "Transform"}, {"fields", fields}}).dump());
+        at_check(near(player_pos(), Vec3{atOriginalPos_.x + 40, atOriginalPos_.y, 0}), "scene.set_component changed Transform.position");
+        at_check(dirty() && undo_depth() >= 1, "the edit marks the scene dirty and records undo");
     } else if (f == 12) {
         undo();
         at_check(near(player_pos(), atOriginalPos_), "undo restores the previous position");
@@ -188,10 +191,10 @@ void Editor::autotest_pre_frame() {
         undo();
     } else if (f == 14) {
         const size_t before = w.entity_count();
-        Entity e = create_entity("sprite", kNullEntity);
-        at_check(!e.is_null() && w.entity_count() == before + 1, "create sprite entity");
+        run_console_line(R"(scene.spawn {"name":"Autotest Box","components":{"Shape2D":{"size":[64,64]}}})");
+        at_check(!w.find("Autotest Box").is_null() && w.entity_count() == before + 1, "scene.spawn creates an entity");
         undo();
-        at_check(w.entity_count() == before, "undo removes the created entity");
+        at_check(w.entity_count() == before, "undo removes the spawned entity");
         select_id("player");
     } else if (f == 16) {
         // AI thread marshaling: a worker thread calls the PROXY registry; this thread must run it.
@@ -215,6 +218,9 @@ void Editor::autotest_pre_frame() {
         pause();
         at_check(play_state() == PlayState::Paused, "Pause");
         atStepFrame_ = engine_->frame_index();
+        const std::size_t items = chat().size();
+        ai_start("Add a coin while the game is paused.");
+        at_check(!ai_running() && chat().size() == items, "the assistant takes no message while the game runs");
         step_once();
     } else if (f == 52) {
         at_check(engine_->frame_index() == atStepFrame_ + 1, "Step advances exactly one frame");
@@ -239,8 +245,18 @@ void Editor::autotest_pre_frame() {
         aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
             return std::shared_ptr<ai::ChatProvider>(std::make_shared<MockProvider>());
         };
+        // The mock replaces CHAT providers only: pin the orchestrator to one, or the user's CLI (claude, codex) would run.
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            ai::RoleConfig& orchestrator = aiConfig_.roles[ai::kRoleOrchestrator];
+            orchestrator.provider = "anthropic";
+            if (orchestrator.model.empty()) orchestrator.model = "mock";
+        }
         atUndoBeforeAi_ = undo_depth();
         ai_start("Add a gold coin above the origin of the scene.");
+        play();
+        at_check(play_state() == PlayState::Edit, "Play waits while the assistant is changing the scene");
         atWaitAi_ = true;
     } else if (f == 62) {
         at_check(!ai_running(), "scripted AI session finished");
@@ -288,10 +304,8 @@ void Editor::autotest_pre_frame() {
         atPendingShots_.push_back(out + "editor_feedback.png");
     } else if (f == 82) {
         pendingFocus_ = "Console";
-        assetSelected_ = "scenes/main.scene.json";
-        hierFilter_ = "";
     } else if (f == 84) {
-        // Real event path: synthetic sapp events -> ImGui -> viewport click/drag.
+        // Real event path: synthetic sapp events -> ImGui -> viewport click. A click only selects (it never moves anything).
         select_id("");
         Renderer* r = engine_->renderer();
         Entity pl = w.find_by_id("player");
@@ -304,20 +318,11 @@ void Editor::autotest_pre_frame() {
         inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, atMouse_);
     } else if (f == 88) {
         at_check(selected_id() == "player", "real mouse click in the viewport selects the entity");
-        atMouse_.x += 45;
-        atMouse_.y -= 30;
-        inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, atMouse_);
-    } else if (f == 90) {
-        atMouse_.x += 20;
-        inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, atMouse_);
-    } else if (f == 92) {
         inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, atMouse_);
+    } else if (f == 92) {
+        at_check(near(player_pos(), atOriginalPos_), "the click did not move the entity");
+        at_check(selected_id() == "player", "the selection stays after the click is released");
     } else if (f == 95) {
-        Vec3 p = player_pos();
-        at_check(p.x > atOriginalPos_.x + 40 && p.y > atOriginalPos_.y + 20, "dragging in the viewport moves the entity (+Y is up)");
-        at_check(undo_depth() >= 1, "drag recorded an undo step");
-        undo();
-        at_check(near(player_pos(), atOriginalPos_), "undo reverts the drag");
         play();
         atOriginalPos_ = player_pos();
         atMouse_ = Vec2{vpImageMin_.x + 100, vpImageMin_.y + 100};
@@ -337,8 +342,9 @@ void Editor::autotest_pre_frame() {
         stop();
         at_check(near(player_pos(), atOriginalPos_) || true, "stop after input test");
     } else if (f == 134) {
-        // The viewport/play checks are done; the rest drives the tools that wrap engine commands (autotest_tools.cpp) and
-        // writes the report and quits when its last step has run.
+        // The viewport/play checks are done; the rest (autotest_tools.cpp) drives the Audio panel, console imports into the
+        // open scene, picking and the selection outline against the real renderer, bloom in the viewport, and writes the
+        // report and quits when its last step has run.
         at_build_tools_script();
         atStepAt_ = f + 2;
     } else if (f > 3000) {
