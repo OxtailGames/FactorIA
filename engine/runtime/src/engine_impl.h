@@ -68,6 +68,14 @@ struct Engine::Impl {
     bool inject_named(const std::string& name, bool down, std::string* error);
 };
 
+// The "gamepad" / "touch" members of an input replay frame (--input) and of game.input: one object or an array of them.
+//   gamepad: {"index": 0, "connected": true, "buttons": {"A": true}, "axes": {"LeftX": -1}}
+//   touch:   {"id": 1, "position": [x, y], "down": true}  (down on a new id begins, on a known id moves; false lifts)
+// Valid parts are applied; every problem (wrong type, unknown field/button/axis with "did you mean") is appended to
+// `problems` without a prefix naming the caller.
+void apply_gamepad_json(Input& input, const Json& value, std::vector<std::string>& problems);
+void apply_touch_json(Input& input, const Json& value, std::vector<std::string>& problems);
+
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format

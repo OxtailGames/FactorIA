@@ -193,13 +193,28 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 - `time`, `frame`
 
 ### input
-- Actions (preferred): `down(a)`, `pressed(a)`, `released(a)`, `axis(neg, pos)`, `vector(left, right, down, up)`
+- Actions (preferred): `down(a)`, `pressed(a)`, `released(a)`, `value(a)`, `axis(neg, pos)`, `vector(left, right, down, up)`.
+  Keys, mouse, touch and gamepad buttons are 0 or 1; gamepad sticks and triggers are analog. `value(a)` is 0..1 (the
+  maximum over the action's bindings), `axis(neg, pos)` is `value(pos) - value(neg)`, so a stick gives -1..1 while keys
+  give exactly -1, 0 or 1, and `vector(...)` is `(axis, axis)` normalized only when longer than 1 (a half-tilted stick
+  gives a short vector, two keys a unit diagonal). An action is `down` from `value >= 0.5` (a stick pushed about 60 %
+  of the way with the default deadzone); `pressed`/`released` fire when it crosses that threshold.
 - Keys: `keyDown("Space")`, `keyPressed("A")`, `keyReleased("Escape")`
 - Mouse: `mouse.position` (screen, top-left origin), `mouse.world` (world coords via main camera),
   `mouse.delta`, `mouse.wheel`, `mouse.down("left")`, `mouse.pressed("right")`
 - Touch: `touches` → `[{ id, position, world, pressed }]`. The first finger also drives the mouse (position, and the
   left button down while it is down), on a device and in tests alike, so a script that reads both `input.mouse` and
   `input.touches` sees one tap in both and should act on it once.
+- Gamepads: bind `"GamepadA"`, `"GamepadStart"`, `"GamepadDpadLeft"`, `"GamepadLeftStickRight"`, `"GamepadRightTrigger"`...
+  in `input.actions` (the full list is in `docs/AI_GUIDE.md`); a binding matches ANY connected pad. Unknown names are
+  errors with a "did you mean". Sticks use a radial deadzone (`"input": { "deadzone": 0.2 }` in `factoria.json`, default
+  0.2) and the rest is rescaled to the full range; read or assign `input.deadzone` to offer calibration in an options
+  menu. `gamepad(index = 0)` (0..3) returns one pad for local multiplayer:
+  `{ connected, down(button), pressed(button), released(button), axis(name), rawAxis(name) }`. Buttons: `A B X Y Start Back
+  Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes: `LeftX LeftY RightX RightY`
+  (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). `axis` has the deadzone applied (what the bindings see), `rawAxis`
+  does not. Real pads are read in windowed runs only (Windows XInput, Linux joystick API, macOS/iOS GameController;
+  Android and web: not yet), so headless runs and tests stay deterministic.
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
@@ -354,10 +369,26 @@ test("player jumps", () => {
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`; like a finger on a device,
   the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
   `click` needed), `press(action)`, `release(action)`, `tap(action)`,
-  `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
+  `keyDown(key)`, `keyUp(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path)`, `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
   `clearAudioLog()`
+
+`game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like
+`game.tap`), `axis(name, value)`, `connect()` and `disconnect()`. Like `keyDown`, `press`, `release` and `axis` act at once and
+the next `game.step` sees them; they connect the pad. Actions bound to `Gamepad*` names react as they do to a real pad:
+
+```js
+test("the stick moves the player", () => {
+  game.load("scenes/main.scene.json");
+  game.gamepad(0).axis("LeftX", 1);        // a full push right: input.axis("move_left", "move_right") is 1
+  game.step(30);
+  expect(game.find("player").position.x).toBeGreaterThan(0);
+  game.gamepad(0).tap("A");                // jump
+});
+```
+
+Bad button or axis names and indices outside 0..3 throw with a "did you mean".
 
 Each test FILE starts from fresh module instances (module-level state is
 re-created, tools are re-evaluated against them), an empty in-memory `storage`
@@ -367,8 +398,8 @@ file, state carries over between tests unless you reset it.
 Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
-behaviours; `game.load` also reseeds. Before each test input overrides,
-`time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
+behaviours; `game.load` also reseeds. Before each test input overrides, the gamepads (unplugged),
+`input.deadzone` (back to the project's value), `time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
 `toBeNaN`, `toMatch`, `toBeInstanceOf`. Failures print expected/received and
 `file:line` of the failing `expect`.
