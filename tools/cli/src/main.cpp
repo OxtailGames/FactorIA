@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
 #ifdef _WIN32
     // Double-clicked in Explorer (no shell shares our console, output not captured): open the editor instead of printing
     // help into a window that closes at once, and let the console go.
-    // ponytail: the console still flashes for a moment; a GUI-subsystem launcher would avoid it.
+    // The console still flashes for a moment: FactorIA-Editor.exe (tools/cli/launcher) avoids it.
     DWORD pids[2];
     if (args.empty() && GetConsoleProcessList(pids, 2) == 1 &&
         GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_CHAR) {
