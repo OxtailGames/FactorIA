@@ -951,6 +951,8 @@ Entity add_static_sphere3(World& w, const char* id, Vec3 pos, float radius) {
     return e;
 }
 void no_gravity(Sim& s) { s.world.settings().gravity3D = {0, 0, 0}; }
+// Deterministic pseudo-random value in [0, 1) (golden-ratio style sequence): i-th term of the sequence for step k.
+float frac(int i, float k) { float x = float(i) * k; return x - std::floor(x); }
 float deg_apart(Vec3 a, Vec3 b) { return std::max({std::fabs(a.x - b.x), std::fabs(a.y - b.y), std::fabs(a.z - b.z)}); }
 }  // namespace
 
@@ -1146,7 +1148,6 @@ TEST_CASE("3d: a spinning kinematic box turns its collider with the entity") {
 TEST_CASE("3d: continuous collision: a 60 m/s sphere never passes a 0.2 m wall in 900 trials") {
     // Deterministic trials: golden-ratio sequences vary the start (also against the sub-step grid), the aim and the
     // wall's orientation. Zero gravity and restitution 0, so the sphere ends up pressed against / sliding along the wall.
-    auto frac = [](int i, float k) { float x = float(i) * k; return x - std::floor(x); };
     int trials = 0, missed_wall = 0;
     for (int variant = 0; variant < 3; ++variant) {
         for (float radius : {0.1f, 0.25f}) {
@@ -1193,7 +1194,6 @@ TEST_CASE("3d: continuous collision: a 60 m/s sphere never passes a 0.2 m wall i
 }
 
 TEST_CASE("3d: continuous collision also stops a fast thin dynamic box, and leaves slow bodies alone") {
-    auto frac = [](int i, float k) { float x = float(i) * k; return x - std::floor(x); };
     for (int i = 0; i < 60; ++i) {
         Sim s;
         no_gravity(s);

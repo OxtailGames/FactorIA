@@ -48,17 +48,12 @@ Vec3 euler_of(const Vec3* ax) {
     return {degrees(std::asin(sp)), degrees(yaw), degrees(roll)};
 }
 
-// Axis-aligned bounds of a shape (for the sweep broad phase).
-void bounds_of(const Vec3* ax, bool box, bool rotated, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
-    Vec3 e{radius};
-    if (box) {
-        e = half;
-        if (rotated) {
-            e = {std::fabs(ax[0].x) * half.x + std::fabs(ax[1].x) * half.y + std::fabs(ax[2].x) * half.z,
-                 std::fabs(ax[0].y) * half.x + std::fabs(ax[1].y) * half.y + std::fabs(ax[2].y) * half.z,
-                 std::fabs(ax[0].z) * half.x + std::fabs(ax[1].z) * half.y + std::fabs(ax[2].z) * half.z};
-        }
-    }
+// Axis-aligned bounds of a shape (for the sweep broad phase); an unturned box has the identity frame, so this is `half`.
+void bounds_of(const Vec3* ax, bool box, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
+    const Vec3 e = !box ? Vec3{radius}
+                        : Vec3{std::fabs(ax[0].x) * half.x + std::fabs(ax[1].x) * half.y + std::fabs(ax[2].x) * half.z,
+                               std::fabs(ax[0].y) * half.x + std::fabs(ax[1].y) * half.y + std::fabs(ax[2].y) * half.z,
+                               std::fabs(ax[0].z) * half.x + std::fabs(ax[1].z) * half.y + std::fabs(ax[2].z) * half.z};
     lo = center - e;
     hi = center + e;
 }
@@ -221,8 +216,8 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, const Body& target, float& tHit) {
     const float len = length(disp);
     if (!(len > 0.0f) || !std::isfinite(len)) return false;
     Vec3 mlo, mhi, tlo, thi;
-    bounds_of(mover.ax, mover.box, mover.rotated, mover.center, mover.half, mover.radius, mlo, mhi);
-    bounds_of(target.ax, target.box, target.rotated, target.center, target.half, target.radius, tlo, thi);
+    bounds_of(mover.ax, mover.box, mover.center, mover.half, mover.radius, mlo, mhi);
+    bounds_of(target.ax, target.box, target.center, target.half, target.radius, tlo, thi);
     const Vec3 slo = min(mlo, mlo + disp), shi = max(mhi, mhi + disp);  // broad phase: swept bounds vs target bounds
     if (slo.x > thi.x || shi.x < tlo.x || slo.y > thi.y || shi.y < tlo.y || slo.z > thi.z || shi.z < tlo.z)
         return false;
