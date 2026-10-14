@@ -734,18 +734,6 @@ Show the project settings, input actions, current scene, scenes and scripts.
 
 Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefabs[], sceneErrors}. Example: project.info {}
 
-### `project.spawn_box` (modifies state)
-
-Spawn a colored square at a position.
-
-Example: {"x": 100, "y": 50, "size": 40}. Returns the new entity id.
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `x` | number | no | World x (pixels, 0 = screen centre). Default 0. |
-| `y` | number | no | World y (pixels, +Y up). Default 0. |
-| `size` | number | no | Side length in pixels. Default 32. |
-
 ### `project.templates`
 
 List the project templates `project.create` can start from.

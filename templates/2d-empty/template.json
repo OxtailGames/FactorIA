@@ -1,1 +1,1 @@
-{ "name": "2d-empty", "description": "Minimal 2D game: a camera, a controllable square (Shape2D, no assets), one script, one test and one project tool.", "dimension": "2d" }
+{ "name": "2d-empty", "description": "Empty 2D project: only an orthographic camera. Start from scratch.", "dimension": "2d" }

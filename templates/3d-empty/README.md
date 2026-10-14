@@ -1,7 +1,7 @@
 # {{PROJECT_NAME}}
 
-A minimal FactorIA 3D scene: fly camera (WASD + E/Q), sun light, floor, spinning cube, ball. All
-meshes are built-in primitives, so there are no binary assets.
+An empty FactorIA 3D project: the scene has only a perspective camera. Build the game with an AI agent (read
+`AGENTS.md`) or yourself:
 
 ```bash
 factoria validate
@@ -10,9 +10,8 @@ factoria run --headless --frames 120 --screenshot-at 119
 factoria test
 ```
 
-- `scenes/main.scene.json` camera, directional light, primitives
-- `scripts/fly_camera.js`, `scripts/spin.js` behaviours
-- `tools/spawn_cube.js` project tool: `factoria call project.spawn_cube '{"x":2,"z":-3}'` (add `"seed":7` for a repeatable random colour, drawn from `rng.create(seed)`)
-- `tests/scene.test.js` headless tests
+- `scenes/main.scene.json` the scene (a camera at (0, 3, 8) looking slightly down)
+- `scripts/` behaviours, `tests/` headless tests (`*.test.js`), `tools/` project tools: empty for now
+- `factoria.json` input actions `move_forward/back/left/right` (WASD, arrows), `move_up` (E, Space), `move_down` (Q, LeftShift)
 
-Units are meters, +Y up, the default camera looks toward -Z.
+Units are meters, +Y up, the camera looks toward -Z. Add a `Light` before adding meshes.

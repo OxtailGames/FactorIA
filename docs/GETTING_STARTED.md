@@ -99,9 +99,9 @@ cd my-game
 
 Available templates:
 
-- `2d-empty`: a square you can control with WASD or the arrow keys. It uses no graphic assets.
+- `2d-empty`: an empty 2D scene with only a camera. Start from scratch.
 - `2d-platformer`: platforms with physics, coins, a score counter and a camera that follows the player.
-- `3d-empty`: a fly camera, a light, a floor and a spinning cube.
+- `3d-empty`: an empty 3D scene with only a perspective camera.
 
 `factoria templates` lists the available templates with their descriptions.
 
@@ -126,9 +126,9 @@ factoria run
 
 A window opens with the game. The controls are defined in `factoria.json`, under `input.actions`:
 
-- `2d-empty`: A, D, W and S, or the arrow keys.
+- `2d-empty`: nothing moves yet; the actions `move_left/right/up/down` (A, D, W, S or the arrows) and `action` are ready.
 - `2d-platformer`: A and D or the arrow keys to move; Space, W or the up arrow to jump.
-- `3d-empty`: W and S or the arrow keys to move forward and back; A and D to move sideways; E or Space to go up; Q or LeftShift to go down.
+- `3d-empty`: nothing moves yet; the actions for W/S, A/D, E/Space and Q/LeftShift (`move_forward`, `move_back`, `move_left`, `move_right`, `move_up`, `move_down`) are ready.
 
 ## 4. Headless mode and screenshots
 
@@ -156,7 +156,7 @@ factoria test        # runs tests/*.test.js without a window
 
 `factoria validate --fix-types` regenerates `types/factoria.d.ts` from the engine's API.
 
-A test from the `2d-empty` template looks like this:
+A test looks like this (it assumes a scene with an entity `player` that moves with `move_right`):
 
 ```js
 import { test, expect, game } from "factoria:test";

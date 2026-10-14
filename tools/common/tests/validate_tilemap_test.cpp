@@ -24,7 +24,7 @@ void write_tileset(const stdfs::path& file) {
     std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char*>(png.data()), std::streamsize(png.size()));
 }
 
-// Replaces the second entity of the 2d-empty template's scene by a Tilemap with the given component JSON.
+// Adds a Tilemap with the given component JSON to the 2d-empty template's scene.
 ValidationReport validate_with_tilemap(testing::TempDir& tmp, const char* tilemapJson) {
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     write_tileset(tmp.path / "game/assets/tiles.png");
