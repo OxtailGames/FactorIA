@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <cstring>
 
 #include <fcntl.h>
@@ -85,6 +86,26 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     set_cloexec(errPipe[0]);
     set_cloexec(execPipe[0]);
 
+    // The child's standard input: /dev/null, or an anonymous temporary file holding stdinText, so there is no pipe to
+    // keep writing while stdout is read.
+    int inFd = -1;
+    if (!opt.stdinText.empty()) {
+        std::FILE* f = std::tmpfile();
+        if (f && std::fwrite(opt.stdinText.data(), 1, opt.stdinText.size(), f) == opt.stdinText.size() &&
+            std::fflush(f) == 0)
+            inFd = dup(fileno(f));
+        if (f) std::fclose(f);
+        if (inFd < 0 || lseek(inFd, 0, SEEK_SET) != 0) {
+            int e = errno;
+            if (inFd >= 0) close(inFd);
+            for (int fd : {outPipe[0], outPipe[1], errPipe[0], errPipe[1], execPipe[0], execPipe[1]}) close(fd);
+            return make_error("Cannot write the standard input of '" + opt.argv[0] + "' to a temporary file: " +
+                                  std::strerror(e),
+                              "Check that /tmp exists and is writable.");
+        }
+        set_cloexec(inFd);
+    }
+
     const char* cwd = opt.workingDir.empty() ? nullptr : opt.workingDir.c_str();
     const bool hasSlash = opt.argv[0].find('/') != std::string::npos;
 
@@ -93,12 +114,16 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         int e = errno;
         close(outPipe[0]); close(outPipe[1]); close(errPipe[0]); close(errPipe[1]);
         close(execPipe[0]); close(execPipe[1]);
+        if (inFd >= 0) close(inFd);
         return make_error(std::string("fork failed: ") + std::strerror(e));
     }
     if (pid == 0) {
         setpgid(0, 0);  // own process group so we can kill the whole tree
-        int devnull = open("/dev/null", O_RDONLY);
-        if (devnull >= 0) { dup2(devnull, 0); if (devnull > 2) close(devnull); }
+        if (inFd >= 0) dup2(inFd, 0);
+        else {
+            int devnull = open("/dev/null", O_RDONLY);
+            if (devnull >= 0) { dup2(devnull, 0); if (devnull > 2) close(devnull); }
+        }
         dup2(outPipe[1], 1);
         dup2(errPipe[1], 2);
         if (outPipe[1] > 2) close(outPipe[1]);
@@ -119,6 +144,7 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     }
     // parent
     setpgid(pid, pid);
+    if (inFd >= 0) close(inFd);
     close(outPipe[1]);
     close(errPipe[1]);
     close(execPipe[1]);
