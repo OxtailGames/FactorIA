@@ -1910,8 +1910,7 @@ TEST_CASE("3d rotation: a box slides down a 30 degree ramp flat on it (friction 
     const float sq = 0.5f, cq = std::sqrt(0.75f);  // sin, cos of 30 degrees
     // the ramp rises towards +x: its top face has the normal (-sin, cos, 0)
     const Vec3 normal{-sq, cq, 0}, down{-cq, -sq, 0};
-    Entity ramp = add_turned_box3(s.world, "ramp", normal * -0.5f, {40, 1, 10}, {0, 0, 30}, BodyType::Static, false);
-    (void)ramp;
+    add_turned_box3(s.world, "ramp", normal * -0.5f, {40, 1, 10}, {0, 0, 30}, BodyType::Static, false);
     Entity box = add_turned_box3(s.world, "box", normal * 0.5f + Vec3{6.0f * cq, 6.0f * sq, 0}, {1, 1, 1}, {0, 0, 30}, BodyType::Dynamic, true);
     const Vec3 start = pos_of(s.world, box);
     s.run(60);  // 1 s: a = g (sin - mu cos) = 9.81 * (0.5 - 0.4 * 0.866) = 1.5 m/s^2 after the first sub-steps settle in
@@ -1946,8 +1945,7 @@ TEST_CASE("3d rotation: a thrown, spinning box tumbles and ends at rest on a fac
     CHECK(spin_of(s.world, box) < 1.0f);
     CHECK(length(s.world.get<RigidBody3D>(box)->velocity) < 0.05f);
     // the resting height is half the extent along the axis that points up: 0.3, 0.5 or 0.8
-    const float y = p.y;
-    CHECK((std::fabs(y - 0.3f) < 0.02f || std::fabs(y - 0.5f) < 0.02f || std::fabs(y - 0.8f) < 0.02f));
+    CHECK((std::fabs(p.y - 0.3f) < 0.02f || std::fabs(p.y - 0.5f) < 0.02f || std::fabs(p.y - 0.8f) < 0.02f));
 }
 
 TEST_CASE("3d rotation: a pile of boxes and spheres dropped into a bin settles; nothing escapes or explodes") {
@@ -2028,7 +2026,6 @@ TEST_CASE("3d rotation: tipping scene is deterministic") {
 }
 
 TEST_CASE("3d continuous collision: two spheres at 60 m/s head-on never pass through each other (400 trials)") {
-    int farSideFrames = 0;
     for (int i = 0; i < 400; ++i) {
         Sim s;
         no_gravity(s);
@@ -2048,12 +2045,10 @@ TEST_CASE("3d continuous collision: two spheres at 60 m/s head-on never pass thr
             // either b is still on its side, or the two went past each other touching (sliding around one another)
             if (d.x <= 0.0f && lateral < sum - 0.03f)
                 FAIL("passed through: trial " << i << " frame " << f << " d " << d.x << " " << d.y << " " << d.z << " sum " << sum);
-            if (d.x <= 0.0f) ++farSideFrames;
         }
         // the hit happened: a glancing one lets them fly apart again (no contact left at a frame end), but a was deflected
         if (length(s.world.get<RigidBody3D>(a)->velocity - Vec3{60, 0, 0}) < 1.0f) FAIL("never touched: trial " << i);
     }
-    MESSAGE("frames spent on the far side after a glancing hit: " << farSideFrames);
 }
 
 TEST_CASE("3d continuous collision: a kinematic wall at 40 m/s pushes a resting sphere and never ends up behind it") {
