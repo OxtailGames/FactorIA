@@ -70,7 +70,7 @@
         "argv": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "CLI agents: argv template after the command. Placeholders: {prompt} {model} {project} {mcp_config} {project_json} {factoria_json}. Without {prompt} the prompt is sent on standard input."
+          "description": "CLI agents: argv template after the command. Placeholders: {prompt} {model} {project} {mcp_config} {session} {project_json} {factoria_json}. {session} is the CLI session id of the conversation (an argument whose placeholder is empty, like the first message's {session}, is dropped together with a bare flag before it). Without {prompt} the prompt is sent on standard input; with `--input-format stream-json` it is one JSON user message that can carry images."
         },
         "env": { "type": "object", "additionalProperties": { "type": "string" } },
         "unsetEnv": { "type": "array", "items": { "type": "string" } },

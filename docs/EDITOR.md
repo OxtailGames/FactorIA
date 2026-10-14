@@ -36,6 +36,23 @@ Play snapshots the scene and runs the game; Stop restores the snapshot, so edits
 (toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. View >
 Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
 
+## AI Assistant
+
+The panel holds several conversations as **tabs**: **+** opens an empty chat, the **x** on a tab closes it (the chat stays
+in History), and the title is the first message ("New chat" until then). Each tab has its own transcript, input, provider/role,
+usage and attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). One chat runs at
+a time: Run is disabled in the other tabs while one works (hover it to see which). **History** lists the saved chats, newest
+first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
+
+- **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the
+  clipboard, or press **Attach image...**. Pending pictures show above the input (remove one with its x); sent ones show
+  in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.
+- **Usage** (above the transcript): Session (5h) and Week plan limits with the reset time, the model's Context, Tokens
+  and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported
+  (kept in `~/.factoria/ai_limits.json`).
+- **Selection:** the entity selected in the viewport or hierarchy is named to the AI in each message.
+- Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
+
 ## Selecting things
 
 Clicking in the viewport selects the entity under the cursor; the selection is how you point at something ("make this one bigger").

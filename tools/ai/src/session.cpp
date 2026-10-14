@@ -66,15 +66,34 @@ std::string clip_text(std::string s, std::size_t n) {
 }  // namespace
 
 Json SessionResult::to_json() const {
-    return Json::object({{"ok", ok},
-                         {"finalText", finalText},
-                         {"stopReason", stopReason},
-                         {"error", error},
-                         {"hint", hint},
-                         {"usage", usage.to_json()},
-                         {"costUsd", costUsd},
-                         {"turns", turns},
-                         {"transcript", transcriptPath}});
+    Json j = Json::object({{"ok", ok},
+                           {"finalText", finalText},
+                           {"stopReason", stopReason},
+                           {"error", error},
+                           {"hint", hint},
+                           {"usage", usage.to_json()},
+                           {"costUsd", costUsd},
+                           {"turns", turns},
+                           {"transcript", transcriptPath}});
+    if (!conversation.cliSessionId.empty()) j["sessionId"] = conversation.cliSessionId;
+    return j;
+}
+
+Json Conversation::to_json() const {
+    Json hist = Json::array();
+    for (const auto& m : history) hist.push_back(saved_message_json(m));
+    return Json::object({{"key", key}, {"cliSessionId", cliSessionId}, {"cliCostUsd", cliCostUsd}, {"history", hist}});
+}
+
+Conversation Conversation::from_json(const Json& j) {
+    Conversation c;
+    c.key = str(j, "key");
+    c.cliSessionId = str(j, "cliSessionId");
+    c.cliCostUsd = num(j, "cliCostUsd");
+    if (const Json* hist = child(j, "history"); hist && hist->is_array()) {
+        for (const auto& m : *hist) c.history.push_back(message_from_json(m));
+    }
+    return c;
 }
 
 bool is_agent_tool_excluded(std::string_view name) { return fa::starts_with(name, "ai."); }
@@ -144,12 +163,28 @@ bool AgentSession::over_budget(std::string& why) const {
     return false;
 }
 
-SessionResult AgentSession::run(const std::string& task) {
+SessionResult AgentSession::run(const std::string& task, const std::vector<std::string>& imageFiles) {
     totalUsage_ = {};
     totalCost_ = 0;
     delegateCount_ = 0;
     stamp_ = make_stamp();
-    SessionResult r = run_role(opt_.role, task, 0);
+    images_.clear();
+    imagePaths_.clear();
+    SessionResult r;
+    for (const auto& path : imageFiles) {
+        auto img = load_image_data(path);
+        if (!img) {
+            r.stopReason = "error";
+            r.error = img.error().message;
+            r.hint = img.error().hint;
+            r.conversation = opt_.conversation;
+            break;
+        }
+        images_.push_back(std::move(*img));
+        imagePaths_.push_back(path);
+    }
+    if (r.error.empty()) r = run_role(opt_.role, task, 0);
+    if (r.conversation.key.empty()) r.conversation = opt_.conversation;  // nothing ran: the conversation is as it was
     r.usage = totalUsage_;
     r.costUsd = totalCost_;
     AgentEvent e;
@@ -194,8 +229,18 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
                                     const std::string& task, int depth) {
     SessionResult res;
     PromptContext pctx{opt_.projectDir, role, false, opt_.extraSystem};
+    const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
+    // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
+    const bool canResume = depth == 0 && cli_supports_resume(pc);
+    const Conversation& prev = opt_.conversation;
+    const bool resuming = canResume && !prev.cliSessionId.empty() && prev.key == pc.name;
     CliRunRequest req;
-    req.prompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
+    req.prompt = resuming ? task : fullPrompt;
+    req.sessionId = resuming ? prev.cliSessionId : std::string();
+    if (depth == 0) {
+        req.images = images_;
+        req.imagePaths = imagePaths_;
+    }
     req.model = rc.model == kPlaceholderModel ? std::string() : rc.model;
     req.projectDir = opt_.projectDir;
 
@@ -210,22 +255,44 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     res.transcriptPath = tr.path();
 
     CliAgent agent(pc);
-    auto run = agent.run(
-        req,
-        [&](const AgentEvent& ev) {
-            AgentEvent copy = ev;
-            tr.write(Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
-                                   {"input", ev.toolInput}, {"result", ev.toolResult}}));
-            emit(copy, depth, "cli");
-        },
-        cancel_);
+    // Claude Code's total_cost_usd counts the whole resumed session (checked with 2.1.296): subtract what the earlier
+    // messages already cost, so every message reports its own.
+    double costBase = resuming ? prev.cliCostUsd : 0;
+    const auto onEvent = [&](const AgentEvent& ev) {
+        AgentEvent copy = ev;
+        if (ev.type == AgentEvent::Type::Usage && copy.costUsd >= costBase) copy.costUsd -= costBase;
+        tr.write(Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
+                               {"input", ev.toolInput}, {"result", ev.toolResult}}));
+        emit(copy, depth, "cli");
+    };
+    auto run = agent.run(req, onEvent, cancel_);
+    if (resuming && run && !run->ok && !run->cancelled &&
+        run->error.find("No conversation found") != std::string::npos) {
+        // The CLI forgot the session (its data was cleaned up, or the project moved): carry on in a new one.
+        AgentEvent info;
+        info.type = AgentEvent::Type::Info;
+        info.text = "The earlier conversation could not be resumed (" + std::string(fa::trim(run->error)) + "); starting a new one.";
+        emit(info, depth, role);
+        req.sessionId.clear();
+        req.prompt = fullPrompt;
+        costBase = 0;
+        run = agent.run(req, onEvent, cancel_);
+    }
     if (!run) {
         res.stopReason = "error";
         res.error = run.error().message;
         res.hint = run.error().hint;
         return res;
     }
-    double cost = run->costUsd;
+    double cost = run->costUsd >= costBase ? run->costUsd - costBase : run->costUsd;
+    if (depth == 0 && canResume) {
+        res.conversation = prev.key == pc.name ? prev : Conversation{};
+        res.conversation.key = pc.name;
+        if (!run->sessionId.empty()) {
+            res.conversation.cliSessionId = run->sessionId;
+            res.conversation.cliCostUsd = run->costUsd;
+        }
+    }
     add_usage(run->usage, cost);
     res.finalText = run->finalText;
     res.turns = run->turns;
@@ -401,9 +468,15 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
 
     const int maxTurns = opt_.maxTurns > 0 ? opt_.maxTurns : config_.limits.maxTurns;
     const Pricing pricing = pc.pricing.known ? pc.pricing : builtin_pricing(rc.model);
-    std::vector<Message> history;  // append-only
-    history.push_back(Message::user(task));
-    tr.write(Json::object({{"kind", "user"}, {"text", task}}));
+    // Append-only. A follow-up message continues the history of the same provider+model (the assistant payloads in it are
+    // provider-native, so another model never gets them).
+    const std::string convKey = pc.name + "/" + rc.model;
+    std::vector<Message> history;
+    if (depth == 0 && opt_.conversation.key == convKey) history = opt_.conversation.history;
+    history.push_back(Message::user(task, depth == 0 ? images_ : std::vector<ImageData>{}));
+    Json userLine = Json::object({{"kind", "user"}, {"text", task}});
+    if (depth == 0 && !imagePaths_.empty()) userLine["images"] = imagePaths_;
+    tr.write(userLine);
     int pauseStreak = 0;
 
     auto finish_with = [&](bool ok, const std::string& stop, const std::string& text, const std::string& error,
@@ -413,6 +486,10 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
         res.finalText = text;
         res.error = error;
         res.hint = hint;
+        if (depth == 0) {
+            res.conversation.key = convKey;
+            res.conversation.history = history;
+        }
         tr.write(Json::object({{"kind", "end"}, {"ok", ok}, {"stopReason", stop}, {"text", text}, {"error", error}}));
         return res;
     };
@@ -441,6 +518,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             u.type = AgentEvent::Type::Usage;
             u.usage = totalUsage_;
             u.costUsd = totalCost_;
+            u.contextTokens = resp->usage.inputTokens + resp->usage.cacheCreationTokens + resp->usage.cacheReadTokens;
             emit(u, depth, role);
         }
         history.push_back(resp->message);  // APPEND the assistant message unchanged (raw content kept)
