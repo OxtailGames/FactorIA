@@ -3,7 +3,6 @@
 // Reflection is the backbone of the AI-friendliness of FactorIA: ONE
 // registration per component powers
 //   * scene/prefab JSON load + save (fa_scene)
-//   * the editor inspector (fa_editor)
 //   * script access `entity.get("Sprite").color` (fa_script)
 //   * MCP / CLI commands that read or patch components (fa_runtime)
 //   * generated docs, JSON Schemas and TypeScript .d.ts (fa_tooling)
