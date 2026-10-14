@@ -5,6 +5,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -94,6 +95,13 @@ struct ScriptSystem::Impl {
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
     std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
     std::set<std::string> everLoaded;
+    // The last data module (.json) load_module could not parse: check_syntax reports THAT file (with line and column)
+    // instead of the script that imports it.
+    struct BrokenData {
+        std::string file;
+        Error error;
+    };
+    std::optional<BrokenData> brokenData;
 
     // ---- behaviours
     std::vector<std::unique_ptr<Behaviour>> behaviours;
@@ -192,7 +200,7 @@ struct ScriptSystem::Impl {
     void reset_modules();  // every project module gets a fresh instance on its next import
     void after_test_load();
     Result<Json> eval(std::string_view code);
-    Result<void> check_syntax(std::string_view path);
+    Result<void> check_syntax(std::string_view path, std::string* brokenImport);
     void reload_module(std::string_view path);
 
     // ================= api (script_api.cpp)

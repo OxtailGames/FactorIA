@@ -5,20 +5,18 @@
 // builds the Tilemap and puts the coins, enemies, player and flag in the right cell, so there is no world coordinate
 // in this file. The hand-made levels are built by the same command from levels/level1.json and levels/level2.json.
 //
-// scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch world, so the running game is never touched
-// (no scene is loaded, saved or restored, audio and physics keep going):
-//   1. copy levels/generator_base.scene.json (settings, camera, level script and HUD, no map) to a scratch file in
-//      .factoria/tmp/ with the sky colour and the level number set for this map (the camera takes its limits from the
-//      map itself: its follow_camera has "bounds": "map")
-//   2. scene.import_ascii {path, from: <that copy>, dryRun} builds the Tilemap and the objects and writes `path` in the
-//      canonical layout (dryRun: writes nothing and returns the scene JSON)
-//   3. delete the scratch copy, also when the import failed
+// ONE call does it all: scene.import_ascii {path, from, edits, dryRun} edits a scene FILE in a scratch world, so the
+// running game is never touched (no scene is loaded, saved or restored, audio and physics keep going):
+//   - from: levels/generator_base.scene.json (settings, camera, level script and HUD, no map) is the scene to start from
+//   - edits: the sky colour, camera height and level number for this map, patched into that scene like scene.set_component
+//     (the camera takes its limits from the map itself: its follow_camera has "bounds": "map")
+//   - it builds the Tilemap and the objects and writes `path` in the canonical layout (dryRun: writes nothing and returns
+//     the scene JSON)
 import { fa, ToolError, rng } from "factoria";
 
 const TS = 32; // tile size in pixels (assets/tileset.png holds 32x32 tiles: 0 grass, 1 dirt, 2 brick)
 const ROWS = 16;
 const BASE = "levels/generator_base.scene.json";
-const SCRATCH = ".factoria/tmp/generate_level.base.scene.json"; // the base with this level's settings (fs.write/fs.delete may use .factoria/tmp/)
 const PREFAB = {
   coin: "prefabs/coin.prefab.json",
   enemy: "prefabs/enemy.prefab.json",
@@ -118,47 +116,37 @@ function call(name, args) {
   }
 }
 
-// The base scene with the parts that are not map set for this level: sky colour, camera height, level number. Script
-// props are replaced as a whole, so start from what the base scene has. The camera limits are not set here: the
-// camera's "bounds": "map" makes follow_camera.js clamp to the Tilemap this level imports.
-function base_for_level({ levelH, difficulty, levelIndex }) {
+// What differs between levels in the base scene (everything else in it is shared): sky colour, camera height, level
+// number. Like scene.set_component, an edit of Script.props replaces the props as a whole, so the level script's other
+// props are read from the base. The camera limits are not edited: the camera's "bounds": "map" makes follow_camera.js
+// clamp to the Tilemap this level imports.
+function edits_for_level({ levelH, difficulty, levelIndex }) {
   const base = JSON.parse(call("fs.read", { path: BASE }).content);
-  const entity = (id) => {
-    const e = base.entities.find((x) => x.id === id);
-    if (!e) throw new ToolError(`${BASE} has no entity '${id}'.`, `Restore it: project.generate_level tunes the 'camera' and 'level' entities of the base scene.`);
-    return e;
+  const levelProps = base.entities.find((x) => x.id === "level")?.components?.Script?.props ?? {};
+  return {
+    camera: {
+      Camera: { clearColor: [round3(0.55 - difficulty * 0.08), round3(0.7 - difficulty * 0.08), round3(0.95 - difficulty * 0.1), 1] },
+      Transform: { position: [640, levelH / 2, 0] },
+    },
+    level: { Script: { props: { ...levelProps, levelIndex } } },
   };
-  const camera = entity("camera").components;
-  camera.Camera = { ...camera.Camera, clearColor: [round3(0.55 - difficulty * 0.08), round3(0.7 - difficulty * 0.08), round3(0.95 - difficulty * 0.1), 1] };
-  camera.Transform = { ...camera.Transform, position: [640, levelH / 2, 0] };
-  const level = entity("level").components;
-  level.Script = { ...level.Script, props: { ...level.Script.props, levelIndex } };
-  return base;
 }
 
-// Builds the scene file `path` (or, for dryRun, only returns it). Returns what scene.import_ascii said.
+// Builds the scene file `path` (or, for dryRun, only returns it). Returns what scene.import_ascii said. An edit that
+// does not fit the base scene (no 'camera' or 'level' entity) fails with the command's message naming it.
 function build_scene({ rows, legend, difficulty, levelIndex, path, dryRun }) {
-  const base = base_for_level({ levelH: rows.length * TS, difficulty, levelIndex });
-  call("fs.write", { path: SCRATCH, content: JSON.stringify(base, null, 2) + "\n" });
-  try {
-    return call("scene.import_ascii", {
-      rows,
-      legend,
-      entity: "map",
-      tilemap: { tileset: "assets/tileset.png", tileSize: [TS, TS], solidTiles: [0, 1, 2], layer: -10 },
-      anchor: "bottom-left",
-      position: [0, 0],
-      path,
-      from: SCRATCH,
-      dryRun,
-    });
-  } finally {
-    try {
-      call("fs.delete", { path: SCRATCH });
-    } catch (e) {
-      // A leftover scratch file is harmless: it lives in .factoria/tmp/ and the next run overwrites it.
-    }
-  }
+  return call("scene.import_ascii", {
+    rows,
+    legend,
+    entity: "map",
+    tilemap: { tileset: "assets/tileset.png", tileSize: [TS, TS], solidTiles: [0, 1, 2], layer: -10 },
+    anchor: "bottom-left",
+    position: [0, 0],
+    path,
+    from: BASE,
+    edits: edits_for_level({ levelH: rows.length * TS, difficulty, levelIndex }),
+    dryRun,
+  });
 }
 
 export default {
@@ -168,7 +156,7 @@ export default {
     'Example: {"width": 80, "seed": 7, "difficulty": 3, "path": "scenes/generated.scene.json", "next": "scenes/win.scene.json"}. ' +
     "Overwrites `path`. Same arguments always give the same level. width is in tiles (32 px each). " +
     "Higher difficulty means wider pits, more enemies and fewer safe ground stretches. " +
-    "The result lists the level as ASCII `rows`. It is built with scene.import_ascii {path, from, dryRun}, which edits the " +
+    "The result lists the level as ASCII `rows`. It is built with scene.import_ascii {path, from, edits, dryRun}, which edits the " +
     "scene FILE and never touches the running game, so it is safe to call while playing. Run project_validate afterwards.",
   input: {
     type: "object",

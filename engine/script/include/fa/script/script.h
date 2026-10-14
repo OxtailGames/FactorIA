@@ -127,7 +127,10 @@ public:
 
     // Developer tools.
     Result<Json> eval(std::string_view code);  // REPL in the game context; returns the value as JSON
-    Result<void> check_syntax(std::string_view modulePath);  // compile only, no execution
+    // Compiles a module and resolves its imports, without running it. When the failure is an imported data file
+    // (`import levels from "./levels.json"`) that is not valid JSON, the error is THAT file's ("file:line:column: invalid
+    // JSON: ...") and *brokenImport (if given) gets its project-relative path; otherwise *brokenImport is left empty.
+    Result<void> check_syntax(std::string_view modulePath, std::string* brokenImport = nullptr);
     TestReport run_tests(const std::vector<std::string>& files, std::string_view nameFilter = {});
     const std::vector<ScriptError>& errors() const;
     void clear_errors();

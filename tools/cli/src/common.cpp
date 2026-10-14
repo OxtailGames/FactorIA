@@ -205,21 +205,7 @@ TestReport run_project_tests(Engine& engine, const std::string& nameFilter) {
     return engine.scripts().run_tests(files, nameFilter);
 }
 
-void install_script_check(Engine& engine) {
-    Engine* e = &engine;
-    set_script_check_hook([e](const std::string&, const std::string& scriptPath) {
-        std::vector<ValidationIssue> issues;
-        auto r = e->scripts().check_syntax(scriptPath);
-        if (!r.ok()) {
-            ValidationIssue i;
-            i.file = scriptPath;
-            i.message = "Syntax error: " + r.error().message;
-            i.hint = r.error().hint.empty() ? "Fix the script; 'factoria call script.eval' can test snippets." : r.error().hint;
-            issues.push_back(std::move(i));
-        }
-        return issues;
-    });
-}
+void install_script_check(Engine& engine) { set_script_check_hook(engine_validate_options(engine).scriptCheck); }
 
 void register_cli_commands(CommandRegistry& registry, const std::string& projectDir, Engine* engine) {
     if (engine) {
