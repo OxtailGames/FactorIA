@@ -49,6 +49,10 @@ EmitterState& state_for(World& world, Entity e) {
     return st;
 }
 
+// A screen-space emitter is simulated exactly like a world one (+Y up: direction 90 = up, negative gravity falls) and
+// only flipped onto the y-down screen when drawn. is3D has no screen space, so it wins.
+bool screen_space(const ParticleEmitter& em) { return em.space == RenderSpace::Screen && !em.is3D; }
+
 void spawn(EmitterState& st, const ParticleEmitter& em, const Mat4& m) {
     if (int(st.particles.size()) >= em.maxParticles) return;
     Rng& rng = st.rng;
@@ -56,8 +60,11 @@ void spawn(EmitterState& st, const ParticleEmitter& em, const Mat4& m) {
     p.life = std::max(0.01f, em.lifetime * (1.0f + rng.range(-em.lifetimeVariance, em.lifetimeVariance)));
     float speed = em.speed * (1.0f + rng.range(-em.speedVariance, em.speedVariance));
     Vec3 origin = em.worldSpace ? m.translation() : Vec3{0, 0, 0};
+    const bool screen = screen_space(em);
+    if (screen) origin.y = -origin.y;  // the screen position, seen +Y up (flipped back when drawn)
     if (!em.is3D) {
         float rotZ = em.worldSpace ? degrees(std::atan2(m.at(0, 1), m.at(0, 0))) : 0.0f;
+        if (screen) rotZ = -rotZ;      // a rotation turns clockwise on the +Y down screen, as it does for sprites
         float ang = em.direction + rotZ + rng.range(-em.spread, em.spread);
         Vec2 d = from_angle_deg(ang);
         p.vel = {d.x * speed, d.y * speed, 0};
@@ -156,19 +163,23 @@ void gather_particles(World& world, Frame& f) {
         EmitterState& st = it->second;
         if (st.particles.empty()) return;
         Mat4 m = world.world_matrix(e);
+        const bool screen = screen_space(em);
+        const Vec3 anchor = screen ? Vec3{em.anchor.x * float(f.targetW), em.anchor.y * float(f.targetH), 0.0f} : Vec3{};
 
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
-        f.world.begin_item(em.layer, f.cam.perspective ? length(m.translation() - f.cam.position) : 0.0f, tex,
-                           SamplerKind::Linear, em.blend);
-        QuadList& list = f.world;
+        QuadList& list = screen ? f.screen : f.world;
+        list.begin_item(em.layer, f.cam.perspective && !screen ? length(m.translation() - f.cam.position) : 0.0f, tex,
+                        SamplerKind::Linear, em.blend);
         for (const auto& p : st.particles) {
             float t = p.age / p.life;
             float size = lerp(em.startSize, em.endSize, t);
             if (size <= 0.0f) continue;
             Color c = lerp(em.startColor, em.endColor, t);
             if (c.a <= 0.0f) continue;
-            Vec3 pos = em.worldSpace ? p.pos : m.transform_point(p.pos);
-            Vec3 r{1, 0, 0}, u{0, 1, 0};
+            Vec3 q = p.pos;
+            if (screen) q.y = -q.y;  // flip the +Y up simulation onto the y-down screen
+            Vec3 pos = (em.worldSpace ? q : m.transform_point(q)) + anchor;
+            Vec3 r{1, 0, 0}, u{0, screen ? -1.0f : 1.0f, 0};
             if (em.is3D) { r = f.cam.right; u = f.cam.up; }
             float h = size * 0.5f;
             std::uint32_t col = pack_color(c);

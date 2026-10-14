@@ -587,3 +587,115 @@ TEST_CASE("measure_text matches Text layout") {
     CHECK(two.y > one.y * 1.5f);
     CHECK(g.renderer.measure_text("", 20).x == 0);
 }
+
+// ---- ParticleEmitter.space = screen -------------------------------------------------------------------------------------
+
+namespace {
+
+// One motionless 16 px dot, born by the initial burst (the emitter never emits again, the particle never fades).
+Entity dot_emitter(World& w, Vec3 pos, RenderSpace space, Color c = Color::white()) {
+    Entity e = make(w, "dot", pos);
+    auto& p = w.add<ParticleEmitter>(e);
+    p.emitting = false; p.rate = 0; p.burst = 1; p.lifetime = 100.0f; p.lifetimeVariance = 0; p.speed = 0;
+    p.speedVariance = 0; p.spread = 0; p.gravity = {0, 0, 0}; p.startSize = p.endSize = 16; p.startColor = p.endColor = c;
+    p.space = space;
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("particles: a screen-space emitter sits at its screen position whatever the camera does") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::black();
+    dot_emitter(w, {60, 40, 0}, RenderSpace::Screen, Color{0, 1, 0, 1});   // screen pixel (60, 40)
+    dot_emitter(w, {100, 50, 0}, RenderSpace::World, Color{1, 0, 0, 1});   // world (100, 50) = pixel (260, 40) for this camera
+    Image home = g.render(w);
+    CHECK(home.pixel(60, 40).g > 0.9f);   CHECK(home.pixel(60, 40).r < 0.1f);
+    CHECK(home.pixel(60, 52).g < 0.05f);  CHECK(home.pixel(72, 40).g < 0.05f);   // a 16 px dot, not a bigger blob
+    CHECK(home.pixel(260, 40).r > 0.9f);
+
+    w.get<Transform>(cam)->position = {400, -250, 0};   // pan far away
+    Image panned = g.render(w);
+    CHECK(panned.pixel(60, 40).g > 0.9f);                // the HUD dot did not move
+    CHECK(panned.pixel(260, 40).r < 0.05f);              // the world dot left the view with the camera
+    for (int y = 0; y < panned.height; ++y)
+        for (int x = 0; x < 200; ++x) REQUIRE(panned.pixel(x, y).g == home.pixel(x, y).g);
+    CHECK(g.renderer.stats().particles == 2);
+}
+
+TEST_CASE("particles: in screen space direction 90 flies up the screen and negative gravity falls down it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::black();
+    Entity up = dot_emitter(w, {100, 150, 0}, RenderSpace::Screen);       // default direction 90 = up, 100 px/s
+    w.get<ParticleEmitter>(up)->speed = 100;
+    Entity right = dot_emitter(w, {20, 90, 0}, RenderSpace::Screen);      // direction 0 = right
+    w.get<ParticleEmitter>(right)->speed = 100;
+    w.get<ParticleEmitter>(right)->direction = 0;
+    Entity fall = dot_emitter(w, {220, 20, 0}, RenderSpace::Screen);      // negative gravity y = falling
+    w.get<ParticleEmitter>(fall)->gravity = {0, -200, 0};
+    Image img;
+    for (int i = 0; i < 30; ++i) img = g.render(w, 1.0f / 60.0f);          // half a second
+    CHECK(img.pixel(100, 100).r > 0.9f);   // 50 px above where it was born (screen y shrinks upwards)
+    CHECK(img.pixel(100, 150).r < 0.05f);
+    CHECK(img.pixel(70, 90).r > 0.9f);     // 50 px to the right
+    CHECK(img.pixel(20, 90).r < 0.05f);
+    CHECK(img.pixel(220, 46).r > 0.9f);    // fell ~26 px (0.5 * 200 * 0.5^2) down the screen
+    CHECK(img.pixel(220, 14).r < 0.05f);
+    CHECK(g.renderer.stats().particles == 3);
+}
+
+TEST_CASE("particles: screen-space anchor, worldSpace and is3D") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    World w;
+    Entity cam = make(w, "cam");
+    w.add<Camera>(cam).clearColor = Color::black();
+    // anchor: the position is relative to a screen point (like Sprite and Shape2D)
+    Entity topRight = dot_emitter(w, {-20, 20, 0}, RenderSpace::Screen);
+    w.get<ParticleEmitter>(topRight)->anchor = {1, 0};                     // pixel (300, 20)
+    Entity centre = dot_emitter(w, {0, 0, 0}, RenderSpace::Screen);
+    w.get<ParticleEmitter>(centre)->anchor = {0.5f, 0.5f};                 // pixel (160, 90)
+    Entity bottomLeft = dot_emitter(w, {20, -10, 0}, RenderSpace::Screen);
+    w.get<ParticleEmitter>(bottomLeft)->anchor = {0, 1};                   // pixel (20, 170)
+    // worldSpace = true: particles stay where they were born; false: they follow the emitter
+    Entity stay = dot_emitter(w, {60, 50, 0}, RenderSpace::Screen);
+    Entity follow = dot_emitter(w, {60, 130, 0}, RenderSpace::Screen);
+    w.get<ParticleEmitter>(follow)->worldSpace = false;
+    Image before = g.render(w);
+    CHECK(before.pixel(300, 20).r > 0.9f);  CHECK(before.pixel(160, 90).r > 0.9f);  CHECK(before.pixel(20, 170).r > 0.9f);
+    CHECK(before.pixel(60, 50).r > 0.9f);   CHECK(before.pixel(60, 130).r > 0.9f);
+    w.get<Transform>(stay)->position.x += 100;
+    w.get<Transform>(follow)->position.x += 100;
+    Image after = g.render(w);
+    CHECK(after.pixel(60, 50).r > 0.9f);    CHECK(after.pixel(160, 50).r < 0.05f);    // stayed
+    CHECK(after.pixel(160, 130).r > 0.9f);  CHECK(after.pixel(60, 130).r < 0.05f);    // followed
+    CHECK(after.pixel(300, 20).r > 0.9f);                                               // the others did not move
+}
+
+TEST_CASE("particles: is3D ignores the screen space") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    World w;
+    Entity cam = make(w, "cam", {0, 0, 5});
+    auto& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.clearColor = Color::black();
+    Entity e = dot_emitter(w, {0, 0, 0}, RenderSpace::World);
+    w.get<ParticleEmitter>(e)->is3D = true;
+    w.get<ParticleEmitter>(e)->startSize = w.get<ParticleEmitter>(e)->endSize = 1.0f;
+    Image world3d = g.render(w);
+    CHECK(world3d.pixel(160, 90).r > 0.9f);
+    w.get<ParticleEmitter>(e)->space = RenderSpace::Screen;   // documented: treated as world, the billboard stays put
+    Image screen3d = g.render(w);
+    CHECK(screen3d.rgba == world3d.rgba);
+}

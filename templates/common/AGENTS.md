@@ -72,7 +72,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 - **Neon glow:** `"blend": "additive"` on bright Sprites/Shapes/particles plus `"bloom": true` on the primary `Camera`
   (`bloomThreshold`, `bloomIntensity`, `bloomRadius`) over a dark `clearColor`. Never hand-draw blurred halo sprites.
   `"bloomScreenSpace": false` keeps the HUD crisp. Spin a triangle with `pivot: [0.5, 0.3333]` (its centroid);
-  `Shape2D` also has `diamond`. Guide section 9.20.
+  `Shape2D` also has `diamond`, `polygon` and `star`; `ParticleEmitter` takes `space: "screen"`. Guide section 9.20.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
   ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep
