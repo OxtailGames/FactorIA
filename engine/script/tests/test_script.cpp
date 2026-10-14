@@ -114,9 +114,6 @@ void copy_template(TestHost& h, const char* name) {
     REQUIRE(pj.ok());
     h.proj = *pj;
     h.in.set_actions(h.proj["input"]["actions"]);
-    if (name == std::string("3d-empty")) {
-        // 3D template declares its own actions
-    }
 }
 }  // namespace
 
@@ -133,7 +130,8 @@ TEST_CASE("templates: scripts, tools and test files load on the minimal host") {
         copy_template(h, name);
         REQUIRE(h.start());
         CHECK(h.scripts.errors().empty());
-        CHECK(h.cmds.has("project.spawn_" + std::string(name == std::string("2d-empty") ? "box" : name == std::string("3d-empty") ? "cube" : "coin")));
+        const bool empty = std::string(name).ends_with("-empty");  // a camera and nothing else
+        CHECK(h.cmds.has("project.spawn_coin") == !empty);
         std::size_t checked = 0;
         for (const char* dir : {"scripts", "tools", "tests"}) {
             for (const std::string& file : fs::list(dir, true, ".js")) {
@@ -142,7 +140,7 @@ TEST_CASE("templates: scripts, tools and test files load on the minimal host") {
                 ++checked;
             }
         }
-        CHECK(checked >= 3);
+        CHECK(empty ? checked == 0 : checked >= 3);
         REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
         h.step_frames(30);
         for (const auto& e : h.scripts.errors()) MESSAGE(e.to_string());

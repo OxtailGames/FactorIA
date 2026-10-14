@@ -193,6 +193,8 @@ Result<ScaffoldResult> create_project(const std::string& targetDir, const std::s
         if (!tooling_detail::write_file(dir / rel, data, &err)) return make_error(err);
         result.files.push_back(rel);
     }
+    // The folders AGENTS.md describes exist even when the template puts nothing in them (2d-empty, 3d-empty).
+    for (const char* sub : {"scripts", "tests", "tools"}) stdfs::create_directories(dir / sub, ec);
     if (options.writeTypings) {
         auto t = write_project_typings(result.dir);
         if (!t.ok()) FA_WARN("scaffold", "{} (types/factoria.d.ts stays a placeholder; run `factoria api --dts --project .`)", t.error().message);
