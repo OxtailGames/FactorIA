@@ -13,9 +13,9 @@ The shipping player (`player/`) is one code base for all platforms. On mobile,
 | Save games | `internalDataPath` | `Documents/` |
 | Min OS | Android 8.0 (API 26), arm64-v8a + x86_64 | iOS 15 |
 
-STATUS: the mobile code could not be compiled on the Linux development machine.
-CI (`.github/workflows/ci.yml`, jobs `ios`, `android`, `android-apk`) is the
-source of truth; expect small fixes on the first real device run.
+STATUS: CI (`.github/workflows/ci.yml`, jobs `ios`, `android`, `android-apk`) builds the iOS Simulator app,
+the Android arm64 player and an exported debug APK on every push. Nothing has run on a device or emulator yet;
+expect small fixes on the first real device run.
 
 ## Android
 
