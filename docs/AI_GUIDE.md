@@ -303,8 +303,8 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 |---|---|---|
 | `RigidBody2D` | `type` (static, dynamic, kinematic), `velocity` [x,y], `angularVelocity` (degrees/s), `gravityScale`, `fixedRotation`, `bullet`, `linearDamping`, `angularDamping` | Moves an entity under 2D physics. A static body never moves. |
 | `Collider2D` | `shape` (box, circle, capsule), `size`, `radius`, `offset`, `isTrigger`, `oneWay`, `friction`, `restitution`, `density`, `layer` (0..31), `mask` (-1 = all layers) | Collision shape. With `isTrigger: true` it reports overlaps and does not block. With `oneWay: true` it is a one-way platform (section 9.5). |
-| `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `rollWithMotion`, `gravityScale`, `linearDamping` | A simple 3D body. Shapes ignore `Transform.rotation`; `angularVelocity` spins the visual. |
-| `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are axis-aligned, and `size` is scaled by `Transform.scale`. |
+| `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. Box colliders follow `Transform.rotation`; `angularVelocity` turns the entity (and its box collider), but collisions never spin a body. Fast bodies are swept against static and kinematic colliders, so they do not tunnel through walls. |
+| `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. |
 
 **Audio and scripts**
 
@@ -903,6 +903,8 @@ Scene: the camera entity has `"Transform": {"position": [0, 4, 9], "rotation": [
 
 A sphere collider with `RigidBody3D` spins to match its rolling while it touches the ground: `rollWithMotion` (default true) derives the spin from its horizontal speed. Verified: a ball moved 5.96 m along X and its rotation turned by about -676 degrees about Z.
 
+A rolling sphere is slowed by rolling resistance, not by sliding friction: `RigidBody3D.rollingFriction` (default 0.02) caps the friction impulse at `rollingFriction` times the normal impulse, so on flat ground its speed falls by about `rollingFriction * 9.81` m/s every second. A ball launched at 3 m/s rolls about 23 m before it stops, whatever `Collider3D.friction` says. With `"rollWithMotion": false` the colliders' sliding friction applies instead (friction 0.5: the same ball stops within a second). So a rolling ball you steer by setting `velocity` every frame keeps the speed you give it; raise `rollingFriction` (for example 0.3) for a heavy, grippy ball, or write the velocity toward zero yourself.
+
 ```js
 // scripts/ball_control.js: push the ball with the move_* actions
 import { Behaviour, input } from "factoria";
@@ -938,7 +940,14 @@ export default class Mover extends Behaviour {
 }
 ```
 
-To make something spin without rolling, set `RigidBody3D.angularVelocity` (degrees per second about x, y, z) and `"rollWithMotion": false`. Verified: `[0, 90, 0]` gave `rotation.y = 90` after one second. Collision shapes stay axis-aligned, so the spin is visual only.
+To make something spin without rolling, set `RigidBody3D.angularVelocity` (degrees per second about x, y, z) and `"rollWithMotion": false`. Verified: `[0, 90, 0]` gave `rotation.y = 90` after one second. A box collider turns with the entity (a spinning kinematic bar pushes the bodies it meets); a sphere collider has no orientation, so for a sphere the spin is visual only.
+
+3D box colliders, fast bodies and sweeps:
+
+- **Oriented boxes.** A `Collider3D` box takes the entity's world rotation (`Transform.rotation`, parents included), so a wall rotated 30 degrees about Y is a wall at 30 degrees, and a box turned 45 degrees blocks at its rotated edge, not at the corner of its axis-aligned bounding box. `offset` is rotated and scaled with the entity. Raycasts, `overlapSphere`, `isTouching`, events and the physics debug dump (`shapes[].rotation`, euler degrees) all use the turned shape. An unrotated box behaves exactly as before.
+- **No torque.** Rotation only comes from the `Transform` and `angularVelocity`. A collision never makes a body spin or tip over: a box dropped on its corner does not fall onto a face, and a spinning box on the ground hops along it. For a crate that should stay put, leave its rotation alone.
+- **Fast bodies do not tunnel.** A dynamic body that would move more than about half its smallest size in one physics sub-step (a 60 m/s bullet sphere, say) is swept against the static and kinematic colliders and stops at the first one, then bounces or stops as for any hit. This is automatic. Two dynamic bodies are not swept against each other, so two fast bodies can still cross.
+- **Shape casts.** The 3D shape cast sweeps a sphere or an axis-aligned box from one point to another and returns the first collider it touches (oriented boxes and spheres included), with the distance the centre travelled, the contact point and the surface normal. Colliders that already overlap the shape at the start are skipped, like a raycast that starts inside a collider; `mask`, `ignore` and `ignoreTriggers` work as for raycasts.
 
 ### 9.19 3D ground checks and raycasts
 
@@ -1157,7 +1166,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres and boxes. Very fast bodies can pass through each other.
+- 3D physics handles spheres and (oriented) boxes. Fast bodies are swept against static and kinematic colliders, but two fast dynamic bodies can still cross each other.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more

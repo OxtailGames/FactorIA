@@ -43,7 +43,8 @@ Do not emulate these in JavaScript (earlier versions did; the engine now covers 
 - **Moving platforms and rolling.** The ball is a dynamic sphere `RigidBody3D`; `scripts/mover.js` only sets the
   `velocity` of kinematic `RigidBody3D` platforms. Bodies resting on a kinematic platform ride it, and a sphere on
   the ground spins to match its motion (`rollWithMotion`, default true). So `ball.js` sets `velocity` relative to the
-  ground and never touches `Transform.rotation`. Keep the ball collider at `friction: 0`, or friction slows it.
+  ground and never touches `Transform.rotation`. A rolling sphere is slowed by `RigidBody3D.rollingFriction`
+  (default 0.02), not by the collider's sliding `friction`, which is 0 here anyway.
 - **Raycasts.** `physics.raycast3d(origin, dir, dist, { ignore: this.entity })` (arrays are fine). No collider layers
   are needed to stop the ball hitting itself.
 - **HUD.** Screen-space items use `anchor` and `pivot` (top-left `[0, 0]`, top-right `[1, 0]`, centre `[0.5, 0.5]`), so

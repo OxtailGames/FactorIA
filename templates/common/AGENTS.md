@@ -97,7 +97,9 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 - **Cross-scene state:** `session` is a plain object that survives `scene.load`. `storage` is for save files.
 - **Failing a check:** `throw new ToolError(message, hint, data?)`. For a list of every problem, return it as a
   normal result with `ok: false`.
-- **3D:** `RigidBody3D.angularVelocity` and `rollWithMotion`; kinematic platforms carry the bodies on them;
+- **3D:** `RigidBody3D.angularVelocity`, `rollWithMotion` and `rollingFriction` (a rolling ball slows by that, not by
+  sliding friction); box colliders follow `Transform.rotation` and fast bodies do not tunnel; kinematic platforms
+  carry the bodies on them;
   `Light.castShadows`; `settings.fogDensity` and `fogColor`.
 - **Vectors:** `vec2(...)`, `[x, y]` and `{x, y}` are accepted wherever a vector is expected.
 - **Replays:** `factoria run --headless --input replay.json` with `press`, `release`, `keys` and `mouse` entries.
