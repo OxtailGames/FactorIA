@@ -98,24 +98,11 @@ TEST_CASE("AiChats starts with one blank tab and keeps at least one") {
     CHECK(chats.current().empty());
 }
 
-TEST_CASE("a new tab takes the provider and role of the active one") {
-    AiChats chats;
-    chats.current().provider = "claude";
-    chats.current().role = "worker";
-    const AiChat& fresh = chats.add(kNow);
-    CHECK(fresh.provider == "claude");
-    CHECK(fresh.role == "worker");
-    CHECK(fresh.items.empty());
-    CHECK(fresh.conversation.empty());
-}
-
 TEST_CASE("a chat is saved and loaded with everything the next message needs") {
     TempDir tmp("roundtrip");
     AiChats chats;
     chats.open_dir(tmp.chats());
     AiChat& c = chats.current();
-    c.provider = "claude";
-    c.role = "fast";
     say(c, "Make the player jump higher", 5000);
     ChatItem img = user_item("with a picture");
     img.images = {".factoria/ai/attachments/shot.png"};
@@ -151,8 +138,6 @@ TEST_CASE("a chat is saved and loaded with everything the next message needs") {
     CHECK(r.id == id);
     CHECK(r.title == "Make the player jump hig...");
     CHECK(r.updated == 5000);
-    CHECK(r.provider == "claude");
-    CHECK(r.role == "fast");
     CHECK(r.conversation.key == "claude");
     CHECK(r.conversation.cliSessionId == "6d0f1c2e-aaaa-bbbb-cccc-123456789abc");
     CHECK(r.conversation.cliCostUsd == doctest::Approx(0.25));

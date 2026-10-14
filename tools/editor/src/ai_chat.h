@@ -3,7 +3,7 @@
 // in tools/editor/tests exercise it without a window.
 //
 // Files in <project>/.factoria/ai/chats/:
-//   <id>.json   one conversation: title, times, provider/role, the CLI session id (Claude Code) or the message history
+//   <id>.json   one conversation: title, times, the CLI session id (Claude Code) or the message history
 //               (API providers), the transcript, the token totals. Written after every run and when a tab closes.
 //   open.json   which conversations are open as tabs (and which one is active), so the tabs come back with the project.
 // Closing a tab only closes it: the file stays and the conversation is listed in History.
@@ -61,8 +61,6 @@ struct AiChat {
     std::string id;     // file name stem in the chats folder: "20261014-153012" (+ "-2"...)
     std::string title;  // the first message, shortened; "" until there is one
     i64 created = 0, updated = 0;  // epoch seconds
-    std::string provider;          // "" = the role's provider
-    std::string role = "orchestrator";
     ai::Conversation conversation;  // CLI session id / message history that carries the chat to the next message
     std::vector<ChatItem> items;    // the transcript
     ai::Usage usage;                // tokens of the finished runs
@@ -103,7 +101,7 @@ public:
     // Switches to the chats folder of a project (<project>/.factoria/ai/chats, "" for none): the tabs that were open
     // last time come back, or one blank tab. Nothing is saved here.
     void open_dir(const std::string& chatsDir);
-    // A new blank tab (after the last one, now active) with the provider and role of the active one.
+    // A new blank tab (after the last one, now active).
     AiChat& add(i64 now);
     void select(int index);
     // Saves the tab, then closes it. The last tab is replaced by a blank one. Returns false for a bad index.

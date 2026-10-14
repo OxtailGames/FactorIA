@@ -68,7 +68,9 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.description =
             "Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers "
             "(claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in "
-            "tool loop. Example: {\"task\":\"Add a pause menu\",\"role\":\"orchestrator\",\"maxCostUsd\":2}";
+            "tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role \"worker\" or \"fast\" "
+            "and a self-contained task; the result's finalText is the sub-agent's report. Example: "
+            "{\"task\":\"Add a pause menu\",\"role\":\"orchestrator\",\"maxCostUsd\":2}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "task":{"type":"string","description":"What the agent should do."},
             "role":{"type":"string","enum":["orchestrator","worker","fast"],"default":"orchestrator"},
