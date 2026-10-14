@@ -216,7 +216,7 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
             CHECK_MESSAGE(rep.ok(), rep.summary());
             CHECK(rep.loadErrors.empty());
             CHECK(rep.failed == 0);
-            CHECK(rep.passed >= 2);
+            CHECK(rep.passed >= (std::string(name).ends_with("-empty") ? 0 : 2));  // the empty templates have no tests
             if (std::string(name) == "2d-platformer") {
                 // The map-vs-scene and canonical-layout checks need the commands: they must really run here.
                 int levelChecks = 0;

@@ -48,10 +48,15 @@ TEST_CASE("validate: a broken .json imported by two scripts is reported once, as
     testing::TempDir tmp;
     const std::string dir = tmp.sub("game");
     REQUIRE(create_project(dir, "2d-empty").ok());
+    // An entity whose Script.props (speed) validate checks against the behaviour once it loads.
+    auto scene = load_json_file(dir + "/scenes/main.scene.json");
+    REQUIRE(scene.ok());
+    (*scene)["entities"].push_back(Json::parse(
+        R"({"id": "player", "components": {"Script": {"path": "scripts/player.js", "props": {"speed": 300}}}})"));
+    REQUIRE(save_scene_json_file(dir + "/scenes/main.scene.json", *scene).ok());
     // Line 3, the second comma of "[1, 2,,]".
     testing::write_all(stdfs::path(dir) / "scripts/levels.json", "{\n  \"a\": 1,\n  \"b\": [1, 2,,]\n}\n");
-    // scripts/player.js is the template's script: the scene gives it Script.props (speed), which validate checks against
-    // the behaviour once it loads. Both scripts import the broken file.
+    // Both scripts import the broken file.
     for (const char* name : {"player", "other"})
         testing::write_all(stdfs::path(dir) / "scripts" / (std::string(name) + ".js"),
                            "import { Behaviour } from \"factoria\";\nimport levels from \"./levels.json\";\n"

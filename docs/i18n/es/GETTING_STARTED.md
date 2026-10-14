@@ -101,9 +101,9 @@ cd mi-juego
 
 Plantillas disponibles:
 
-- `2d-empty`: un cuadrado controlable con WASD o las flechas. No usa recursos gráficos.
+- `2d-empty`: una escena 2D vacía, solo con una cámara. Para empezar desde cero.
 - `2d-platformer`: plataformas con física, monedas, marcador y una cámara que sigue al jugador.
-- `3d-empty`: una cámara de vuelo, una luz, un suelo y un cubo que gira.
+- `3d-empty`: una escena 3D vacía, solo con una cámara en perspectiva.
 
 `factoria templates` muestra las plantillas disponibles con su descripción.
 
@@ -128,9 +128,9 @@ factoria run
 
 Se abre una ventana con el juego. Los controles están definidos en `factoria.json`, dentro de `input.actions`:
 
-- `2d-empty`: A, D, W y S o las flechas.
+- `2d-empty`: todavía no se mueve nada; las acciones `move_left/right/up/down` (A, D, W, S o las flechas) y `action` ya están definidas.
 - `2d-platformer`: A y D o las flechas para moverte; Espacio, W o la flecha arriba para saltar.
-- `3d-empty`: W y S o las flechas para avanzar y retroceder; A y D para moverte de lado; E o Espacio para subir; Q o LeftShift para bajar.
+- `3d-empty`: todavía no se mueve nada; las acciones para W/S, A/D, E/Espacio y Q/LeftShift (`move_forward`, `move_back`, `move_left`, `move_right`, `move_up`, `move_down`) ya están definidas.
 
 ## 4. Modo sin ventana y capturas
 
@@ -158,7 +158,7 @@ factoria test        # ejecuta tests/*.test.js sin ventana
 
 `factoria validate --fix-types` regenera `types/factoria.d.ts` a partir de la API del motor.
 
-Un test de la plantilla `2d-empty` tiene este aspecto:
+Un test tiene este aspecto (supone una escena con una entidad `player` que se mueve con `move_right`):
 
 ```js
 import { test, expect, game } from "factoria:test";

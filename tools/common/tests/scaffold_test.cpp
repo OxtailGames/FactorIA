@@ -148,6 +148,7 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     (*p)["input"]["actions"]["jump"] = Json::array({"Spacee"});
     REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
     auto scene = load_json_file(tmp.sub("game/scenes/main.scene.json"));
+    (*scene)["entities"].push_back(Json::parse(R"({"id": "thing", "components": {}})"));  // 2d-empty has only a camera
     (*scene)["entities"][1]["components"]["Sprite"] = Json::object({{"texture", "assets/missing.png"}});
     REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
     auto r2 = validate_project(tmp.sub("game"));
@@ -183,6 +184,7 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     CHECK(unknownComponent);
 
     // Script hook is invoked.
+    testing::write_all(tmp.path / "game/scripts/thing.js", "export default class Thing {}\n");
     ValidateOptions opt;
     int calls = 0;
     opt.scriptCheck = [&](const std::string&, const std::string& path) {
