@@ -264,7 +264,7 @@ test("project.generate_level composes ASCII rows and scene.import_ascii builds t
   expect(byId.camera.components.Script.props.maxX).toBe(undefined);
 });
 
-// scene.import_ascii {path, from} edits the scene FILE in a scratch world: there is nothing to restore afterwards.
+// scene.import_ascii {path, from, edits} edits the scene FILE in a scratch world: there is nothing to restore afterwards.
 test("project.generate_level never touches the running game, with or without dryRun", () => {
   const p = load();
   game.press("move_right");
@@ -289,7 +289,8 @@ test("project.generate_level never touches the running game, with or without dry
   expect(game.find("player")).not.toBeNull();
   expect(fa.call("fs.read", { path }).content.length).toBeGreaterThan(1000);
 
-  // The scratch copy of the base scene is gone; delete the output with the same command that wrote it.
+  // The tool needs no scratch copy of the base scene (its changes are `edits` of the import); delete the output with the
+  // same command that wrote it.
   const left = fa.call("fs.list", { path: ".factoria/tmp" }).entries.map((e) => e.path);
   expect(left).toContain(path);
   expect(left).not.toContain(".factoria/tmp/generate_level.base.scene.json");

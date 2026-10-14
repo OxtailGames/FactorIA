@@ -433,6 +433,38 @@ TEST_CASE("scene.format: check lists the files that are not canonical and writes
     CHECK(clean.result["unchanged"] == 4);
 }
 
+TEST_CASE("scene.format: check + strict fails with the files listed, and passes once they are canonical") {
+    Session s("format_strict");
+    const TempProject& p = s.project;
+    p.write("scenes/main.scene.json", dump_scene_json(Json::parse(kScene)));
+    p.write("scenes/messy.scene.json", kMessyScene);
+    p.write("prefabs/coin.prefab.json", kMessyPrefab);
+
+    // Without strict, check only lists; with strict it is an error whose message names every file and whose hint says what to run.
+    CHECK(s.call("scene.format", Json{{"check", true}}).ok);
+    auto bad = s.call("scene.format", Json{{"check", true}, {"strict", true}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["code"] == "not_canonical");
+    CHECK(contains(error_text(bad), "scenes/messy.scene.json"));
+    CHECK(contains(error_text(bad), "prefabs/coin.prefab.json"));
+    CHECK(contains(error_text(bad), "2 scene/prefab file(s)"));
+    CHECK(contains(bad.error["hint"].get<std::string>(), "scene.format without 'check'"));
+    CHECK(p.read("scenes/messy.scene.json") == kMessyScene);  // check writes nothing, strict or not
+
+    // strict is about check: on its own the command formats, as ever.
+    auto fixed = s.call("scene.format", Json{{"strict", true}});
+    REQUIRE_MESSAGE(fixed.ok, error_text(fixed));
+    CHECK(fixed.result["formatted"].size() == 2);
+    auto clean = s.call("scene.format", Json{{"check", true}, {"strict", true}});
+    REQUIRE_MESSAGE(clean.ok, error_text(clean));
+    CHECK(clean.result["notCanonical"].empty());
+
+    const CommandInfo* info = s.engine.commands().info("scene.format");
+    REQUIRE(info != nullptr);
+    CHECK(info->inputSchema["properties"].contains("strict"));
+    CHECK(contains(info->description, "not_canonical"));
+}
+
 TEST_CASE("scene.format: invalid JSON is reported with file, line and column and skipped") {
     Session s("format_invalid");
     const TempProject& p = s.project;

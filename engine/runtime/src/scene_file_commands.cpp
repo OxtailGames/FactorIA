@@ -281,43 +281,16 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
     return files;
 }
 
-struct CanonicalFile {
-    std::string text;   // the file as scene.format writes it
-    bool same = false;  // the file on disk already is exactly that text
-};
-
-// Reads a scene/prefab file and lays it out. The error says why the file cannot be formatted.
-Result<CanonicalFile> canonical_layout(const std::string& file) {
-    auto bytes = fs::read_bytes(file);
-    if (!bytes.ok()) return bytes.error();
-    const std::string text(bytes->begin(), bytes->end());
-    const bool bom = starts_with(text, "\xEF\xBB\xBF");
-    auto parsed = parse_json(std::string_view(text).substr(bom ? 3 : 0), file);
-    if (!parsed.ok()) return parsed.error();
-    if (!parsed->is_object())
-        return make_error(file + ": a scene or prefab file must be a JSON object, got " + describe_json_value(*parsed),
-                          "Start from {\"format\": \"factoria.scene/1\", \"entities\": []} or "
-                          "{\"format\": \"factoria.prefab/1\", \"entity\": {...}}.");
-    CanonicalFile out;
-    out.text = dump_scene_json(*parsed);
-    // Only whitespace may change: the new text must read back as exactly the same data (values and key order).
-    auto again = parse_json(out.text, file);
-    if (!again.ok() || *again != *parsed)
-        return make_error(file + ": the canonical layout would not read back as the same data.",
-                          "This is an engine bug: report it with feedback.report and attach the file.");
-    out.same = text == out.text;
-    return out;
-}
-
 Json scene_format(Engine::Impl& I, const Json& a) {
     const bool check = a.value("check", false);
+    const bool strict = a.value("strict", false);  // only meaningful with `check`: without it the files are fixed, not listed
     std::vector<std::string> searched;  // folders searched, for the note when nothing was found
     const std::set<std::string> files = select_files(a, searched);
 
     Json formatted = Json::array(), notCanonical = Json::array(), errors = Json::array();
     std::size_t unchanged = 0;
     for (const std::string& f : files) {
-        auto layout = canonical_layout(f);
+        auto layout = canonical_scene_layout(f);
         if (!layout.ok()) {
             errors.push_back(file_error(f, layout.error()));
         } else if (layout->same) {
@@ -331,6 +304,17 @@ Json scene_format(Engine::Impl& I, const Json& a) {
             if (I.watchSeeded && I.watched.count(f)) I.watched[f] = fs::modified_time(f);
             formatted.push_back(f);
         }
+    }
+
+    if (check && strict && !notCanonical.empty()) {
+        constexpr std::size_t kListed = 10;
+        std::string list;
+        for (std::size_t i = 0; i < notCanonical.size() && i < kListed; ++i)
+            list += (i ? ", " : "") + notCanonical[i].get<std::string>();
+        if (notCanonical.size() > kListed) list += ", and " + std::to_string(notCanonical.size() - kListed) + " more";
+        throw CommandError("not_canonical",
+                           std::to_string(notCanonical.size()) + " scene/prefab file(s) are not in the canonical layout: " + list + ".",
+                           "Run scene.format without 'check' (factoria call scene.format '{}') to rewrite them; only whitespace changes.");
     }
 
     Json out = Json::object();
@@ -392,12 +376,17 @@ void register_scene_file_commands(Engine& engine, Engine::Impl& I) {
          "listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and "
          "column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: "
          "[{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, "
-         "notes?}. Example: scene.format {\"paths\":[\"prefabs\"],\"check\":true}",
+         "notes?}. With `check` and `strict` the command FAILS (error code not_canonical, the message lists the files, the hint "
+         "says to run scene.format without `check`) when any file is not canonical: `factoria call` exits non-zero, so a CI "
+         "step can gate on it. project.validate also warns once per non-canonical scene or prefab. Example: "
+         "scene.format {\"paths\":[\"prefabs\"],\"check\":true}",
          parse_schema(R"({"type":"object","properties":{
                "paths":{"type":"array","minItems":1,"items":{"type":"string"},
                         "description":"Scene/prefab files or folders (recursive), project-relative. Default: every *.scene.json and *.prefab.json in the project."},
                "check":{"type":"boolean","default":false,
-                        "description":"true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one."}}})"),
+                        "description":"true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one."},
+               "strict":{"type":"boolean","default":false,
+                         "description":"With check: fail with error code not_canonical when any file is not canonical, instead of only listing it. Ignored without check."}}})"),
          false, "scene"},
         [&I](const Json& a) { return scene_format(I, a); });
 }
