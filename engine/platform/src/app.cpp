@@ -214,6 +214,11 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     s.logger.func = fa_sokol_log_func;
 #if defined(__ANDROID__)
     s.android.native_event_cb = android_gamepad_event;  // pads: see gamepad_android.cpp
+    // sokol_app asks for an OpenGL ES 3.1 context on Android by default. The engine's shaders are GLSL ES 3.00 and
+    // use no 3.1 feature, but not every GL stack offers 3.1 (the emulator's software GPU is 3.0: eglCreateContext
+    // fails with EGL_BAD_CONFIG and sokol aborts at startup), so ask for 3.0; drivers may still return a newer context.
+    s.gl.major_version = 3;
+    s.gl.minor_version = 0;
 #endif
     return s;
 }

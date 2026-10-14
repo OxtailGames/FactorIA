@@ -11,11 +11,29 @@ The shipping player (`player/`) is one code base for all platforms. On mobile,
 | Graphics | GLES 3.0 (`SOKOL_GLES3`) | Metal |
 | Game files | APK assets, read through `AAssetManager` (`assets_index.txt` lists them) | `<App>.app/game/` |
 | Save games | `internalDataPath` | `Documents/` |
-| Min OS | Android 8.0 (API 26), arm64-v8a + x86_64 | iOS 15 |
+| Min OS | Android 8.0 (API 26), arm64-v8a + x86_64 | iOS 16.3 |
 
-STATUS: CI (`.github/workflows/ci.yml`, jobs `ios`, `android`, `android-apk`) builds the iOS Simulator app,
-the Android arm64 player and an exported debug APK on every push. Nothing has run on a device or emulator yet;
-expect small fixes on the first real device run.
+STATUS: CI (`.github/workflows/ci.yml`) builds the mobile players and RUNS them with a demo game:
+
+- `ios` job: boots an iPhone on the newest iOS Simulator runtime of the `macos-latest` runner (iOS 26.5, iPhone 17 Pro,
+  Xcode 26.6 when this was written; the app renders with the real Metal driver), installs the `.app` and launches it with its console captured.
+- `android-emulator` job: boots an API 34 `x86_64` emulator (default image, KVM, software GPU: OpenGL ES 3.0 only),
+  installs the debug APK that `android-apk` built (it carries `arm64-v8a` and `x86_64`) and starts it.
+
+Both assert that the process stays alive, the player logged its run marker `player: 60 frames rendered`
+(`engine/runtime/src/runners.cpp`; logcat shows `I factoria: player: 60 frames rendered`), the engine logged no error,
+nothing crashed and a screenshot shows a picture. Logs, the screenshot and crash reports are uploaded as artifacts
+(`ios-smoke`, `android-smoke`) on every run. Locally: `scripts/ios-smoke.sh <app> <bundleId>` (Mac) and
+`scripts/android-smoke.sh <apk> <applicationId>` (adb device or emulator).
+
+Not covered by CI: real devices and GPUs, running arm64 Android code (the emulator is `x86_64`), touch, audio and
+suspend/resume. A failing run is therefore a real bug; a green one is not a device certification.
+
+Found by the first device runs (all fixed): the emulator has no OpenGL ES 3.1, so the player asks for a 3.0 context
+(`to_sapp_desc`); and its software GLES treats every texture larger than 1x1 as incomplete unless the texture states
+its last mip level, so the renderer creates all images through `make_image` (`engine/render/src/image_gl.cpp`), which
+sets `GL_TEXTURE_MAX_LEVEL`. Without it the emulator showed a black window while the log looked healthy; that is why
+the smoke tests also check the screenshot.
 
 ## Android
 
@@ -36,7 +54,7 @@ build for one ABI only, edit `abiFilters` in `app/build.gradle`.
 Without Gradle (just the native library, as CI does): `export ANDROID_NDK_HOME=...; ./scripts/build-android.sh`
 produces `build/android-arm64/player/libfactoria_player.so`.
 
-Logs: `adb logcat -s FactorIA sokol`.
+Logs: `adb logcat -s factoria` (tag `factoria`: the engine log and the sokol messages; a native crash is under `libc` and `DEBUG`).
 
 ### Signing and release
 

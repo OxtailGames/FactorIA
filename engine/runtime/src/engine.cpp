@@ -298,7 +298,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             if (I.gpu) I.gpu->shutdown();
             I.gpu.reset();
         } else {
-            FA_INFO("engine", "Graphics: {}", I.gpu ? I.gpu->description() : "window");
+            FA_INFO("engine", "Graphics: {}",
+                    I.gpu ? I.gpu->description()
+                          : std::format("window {}x{} px (dpi scale {})", app_framebuffer_width(), app_framebuffer_height(),
+                                        app_dpi_scale()));
         }
     }
 
