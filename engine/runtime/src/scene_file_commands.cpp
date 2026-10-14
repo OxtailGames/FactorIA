@@ -201,26 +201,6 @@ bool is_scene_file(const std::string& path) {
     return ends_with(lower, kSceneExt) || ends_with(lower, kPrefabExt);
 }
 
-// Folders that hold copies or tool state, not the project's own scenes: skipped when a folder is searched.
-bool skipped_folder(const std::string& name, bool atProjectRoot) {
-    return (!name.empty() && name[0] == '.') || name == "node_modules" || (atProjectRoot && name == "build");
-}
-
-// Every scene/prefab file below `dir` ("" = the project), sorted.
-std::vector<std::string> scene_files_in(const std::string& dir) {
-    std::vector<std::string> out;
-    const std::string prefix = dir.empty() ? std::string() : dir + "/";
-    for (const std::string& f : fs::list(dir.empty() ? "." : dir, true, ".json")) {
-        if (!is_scene_file(f)) continue;
-        const std::vector<std::string> parts = split(f.substr(prefix.size()), '/');
-        bool skip = false;
-        for (std::size_t i = 0; i + 1 < parts.size(); ++i)
-            if (skipped_folder(parts[i], i == 0 && dir.empty())) skip = true;
-        if (!skip) out.push_back(f);
-    }
-    return out;
-}
-
 // "path:LINE:COL: invalid JSON: ..." (parse_json) -> line and column; false when the message has another shape.
 bool parse_location(const std::string& message, const std::string& file, int& line, int& column) {
     if (!starts_with(message, file + ":")) return false;
@@ -251,7 +231,7 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
     std::set<std::string> files;
     if (!a.contains("paths")) {
         searched.push_back("");
-        for (const std::string& f : scene_files_in("")) files.insert(f);
+        for (const std::string& f : project_scene_files("")) files.insert(f);
         return files;
     }
     const Json& paths = a["paths"];
@@ -266,7 +246,7 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
         const std::string rel = project_relative(paths[i].get<std::string>(), what);
         if (fs::is_directory(rel)) {
             searched.push_back(rel);
-            for (const std::string& f : scene_files_in(rel)) files.insert(f);
+            for (const std::string& f : project_scene_files(rel)) files.insert(f);
         } else if (fs::exists(rel)) {
             if (!is_scene_file(rel))
                 bad_arg(what + " '" + rel + "' is not a scene or prefab file.",
@@ -274,7 +254,7 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
                             "; to format all of them pass a folder instead.");
             files.insert(rel);
         } else {
-            throw CommandError("not_found", what + " '" + rel + "' does not exist. " + did_you_mean(rel, scene_files_in("")),
+            throw CommandError("not_found", what + " '" + rel + "' does not exist. " + did_you_mean(rel, project_scene_files("")),
                                "Pass scene/prefab files or folders of the project; project.info lists the scenes and prefabs.");
         }
     }

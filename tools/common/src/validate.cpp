@@ -166,6 +166,23 @@ void warn_if_not_canonical(Ctx& c, const std::string& rel) {
                "Run `factoria call scene.format` (command scene.format) to rewrite it; it changes whitespace only, and keeps diffs small.");
 }
 
+// A prefab file loaded on its own into a scratch world, so that what the scene loader rejects (an unknown component or
+// field, a value outside a field's range...) is reported even when no scene places the prefab. A scene that does place
+// it reports the same problem at its own entity; this report names the prefab file, where it is fixed. An Entity field
+// pointing at an id outside the prefab is not a problem here: the scene that places the prefab supplies the target.
+void check_prefab_loads(Ctx& c, const std::string& rel) {
+    World world;
+    LoadReport lr;
+    instantiate_prefab(world, rel, kNullEntity, lr);
+    const std::string note = " (entity expanded from prefab '" + rel + "')";  // the loader adds it to hints; here it is the file itself
+    for (const auto& m : lr.messages) {
+        if (starts_with(m.message, "No entity with id")) continue;
+        ValidationIssue issue{rel, m.pointer == "/prefab" ? std::string() : "/entity" + m.pointer, m.message, m.hint};
+        if (ends_with(issue.hint, note)) issue.hint.resize(issue.hint.size() - note.size());
+        (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
+    }
+}
+
 void check_binding(Ctx& c, const std::string& pointer, const std::string& binding) {
     if (Input::is_binding_name(binding)) return;
     c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", did_you_mean(binding, Input::binding_names()));
@@ -274,19 +291,11 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     std::set<std::string> scripts;
     if (options.checkScenes) {
         RootGuard guard(c.dir);
+        // Every scene and prefab of the project, wherever it lives (scenes/, prefabs/, levels/...): the same files
+        // scene.format formats (hidden folders, node_modules and a top-level build/ are skipped).
         std::vector<std::string> sceneFiles, prefabFiles;
-        for (const char* folder : {"scenes", "prefabs"}) {
-            stdfs::path base = stdfs::path(c.dir) / folder;
-            if (!stdfs::is_directory(base, ec)) continue;
-            for (stdfs::recursive_directory_iterator it(base, ec), end; !ec && it != end; it.increment(ec)) {
-                if (!it->is_regular_file(ec)) continue;
-                std::string rel = stdfs::relative(it->path(), c.dir, ec).generic_string();
-                if (ends_with(rel, ".scene.json")) sceneFiles.push_back(rel);
-                else if (ends_with(rel, ".prefab.json")) prefabFiles.push_back(rel);
-            }
-        }
-        std::sort(sceneFiles.begin(), sceneFiles.end());
-        std::sort(prefabFiles.begin(), prefabFiles.end());
+        for (const std::string& rel : project_scene_files())
+            (ends_with(to_lower(rel), ".scene.json") ? sceneFiles : prefabFiles).push_back(rel);
         for (const auto& rel : sceneFiles) {
             ++c.report.scenesChecked;
             World world;  // registers built-in components
@@ -315,6 +324,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             auto parsed = text ? parse_json(*text, rel) : Result<Json>(make_error("cannot read " + rel));
             if (!parsed.ok()) { c.error(rel, "", parsed.error().message, "Fix the JSON syntax."); continue; }
             warn_if_not_canonical(c, rel);
+            check_prefab_loads(c, rel);
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
@@ -322,7 +332,9 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
         else if (!mainScene.empty() && std::find(sceneFiles.begin(), sceneFiles.end(), mainScene) == sceneFiles.end() &&
                  stdfs::exists(stdfs::path(c.dir) / mainScene))
-            c.warn(kProjectFileName, "/mainScene", "mainScene '" + mainScene + "' is not under scenes/ or is not named *.scene.json.");
+            c.warn(kProjectFileName, "/mainScene",
+                   "mainScene '" + mainScene + "' is not named *.scene.json (or is in a hidden or build folder), so it is not validated.",
+                   "Name it <something>.scene.json, e.g. scenes/main.scene.json.");
     }
 
     // Scripts: everything under scripts/ and tools/ plus referenced paths.
@@ -374,7 +386,12 @@ void register_validate_commands(CommandRegistry& registry, const std::string& pr
     info.readOnly = true;
     info.summary = "Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.";
     info.description = "Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, "
-                       "message and a fix hint. Loads every scene into a temporary world, so it does not disturb a running game. "
+                       "message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept "
+                       "(scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, "
+                       "like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not "
+                       "disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown "
+                       "field or a value outside a field's range (\"Field 'sides': value 200 is outside the allowed range 3..64\"; "
+                       "the offending field keeps its default, nothing is clamped). "
                        "Warns once per scene or prefab file that is not in the canonical layout (fix: scene.format), and reports "
                        "a .json that a script imports and that is not valid JSON once, as that file with line and column. "
                        "Example: {}";
