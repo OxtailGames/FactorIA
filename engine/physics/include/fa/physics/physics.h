@@ -55,30 +55,48 @@
 //     is the minimum-penetration axis. Queries (raycast3d, overlap_sphere3d, shape_cast3d, is_touching3d), riders,
 //     events and debug output all use the oriented shape (read from the Transform in sync(), so a spin applied by
 //     angularVelocity shows in queries from the next sync() on). An unrotated box takes an exact axis-aligned fast path.
-//     CEILING: rotation only comes from Transform / angularVelocity. Collisions apply no torque and bodies have no
-//     inertia tensor, so a box never tips over by itself and a spinning box resting on the ground hops along it.
 //     Semi-implicit Euler with subSteps sub-steps, positional correction, restitution (ignored below 0.5 m/s) and
 //     Coulomb friction. Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a
 //     Collider3D alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger
 //     overlaps. Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
+//   * 3D ROTATION DYNAMICS: a dynamic BOX without RigidBody3D.lockRotation is a rigid body. Its inertia tensor is the
+//     solid box's (diagonal in the box frame from the scaled size and mass, rotated into the world through the
+//     orientation), contacts are manifolds (the touching face clipped to the other box's face: up to 8 points; edge-edge
+//     and sphere contacts have one) and the solver applies friction and normal impulses AT the contact points, so a box
+//     tips over a ledge, tumbles and settles on a face, and a sphere hitting it off-centre spins it. Impulses are
+//     accumulated and clamped per point (Gauss-Seidel, 8 iterations per sub-step, alternating sweep order) and warm
+//     started from the previous sub-step's solution of the same contact points; positional correction is translation
+//     only. The orientation is a quaternion kept by the body and integrated every sub-step about the collider centre
+//     (angular velocity is constant between contacts: no gyroscopic term); it is written to Transform.rotation (local
+//     euler; the parent's rotation is taken into account) after the step, and a Transform.rotation that differs from
+//     what was written last (gameplay turned the body) re-reads the orientation from the Transform. angularDamping
+//     slows the spin. There is no sleeping: a settled stack just ends up with ~zero velocities.
+//     lockRotation (and every sphere, kinematic and static body) keeps the original single-point torque-free solver:
+//     contacts never turn it; angularVelocity written by gameplay still turns it (euler-added to the Transform each
+//     step). Spheres are never turned by contacts: friction on a sphere only slows it (rollWithMotion / rollingFriction).
 //   * 3D SHAPE CAST (shape_cast3d): the swept sphere / axis-aligned box is stepped along the path (at most half its
 //     smallest extent per step), the first step that overlaps a collider is bisected to ~0.1 mm, and normal/point come
 //     from the contact at that time. A collider cannot slip between two steps (the shape is at least two steps long),
 //     but a grazing touch at the very edge of the swept volume may be missed. Cost grows with path length / extent.
 //     At `from` it behaves like the 2D cast: a collider penetrated by more than 1 cm is skipped; one only touched
 //     (a body resting on the ground penetrates it ~1 mm) blocks the cast at distance 0 when the shape moves towards it.
-//   * 3D CONTINUOUS COLLISION (automatic): in a sub-step a dynamic body that would move farther than about half its
-//     smallest extent (sphere: its radius) is swept along that move against the solid static and kinematic colliders
-//     (the same stepping + bisection as shape_cast3d) and stops at the time of impact, slightly inside the surface, so
-//     the contact solver resolves the velocity (stop / bounce) as for any contact: a 60 m/s sphere does not pass a 0.2 m
-//     wall. Colliders the body already overlaps at the start of the sub-step are left to the solver. Dynamic-vs-dynamic
-//     pairs and kinematic motion within the sub-step are NOT swept (two fast dynamic bodies can still cross).
+//   * 3D CONTINUOUS COLLISION (automatic): every sub-step, each pair with a dynamic body whose RELATIVE displacement over
+//     the sub-step exceeds about half the smaller body's smallest extent (sphere: its radius) is swept in relative motion
+//     (the smaller body against the other one standing at its start pose, same stepping + bisection as shape_cast3d):
+//     dynamic vs static, dynamic vs kinematic (the kinematic's own motion within the sub-step counts) and dynamic vs
+//     dynamic (two 60 m/s spheres flying at each other). The earliest time of impact among all pairs stops ALL bodies
+//     there (each moved by its own velocity * that fraction), the contacts are resolved (stop / bounce / slide: the
+//     normal solver, no positional correction since the overlap is ~0.1 mm) and the rest of the sub-step continues
+//     with the new velocities, repeating up to 6 impacts per sub-step. So a 60 m/s sphere does not pass a 0.2 m wall
+//     and keeps sliding along a ramp it hits instead of losing the rest of its move. Pairs that already overlap at
+//     the start of the (remaining) move are left to the solver. A box's own rotation during the sub-step is not swept.
 //   * 3D RIDERS: dynamic bodies resting on top of a kinematic body (gap <= 2 cm, contact normal up) inherit its
 //     displacement every sub-step (horizontal; and downward), so they ride moving platforms; friction then acts
 //     on the velocity RELATIVE to the platform. A static/kinematic body teleported by gameplay carries its riders
 //     by the same displacement. Stacked riders (rider on a rider) are not carried.
-//   * 3D ROTATION: RigidBody3D.angularVelocity (deg/s about world x,y,z) is added to Transform.rotation (euler
-//     degrees) each step for dynamic and kinematic bodies; box colliders turn with it. rollWithMotion: a dynamic sphere
+//   * 3D ANGULAR VELOCITY: RigidBody3D.angularVelocity (deg/s about world x,y,z) turns the entity: for rotating boxes
+//     (see ROTATION DYNAMICS) as a quaternion about the collider centre; for kinematic, lockRotation and sphere bodies it
+//     is added to Transform.rotation (euler degrees) each step. Box colliders turn with it. rollWithMotion: a dynamic sphere
 //     touching ground (contact normal up) gets angularVelocity = rolling rate: axis = up x velocity,
 //     rate = |horizontal v| / radius (deg/s). ROLLING RESISTANCE: such a sphere's contacts cap the tangential impulse
 //     at RigidBody3D.rollingFriction * normalImpulse (default 0.02) instead of sqrt(muA * muB) * normalImpulse, so on flat
