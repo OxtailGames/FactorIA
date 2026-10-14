@@ -329,7 +329,7 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 | Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |
 | Exporting games (`factoria export`) | Linux tested (`--platform linux`); CI exports an Android game and builds its APK. Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md` |
 | Documentation for AI | In English: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput), Linux (joystick API) and macOS/iOS (GameController) are written but untested; Android and web have none yet (`docs/MOBILE.md`) |
+| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput), Linux (joystick API; PlayStation and Switch Pro layouts built in, others through an `SDL_GAMECONTROLLERCONFIG` line), macOS/iOS (GameController) and Android; all compiled by CI, none tested with a physical pad yet. The web build has none (`docs/MOBILE.md`, `docs/SCRIPTING.md`) |
 
 ## 9. Where to read next
 
