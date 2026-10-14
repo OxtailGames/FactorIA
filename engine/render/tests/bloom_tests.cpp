@@ -564,6 +564,48 @@ TEST_CASE("bloomScreenSpace=false: a HUD item drawn over a bright world shape co
     CHECK(img.pixel(145, 85).r > 0.9f);
 }
 
+TEST_CASE("bloomScreenSpace=false: screen-space particles stay crisp, world particles keep glowing") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();
+    Scene2D s;
+    // A white additive dot in the HUD region: screen pixel (50, 90).
+    Entity e = make(s.world, "hud-sparks", {50, 90, 0});
+    auto& p = s.world.add<ParticleEmitter>(e);
+    p.emitting = false; p.rate = 0; p.burst = 1; p.lifetime = 1000.0f; p.lifetimeVariance = 0; p.speed = 0;
+    p.speedVariance = 0; p.spread = 0; p.gravity = {0, 0, 0}; p.startSize = p.endSize = 20;
+    p.startColor = p.endColor = Color::white();
+    p.blend = BlendMode::Additive;
+    p.space = RenderSpace::Screen;
+
+    s.bloom(false);
+    Image off = g.render(s.world);
+    CHECK(max_channel(off.pixel(50, 90)) > 0.95f);   // the dot
+    CHECK(hud_glow_pixels(off, off) == 0);
+
+    s.bloom(true);
+    s.camera().bloomScreenSpace = true;
+    Image glowing = g.render(s.world);
+    INFO("glow pixels around the screen-space dot with bloomScreenSpace=true: " << hud_glow_pixels(glowing, off));
+    CHECK(hud_glow_pixels(glowing, off) > 100);
+
+    s.camera().bloomScreenSpace = false;
+    Image crisp = g.render(s.world);
+    CHECK(hud_glow_pixels(crisp, off) == 0);         // the HUD pass draws the dot after the bloom: no halo at all
+    CHECK(max_channel(crisp.pixel(50, 90)) > 0.95f);
+    CHECK(world_glow_pixels(crisp) > 300);           // the world rectangle still glows
+
+    // The same emitter in world space (world (-110, 0) is the same pixel) is bloomed whatever the flag says.
+    s.world.get<Transform>(e)->position = {-110, 0, 0};
+    p.space = RenderSpace::World;
+    g.renderer.clear_asset_cache();  // the particle born in screen space would stay in screen coordinates
+    s.bloom(false);
+    Image worldOff = g.render(s.world);
+    s.bloom(true);
+    Image worldGlow = g.render(s.world);
+    CHECK(hud_glow_pixels(worldGlow, worldOff) > 100);
+}
+
 namespace {
 bool bloom_bench_enabled() {
     const char* v = std::getenv("FA_BLOOM_BENCH");

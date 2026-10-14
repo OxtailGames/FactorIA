@@ -86,6 +86,8 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         switch (s->shape) {
             case ShapeType::Rectangle:
             case ShapeType::Triangle:
+            case ShapeType::Polygon:  // a polygon's or star's vertices lie inside the size box; the box is its footprint
+            case ShapeType::Star:
                 out.push_back(make("Shape2D", s->space, s->layer, s->anchor, rect_quad(bx0, by0, bx0 + s->size.x, by0 + s->size.y)));
                 break;
             case ShapeType::Diamond: {  // the rhombus on the midpoints of the size box's edges
