@@ -2,6 +2,8 @@
 if [ -n "$FAKE_ARGV_FILE" ]; then
   for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV_FILE"; done
 fi
+stdin=$(cat)
+if [ -n "$FAKE_ARGV_FILE" ] && [ -n "$stdin" ]; then printf 'stdin:%s\n' "$stdin" >> "$FAKE_ARGV_FILE"; fi
 echo '{"type":"thread.started","thread_id":"th1"}'
 echo '{"type":"turn.started"}'
 echo '{"type":"item.started","item":{"id":"i1","type":"mcp_tool_call","server":"factoria","tool":"project_validate","arguments":{},"status":"in_progress"}}'

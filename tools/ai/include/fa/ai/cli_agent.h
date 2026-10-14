@@ -32,6 +32,7 @@ struct CliRunResult {
 // {prompt} {model} {project} {mcp_config} {project_json} {factoria} {factoria_json}.
 // Elements whose placeholder expands to an empty string are dropped together with
 // a preceding bare flag ("-m", "{model}" disappears when no model is set).
+// A template without {prompt} gets the prompt on standard input (the built-in ones do).
 std::vector<std::string> expand_cli_argv(const std::vector<std::string>& tmpl, const CliRunRequest& req,
                                          const std::string& mcpConfigPath, const std::string& factoriaCommand);
 

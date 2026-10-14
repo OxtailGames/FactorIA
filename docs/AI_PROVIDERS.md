@@ -29,7 +29,8 @@ factoria ai doctor        # what is installed / which keys are visible (never pr
    ```json
    { "roles": { "orchestrator": { "provider": "claude-code", "model": "opus" } } }
    ```
-FactorIA runs: `claude -p <prompt> --output-format stream-json --verbose --model <model> --mcp-config <file> --permission-mode acceptEdits`
+FactorIA runs: `claude -p --output-format stream-json --verbose --model <model> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
+with the prompt on standard input,
 in the project directory. The MCP config file is generated at
 `<project>/.factoria/ai/mcp-claude-code.json` (no secrets in it).
 
@@ -37,7 +38,8 @@ in the project directory. The MCP config file is generated at
 1. `npm i -g @openai/codex`
 2. Run `codex` once (or `codex login`) and sign in with ChatGPT.
 3. Use provider `codex`. FactorIA runs
-   `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' <prompt>`.
+   `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' -`,
+   with the prompt on standard input.
 
 ### C) Any other CLI agent
 ```json
@@ -53,7 +55,9 @@ in the project directory. The MCP config file is generated at
 ```
 Placeholders: `{prompt}` `{model}` `{project}` `{mcp_config}` (path of a generated
 MCP config JSON) plus `{project_json}` / `{factoria_json}` (JSON-quoted strings,
-used by the Codex template). If `{model}` is empty, that argument (and a bare
+used by the Codex template). A template without `{prompt}` gets the prompt on standard input: on Windows
+prefer that, because CLIs installed with npm are `.cmd` files and `cmd.exe` cannot pass a multi-line argument
+(FactorIA refuses arguments with line breaks or `% & | < > ^` for them). If `{model}` is empty, that argument (and a bare
 flag right before it) is dropped. Output lines are shown as text; JSON lines
 with `text`/`result`/`message` are unwrapped.
 
@@ -97,7 +101,7 @@ file is optional; without it the Anthropic defaults below apply. Schema:
     "openrouter": { "preset": "openrouter", "headers": { "HTTP-Referer": "https://example.com" } },
     "local":      { "type": "openai-compatible", "baseUrl": "http://localhost:8080/v1", "defaultModel": "qwen2.5-coder" },
     "claude-code": { "command": "claude" },
-    "codex":       { "command": "codex", "argv": ["exec", "--json", "-m", "{model}", "{prompt}"] }
+    "codex":       { "command": "codex", "argv": ["exec", "--json", "-m", "{model}", "-"] }
   },
   "roles": {
     "orchestrator": { "provider": "anthropic", "model": "claude-opus-5-5",   "effort": "xhigh" },
@@ -195,7 +199,7 @@ when they provide it. Set `limits.maxCostUsd` to cap a run.
 | `... is not logged in or its credentials were rejected` | Run the CLI in a terminal and log in again. |
 | Claude Code bills the API instead of your plan | `ANTHROPIC_API_KEY` is set in the environment; add `"unsetEnv": ["ANTHROPIC_API_KEY"]` to the `claude-code` provider. |
 | CLI exits at once / ignores flags | Flags changed in a newer CLI version: override `argv` in `ai.json`; test it in a terminal. |
-| MCP server `factoria` failed | `factoria` must be on PATH (or set `factoriaCommand` to an absolute path). |
+| MCP server `factoria` failed | `factoria` puts its own directory first on PATH for the agents it starts, so this only happens when `factoriaCommand` names another binary: fix it or set it to an absolute path. |
 | `No Anthropic credentials found` | Set `ANTHROPIC_API_KEY` or log in with `ant auth login`. |
 | `No API key for provider 'openrouter'` | `export OPENROUTER_API_KEY=...` (see table above). |
 | `No model configured for role ...` | Set `roles.<role>.model` for non-Anthropic providers. |
