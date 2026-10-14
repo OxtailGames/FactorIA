@@ -306,8 +306,10 @@ void register_builtin_components(TypeRegistry& r) {
                "up through it from below and pass sideways.");
 
     r.add<RigidBody3D>("RigidBody3D",
-                       "Simple 3D physics body for arcade games (spheres and axis-aligned boxes; no rotation dynamics). "
-                       "Pair it with a Collider3D. Gravity comes from scene settings (gravity3D).",
+                       "Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. "
+                       "Gravity comes from scene settings (gravity3D). Fast bodies are swept against static and kinematic "
+                       "colliders (continuous collision, automatic). Rotation comes only from Transform.rotation and "
+                       "angularVelocity: collisions apply no torque.",
                        "Physics")
         .enum_field("type", &RigidBody3D::type, {"static", "dynamic", "kinematic"},
                     "static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by velocity/Transform.")
@@ -319,15 +321,25 @@ void register_builtin_components(TypeRegistry& r) {
                "Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step.")
         .field("rollWithMotion", &RigidBody3D::rollWithMotion,
                "Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground "
-               "(sets angularVelocity from the horizontal velocity).");
+               "(sets angularVelocity from the horizontal velocity). Such a sphere also uses rolling resistance "
+               "(rollingFriction) instead of sliding friction.")
+        .field("rollingFriction", &RigidBody3D::rollingFriction,
+               "Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal "
+               "force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about "
+               "rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored "
+               "when rollWithMotion is false (then Collider3D.friction applies) and for boxes.").range(0, 10);
 
     r.add<Collider3D>("Collider3D",
-                      "Collision shape for 3D physics (axis-aligned box or sphere). Scaled by the Transform scale.",
+                      "Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world "
+                      "rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the "
+                      "Transform scale.",
                       "Physics")
         .enum_field("shape", &Collider3D::shape, {"box", "sphere"}, "Shape type; uses size (box) or radius (sphere).")
-        .field("size", &Collider3D::size, "box: full extents [x, y, z] in meters (axis-aligned, before Transform scale).")
+        .field("size", &Collider3D::size,
+               "box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.")
         .field("radius", &Collider3D::radius, "sphere: radius in meters.")
-        .field("offset", &Collider3D::offset, "Shape center offset [x, y, z] from the entity origin.")
+        .field("offset", &Collider3D::offset,
+               "Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity.")
         .field("isTrigger", &Collider3D::isTrigger, "true = sensor: reports overlaps but does not block movement.")
         .field("friction", &Collider3D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider3D::restitution, "Bounciness: 0 = none, 1 = perfectly elastic.").range(0, 1)

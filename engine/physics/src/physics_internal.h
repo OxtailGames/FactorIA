@@ -20,6 +20,7 @@ struct WorldPose {
     Vec3 position;
     float rotZ = 0.0f;  // degrees
     Vec3 scale{1, 1, 1};
+    Vec3 axis[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // full rotation (3D): unit columns of the world matrix
 };
 WorldPose world_pose(const World& world, Entity e);
 // True if `e` is `ignore` or one of its descendants (false when ignore is null).
@@ -157,9 +158,14 @@ private:
         float gravityScale = 1.0f, damping = 0.0f;
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
-        Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents (scaled)
+        Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents along its own axes (scaled)
         float radius = 0.5f;          // sphere (scaled)
-        Vec3 offset;                  // scaled collider offset
+        // Box frame in world space: the entity's world rotation. Exactly the identity (and `rotated` false, which
+        // selects the exact axis-aligned code paths) unless the box is turned.
+        Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+        bool rotated = false;
+        float rollMu = -1.0f;         // rolling resistance of a rolling sphere (replaces friction); < 0 = not rolling
+        Vec3 offset;                  // collider offset in world axes (scaled, rotated with the entity)
         Vec3 center;                  // collider center (world)
         Vec3 vel;
         Vec3 force;
@@ -182,6 +188,9 @@ private:
     };
 
     static Contact collide(const Body& a, const Body& b, float margin);
+    static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
+    static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out);
+    static bool sweep(Body& mover, Vec3 disp, const Body& target, float& tHit);
     static bool filters_pass(const Body& a, const Body& b);
     void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried);
 
