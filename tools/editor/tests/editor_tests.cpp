@@ -10,16 +10,6 @@
 using namespace fa;
 using namespace fa::editor;
 
-TEST_CASE("asset type matching") {
-    CHECK(asset_matches("texture", "assets/hero.PNG"));
-    CHECK_FALSE(asset_matches("texture", "assets/hero.wav"));
-    CHECK(asset_matches("audio", "sfx/jump.ogg"));
-    CHECK(asset_matches("scene", "scenes/main.scene.json"));
-    CHECK_FALSE(asset_matches("scene", "factoria.json"));
-    CHECK(asset_matches("prefab", "prefabs/a.prefab.json"));
-    CHECK(asset_matches("any", "whatever.bin"));
-}
-
 TEST_CASE("case-insensitive filter") {
     CHECK(contains_ci("Main Camera", "cam"));
     CHECK(contains_ci("Main Camera", ""));
@@ -85,8 +75,8 @@ TEST_CASE("commands that only write files do not count as scene edits") {
     CHECK(ed.command_edits_scene("scene.set_component", Json::object()));
 }
 
-// The inspector is reflection-driven: what it shows and allows is what these registrations declare.
-TEST_CASE("inspector fields: Camera bloom, Shape2D diamond and Tilemap columns have docs, ranges and defaults the editor can use") {
+// The AI reads these registrations (api.components) and writes through the same patch_component call as scene.set_component.
+TEST_CASE("reflected fields: Camera bloom, Shape2D diamond and Tilemap columns have docs, ranges and defaults") {
     World w;  // registers the built-in components
     const TypeInfo* cam = TypeRegistry::global().find("Camera");
     REQUIRE(cam);
@@ -110,15 +100,8 @@ TEST_CASE("inspector fields: Camera bloom, Shape2D diamond and Tilemap columns h
     CHECK(field(*cam, "bloomScreenSpace").kind == FieldKind::Bool);
     for (const char* n : {"bloom", "bloomThreshold", "bloomIntensity", "bloomRadius", "bloomScreenSpace"}) {
         CAPTURE(n);
-        CHECK(field(*cam, n).doc.size() > 40);  // the doc string is the tooltip
+        CHECK(field(*cam, n).doc.size() > 40);  // the doc string is what the AI reads
     }
-    // The fields that only matter while bloom is on know their switch; the switch and unrelated fields do not.
-    CHECK(inspector_switch_field(*cam, threshold) == &field(*cam, "bloom"));
-    CHECK(inspector_switch_field(*cam, intensity) == &field(*cam, "bloom"));
-    CHECK(inspector_switch_field(*cam, radius) == &field(*cam, "bloom"));
-    CHECK(inspector_switch_field(*cam, field(*cam, "bloomScreenSpace")) == &field(*cam, "bloom"));
-    CHECK(inspector_switch_field(*cam, field(*cam, "bloom")) == nullptr);
-    CHECK(inspector_switch_field(*cam, field(*cam, "fov")) == nullptr);
 
     const TypeInfo* shape = TypeRegistry::global().find("Shape2D");
     REQUIRE(shape);
@@ -134,8 +117,7 @@ TEST_CASE("inspector fields: Camera bloom, Shape2D diamond and Tilemap columns h
     CHECK(columns.maxValue == 4096.0f);
     CHECK(columns.doc.find("0 (the default) derives") != std::string::npos);
 
-    // Writing through the same call every inspector widget uses: in range works, out of range is refused with a teaching message
-    // and leaves the value alone.
+    // Writing through patch_component: in range works, out of range is refused with a teaching message and leaves the value alone.
     Entity e = w.create("cam", "cam");
     REQUIRE(patch_component(w, e, *cam, Json::object({{"bloom", true}, {"bloomIntensity", 3.5}})).ok());
     CHECK(w.get<Camera>(e)->bloom);

@@ -104,7 +104,7 @@ página y de la guía de primeros pasos.
 - [docs/COMPONENTS.md](docs/COMPONENTS.md): todos los componentes y campos (generado).
 - [docs/EXTENDING.md](docs/EXTENDING.md): crear herramientas, comandos, componentes y sistemas.
 - [docs/CLI.md](docs/CLI.md) y [docs/MCP.md](docs/MCP.md): la CLI `factoria` y el servidor MCP.
-- [docs/EDITOR.md](docs/EDITOR.md): el editor visual (en inglés): paneles, selección, inspector, prefabs, niveles ASCII, formato, registro de audio.
+- [docs/EDITOR.md](docs/EDITOR.md): el editor visual, centrado en la IA (en inglés): vista del juego, chat con la IA, selección, registro de audio.
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): proveedores de IA (Claude Code, Codex, claves de API) y roles.
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): cómo las IAs registran lo que le falta al motor.
 - [docs/BUILDING.md](docs/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas.

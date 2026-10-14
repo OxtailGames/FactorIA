@@ -1,5 +1,5 @@
 // Editor application shell: sokol callbacks, project/scene lifecycle, play mode, undo/redo,
-// entity creation, docking layout, menu, toolbar and status bar.
+// docking layout, menu, toolbar and status bar.
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -156,7 +156,6 @@ int Editor::run() {
     const char* at = std::getenv("FA_EDITOR_AUTOTEST");
     autotest_ = at && *at && std::string(at) != "0";
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
-    if (autotest_) showHierarchy_ = showInspector_ = showAssets_ = true;  // it drives the manual panels too
     AppDesc d;
     d.title = "FactorIA Editor";
     d.width = autotest_ ? 1600 : 1440;
@@ -263,18 +262,13 @@ bool Editor::boot(const std::string& dirIn) {
     imageSizes_.clear();
     undo_.clear();
     redo_.clear();
-    jsonEdits_.clear();
     selectedId_.clear();
     play_ = PlayState::Edit;
     dirty_ = false;
-    assetsScanned_ = -10;
     feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
     layoutBuilt_ = false;
     reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
-    prefabDlg_ = PrefabDialogState{};
-    importDlg_ = AsciiImportState{};
-    formatDlg_ = FormatDialogState{};
     bootError_.clear();
     projectDir_.clear();
     projectName_.clear();
@@ -519,7 +513,6 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
 void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
     if (!r.ok || !engine_) return;
     const bool fileImport = name == "scene.import_ascii" && args.is_object() && args.contains("path") && !args.value("dryRun", false);
-    if (name == "prefab.save" || name == "scene.format" || fileImport) refresh_asset_lists();
     if (!fileImport || !args["path"].is_string()) return;
     // The scene file that is open was rebuilt on disk (hot reload is off in the editor): load it so the viewport shows it.
     if (fs::normalize(args["path"].get<std::string>()) != fs::normalize(scenePath_)) return;
@@ -633,7 +626,6 @@ void Editor::stop() {
     stepPending_ = 0;
     restore_scene(playSnapshot_);
     playSnapshot_ = Json();
-    dragging_ = false;
 }
 
 // ------------------------------------------------------------------------------------------
@@ -681,95 +673,6 @@ void Editor::redo() {
     lastEditKey_.clear();
 }
 
-bool Editor::apply_field(Entity e, const TypeInfo& type, const std::string& field, const Json& value, const std::string& key) {
-    if (!engine_ || e.is_null()) return false;
-    begin_edit(key);
-    Json patch = Json::object();
-    patch[field] = value;
-    auto r = patch_component(world(), e, type, patch);
-    if (!r) {
-        notify(r.error().to_string(), 2);
-        FA_ERROR("editor", "edit {}.{} failed: {}", type.name, field, r.error().to_string());
-        return false;
-    }
-    return true;
-}
-
-bool Editor::apply_field_by_name(const std::string& entityId, const std::string& component, const std::string& field,
-                                 const Json& value) {
-    if (!engine_) return false;
-    Entity e = world().find_by_id(entityId);
-    const TypeInfo* t = TypeRegistry::global().find(component);
-    if (e.is_null() || !t) return false;
-    return apply_field(e, *t, field, value, entityId + "/" + component + "/" + field);
-}
-
-Entity Editor::create_entity(const std::string& kind, Entity parent) {
-    if (!engine_) return kNullEntity;
-    begin_edit("create:" + std::to_string(uiFrame_) + kind);
-    static const std::map<std::string, std::pair<const char*, const char*>> names = {
-        {"empty", {"Entity", "entity"}}, {"sprite", {"Sprite", "sprite"}}, {"shape", {"Shape", "shape"}},
-        {"camera", {"Camera", "camera"}}, {"light", {"Light", "light"}},   {"mesh", {"Cube", "cube"}}};
-    auto it = names.find(kind);
-    const auto nm = it != names.end() ? it->second : std::make_pair("Entity", "entity");
-    Entity e = world().create(nm.first, nm.second);
-    Vec3 pos{0, 0, 0};
-    if (Renderer* r = engine_->renderer()) {
-        bool ortho = true;
-        world().each<Camera>([&](Entity, Camera& c) {
-            if (c.primary) ortho = c.projection == Projection::Orthographic;
-        });
-        if (ortho) {
-            Vec3 p = r->screen_to_world(Vec2{r->target_width() * 0.5f, r->target_height() * 0.5f});
-            pos = Vec3{std::round(p.x), std::round(p.y), 0};
-        }
-    }
-    if (kind == "sprite") {
-        world().add<Sprite>(e).size = Vec2{64, 64};
-    } else if (kind == "shape") {
-        auto& s = world().add<Shape2D>(e);
-        s.size = Vec2{64, 64};
-        s.color = Color{0.35f, 0.65f, 0.95f, 1};
-    } else if (kind == "camera") {
-        bool anyPrimary = false;
-        world().each<Camera>([&](Entity, Camera& c) { anyPrimary = anyPrimary || c.primary; });
-        world().add<Camera>(e).primary = !anyPrimary;
-    } else if (kind == "light") {
-        world().add<Light>(e);
-        pos = Vec3{0, 3, 0};
-    } else if (kind == "mesh") {
-        world().add<MeshRenderer>(e);
-        pos = Vec3{0, 0, 0};
-    }
-    world().get<Transform>(e)->position = pos;
-    if (!parent.is_null()) world().set_parent(e, parent, false);
-    select(e);
-    return e;
-}
-
-Entity Editor::duplicate_entity(Entity e) {
-    if (!engine_ || e.is_null()) return kNullEntity;
-    begin_edit("duplicate:" + std::to_string(uiFrame_));
-    Json j = entity_to_json(world(), e, EntityJsonOptions{});
-    LoadReport rep;
-    Entity n = entity_from_json(world(), j, world().parent(e), rep);
-    if (n.is_null()) {
-        notify("Duplicate failed: " + rep.summary(), 2);
-        return kNullEntity;
-    }
-    if (auto* t = world().get<Transform>(n)) t->position = t->position + Vec3{16, -16, 0};
-    select(n);
-    return n;
-}
-
-void Editor::delete_entity(Entity e) {
-    if (!engine_ || e.is_null()) return;
-    begin_edit("delete:" + std::to_string(uiFrame_));
-    const bool wasSelected = (e == selected());
-    world().destroy_immediate(e);
-    if (wasSelected) selectedId_.clear();
-}
-
 void Editor::notify(const std::string& text, int level) {
     toasts_.push_back(Toast{text, level, time_ + (level >= 2 ? 6.0 : 3.5)});
     if (toasts_.size() > 6) toasts_.erase(toasts_.begin());
@@ -785,15 +688,6 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockId, size);
     ImGuiID center = dockId;
-    if (showHierarchy_ || showInspector_ || showAssets_) {
-        // The manual editing panels (hidden by default; the autotest drives them) get their own columns.
-        ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, nullptr, &center);
-        ImGuiID leftBottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.42f, nullptr, &left);
-        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.29f, nullptr, &center);
-        ImGui::DockBuilderDockWindow("Hierarchy", left);
-        ImGui::DockBuilderDockWindow("Assets", leftBottom);
-        ImGui::DockBuilderDockWindow("Inspector", right);
-    }
     // The AI builds the game: the game view and the AI chat fill the window, logs and feedback sit under the view.
     ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.38f, nullptr, &center);
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
@@ -821,7 +715,6 @@ void Editor::build_ui() {
         if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) save_scene_now();
         if (ctrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)) undo();
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) || (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false))) redo();
-        if (ctrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && play_ == PlayState::Edit) duplicate_entity(selected());
         if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { if (play_ == PlayState::Edit) play(); else stop(); }
         if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) { if (play_ == PlayState::Playing) pause(); else play(); }
         if (ImGui::IsKeyPressed(ImGuiKey_F10, false)) step_once();
@@ -865,9 +758,6 @@ void Editor::build_ui() {
 
     if (engine_) {
         if (showViewport_) draw_viewport();
-        if (showHierarchy_) draw_hierarchy();
-        if (showInspector_) draw_inspector();
-        if (showAssets_) draw_assets();
         if (showConsole_) draw_console();
         if (showAi_) draw_ai_panel();
         if (showFeedback_) draw_feedback_panel();
@@ -881,11 +771,6 @@ void Editor::build_ui() {
     draw_project_dialog();
     draw_validation_window();
     draw_docs_window();
-    if (engine_) {
-        draw_ascii_import_window();
-        draw_format_window();
-        draw_prefab_dialog();
-    }
     draw_toasts();
 
     // Unsaved changes dialogs.
@@ -958,34 +843,18 @@ void Editor::draw_main_menu() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Import ASCII level...", nullptr, false, have)) open_ascii_import();
-        at_track("menu:import_ascii");
-        ImGui::SetItemTooltip("Build a Tilemap level and the objects on it from text rows and a legend (scene.import_ascii)");
-        if (ImGui::MenuItem("Format scene files...", nullptr, false, have)) open_format_window();
-        at_track("menu:format");
-        ImGui::SetItemTooltip("Rewrite scenes and prefabs in the canonical compact layout (scene.format)");
-        ImGui::Separator();
         if (ImGui::MenuItem("Quit")) sapp_request_quit();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
         if (ImGui::MenuItem("Undo", "Ctrl+Z", false, editing && !undo_.empty())) undo();
         if (ImGui::MenuItem("Redo", "Ctrl+Y", false, editing && !redo_.empty())) redo();
-        ImGui::Separator();
-        if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editing && !selected().is_null())) duplicate_entity(selected());
-        if (ImGui::MenuItem("Delete", "Del", false, editing && !selected().is_null())) delete_entity(selected());
-        ImGui::Separator();
-        if (ImGui::MenuItem("Save as prefab...", nullptr, false, have && !selected().is_null())) open_prefab_dialog(selected());
-        ImGui::SetItemTooltip("Save the selected entity and its children as a prefab file (prefab.save)");
         ImGui::EndMenu();
     }
     const bool viewOpen = ImGui::BeginMenu("View");
     at_track("menu:view");
     if (viewOpen) {
         ImGui::MenuItem("Viewport", nullptr, &showViewport_);
-        ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy_);
-        ImGui::MenuItem("Inspector", nullptr, &showInspector_);
-        ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Console", nullptr, &showConsole_);
         ImGui::MenuItem("AI Assistant", nullptr, &showAi_);
         ImGui::MenuItem("Engine Feedback", nullptr, &showFeedback_);
