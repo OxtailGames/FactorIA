@@ -72,6 +72,7 @@ struct PromptContext {
     std::string role;
     bool canDelegate = false;
     std::string extra;
+    std::string delegateTool;  // the tool the orchestrator delegates with; "" = agent_delegate (CLI agents: ai_run over MCP)
 };
 // Stable system prompt: engine guide summary + project context + rules.
 std::string build_system_prompt(const PromptContext& ctx);

@@ -161,8 +161,6 @@ Json AiChat::to_json() const {
                          {"title", title},
                          {"created", created},
                          {"updated", updated},
-                         {"provider", provider},
-                         {"role", role},
                          {"conversation", conversation.to_json()},
                          {"usage", usage.to_json()},
                          {"costUsd", costUsd},
@@ -177,8 +175,6 @@ AiChat AiChat::from_json(const Json& j) {
     c.title = str_of(j, "title");
     c.created = static_cast<i64>(num_of(j, "created"));
     c.updated = static_cast<i64>(num_of(j, "updated"));
-    c.provider = str_of(j, "provider");
-    if (std::string r = str_of(j, "role"); !r.empty()) c.role = r;
     if (j.contains("conversation") && j["conversation"].is_object()) c.conversation = ai::Conversation::from_json(j["conversation"]);
     if (j.contains("usage")) c.usage = usage_from(j["usage"]);
     c.costUsd = num_of(j, "costUsd");
@@ -216,19 +212,17 @@ int AiChats::index_of(const std::string& id) const {
 
 namespace {
 // Tabs need an id from the start (it keys the widgets and the running chat), so a blank chat gets one when it is made.
-AiChat blank_chat(const std::string& id, i64 now, const std::string& provider, const std::string& role) {
+AiChat blank_chat(const std::string& id, i64 now) {
     AiChat c;
     c.id = id;
     c.created = c.updated = now;
-    c.provider = provider;
-    c.role = role;
     return c;
 }
 }  // namespace
 
 AiChats::AiChats() {
     const i64 now = static_cast<i64>(std::time(nullptr));
-    tabs.push_back(blank_chat(make_id(now), now, "", "orchestrator"));
+    tabs.push_back(blank_chat(make_id(now), now));
 }
 
 void AiChats::open_dir(const std::string& chatsDir) {
@@ -249,15 +243,13 @@ void AiChats::open_dir(const std::string& chatsDir) {
             activeId = str_of(*open, "active");
         }
     }
-    if (tabs.empty()) tabs.push_back(blank_chat(make_id(static_cast<i64>(std::time(nullptr))), static_cast<i64>(std::time(nullptr)), "", "orchestrator"));
+    if (tabs.empty()) tabs.push_back(blank_chat(make_id(static_cast<i64>(std::time(nullptr))), static_cast<i64>(std::time(nullptr))));
     const int a = index_of(activeId);
     active = a >= 0 ? a : static_cast<int>(tabs.size()) - 1;
 }
 
 AiChat& AiChats::add(i64 now) {
-    const AiChat& cur = current();
-    AiChat c = blank_chat(make_id(now), now, cur.provider, cur.role);
-    tabs.push_back(std::move(c));
+    tabs.push_back(blank_chat(make_id(now), now));
     active = static_cast<int>(tabs.size()) - 1;
     return tabs.back();
 }
@@ -271,12 +263,10 @@ void AiChats::select(int index) {
 bool AiChats::close(int index) {
     if (index < 0 || index >= static_cast<int>(tabs.size())) return false;
     save(tabs[static_cast<std::size_t>(index)]);
-    const std::string provider = tabs[static_cast<std::size_t>(index)].provider;
-    const std::string role = tabs[static_cast<std::size_t>(index)].role;
     tabs.erase(tabs.begin() + index);
     if (tabs.empty()) {
         const i64 now = static_cast<i64>(std::time(nullptr));
-        tabs.push_back(blank_chat(make_id(now), now, provider, role));
+        tabs.push_back(blank_chat(make_id(now), now));
         active = 0;
     } else {
         if (index < active) --active;  // the neighbour that moved into this slot becomes active when it was the active one
@@ -325,7 +315,7 @@ void AiChats::clear() {
         std::error_code ec;
         stdfs::remove(utf8_path(path_of(c.id)), ec);
     }
-    c = blank_chat(c.id, static_cast<i64>(std::time(nullptr)), c.provider, c.role);
+    c = blank_chat(c.id, static_cast<i64>(std::time(nullptr)));
     save_open_list();
 }
 

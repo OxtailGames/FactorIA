@@ -39,11 +39,15 @@ Show colliders and Selection overlay toggle the collider boxes and the selection
 ## AI Assistant
 
 The panel holds several conversations as **tabs**: **+** opens an empty chat, the **x** on a tab closes it (the chat stays
-in History), and the title is the first message ("New chat" until then). Each tab has its own transcript, input, provider/role,
-usage and attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). One chat runs at
+in History), and the title is the first message ("New chat" until then). Each tab has its own transcript, input, usage and
+attachments; a message in a tab continues that tab's conversation (see `docs/AI_PROVIDERS.md`). One chat runs at
 a time: Run is disabled in the other tabs while one works (hover it to see which). **History** lists the saved chats, newest
 first; click one to reopen it as a tab (the next message resumes it) or Delete it from the list.
 
+- **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
+  the worker role and small mechanical edits to the fast role by itself. **Roles...** at the top of the panel picks the
+  provider, model and effort of each role (the line next to it shows the current ones); Save writes them into `ai.json`
+  and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles).
 - **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the
   clipboard, or press **Attach image...**. Pending pictures show above the input (remove one with its x); sent ones show
   in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.

@@ -139,11 +139,22 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 Each role is `{provider, model, effort?, maxTokens?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
-(then mapped to `low|medium|high`). When a role uses a CLI provider, that CLI
-runs its own loop and `agent_delegate` is not offered.
+(then mapped to `low|medium|high`). A CLI provider runs its own loop and
+ignores `effort` (set the CLI's own option in `argv` if it has one).
 
-`factoria ai run "task"` / the `ai.run` command / the editor AI panel use the
-`orchestrator` role unless told otherwise (`role`, `provider`, `model` options).
+The orchestrator delegates on its own: the built-in loop gives it the
+`agent_delegate {role, task}` tool; an orchestrator that is a CLI agent (Claude
+Code, Codex) is told to use the `ai_run {role, task}` tool of the FactorIA MCP
+server instead, which runs the `worker` or `fast` role from `ai.json` and returns
+its report. So `orchestrator: claude-code/opus`, `worker: claude-code/sonnet`,
+`fast: claude-code/haiku` works on a Claude subscription alone. `--no-delegate`
+turns delegation off.
+
+`factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
+unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
+always sends your messages to the orchestrator; its **Roles...** button sets the
+provider, model and effort of the three roles and saves them in `ai.json` (only
+`roles` is rewritten: providers, limits and a role's `maxTokens` stay).
 
 ## How the built-in agent behaves (API providers)
 

@@ -180,6 +180,7 @@ public:
     void draw_viewport();
     void draw_console();
     void draw_ai_panel();
+    void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
     void draw_feedback_panel();
     void draw_audio_panel();
     void draw_project_dialog();
@@ -319,6 +320,8 @@ public:
     bool aiHistoryOpen_ = false;    // request to open the History popup this frame
     std::vector<ChatHistoryEntry> aiHistory_;
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
+    bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
+    std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
     std::shared_ptr<CommandRegistry> aiProxy_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
 

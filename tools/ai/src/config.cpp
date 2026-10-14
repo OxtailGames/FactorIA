@@ -446,6 +446,33 @@ Result<void> save_config(const AiConfig& cfg, std::string_view path) {
     return {};
 }
 
+Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path) {
+    Json j = Json::object();
+    std::error_code ec;
+    if (fsys::exists(fsys::path(path), ec)) {
+        auto text = fs::read_text(path);
+        if (!text) return text.error();
+        auto parsed = fa::parse_json(*text, path);
+        if (!parsed) return parsed.error();
+        if (!parsed->is_object()) {
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the roles again.");
+        }
+        j = std::move(*parsed);
+    }
+    Json& out = j["roles"];
+    if (!out.is_object()) out = Json::object();
+    for (const auto& [name, r] : roles) {
+        Json& rj = out[name];
+        if (!rj.is_object()) rj = Json::object();
+        rj["provider"] = r.provider;
+        for (const auto& [key, value] : {std::pair<const char*, const std::string&>{"model", r.model}, {"effort", r.effort}}) {
+            if (value.empty()) rj.erase(key);
+            else rj[key] = value;
+        }
+    }
+    return fs::write_text(path, dump_json(j));
+}
+
 ResolvedKey resolve_api_key(const ProviderConfig& p, const EnvLookup& env) {
     ResolvedKey r;
     if (!p.apiKeyEnv.empty()) {

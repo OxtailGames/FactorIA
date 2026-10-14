@@ -242,8 +242,14 @@ void Editor::autotest_pre_frame() {
         aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
             return std::shared_ptr<ai::ChatProvider>(std::make_shared<MockProvider>());
         };
-        // The mock replaces CHAT providers only: pin this chat to one, or the user's default CLI (claude, codex) would run.
-        chat_.current().provider = "anthropic";
+        // The mock replaces CHAT providers only: pin the orchestrator to one, or the user's CLI (claude, codex) would run.
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            if (aiConfig_.providers.empty()) aiConfig_ = ai::default_config();
+            ai::RoleConfig& orchestrator = aiConfig_.roles[ai::kRoleOrchestrator];
+            orchestrator.provider = "anthropic";
+            if (orchestrator.model.empty()) orchestrator.model = "mock";
+        }
         atUndoBeforeAi_ = undo_depth();
         ai_start("Add a gold coin above the origin of the scene.");
         atWaitAi_ = true;

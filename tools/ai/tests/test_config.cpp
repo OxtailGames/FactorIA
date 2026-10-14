@@ -1,5 +1,6 @@
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/core/fs.h"
 #include "test_common.h"
 
 using namespace fa;
@@ -146,6 +147,35 @@ TEST_CASE("save_config round trip") {
     CHECK(back->role("worker").model == "deepseek/deepseek-chat");
     CHECK(back->provider("groq")->apiKey == "gsk_example_not_real_key_value_12345");
     CHECK(config_to_json(*cfg)["providers"]["groq"]["apiKey"] == "***");  // redacted by default
+}
+
+TEST_CASE("save_roles changes only the roles and keeps the rest of the file") {
+    TempDir dir;
+    const std::string file = (dir.path / "ai.json").string();
+    std::ofstream(file) << R"({"providers":{"claude-code":{"unsetEnv":["ANTHROPIC_API_KEY"]}},
+        "roles":{"worker":{"provider":"anthropic","model":"old","maxTokens":8000}},"limits":{"maxTurns":7}})";
+    std::map<std::string, RoleConfig> roles;
+    roles["orchestrator"] = {"claude-code", "opus", "", 0};
+    roles["worker"] = {"claude-code", "sonnet", "high", 0};
+    roles["fast"] = {"anthropic", "", "", 0};  // no model: the role's default
+    REQUIRE(save_roles(roles, file));
+    Json j = Json::parse(*fs::read_text(file));
+    CHECK(j["providers"]["claude-code"]["unsetEnv"][0] == "ANTHROPIC_API_KEY");
+    CHECK(j["limits"]["maxTurns"] == 7);
+    CHECK(j["roles"]["worker"]["maxTokens"] == 8000);
+    CHECK_FALSE(j["roles"]["fast"].contains("model"));
+    auto cfg = load_config(file);
+    REQUIRE(cfg);
+    CHECK(cfg->role("orchestrator").provider == "claude-code");
+    CHECK(cfg->role("orchestrator").model == "opus");
+    CHECK(cfg->role("worker").model == "sonnet");
+    CHECK(cfg->role("worker").effort == "high");
+    CHECK(cfg->role("fast").model == "claude-haiku-5-5");
+
+    REQUIRE(save_roles(roles, (dir.path / "new" / "ai.json").string()));  // no file yet: created
+    std::ofstream(file, std::ios::trunc) << "[1, 2]";
+    CHECK_FALSE(save_roles(roles, file));
+    CHECK(*fs::read_text(file) == "[1, 2]");  // not an object: left alone
 }
 
 TEST_CASE("project key scanning warns, ignores .git/.factoria and short strings") {

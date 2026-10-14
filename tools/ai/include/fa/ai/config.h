@@ -90,6 +90,10 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName = "<mem
 // Missing file => defaults (ok). Present but invalid => error with JSON pointers.
 Result<AiConfig> load_config(std::string_view path = {}, const EnvLookup& env = system_env());
 Result<void> save_config(const AiConfig& cfg, std::string_view path);  // writes user-editable JSON (no defaults noise)
+// Writes only "roles" into the config file at `path` (created when missing) and keeps everything else in it: providers,
+// limits, a role's maxTokens. An empty model or effort removes that key, so the role's default applies. A file that is
+// not a JSON object is left alone (error).
+Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::string_view path);
 Json config_to_json(const AiConfig& cfg, bool redactKeys = true);
 
 struct ResolvedKey {

@@ -481,6 +481,7 @@ TEST_CASE("AgentSession with the Claude CLI: follow-ups resume and send only the
     std::string first = Json::parse(recs[0].stdinText)["message"]["content"][0]["text"].get<std::string>();
     CHECK(first.find("FactorIA engine guide") != std::string::npos);  // the first message carries the system prompt
     CHECK(first.find("# Task\nMake a game") != std::string::npos);
+    CHECK(first.find("Use ai_run {role, task}") != std::string::npos);  // the CLI orchestrator delegates over MCP
 
     // Claude Code reports the running total of a resumed session: this message costs the difference
     std::filesystem::remove(argvFile);

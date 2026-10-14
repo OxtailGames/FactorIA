@@ -25,18 +25,12 @@ namespace fa::editor {
 namespace {
 
 constexpr const char* kRoleNames[] = {"orchestrator", "worker", "fast"};
+constexpr const char* kEfforts[] = {"", "low", "medium", "high", "xhigh", "max"};  // "" = the role's default
 constexpr std::size_t kMaxPendingImages = 10;  // per message (the API providers take 20 and the CLIs read each one)
 constexpr float kThumb = 56.0f;                // pending pictures
 constexpr float kThumbSent = 48.0f;            // pictures in the transcript
 
 i64 now_epoch() { return static_cast<i64>(std::time(nullptr)); }
-
-int role_index(const std::string& role) {
-    for (int i = 0; i < 3; ++i) {
-        if (role == kRoleNames[i]) return i;
-    }
-    return 0;
-}
 
 std::string clip(std::string s, size_t n) {
     if (s.size() > n) {
@@ -295,10 +289,9 @@ void Editor::ai_start(const std::string& task) {
     }
     ai::SessionOptions opt;
     opt.projectDir = projectDir_;
-    opt.role = kRoleNames[role_index(chat.role)];
-    opt.providerOverride = chat.provider;
+    opt.role = ai::kRoleOrchestrator;  // it hands the work to the worker and fast roles itself (the "AI roles" popup)
     opt.conversation = chat.conversation;  // resumes the chat when the provider is the same one that produced it
-    aiRunProvider_ = chat.provider.empty() ? cfg.role(opt.role).provider : chat.provider;
+    aiRunProvider_ = cfg.role(opt.role).provider;
 
     ChatItem user;
     user.kind = ChatItem::Kind::User;
@@ -480,6 +473,90 @@ void Editor::ai_drain_events() {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+// "AI roles": the provider, model and effort of the orchestrator, worker and fast roles. Save writes them into ai.json
+// (only its "roles"; everything else in the file stays) and reloads it, so the next message uses them.
+void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status) {
+    if (aiRolesOpen_) {
+        aiRolesEdit_.clear();
+        for (const char* name : kRoleNames) aiRolesEdit_[name] = cfg.role(name);
+        ImGui::OpenPopup("AI roles");
+        aiRolesOpen_ = false;
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("AI roles", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::TextUnformatted("Your messages go to the orchestrator. It answers and plans, and hands implementation work to\n"
+                           "the worker and small mechanical edits to fast by itself.");
+    ImGui::Spacing();
+    if (ImGui::BeginTable("##roles", 4, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Role");
+        ImGui::TableSetupColumn("Provider");
+        ImGui::TableSetupColumn("Model");
+        ImGui::TableSetupColumn("Effort");
+        ImGui::TableHeadersRow();
+        for (const char* name : kRoleNames) {
+            ai::RoleConfig& r = aiRolesEdit_[name];
+            ImGui::PushID(name);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(name);
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(170);
+            if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
+                for (const auto& [pname, pc] : cfg.providers) {
+                    const ai::ProviderStatus* st = nullptr;
+                    for (const auto& s : status) {
+                        if (s.name == pname) st = &s;
+                    }
+                    const std::string label = pname + (st && !st->available ? "  (not available)" : "");
+                    if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
+                        r = {pname, "", "", r.maxTokens};  // another provider: its own default model and effort
+                    }
+                    if (st && ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", st->detail.c_str(), st->available ? "" : st->hint.c_str());
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(220);
+            ImGui::InputTextWithHint("##model", "default", &r.model);
+            ImGui::SetItemTooltip("Model name for this provider, e.g. opus / sonnet / haiku (Claude Code), claude-sonnet-5-5\n"
+                                  "(Anthropic API). Empty = the default: Anthropic's for the role, or the CLI's own.");
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(90);
+            if (ImGui::BeginCombo("##effort", r.effort.empty() ? "default" : r.effort.c_str())) {
+                for (const char* e : kEfforts) {
+                    if (ImGui::Selectable(*e ? e : "default", r.effort == e)) r.effort = e;
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetItemTooltip("How hard the model thinks (API providers). CLI agents use their own setting.");
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    const std::string path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
+    ImGui::TextDisabled("Saved in %s", path.c_str());
+    if (ImGui::Button("Save")) {
+        if (auto saved = ai::save_roles(aiRolesEdit_, path); !saved) {
+            notify(saved.error().to_string(), 2);
+        } else {
+            auto loaded = ai::load_config(path);  // the file now says what the roles are, with the defaults filled in
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                if (loaded) aiConfig_ = std::move(*loaded);
+                aiConfigError_ = loaded ? std::string() : loaded.error().to_string();
+            }
+            notify("AI roles saved. The next message uses them.");
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+
 void Editor::draw_ai_panel() {
     if (!ImGui::Begin("AI Assistant")) { ImGui::End(); return; }
     ai_sync_chats();
@@ -590,35 +667,30 @@ void Editor::draw_ai_panel() {
         ImGui::EndPopup();
     }
 
+    draw_ai_roles_popup(cfg, status);
+
     AiChat& chat = chat_.current();  // (no chat_ change below this line: the reference stays valid)
     const bool isRunTab = running && chat.id == aiRunChat_;
     const bool otherRunning = running && !isRunTab;
     ImGui::PushID(chat.id.c_str());  // every widget below belongs to the tab: its own scroll position and input text
 
-    // Provider / role selectors.
-    const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-    ImGui::SetNextItemWidth(half);
-    ImGui::BeginDisabled(isRunTab);
-    if (ImGui::BeginCombo("##prov", chat.provider.empty() ? "Role default" : chat.provider.c_str())) {
-        if (ImGui::Selectable("Role default", chat.provider.empty())) chat.provider.clear();
-        for (const auto& s : status) {
-            const std::string label = s.name + (s.available ? "" : "  (not available)");
-            if (ImGui::Selectable(label.c_str(), chat.provider == s.name)) chat.provider = s.name;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", s.detail.c_str(), s.available ? "" : s.hint.c_str());
+    // The roles. Every message goes to the orchestrator; it hands the work to the worker and fast roles itself.
+    const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
+    {
+        if (ImGui::SmallButton("Roles...")) aiRolesOpen_ = true;
+        ImGui::SetItemTooltip("Choose the provider and model of each role. Takes effect with the next message.");
+        std::string summary;
+        for (const char* name : kRoleNames) {
+            const ai::RoleConfig rc = cfg.role(name);
+            summary += (summary.empty() ? "" : "   ") + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model);
         }
-        ImGui::EndCombo();
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("%s", summary.c_str());
+        ImGui::PopStyleColor();
+        ImGui::SetItemTooltip("Your messages go to the orchestrator. It answers and plans, and hands implementation work to the\n"
+                              "worker and small mechanical edits to fast by itself.");
     }
-    ImGui::SetItemTooltip("Provider used for this chat. Changing it in a chat that already has messages starts a new\nconversation for the AI: it will not remember the earlier messages.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    int roleIdx = role_index(chat.role);
-    if (ImGui::Combo("##role", &roleIdx, kRoleNames, 3)) chat.role = kRoleNames[roleIdx];
-    ImGui::SetItemTooltip("Role: orchestrator plans and delegates, worker implements, fast does small mechanical tasks");
-    ImGui::EndDisabled();
-    const ai::RoleConfig rc = cfg.role(kRoleNames[role_index(chat.role)]);
-    const std::string providerName = chat.provider.empty() ? rc.provider : chat.provider;
-    ImGui::TextDisabled("%s / %s%s%s", providerName.c_str(), rc.model.empty() ? "default model" : rc.model.c_str(),
-                        rc.effort.empty() ? "" : " / effort ", rc.effort.c_str());
 
     if (!detected) {
         ImGui::TextDisabled(aiDetecting_.load() ? "Detecting providers..." : "Provider detection not started.");

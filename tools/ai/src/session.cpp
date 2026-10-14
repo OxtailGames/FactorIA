@@ -228,7 +228,9 @@ SessionResult AgentSession::run_role(const std::string& role, const std::string&
 SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& rc, const ProviderConfig& pc,
                                     const std::string& task, int depth) {
     SessionResult res;
-    PromptContext pctx{opt_.projectDir, role, false, opt_.extraSystem};
+    // A CLI orchestrator delegates through the FactorIA MCP server it is attached to: ai.run starts the role from ai.json.
+    const bool canDelegate = depth == 0 && role == kRoleOrchestrator && opt_.allowDelegation;
+    PromptContext pctx{opt_.projectDir, role, canDelegate, opt_.extraSystem, "ai_run"};
     const std::string fullPrompt = build_system_prompt(pctx) + "\n\n# Task\n" + task;
     // A follow-up message continues the CLI's session: the system prompt is already part of it, so only the task is sent.
     const bool canResume = depth == 0 && cli_supports_resume(pc);
