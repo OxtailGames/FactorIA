@@ -106,6 +106,18 @@ The platform layer maps touches to the same `Input` object scripts use:
 - there is no on-screen keyboard or on-screen gamepad yet: bind touch to actions
   and build on-screen buttons as entities that read touches.
 - Physical gamepads: iOS reads them through the GameController framework (extended gamepads: MFi, Xbox, PlayStation;
-  written, not yet built or run). Android has NO gamepad support yet: `poll_gamepads()` reports no pad there, and so
-  does the web build. Bindings such as `"GamepadA"` are accepted everywhere; they simply never fire on Android.
-- Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`.
+  written, not yet built or run). The web build has no gamepad support yet. Bindings such as `"GamepadA"` are
+  accepted everywhere.
+- Android gamepads (Bluetooth or USB pads that Android itself supports: Xbox, DualShock/DualSense, Switch Pro, most
+  generic ones) come from the NativeActivity input queue: the button keys (`AKEYCODE_BUTTON_A`..`MODE`, the D-pad
+  keys), and the joystick axes (left stick X/Y, right stick Z/RZ or RX/RY, triggers `LTRIGGER`/`RTRIGGER` or
+  `BRAKE`/`GAS`, D-pad `HAT_X`/`HAT_Y`). Android's own key layouts already give pads the Xbox naming, so there is no
+  mapping table; the face buttons are positional like everywhere (`GamepadA` is the bottom one). The engine takes
+  these events through sokol_app's `sapp_desc.android.native_event_cb` hook (installed by `to_sapp_desc()`) and
+  marks them handled, so pad buttons never act as Back or touches. System Back (the Back key or gesture) is not
+  taken: it still leaves the app. Pads fill slots 0..3 in the order they first send an event. Limits: the NDK
+  reports no device removal, so an unplugged pad keeps its slot until a fifth pad needs one (Android itself releases
+  its keys and recentres its axes, so nothing sticks); a pad with a non-standard axis layout (triggers on Z/RZ and the
+  right stick on RX/RY) is not told apart. This code has been compiled but never run on a device.
+- Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
+  report their real state again afterwards.
