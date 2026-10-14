@@ -122,7 +122,8 @@
       "engineIssue": "e2b0090",
       "notes": [
         "Fixed in e2b0090: RigidBody3D.angularVelocity (deg/s) and rollWithMotion (default true): a sphere on the ground spins to match its motion (visual only, colliders stay axis-aligned). Caveat: friction still slows the ball as if sliding (no rolling resistance model), so keep applying your own force/velocity.",
-        "Workaround removed in 99eebad: rollWithMotion spins the ball; the manual rotation (which double-rotated it together with the engine's rolling) is gone."
+        "Workaround removed in 99eebad: rollWithMotion spins the ball; the manual rotation (which double-rotated it together with the engine's rolling) is gone.",
+        "Caveat resolved in d5ad914 (M5): a sphere with rollWithMotion now uses rolling resistance (RigidBody3D.rollingFriction, default 0.02) instead of sliding friction, so it keeps rolling; box colliders follow the entity's rotation."
       ]
     },
     {

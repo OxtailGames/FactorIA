@@ -236,7 +236,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 
 ### RigidBody3D
 
-Simple 3D physics body for arcade games (spheres and axis-aligned boxes; no rotation dynamics). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D).
+Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against static and kinematic colliders (continuous collision, automatic). Rotation comes only from Transform.rotation and angularVelocity: collisions apply no torque.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -246,18 +246,19 @@ Simple 3D physics body for arcade games (spheres and axis-aligned boxes; no rota
 | `linearDamping` | float | `0.0` | Air resistance; 0 = none. Range 0.0..1000.0. |
 | `velocity` | vec3 | `[0.0,0.0,0.0]` | Linear velocity [x, y, z] in meters per second. Read/write. |
 | `angularVelocity` | vec3 | `[0.0,0.0,0.0]` | Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step. |
-| `rollWithMotion` | bool | `true` | Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity). |
+| `rollWithMotion` | bool | `true` | Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity). Such a sphere also uses rolling resistance (rollingFriction) instead of sliding friction. |
+| `rollingFriction` | float | `0.02` | Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored when rollWithMotion is false (then Collider3D.friction applies) and for boxes. Range 0.0..10.0. |
 
 ### Collider3D
 
-Collision shape for 3D physics (axis-aligned box or sphere). Scaled by the Transform scale.
+Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `shape` | enum: box \\| sphere | `"box"` | Shape type; uses size (box) or radius (sphere). |
-| `size` | vec3 | `[1.0,1.0,1.0]` | box: full extents [x, y, z] in meters (axis-aligned, before Transform scale). |
+| `size` | vec3 | `[1.0,1.0,1.0]` | box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale. |
 | `radius` | float | `0.5` | sphere: radius in meters. |
-| `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin. |
+| `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity. |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |
@@ -587,9 +588,9 @@ Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For s
 
 ### `game.input` (modifies state)
 
-Inject input: press/release actions or keys, or set an action state, mouse position/buttons.
+Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
 
-Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. Forms: {"action":"jump","down":true}, {"key":"Space","down":false}, {"press":["jump"],"release":["fire"]}, {"mouse":{"position":[640,360]}}. The input is applied now and seen by the next frame (game.step). Example: game.input {"press":["jump"]}
+Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. Forms: {"action":"jump","down":true}, {"key":"Space","down":false}, {"press":["jump"],"release":["fire"]}, {"mouse":{"position":[640,360]}}, {"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}, {"touch":{"id":1,"position":[200,300],"down":true}}. gamepad: index 0..3 (default 0), connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, LeftShoulder, RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y up; LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. The input is applied now and seen by the next frame (game.step). Example: game.input {"press":["jump"]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -599,6 +600,8 @@ Names may be input actions from factoria.json, key names (Space, A, Left...) or 
 | `press` | array | no |  |
 | `release` | array | no |  |
 | `mouse` | object | no | {position:[x,y] in design pixels, left/right/middle: bool}. |
+| `gamepad` | any | no | {index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads. |
+| `touch` | any | no | {id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers. |
 
 ### `game.logs`
 
@@ -676,6 +679,21 @@ Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 | `direction` | array | no | 3D direction. |
 | `maxDistance` | number | no |  Default 1000. |
 | `mask` | integer | no | Collision layer mask. Default -1. |
+
+### `physics.shape_cast`
+
+Sweep a circle, sphere or box from one point to another and return the first collider it touches.
+
+Like physics.raycast, but the shape has size: use it to ask whether a character fits or how far a box can move before it hits something. 2 numbers in from/to = 2D, 3 numbers = 3D. shape: 2D {"shape":"circle","radius":8} or {"shape":"box","size":[16,24]}; 3D {"shape":"sphere","radius":0.5} or {"shape":"box","size":[1,2,1]} (2D pixels, 3D meters, full sizes). The shape is centred on the cast position and axis-aligned. Result: {hit:false} or {hit:true, entity, point, normal, distance}: distance is how far the CENTRE travels before contact, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped (like a ray starting inside one); a collider it only touches blocks the cast only if it moves towards it. Triggers are skipped unless ignoreTriggers=false; ignore = id of an entity whose colliders (and its children's) are skipped, usually the caster. Example: physics.shape_cast {"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `shape` | object | yes | 2D: {shape:"circle",radius} or {shape:"box",size:[w,h]}. 3D: {shape:"sphere",radius} or {shape:"box",size:[x,y,z]}. |
+| `from` | array | yes | Start of the shape's centre, [x,y] (2D) or [x,y,z] (3D). |
+| `to` | array | yes | End of the shape's centre, same dimension as from. |
+| `mask` | integer | no | Collision layer mask. Default -1. |
+| `ignore` | string | no | Entity id or name whose colliders (and its children's) are skipped. |
+| `ignoreTriggers` | boolean | no | Skip trigger colliders; false hits them too. Default true. |
 
 ## scene
 
@@ -936,9 +954,29 @@ declare module "factoria" {
   export type EntityLike = Entity | string | null;
 
   /**
+   * A gamepad button (Xbox layout: A bottom, B right, X left, Y top; LeftThumb/RightThumb are the stick clicks). Names are case-insensitive at run time.
+   */
+  export type GamepadButton = "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb";
+
+  /**
+   * A gamepad axis: sticks run -1..1 with +Y up, triggers 0..1.
+   */
+  export type GamepadAxis = "LeftX" | "LeftY" | "RightX" | "RightY" | "LeftTrigger" | "RightTrigger";
+
+  /**
    * Plain JSON data (objects, arrays, numbers, strings, booleans, null).
    */
   export type Json = any;
+
+  /**
+   * Shape swept by physics.shapeCast in 2D, centred on the cast position and axis-aligned. Sizes are full sizes in pixels, like Collider2D: { shape: "circle", radius: 8 } or { shape: "box", size: [16, 24] }.
+   */
+  export type CastShape2D = { shape: "circle"; radius: number } | { shape: "box"; size: Vec2Like };
+
+  /**
+   * Shape swept by physics.shapeCast in 3D, centred on the cast position and axis-aligned. Sizes are full sizes in meters, like Collider3D: { shape: "sphere", radius: 0.5 } or { shape: "box", size: [1, 2, 1] }.
+   */
+  export type CastShape3D = { shape: "sphere"; radius: number } | { shape: "box"; size: Vec3Like };
 
   /**
    * Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props.
@@ -1357,11 +1395,41 @@ declare module "factoria" {
   }
 
   /**
-   * Input through named actions (factoria.json input.actions) or raw keys.
+   * One gamepad, from input.gamepad(index). Raw device state for local multiplayer; actions bound to Gamepad* names already match any pad.
+   */
+  export interface GamepadAPI {
+    /**
+     * A pad is plugged in at this index.
+     */
+    readonly connected: boolean;
+    /**
+     * Button held. Unknown names throw with a suggestion.
+     */
+    down(button: GamepadButton): boolean;
+    /**
+     * Went down this frame.
+     */
+    pressed(button: GamepadButton): boolean;
+    /**
+     * Went up this frame (also when the pad was unplugged).
+     */
+    released(button: GamepadButton): boolean;
+    /**
+     * Stick -1..1 (+Y up) or trigger 0..1 with the deadzone applied, the same value the action bindings use (sticks: radial deadzone, the rest rescaled to the full range).
+     */
+    axis(axis: GamepadAxis): number;
+    /**
+     * The axis as the device reported it, without the deadzone.
+     */
+    rawAxis(axis: GamepadAxis): number;
+  }
+
+  /**
+   * Input through named actions (factoria.json input.actions), raw keys or gamepads.
    */
   export interface InputAPI {
     /**
-     * Action held. Unknown actions throw with a suggestion.
+     * Action held. For an analog binding (gamepad stick or trigger) it means value >= 0.5. Unknown actions throw with a suggestion.
      */
     down(action: string): boolean;
     /**
@@ -1370,13 +1438,25 @@ declare module "factoria" {
     pressed(action: string): boolean;
     released(action: string): boolean;
     /**
-     * -1..1 from two actions.
+     * 0..1 strength of an action: 0 or 1 for keys, mouse, touch and pad buttons; for gamepad half-axis and trigger bindings the push after the deadzone (the maximum over the action's bindings). Unknown actions throw with a suggestion.
+     */
+    value(action: string): number;
+    /**
+     * -1..1 from two actions: value(positive) - value(negative). Analog with a gamepad stick bound to the actions; keys give exactly -1, 0 or 1.
      */
     axis(negative: string, positive: string): number;
     /**
-     * Normalized 2D vector from four actions (+Y up).
+     * 2D vector from four actions (+Y up), normalized only when longer than 1: a half-tilted stick gives a short vector, two keys a unit diagonal.
      */
     vector(left: string, right: string, down: string, up: string): Vec2;
+    /**
+     * Pad 0..3 (default 0); a bad index throws.
+     */
+    gamepad(index?: number): GamepadAPI;
+    /**
+     * Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu.
+     */
+    deadzone: number;
     /**
      * Raw key by name ("Space", "A", "Escape"...).
      */
@@ -1443,12 +1523,41 @@ declare module "factoria" {
      * 2D raycast between two points. A ray that starts inside a collider skips it. From a behaviour pass { ignore: this.entity } so it does not hit itself.
      */
     raycast(from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2> | null;
+    /**
+     * 3D raycast from an origin along a direction, at most maxDistance (default 1000) far.
+     */
     raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null;
+    /**
+     * Sweeps a sphere or box from `from` to `to` (3D, when `from` has a z) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Answers 'will this fit / how far can it go' for shapes where a ray is too thin. Same options as raycast; from a behaviour pass { ignore: this.entity }.
+     */
+    shapeCast(shape: CastShape3D, from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: RaycastOptions): RayHit<Vec3> | null;
+    /**
+     * Sweeps a circle or box from `from` to `to` (2D) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Example: physics.shapeCast({ shape: "box", size: [16, 24] }, vec2(x, y), vec2(x, y - 40), { ignore: this.entity }). Throws an Error that explains the fix when the shape is wrong (misspelt name, "sphere" in 2D, missing size).
+     */
+    shapeCast(shape: CastShape2D, from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2> | null;
+    /**
+     * Entities whose 2D colliders (triggers included) overlap the circle.
+     */
     overlapCircle(center: Vec2Like, radius: number, opts?: { mask?: number }): Entity[];
+    /**
+     * Entities whose 2D colliders (triggers included) overlap the rectangle.
+     */
     overlapBox(rect: RectLike, opts?: { mask?: number }): Entity[];
+    /**
+     * Entities whose 3D colliders (triggers included) overlap the sphere.
+     */
     overlapSphere(center: Vec3Like, radius: number, opts?: { mask?: number }): Entity[];
+    /**
+     * Instant change of momentum on a dynamic body (world units; 2D uses x, y).
+     */
     applyImpulse(entity: Entity, v: Vec3Like): void;
+    /**
+     * Force applied to a dynamic body for the current step.
+     */
     applyForce(entity: Entity, v: Vec3Like): void;
+    /**
+     * Sets a body's velocity (same as writing RigidBody.velocity).
+     */
     setVelocity(entity: Entity, v: Vec3Like): void;
   }
 
@@ -2424,7 +2533,7 @@ declare module "factoria" {
     oneWay: boolean;
   }
   /**
-   * Simple 3D physics body for arcade games (spheres and axis-aligned boxes; no rotation dynamics). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D).
+   * Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against static and kinematic colliders (continuous collision, automatic). Rotation comes only from Transform.rotation and angularVelocity: collisions apply no torque.
    * 
    * Category: Physics
    */
@@ -2456,12 +2565,16 @@ declare module "factoria" {
     get angularVelocity(): Vec3;
     set angularVelocity(value: Vec3Like);
     /**
-     * Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity).
+     * Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity). Such a sphere also uses rolling resistance (rollingFriction) instead of sliding friction.
      */
     rollWithMotion: boolean;
+    /**
+     * Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored when rollWithMotion is false (then Collider3D.friction applies) and for boxes.
+     */
+    rollingFriction: number;
   }
   /**
-   * Collision shape for 3D physics (axis-aligned box or sphere). Scaled by the Transform scale.
+   * Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale.
    * 
    * Category: Physics
    */
@@ -2471,7 +2584,7 @@ declare module "factoria" {
      */
     shape: "box" | "sphere";
     /**
-     * box: full extents [x, y, z] in meters (axis-aligned, before Transform scale).
+     * box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.
      */
     get size(): Vec3;
     set size(value: Vec3Like);
@@ -2480,7 +2593,7 @@ declare module "factoria" {
      */
     radius: number;
     /**
-     * Shape center offset [x, y, z] from the entity origin.
+     * Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity.
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
@@ -2660,7 +2773,7 @@ declare module "factoria" {
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
-    RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean };
+    RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number };
     Collider3D: { shape?: "box" | "sphere"; size?: Vec3Like; radius?: number; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
@@ -2673,7 +2786,7 @@ declare module "factoria" {
  * Test API for tests/*.test.js, run headless by `factoria test`.
  */
 declare module "factoria:test" {
-  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like } from "factoria";
+  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like, GamepadButton, GamepadAxis } from "factoria";
   /**
    * Matchers returned by expect().
    */
@@ -2766,6 +2879,33 @@ declare module "factoria:test" {
   }
 
   /**
+   * A gamepad driven by a test, from game.gamepad(index). Like keyDown/keyUp, press/release/axis act at once and the game sees them on the next step.
+   */
+  export interface TestGamepad {
+    /**
+     * Holds a button down until release(); connects the pad. Unknown names throw with a suggestion.
+     */
+    press(button: GamepadButton): void;
+    release(button: GamepadButton): void;
+    /**
+     * Press, step one frame, release, step one frame (like game.tap).
+     */
+    tap(button: GamepadButton): void;
+    /**
+     * Sets a stick (-1..1, +Y up) or trigger (0..1) as the device would; it stays until set again. Bound actions see it after the deadzone, so axis("LeftX", -1) is a full push left.
+     */
+    axis(axis: GamepadAxis, value: number): void;
+    /**
+     * Plugs the pad in (input.gamepad(i).connected becomes true).
+     */
+    connect(): void;
+    /**
+     * Unplugs the pad; what it held is released.
+     */
+    disconnect(): void;
+  }
+
+  /**
    * Drives the running game from a test.
    */
   export interface TestGame {
@@ -2788,6 +2928,10 @@ declare module "factoria:test" {
     tap(action: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
+    /**
+     * Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad.
+     */
+    gamepad(index?: number): TestGamepad;
     mouseMove(screenPos: Vec2Like): void;
     click(screenPos: Vec2Like, button?: "left" | "right" | "middle"): void;
     /**

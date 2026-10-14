@@ -587,6 +587,17 @@ TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and 
     // 3D: nothing in the way is null
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, 5, 0])").is_null());
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, vec3(0, 10, 0), vec3(0, 5, 0))").is_null());
+    // 3D hits: a sphere and a box land on a floor whose top is at y = 0.5
+    ev_ok(h, "world.spawn({id:'floor3', components:{Transform:{position:[0,0,0]}, Collider3D:{size:[10,1,10]}}})");
+    h.step_frames(1);
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).entity.id") == "floor3");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).distance").get<double>() ==
+          doctest::Approx(9.0).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).normal.y").get<double>() ==
+          doctest::Approx(1.0).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, vec3(0, 10, 0), vec3(0, -5, 0)).distance")
+              .get<double>() == doctest::Approx(8.5).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, [0, 10, 0], [0, -5, 0], { ignore: 'floor3' })").is_null());
 
     // bad shapes throw an Error that says what is wrong and how to fix it
     auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
