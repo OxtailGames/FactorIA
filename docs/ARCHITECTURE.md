@@ -37,7 +37,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 ```
 engine/            runtime modules (ship inside every game)
   core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema
-  scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON
+  scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres/AABBs)
@@ -121,8 +121,18 @@ meters. Details in `core/math.h` and `scene/components.h`.
 sokol_gfx backends: D3D11 (Windows), Metal (macOS/iOS), GL 4.3 core (Linux),
 GLES3 (Android). The game always renders into an offscreen target at design
 resolution; `present()` letterboxes it to the window. Screenshots read that
-target, so headless and windowed images match. Shaders are GLSL annotated for
+target, so headless and windowed images match. `Camera.bloom` is a post-process
+that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
+`shaders/bloom.glsl`), so screenshots include it. With `Camera.bloomScreenSpace = false`
+the frame is split: world pass, bloom, then a second pass that draws the screen-space
+groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
+HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/`).
+
+### Bounds
+Where a 2D entity is and how big it is has ONE definition, `fa/scene/bounds.h` (`visual_footprints`, `entity_world_rect`): Tilemap, Sprite,
+Shape2D and Text from size, pivot and the world matrix. `entity.bounds()` in scripts and the editor's picking and selection outline
+both call it, so what a script measures is what the editor outlines. File sizes and font layout are injected (`VisualMeasure`).
 
 ### Headless
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works

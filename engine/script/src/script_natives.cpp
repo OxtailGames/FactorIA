@@ -11,12 +11,15 @@
 
 #include "fa/audio/audio.h"
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/tilemap.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -589,33 +592,63 @@ NATIVE(particlesBurst) {
     return JS_UNDEFINED;
 }
 
-NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
-    SETUP;
-    std::string text = arg_str(ctx, argc, argv, 0);
-    float size = static_cast<float>(arg_num(ctx, argc, argv, 1, 16));
-    std::string font = arg_str(ctx, argc, argv, 2);
-    float maxW = static_cast<float>(arg_num(ctx, argc, argv, 3, 0));
+// Size {w, h} of `text` laid out like Text rendering: the renderer's own layout when there is one, otherwise (headless) an
+// approximation of 0.6 em per character and 1.2 em per line, with a one-time warning. `what` names the caller in it.
+Vec2 measure_text_size(Impl* I, const std::string& text, float size, const std::string& font, float maxW, const char* what) {
     Renderer* r = I->host->renderer();
-    if (r && r->initialized()) {
-        Vec2 m = r->measure_text(text, size, font, maxW);
-        return array_of(ctx, {m.x, m.y});
-    }
+    if (r && r->initialized()) return r->measure_text(text, size, font, maxW);
     static bool warned = false;
     if (!warned) {
         warned = true;
-        fa::log(LogLevel::Warn, "script", "ui.measureText: no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
+        fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
     }
-    // Approximation: 0.6em per character, wrapped at maxWidth, 1.2em line height.
-    float lineW = 0, maxLine = 0;
-    int lines = 1;
-    for (char c : text) {
-        if (c == '\n') { maxLine = std::max(maxLine, lineW); lineW = 0; ++lines; continue; }
-        float adv = size * 0.6f;
-        if (maxW > 0 && lineW + adv > maxW && lineW > 0) { maxLine = std::max(maxLine, lineW); lineW = 0; ++lines; }
-        lineW += adv;
+    return approx_text_size(text, size, maxW);
+}
+
+NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
+    SETUP;
+    Vec2 m = measure_text_size(I, arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 16)),
+                               arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0)), "ui.measureText");
+    return array_of(ctx, {m.x, m.y});
+}
+
+// ---- entity.bounds() ----------------------------------------------------------------------------------------------
+// The world-space axis-aligned rectangle of an entity's 2D visuals, from the same geometry the renderer draws. The geometry
+// itself (Tilemap through tilemap_size(), Sprite, Shape2D and Text from size and pivot, the box around the four corners moved
+// by the world matrix, the union over all visuals) is entity_world_rect() in fa/scene/bounds.h, shared with the editor's
+// picking and selection outline. What only this module knows is how to measure a texture file and a text.
+// Pixel size of a texture file as the renderer sees it: 32 x 32 (the missing-texture checker) when the file is missing or
+// unreadable. Cached per file and modification time, so a script may ask every frame.
+Vec2 texture_pixel_size(Impl* I, const std::string& path) {
+    std::string key = fs::normalize(path);
+    if (key.empty()) key = path;
+    const std::int64_t mtime = fs::modified_time(key);
+    auto it = I->texSizes.find(key);
+    if (it == I->texSizes.end() || it->second.mtime != mtime) {
+        Impl::TexSize ts{32, 32, mtime};
+        if (fs::exists(key)) {
+            auto img = load_image(key);
+            if (img && !img->empty()) { ts.w = img->width; ts.h = img->height; }
+        }
+        it = I->texSizes.insert_or_assign(key, ts).first;
     }
-    maxLine = std::max(maxLine, lineW);
-    return array_of(ctx, {maxLine, lines * size * 1.2f});
+    return {static_cast<float>(it->second.w), static_cast<float>(it->second.h)};
+}
+
+NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
+    SETUP;
+    ENTITY(e, 0);
+    VisualMeasure measure;
+    measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
+    measure.textSize = [I](const Text& t) {
+        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "entity.bounds() of a Text");
+    };
+    const std::optional<Rect> box = entity_world_rect(W, e, measure);
+    if (!box) return JS_NULL;
+    JSValue a = JS_NewArray(ctx);
+    const float v[4] = {box->x, box->y, box->w, box->h};
+    for (uint32_t i = 0; i < 4; ++i) JS_SetPropertyUint32(ctx, a, i, float_to_js(ctx, v[i]));
+    return a;
 }
 
 // ---- components ---------------------------------------------------------------------------------------------------
@@ -1145,6 +1178,14 @@ NATIVE(audioVolume) {
     return JS_UNDEFINED;
 }
 
+NATIVE(audioLog) {  // (clear) -> play log entries, oldest first
+    SETUP;
+    Json list = Json::array();
+    for (const AudioEvent& ev : I->host->audio().play_log()) list.push_back(ev.to_json());
+    if (arg_bool(ctx, argc, argv, 0, false)) I->host->audio().clear_play_log();
+    return I->from_json(list);
+}
+
 // ---- physics ------------------------------------------------------------------------------------------------------
 JSValue hit_to_js(JSContext* ctx, const std::optional<RaycastHit>& hit) {
     if (!hit) return JS_NULL;
@@ -1479,8 +1520,8 @@ const Reg kRegs[] = {
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
-    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(raycast2d, 7),
-    R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
+    R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

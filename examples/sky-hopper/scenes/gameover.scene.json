@@ -1,92 +1,51 @@
 {
- "format": "factoria.scene/1",
- "settings": {
-  "gravity2D": [
-   0,
-   -980
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, -980.0],
+    "gravity3D": [0.0, -9.81, 0.0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Camera": {
+          "clearColor": [0.1, 0.05, 0.08, 1.0]
+        }
+      }
+    },
+    {
+      "id": "title",
+      "components": {
+        "Transform": {
+          "position": [640.0, 260.0, 0.0]
+        },
+        "Text": {
+          "text": "GAME OVER",
+          "fontSize": 96.0,
+          "color": [1.0, 0.3, 0.3, 1.0],
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "sub",
+      "components": {
+        "Transform": {
+          "position": [640.0, 420.0, 0.0]
+        },
+        "Text": {
+          "text": "Press Space / Enter / R to restart",
+          "fontSize": 36.0,
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen"
+        },
+        "Script": {
+          "path": "scripts/menu.js"
+        }
+      }
+    }
   ]
- },
- "entities": [
-  {
-   "id": "camera",
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      0
-     ]
-    },
-    "Camera": {
-     "projection": "orthographic",
-     "clearColor": [
-      0.1,
-      0.05,
-      0.08,
-      1
-     ],
-     "primary": true
-    }
-   }
-  },
-  {
-   "id": "title",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      260,
-      0
-     ]
-    },
-    "Text": {
-     "text": "GAME OVER",
-     "fontSize": 96,
-     "color": [
-      1,
-      0.3,
-      0.3,
-      1
-     ],
-     "align": "center",
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "space": "screen"
-    }
-   }
-  },
-  {
-   "id": "sub",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      420,
-      0
-     ]
-    },
-    "Text": {
-     "text": "Press Space / Enter / R to restart",
-     "fontSize": 36,
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "align": "center",
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "space": "screen"
-    },
-    "Script": {
-     "path": "scripts/menu.js"
-    }
-   }
-  }
- ]
 }

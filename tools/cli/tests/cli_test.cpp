@@ -1,9 +1,16 @@
-// In-process tests of the argument parser and command dispatch (no engine needed).
+// In-process tests of the argument parser, command dispatch and the path options of run/call.
 #include <doctest.h>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 
+#include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
 #include "fa/cli/cli.h"
+#include "fa/core/fs.h"
+#include "fa/core/json.h"
+#include "fa/tooling/scaffold.h"
 
 namespace {
 struct Result {
@@ -73,4 +80,155 @@ TEST_CASE("templates and docs work without a project") {
     auto bad = run({"docs", "scriptin"});
     CHECK(bad.code == 1);
     CHECK(bad.err.find("scripting") != std::string::npos);
+}
+
+// ---- path options: inputs are found in the current directory, then in the project; outputs follow the current directory
+namespace {
+namespace stdfs = std::filesystem;
+
+struct PathsFixture {
+    stdfs::path root, project, elsewhere, oldCwd;
+    PathsFixture() {
+        std::error_code ec;
+        oldCwd = stdfs::current_path(ec);
+        root = stdfs::temp_directory_path() / ("fa_cli_paths_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        stdfs::create_directories(root);
+        root = stdfs::canonical(root);
+        project = root / "game";
+        elsewhere = root / "elsewhere";  // the current directory of the "shell": NOT inside the project
+        stdfs::create_directories(elsewhere);
+        auto made = run({"new", project.string(), "--template", "2d-empty", "--json"});
+        REQUIRE_MESSAGE(made.code == 0, made.err);
+        write(project / "replays/jump.json", R"({"frames": {"0": {}, "2": {}}})");
+        stdfs::current_path(elsewhere, ec);
+    }
+    ~PathsFixture() {
+        std::error_code ec;
+        stdfs::current_path(oldCwd, ec);
+        stdfs::remove_all(root, ec);
+    }
+    static void write(const stdfs::path& p, const std::string& text) {
+        stdfs::create_directories(p.parent_path());
+        std::ofstream(p, std::ios::binary) << text;
+    }
+};
+// A path the way the CLI prints it in messages: normalized, with '/' separators on every platform.
+std::string shown(const stdfs::path& p) { return p.lexically_normal().generic_string(); }
+}  // namespace
+
+TEST_CASE("run --input: an existing path relative to the current directory wins, else the project's") {
+    PathsFixture f;
+    // From outside the project, "replays/jump.json" is only in the project: it is found there.
+    auto r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input", "replays/jump.json", "--json"});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+
+    // A file of that name in the current directory wins over the project's (here it is a broken replay).
+    PathsFixture::write(f.elsewhere / "replays/jump.json", R"({"nope": 1})");
+    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input", "replays/jump.json", "--json"});
+    CHECK(r.code != 0);
+    CHECK(r.out.find("Input replay must look like") != std::string::npos);
+    stdfs::remove(f.elsewhere / "replays/jump.json");
+
+    // An absolute path is used as it is.
+    r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input", (f.project / "replays/jump.json").string(), "--json"});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+}
+
+TEST_CASE("run --input: a missing file lists the places tried and suggests a close name") {
+    PathsFixture f;
+    auto r = run({"run", f.project.string(), "--headless", "--frames", "3", "--input", "replays/jmp.json"});
+    CHECK(r.code == 2);
+    CHECK(r.err.find("the --input file 'replays/jmp.json'") != std::string::npos);
+    CHECK(r.err.find(shown(f.elsewhere / "replays/jmp.json")) != std::string::npos);
+    CHECK(r.err.find("relative to the current directory") != std::string::npos);
+    CHECK(r.err.find(shown(f.project / "replays/jmp.json")) != std::string::npos);
+    CHECK(r.err.find("relative to the project folder") != std::string::npos);
+    CHECK(r.err.find("Did you mean 'replays/jump.json'") != std::string::npos);
+    // The old, wrong claim ("relative to the project root") is gone from the hint.
+    CHECK(r.err.find("relative to the project root") == std::string::npos);
+
+    // From inside the project both places are the same file: it is listed once.
+    std::error_code ec;
+    stdfs::current_path(f.project, ec);
+    r = run({"run", "--headless", "--frames", "3", "--input", "replays/jmp.json"});
+    CHECK(r.code == 2);
+    CHECK(r.err.find("relative to the current directory") != std::string::npos);
+    CHECK(r.err.find("relative to the project folder") == std::string::npos);
+
+    // A folder is not a replay.
+    r = run({"run", "--headless", "--frames", "3", "--input", "replays"});
+    CHECK(r.code == 2);
+    CHECK(r.err.find("a folder of that name exists") != std::string::npos);
+}
+
+TEST_CASE("run output options are relative to the current directory and the report prints the absolute path") {
+    PathsFixture f;
+    auto r = run({"run", f.project.string(), "--headless", "--frames", "3", "--state-out", "out/state.json", "--json"});
+    REQUIRE_MESSAGE(r.code == 0, (r.out + r.err));
+    CHECK(stdfs::exists(f.elsewhere / "out/state.json"));
+    CHECK_FALSE(stdfs::exists(f.project / "out/state.json"));
+    // The report names the file it wrote (an absolute path; compare the files, not the spellings).
+    const fa::Json report = fa::Json::parse(r.out, nullptr, false);
+    REQUIRE(report.is_object());
+    REQUIRE(report.contains("stateOut"));
+    std::error_code ec;
+    CHECK(stdfs::equivalent(stdfs::path(report["stateOut"].get<std::string>()), f.elsewhere / "out/state.json", ec));
+}
+
+TEST_CASE("call: @args.json, --batch-file and --input are found in the current directory, then in the project") {
+    PathsFixture f;
+    PathsFixture::write(f.project / "levels/args.json", R"({})");
+    PathsFixture::write(f.project / "levels/batch.json", R"([{"command":"game.step","args":{"frames":2}}])");
+    auto r = run({"call", "project.info", "@levels/args.json", "--project", f.project.string()});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+    r = run({"call", "--batch-file", "levels/batch.json", "--project", f.project.string()});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+    r = run({"call", "game.state", "--input", "replays/jump.json", "--project", f.project.string()});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+    r = run({"call", "project.info", "@levels/nope.json", "--project", f.project.string()});
+    CHECK(r.code == 2);
+    CHECK(r.err.find(shown(f.project / "levels/nope.json")) != std::string::npos);
+}
+
+// The engine's own check that the templates are healthy, with the full command set. A project made from each template
+// runs its tests/*.test.js on the engine `factoria test` builds (Session::open + run_project_tests: the project, tooling
+// and runtime commands, headless, graphics off). The template tests use fs.*, scene.import_ascii and scene.format, which
+// the minimal host of fa_test_script does not have; that test only checks that the template scripts load and compile.
+// `cli_integration` runs the same tests through the real binary (with a GPU when there is one) and also covers new,
+// validate, run and screenshots; this one needs no GPU and no Python, so it runs wherever the unit tests do (Wine too).
+TEST_CASE("templates: every template's tests pass on the engine that factoria test builds") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
+        CAPTURE(name);
+        const stdfs::path root = fa::fs::make_temp_dir(std::string("fa_cli_template_") + name);
+        const std::string dir = (root / "game").string();
+        fa::ScaffoldOptions opt;
+        opt.writeTypings = false;  // types/factoria.d.ts is for editors; the tests do not read it
+        auto made = fa::create_project(dir, name, opt);
+        REQUIRE_MESSAGE(made.ok(), made.error().to_string());
+        {
+            fa::cli::SessionOptions so;
+            so.gfx = fa::cli::Gfx::None;
+            auto session = fa::cli::Session::open(dir, so);
+            REQUIRE(session->registry().has("scene.format"));  // the engine, tooling and project commands are all there
+            REQUIRE(session->registry().has("fs.read"));
+            fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "");
+            CHECK_MESSAGE(rep.ok(), rep.summary());
+            CHECK(rep.loadErrors.empty());
+            CHECK(rep.failed == 0);
+            CHECK(rep.passed >= 2);
+            if (std::string(name) == "2d-platformer") {
+                // The map-vs-scene and canonical-layout checks need the commands: they must really run here.
+                int levelChecks = 0;
+                for (const auto& c : rep.cases)
+                    if (c.file == "tests/level.test.js" && c.passed) ++levelChecks;
+                CHECK(levelChecks == 2);
+            }
+            for (const auto& e : session->engine().scripts().errors()) MESSAGE(e.to_string());
+            CHECK(session->engine().scripts().errors().empty());
+        }
+        std::error_code ec;
+        stdfs::remove_all(root, ec);
+    }
+    fa::fs::set_project_root(oldRoot);
 }

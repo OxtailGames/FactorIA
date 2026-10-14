@@ -26,3 +26,7 @@ DerivedData/
 .env
 *.key
 ai.local.json
+
+# agent worktrees (Claude Code)
+/.claude/worktrees/
+/.claude/mods/*/.claude-plugin/types/

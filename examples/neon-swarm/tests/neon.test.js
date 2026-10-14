@@ -183,3 +183,56 @@ describe("flow", () => {
     expect(game.find("manager")).not.toBeNull();
   });
 });
+
+describe("neon look", () => {
+  test("every scene turns on camera bloom over a dark background", () => {
+    for (const path of ["scenes/title.scene.json", "scenes/game.scene.json", "scenes/gameover.scene.json"]) {
+      game.load(path);
+      game.step(1);
+      const cam = game.find("camera").get("Camera");
+      expect(cam.bloom).toBe(true);
+      expect(cam.bloomThreshold).toBeLessThan(1);
+      expect(Math.max(cam.clearColor.r, cam.clearColor.g, cam.clearColor.b)).toBeLessThan(0.15);
+    }
+  });
+
+  test("the HUD is drawn after the bloom in the game scene (crisp), the titles still glow", () => {
+    game.load("scenes/game.scene.json");
+    game.step(1);
+    expect(game.find("camera").get("Camera").bloomScreenSpace).toBe(false);
+    for (const path of ["scenes/title.scene.json", "scenes/gameover.scene.json"]) {
+      game.load(path);
+      game.step(1);
+      expect(game.find("camera").get("Camera").bloomScreenSpace).toBe(true);
+    }
+  });
+
+  test("the chaser is a spinning diamond, triangles spin about their centroid", () => {
+    loadGame();
+    mgr().timer = 999;
+    const chaser = world.spawnPrefab("prefabs/chaser.prefab.json", { position: vec3(400, 200, 0) });
+    expect(chaser.get("Shape2D").shape).toBe("diamond");
+    const shooter = world.spawnPrefab("prefabs/shooter.prefab.json", { position: vec3(-400, 200, 0) });
+    expect(shooter.get("Shape2D").shape).toBe("triangle");
+    for (const e of [shooter, player()]) {
+      expect(e.get("Shape2D").pivot.y).toBeCloseTo(1 / 3, 2);
+      expect(e.get("Shape2D").pivot.x).toBeCloseTo(0.5, 2);
+    }
+  });
+
+  test("the player, the enemies and the bullets are bright additive shapes", () => {
+    loadGame();
+    mgr().timer = 999;
+    const things = [player()];
+    for (const name of ["chaser", "shooter", "splitter", "mini", "bullet", "enemy_bullet"]) {
+      things.push(world.spawnPrefab("prefabs/" + name + ".prefab.json", { position: vec3(400, 200, 0) }));
+    }
+    for (const e of things) {
+      const s = e.get("Shape2D");
+      expect(s).not.toBeNull();
+      expect(s.blend).toBe("additive");
+      expect(Math.max(s.color.r, s.color.g, s.color.b)).toBeGreaterThan(0.7); // above the bloom threshold, so it glows
+      expect(e.has("Sprite")).toBe(false); // no hand-made glow sprites
+    }
+  });
+});

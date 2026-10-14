@@ -76,7 +76,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: '../x.js' imports inside the project now resolve and validate; only paths that leave the project root fail, and the error names the import."
+        "Fixed in e2b0090: '../x.js' imports inside the project now resolve and validate; only paths that leave the project root fail, and the error names the import.",
+        "53fab56: scripts and tools import ../levels/levels.json with a relative path."
       ]
     },
     {
@@ -102,7 +103,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: import levels from '../data/levels.json' works (default export = parsed JSON, hot-reload aware); JSON syntax errors are reported against the .json file. Verified."
+        "Fixed in e2b0090: import levels from '../data/levels.json' works (default export = parsed JSON, hot-reload aware); JSON syntax errors are reported against the .json file. Verified.",
+        "Workaround removed in 53fab56: levels/levels.json replaces the levels.js module."
       ]
     },
     {
@@ -127,7 +129,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: docs/SCRIPTING.md > Imports documents the resolution rules and JSON imports."
+        "Fixed in e2b0090: docs/SCRIPTING.md > Imports documents the resolution rules and JSON imports.",
+        "53fab56: relative ../ imports are used and validate accepts them."
       ]
     },
     {
@@ -151,7 +154,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: game.load constructs behaviours immediately; onStart runs on the first game.step (documented). game.find returns null for a missing entity."
+        "Fixed in e2b0090: game.load constructs behaviours immediately; onStart runs on the first game.step (documented). game.find returns null for a missing entity.",
+        "53fab56: the step after game.load is kept on purpose: Board.onStart builds the level on the first step (a test covers it)."
       ]
     },
     {
@@ -296,7 +300,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: game.touch(pos, frames=1), game.touchStart(pos, id?), touchMove, touchEnd fill input.touches in tests (touch.pressed is true on the first frame only; verified)."
+        "Fixed in e2b0090: game.touch(pos, frames=1), game.touchStart(pos, id?), touchMove, touchEnd fill input.touches in tests (touch.pressed is true on the first frame only; verified).",
+        "53fab56: the touch branch is tested (taps, swipes, a device-style tap)."
       ]
     },
     {
@@ -345,7 +350,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: ui.measureText(text, { fontSize, font, maxWidth }) -> { width, height }. Headless runs approximate (0.6 x fontSize per char) and warn once."
+        "Fixed in e2b0090: ui.measureText(text, { fontSize, font, maxWidth }) -> { width, height }. Headless runs approximate (0.6 x fontSize per char) and warn once.",
+        "Workaround removed in 53fab56: the banner panel is sized with ui.measureText."
       ]
     },
     {
@@ -369,7 +375,8 @@
       "status": "fixed-in-engine",
       "notes": [
         "Still open after e2b0090: Shape2D now has pivot (default [0.5,0.5], centered) and anchor, described in the engine's api output, but docs/COMPONENTS.md has not been regenerated. Use pivot/anchor now.",
-        "Docs: anchor/pivot documented in AI_GUIDE and COMPONENTS.md (Sprite/Shape2D/Text anchor)."
+        "Docs: anchor/pivot documented in AI_GUIDE and COMPONENTS.md (Sprite/Shape2D/Text anchor).",
+        "Workaround removed in 53fab56: the HUD uses anchor/pivot (correct at 1920x720 and 720x1280)."
       ],
       "engineIssue": "this release"
     },
@@ -443,9 +450,67 @@
       "status": "fixed-in-engine",
       "notes": [
         "Partly fixed in e2b0090: throw new ToolError(message, hint, data) makes the call exit 1 and keeps data via 'call --batch', 'session' and MCP. Still open: a plain 'factoria call project.x' prints only message+hint (verified), so the data/report is lost on the CLI single-call path; a returned {ok:false} still exits 0.",
-        "throw new ToolError(message, hint, data): data is returned as error.data by factoria call (--json), session/batch and MCP."
+        "throw new ToolError(message, hint, data): data is returned as error.data by factoria call (--json), session/batch and MCP.",
+        "Workaround removed in 53fab56: check_levels throws ToolError(message, hint, report); factoria call exits 1 and prints error.data (stderr, and stdout with --json)."
       ],
       "engineIssue": "this release"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "Bug: fa.call drops ToolError data",
+      "missing": "Inside a script or test, fa.call on a tool that throws ToolError(message, hint, data) gives an Error with code and hint but no data: the fa.call wrapper in factoria.js copies only code and hint.",
+      "workaround": "The check_levels test asserts on message and hint instead of the report.",
+      "workaroundFiles": [
+        "tests/board.test.js"
+      ],
+      "suggestion": "Copy error.data onto the thrown Error (e.data).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "input",
+      "severity": "minor",
+      "title": "game.touch does not drive the mouse like a device",
+      "missing": "On a device the first finger also moves the mouse and presses mouse-left (platform app.cpp); game.touch/touchStart in tests only fill input.touches, so a headless test cannot cover tap-to-continue through the mouse branch.",
+      "workaround": "A device-style test combines touchStart with game.click.",
+      "workaroundFiles": [
+        "tests/board.test.js"
+      ],
+      "suggestion": "Mirror the first touch to the mouse in the test harness, or document the difference.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Invalid JSON import error has no line or column",
+      "missing": "factoria validate reports a syntax error in an imported .json without its position (the hint points at validate itself), once per importing script, plus a cascading Script props warning.",
+      "workaround": "Located the error with an external JSON linter.",
+      "suggestion": "Report the JSON parse error once, as file:line:column.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

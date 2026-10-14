@@ -1,7 +1,9 @@
 #include "fa/core/json.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <vector>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -158,6 +160,176 @@ std::string dump_json(const Json& j) {
 
 Result<void> save_json_file(std::string_view path, const Json& j) {
     return fs::write_text(path, dump_json(j));
+}
+
+// ------------------------------------------------------- compact layout --
+namespace {
+
+constexpr int kIndent = 2;
+
+class CompactWriter {
+public:
+    explicit CompactWriter(const JsonFormat& format) : fmt_(format) {}
+
+    std::string run(const Json& j) {
+        value(j, 0, 0, kNull);
+        out_ += '\n';
+        return std::move(out_);
+    }
+
+private:
+    static std::string scalar(const Json& v) { return v.dump(-1, ' ', false, Json::error_handler_t::replace); }
+
+    void pad(int depth) { out_.append(std::size_t(depth) * kIndent, ' '); }
+
+    // `col` is the column where the value starts (after the indent and the "key": prefix of its line).
+    void value(const Json& v, int depth, std::size_t col, const Json& parent) {
+        if (v.is_object()) object(v, depth);
+        else if (v.is_array()) array(v, depth, col, parent);
+        else out_ += scalar(v);
+    }
+
+    void object(const Json& v, int depth) {
+        if (v.empty()) {
+            out_ += "{}";
+            return;
+        }
+        out_ += "{\n";
+        std::size_t i = 0;
+        for (auto it = v.begin(); it != v.end(); ++it) {
+            pad(depth + 1);
+            std::string key = scalar(Json(it.key()));
+            out_ += key;
+            out_ += ": ";
+            path_.push_back(it.key());
+            value(it.value(), depth + 1, std::size_t(depth + 1) * kIndent + key.size() + 2, v);
+            path_.pop_back();
+            if (++i < v.size()) out_ += ',';
+            out_ += '\n';
+        }
+        pad(depth);
+        out_ += '}';
+    }
+
+    bool is_scalar_array(const Json& v) const {
+        for (const Json& e : v) {
+            if (e.is_object() || e.is_array()) return false;
+            if (e.is_string() && scalar(e).size() > std::size_t(fmt_.maxInlineString)) return false;
+        }
+        return true;
+    }
+
+    void array(const Json& v, int depth, std::size_t col, const Json& parent) {
+        if (v.empty()) {
+            out_ += "[]";
+            return;
+        }
+        if (is_scalar_array(v)) {
+            scalar_array(v, depth, col, parent);
+            return;
+        }
+        out_ += "[\n";
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            pad(depth + 1);
+            path_.push_back(std::to_string(i));
+            value(v[i], depth + 1, std::size_t(depth + 1) * kIndent, v);
+            path_.pop_back();
+            if (i + 1 < v.size()) out_ += ',';
+            out_ += '\n';
+        }
+        pad(depth);
+        out_ += ']';
+    }
+
+    void scalar_array(const Json& v, int depth, std::size_t col, const Json& parent) {
+        std::vector<std::string> items;
+        items.reserve(v.size());
+        std::size_t total = 2 + 2 * (v.size() - 1);  // the brackets and the ", " between elements
+        bool allNumbers = true;
+        for (const Json& e : v) {
+            items.push_back(scalar(e));
+            total += items.back().size();
+            allNumbers = allNumbers && e.is_number();
+        }
+        const std::size_t limit = fmt_.maxWidth > 0 ? std::size_t(fmt_.maxWidth) : 0;
+
+        int rowLen = 0;
+        if (allNumbers && fmt_.rowLength) rowLen = fmt_.rowLength(path_, parent, v);
+        if (rowLen > 0) {
+            rows(items, depth, std::size_t(rowLen));
+            return;
+        }
+        if (col + total + 1 <= limit) {  // +1: the comma that may follow the array
+            out_ += '[';
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (i) out_ += ", ";
+                out_ += items[i];
+            }
+            out_ += ']';
+            return;
+        }
+        // Too long for one line: fill lines up to the limit, commas stay at the end of each line.
+        out_ += "[\n";
+        const std::size_t lineStart = std::size_t(depth + 1) * kIndent;
+        std::size_t lineCol = lineStart;
+        bool first = true;
+        pad(depth + 1);
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            const bool last = i + 1 == items.size();
+            const std::size_t need = items[i].size() + (last ? 0 : 1);
+            if (!first && lineCol + 1 + need > limit) {
+                out_ += '\n';
+                pad(depth + 1);
+                lineCol = lineStart;
+                first = true;
+            }
+            if (!first) {
+                out_ += ' ';
+                ++lineCol;
+            }
+            out_ += items[i];
+            if (!last) out_ += ',';
+            lineCol += need;
+            first = false;
+        }
+        out_ += '\n';
+        pad(depth);
+        out_ += ']';
+    }
+
+    // `rowLen` numbers per line, every column right-aligned to the widest number.
+    void rows(const std::vector<std::string>& items, int depth, std::size_t rowLen) {
+        std::size_t widest = 0;
+        for (const std::string& s : items) widest = std::max(widest, s.size());
+        out_ += "[\n";
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            if (i % rowLen == 0) {
+                if (i) out_ += '\n';
+                pad(depth + 1);
+            } else {
+                out_ += ' ';
+            }
+            out_.append(widest - items[i].size(), ' ');
+            out_ += items[i];
+            if (i + 1 < items.size()) out_ += ',';
+        }
+        out_ += '\n';
+        pad(depth);
+        out_ += ']';
+    }
+
+    static inline const Json kNull = Json();
+    const JsonFormat& fmt_;
+    std::vector<std::string> path_;
+    std::string out_;
+};
+
+}  // namespace
+
+std::string dump_json(const Json& j, const JsonFormat& format) { return CompactWriter(format).run(j); }
+
+Result<void> save_json_file(std::string_view path, const Json& j, const JsonFormat& format) {
+    return fs::write_text(path, dump_json(j, format));
 }
 
 bool json_to(const Json& j, bool& out, std::string* err) {

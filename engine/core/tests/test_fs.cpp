@@ -96,6 +96,50 @@ TEST_CASE("fs: missing files get did-you-mean hints") {
     CHECK(!dir.ok());
 }
 
+TEST_CASE("fs: write policy - .factoria is managed, .factoria/tmp is scratch") {
+    TempProject p;
+    // Normal folders are writable; the tools' folders are not, except the scratch folder.
+    for (const char* ok : {"scenes/a.scene.json", "assets/x.png", "levels/.hidden", ".factoria_not/x", ".factoria/tmp/a.json",
+                           ".factoria/tmp/deep/er/a.json", "./.factoria/tmp/a.json", "scenes/../.factoria/tmp/a.json"}) {
+        CAPTURE(ok);
+        CHECK(fs::check_writable(ok).ok());
+    }
+    for (const char* bad : {".factoria", ".factoria/save/slot1.json", ".factoria/screenshots/frame_1.png", ".factoria/tmpx/a.json",
+                            ".factoria/tmp2", ".git/config", ".git"}) {
+        CAPTURE(bad);
+        auto r = fs::check_writable(bad);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find(bad) != std::string::npos);
+        CHECK(r.error().hint.find(".factoria/tmp/") != std::string::npos);  // names the place that is allowed
+    }
+    // The scratch folder itself can be deleted, i.e. it is not "managed".
+    CHECK(fs::is_scratch_path(".factoria/tmp"));
+    CHECK(fs::is_scratch_path(".factoria/tmp/x"));
+    CHECK_FALSE(fs::is_scratch_path(".factoria/tmpx"));
+    CHECK_FALSE(fs::is_managed_path(".factoria/tmp"));
+    CHECK(fs::is_managed_path(".factoria"));
+    CHECK(fs::is_managed_path(".factoria/save/a"));
+    CHECK_FALSE(fs::is_managed_path("scenes/main.scene.json"));
+
+    // Escaping the project is an error of its own; an absolute path is judged inside the project root only.
+    CHECK_FALSE(fs::check_writable("../x").ok());
+    CHECK_FALSE(fs::check_writable((p.dir / ".factoria" / "save" / "a.json").generic_string()).ok());
+    CHECK(fs::check_writable((p.dir / ".factoria" / "tmp" / "a.json").generic_string()).ok());
+    CHECK(fs::check_writable((p.dir / "scenes" / "a.json").generic_string()).ok());
+    CHECK(fs::check_writable((stdfs::temp_directory_path() / "elsewhere.json").generic_string()).ok());
+}
+
+TEST_CASE("fs: a missing absolute path does not claim to be project-relative") {
+    TempProject p;
+    auto rel = fs::read_text("nope.json");
+    REQUIRE_FALSE(rel.ok());
+    CHECK(rel.error().hint.find("relative to the project root") != std::string::npos);
+    auto abs = fs::read_text((p.dir / "nope.json").generic_string());
+    REQUIRE_FALSE(abs.ok());
+    CHECK(abs.error().hint.find("relative to the project root") == std::string::npos);
+    CHECK(abs.error().hint.find("absolute path") != std::string::npos);
+}
+
 TEST_CASE("fs: path helpers") {
     CHECK(fs::extension("a/b/Player.PNG") == ".png");
     CHECK(fs::extension("a.b/noext") == "");
@@ -179,4 +223,16 @@ TEST_CASE("image: png roundtrip, flip and diff") {
     auto bad = decode_image(reinterpret_cast<const std::uint8_t*>("garbage"), 7);
     CHECK(!bad.ok());
     CHECK(!load_image("out/missing.png").ok());
+}
+
+TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
+    const stdfs::path a = fs::make_temp_dir("fa_test_tmp");
+    const stdfs::path b = fs::make_temp_dir("fa_test_tmp");
+    CHECK(a != b);
+    CHECK(stdfs::is_directory(a));
+    CHECK(stdfs::is_empty(a));
+    CHECK(a.filename().string().rfind("fa_test_tmp_", 0) == 0);
+    CHECK(stdfs::is_directory(stdfs::temp_directory_path() / a.filename()));  // directly inside the system temp folder
+    stdfs::remove_all(a);
+    stdfs::remove_all(b);
 }

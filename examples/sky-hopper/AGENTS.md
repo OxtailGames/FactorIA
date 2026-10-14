@@ -27,14 +27,58 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 |---|---|
 | `factoria.json` | project settings: name, display size, main scene, physics, input actions |
 | `scenes/*.scene.json` | levels: entities with components (format `factoria.scene/1`) |
-| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab` |
+| `levels/level1.json`, `level2.json` | ASCII maps of the two hand-made levels: the arguments of `scene.import_ascii`, the source of truth of their tiles, coins, crawlers, player and flag (see Levels below) |
+| `levels/generator_base.scene.json` | the part of a level that is not map (settings, camera, `level` script, HUD); `project.generate_level` builds on it |
+| `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab`; here the things a map spawns: `coin`, `enemy`, `player`, `goal` |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `tests/*.test.js` | headless tests run by `factoria test` |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (regenerate: `factoria api --dts`) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
-| `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit |
+| `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit. Scratch files: `.factoria/tmp/` |
+
+## Levels (ASCII maps)
+
+Do not edit the tiles or the coins, crawlers, player and flag of `scenes/level1.scene.json` and `level2.scene.json`
+by hand, and do not compute their coordinates. Each level is an ASCII map in `levels/<name>.json`: the arguments
+of the engine command `scene.import_ascii` (`rows`, `legend`, `tilemap`, `entity`, `anchor`/`position`, `path`).
+The command writes the `map` Tilemap and spawns the objects from the prefabs in `prefabs/`, each in the cell of its
+character, into the scene FILE named by `path` (it starts from that file, so the camera, `level` script and HUD stay).
+To change a level: edit the map, rebuild, `factoria validate`, run and look at it.
+
+```bash
+# from this folder; each map names its scene in "path", so no --scene and no scene.load/scene.save
+factoria call scene.import_ascii @levels/level1.json
+factoria call scene.import_ascii @levels/level2.json
+```
+
+`path` makes the command edit the file in a scratch world: the running game (if any) is not touched. Do NOT put
+`"save": true` in a map file instead: without `path` the command changes the running scene, and a `factoria call`
+without `--scene` runs `scenes/level1.scene.json` (the main scene), so the engine refuses it (`unsafe_save`).
+
+- Legend: `#` grass (tile 0), `%` dirt (1), `=` brick platform (2), `.` empty, `o` coin, `E` crawler, `P` player
+  (`id: "player"`), `F` goal flag (`id: "goal"`; its `overrides` set `next`, the scene loaded when it is reached).
+  `E` and `F` have a legend `offset` (crawler 4 px down, flag 16 px up) so they stand on the ground.
+- Ids are stable: `player`, `goal`, and `coin_N` / `enemy_N` numbered in reading order (row by row, top first). Tests
+  and scripts look entities up by these ids. Every spawned object also has the tag `tilemap:map`; rebuilding replaces
+  them, so nothing is duplicated.
+- The scene keeps everything that is not map: `camera`, the `level` script entity and the `hud`. The camera limits
+  are not scene data: the `camera` Script prop `"bounds": "map"` names the Tilemap entity, and
+  `scripts/follow_camera.js` clamps to its `entity.bounds()`, so a resized map moves the limits by itself (do not add
+  `minX`..`maxY` props: they only narrow the map's limits). `tests/platformer.test.js` checks that and that each scene
+  is exactly what its map builds, so a hand edit of a scene or a forgotten rebuild fails `factoria test`.
+- A new level: copy `levels/generator_base.scene.json` to `scenes/levelN.scene.json`, set `levelIndex` in its
+  `level` entity, give its camera `"bounds": "map"` in place of any `minX`..`maxY`, copy a map to `levels/levelN.json`
+  with `"path": "scenes/levelN.scene.json"`, edit it and run the command above for it. Point the previous level's `F`
+  legend `next` at the new scene. (Do not put `"from"` in a hand-made level's map file: `from` replaces the scene, so the
+  camera, HUD and settings you set in it would be lost on every rebuild.)
+- `project.generate_level` (`tools/generate_level.js`) makes a random level the same way: it composes `rows` and a
+  `legend` from `width`, `seed` and `difficulty`, writes a copy of `levels/generator_base.scene.json` with this level's
+  sky colour and level number to `.factoria/tmp/` (the scratch folder), and calls
+  `scene.import_ascii {path, from: <that copy>, dryRun}`. The running game is never touched (nothing to save or
+  restore), `dryRun` writes nothing. `scenes/generated.scene.json` is
+  `factoria call project.generate_level '{"width":90,"seed":7,"difficulty":3}'`. The result lists the `rows`.
 
 ## Conventions
 

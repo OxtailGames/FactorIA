@@ -98,6 +98,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field (generated).
 - [docs/EXTENDING.md](docs/EXTENDING.md): creating tools, commands, components and systems.
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
+- [docs/EDITOR.md](docs/EDITOR.md): the visual editor: panels, picking, inspector, prefabs, ASCII levels, formatting, audio log.
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): AI providers (Claude Code, Codex, API keys) and roles.
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.
 - [docs/BUILDING.md](docs/BUILDING.md): platform requirements, presets, CI, tests and troubleshooting.

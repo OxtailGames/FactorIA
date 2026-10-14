@@ -72,9 +72,7 @@ struct Fixture {
     std::filesystem::path dir;
     Audio audio;
     Fixture() {
-        dir = std::filesystem::temp_directory_path() / "factoria_audio_test";
-        std::filesystem::remove_all(dir);
-        std::filesystem::create_directories(dir);
+        dir = fs::make_temp_dir("factoria_audio_test");
         fs::set_project_root(dir);
         write_sine_wav(dir / "sounds/sine.wav", 1.0);
         std::string err;
@@ -340,4 +338,55 @@ TEST_CASE("audio: null device mixing is deterministic") {
     REQUIRE(a.frames() == b.frames());
     CHECK(std::memcmp(a.l.data(), b.l.data(), a.l.size() * sizeof(float)) == 0);
     CHECK(std::memcmp(a.r.data(), b.r.data(), a.r.size() * sizeof(float)) == 0);
+}
+
+TEST_CASE("audio: the play log records every play request with the clock world's frame") {
+    Fixture fx;
+    World world;
+    for (int i = 0; i < 3; ++i) world.advance_clock(1.0 / 60.0);
+    fx.audio.set_clock(&world);
+
+    PlayParams ui;
+    ui.volume = 0.5f;
+    ui.bus = "ui";
+    CHECK(fx.audio.play("sounds/sine.wav", ui) != 0);
+    CHECK(fx.audio.play("sounds/nope.wav") == 0);  // missing clip: logged with ok = false
+    fx.audio.play_music("./sounds/sine.wav", 0.4f, 0.0f);
+    fx.audio.play_music("sounds/sine.wav", 0.6f, 0.0f);  // same track again: a retune, not a new play
+
+    std::vector<AudioEvent> log = fx.audio.play_log();
+    REQUIRE(log.size() == 3);
+    CHECK(log[0].seq == 1);
+    CHECK(log[0].frame == 3);
+    CHECK(log[0].time == doctest::Approx(3.0 / 60.0));
+    CHECK(log[0].path == "sounds/sine.wav");
+    CHECK(log[0].bus == "ui");
+    CHECK(log[0].volume == doctest::Approx(0.5f));
+    CHECK(log[0].ok);
+    CHECK_FALSE(log[0].music);
+    CHECK(log[1].path == "sounds/nope.wav");
+    CHECK_FALSE(log[1].ok);
+    CHECK(log[2].path == "sounds/sine.wav");  // normalized
+    CHECK(log[2].music);
+    CHECK(log[2].loop);
+    CHECK(log[2].bus == "music");
+    CHECK(fx.audio.play_log(2).size() == 1);  // only entries after seq 2
+
+    // AudioSource components are logged with their entity id as `source`
+    Entity e = world.create("coin_sfx", "coin_sfx");
+    AudioSource& src = world.add<AudioSource>(e);
+    src.clip = "sounds/sine.wav";
+    src.playOnStart = true;
+    fx.audio.update(world, 1.0f / 60.0f);
+    log = fx.audio.play_log(3);
+    REQUIRE(log.size() == 1);
+    CHECK(log[0].source == "coin_sfx");
+    Json j = log[0].to_json();
+    CHECK(j["source"] == "coin_sfx");
+    CHECK(j["seq"] == 4);
+
+    fx.audio.clear_play_log();
+    CHECK(fx.audio.play_log().empty());
+    fx.audio.play("sounds/sine.wav");
+    CHECK(fx.audio.play_log().at(0).seq == 5);  // seq keeps increasing after a clear
 }

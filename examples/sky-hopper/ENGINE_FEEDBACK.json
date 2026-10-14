@@ -94,7 +94,8 @@
       "status": "fixed-in-engine",
       "notes": [
         "Still open after e2b0090: no CameraFollow2D / level-bounds clamp helper; docs/AI_GUIDE.md 9.6 only shows an unclamped follow camera.",
-        "Docs: AI_GUIDE 9.6 'Camera follow with level bounds' recipe; AGENTS.md conventions on 2D origin."
+        "Docs: AI_GUIDE 9.6 'Camera follow with level bounds' recipe; AGENTS.md conventions on 2D origin.",
+        "Since ad0922f: entity.bounds() gives a Tilemap's world rectangle; follow_camera.js clamps to it (\"bounds\": \"map\") and no scene carries hand-set camera limits."
       ],
       "engineIssue": "this release"
     },
@@ -119,7 +120,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: rng.seed(n) reseeds the world RNG (seed -> level determinism in tools and tests)."
+        "Fixed in e2b0090: rng.seed(n) reseeds the world RNG (seed -> level determinism in tools and tests).",
+        "Since ad0922f: rng.create(seed) is an independent seeded generator that never touches the world RNG; tools/generate_level.js uses it instead of its own PRNG."
       ]
     },
     {
@@ -327,10 +329,13 @@
       ],
       "suggestion": "Tilemap object layer or 'scene.import_ascii' / 'tilemap.paint' commands; tile-to-prefab mapping.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no tilemap object layer or ASCII/prefab import command."
-      ]
+        "Still open after e2b0090: no tilemap object layer or ASCII/prefab import command.",
+        "Fixed in ae8bb15: scene.import_ascii {rows, legend, tilemap, position, anchor, save} builds the Tilemap and spawns prefabs (coins, enemies, a player spawn with a fixed id) at the cell centres, tagged tilemap:<entity>; re-importing replaces them. tools/generate_level.js can be replaced by one call with the level's ASCII rows (AI_GUIDE 9.8).",
+        "Workaround removed in 9dc7fd5: levels/level1.json and level2.json are ASCII maps built with scene.import_ascii (file mode with \"path\" since cc789f7); generate_level composes rows and builds through the same command."
+      ],
+      "engineIssue": "ae8bb15"
     },
     {
       "id": "FB-0015",
@@ -347,10 +352,12 @@
       "workaround": "Checked --record-audio output non-empty; no assertion in tests.",
       "suggestion": "Add game.audioLog() / expect(audio).toHavePlayed(path) in tests.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Still open after e2b0090: no audio log / assertion in the test harness."
-      ]
+        "Still open after e2b0090: no audio log / assertion in the test harness.",
+        "Fixed in ebb054d: game.audioLog() lists every sound played since the test started ({frame, path, volume, bus, source, ok}); assert with expect(game.audioLog()).toContainPlayed(\"jump.wav\", { times: 1 }) (alias toHavePlayed). MCP/CLI agents use the audio.log command. tests/platformer.test.js now asserts the jump, coin, stomp, hurt and win sounds."
+      ],
+      "engineIssue": "ebb054d"
     },
     {
       "id": "FB-0016",
@@ -373,6 +380,147 @@
         "Docs: AI_GUIDE 9.8 documents tilemap collision (merging, solidTiles, origin, one-way via separate oneWay entity)."
       ],
       "engineIssue": "this release"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "scene",
+      "severity": "major",
+      "title": "Commands only edit the running world",
+      "missing": "scene.import_ascii, scene.load and scene.save act on the running world (scene.load stops audio and resets physics), so a generator must load a base scene, import, save and reload the previous scene, losing unsaved runtime state.",
+      "workaround": "generate_level loaded the base scene, imported, saved and restored the running scene (9dc7fd5).",
+      "workaroundFiles": [
+        "tools/generate_level.js"
+      ],
+      "suggestion": "A file-targeted mode for scene.import_ascii, or scene.load_json / scene.export.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "cc789f7",
+      "notes": [
+        "Fixed in cc789f7: scene.import_ascii {path, from, dryRun} edits a scene FILE in a scratch world and never touches the running game; generate_level uses it."
+      ]
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "fs.delete refuses .factoria/ while scene.save can write there",
+      "missing": "A tool could write scratch scenes into .factoria/ with scene.save but could not delete them with fs.delete.",
+      "workaround": "Avoided scratch files in dryRun.",
+      "suggestion": "One consistent rule for writing and deleting, with a scratch folder.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "cc789f7",
+      "notes": [
+        "Fixed in cc789f7: .factoria/tmp/ is a scratch folder where scene.save, scene.import_ascii path, fs.write, fs.edit and fs.delete may all write and delete; the rest of .factoria/ is managed by the engine."
+      ]
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Bug: factoria run --input resolves against the current directory",
+      "missing": "factoria run <project> --input replays/run.json from another folder failed, and the hint wrongly said the path is relative to the project root.",
+      "workaround": "Ran the replay from the project folder.",
+      "suggestion": "Resolve input files against the project too and make the hint list the locations tried.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "cc789f7",
+      "notes": [
+        "Fixed in cc789f7: input paths (--input, @args, --batch-file) try the current directory, then the project; a missing file lists every location tried. Outputs are relative to the current directory and reported as absolute paths."
+      ]
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "scene.import_ascii with save overwrites the main scene without --scene",
+      "missing": "factoria call scene.import_ascii @map.json with save:true and no --scene loads the main scene and overwrites it with the wrong map.",
+      "workaround": "Documented that --scene must always be passed.",
+      "suggestion": "A path argument on scene.import_ascii, or refuse that save.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "cc789f7",
+      "notes": [
+        "Fixed in cc789f7: the map files carry \"path\"; save without path is refused (unsafe_save) when the running scene is only the implicit mainScene."
+      ]
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "scene",
+      "severity": "minor",
+      "title": "No file-targeted component edits",
+      "missing": "To set the camera height, sky colour and level number of a generated level, generate_level writes a patched copy of the base scene with fs.write; there is no scene-file equivalent of scene.set_component.",
+      "workaround": "tools/generate_level.js writes .factoria/tmp/generate_level.base.scene.json and passes it as 'from'.",
+      "workaroundFiles": [
+        "tools/generate_level.js"
+      ],
+      "suggestion": "An 'edits' argument on scene.import_ascii, or scene.set_component with a path.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Scene files are not written atomically",
+      "missing": "fs::write_bytes truncates then writes, so a crash mid-write can leave a half-written scene.",
+      "workaround": "None.",
+      "suggestion": "Write to a temporary file and rename it over the target.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0023",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "No script query for a texture's size",
+      "missing": "Scripts cannot ask a Sprite's texture size; entity.bounds() decodes the image file itself to know it.",
+      "workaround": "None in the game.",
+      "suggestion": "A renderer-side texture size query exposed to scripts.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

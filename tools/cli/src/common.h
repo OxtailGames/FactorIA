@@ -38,7 +38,18 @@ void print_json(std::ostream& out, const Json& j);  // pretty, newline-terminate
 int report_failure(std::ostream& err, const std::string& message, const std::string& hint = {});
 
 // ---- paths ----
+// Rule for every file path given to a CLI option (documented in docs/CLI.md, "Paths"):
+//   INPUT files (--input, @args.json, --batch-file): an absolute path is used as it is; a relative one is looked up in
+//     the current directory first (an existing file there wins), then in the project folder. resolve_input_path.
+//   OUTPUT files (--state-out, --screenshot-pattern, --record-audio, --out): a relative path is relative to the
+//     current directory, like any shell tool; the result reports the absolute path written. absolute_path.
+//   The defaults of outputs live in the project (<project>/.factoria/...). Paths INSIDE engine commands (--scene, the
+//   `path` argument of scene.load, game.screenshot...) are project-relative: that is the engine's VFS, not the shell's.
 std::string absolute_path(const std::string& path);  // relative to cwd, normalised
+// Finds the file named by an input option: absolute as is, else cwd then `projectDir` (skipped when empty). Throws a
+// UsageError listing every location tried (and a close file name, if any) when none is a file. `what` names the
+// file in the message, e.g. "the --input file".
+std::string resolve_input_path(const std::string& path, const std::string& projectDir, const std::string& what);
 // Project directory for a command: positional `posIndex`, else --project, else the project
 // containing the cwd. Throws CliError when none (or when `required` and it is not a project).
 std::string resolve_project_dir(const Context& ctx, std::size_t posIndex, bool required = true);

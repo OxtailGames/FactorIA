@@ -19,6 +19,9 @@ ctest --test-dir build/dev --output-on-failure
   windowed code use `xvfb-run -a -s "-screen 0 1280x720x24" <cmd>`.
 - When several agents work in the same checkout, each uses its OWN build dir
   (`build/agent-<name>`) and builds with `-j2`.
+- CI: `scripts/ci-local.sh linux windows` reproduces the Linux job and a Windows build (MinGW-w64 + Wine, D3D11)
+  locally; run it before pushing a CI fix. The `/ci` Claude Code mod in `.claude/mods/ci` shows the GitHub checks
+  of the branch's PR (`/plugin install ci --marketplace OxtailGames/FactorIA`, or `claude --plugin-dir .claude/mods/ci`).
 - Shaders: edit `engine/render/shaders/*.glsl`, then run
   `tools/shaders/compile_shaders.sh` (fetches sokol-shdc into `.cache/` if
   needed) and commit the regenerated headers.
@@ -55,3 +58,18 @@ ctest --test-dir build/dev --output-on-failure
   top. Translations are not embedded in the binary (AIs read English).
 - Record engine gaps you notice while building examples in the example's
   `ENGINE_FEEDBACK.json` — the same loop we ask game-making AIs to follow.
+
+## Models for agent work (every session on this project)
+
+Split work across models the same way the engine's own AI roles do
+(docs/AI_PROVIDERS.md). This holds for every Claude Code session on this
+repository, not only the one where it was agreed:
+
+- **Orchestrator — `opus`.** The main session: plans, triages feedback, splits
+  work into packages, reviews and integrates the results, runs the full test
+  suite, commits and pushes.
+- **Workers — `sonnet`.** Implement features and fixes (Agent tool with
+  `model: "sonnet"`). One work package per worker, each in its own git worktree
+  or its own build dir (`build/agent-<name>`, `-j2`), with tests and docs.
+- **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`): code searches,
+  regenerating docs/typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.

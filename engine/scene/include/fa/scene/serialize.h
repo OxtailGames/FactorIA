@@ -62,9 +62,19 @@ struct SceneLoadOptions {
 // Scenes
 LoadReport load_scene(World& world, const Json& scene, std::string_view sourceName, const SceneLoadOptions& opts = {});
 LoadReport load_scene_file(World& world, std::string_view path, const SceneLoadOptions& opts = {});
-// Canonical JSON: nested children, only non-default fields, stable key order.
+// Canonical JSON: nested children, only non-default fields, stable key order. The one exception is the gravity: `settings`
+// always carries gravity2D and gravity3D, even at their defaults, so a reader of the file sees what the level uses.
 Json save_scene(const World& world);
+// Writes the scene with the reviewable layout of dump_scene_json (below).
 Result<void> save_scene_file(const World& world, std::string_view path);
+
+// Text of a scene or prefab document as written to disk: 2-space indent, with the short arrays of scalars on one line
+// (vectors, colors, rects, tags, solidTiles; long ones wrap at about 100 columns) and a Tilemap's flat `tiles` array
+// written one map row per line (`width` numbers per line, columns aligned, row 0 first), so the file shows the shape of
+// the map. It is standard JSON: load_scene reads it like any other layout.
+// Use it (or save_scene_json_file) for every scene and prefab file the engine writes.
+std::string dump_scene_json(const Json& sceneOrPrefab);
+Result<void> save_scene_json_file(std::string_view path, const Json& sceneOrPrefab);
 
 // Entities
 struct EntityJsonOptions {

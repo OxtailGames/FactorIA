@@ -194,10 +194,13 @@
       ],
       "suggestion": "Add blendMode (alpha|additive) on Sprite/ParticleEmitter/Shape2D and a simple bloom camera option.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "Partly fixed in e2b0090: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow."
-      ]
+        "Partly fixed in e2b0090: blend 'additive'|'multiply' on Sprite/Shape2D/ParticleEmitter. Still open: no bloom / post-processing for a real glow.",
+        "Fixed in 40b049c (bloom half; additive blend shipped in e2b0090): set \"bloom\": true on the Camera (bloomThreshold, bloomIntensity, bloomRadius) over a dark clearColor and use \"blend\": \"additive\" on the bright Sprites/Shapes/particles (AI_GUIDE 9.20). The hand-blurred glow PNGs are no longer needed.",
+        "Workaround removed in 804c00d: the glow PNGs are deleted; every scene uses additive Shape2D/particles with Camera.bloom (since f649d8d the game scene sets bloomScreenSpace: false for a crisp HUD)."
+      ],
+      "engineIssue": "40b049c"
     },
     {
       "id": "FB-0009",
@@ -247,6 +250,161 @@
         "Docs: AI_GUIDE section 11 documents the input replay format (incl. mouse); factoria test now shows console output per test."
       ],
       "engineIssue": "this release"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Bloom glows the HUD too",
+      "missing": "Camera bloom applies to the whole finished frame, so white HUD text glows; there is no way to exclude screen-space items.",
+      "workaround": "Accepted a slight HUD glow (804c00d).",
+      "suggestion": "A camera flag that draws screen-space items after the bloom pass.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "f649d8d",
+      "notes": [
+        "Fixed in f649d8d: Camera.bloomScreenSpace: false draws the HUD after bloom, so it stays crisp; the game scene uses it."
+      ]
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "No command to save or format prefab files",
+      "missing": "scene.save only writes scenes; there is no command to save an entity as a prefab or to put hand-edited prefab JSON in the engine's layout.",
+      "workaround": "Formatted the six prefabs by hand in the compact style.",
+      "workaroundFiles": [
+        "prefabs/chaser.prefab.json"
+      ],
+      "suggestion": "prefab.save and a formatting command.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "afbd0e9",
+      "notes": [
+        "Fixed in afbd0e9: prefab.save {id, path} saves an entity as a prefab in the canonical layout and scene.format {paths?, check?} rewrites or checks scene/prefab files; the hand-formatted prefabs check as canonical."
+      ]
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "No diamond shape in Shape2D",
+      "missing": "Shape2D has rectangle, circle, line and triangle only; a static diamond needs a rotated entity.",
+      "workaround": "Drew the chaser as a rotating square.",
+      "suggestion": "A 'diamond' shape.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "f649d8d",
+      "notes": [
+        "Fixed in f649d8d: Shape2D shape 'diamond' (filled or outlined); the chaser uses it."
+      ]
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "Triangle rotates about its bounding-box centre",
+      "missing": "A spinning Shape2D triangle wobbles: pivot is relative to the size box, so the default spins it about the box centre, not its centroid.",
+      "workaround": "None: the ship rotated about a point slightly off its visual centre.",
+      "suggestion": "Document the centroid pivot or rotate triangles about their centroid.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "engineIssue": "f649d8d",
+      "notes": [
+        "Fixed in f649d8d: pivot [0.5, 0.3333] is a triangle's centroid (documented and tested); the ship and the shooter use it."
+      ]
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "ParticleEmitter has no screen space",
+      "missing": "Particles are always world-space, so a UI burst cannot be drawn in screen space (or kept crisp in the HUD pass with bloomScreenSpace: false).",
+      "workaround": "None needed yet.",
+      "suggestion": "ParticleEmitter.space like Sprite and Shape2D.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "Triangle outline is centred on its edges",
+      "missing": "A Shape2D triangle outline pokes out of its size box by half the thickness, while rectangle, circle and diamond outlines grow inward.",
+      "workaround": "None.",
+      "suggestion": "Draw triangle outlines inward like the other shapes (moves existing goldens).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "No polygon or star shape in Shape2D",
+      "missing": "Neon games want hexagons and stars; Shape2D has rectangle, circle, line, triangle and diamond only.",
+      "workaround": "None.",
+      "suggestion": "A 'polygon' shape with a number of sides, and a 'star'.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-13",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Validate does not flag non-canonical scene files",
+      "missing": "scene.format --check lists non-canonical scene/prefab files but always exits 0, and project.validate says nothing, so CI must parse JSON to enforce the layout.",
+      "workaround": "Ran scene.format --check by hand.",
+      "suggestion": "A validate warning or an exit-code option on scene.format check.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

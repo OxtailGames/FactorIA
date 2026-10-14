@@ -94,9 +94,17 @@ TEST_CASE("scene: save is canonical and round trips") {
     REQUIRE(r.ok());
     Json saved = save_scene(a);
     CHECK(saved["format"] == "factoria.scene/1");
-    CHECK(saved["settings"].size() == 3);                       // only non-default fields
-    CHECK(saved["settings"].contains("gravity2D"));
-    CHECK(!saved["settings"].contains("gravity3D"));
+    // Non-default fields (gravity2D, fogDensity, music) plus the gravity that is ALWAYS written, even at its default.
+    CHECK(saved["settings"].size() == 4);
+    CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, -500]"));
+    CHECK(saved["settings"].contains("gravity3D"));
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
+    CHECK(!saved["settings"].contains("ambientLight"));         // every other default is left out
+    CHECK(!saved["settings"].contains("musicVolume"));
+    // Field order is the reflected order, not the order the always-written keys were added in.
+    std::vector<std::string> keys;
+    for (auto it = saved["settings"].begin(); it != saved["settings"].end(); ++it) keys.push_back(it.key());
+    CHECK(keys == std::vector<std::string>{"gravity2D", "gravity3D", "fogDensity", "music"});
     REQUIRE(saved["entities"].size() == 3);
     const Json& player = saved["entities"][0];
     CHECK(player["id"] == "player");
@@ -119,6 +127,39 @@ TEST_CASE("scene: save is canonical and round trips") {
     CHECK(r2.messages.empty());
     CHECK(save_scene(b) == saved);
     CHECK(dump_json(save_scene(b)) == dump_json(saved));
+}
+
+TEST_CASE("scene: a saved scene always shows its gravity, even at the default; nothing else is forced") {
+    // A scene file without settings (or with "settings": {}) loads with the default gravity...
+    World w;
+    REQUIRE(load_scene(w, Json::parse(R"({"format":"factoria.scene/1","settings":{},"entities":[]})"), "t").ok());
+    CHECK(w.settings().gravity2D == Vec2{0, -980});
+    // ...and the writer says so: the reader of the file sees what pulls the bodies down without knowing the defaults.
+    Json saved = save_scene(w);
+    REQUIRE(saved["settings"].is_object());
+    CHECK(saved["settings"].size() == 2);
+    CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, -980]"));
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
+    // Reading it back changes nothing: the written gravity is the default, so saving again gives the same document.
+    World again;
+    REQUIRE(load_scene(again, saved, "t2").ok());
+    CHECK(save_scene(again) == saved);
+    // A changed gravity is written once, in the same place; the other gravity stays visible.
+    w.settings().gravity2D = {0, 0};
+    saved = save_scene(w);
+    CHECK(saved["settings"].size() == 2);
+    CHECK(saved["settings"]["gravity2D"] == Json::parse("[0, 0]"));
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -9.81, 0]"));
+    // The 3D gravity too.
+    w.settings().gravity3D = {0, -20, 0};
+    saved = save_scene(w);
+    CHECK(saved["settings"]["gravity3D"] == Json::parse("[0, -20, 0]"));
+    // Other settings keep the non-default rule.
+    w.settings().fogDensity = 0.5f;
+    saved = save_scene(w);
+    CHECK(saved["settings"].size() == 3);
+    CHECK(saved["settings"].contains("fogDensity"));
+    CHECK(!saved["settings"].contains("skyColor"));
 }
 
 TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {
@@ -156,6 +197,41 @@ TEST_CASE("scene: errors carry pointers and suggestions, loading continues") {
     CHECK(w.get<Light>(a)->intensity == 2.0f);
     CHECK(r.summary().find("[error]") != std::string::npos);
     CHECK(r.error_count() >= 5);
+}
+
+TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos get suggestions") {
+    const char* text = R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "gem", "components": { "Shape2D": { "shape": "diamond", "size": [40, 60], "pivot": [0.5, 0.3333] } } },
+        { "id": "cam", "components": { "Camera": { "bloom": true, "bloomScreenSpace": false } } },
+        { "id": "plain", "components": { "Camera": { "bloom": true }, "Shape2D": {} } },
+        { "id": "typo", "components": { "Shape2D": { "shape": "diamnd" }, "Camera": { "bloomScreenSpce": false } } }
+      ]
+    })";
+    World w;
+    LoadReport r = load_scene(w, Json::parse(text), "diamond.scene.json");
+    CHECK(has_message(r, kErr, "#/entities/3/components/Shape2D/shape: Field 'shape': unknown value \"diamnd\""));
+    CHECK(has_message(r, kErr, "Did you mean 'diamond'?"));
+    CHECK(has_message(r, kErr, "#/entities/3/components/Camera/bloomScreenSpce: Unknown field 'bloomScreenSpce' on Camera"));
+    CHECK(has_message(r, kErr, "Did you mean 'bloomScreenSpace'?"));
+    REQUIRE(w.get<Shape2D>(w.find_by_id("gem")) != nullptr);
+    CHECK(w.get<Shape2D>(w.find_by_id("gem"))->shape == ShapeType::Diamond);
+    CHECK(w.get<Shape2D>(w.find_by_id("gem"))->size == Vec2{40, 60});
+    CHECK(w.get<Camera>(w.find_by_id("cam"))->bloomScreenSpace == false);
+    CHECK(w.get<Camera>(w.find_by_id("plain"))->bloomScreenSpace == true);  // default: the whole frame glows (HUD included)
+    CHECK(Camera{}.bloomScreenSpace);
+    CHECK(w.get<Shape2D>(w.find_by_id("typo"))->shape == ShapeType::Rectangle);  // bad value keeps the default
+
+    // Saved canonically: the default (true) is omitted, false and the enum name are written.
+    Json saved = save_scene(w);
+    CHECK(saved["entities"][0]["components"]["Shape2D"]["shape"] == "diamond");
+    CHECK(saved["entities"][1]["components"]["Camera"]["bloomScreenSpace"] == false);
+    CHECK(!saved["entities"][2]["components"]["Camera"].contains("bloomScreenSpace"));
+    World again;
+    CHECK(load_scene(again, saved, "again").ok());
+    CHECK(again.get<Shape2D>(again.find_by_id("gem"))->shape == ShapeType::Diamond);
+    CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
 }
 
 TEST_CASE("scene: structural problems are reported, not crashed on") {

@@ -34,6 +34,52 @@ std::string absolute_path(const std::string& path) {
     return p.lexically_normal().string();
 }
 
+std::string resolve_input_path(const std::string& path, const std::string& projectDir, const std::string& what) {
+    std::error_code ec;
+    const fsys::path given(path);
+    struct Tried {
+        fsys::path candidate;
+        std::string where;
+    };
+    std::vector<Tried> tried;
+    if (given.is_absolute()) {
+        tried.push_back({given.lexically_normal(), "absolute path"});
+    } else {
+        tried.push_back({fsys::absolute(given, ec).lexically_normal(), "relative to the current directory"});
+        if (!projectDir.empty()) {
+            fsys::path inProject = (fsys::path(projectDir) / given).lexically_normal();
+            if (inProject != tried[0].candidate) tried.push_back({inProject, "relative to the project folder"});
+        }
+    }
+    bool isFolder = false;
+    for (const Tried& t : tried) {
+        if (fsys::is_regular_file(t.candidate, ec)) return t.candidate.string();
+        if (fsys::is_directory(t.candidate, ec)) isFolder = true;
+    }
+    std::string msg = "Cannot find " + what + " '" + path + "'" + (isFolder ? " (a folder of that name exists, but a file is needed)" : "") +
+                      ". Looked in:";
+    for (const Tried& t : tried) msg += "\n  - " + t.candidate.generic_string() + " (" + t.where + ")";  // '/' on every platform
+    // A similarly named file next to where it was expected.
+    std::string similar;
+    std::vector<std::string> names;
+    for (const Tried& t : tried) {
+        const fsys::path dir = t.candidate.parent_path();
+        if (!fsys::is_directory(dir, ec)) continue;
+        for (const auto& entry : fsys::directory_iterator(dir, ec))
+            if (entry.is_regular_file(ec)) names.push_back(entry.path().filename().string());
+        std::sort(names.begin(), names.end());
+        const std::string match = closest_match(t.candidate.filename().string(), names);
+        if (!match.empty()) {
+            similar = (given.has_parent_path() ? (given.parent_path() / match) : fsys::path(match)).generic_string();
+            break;
+        }
+    }
+    std::string hint = given.is_absolute() ? "Check the path." :
+                       "A relative path is looked up in the current directory first, then in the project folder; pass an absolute path to be explicit.";
+    if (!similar.empty()) hint += " Did you mean '" + similar + "'?";
+    throw UsageError(msg, hint);
+}
+
 std::string find_project_dir_or_empty(const Context& ctx, std::size_t posIndex) {
     std::string given = ctx.args.pos(posIndex);
     if (given.empty()) given = ctx.args.str("project");

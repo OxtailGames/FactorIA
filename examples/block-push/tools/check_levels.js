@@ -1,7 +1,10 @@
-// Checks the level data in levels/levels.js and reports every problem it finds.
+// Checks the level data in levels/levels.json and reports every problem it finds.
 // Command: project.check_levels. Run it after each change to the levels:
 //   factoria call project.check_levels '{}' --project .
-import { LEVELS } from "levels/levels.js";
+// A clean check returns the report. Bad level data throws a ToolError, so the call fails (exit 1) and the same
+// report travels as error.data (`factoria call --json`, MCP and `--batch`).
+import { ToolError } from "factoria";
+import levels from "../levels/levels.json";
 
 const KNOWN = "#.$@ ";
 const STEPS = [
@@ -17,6 +20,10 @@ function checkLevel(level) {
   const error = (message) => problems.push({ severity: "error", message });
   const warning = (message) => problems.push({ severity: "warning", message });
 
+  if (typeof level !== "object" || level === null || Array.isArray(level)) {
+    error('level must be an object like {"name": "...", "map": ["..."]}');
+    return { problems, stats: null };
+  }
   if (typeof level.name !== "string" || level.name.trim() === "") error("name is missing");
   const rows = level.map;
   if (!Array.isArray(rows) || rows.length === 0 || rows.some((r) => typeof r !== "string")) {
@@ -94,32 +101,63 @@ function checkLevel(level) {
   return { problems, stats };
 }
 
+/** The first few errors of a report on one line, for the ToolError message. */
+function describeErrors(report) {
+  const lines = [];
+  for (const p of report.problems) if (p.severity === "error") lines.push(p.message);
+  for (const l of report.levels) {
+    for (const p of l.problems) if (p.severity === "error") lines.push(`level ${l.level} (${l.name}): ${p.message}`);
+  }
+  const shown = lines.slice(0, 4);
+  if (lines.length > shown.length) shown.push(`and ${lines.length - shown.length} more`);
+  return shown.join("; ");
+}
+
 export default {
   name: "check_levels",
-  summary: "Check the level data in levels/levels.js: box and target counts, one player, closed walls.",
+  summary: "Check the level data in levels/levels.json: box and target counts, one player, closed walls.",
   description:
-    'Example: {}. Returns {ok, errors, warnings, levels: [{level, name, size, boxes, targets, problems}]}. ' +
-    "Errors make ok false; warnings are advice.",
+    "Example: {}. With no level error it returns the report {ok: true, errors: 0, warnings, problems, levels: " +
+    "[{level, name, size, boxes, targets, problems}]}; warnings are advice. If any level has an error the call FAILS " +
+    "(code tool_error, exit 1 from `factoria call`) and the same report, with ok false, is in error.data. " +
+    "`problems` holds the checks that are not about one level (level count, duplicate names).",
   input: { type: "object", properties: {} },
   readOnly: true,
   run() {
-    const levels = LEVELS.map((level, i) => {
+    if (!Array.isArray(levels) || levels.length === 0) {
+      throw new ToolError(
+        "levels/levels.json must be a non-empty array of levels",
+        'Write it as [{"name": "First push", "map": ["#####", "#.$@#", "#####"]}, ...]: one object per level, one string per map row.',
+      );
+    }
+    const results = levels.map((level, i) => {
       const { problems, stats } = checkLevel(level);
       return {
         level: i + 1,
-        name: level.name,
+        name: level?.name,
         size: stats ? [stats.width, stats.height] : null,
         boxes: stats ? stats.boxes : null,
         targets: stats ? stats.targets : null,
         problems,
       };
     });
-    const all = levels.flatMap((l) => l.problems);
-    if (LEVELS.length < 3) all.push({ severity: "warning", message: `only ${LEVELS.length} level(s); the game is designed for at least 3` });
-    const names = LEVELS.map((l) => l.name);
-    if (new Set(names).size !== names.length) all.push({ severity: "warning", message: "two levels have the same name" });
+    const problems = []; // checks across the whole file
+    if (levels.length < 3) problems.push({ severity: "warning", message: `only ${levels.length} level(s); the game is designed for at least 3` });
+    const names = levels.map((l) => l?.name);
+    if (new Set(names).size !== names.length) problems.push({ severity: "warning", message: "two levels have the same name" });
+
+    const all = [...problems, ...results.flatMap((l) => l.problems)];
     const errors = all.filter((p) => p.severity === "error").length;
     const warnings = all.length - errors;
-    return { ok: errors === 0, errors, warnings, levels };
+    const report = { ok: errors === 0, errors, warnings, problems, levels: results };
+    if (errors > 0) {
+      throw new ToolError(
+        `${errors} error(s) in levels/levels.json: ${describeErrors(report)}`,
+        "Fix the listed problems in levels/levels.json (each names the column and row), then run project.check_levels again. " +
+          "error.data has the full report, level by level.",
+        report,
+      );
+    }
+    return report;
   },
 };

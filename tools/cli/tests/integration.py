@@ -243,6 +243,99 @@ def test_template(tmp, template):
     code, out, err = run(["call", "scene.spawn", '{"components":{"Transform2D":{"position":[1,2]}}}', "--project", proj])
     check(code == 1 and "Transform" in (out + err), "scene.spawn with an unknown component exits 1 with a did-you-mean")
 
+    # --input: a relative path is looked up in the current directory, then in the project, so it works from any folder;
+    # the error lists the places tried. Outputs (--state-out) are relative to the current directory.
+    os.makedirs(os.path.join(proj, "replays"), exist_ok=True)
+    with open(os.path.join(proj, "replays", "probe.json"), "w") as f:
+        json.dump({"frames": {"0": {}}}, f)
+    elsewhere = os.path.join(tmp, "elsewhere-" + template)
+    os.makedirs(elsewhere, exist_ok=True)
+    code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", "replays/probe.json"], cwd=elsewhere)
+    check(code == 0, "run --input replays/probe.json from another folder finds the file in the project (exit %d)" % code)
+    code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", "replays/prob.json"], cwd=elsewhere)
+    # The CLI prints the places with '/' separators; the absolute prefixes differ between platforms (symlinked or short
+    # temp folders), so check the file in both places and the two labels rather than whole paths.
+    shown = err.replace("\\", "/")
+    check(code == 2 and shown.count("replays/prob.json (relative to the current directory)") == 1
+          and shown.count("replays/prob.json (relative to the project folder)") == 1
+          and "Did you mean 'replays/probe.json'" in err and "relative to the project root" not in err,
+          "run --input: a missing file lists both places tried and suggests a name")
+    code, rep, err = jrun(["run", proj, "--headless", "--frames", "3", "--state-out", "out/state.json", "--json"], cwd=elsewhere)
+    check(code == 0 and os.path.exists(os.path.join(elsewhere, "out", "state.json"))
+          and not os.path.exists(os.path.join(proj, "out", "state.json")), "run --state-out is relative to the current directory")
+
+    # ASCII level import: ONE call writes the tilemap and its objects into the scene FILE (`path`), without touching the
+    # running game; validate accepts it. `save: true` without `path` on the default main scene is refused.
+    os.makedirs(os.path.join(proj, "prefabs"), exist_ok=True)
+    with open(os.path.join(proj, "prefabs", "probe_gem.prefab.json"), "w") as f:
+        json.dump({"format": "factoria.prefab/1", "entity": {"name": "Coin", "tags": ["coin"],
+                   "components": {"Shape2D": {"shape": "circle", "size": [12, 12]}}}}, f)
+    main_scene = os.path.join(proj, "scenes", "main.scene.json")
+    main_before = open(main_scene).read()
+    unsafe = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}}, "save": True}
+    code, out, err = run(["call", "scene.import_ascii", json.dumps(unsafe), "--project", proj])
+    check(code == 1 and "unsafe_save" in err and "scenes/main.scene.json" in err and '"path"' in err and open(main_scene).read() == main_before,
+          "scene.import_ascii save:true without path on the default main scene is refused and changes nothing")
+    level = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}},
+             "path": "scenes/main.scene.json"}
+    code, res, err = jrun(["call", "scene.import_ascii", json.dumps(level), "--project", proj])
+    check(code == 0 and res is not None and res["width"] == 4 and res["height"] == 3 and res["tileCount"] == 4
+          and [o["id"] for o in res["spawned"]] == ["probe_gem_1", "probe_gem_2"] and res["spawned"][0]["position"] == [24.0, -24.0]
+          and res.get("saved") == "scenes/main.scene.json" and res.get("path") == "scenes/main.scene.json",
+          "call scene.import_ascii (path) builds the level in one call")
+    code, rep, err = jrun(["validate", proj, "--json"])
+    check(code == 0 and rep is not None and rep.get("ok") is True, "validate accepts the imported level")
+    code, res, err = jrun(["call", "scene.import_ascii", json.dumps(level), "--project", proj])
+    check(code == 0 and res is not None and res["removed"] == ["probe_gem_1", "probe_gem_2"] and res["created"] is False,
+          "re-importing replaces the objects of the previous import")
+    scratch = dict(level, path=".factoria/tmp/probe.scene.json", **{"from": "scenes/main.scene.json"})
+    code, res, err = jrun(["call", "scene.import_ascii", json.dumps(scratch), "--project", proj])
+    check(code == 0 and res is not None and os.path.exists(os.path.join(proj, ".factoria", "tmp", "probe.scene.json")),
+          "scene.import_ascii path/from writes a scratch file in .factoria/tmp")
+    code, out, err = run(["call", "scene.import_ascii", json.dumps(dict(level, path=".factoria/save/probe.scene.json")), "--project", proj])
+    check(code == 1 and ".factoria/tmp/" in err, "scene.import_ascii refuses .factoria/ outside .factoria/tmp/")
+    code, res, err = jrun(["call", "fs.delete", json.dumps({"path": ".factoria/tmp", "recursive": True}), "--project", proj])
+    check(code == 0 and not os.path.exists(os.path.join(proj, ".factoria", "tmp")), "fs.delete removes the scratch folder .factoria/tmp")
+    code, out, err = run(["call", "scene.import_ascii", json.dumps({"rows": ["..x"], "legend": {"#": 0}}), "--project", proj])
+    check(code == 1 and "'x'" in err and "row 0, column 2" in err and "hint:" in err, "scene.import_ascii unknown glyph: row, column and hint")
+
+    # prefab.save: spawn in one engine (--batch), save the entity as a prefab; the file is canonical and validates
+    batch = [{"command": "scene.spawn", "args": {"id": "probe_boss", "name": "Boss", "tags": ["boss"],
+                                                  "components": {"Transform": {"position": [50, 20, 0]}, "Shape2D": {"size": [30, 30]}}}},
+             {"command": "prefab.save", "args": {"id": "probe_boss", "path": "prefabs/probe_boss.prefab.json"}},
+             {"command": "prefab.save", "args": {"id": "probe_boss", "path": "prefabs/probe_boss.prefab.json"}}]
+    code, res, err = jrun(["call", "--batch", json.dumps(batch), "--keep-going", "--project", proj])
+    saved = res["results"][1] if res else {}
+    check(res is not None and saved.get("ok") and saved["result"]["path"] == "prefabs/probe_boss.prefab.json"
+          and saved["result"]["children"] == 0 and not res["results"][2]["ok"]
+          and res["results"][2]["error"]["code"] == "already_exists" and "overwrite" in res["results"][2]["error"]["hint"],
+          "call prefab.save writes the prefab; a second save without overwrite is refused")
+    prefab_file = os.path.join(proj, "prefabs", "probe_boss.prefab.json")
+    prefab = json.load(open(prefab_file)) if os.path.exists(prefab_file) else {}
+    check(prefab.get("format") == "factoria.prefab/1" and "id" not in prefab.get("entity", {})
+          and "Transform" not in prefab.get("entity", {}).get("components", {}), "the saved prefab has no id and no instance position")
+    code, rep, err = jrun(["validate", proj, "--json"])
+    check(code == 0 and rep is not None and rep.get("ok") is True, "validate accepts the saved prefab")
+
+    # scene.format: hand-written prefab -> listed by --check, rewritten, then idempotent; broken JSON reported with a position
+    messy = os.path.join(proj, "prefabs", "probe_messy.prefab.json")
+    with open(messy, "w") as f:
+        f.write('{"format":"factoria.prefab/1","entity":{"name":"Messy",\n"components":{"Shape2D":{"size":[10,10]}}}}')
+    broken = os.path.join(proj, "prefabs", "probe_broken.prefab.json")
+    with open(broken, "w") as f:
+        f.write('{\n  "format": "factoria.prefab/1",\n  "entity": {"name": "x",}\n}\n')
+    code, res, err = jrun(["call", "scene.format", '{"check":true}', "--project", proj])
+    check(code == 0 and res is not None and "prefabs/probe_messy.prefab.json" in res["notCanonical"]
+          and res["errors"] and res["errors"][0]["file"] == "prefabs/probe_broken.prefab.json" and res["errors"][0]["line"] == 3,
+          "call scene.format check lists the messy prefab and reports the broken one with its line")
+    check(open(messy).read().startswith('{"format"'), "scene.format check writes nothing")
+    code, res, err = jrun(["call", "scene.format", "{}", "--project", proj])
+    check(code == 0 and res is not None and "prefabs/probe_messy.prefab.json" in res["formatted"], "call scene.format rewrites the messy prefab")
+    check('"size": [10, 10]' in open(messy).read() and open(broken).read().endswith('"x",}\n}\n'), "the layout is canonical and the broken file is untouched")
+    code, res, err = jrun(["call", "scene.format", "{}", "--project", proj])
+    check(code == 0 and res is not None and res["formatted"] == [], "scene.format twice: the second run changes nothing")
+    os.remove(broken)
+
     # Script.props typos are validate warnings
     scene_path = os.path.join(proj, "scenes", "main.scene.json")
     scene = json.load(open(scene_path))

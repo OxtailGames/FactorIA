@@ -30,6 +30,11 @@ const std::filesystem::path& project_root();
 void set_user_dir(const std::filesystem::path& dir);
 const std::filesystem::path& user_dir();
 
+// Creates a fresh, empty scratch directory under the system temp folder, named <prefix>_<process id>_<n>. Unique per
+// process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
+// share one. The caller removes it when done.
+std::filesystem::path make_temp_dir(std::string_view prefix);
+
 // Platform backends (called once by fa_platform at startup on mobile).
 void set_android_asset_manager(void* aassetManager);
 
@@ -59,6 +64,21 @@ std::string filename(std::string_view path);   // "player.png"
 std::string stem(std::string_view path);       // "player"
 std::string parent(std::string_view path);     // "assets"
 std::string join(std::string_view a, std::string_view b);
+
+// ---- Write policy of the project folder -------------------------------------------------------------------------
+// The VCS folder and `.factoria/` belong to tools: the engine and the editor keep screenshots, save games, AI
+// transcripts and editor state in `.factoria/`. Commands that write or delete a file whose path comes from the caller
+// (scene.save, scene.import_ascii with `path`, fs.write, fs.edit, fs.delete) refuse to touch them, with ONE exception:
+// the scratch folder `.factoria/tmp/` is the place for throw-away files (generated inputs, test output). Everything in
+// it may be created, overwritten and deleted by those commands; like the rest of `.factoria/` it is not committed.
+constexpr const char* kScratchDir = ".factoria/tmp";
+
+// `relativePath` is project-relative and normalized (forward slashes, no "." or ".." segments).
+bool is_scratch_path(std::string_view relativePath);  // ".factoria/tmp" or anything below it
+bool is_managed_path(std::string_view relativePath);  // the VCS folder, ".factoria" or below, except the scratch folder
+// Ok when a command may write or delete `path` (project-relative, or absolute: then only paths inside the project root
+// are judged). The error names the folder that is allowed (`.factoria/tmp/`).
+Result<void> check_writable(std::string_view path);
 
 // Polling file watcher for hot reload (desktop only; no-op on mobile).
 class Watcher {

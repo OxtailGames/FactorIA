@@ -51,6 +51,13 @@ struct Camera {
     bool clear = true;
     bool primary = true;        // the first active primary camera renders the game
     std::int32_t depth = 0;     // multiple cameras render in ascending depth order
+    // Bloom post-process (glow around bright pixels), flat fields because reflection has no nested structs.
+    // Applied by fa_render to the finished frame (screen-space items too unless bloomScreenSpace is false); off by default.
+    bool bloom = false;
+    float bloomThreshold = 0.7f;   // brightness (largest of r, g, b; 0..1) where the glow starts
+    float bloomIntensity = 1.2f;   // strength of the added glow (0..10)
+    float bloomRadius = 20.0f;     // glow size in design pixels (1..128)
+    bool bloomScreenSpace = true;  // false: screen-space items (HUD) are drawn after the bloom, so they stay crisp
 };
 
 // ------------------------------------------------------------------- 2D ---
@@ -96,17 +103,17 @@ struct SpriteAnimator {
     std::int32_t frame = 0;           // runtime: current frame index
 };
 
-enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle };
+enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond };
 // Untextured primitive for prototypes, UI panels and debug visuals.
 struct Shape2D {
     ShapeType shape = ShapeType::Rectangle;
-    Vec2 size{32, 32};                // rectangle/triangle: width,height; circle: diameter in x; line: end point offset
+    Vec2 size{32, 32};                // rectangle/triangle/diamond: width,height; circle: diameter in x; line: end point offset
     Color color{1, 1, 1, 1};
     bool filled = true;
     float thickness = 2.0f;           // outline / line thickness in world units
     std::int32_t layer = 0;
     RenderSpace space = RenderSpace::World;
-    Vec2 pivot{0.5f, 0.5f};           // rectangle/circle/triangle anchor within the shape: 0,0 = bottom-left, 1,1 = top-right
+    Vec2 pivot{0.5f, 0.5f};           // rectangle/circle/triangle/diamond anchor within the shape's size box: 0,0 = bottom-left, 1,1 = top-right
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
 };
@@ -129,9 +136,9 @@ struct Text {
 struct Tilemap {
     std::string tileset;              // asset path to the tileset texture
     Vec2 tileSize{16, 16};            // size of one tile in the tileset AND in the world (world units)
-    std::int32_t columns = 1;         // number of tile columns in the tileset texture
-    std::int32_t width = 0;           // map width in tiles
-    std::int32_t height = 0;          // map height in tiles
+    std::int32_t columns = 0;         // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
+    std::int32_t width = 0;           // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
+    std::int32_t height = 0;          // map height in tiles (flat tiles)
     Json tiles = Json::array();       // row-major tile indices, row 0 = TOP row; array of ints (width*height) or array of rows
     Json solidTiles = Json::array();  // tile indices that collide (empty = none collide)
     Color color{1, 1, 1, 1};

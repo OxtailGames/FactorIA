@@ -95,8 +95,9 @@ suggestion; `factoria validate` reports the same through
 |---|---|
 | `id`, `name`, `tags`, `active`, `alive` | identity (`id` is the stable scene id) |
 | `transform` | `Transform` view: `position`, `rotation`, `scale` (Vec3 views) |
-| `position` | shortcut for `transform.position` (assignable: `e.position = vec2(10, 0)`) |
+| `position` | shortcut for `transform.position` (assignable: `e.position = vec2(10, 0)`). On an entity with a physics body it teleports the body (also when it was asleep: it falls from the new place), and `isGrounded()` reflects the new place after the next physics step |
 | `worldPosition` | world-space position (get/set) |
+| `bounds()` | world-space rectangle of the entity's 2D visual, `Rect \| null` (see below) |
 | `get(name)` | live view of a component or `null` (`e.get("Sprite").color.a = 0.5`) |
 | `add(name, fields?)` | adds (or returns) a component, applies `fields` |
 | `set(name, fields)` | patches fields (adds if missing) |
@@ -110,6 +111,37 @@ suggestion; `factoria validate` reports the same through
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |
+
+### entity.bounds()
+
+`entity.bounds()` returns the world-space axis-aligned rectangle `{ x, y, w, h }` of the entity's 2D visual (a `Rect`),
+or `null` when there is none. Use it to read an extent from the scene instead of copying numbers into props, for
+example the clamp rectangle of a follow camera from the level's `Tilemap`:
+
+```js
+const r = world.find("map").bounds();   // Tilemap at (0, 512), 60 x 16 tiles of 32 px: { x: 0, y: 0, w: 1920, h: 512 }
+const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
+```
+
+- **Convention.** `(x, y)` is the minimum corner: the BOTTOM-LEFT in the +Y-up world, and `w`, `h` are the size. This
+  is the `Rect` every other API uses, so the result can go straight into `physics.overlapBox(rect)` or
+  `debug.rect(...)`. `r.x + r.w` is the right edge and `r.y + r.h` the top edge. The numbers are world units after the
+  entity's world transform (parents included).
+- **Tilemap.** The size of the map as it is drawn and collides (the rows form, or `width` x `height` of the flat form;
+  the same helper as the renderer) times `tileSize`. The entity position is the map's TOP-left corner, so the map spans
+  `x .. x + w` and `y - h .. y` at scale 1. An empty map has no bounds (`null`).
+- **Sprite, Shape2D.** The drawn box from `size` and `pivot`. A sprite without `size` uses its `region`, else the
+  texture's pixel size (32 x 32 for a plain colour quad or a missing texture). A circle is its bounding square
+  (diameter `size.x`), a line is the stroked segment from the origin to `size`, and the outline `thickness` of the other
+  shapes is ignored.
+- **Text.** The laid-out text box (`pivot` and `maxWidth` as drawn). Without a renderer (headless) the size is the
+  same approximation as `ui.measureText` and logs the same one-time warning.
+- **Rotation and scale** of the world transform are applied, and the result is the box around the rotated corners.
+  An entity that has several visuals (a `Sprite` and a `Text`) gets the union of their rectangles.
+- **Screen space.** A visual with `space: "screen"` is positioned on the screen, not in the world, so it has no world
+  rectangle: it is skipped, and an entity that only has screen-space visuals returns `null`. Lay HUD items out with
+  `game.screenSize` and their `anchor`.
+- Children are not included. `active` and colour alpha are ignored: a hidden entity still has bounds.
 
 Component views expose exactly the reflected fields listed by `factoria api
 components` (also `docs/COMPONENTS.md`). Vector/color fields are live views
@@ -126,7 +158,7 @@ component fields, `entity.position`/`worldPosition`, `physics.*`, `camera.*`,
 (scale: `z = 1`). `rotation` may be a number (degrees around z) or a vector;
 `scale` a number or a vector. Bad input throws an Error that lists the accepted
 forms. Rects (`physics.overlapBox`, `debug.rect`) take `{x, y, w, h}` or
-`[x, y, w, h]`.
+`[x, y, w, h]`; `(x, y)` is the minimum (bottom-left) corner. `entity.bounds()` returns a Rect.
 
 ## Imports
 - `"./util.js"` / `"../lib/x.js"` resolve relative to the importing module;
@@ -170,6 +202,8 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
 - `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` (`"master"`, `"sfx"`, `"music"`, `"ui"`)
+- Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
+  `game.audioLog()`, agents with the `audio.log` command.
 
 ### physics
 - `raycast(from, to, { mask, ignore, ignoreTriggers })` → `{ entity, point, normal, distance } | null` (2D when `from` has no z)
@@ -185,6 +219,8 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 
 ### camera
 `main` (primary camera Entity), `worldToScreen(v)`, `screenToWorld(v)`.
+The `Camera` component fields are live, for example `camera.main.get("Camera").bloomIntensity = 2` changes the glow
+(`bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius`; see AI_GUIDE section 9.20).
 
 ### debug
 `line(a, b, color?)`, `rect(x, y, w, h, color?)`, `circle(center, r, color?)`, `text(screenPos, str, color?)`.
@@ -203,7 +239,39 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   save; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
 
 ### rng (deterministic, seeded per run)
-`rng.seed(n)` reseeds the world RNG (seed → level determinism from tools/tests) · `rng.float()` [0,1) · `rng.range(a, b)` · `rng.int(a, b)` (inclusive) · `rng.chance(p)` · `rng.pick(array)`
+`rng.seed(n)` reseeds the world RNG (seed → level determinism from tools/tests) · `rng.float()` [0,1) · `rng.range(a, b)` · `rng.int(a, b)` (inclusive) · `rng.chance(p)` · `rng.pick(array)` · `rng.shuffle(array)` (a shuffled copy)
+
+`rng` is the ONE random stream of the running game, and `Math.random()` draws from it too. Reseeding it changes what
+the game does next, and a script cannot read its state to restore it. A generator that must be repeatable from a seed
+(a level generator tool, a name or loot table) therefore uses its own generator:
+
+```js
+import { rng } from "factoria";
+
+const r = rng.create(42);              // independent: never touches the world RNG
+const width = r.int(30, 60);           // 30..60 inclusive
+const hill = r.chance(0.3);
+const order = r.shuffle(["a", "b", "c"]);
+r.seed(42);                            // start over; same as rng.create(42)
+```
+
+`rng.create(seed)` returns a generator with the same methods as `rng` (`float`, `range`, `int`, `chance`, `pick`,
+`shuffle`, `seed`). Using it never changes `rng.float()` or `Math.random()`, and two generators never share state.
+
+- **Algorithm (stable).** mulberry32: a 32-bit state that advances by `0x6d2b79f5` per draw, mixed to a 32-bit
+  integer; `float()` is that integer divided by 2^32, so it is in [0, 1). The algorithm and the draws each method
+  uses are guaranteed not to change between engine versions, so a stored seed keeps producing the same level on every
+  platform. A change would be a breaking change of the engine.
+- **Draws per call.** `float`, `range`, `int` and `chance` draw once. `pick` draws once (not at all for an empty
+  array). `shuffle` draws `length - 1` times (Fisher-Yates from the end). A call always draws the same number of
+  times whatever its arguments are (`int(5, 5)` still draws), so the sequence does not depend on the arguments.
+- `int(min, max)` is `min + floor(float() * (max - min + 1))` with both ends inclusive and truncated to integers; it
+  returns `min` when `max <= min`. `range(min, max)` is `min + (max - min) * float()`. `chance(p)` is `float() < p`
+  (default 0.5). `pick(items)` is `items[floor(float() * items.length)]`.
+- **Seed.** A finite number, reduced to 32 bits (`seed >>> 0`: the integer part, modulo 2^32). `0` is valid, `1` and
+  `4294967297` give the same sequence, and so do `1` and `1.9`. A non-number or `NaN` throws an error that shows an
+  example.
+- 32 bits of state means a period of 2^32 draws: plenty for a level or a table, not meant for cryptography.
 
 ### math & values
 - `vec2(x, y)`, `vec3(x, y, z)`, `color(r, g, b, a?)` / `color("#ffcc00")`
@@ -266,12 +334,16 @@ test("player jumps", () => {
 
 - `test(name, fn)`, `test.skip`, `describe(name, fn)`
 - `expect(v)`: `toBe toEqual toBeCloseTo(n, digits) toBeGreaterThan toBeGreaterThanOrEqual toBeLessThan
-  toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`
+  toBeLessThanOrEqual toBeTruthy toBeFalsy toBeNull toBeDefined toContain toHaveLength toThrow`, and `.not`;
+  for sounds `expect(game.audioLog()).toContainPlayed(path, { times?, bus?, source? })` (alias `toHavePlayed`; `path`
+  is a project path, a file name such as `"jump.wav"`, or a RegExp; plays whose clip failed to load do not count)
 - `game`: `load(path)` (behaviours are constructed immediately, `onStart` runs on the first `step`),
   `loadJson(sceneObject)`, `step(frames = 1)`, `touch(pos, frames = 1)`, `touchStart(pos, id?)`, `touchMove(pos, id?)`,
   `touchEnd(id?)` (fill `input.touches`; `pressed` is true for the frame after `touchStart`), `press(action)`, `release(action)`, `tap(action)`,
   `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
-  `world`, `time`, `screenshot(path)`, `state()`
+  `world`, `time`, `screenshot(path)`, `state()`, `audioLog()` (sounds played since the test started:
+  `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
+  `clearAudioLog()`
 
 Each test FILE starts from fresh module instances (module-level state is
 re-created, tools are re-evaluated against them), an empty in-memory `storage`
@@ -281,8 +353,8 @@ file, state carries over between tests unless you reset it.
 Tests run inside the current engine (only one renderer can exist per
 process). Between test files the runner reloads the project's start scene,
 reseeds the world RNG with the project seed, clears input overrides, timers and
-behaviours; `game.load` also reseeds. Before each test input overrides and
-`time.scale` are reset. Results are deterministic. Extras: `describe.skip`,
+behaviours; `game.load` also reseeds. Before each test input overrides,
+`time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
 `toBeNaN`, `toMatch`, `toBeInstanceOf`. Failures print expected/received and
 `file:line` of the failing `expect`.

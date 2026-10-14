@@ -21,7 +21,7 @@ my-game/
   types/factoria.d.ts     generated script typings (do not edit)
   AGENTS.md               short guide for AI agents, written by `factoria new`
   ENGINE_FEEDBACK.json    engine gaps you met (see THE FEEDBACK RULE)
-  .factoria/              generated output: screenshots, logs (do not edit)
+  .factoria/              generated output: screenshots, logs (do not edit; scratch files go in .factoria/tmp/)
 ```
 
 - **Components are data.** An entity has a stable `id`, optional `name` and `tags`, and components such as `Transform`, `Sprite` or `RigidBody2D`. Engine systems (rendering, physics, audio, scripts) read them.
@@ -79,11 +79,11 @@ Good example, a missing scene feature:
 {
   "category": "scene",
   "severity": "minor",
-  "title": "No per-tile entity hooks in Tilemap",
-  "missing": "A Tilemap draws and collides but cannot place coins, enemies or spawn points on its tiles, so each pickup is a separate entity whose position I computed from the tile grid by hand.",
-  "workaround": "scenes/level1.scene.json lists the coins as separate entities at the tile centres.",
-  "workaroundFiles": ["scenes/level1.scene.json"],
-  "suggestion": "Let a Tilemap carry a list of {col, row, prefab} entries that are spawned when the scene loads."
+  "title": "No flip or rotate flags for single tiles",
+  "missing": "A Tilemap tile index always draws the tile upright, so a mirrored slope or a rotated corner needs its own copy in the tileset image.",
+  "workaround": "assets/tiles.png has a mirrored copy of every slope tile; the map uses those indices.",
+  "workaroundFiles": ["assets/tiles.png", "scenes/level1.scene.json"],
+  "suggestion": "Let a tile entry carry flipX, flipY and rotate flags, for example as bits of the tile index."
 }
 ```
 
@@ -117,18 +117,22 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_spawn` | `scene.spawn` | Create an entity: `{"prefab":"prefabs/enemy.prefab.json","position":[300,0]}`, or entity JSON with `name`, `tags`, `components` and an optional `parent` id. |
 | `scene_set_component`, `scene_remove_component` | `scene.set_component`, `scene.remove_component` | Set fields with `{"id":"player","component":"Shape2D","fields":{...}}`, or remove a component by `id` and `component`. |
 | `scene_destroy` | `scene.destroy` | Destroy an entity and its children: `{"id":"coin_1"}`. |
+| `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"path":"scenes/level1.scene.json"}`. With `path` it edits that scene FILE and never touches the running game. |
 | `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
+| `prefab_save` | `prefab.save` | Save an entity of the running world, with its children, as a prefab file: `{"id":"enemy_3","path":"prefabs/enemy.prefab.json"}`. It does not overwrite a file unless `"overwrite":true`. Section 6 says what the file leaves out. |
+| `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{}` formats the whole project, `{"paths":["prefabs"],"check":true}` only lists the files that are not canonical. Section 6. |
 | `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
 | `game_input` | `game.input` | Press or release an action or key now, or move the mouse. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`. The next `game_step` sees the input. |
 | `game_screenshot` | `game.screenshot` | Capture the last rendered frame as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. Needs graphics. |
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
 | `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. |
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
+| `audio_log` | `audio.log` | Sounds played so far (scripts, `AudioSource`, music), oldest first: `{"path":"jump.wav"}` keeps one clip (a file name matches any folder). Each play has `frame`, `path`, `volume`, `bus`, `source` (entity id) and `ok` (false = the clip failed to load). Pass `after` (a `seq`) for only new plays. |
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Only `mask` is available here; `ignore` exists in scripts (section 8). |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
-| `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder. Use them if your client has no file tools. |
+| `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Use them if your client has no file tools. |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
@@ -166,11 +170,12 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | 3D | Units are meters. Right-handed, +Y up. A perspective camera looks down its local -Z axis. |
 | Angles | Degrees. In 2D only `rotation[2]` is used, counter-clockwise. In 3D, `rotation` is `[pitch X, yaw Y, roll Z]` and the matrix is `Ry(yaw) · Rx(pitch) · Rz(roll)`. |
 | Colors | `[r, g, b, a]` with values 0..1, `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`, or a name: white, black, red, green, blue, yellow, cyan, magenta, gray, grey, orange, purple, pink, brown, transparent. If any value in an array is above 1, the engine reads the array as 0..255 bytes, so keep to 0..1. |
+| Rects | `{x, y, w, h}` or `[x, y, w, h]` (`physics.overlapBox`, `debug.rect`, `entity.bounds()`): `(x, y)` is the minimum corner, the BOTTOM-LEFT in the +Y-up world, and `w`, `h` the size. |
 | Vectors | In scripts, a vector argument accepts `Vec2`/`Vec3` values, `{x, y}` or `[x, y]`. In JSON, use arrays (`[x, y]` or `[x, y, z]`); `{x, y}` objects also work in component fields. |
 | Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"` or `"Touch"` (any finger down). Gamepad names are reserved and not supported yet. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. |
-| Determinism | Random numbers come from `rng` (imported from "factoria"). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
+| Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
 | Names | JSON keys are camelCase. Components are PascalCase (`RigidBody2D`). Enum values are lowercase (`"orthographic"`, `"additive"`). Commands are `area.verb_object`. |
 | Secrets | Never put API keys in a project. They belong in `~/.factoria/ai.json` or in environment variables. |
 
@@ -206,7 +211,19 @@ A scene is `factoria.scene/1`. Each entity has `id`, `name`, `tags`, `active`, `
 }
 ```
 
-`settings` holds the scene-wide values: `gravity2D`, `gravity3D`, `ambientLight`, `skyColor`, `horizonColor`, `fogColor`, `fogDensity`, `music`, `musicVolume`. A prefab is `factoria.prefab/1` with one `entity`:
+`settings` holds the scene-wide values: `gravity2D`, `gravity3D`, `ambientLight`, `skyColor`, `horizonColor`, `fogColor`, `fogDensity`, `music`, `musicVolume`. A hand-written scene may leave out any of them (or all of `settings`) and gets the defaults. When the engine writes a scene (`scene_save`, `scene_import_ascii` with `path`, the editor) it saves only the settings that differ from their defaults, EXCEPT the gravity: `gravity2D` (default `[0, -980]`, pixels/s² in 2D) and `gravity3D` (default `[0, -9.81, 0]`, m/s² in 3D) are always written, so the file itself shows what pulls the bodies down, even at the default. A saved 2D level therefore starts like this, and a 2D game reads only `gravity2D`:
+
+```json
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0.0, -980.0],
+    "gravity3D": [0.0, -9.81, 0.0]
+  },
+  "entities": [
+```
+
+A prefab is `factoria.prefab/1` with one `entity`:
 
 ```json
 {
@@ -226,6 +243,27 @@ A scene is `factoria.scene/1`. Each entity has `id`, `name`, `tags`, `active`, `
 
 A scene entity can start from a prefab and override it: `{"id": "enemy_1", "prefab": "prefabs/enemy.prefab.json", "components": {"Transform": {"position": [200, -100, 0]}}}`.
 
+### Saving a prefab from the running game, and keeping files tidy
+
+Do not format prefab JSON by hand. Build the thing in the running game (`scene_spawn`, `scene_set_component`, children with `parent`), look at it, then save it:
+
+```
+prefab_save {"id": "enemy_3", "path": "prefabs/enemy.prefab.json"}
+```
+
+Over the CLI, a plain `factoria call` starts a new game each time, so the entity must exist in the start scene; to save something you spawned first, use `factoria call --batch` or `factoria session` (section 11).
+
+The file is a `factoria.prefab/1` document in the canonical layout (the one `scene_save` writes), with the entity's whole tree: its children and each component's non-default fields. A prefab describes the reusable thing, not the instance you built it from, so the file does NOT carry:
+
+- **Ids.** Every instantiation gets fresh ones. An `id` stays only where another entity of the saved tree points at it through an entity-typed field, so that reference still resolves.
+- **The root's `Transform.position`.** It is where this instance stands. The spawn call (`scene_spawn {"prefab":..., "position":[x,y]}`), the scene entity or the `scene.import_ascii` legend places each new instance. Children keep their positions relative to the root, and the root's rotation and scale are kept.
+- **Tags that start with `tilemap:`.** `scene.import_ascii` adds them to the objects it places, and a prefab that carried one would be destroyed when that map is re-imported.
+- **Entity references that leave the saved tree.** They would point at nothing in every instance.
+
+The result is `{path, entity, children, overwritten, notes}`; `notes` lists what was left out when it matters (for example the root position that was dropped). `path` must end in `.prefab.json` and normally lives in `prefabs/`, where `project_info` and `project_validate` look. An existing file is an error until you pass `"overwrite": true`. To keep one entity exactly where it stands, save the whole scene with `scene_save`.
+
+After you edit scene or prefab files by hand, run `scene_format` (CLI: `factoria call scene.format`). It rewrites every `*.scene.json` and `*.prefab.json` of the project in the canonical layout: 2-space indent, short arrays of numbers on one line (`"position": [0, 12.5, 0]`), long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line. It does not load anything into the game and it only changes whitespace: values and key order stay as they are, and each file is read back and compared with the original data before it is written. Pass `paths` (files or folders) to limit it. With `"check": true` nothing is written and the result lists the files that are not canonical in `notCanonical`, which is what a CI step or a review wants. A file with a JSON syntax error is reported in `errors` with its file, line and column and skipped; fix it and run the command again.
+
 ## 7. Component cheat-sheet
 
 This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPONENTS.md`) has every field, its default and its range, generated from the engine, so it is always current.
@@ -241,12 +279,12 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov` | The view. Without a primary camera the screenshot is black. |
+| `Camera` | `projection` (orthographic, perspective), `primary`, `clearColor`, `depth`, `clear`, `orthoSize` (0 = design height / 2), `fov`, `bloom` (bool, default off), `bloomThreshold`, `bloomIntensity`, `bloomRadius`, `bloomScreenSpace` (default true) | The view. Without a primary camera the screenshot is black. `bloom: true` adds a glow around bright pixels; `bloomScreenSpace: false` keeps the screen-space HUD crisp (section 9.20). |
 | `Sprite` | `texture` (asset path; empty = solid `color`), `size` (0 = image size), `pivot` (default [0.5, 0.5]), `color`, `flipX`, `flipY`, `layer`, `space`, `anchor`, `blend`, `region`, `pixelArt` | An image or a coloured quad. |
 | `SpriteAnimator` | `columns`, `rows`, `firstFrame`, `lastFrame`, `fps`, `loop`, `playing` (needs a Sprite) | Frame-by-frame animation from a sprite sheet. |
-| `Shape2D` | `shape` (rectangle, circle, line, triangle), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. |
+| `Shape2D` | `shape` (rectangle, circle, line, triangle, diamond), `size`, `color`, `filled`, `thickness`, `layer`, `space`, `anchor`, `pivot` (default [0.5, 0.5]), `blend` | Placeholder art and UI panels. No assets needed. For a circle, `size[0]` is the diameter. A `triangle` points up (apex at the top-middle of its `size` box); a `diamond` is a rhombus whose 4 points touch the middles of the box edges (gems, enemies, markers). `pivot` is the point of the `size` box that sits on the position and that the entity rotates around: to spin a triangle without it wobbling use `pivot: [0.5, 0.3333]` (its centroid). Circles and diamonds already spin in place at the default pivot. |
 | `Text` | `text` (`\n` breaks lines), `fontSize` (default 24), `color`, `align`, `pivot` (default [0, 1]), `maxWidth`, `layer` (default 100), `space`, `anchor`, `font` | Labels, scores and the HUD (`space: "screen"`). |
-| `Tilemap` | `tileset`, `tileSize`, `columns`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty), `solidTiles` | A level from a grid. Solid tiles get collision (section 9.8). |
+| `Tilemap` | `tileset`, `tileSize`, `width`, `height`, `tiles` (row 0 is the top row, -1 = empty; flat list with `width`/`height`, or an array of rows), `solidTiles`, optional `columns` (0 = derived from the tileset image) | A level from a grid, written together with its coins and enemies by `scene.import_ascii` (section 9.8). Solid tiles get collision. |
 | `ParticleEmitter` | `emitting`, `rate`, `burst`, `autoDestroy`, `maxParticles`, `lifetime`, `speed`, `direction` (0 = right, 90 = up), `spread`, `gravity`, `startSize`, `endSize`, `startColor`, `endColor`, `blend`, `texture`, `layer` | Sparks, dust and explosions (section 9.12). |
 
 `layer` is the draw order: higher layers draw on top. `space: "screen"` items ignore the camera.
@@ -298,7 +336,7 @@ Timing you can rely on:
 
 Inside a behaviour: `this.entity` (the owning entity), `this.world`, `this.after(seconds, fn)` and `this.every(seconds, fn)` (timers that stop when the entity is destroyed; both return a handle with `.cancel()`), `this.on(name, fn)` (an event listener), and `this.enabled` (false skips the update callbacks).
 
-Entity members: `id`, `name`, `tags`, `active`, `alive`, `transform`, `position`, `worldPosition`, `get(name)` (a live view, or `null`), `add(name, fields)`, `set(name, fields)`, `has`, `remove`, `destroy()` (deferred to the end of the frame), `hasTag`, `addTag`, `removeTag`, `parent`, `children`, `setParent`, `behaviour`, `send(method, ...args)`, `isGrounded(tolerance?)` (2D pixels or 3D meters), `isTouching(direction, tolerance?)`, `emitBurst(count)` and `toJSON()`.
+Entity members: `id`, `name`, `tags`, `active`, `alive`, `transform`, `position`, `worldPosition`, `bounds()` (the world rectangle of its 2D visual, section 9.6), `get(name)` (a live view, or `null`), `add(name, fields)`, `set(name, fields)`, `has`, `remove`, `destroy()` (deferred to the end of the frame), `hasTag`, `addTag`, `removeTag`, `parent`, `children`, `setParent`, `behaviour`, `send(method, ...args)`, `isGrounded(tolerance?)` (2D pixels or 3D meters), `isTouching(direction, tolerance?)`, `emitBurst(count)` and `toJSON()`.
 
 `entity.isTouching([1, 0])` is true when a solid body touches this entity on the right; `[-1, 0]` is left, `[0, -1]` is the ground below, `[0, 1]` the ceiling. Triggers never count.
 
@@ -313,7 +351,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 pauses gameplay); `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused`, `game.project`, `game.screenSize`; `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
-| `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`; `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
+| `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
 | `vec2`, `vec3`, `color` | constructors, for example `vec2(10, 0)`, `vec3([0, 4, 9])` or `color("#ffcc00")` |
 | `ToolError` | `new ToolError(message, hint, data?)` for a failed check in a tool (section A of `docs_read {"name":"extending"}`) |
@@ -392,7 +430,7 @@ export default class Spawner extends Behaviour {
 }
 ```
 
-To spawn without a prefab, pass the entity object itself, as in `templates/2d-platformer/tools/spawn_coin.js`:
+To spawn without a prefab, pass the entity object itself (the 2d-platformer template's `tools/spawn_coin.js` spawns its coin from `prefabs/coin.prefab.json` instead):
 
 ```js
 // x and y are the coordinates you want (world pixels, +Y up).
@@ -485,24 +523,31 @@ One-way applies to the entity's collider, not to Tilemap solid tiles. For a jump
 
 ### 9.6 Camera follow with level bounds
 
-The camera stays inside the level rectangle. The rectangle lives in a JSON file that the script imports (section 9.16):
+The camera stays inside the level rectangle. Take that rectangle from the level's `Tilemap` with `entity.bounds()` instead of copying the map size into props, so the limits cannot drift from the map. The camera script gets the id of the Tilemap entity:
 
 ```js
 // scripts/follow_camera.js
 import { Behaviour, math } from "factoria";
-import levels from "../data/levels.json";
 
 export default class FollowCamera extends Behaviour {
   target = "player";
-  smoothing = 8;   // higher is snappier
+  bounds = "map";    // id of the level's Tilemap entity; "" = no limits
+  smoothing = 8;     // higher is snappier
+
+  clampPos(x, y) {
+    const area = this.bounds ? this.world.find(this.bounds)?.bounds() : null; // { x, y, w, h } or null
+    if (!area) return [x, y];
+    const halfW = 640, halfH = 360; // half of the 1280x720 design size (orthoSize 0)
+    // A level smaller than the view has an empty clamp range: centre on the level instead.
+    const cx = area.w <= 2 * halfW ? area.x + area.w / 2 : math.clamp(x, area.x + halfW, area.x + area.w - halfW);
+    const cy = area.h <= 2 * halfH ? area.y + area.h / 2 : math.clamp(y, area.y + halfH, area.y + area.h - halfH);
+    return [cx, cy];
+  }
 
   onLateUpdate(dt) { // after all updates, so the target has already moved
     const t = this.world.find(this.target);
     if (!t) return;
-    const { minX, minY, maxX, maxY } = levels.bounds;
-    const halfW = 640, halfH = 360; // half of the 1280x720 design size (orthoSize 0)
-    const tx = math.clamp(t.position.x, minX + halfW, maxX - halfW);
-    const ty = math.clamp(t.position.y, minY + halfH, maxY - halfH);
+    const [tx, ty] = this.clampPos(t.position.x, t.position.y);
     const p = this.entity.position;
     p.x = math.damp(p.x, tx, this.smoothing, dt);
     p.y = math.damp(p.y, ty, this.smoothing, dt);
@@ -510,7 +555,11 @@ export default class FollowCamera extends Behaviour {
 }
 ```
 
-`data/levels.json` holds `{ "bounds": { "minX": -640, "minY": -360, "maxX": 1000, "maxY": 720 } }`. If the level is narrower than the view, `minX + halfW` is greater than `maxX - halfW`, the clamp range is empty, and the result depends on the target. Centre the camera on `(minX + maxX) / 2` in that case.
+In the scene the camera entity has `"Script": { "path": "scripts/follow_camera.js", "props": { "target": "player", "bounds": "map" } }`, where `map` is the id of the Tilemap (the entity `scene.import_ascii` writes, section 9.8).
+
+`bounds()` returns `{ x, y, w, h }` in world units: `(x, y)` is the BOTTOM-LEFT corner (+Y up), `x + w` is the right edge and `y + h` the top edge, the same `Rect` that `physics.overlapBox` takes. For a Tilemap it is the map size (`width` x `height` tiles, or the rows) times `tileSize`, placed by the entity's transform; the entity position is the map's top-left corner. A map imported with `anchor: "bottom-left"` at `[0, 0]` gives `{ x: 0, y: 0, w: columns * tileSize, h: rows * tileSize }`. Resize or move the map and the camera limits follow. It also works for a `Sprite` (a background picture) or a `Shape2D` (an arena floor). It returns `null` for an entity without a world-space 2D visual (an empty map, a `space: "screen"` item); the script above then does not clamp. Calling it every frame is fine.
+
+A level that is not a Tilemap keeps its rectangle in a JSON file that the script imports (section 9.16): `import levels from "../data/levels.json"` with `{ "bounds": { "minX": -640, "minY": -360, "maxX": 1000, "maxY": 720 } }`, and the same clamp with those numbers.
 
 ### 9.7 Sounds and music
 
@@ -530,9 +579,74 @@ Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
 
-### 9.8 Tilemap levels and tile collision
+To check that a sound really fires, read the play log: in a test, `expect(game.audioLog()).toContainPlayed("jump.wav")` (section 10); from MCP or the CLI, `audio_log` after `game_step`. A play whose clip failed to load is in the log with `ok: false` and does not count as played.
 
-A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`.
+### 9.8 Tilemap levels, objects and tile collision
+
+Author a tile level as ASCII art with the command `scene.import_ascii` (MCP `scene_import_ascii`). It writes the `Tilemap` and spawns the coins, enemies and spawn points that stand on it, at the right place. Do not compute tile positions by hand and do not write a level generator script.
+
+```
+factoria call scene.import_ascii @level1.json          # args in a file; or MCP scene_import_ascii {...}
+```
+
+```json
+{
+  "rows": [
+    "..........",
+    "...o..o...",
+    "..........",
+    ".P......o.",
+    "##########",
+    "%%%%%%%%%%"
+  ],
+  "legend": {
+    "#": 0,
+    "%": 1,
+    "o": { "prefab": "prefabs/coin.prefab.json" },
+    "P": { "prefab": "prefabs/player.prefab.json", "id": "player" }
+  },
+  "tilemap": { "tileset": "assets/tiles.png", "tileSize": [32, 32], "solidTiles": [0, 1] },
+  "anchor": "bottom-left",
+  "position": [0, 0],
+  "path": "scenes/level1.scene.json"
+}
+```
+
+- `rows` is the map: one string per row, ONE CHARACTER PER TILE, all rows the same length, row 0 is the TOP row. `.` and a space are empty tiles unless the legend defines them.
+- `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile. A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
+- `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). You do not need `columns`: left at 0 (the default) it is derived from the tileset image, as many whole tiles of `tileSize[0]` as fit across it. Pass it only for an image with another layout. If an earlier import set `columns` explicitly and you now change `tileset` or `tileSize` without `columns`, it goes back to 0 (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
+- `entity` (default `"tilemap"`) is the id of the Tilemap entity: created when missing, updated when it exists. Use another id for a second layer, such as a background.
+- `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
+- Objects are ordinary top-level entities, saved with the scene. Give unique objects an `id` in the legend (`"id": "player"`). Other objects get ids from the prefab file name in row-major order: `coin_1`, `coin_2`, `crawler_1`. Every object carries the tag `tilemap:<entity>` (for example `tilemap:tilemap`).
+- Re-import after editing the map: with `replace` (default `true`) the objects of earlier imports into the same tilemap are destroyed first, so nothing is duplicated and the ids stay stable. `replace: false` keeps them.
+- `path` is the scene FILE to build (see "Edit a scene file, not the running game" below). It is the normal way to use the command.
+- `save: true` (only without `path`) also writes the current scene file, so one call is enough. It is refused when the running scene is just the project's `mainScene` that was loaded because nobody chose a scene (see below).
+- The result lists the `spawned` objects (`id`, `prefab`, `cell: [col, row]`, `position`), the `removed` ids, the number of non-empty tiles (`tileCount`) and `warnings` (a legend glyph that is never used, no tileset, no `solidTiles`).
+- Errors name the row and column, the glyph and the legend, with a "did you mean": ragged rows, an unknown glyph, a legend value that is not an integer or an object, a missing prefab, a duplicate fixed `id`, a tile index outside the tileset. A failed import changes nothing.
+
+Run `project_validate`, then take a screenshot to check the picture: the tiles, the coins and the player must line up.
+
+**Edit a scene file, not the running game (`path`, `from`, `dryRun`).** Without `path` the command changes the RUNNING world, like `scene.spawn`. That is the right tool in the editor or in a play-test, but a poor one for building level files: `scene.load` and `scene.save` act on the running world too, and loading a scene stops the audio and resets the physics. Give the command a `path` and it works on the file instead:
+
+```
+factoria call scene.import_ascii @levels/level1.json       # level1.json carries "path": "scenes/level1.scene.json"
+```
+
+- `path` (project-relative, e.g. `scenes/level1.scene.json`) is the scene file to edit. The file is loaded into a scratch world that the engine throws away, the map is imported into it, and the result is written back to `path` in the same layout as `scene_save` (compact `tiles` rows, the gravity always in `settings`, stable key order, so a diff shows what changed). The running world, its scene, the audio, the physics and the scripts are not touched, and nothing is reloaded, so it is safe to call from a project tool, from a script or while a game is running. If the running scene is that file and hot reload is on (windowed play), the game reloads it from disk like after any other edit of the file.
+- `from` (needs `path`) is a scene file to START from instead of `path`. A generator uses it to build `path` from a base scene that has the settings, camera, HUD and level script but no map (`"from": "levels/base.scene.json"`); `path` is then replaced. `from` must exist (the error suggests close scene names).
+- A `path` that does not exist yet and no `from`: the scene starts empty (default settings, no camera) and is created. That makes a new level one call; the result says so in `notes`. If `path` looks like a typo of an existing scene (`scenes/mian.scene.json`), `warnings` says "Did you mean 'scenes/main.scene.json'?" after creating it. Pass `from` to build on an existing scene.
+- `dryRun: true` (needs `path`) writes nothing and returns the resulting scene in `scene`, for a preview or a test. The same call without `dryRun` writes exactly that scene.
+- The result has the usual keys plus `path`, `from` (the file it started from, `null` for an empty scene), `entityCount`, `dryRun` and `saved` (the file written, absent in a dry run).
+- Everything else behaves as in the running world: `replace` removes the objects of the earlier import from the scene, ids are checked against every entity of the file (a fixed `id` that the file already uses is an error), the tileset is read for the range check. A failed import writes nothing, and a start file that has load errors (an unknown component, a bad value) is refused instead of being rewritten with those entries silently dropped. `save` is ignored when `path` is given.
+- `path` is written like any file written by a command: not into `.factoria/` except `.factoria/tmp/` (see "Scratch files" below), and not outside the project.
+
+**The safe workflow for a level.** Keep the map in a JSON file (`levels/level1.json`) with `"path": "scenes/level1.scene.json"` and rebuild it with `factoria call scene.import_ascii @levels/level1.json` from the project folder. No `--scene`, no `scene_load`, no `scene_save`. Without `path` the same file with `"save": true` would, on a `factoria call` without `--scene`, rewrite the project's main scene with the wrong map. The engine therefore refuses `save` without `path` while the running scene is only the default `mainScene` (nobody passed `--scene` or called `scene.load`, and it is not the editor): the error `unsafe_save` names the file it would have overwritten and says to add `path`, or to choose the scene first on purpose (`--scene scenes/main.scene.json`). When `save` is allowed, the result's `notes` say `SAVED '<file>'` and that it is the running scene.
+
+**Scratch files (`.factoria/tmp/`).** `.factoria/` holds what the engine and its tools produce (screenshots, save games, AI transcripts, editor state); `scene_save`, `scene_import_ascii` with `path`, `fs_write`, `fs_edit` and `fs_delete` refuse to write or delete there, with one exception that all of them share: `.factoria/tmp/` is a scratch folder where files can be created, overwritten and deleted (for example a generated base scene, or a test's output). `fs_list` and `fs_search` hide `.factoria/` but show a `path` inside `.factoria/tmp`. It is not committed.
+
+The map's world rectangle is `world.find("map").bounds()` (`{ x, y, w, h }`, bottom-left corner and size): use it for camera limits, kill planes and spawn areas instead of repeating `columns * tileSize` in props (section 9.6).
+
+What the command writes is a plain `Tilemap` component. A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is an empty tile. The entity's position is the top-left corner of the map, with +Y up. Tile (col, row) covers x from `px + col*tw` to `px + (col+1)*tw` and y from `py - (row+1)*th` to `py - row*th`, so its centre is `(px + (col+0.5)*tw, py - (row+0.5)*th)`.
 
 ```json
 {
@@ -543,7 +657,6 @@ A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is
     "Tilemap": {
       "tileset": "assets/tiles.png",
       "tileSize": [32, 32],
-      "columns": 8,
       "width": 6,
       "height": 3,
       "tiles": [
@@ -557,7 +670,7 @@ A `Tilemap` draws a grid from a tileset image. Row 0 is the TOP row, and `-1` is
 }
 ```
 
-The flat `tiles` array has `width * height` entries (the field also accepts an array of rows). The tileset image holds tiles of `tileSize`, laid out `columns` per row, left to right and top to bottom. Validation reports a missing tileset.
+The flat `tiles` array has `width * height` entries. `tiles` may also be an array of rows (`[[-1, 0, 1], [2, 2, 2]]`); then the rows define the size and `width`/`height` are not needed. In both forms the renderer and the 2D collision read the same grid, so what is drawn is exactly what collides. A flat list without `width` is read as ONE row (validation warns). When the engine saves a scene or prefab (`scene_save`, `save: true`, the editor), it writes a flat `tiles` one map row per line with aligned columns, as in the example above, so the file shows the map and a diff shows which row changed. The same writer puts short arrays (`position`, `color`, `tags`, `solidTiles`) on one line and wraps long number lists at about 100 columns. This is plain JSON, so you can keep that layout when you edit a scene by hand, but nothing depends on it; run `scene_format` (section 6) after a hand edit and it puts the map rows and the arrays back in that layout. The tileset image holds tiles of `tileSize`, laid out left to right and top to bottom. `columns` (tiles per image row) is optional: leave it out and it is derived from the image width divided by `tileSize[0]`, so tile 3 of a 4-tile-wide image is the 4th tile of the first row. Set it only for a layout that does not follow the image width. Validation reports a missing tileset, a `tiles` list that does not match `width * height` (or rows of different lengths, or strings instead of integers), and tile indices outside the tileset image.
 
 How tiles collide (verified against the physics rules):
 
@@ -565,7 +678,7 @@ How tiles collide (verified against the physics rules):
 - Tile shapes are on layer 0, with friction 0.5 and no bounce. They are not triggers, so tiles raise no trigger events, and they are not one-way.
 - Tile indices that are not in `solidTiles` are drawn but never block.
 - Merging can leave seams between boxes of different heights. A character with friction can catch on a seam when it slides along a wall. Give characters `friction: 0` against walls, or use a circle or capsule foot.
-- Tiles cannot carry behaviour. Coins, enemies and spawn points are separate entities. Place them with the tile formula above.
+- Tiles cannot carry behaviour. Coins, enemies and spawn points are entities spawned by `scene.import_ascii` from the legend (above).
 
 ### 9.9 3D scene with a light and fog
 
@@ -748,7 +861,14 @@ import levels from "../data/levels.json";   // the parsed file, as the default e
 const { minX, maxX } = levels.bounds;
 ```
 
-Hot reload covers JSON too. A syntax error is reported against the `.json` file. For levels that must be generated from parameters, write a project tool that builds the scene and writes it with `fs.write` (see `docs_read {"name":"extending"}`, A.1).
+Hot reload covers JSON too. A syntax error is reported against the `.json` file. For levels that must be generated from parameters, write a project tool. For a tile level it composes ASCII `rows` and calls `scene.import_ascii` with `path` and `from` (section 9.8), which writes the scene file without touching the running game; for anything else it builds the scene and writes it with `fs.write` (see `docs_read {"name":"extending"}`, A.1). A generator that must give the same level for the same seed draws its random numbers from `rng.create(seed)`, not from `rng` and not from `rng.seed(seed)`: `rng.seed` reseeds the single world RNG the running game draws from (and a script cannot restore its state), while `rng.create` is an independent generator that never touches it:
+
+```js
+import { rng } from "factoria";
+
+const r = rng.create(seed);   // mulberry32: the same seed gives the same sequence on every platform and engine version
+const width = r.int(30, 60);  // inclusive; also r.float(), r.range(a, b), r.chance(p), r.pick(list), r.shuffle(list)
+```
 
 ### 9.17 3D chase camera
 
@@ -834,6 +954,30 @@ export default class GroundProbe extends Behaviour {
 
 A collider that contains the ray origin is always skipped, so a ray that starts at the centre of a ball does not hit the ball. Use `ignore` when the ray starts outside the caster's own collider, for example just ahead of a body. The 3D `isTouching(direction)` works like the 2D one, for any direction.
 
+### 9.20 Neon glow: additive blend and camera bloom
+
+Glow is a camera setting, not artwork. Draw the bright things with `"blend": "additive"` (overlapping lights add up instead of covering each other), then switch on bloom on the primary `Camera`: every pixel brighter than `bloomThreshold` bleeds light into its surroundings. Do not hand-draw blurred halo sprites or stack translucent copies of a shape; they cost entities and never look as good.
+
+```json
+{ "id": "camera", "components": {
+    "Camera": { "projection": "orthographic", "clearColor": [0.02, 0.02, 0.05, 1],
+                "bloom": true, "bloomThreshold": 0.6, "bloomIntensity": 1.2, "bloomRadius": 20,
+                "bloomScreenSpace": false } } },
+{ "id": "ship", "components": {
+    "Transform": { "position": [0, 0, 0] },
+    "Shape2D": { "shape": "triangle", "size": [60, 60], "color": [0.1, 0.9, 1, 1], "pivot": [0.5, 0.3333],
+                 "filled": false, "thickness": 4, "blend": "additive" } } }
+```
+
+- **Fields.** `bloom` turns it on (default off, so existing games are unchanged). `bloomThreshold` (0..1, default 0.7) is the brightness where glow starts, measured as the largest of r, g and b, so a saturated colour such as `[1, 0, 0.8]` glows as much as white. Lower it to make dim colours glow, raise it so only the brightest things do. `bloomIntensity` (0..10, default 1.2) is how much glow is added. `bloomRadius` (1..128 design pixels, default 20) is how far it reaches; radii below about 5 behave like 5.
+- **Dark background.** The glow is added on top of the picture, so it only shows on dark areas. Keep `clearColor` and backgrounds dark; a light background hides it.
+- **Bright sources.** Sprites, shapes and particles that glow need a bright `color` (at or above the threshold). `ParticleEmitter` with `"blend": "additive"` plus bloom gives fire, sparks and explosions for free. In 3D, bright unlit meshes (`MeshRenderer.unlit`) and strong `emissive` colours glow the same way.
+- **HUD: crisp or glowing.** By default bloom is applied to the whole finished picture, screen-space items included, so white HUD text glows too. Set `"bloomScreenSpace": false` on the `Camera` (the recipe above does) to draw the screen-space items (Sprite, Shape2D and Text with `"space": "screen"`, and debug text) AFTER the bloom: the world glows and the HUD stays crisp, with translucent panels blending over the glow. Leave it `true` when a screen-space title or logo should glow, as on a title screen. Particles and tilemaps are world-space only, so they always glow.
+- **Shapes for neon.** `Shape2D` has `rectangle`, `circle`, `line`, `triangle` and `diamond` (a rhombus touching the middles of its `size` box; a square box gives a 45-degree square). Outlines (`filled: false`, `thickness`) read best under bloom. `pivot` is also the point a shape rotates around: a spinning `triangle` wobbles with the default pivot because the centre of its box is not its centre of mass, so give it `"pivot": [0.5, 0.3333]` (its centroid). The recipe above does.
+- **Screenshots and tests.** The glow is part of the image (`factoria run --headless --screenshot-at`, MCP screenshots), and it is deterministic. Look at a screenshot after tuning; compare with `bloom: false` to see what it adds.
+- **Animating it.** `this.entity.get("Camera").bloomIntensity = 1 + Math.sin(time.elapsed * 4) * 0.5;` pulses the glow from a script.
+- **Cost.** Bloom reads the finished frame once, blurs a reduced-resolution copy and adds it back (4 to 7 extra passes, the number grows with the radius). That is cheap on a GPU; the software renderer used for headless runs spends about 5 ms per drawn frame at 1280x720. Headless tests and `factoria call` only draw when they take a screenshot, so bloom costs them nothing otherwise.
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -861,6 +1005,20 @@ The `game` object under test:
 - Keys and mouse: `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`.
 - Touch: `touch(screenPos, frames)` for a finger held for some frames, `touchStart(screenPos, id?)`, `touchMove(screenPos, id?)`, `touchEnd(id?)`. `input.touches[0].pressed` is true on the first frame only.
 - Queries: `find(idOrName)`, `world`, `time`, `state()`, `screenshot(path)` (needs graphics).
+- Sound: `audioLog()` lists the sounds played since the test started (`{frame, time, path, volume, pitch, pan, bus, loop, music, source, ok}`, oldest first); it is cleared before each test, and `clearAudioLog()` clears it by hand.
+
+Assert sounds with `toContainPlayed` (alias `toHavePlayed`). The path can be the full project path, just the file name, or a RegExp; options `times` (exact count), `bus` and `source` (entity or id) narrow it. Plays whose clip failed to load do not count, and the failure message lists what did play:
+
+```js
+test("jumping plays the jump sound once", () => {
+  game.load("scenes/main.scene.json");
+  game.step(60);
+  game.clearAudioLog();                      // ignore sounds from the level start
+  game.tap("jump");
+  expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav", { times: 1 });
+  expect(game.audioLog()).not.toContainPlayed("hurt.wav");
+});
+```
 
 Patterns that work:
 
@@ -881,6 +1039,7 @@ Patterns that work:
 | `factoria validate`, `project.validate` | `project_validate` | Structure and references, before anything runs. |
 | `script.errors` | `script_errors` | Exceptions thrown by scripts, with file, line and stack. |
 | `game.logs` | `game_logs` | Log lines. `console.log/warn/error` in scripts appear with category `script`. |
+| `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
 | `scene.get_entity` | `scene_get_entity` | One entity by id. |
 
@@ -944,12 +1103,16 @@ The same format works with `factoria call --input` and `factoria session --input
 - Treating tilemap row 0 as the bottom row. Row 0 is the top row.
 - Forgetting the primary `Camera`.
 - Using `pivot: [0, 0]` for top-left screen text. Text pivots are y-up: top-left is `[0, 1]`.
-- Expecting Tilemap solid tiles to be one-way, or expecting coins and enemies to be tile entries. Use a one-way entity for jump-through ledges, and separate entities for pickups.
+- Expecting Tilemap solid tiles to be one-way. Use a one-way entity for jump-through ledges.
+- Copying the map size into camera limit props (`minX`, `maxX`, ...). They go stale when the map changes. Read the rectangle from the Tilemap with `entity.bounds()` (section 9.6).
+- Seeding a level generator with `rng.seed(n)`. That reseeds the game's one RNG. Use `rng.create(n)` (section 9.16).
+- Placing coins, enemies and spawn points by hand, or writing a script that generates the level. Put them in the legend of `scene.import_ascii` (section 9.8) and re-import after every edit.
 - Probing for ground in the first fixed step after a spawn (section 9.14).
 - Reading `game.world` or `game.time` in `script.eval`. Use `world` and `time`.
 - Editing `types/factoria.d.ts` or `.factoria/`. Both are generated.
 - Guessing a component field or command argument. Check `factoria api --md` and `factoria commands`.
 - Changing only the running game (`scene_spawn`, `scene_set_component`) and then forgetting that the scene file did not change. Save the scene (`scene_save`) or write it in the file.
+- Writing a prefab file by hand to capture something you already built in the running game, or laying out JSON by hand. Save it with `prefab_save` and tidy hand edits with `scene_format` (section 6).
 - Skipping THE FEEDBACK RULE because the workaround "works".
 
 ## 13. Performance

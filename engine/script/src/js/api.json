@@ -363,7 +363,7 @@
     {
      "kind": "interface",
      "name": "Rect",
-     "doc": "Axis-aligned rectangle; (x, y) is the minimum corner.",
+     "doc": "Axis-aligned rectangle; (x, y) is the minimum corner (the bottom-left in the +Y-up world), w and h the size. Entity.bounds() returns one.",
      "members": [
       {
        "sig": "x: number",
@@ -525,6 +525,10 @@
       {
        "sig": "send(method: string, ...args: any[]): any",
        "doc": "Calls behaviour[method](...args) if it exists."
+      },
+      {
+       "sig": "bounds(): Rect | null",
+       "doc": "World-space axis-aligned rectangle { x, y, w, h } of this entity's 2D visual, or null. (x, y) is the minimum corner, i.e. the BOTTOM-LEFT in the +Y-up world: the same Rect convention as physics.overlapBox and debug.rect. Tilemap: its size as drawn (rows form or width x height) times tileSize, from the top-left corner at the entity position. Sprite and Shape2D: size and pivot (a circle is its bounding square, a line its stroked segment; the outline thickness of other shapes is ignored). Text: the laid-out box (approximate when headless, like ui.measureText). Scale and rotation are applied (the box around the rotated corners) and several visuals give their union. null when the entity has no world-space 2D visual: none at all, an empty Tilemap, or only screen-space ones (space: \"screen\"). Children are not included. Example: const map = world.find(\"map\").bounds();"
       },
       {
        "sig": "isGrounded(tolerance?: number): boolean",
@@ -1092,7 +1096,46 @@
       },
       {
        "sig": "seed(n: number): void",
-       "doc": "Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism)."
+       "doc": "Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism). The running game draws from this one RNG, so reseeding it changes the game's random sequence: a level generator should use rng.create(seed) instead."
+      },
+      {
+       "sig": "create(seed: number): Rng",
+       "doc": "Creates an independent, deterministic generator with the same methods as rng. It has its own state and never reads or changes the world RNG (or Math.random), so a tool can generate a level from a seed without disturbing the running game. Algorithm: mulberry32 (32-bit state, one step per draw). The algorithm and the draws each method consumes are STABLE across engine versions, so a stored seed keeps giving the same sequence. The seed is reduced to 32 bits (ToUint32: integer part, modulo 2^32); 0 is a valid seed. Throws for a non-number or non-finite seed. Example: const r = rng.create(7); r.int(1, 6)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "Rng",
+     "doc": "An independent seeded generator from rng.create(seed). Algorithm mulberry32, stable across engine versions: the same seed gives the same sequence on every platform. Every method draws a fixed number of 32-bit steps (float, range, int and chance: one per call; pick: one, none for an empty array; shuffle: items.length - 1), so a sequence does not depend on the arguments.",
+     "members": [
+      {
+       "sig": "float(): number",
+       "doc": "Next number in [0, 1): a 32-bit step divided by 2^32."
+      },
+      {
+       "sig": "range(min: number, max: number): number",
+       "doc": "min + (max - min) * float(); in [min, max)."
+      },
+      {
+       "sig": "int(min: number, max: number): number",
+       "doc": "Integer in [min, max], both inclusive (arguments are truncated to integers): min + floor(float() * (max - min + 1)). Returns min when max <= min (still one draw)."
+      },
+      {
+       "sig": "chance(p?: number): boolean",
+       "doc": "True with probability p (default 0.5): float() < p."
+      },
+      {
+       "sig": "pick<T>(items: readonly T[]): T | undefined",
+       "doc": "A random item (items[floor(float() * length)]), or undefined for an empty array."
+      },
+      {
+       "sig": "shuffle<T>(items: readonly T[]): T[]",
+       "doc": "A shuffled copy (Fisher-Yates from the end, j = floor(float() * (i + 1))); the input is not modified."
+      },
+      {
+       "sig": "seed(n: number): void",
+       "doc": "Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG."
       }
      ]
     },
@@ -1425,6 +1468,14 @@
        "doc": ""
       },
       {
+       "sig": "toContainPlayed(path: string | RegExp, options?: { times?: number; bus?: \"sfx\" | \"music\" | \"ui\"; source?: EntityLike }): void",
+       "doc": "For expect(game.audioLog()): passes when a clip was played (path = project-relative path, file name like \"jump.wav\", or RegExp). times = exact count; plays whose clip failed to load do not count."
+      },
+      {
+       "sig": "toHavePlayed(path: string | RegExp, options?: { times?: number; bus?: \"sfx\" | \"music\" | \"ui\"; source?: EntityLike }): void",
+       "doc": "Same as toContainPlayed."
+      },
+      {
        "sig": "readonly not: Expectation",
        "doc": "Negates the matcher."
       }
@@ -1455,6 +1506,61 @@
       {
        "sig": "skip(name: string, fn: () => void): void",
        "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "AudioPlay",
+     "doc": "One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.",
+     "members": [
+      {
+       "sig": "readonly seq: number",
+       "doc": "Increasing id."
+      },
+      {
+       "sig": "readonly frame: number",
+       "doc": "time.frame when the sound was requested."
+      },
+      {
+       "sig": "readonly time: number",
+       "doc": "time.elapsed (seconds) when the sound was requested."
+      },
+      {
+       "sig": "readonly path: string",
+       "doc": "Project-relative clip path."
+      },
+      {
+       "sig": "readonly volume: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly pitch: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly pan: number",
+       "doc": ""
+      },
+      {
+       "sig": "readonly bus: \"sfx\" | \"music\" | \"ui\"",
+       "doc": ""
+      },
+      {
+       "sig": "readonly loop: boolean",
+       "doc": ""
+      },
+      {
+       "sig": "readonly music: boolean",
+       "doc": "Started with audio.music() or SceneSettings.music."
+      },
+      {
+       "sig": "readonly source: string",
+       "doc": "Id of the entity whose AudioSource played it; \"\" for scripts and music."
+      },
+      {
+       "sig": "readonly ok: boolean",
+       "doc": "false when the clip could not be loaded (the error is in the log)."
       }
      ]
     },
@@ -1538,6 +1644,14 @@
       {
        "sig": "state(): Json",
        "doc": "JSON dump of the game state."
+      },
+      {
+       "sig": "audioLog(): AudioPlay[]",
+       "doc": "Sounds played since the current test started (cleared before each test), oldest first. Assert with expect(game.audioLog()).toContainPlayed(\"assets/sfx/jump.wav\")."
+      },
+      {
+       "sig": "clearAudioLog(): void",
+       "doc": "Empties the audio log (e.g. after setup, before the action under test)."
       }
      ]
     },

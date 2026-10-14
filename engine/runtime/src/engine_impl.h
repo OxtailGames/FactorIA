@@ -40,6 +40,9 @@ struct Engine::Impl {
     std::string pendingScene;
     bool hasPendingScene = false;
     std::string currentScene;
+    // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
+    // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
+    bool implicitStartScene = false;
     std::vector<std::string> sceneIssues;  // every LoadMessage of the last scene load (errors + warnings)
     std::size_t sceneErrorCount = 0;
     std::vector<std::string> startupProblems;
@@ -66,5 +69,10 @@ struct Engine::Impl {
 };
 
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
+void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
+void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+
+// Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
+Entity need_entity(World& world, const Json& args, const char* key = "id");
 
 }  // namespace fa
