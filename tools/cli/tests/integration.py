@@ -239,6 +239,17 @@ def test_template(tmp, template):
     code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", replay])
     check(code == 0 and "unknown field 'pres'" in err and "press" in err, "run --input warns about a misspelled field")
 
+    # gamepad and touch replay entries are applied; their typos warn with a did-you-mean naming the frame
+    replay = os.path.join(tmp, "pad_replay.json")
+    with open(replay, "w") as f:
+        json.dump({"frames": {"0": {"gamepad": {"buttons": {"A": True}, "axes": {"LeftX": -1}}, "touch": {"id": 1, "position": [5, 5]}},
+                              "1": {"gamepad": {"buton": {"A": True}}},
+                              "2": {"gamepad": {"buttons": {"Strat": True}}}}}, f)
+    code, out, err = run(["run", proj, "--headless", "--frames", "3", "--input", replay])
+    check(code == 0 and "replay frame 1: gamepad: unknown field 'buton'" in err and "Did you mean 'buttons'" in err
+          and "replay frame 2: gamepad: unknown button 'Strat'" in err and "Did you mean 'Start'" in err,
+          "run --input accepts gamepad and touch entries and warns about their typos")
+
     # unknown component names fail instead of creating a half-built entity
     code, out, err = run(["call", "scene.spawn", '{"components":{"Transform2D":{"position":[1,2]}}}', "--project", proj])
     check(code == 1 and "Transform" in (out + err), "scene.spawn with an unknown component exits 1 with a did-you-mean")

@@ -620,8 +620,23 @@
   const KEY_DOC = null;
   const input = {
     down: (a) => N.inAction(0, a), pressed: (a) => N.inAction(1, a), released: (a) => N.inAction(2, a),
+    // value(action): 0..1, analog for gamepad sticks and triggers (the action is "down" from 0.5). axis() and vector() are analog too.
+    value: (a) => N.inValue(a),
     axis: (neg, pos) => N.inAxis(neg, pos),
     vector(l, r, d, u) { const v = N.inVector(l, r, d, u); return new Vec2(v[0], v[1]); },
+    // gamepad(index = 0): one pad (0..3) for local multiplayer. axis() has the deadzone applied (what the bindings see),
+    // rawAxis() is as the device reported it. Names: see GamepadButton / GamepadAxis in the typings.
+    gamepad(index = 0) {
+      N.inPad(0, index, "");  // validates the index
+      return {
+        get connected() { return N.inPad(0, index, ""); },
+        down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
+        axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
+      };
+    },
+    // Deadzone of sticks (radial) and triggers, from factoria.json input.deadzone (default 0.2). Assign to offer calibration.
+    get deadzone() { return N.inDeadzone(); },
+    set deadzone(v) { N.inDeadzone(v); },
     keyDown: (k) => N.inKey(0, k), keyPressed: (k) => N.inKey(1, k), keyReleased: (k) => N.inKey(2, k),
     mouse: {
       get position() { const m = N.inMouse().position; return new Vec2(m[0], m[1]); },
@@ -1079,6 +1094,19 @@
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
+    // gamepad(index = 0): drives pad `index`. press/release/axis/connect/disconnect act now (like keyDown/keyUp); tap steps.
+    // press, release and axis connect the pad if needed; disconnect releases what it held.
+    gamepad(index = 0) {
+      N.inPad(0, index, "");  // validates the index; press/axis/connect (not this call) connect the pad
+      return {
+        press(button) { N.testPad(0, index, button, 0); },
+        release(button) { N.testPad(1, index, button, 0); },
+        tap(button) { N.testPad(0, index, button, 0); stepN(1); N.testPad(1, index, button, 0); stepN(1); },
+        axis(name, value) { N.testPad(2, index, name, value); },
+        connect() { N.testPad(3, index, "", 0); },
+        disconnect() { N.testPad(4, index, "", 0); },
+      };
+    },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },
     click(p, button = "left") {
       const a = posArg(p, "game.click");

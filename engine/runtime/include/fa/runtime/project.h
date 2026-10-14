@@ -11,7 +11,7 @@
 //                "fullscreen": false, "vsync": true, "orientation": "landscape",
 //                "pixelArt": false },
 //   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
-//   "input": { "actions": { "jump": ["Space", "W"] } },
+//   "input": { "actions": { "jump": ["Space", "W"] }, "deadzone": 0.2 },   // deadzone: gamepad sticks and triggers
 //   "platforms": ["windows", "macos", "linux", "ios", "android"],
 //   "feedbackFile": "ENGINE_FEEDBACK.json"
 // }
@@ -46,6 +46,7 @@ struct ProjectSettings {
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
     Json inputActions = Json::object();
+    double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;
     Json raw;  // the whole file, for fields the engine does not model yet

@@ -167,13 +167,8 @@ void warn_if_not_canonical(Ctx& c, const std::string& rel) {
 }
 
 void check_binding(Ctx& c, const std::string& pointer, const std::string& binding) {
-    std::string b = to_lower(binding);
-    if (b == "mouseleft" || b == "mouseright" || b == "mousemiddle" || b == "touch" || b.rfind("gamepad", 0) == 0) return;
-    if (key_from_name(binding) != Key::Unknown) return;
-    std::vector<std::string> names;
-    for (int k = 1; k < int(Key::Count); ++k) names.push_back(key_name(Key(k)));
-    for (const char* extra : {"MouseLeft", "MouseRight", "MouseMiddle", "Touch"}) names.push_back(extra);
-    c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", did_you_mean(binding, names));
+    if (Input::is_binding_name(binding)) return;
+    c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", did_you_mean(binding, Input::binding_names()));
 }
 
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {

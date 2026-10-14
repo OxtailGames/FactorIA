@@ -159,6 +159,21 @@ TEST_CASE("validate: reports missing feedback file, bad scene content and assets
     CHECK(binding);
     CHECK(asset);
 
+    // Gamepad bindings: the real names pass, a typo is an error with a suggestion (not "anything starting with gamepad").
+    (*p)["input"]["actions"]["jump"] = Json::array({"GamepadLeftStickRight", "GamepadAA", "gamepadrighttrigger"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+    int padErrors = 0;
+    bool padSuggestion = false;
+    for (auto& e : validate_project(tmp.sub("game")).errors)
+        if (e.file == "factoria.json" && e.pointer.rfind("/input/actions/jump/", 0) == 0) {
+            ++padErrors;
+            padSuggestion = e.pointer == "/input/actions/jump/1" && e.hint.find("GamepadA") != std::string::npos;
+        }
+    CHECK(padErrors == 1);
+    CHECK(padSuggestion);
+    (*p)["input"]["actions"]["jump"] = Json::array({"Space"});
+    REQUIRE(save_json_file(tmp.sub("game/factoria.json"), *p).ok());
+
     // Unknown component => scene load error with a did-you-mean hint.
     (*scene)["entities"][1]["components"]["Sprit"] = Json::object();
     REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());

@@ -6,6 +6,7 @@
 #endif
 
 #include "fa/platform/app.h"
+#include "fa/platform/gamepad.h"
 #include "fa/platform/sokol_entry.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -22,6 +23,7 @@ namespace {
 struct AppState {
     AppDesc desc;
     bool active = false;
+    bool focused = true;  // pads are not polled while the window is in the background
     int fbW = 0, fbH = 0;
 };
 AppState g;
@@ -96,6 +98,7 @@ void on_frame() {
     double dt = sapp_frame_duration();
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
+    if (g.desc.input && g.focused) poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
     if (g.desc.frame) g.desc.frame(dt);
 }
 
@@ -159,18 +162,22 @@ void on_event(const sapp_event* e) {
             break;
         case SAPP_EVENTTYPE_UNFOCUSED:
         case SAPP_EVENTTYPE_ICONIFIED:
+            g.focused = false;
             if (in) in->release_all();
             emit(AppEvent::Type::FocusLost);
             break;
         case SAPP_EVENTTYPE_FOCUSED:
         case SAPP_EVENTTYPE_RESTORED:
+            g.focused = true;
             emit(AppEvent::Type::FocusGained);
             break;
         case SAPP_EVENTTYPE_SUSPENDED:
+            g.focused = false;
             if (in) in->release_all();
             emit(AppEvent::Type::Suspended);
             break;
         case SAPP_EVENTTYPE_RESUMED:
+            g.focused = true;
             emit(AppEvent::Type::Resumed);
             break;
         case SAPP_EVENTTYPE_QUIT_REQUESTED:
@@ -188,6 +195,7 @@ void on_event(const sapp_event* e) {
 
 sapp_desc to_sapp_desc(const AppDesc& desc) {
     g.desc = desc;
+    g.focused = true;
     sapp_desc s{};
     s.init_cb = on_init;
     s.frame_cb = on_frame;

@@ -9,9 +9,13 @@
 //   } }
 // Binding names: key names from key_name() ("A".."Z", "0".."9", "Space",
 // "Enter", "Escape", "Left", "Right", "Up", "Down", "LeftShift", "F1"...),
-// "MouseLeft", "MouseRight", "MouseMiddle", "Touch" (any finger down),
-// "GamepadA/B/X/Y", "GamepadStart", "GamepadDpadLeft"... (reserved; gamepad
-// support is on the roadmap).
+// "MouseLeft", "MouseRight", "MouseMiddle", "Touch" (any finger down), and gamepad bindings, which match ANY
+// connected pad:
+//   buttons    "Gamepad" + a GamepadButton name: GamepadA/B/X/Y, GamepadStart, GamepadBack, GamepadGuide,
+//              GamepadDpadLeft/Right/Up/Down, GamepadLeftShoulder/RightShoulder, GamepadLeftThumb/RightThumb
+//   half axes  GamepadLeftStickLeft/Right/Up/Down, GamepadRightStickLeft/Right/Up/Down, GamepadLeftTrigger,
+//              GamepadRightTrigger: ANALOG, see action_value()
+// Unknown names are rejected by set_actions with a "did you mean" hint.
 //
 // Coordinates: mouse/touch positions are in DESIGN-RESOLUTION screen pixels,
 // origin top-left, +Y down (same as screen-space UI). The runtime converts
@@ -49,6 +53,23 @@ Key key_from_name(std::string_view name);  // case-insensitive; Unknown if inval
 
 enum class MouseButton : std::uint8_t { Left, Right, Middle, Count };
 
+// Gamepads: up to kMaxGamepads pads, indexed from 0, with an Xbox-style layout (A bottom, B right, X left, Y top).
+inline constexpr int kMaxGamepads = 4;
+enum class GamepadButton : std::uint8_t {
+    A, B, X, Y, Start, Back, Guide, DpadLeft, DpadRight, DpadUp, DpadDown, LeftShoulder, RightShoulder, LeftThumb,
+    RightThumb,  // the thumbs are the stick clicks
+    Count
+};
+// Sticks run -1..1 with +Y UP (like world space, unlike the screen); triggers run 0..1.
+enum class GamepadAxis : std::uint8_t { LeftX, LeftY, RightX, RightY, LeftTrigger, RightTrigger, Count };
+const char* gamepad_button_name(GamepadButton b);  // "A", "DpadLeft"...
+const char* gamepad_axis_name(GamepadAxis a);      // "LeftX", "RightTrigger"...
+// Case-insensitive. Return false (and leave `out` alone) for an unknown name.
+bool gamepad_button_from_name(std::string_view name, GamepadButton& out);
+bool gamepad_axis_from_name(std::string_view name, GamepadAxis& out);
+std::vector<std::string> gamepad_button_names();
+std::vector<std::string> gamepad_axis_names();
+
 struct Touch {
     std::uint64_t id = 0;
     Vec2 position;  // design-resolution pixels
@@ -77,7 +98,15 @@ public:
     void on_touch_move(std::uint64_t id, Vec2 designPos);
     void on_touch_end(std::uint64_t id);
     void on_text(std::uint32_t codepoint);
-    void release_all();  // focus lost
+    // Gamepads (index 0..kMaxGamepads-1; out-of-range indices are ignored). A button or axis event also marks the pad
+    // connected. Disconnecting releases its buttons (with release edges) and zeroes its axes. Axis values are clamped
+    // (sticks -1..1 with +Y up, triggers 0..1). The platform's poll_gamepads() feeds these; tests and replays call them.
+    void on_gamepad_connected(int index, bool connected);
+    void on_gamepad_button(int index, GamepadButton button, bool down);
+    void on_gamepad_axis(int index, GamepadAxis axis, float value);
+    // Focus lost or a test reset: releases everything (keys, mouse, touches, pad buttons and axes) and disconnects every
+    // pad. A windowed run reconnects the pads that are really there on the next poll_gamepads().
+    void release_all();
 
     // -------- raw queries
     bool key_down(Key k) const;
@@ -92,19 +121,45 @@ public:
     const std::vector<Touch>& touches() const { return touches_; }
     const std::u32string& text_input() const { return text_; }  // typed characters this frame
 
+    // -------- gamepad queries (index outside 0..kMaxGamepads-1: not connected, nothing down, axes 0)
+    bool gamepad_connected(int index) const;
+    bool gamepad_down(int index, GamepadButton b) const;
+    bool gamepad_pressed(int index, GamepadButton b) const;   // went down this frame
+    bool gamepad_released(int index, GamepadButton b) const;  // went up this frame
+    // The axis as the bindings see it: sticks pass a RADIAL deadzone (the pair of axes is measured together, so a
+    // diagonal does not lose its other component), triggers a linear one; what is left is rescaled to the full range.
+    float gamepad_axis(int index, GamepadAxis a) const;
+    float gamepad_raw_axis(int index, GamepadAxis a) const;  // as the device (or a test) reported it
+    // Deadzone for the sticks and triggers, 0..0.95 (default 0.2; factoria.json "input.deadzone"). Real sticks drift
+    // and rest off-centre, so a game may expose it as a calibration option.
+    void set_gamepad_deadzone(float deadzone);
+    float gamepad_deadzone() const { return deadzone_; }
+
     // -------- actions
     // Replaces all actions from the project's "input.actions" JSON object.
     // Returns problems (unknown binding names, with suggestions).
     std::vector<std::string> set_actions(const Json& actions);
     void bind(std::string_view action, std::string_view binding);
+    // Binding names, shared with factoria.json validation: true if `name` is a binding (case-insensitive), and every
+    // canonical spelling (keys, mouse buttons, "Touch", gamepad buttons and half axes) for "did you mean" hints.
+    static bool is_binding_name(std::string_view name);
+    static std::vector<std::string> binding_names();
     std::vector<std::string> action_names() const;
     bool has_action(std::string_view action) const;
+    // An action is down when its value() reaches kActionDownThreshold. Keys, mouse buttons, touch and pad buttons
+    // have value 0 or 1, so for them this is just "held"; only the analog bindings (sticks, triggers) are in between.
+    static constexpr float kActionDownThreshold = 0.5f;
     bool action_down(std::string_view action) const;
-    bool action_pressed(std::string_view action) const;
+    bool action_pressed(std::string_view action) const;   // became down this frame (analog too)
     bool action_released(std::string_view action) const;
-    // -1..1 from two actions: axis("move_left", "move_right").
+    // 0..1: the maximum over the action's bindings. Keys, mouse, touch and pad buttons give 0 or 1; a half-axis binding
+    // such as GamepadLeftStickRight gives the stick's push in that direction after the deadzone (0 at rest, 1 at full
+    // tilt); a trigger gives its pull after the deadzone. A binding matches ANY connected pad. An override gives 1.
+    float action_value(std::string_view action) const;
+    // -1..1 from two actions: action_value(positive) - action_value(negative). Keys give exactly -1, 0 or 1.
     float axis(std::string_view negative, std::string_view positive) const;
-    // Normalized 2D vector from four actions (left, right, down, up); +Y up.
+    // 2D vector from four actions (left, right, down, up); +Y up. Normalized only when its length exceeds 1, so a
+    // half-tilted stick gives a short vector and two held keys a unit diagonal.
     Vec2 vector(std::string_view left, std::string_view right, std::string_view down, std::string_view up) const;
 
     // Virtual action state (tests/AI): down=true forces the action down (in
@@ -119,12 +174,21 @@ public:
 
 private:
     struct Binding {
-        enum class Kind : std::uint8_t { Key, Mouse, Touch, Gamepad } kind = Kind::Key;
+        enum class Kind : std::uint8_t { Key, Mouse, Touch, PadButton, PadAxis } kind = Kind::Key;
         Key key = Key::Unknown;
         MouseButton mouse = MouseButton::Left;
+        GamepadButton button = GamepadButton::A;
+        GamepadAxis axis = GamepadAxis::LeftX;  // PadAxis: the axis and the direction (+1/-1) that counts
+        int sign = 1;
     };
-    bool binding_down(const Binding& b) const;
-    bool binding_was_down(const Binding& b) const;
+    struct Pad {
+        bool connected = false;
+        std::array<bool, size_t(GamepadButton::Count)> buttons{}, prevButtons{}, pressedEdge{}, releasedEdge{};
+        std::array<float, size_t(GamepadAxis::Count)> axes{}, prevAxes{};
+    };
+    static bool parse_binding(std::string_view name, Binding& out);
+    float binding_value(const Binding& b, bool previous) const;  // previous: as of the last begin_frame()
+    float pad_axis(const Pad& pad, GamepadAxis a, bool previous) const;
 
     std::array<bool, size_t(Key::Count)> keys_{};
     std::array<bool, size_t(Key::Count)> prevKeys_{};
@@ -142,6 +206,8 @@ private:
     bool primaryTouchDown_ = false;  // the first finger is down and mirrored onto the mouse
     std::uint64_t primaryTouchId_ = 0;
     std::u32string text_;
+    std::array<Pad, kMaxGamepads> pads_;
+    float deadzone_ = 0.2f;
     std::unordered_map<std::string, std::vector<Binding>> actions_;
     // Action overrides: only `true` entries are stored (setting false erases and
     // hands control back to the bindings).
