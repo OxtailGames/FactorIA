@@ -133,11 +133,14 @@ std::string default_key_env(const ProviderConfig& p) {
 std::vector<std::string> default_cli_argv(ProviderKind kind) {
     switch (kind) {
         case ProviderKind::ClaudeCode:
-            return {"-p", "{prompt}", "--output-format", "stream-json", "--verbose", "--model", "{model}",
-                    "--mcp-config", "{mcp_config}", "--permission-mode", "acceptEdits"};
+            // No {prompt}: the prompt goes to standard input (npm installs these CLIs as .cmd files on Windows, and
+            // cmd.exe cannot pass a multi-line argument). In -p mode Claude Code asks before every MCP tool, so the
+            // engine's own tools are allowed up front.
+            return {"-p", "--output-format", "stream-json", "--verbose", "--model", "{model}", "--mcp-config",
+                    "{mcp_config}", "--allowedTools", "mcp__factoria", "--permission-mode", "acceptEdits"};
         case ProviderKind::Codex:
             return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}",
-                    "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]", "{prompt}"};
+                    "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]", "-"};
         default: return {};
     }
 }

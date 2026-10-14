@@ -18,6 +18,7 @@ struct ProcessOptions {
     std::string workingDir;                      // empty = inherit
     std::map<std::string, std::string> env;      // overrides added to the inherited environment
     std::vector<std::string> unsetEnv;           // variables removed from the child environment
+    std::string stdinText;                       // the child's standard input (empty = no input)
     std::function<void(std::string_view line)> onStdoutLine;   // complete lines, '\n'/'\r\n' stripped
     std::function<void(std::string_view chunk)> onStdoutChunk; // raw bytes as they arrive (optional)
     std::function<void(std::string_view line)> onStderrLine;   // optional

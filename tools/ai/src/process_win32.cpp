@@ -1,6 +1,5 @@
 // Windows process runner: CreateProcessW with redirected pipes and a Job Object
 // (kill-on-close) so cancellation terminates the whole process tree.
-// NOTE: written without access to a Windows machine; keep it simple.
 #include <windows.h>
 
 #include <chrono>
@@ -73,6 +72,25 @@ bool needs_cmd_shell(const std::string& path) {
     return ext == ".cmd" || ext == ".bat";
 }
 
+// The child's standard input: NUL, or a temporary file holding `text` (deleted when the last handle closes), so there
+// is no pipe to keep writing while stdout is read.
+HANDLE open_stdin(const std::string& text, SECURITY_ATTRIBUTES& sa) {
+    if (text.empty())
+        return CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
+    wchar_t dir[MAX_PATH + 1], file[MAX_PATH + 1];
+    if (!GetTempPathW(MAX_PATH + 1, dir) || !GetTempFileNameW(dir, L"fa", 0, file)) return INVALID_HANDLE_VALUE;
+    HANDLE h = CreateFileW(file, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, &sa, CREATE_ALWAYS,
+                           FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return h;
+    DWORD written = 0;
+    if (!WriteFile(h, text.data(), static_cast<DWORD>(text.size()), &written, nullptr) || written != text.size() ||
+        SetFilePointer(h, 0, nullptr, FILE_BEGIN) == INVALID_SET_FILE_POINTER) {
+        CloseHandle(h);
+        return INVALID_HANDLE_VALUE;
+    }
+    return h;
+}
+
 }  // namespace
 
 Result<ProcessResult> run_process(const ProcessOptions& opt) {
@@ -83,20 +101,22 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
         std::string found = which(exe);
         if (!found.empty()) exe = found;
     }
-    std::vector<std::wstring> args;
-    if (needs_cmd_shell(exe)) {
-        args.push_back(L"cmd.exe");
-        args.push_back(L"/c");
-        args.push_back(widen(exe));
-    } else {
-        args.push_back(widen(exe));
+    const bool batch = needs_cmd_shell(exe);
+    std::wstring cmdline = quote_arg(widen(exe));
+    for (std::size_t i = 1; i < opt.argv.size(); ++i) {
+        // cmd.exe cuts an argument at a line break, expands %VAR%, and runs what follows & | < > ^ once its quoting
+        // gets out of step with the CRT's (\"): refuse such an argument instead of running something else.
+        if (batch && opt.argv[i].find_first_of("\r\n%&|<>^") != std::string::npos)
+            return make_error("Cannot pass argument " + std::to_string(i) + " to '" + exe +
+                                  "': it is a .cmd/.bat file, and cmd.exe would change or run the line breaks or "
+                                  "% & | < > ^ characters in it",
+                              "Send text through standard input instead: leave {prompt} out of the provider's \"argv\" "
+                              "in ai.json. Paths must not contain these characters.");
+        cmdline += L' ';
+        cmdline += quote_arg(widen(opt.argv[i]));
     }
-    for (std::size_t i = 1; i < opt.argv.size(); ++i) args.push_back(widen(opt.argv[i]));
-    std::wstring cmdline;
-    for (std::size_t i = 0; i < args.size(); ++i) {
-        if (i) cmdline.push_back(L' ');
-        cmdline += quote_arg(args[i]);
-    }
+    // /s: cmd.exe strips only the outer quotes, so a quoted script path and quoted arguments stay intact.
+    if (batch) cmdline = L"cmd.exe /d /s /c \"" + cmdline + L"\"";
 
     // Environment block: inherited + overrides - unset.
     std::wstring envBlock;
@@ -120,17 +140,21 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     }
 
     SECURITY_ATTRIBUTES sa{sizeof sa, nullptr, TRUE};
+    HANDLE in = open_stdin(opt.stdinText, sa);
+    if (in == INVALID_HANDLE_VALUE && !opt.stdinText.empty())
+        return make_error("Cannot write the standard input of '" + opt.argv[0] + "' to a temporary file (error " +
+                              std::to_string(GetLastError()) + ")",
+                          "Check that the TEMP directory exists and is writable.");
     HANDLE outR = nullptr, outW = nullptr, errR = nullptr, errW = nullptr;
     if (!CreatePipe(&outR, &outW, &sa, 0) || !CreatePipe(&errR, &errW, &sa, 0))
         return make_error("CreatePipe failed (error " + std::to_string(GetLastError()) + ")");
     SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(errR, HANDLE_FLAG_INHERIT, 0);
-    HANDLE nul = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);
 
     STARTUPINFOW si{};
     si.cb = sizeof si;
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = nul;
+    si.hStdInput = in;
     si.hStdOutput = outW;
     si.hStdError = errW;
     PROCESS_INFORMATION pi{};
@@ -143,7 +167,7 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     DWORD createErr = GetLastError();
     CloseHandle(outW);
     CloseHandle(errW);
-    if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
+    if (in != INVALID_HANDLE_VALUE) CloseHandle(in);
     if (!ok) {
         CloseHandle(outR);
         CloseHandle(errR);

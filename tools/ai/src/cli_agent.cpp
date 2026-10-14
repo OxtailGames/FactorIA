@@ -1,5 +1,6 @@
 #include "fa/ai/cli_agent.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -348,6 +349,9 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     po.workingDir = projectDir;
     po.env = cfg_.env;
     po.unsetEnv = cfg_.unsetEnv;
+    // A template without {prompt} gets the prompt on standard input.
+    if (std::none_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{prompt}") != std::string::npos; }))
+        po.stdinText = req.prompt;
     po.cancel = cancel;
     po.captureStdout = false;
     CliStreamParser parser(cfg_.kind);

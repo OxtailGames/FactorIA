@@ -1,8 +1,10 @@
 #!/bin/sh
-# Fake `claude` CLI: prints stream-json lines. Records its argv in $FAKE_ARGV_FILE if set.
+# Fake `claude` CLI: prints stream-json lines. Records its argv (and stdin as "stdin:...") in $FAKE_ARGV_FILE if set.
 if [ -n "$FAKE_ARGV_FILE" ]; then
   for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV_FILE"; done
 fi
+stdin=$(cat)
+if [ -n "$FAKE_ARGV_FILE" ] && [ -n "$stdin" ]; then printf 'stdin:%s\n' "$stdin" >> "$FAKE_ARGV_FILE"; fi
 case "$FAKE_MODE" in
   notloggedin)
     echo '{"type":"result","subtype":"success","is_error":true,"result":"Invalid API key · Please run /login","total_cost_usd":0,"usage":{}}'
