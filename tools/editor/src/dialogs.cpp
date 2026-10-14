@@ -13,7 +13,7 @@ static void scan_projects(std::vector<std::string>& out) {
     out.clear();
     std::error_code ec;
     std::vector<stdfs::path> roots = {stdfs::current_path(ec)};
-    if (const char* h = std::getenv("HOME")) roots.push_back(stdfs::path(h) / "FactorIA" / "examples");
+    if (std::string h = home_dir(); !h.empty()) roots.push_back(stdfs::path(h) / "FactorIA" / "examples");
     for (const auto& root : roots) {
         if (!stdfs::exists(root / kProjectFileName, ec)) {
             // examples/* one level down
@@ -41,10 +41,15 @@ void Editor::draw_project_dialog() {
         dlgScanned_ = true;
         scan_projects(detectedProjects_);
         std::error_code ec;
-        if (dlgNewParent_.empty()) dlgNewParent_ = stdfs::current_path(ec).string();
+        // New projects go to Documents by default, not to the working directory (factoria's own folder when the
+        // editor was started from Explorer).
+        if (dlgNewParent_.empty()) {
+            stdfs::path docs = stdfs::path(home_dir()) / "Documents";
+            dlgNewParent_ = !home_dir().empty() && stdfs::is_directory(docs, ec) ? docs.string() : stdfs::current_path(ec).string();
+        }
         if (dlgOpenPath_.empty() && !recentProjects_.empty()) dlgOpenPath_ = recentProjects_.front();
         if (recentProjects_.empty()) {
-            if (const char* h = std::getenv("HOME")) {
+            if (std::string h = home_dir(); !h.empty()) {
                 auto j = load_json_file((stdfs::path(h) / ".factoria" / "editor_recent.json").string());
                 if (j && j->is_array())
                     for (auto& v : *j)
@@ -66,10 +71,16 @@ void Editor::draw_project_dialog() {
     if (forced) ImGui::TextWrapped("No project is open. Open an existing FactorIA project folder (it contains factoria.json) or create a new one from a template.");
     if (!dlgError_.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", dlgError_.c_str());
     ImGui::SeparatorText("Open project");
-    ImGui::SetNextItemWidth(-90);
+    ImGui::SetNextItemWidth(-176);
     ImGui::InputTextWithHint("##openpath", "/path/to/project", &dlgOpenPath_);
     ImGui::SameLine();
-    if (ImGui::Button("Open", ImVec2(80, 0))) {
+    bool openNow = false;
+    if (ImGui::Button("Browse...##open", ImVec2(80, 0))) {
+        std::string p = pick_folder("Open a FactorIA project (the folder with factoria.json)", dlgOpenPath_);
+        if (!p.empty()) { dlgOpenPath_ = p; openNow = true; }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Open", ImVec2(80, 0)) || openNow) {
         std::string dir = dlgOpenPath_;
         std::error_code ec;
         if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) {
@@ -115,9 +126,14 @@ void Editor::draw_project_dialog() {
     }
     ImGui::SetNextItemWidth(220);
     ImGui::InputText("Name", &dlgNewName_);
-    ImGui::SetNextItemWidth(-90);
+    ImGui::SetNextItemWidth(-150);
     ImGui::InputText("Folder", &dlgNewParent_);
     ImGui::SetItemTooltip("The project is created in <folder>/<name>");
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...##new", ImVec2(80, 0))) {
+        std::string p = pick_folder("Folder for the new project", dlgNewParent_);
+        if (!p.empty()) dlgNewParent_ = p;
+    }
     ImGui::BeginDisabled(templates.empty() || dlgNewName_.empty());
     if (ImGui::Button("Create project")) {
         stdfs::path target = stdfs::path(dlgNewParent_) / dlgNewName_;
