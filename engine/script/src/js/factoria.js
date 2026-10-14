@@ -620,8 +620,23 @@
   const KEY_DOC = null;
   const input = {
     down: (a) => N.inAction(0, a), pressed: (a) => N.inAction(1, a), released: (a) => N.inAction(2, a),
+    // value(action): 0..1, analog for gamepad sticks and triggers (the action is "down" from 0.5). axis() and vector() are analog too.
+    value: (a) => N.inValue(a),
     axis: (neg, pos) => N.inAxis(neg, pos),
     vector(l, r, d, u) { const v = N.inVector(l, r, d, u); return new Vec2(v[0], v[1]); },
+    // gamepad(index = 0): one pad (0..3) for local multiplayer. axis() has the deadzone applied (what the bindings see),
+    // rawAxis() is as the device reported it. Names: see GamepadButton / GamepadAxis in the typings.
+    gamepad(index = 0) {
+      N.inPad(0, index, "");  // validates the index
+      return {
+        get connected() { return N.inPad(0, index, ""); },
+        down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
+        axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
+      };
+    },
+    // Deadzone of sticks (radial) and triggers, from factoria.json input.deadzone (default 0.2). Assign to offer calibration.
+    get deadzone() { return N.inDeadzone(); },
+    set deadzone(v) { N.inDeadzone(v); },
     keyDown: (k) => N.inKey(0, k), keyPressed: (k) => N.inKey(1, k), keyReleased: (k) => N.inKey(2, k),
     mouse: {
       get position() { const m = N.inMouse().position; return new Vec2(m[0], m[1]); },
@@ -674,6 +689,18 @@
     raycast3d(origin, dir, maxDistance = 1000, o) {
       const a = vecArr(origin, 3, "physics.raycast3d(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3d(origin, dir) `dir`");
       return hitOf(N.raycast3d(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o)), false);
+    },
+    // shapeCast(shape, from, to, { mask, ignore, ignoreTriggers }): sweeps a shape from `from` to `to` (2D when `from` is 2D, else 3D)
+    // and returns the first collider it touches like raycast does ({ entity, point, normal, distance } | null). distance = how far the
+    // CENTRE travels before contact. shape: { shape: "circle", radius } or { shape: "box", size: [w, h] } in 2D;
+    // { shape: "sphere", radius } or { shape: "box", size: [x, y, z] } in 3D. Bad shapes throw an Error that explains the fix.
+    shapeCast(shape, from, to, o) {
+      if (!is3dVec(from)) {
+        const a = vecArr(from, 2, "physics.shapeCast(shape, from, to) `from`"), b = vecArr(to, 2, "physics.shapeCast(shape, from, to) `to`");
+        return hitOf(N.shapeCast2d(shape, a[0], a[1], b[0], b[1], maskOf(o), ignoreOf(o), trigOf(o)), true);
+      }
+      const a = vecArr(from, 3, "physics.shapeCast(shape, from, to) `from`"), b = vecArr(to, 3, "physics.shapeCast(shape, from, to) `to`");
+      return hitOf(N.shapeCast3d(shape, a[0], a[1], a[2], b[0], b[1], b[2], maskOf(o), ignoreOf(o), trigOf(o)), false);
     },
     overlapCircle(c, r, o) { const v = vecArr(c, 2, "physics.overlapCircle(center, r) `center`"); return N.overlapCircle(v[0], v[1], r, maskOf(o)).map(entityOf); },
     overlapBox(r, o) { const q = rectArr(r, "physics.overlapBox(rect)"); return N.overlapBox(q[0], q[1], q[2], q[3], maskOf(o)).map(entityOf); },
@@ -1067,6 +1094,19 @@
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
+    // gamepad(index = 0): drives pad `index`. press/release/axis/connect/disconnect act now (like keyDown/keyUp); tap steps.
+    // press, release and axis connect the pad if needed; disconnect releases what it held.
+    gamepad(index = 0) {
+      N.inPad(0, index, "");  // validates the index; press/axis/connect (not this call) connect the pad
+      return {
+        press(button) { N.testPad(0, index, button, 0); },
+        release(button) { N.testPad(1, index, button, 0); },
+        tap(button) { N.testPad(0, index, button, 0); stepN(1); N.testPad(1, index, button, 0); stepN(1); },
+        axis(name, value) { N.testPad(2, index, name, value); },
+        connect() { N.testPad(3, index, "", 0); },
+        disconnect() { N.testPad(4, index, "", 0); },
+      };
+    },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },
     click(p, button = "left") {
       const a = posArg(p, "game.click");

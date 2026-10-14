@@ -53,23 +53,23 @@ Call the MCP tool `feedback_report`, or run `factoria call feedback.report '{...
 |---|---|
 | `category` | one of: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation, tooling, ai-integration, docs, platform, performance, networking, other |
 | `severity` | `blocker` (could not build it), `major` (large or fragile workaround), `minor` (small workaround), `nice-to-have` (convenience) |
-| `title` | short noun phrase, such as "No gamepad input". Reuse the same wording for the same gap. |
+| `title` | short noun phrase, such as "No gamepad rumble". Reuse the same wording for the same gap. |
 | `missing` | what you needed and what the engine did instead |
 | `workaround` | what you did instead, with `workaroundFiles` (project-relative paths) |
 | `suggestion` | the engine change that would remove the workaround: a field, a command or an API |
 
 The tool requires `category`, `severity`, `title`, `missing` and `workaround`. Always add `workaroundFiles` and `suggestion` as well, because the engine team needs them. `effort` (`small`, `medium`, `large`) and `reporter` (`{"kind":"ai","agent":"...","model":"..."}`) are optional. Call `feedback_list {"status":"open"}` (or `factoria feedback list --status open`) to see what is already recorded.
 
-Good example, a missing input binding:
+Good example, a missing input feature:
 
 ```json
 {
   "category": "input",
-  "severity": "major",
-  "title": "No gamepad input",
-  "missing": "The game needs a controller, but gamepad bindings such as GamepadA are reserved and not supported yet.",
-  "workaround": "none: feature dropped. The game is keyboard and touch only.",
-  "suggestion": "Support GamepadA/B/X/Y and D-pad bindings in factoria.json input.actions."
+  "severity": "minor",
+  "title": "No gamepad rumble",
+  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
+  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
+  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad."
 }
 ```
 
@@ -122,7 +122,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `prefab_save` | `prefab.save` | Save an entity of the running world, with its children, as a prefab file: `{"id":"enemy_3","path":"prefabs/enemy.prefab.json"}`. It does not overwrite a file unless `"overwrite":true`. Section 6 says what the file leaves out. |
 | `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{}` formats the whole project, `{"paths":["prefabs"],"check":true}` only lists the files that are not canonical (`"strict":true` makes that an error). Section 6. |
 | `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
-| `game_input` | `game.input` | Press or release an action or key now, or move the mouse. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`. The next `game_step` sees the input. |
+| `game_input` | `game.input` | Press or release an action or key now, or move the mouse, a gamepad or a finger. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`, `{"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}`, `{"touch":{"id":1,"position":[200,300],"down":true}}`. The next `game_step` sees the input. |
 | `game_screenshot` | `game.screenshot` | Capture the last rendered frame as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. Needs graphics. |
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
 | `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. |
@@ -131,6 +131,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Only `mask` is available here; `ignore` exists in scripts (section 8). |
+| `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
@@ -172,7 +173,7 @@ The MCP server also offers prompts: `make-game` (argument `idea`), `add-feature`
 | Colors | `[r, g, b, a]` with values 0..1, `"#rgb"`, `"#rrggbb"` or `"#rrggbbaa"`, or a name: white, black, red, green, blue, yellow, cyan, magenta, gray, grey, orange, purple, pink, brown, transparent. If any value in an array is above 1, the engine reads the array as 0..255 bytes, so keep to 0..1. |
 | Rects | `{x, y, w, h}` or `[x, y, w, h]` (`physics.overlapBox`, `debug.rect`, `entity.bounds()`): `(x, y)` is the minimum corner, the BOTTOM-LEFT in the +Y-up world, and `w`, `h` the size. |
 | Vectors | In scripts, a vector argument accepts `Vec2`/`Vec3` values, `{x, y}` or `[x, y]`. In JSON, use arrays (`[x, y]` or `[x, y, z]`); `{x, y}` objects also work in component fields. |
-| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"` or `"Touch"` (any finger down). Gamepad names are reserved and not supported yet. |
+| Input | Gameplay reads actions (`input.pressed("jump")`) declared in `factoria.json` under `input.actions`. Bindings are key names (`"A"`, `"Space"`, `"Left"`, `"LeftShift"`, `"0"` to `"9"`, `"F1"`), `"MouseLeft"`, `"MouseRight"`, `"MouseMiddle"`, `"Touch"` (any finger down) or gamepad names, which match ANY connected pad: buttons `"GamepadA"`, `"GamepadB"`, `"GamepadX"`, `"GamepadY"`, `"GamepadStart"`, `"GamepadBack"`, `"GamepadGuide"`, `"GamepadDpadLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftShoulder"`, `"GamepadRightShoulder"`, `"GamepadLeftThumb"`, `"GamepadRightThumb"` and the analog half axes `"GamepadLeftStickLeft"`/`Right`/`Up`/`Down`, `"GamepadRightStickLeft"`/`Right`/`Up`/`Down`, `"GamepadLeftTrigger"`, `"GamepadRightTrigger"`. Sticks and triggers are analog: `input.axis("move_left", "move_right")` gives -1..1 and `input.vector(...)` a short vector for a half-tilted stick, `input.value(action)` gives 0..1, and an action counts as down from 0.5. A radial deadzone (default 0.2, `"input": {"deadzone": 0.2}` in `factoria.json`) hides stick drift. For local multiplayer, `input.gamepad(1).down("A")` reads one pad. Tests drive pads with `game.gamepad(0).press("A")` and `.axis("LeftX", -1)`. Unknown binding names are errors with a "did you mean". Android and web have no gamepad support yet. |
 | Ids | Give every gameplay entity a stable `id` (`"player"`, `"coin_3"`). Entity references use ids. |
 | Paths | Project-relative with forward slashes (`assets/hero.png`). The file tools (`fs_*`) reject absolute paths and any `..` segment. |
 | Determinism | Random numbers come from `rng` (imported from "factoria"); a generator that must repeat from a seed uses its own `rng.create(seed)` (section 9.16). Time comes from the `dt` argument or `time.dt`. Never use `Math.random`, `Date.now` or wall-clock time. |
@@ -302,8 +303,8 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 |---|---|---|
 | `RigidBody2D` | `type` (static, dynamic, kinematic), `velocity` [x,y], `angularVelocity` (degrees/s), `gravityScale`, `fixedRotation`, `bullet`, `linearDamping`, `angularDamping` | Moves an entity under 2D physics. A static body never moves. |
 | `Collider2D` | `shape` (box, circle, capsule), `size`, `radius`, `offset`, `isTrigger`, `oneWay`, `friction`, `restitution`, `density`, `layer` (0..31), `mask` (-1 = all layers) | Collision shape. With `isTrigger: true` it reports overlaps and does not block. With `oneWay: true` it is a one-way platform (section 9.5). |
-| `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `rollWithMotion`, `gravityScale`, `linearDamping` | A simple 3D body. Shapes ignore `Transform.rotation`; `angularVelocity` spins the visual. |
-| `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are axis-aligned, and `size` is scaled by `Transform.scale`. |
+| `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. Box colliders follow `Transform.rotation`; `angularVelocity` turns the entity (and its box collider), but collisions never spin a body. Fast bodies are swept against static and kinematic colliders, so they do not tunnel through walls. |
+| `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. |
 
 **Audio and scripts**
 
@@ -347,7 +348,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, props})`, `spawnPrefab(path, {position, rotation, scale, parent, props, overrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
 | `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`) |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)` |
-| `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
+| `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 pauses gameplay); `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused`, `game.project`, `game.screenSize`; `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
@@ -361,7 +362,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 Options worth knowing:
 
 - `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent.
-- `raycast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin are skipped too.
+- `raycast` and `shapeCast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin (or overlap the cast shape at its start) are skipped too.
 - `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the main camera) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
 - `world.find` no longer returns destroyed entities, and their id can be reused right away.
 
@@ -902,6 +903,8 @@ Scene: the camera entity has `"Transform": {"position": [0, 4, 9], "rotation": [
 
 A sphere collider with `RigidBody3D` spins to match its rolling while it touches the ground: `rollWithMotion` (default true) derives the spin from its horizontal speed. Verified: a ball moved 5.96 m along X and its rotation turned by about -676 degrees about Z.
 
+A rolling sphere is slowed by rolling resistance, not by sliding friction: `RigidBody3D.rollingFriction` (default 0.02) caps the friction impulse at `rollingFriction` times the normal impulse, so on flat ground its speed falls by about `rollingFriction * 9.81` m/s every second. A ball launched at 3 m/s rolls about 23 m before it stops, whatever `Collider3D.friction` says. With `"rollWithMotion": false` the colliders' sliding friction applies instead (friction 0.5: the same ball stops within a second). So a rolling ball you steer by setting `velocity` every frame keeps the speed you give it; raise `rollingFriction` (for example 0.3) for a heavy, grippy ball, or write the velocity toward zero yourself.
+
 ```js
 // scripts/ball_control.js: push the ball with the move_* actions
 import { Behaviour, input } from "factoria";
@@ -937,7 +940,14 @@ export default class Mover extends Behaviour {
 }
 ```
 
-To make something spin without rolling, set `RigidBody3D.angularVelocity` (degrees per second about x, y, z) and `"rollWithMotion": false`. Verified: `[0, 90, 0]` gave `rotation.y = 90` after one second. Collision shapes stay axis-aligned, so the spin is visual only.
+To make something spin without rolling, set `RigidBody3D.angularVelocity` (degrees per second about x, y, z) and `"rollWithMotion": false`. Verified: `[0, 90, 0]` gave `rotation.y = 90` after one second. A box collider turns with the entity (a spinning kinematic bar pushes the bodies it meets); a sphere collider has no orientation, so for a sphere the spin is visual only.
+
+3D box colliders, fast bodies and sweeps:
+
+- **Oriented boxes.** A `Collider3D` box takes the entity's world rotation (`Transform.rotation`, parents included), so a wall rotated 30 degrees about Y is a wall at 30 degrees, and a box turned 45 degrees blocks at its rotated edge, not at the corner of its axis-aligned bounding box. `offset` is rotated and scaled with the entity. Raycasts, `overlapSphere`, `isTouching`, events and the physics debug dump (`shapes[].rotation`, euler degrees) all use the turned shape. An unrotated box behaves exactly as before.
+- **No torque.** Rotation only comes from the `Transform` and `angularVelocity`. A collision never makes a body spin or tip over: a box dropped on its corner does not fall onto a face, and a spinning box on the ground hops along it. For a crate that should stay put, leave its rotation alone.
+- **Fast bodies do not tunnel.** A dynamic body that would move more than about half its smallest size in one physics sub-step (a 60 m/s bullet sphere, say) is swept against the static and kinematic colliders and stops at the first one, then bounces or stops as for any hit. This is automatic. Two dynamic bodies are not swept against each other, so two fast bodies can still cross.
+- **Shape casts.** The 3D shape cast sweeps a sphere or an axis-aligned box from one point to another and returns the first collider it touches (oriented boxes and spheres included), with the distance the centre travelled, the contact point and the surface normal. Colliders that already overlap the shape at the start are skipped, like a raycast that starts inside a collider; `mask`, `ignore` and `ignoreTriggers` work as for raycasts.
 
 ### 9.19 3D ground checks and raycasts
 
@@ -979,6 +989,37 @@ Glow is a camera setting, not artwork. Draw the bright things with `"blend": "ad
 - **Screenshots and tests.** The glow is part of the image (`factoria run --headless --screenshot-at`, MCP screenshots), and it is deterministic. Look at a screenshot after tuning; compare with `bloom: false` to see what it adds.
 - **Animating it.** `this.entity.get("Camera").bloomIntensity = 1 + Math.sin(time.elapsed * 4) * 0.5;` pulses the glow from a script.
 - **Cost.** Bloom reads the finished frame once, blurs a reduced-resolution copy and adds it back (4 to 7 extra passes, the number grows with the radius). That is cheap on a GPU; the software renderer used for headless runs spends about 5 ms per drawn frame at 1280x720. Headless tests and `factoria call` only draw when they take a screenshot, so bloom costs them nothing otherwise.
+
+### 9.21 Sweep a shape instead of a ray: will it fit, how far can it go
+
+A ray is a line. When the thing that has to fit has a size (a character stepping into a gap, a crate being pushed, a dash, a placement preview), sweep its shape with `physics.shapeCast(shape, from, to, opts)`. It returns the same `{ entity, point, normal, distance } | null` as `raycast`; `distance` is how far the centre of the shape travels before it touches something.
+
+```js
+// scripts/dash.js: dash right as far as the player's own box fits, never into a wall (needs a "dash" input action).
+import { Behaviour, input, physics, vec2 } from "factoria";
+
+export default class Dash extends Behaviour {
+  size = [28, 44];     // the same size as the player's Collider2D
+  length = 120;
+
+  onFixedUpdate() {
+    if (!input.pressed("dash")) return;
+    const p = this.entity.position;
+    const from = vec2(p.x, p.y), to = vec2(p.x + this.length, p.y);
+    // Skips the player's own collider (ignore) and anything it already overlaps at `from`.
+    const hit = physics.shapeCast({ shape: "box", size: this.size }, from, to, { ignore: this.entity });
+    const travel = hit ? hit.distance : this.length;     // hit.normal is the wall's surface normal
+    this.entity.position = [p.x + travel, p.y];
+  }
+}
+```
+
+- **Shapes.** 2D: `{ shape: "circle", radius: 8 }` or `{ shape: "box", size: [w, h] }` (pixels). 3D (pass 3D `from`/`to`): `{ shape: "sphere", radius: 0.5 }` or `{ shape: "box", size: [x, y, z] }` (meters). Full sizes, like the colliders; the shape is centred on the cast position and never rotates. Sweep a capsule collider with a box or circle of similar size.
+- **Where it stops.** At contact: in 2D, to a fraction of a pixel, so moving the centre by `distance` puts the shape against the surface, not into it.
+- **Touching is not overlapping.** A body standing on the ground touches it: a cast down hits at once (`distance` about 0, `normal` up) and a cast up or sideways ignores the ground. A collider the shape is deeper inside than 1 cm (1 pixel at the default 100 pixels per meter) is skipped, as a ray starting inside a collider is. Put `ignore: this.entity` for the caster's own collider.
+- **Not for** testing a spot (`from === to` returns `null`; use `overlapBox` / `overlapCircle`), ground checks (`isGrounded`) or walls (`isTouching`).
+- From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
+- A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
 
 ## 10. Tests
 
@@ -1073,6 +1114,8 @@ Inside `script.eval`, the globals are the `"factoria"` names: `world`, `input`, 
 - `press` and `release`: action names (held until released) or key names.
 - `keys`: raw keys, `{"Space": true}` for down, `false` for up.
 - `mouse`: `{"position": [x, y], "left": true, "right": false, "middle": false}` in design pixels.
+- `gamepad`: `{"index": 0, "buttons": {"A": true, "DpadLeft": false}, "axes": {"LeftX": -1, "RightTrigger": 0.5}}`, or an array of those for several pads. `index` is 0 to 3 (default 0), `"connected": false` unplugs the pad. Buttons are `A B X Y Start Back Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes are `LeftX LeftY RightX RightY` (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). The state stays until a later frame sets it again, so set an axis back to 0 to release the stick.
+- `touch`: `{"id": 1, "position": [x, y], "down": true}`, or an array for several fingers. `down` defaults to true: a new `id` begins a finger, a known `id` moves it; `"down": false` lifts it (`position` is not needed then). The first finger also drives the mouse, as on a device.
 
 ```json
 {
@@ -1123,7 +1166,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres and boxes. Very fast bodies can pass through each other.
+- 3D physics handles spheres and (oriented) boxes. Fast bodies are swept against static and kinematic colliders, but two fast dynamic bodies can still cross each other.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more

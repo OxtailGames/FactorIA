@@ -263,7 +263,7 @@ std::string ScriptSystem::Impl::typescript_declarations() const {
         out += jsdoc(mod.value("doc", ""), "");
         out += "declare module \"" + name + "\" {\n";
         if (name == "factoria:test") {
-            out += "  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like } from \"factoria\";\n";
+            out += "  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like, GamepadButton, GamepadAxis } from \"factoria\";\n";
         }
         for (const Json& it : mod["items"]) out += emit_item(it, "  ", true) + "\n";
         if (name == "factoria") out += emit_components();

@@ -15,6 +15,10 @@ WorldPose world_pose(const World& world, Entity e) {
     };
     p.scale = {col_len(0), col_len(1), col_len(2)};
     p.rotZ = degrees(std::atan2(m.at(0, 1), m.at(0, 0)));
+    for (int c = 0; c < 3; ++c) {
+        const float l = p.scale[c];
+        if (l > 1e-9f) p.axis[c] = {m.at(c, 0) / l, m.at(c, 1) / l, m.at(c, 2) / l};
+    }
     return p;
 }
 }  // namespace detail
@@ -93,6 +97,14 @@ std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir
 }
 std::vector<Entity> Physics::overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask) {
     return impl_->p3d.overlap_sphere(world, center, radius, mask);
+}
+std::optional<RaycastHit> Physics::shape_cast2d(World& world, const CastShape& shape, Vec2 from, Vec2 to,
+                                                const RaycastOptions& options) {
+    return impl_->p2d.shape_cast(world, shape, from, to, options);
+}
+std::optional<RaycastHit> Physics::shape_cast3d(World& world, const CastShape& shape, Vec3 from, Vec3 to,
+                                                const RaycastOptions& options) {
+    return impl_->p3d.shape_cast(world, shape, from, to, options);
 }
 
 void Physics::apply_impulse(World& world, Entity e, Vec3 impulse) {
