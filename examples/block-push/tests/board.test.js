@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { fa, ui } from "factoria";
+import { fa, input, ui } from "factoria";
 import levels from "../levels/levels.json";
 
 // Tiles are 64 px. Cell (col, row) of level 1 sits at world x = -192 + 64 * col, y = 128 - 64 * row.
@@ -146,9 +146,10 @@ test("a click on a neighbouring tile steps there; other clicks do nothing", () =
   expect(box().position.x).toBeCloseTo(X(2), 3);
 });
 
-// Touch. The board reads input.touches (a touch is `pressed` on its first frame only). game.touch* fills
-// input.touches the way a finger does. On a phone the first finger also drives the mouse (see the device-tap test),
-// so "continue after a solved level" is handled by the mouse branch and is covered by the click test above.
+// Touch. The board reads input.touches (a touch is `pressed` on its first frame only) and the mouse. game.touch* feeds
+// the engine the way a finger does: it fills input.touches AND the first finger moves the mouse and presses the left
+// button, as on a phone. So a tap reaches the board through both branches in the same frame and must move exactly
+// one tile (the second branch finds the player already standing on the tapped tile).
 test("a tap on a neighbouring tile steps there and pushes the box", () => {
   load();
   game.touch(cell(3, 2)); // the box tile, left of the player
@@ -199,15 +200,28 @@ test("two taps solve level 1 and show the banner", () => {
   expect(banner()).toContain("Level complete!");
 });
 
-test("a device tap (the finger also presses the mouse in the same frame) moves exactly one tile", () => {
+test("a tap also drives the mouse like a finger on a device, and still moves exactly one tile", () => {
   load();
   game.touchStart(cell(3, 2));
-  game.click(cell(3, 2)); // mouse button down for this frame, while the touch is fresh
-  game.touchEnd();
+  expect(input.mouse.down("left")).toBe(true); // the first finger presses the left button
   game.step(1);
   expect(hud()).toContain("Moves: 1");
   expect(player().position.x).toBeCloseTo(X(3), 3);
   expect(box().position.x).toBeCloseTo(X(2), 3);
+  game.touchEnd();
+  game.step(1);
+  expect(input.mouse.down("left")).toBe(false);
+  expect(hud()).toContain("Moves: 1");
+});
+
+test("a tap continues after a solved level (through the mouse branch, with game.touch only)", () => {
+  load();
+  game.touch(cell(3, 2)); // player to column 3, box to column 2
+  game.touch(cell(2, 2)); // the box reaches the target
+  expect(banner()).toContain("Level complete!");
+  game.touch([640, 360]); // any tap on the banner screen
+  expect(hud()).toContain("Level 2 of 3");
+  expect(banner()).toBe("");
 });
 
 // HUD and banner use anchor and pivot (screen space), so they stay glued to the corners and the centre on any
@@ -242,9 +256,9 @@ test("every level has a valid layout (project.check_levels)", () => {
 });
 
 // The test imports the same levels.json module instance as the tool, so editing the level here is what the tool
-// checks. The full report is error.data for `factoria call` and MCP; the Error that fa.call throws inside a script
-// keeps the code, message and hint but not `data`, so this test reads the message.
-test("a broken level makes project.check_levels fail, with the level and the problem in the message", () => {
+// checks. The full report is error.data for `factoria call`, and the Error that fa.call throws inside a script carries
+// the same report as `e.data`, next to `e.code` and `e.hint`.
+test("a broken level makes project.check_levels fail, with the full report in the error data", () => {
   const saved = levels[1].map.slice();
   try {
     levels[1].map[3] = "#  $  #"; // level 2 loses a target: two boxes, one target
@@ -256,9 +270,13 @@ test("a broken level makes project.check_levels fail, with the level and the pro
     }
     expect(error).not.toBeNull();
     expect(error.code).toBe("tool_error"); // an expected failure (ToolError), not a script bug
-    expect(error.message).toContain("level 2 (Two crates)");
-    expect(error.message).toContain("2 boxes ($) but 1 targets (.)");
     expect(error.hint).toContain("levels/levels.json");
+    const report = error.data; // the report the tool passed to ToolError
+    expect(report.ok).toBe(false);
+    expect(report.errors).toBe(1);
+    const broken = report.levels.filter((l) => l.problems.some((p) => p.severity === "error"));
+    expect(broken.map((l) => l.name)).toEqual(["Two crates"]);
+    expect(broken[0].problems[0].message).toContain("2 boxes ($) but 1 targets (.)");
   } finally {
     levels[1].map = saved;
   }

@@ -69,6 +69,10 @@ public:
     void on_mouse_move(Vec2 designPos);
     void on_mouse_button(MouseButton b, bool down);
     void on_mouse_wheel(float dy);
+    // Touches are a feed of their own (touches(), the "Touch" binding). The FIRST finger also drives the mouse like a
+    // device does: begin moves the mouse there and presses MouseLeft, moves follow it, and when it lifts MouseLeft is
+    // released at its last position. Other fingers do not touch the mouse, and a finger that lands after the first one
+    // lifted becomes the new mouse finger. Every feed (the window, game.touch in tests) gets this, because it lives here.
     void on_touch_begin(std::uint64_t id, Vec2 designPos);
     void on_touch_move(std::uint64_t id, Vec2 designPos);
     void on_touch_end(std::uint64_t id);
@@ -135,6 +139,8 @@ private:
     std::vector<Touch> touches_;
     bool touchDown_ = false, prevTouchDown_ = false;
     bool touchPressedEdge_ = false, touchReleasedEdge_ = false;
+    bool primaryTouchDown_ = false;  // the first finger is down and mirrored onto the mouse
+    std::uint64_t primaryTouchId_ = 0;
     std::u32string text_;
     std::unordered_map<std::string, std::vector<Binding>> actions_;
     // Action overrides: only `true` entries are stored (setting false erases and

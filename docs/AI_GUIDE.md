@@ -353,15 +353,16 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
+| `assets` | `assets.textureSize("assets/hero.png")` returns the texture file's pixel size `{width, height}` (32 x 32 for a missing file); works headless |
 | `vec2`, `vec3`, `color` | constructors, for example `vec2(10, 0)`, `vec3([0, 4, 9])` or `color("#ffcc00")` |
 | `ToolError` | `new ToolError(message, hint, data?)` for a failed check in a tool (section A of `docs_read {"name":"extending"}`) |
-| `fa` | `fa.call(name, args)` runs any command and throws on error; `fa.commands()` lists them |
+| `fa` | `fa.call(name, args)` runs any command; on error it throws an Error with `code`, `hint` and, for a tool's `ToolError(message, hint, data)`, `data`; `fa.commands()` lists them |
 
 Options worth knowing:
 
 - `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent.
 - `raycast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin are skipped too.
-- `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the main camera) and `pressed` (true only on the first frame of contact).
+- `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the main camera) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
 - `world.find` no longer returns destroyed entities, and their id can be reused right away.
 
 ## 9. Recipes
@@ -1003,7 +1004,7 @@ The `game` object under test:
 - Time: `step(frames = 1)`. 60 frames is one second of game time.
 - Actions: `press(action)` and `release(action)` hold an action until released; `tap(action)` presses for one frame.
 - Keys and mouse: `keyDown(key)`, `keyUp(key)`, `mouseMove(screenPos)`, `click(screenPos, button?)`.
-- Touch: `touch(screenPos, frames)` for a finger held for some frames, `touchStart(screenPos, id?)`, `touchMove(screenPos, id?)`, `touchEnd(id?)`. `input.touches[0].pressed` is true on the first frame only.
+- Touch: `touch(screenPos, frames)` for a finger held for some frames, `touchStart(screenPos, id?)`, `touchMove(screenPos, id?)`, `touchEnd(id?)`. `input.touches[0].pressed` is true on the first frame only. As on a device, the first finger also moves the mouse and holds the left button (`input.mouse.pressed("left")` is true on that first frame), so a touch test also covers the mouse branch of your code: do not add a `click` to simulate it. A script that handles both the mouse and `input.touches` sees one tap twice, so make the second handling harmless (for example, act on the target cell only if it is not already taken).
 - Queries: `find(idOrName)`, `world`, `time`, `state()`, `screenshot(path)` (needs graphics).
 - Sound: `audioLog()` lists the sounds played since the test started (`{frame, time, path, volume, pitch, pan, bus, loop, music, source, ok}`, oldest first); it is cleared before each test, and `clearAudioLog()` clears it by hand.
 
@@ -1092,7 +1093,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - Body that does not move: check its `type` (static never moves), that it has a collider, its `layer` and `mask`, and the sign of gravity in `settings.gravity2D`.
 - A patrol or sensor that turns around on its first step: the first physics step has not run yet (section 9.14).
 - Results differ between runs: look for `Math.random`, `Date.now`, or timing. Headless runs are deterministic only when those are absent.
-- Tool errors: a tool that throws `ToolError` returns `code` `tool_error`, the `message` and the `hint`. The hint is how to fix the data. Extra `data` appears in the JSON error of `factoria session` and `call --batch`; MCP shows only the code, message and hint, so put the facts a fixer needs in the hint.
+- Tool errors: a tool that throws `ToolError` returns `code` `tool_error`, the `message` and the `hint`. The hint is how to fix the data. Extra `data` appears in the JSON error of `factoria session` and `call --batch`, and as `e.data` on the Error that `fa.call` throws inside a script or test; MCP shows only the code, message and hint, so put the facts a fixer needs in the hint.
 
 ## 12. Common mistakes
 

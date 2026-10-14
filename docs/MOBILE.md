@@ -100,7 +100,8 @@ The platform layer maps touches to the same `Input` object scripts use:
 
 - every finger is a touch (`Input::touches()`; begin/move/end) in design coordinates;
 - the first finger also drives the mouse: position plus `MouseLeft` down/up, so
-  UI and scripts written for the mouse work unchanged;
+  UI and scripts written for the mouse work unchanged (this is done by `Input` itself, so `game.touch` in tests and
+  any other feed behave the same);
 - input actions bound to `"Touch"` or `"MouseLeft"` in `factoria.json` fire on touch;
 - there is no on-screen keyboard or gamepad mapping yet: bind touch to actions
   and build on-screen buttons as entities that read touches.

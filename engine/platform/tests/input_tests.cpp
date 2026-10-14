@@ -91,6 +91,58 @@ TEST_CASE("actions: bindings, edges, axis, vector") {
     CHECK(in.action_released("fire"));
 }
 
+TEST_CASE("the first finger drives the mouse like a device: position, MouseLeft down and up") {
+    Input in;
+    in.set_actions(Json::parse(R"({"click": ["MouseLeft"]})"));
+    in.begin_frame();
+    in.on_touch_begin(7, {10, 20});
+    CHECK(in.mouse_position() == Vec2{10, 20});
+    CHECK(in.mouse_down(MouseButton::Left));
+    CHECK(in.mouse_pressed(MouseButton::Left));
+    CHECK(in.action_pressed("click"));
+    CHECK(in.touches().size() == 1);
+
+    in.begin_frame();
+    CHECK_FALSE(in.mouse_pressed(MouseButton::Left));  // an edge lasts one frame
+    in.on_touch_move(7, {30, 40});
+    CHECK(in.mouse_position() == Vec2{30, 40});
+    CHECK(in.mouse_down(MouseButton::Left));
+
+    // a second finger neither moves the mouse nor presses anything
+    in.on_touch_begin(8, {200, 300});
+    in.on_touch_move(8, {210, 310});
+    CHECK(in.mouse_position() == Vec2{30, 40});
+    in.on_touch_end(8);
+    CHECK(in.mouse_down(MouseButton::Left));  // the first finger is still down
+
+    in.begin_frame();
+    in.on_touch_end(7);
+    CHECK_FALSE(in.mouse_down(MouseButton::Left));
+    CHECK(in.mouse_released(MouseButton::Left));
+    CHECK(in.mouse_position() == Vec2{30, 40});  // released where the finger lifted
+    CHECK(in.touches().empty());
+
+    // the next finger to land becomes the mouse finger, even while another finger is still down
+    in.begin_frame();
+    in.on_touch_begin(1, {5, 5});
+    in.on_touch_begin(2, {6, 6});
+    in.on_touch_end(1);  // the mouse finger lifts first
+    CHECK_FALSE(in.mouse_down(MouseButton::Left));
+    in.on_touch_end(2);
+    in.on_touch_begin(3, {70, 80});
+    CHECK(in.mouse_position() == Vec2{70, 80});
+    CHECK(in.mouse_down(MouseButton::Left));
+
+    // release_all (focus lost, test reset) lifts the mouse finger too, so the next finger starts clean
+    in.release_all();
+    CHECK_FALSE(in.mouse_down(MouseButton::Left));
+    in.begin_frame();
+    in.on_touch_begin(4, {1, 2});
+    CHECK(in.mouse_pressed(MouseButton::Left));
+    in.on_touch_end(99);  // an unknown finger changes nothing
+    CHECK(in.mouse_down(MouseButton::Left));
+}
+
 TEST_CASE("a press and release within one frame still yields both edges") {
     Input in;
     in.set_actions(Json::parse(R"({"jump": ["Space"]})"));

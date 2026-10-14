@@ -127,30 +127,48 @@ void Input::on_mouse_button(MouseButton b, bool down) {
 
 void Input::on_mouse_wheel(float dy) { wheel_ += dy; }
 
+// The first finger also drives the mouse (position + left button) until it lifts, so mouse-based UI and scripts work on
+// touch devices unchanged. It lives here, not in the platform event handler, so every feed (a device, game.touch in
+// tests) behaves the same.
 void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
     for (auto& t : touches_) {
         if (t.id == id) {  // duplicate begin: treat as move
-            t.position = designPos;
+            on_touch_move(id, designPos);
             return;
         }
     }
     touches_.push_back(Touch{id, designPos, true});
     if (!touchDown_) touchPressedEdge_ = true;
     touchDown_ = true;
+    if (!primaryTouchDown_) {
+        primaryTouchDown_ = true;
+        primaryTouchId_ = id;
+        on_mouse_move(designPos);
+        on_mouse_button(MouseButton::Left, true);
+    }
 }
 
 void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
     for (auto& t : touches_)
-        if (t.id == id) t.position = designPos;
+        if (t.id == id) {
+            t.position = designPos;
+            if (primaryTouchDown_ && primaryTouchId_ == id) on_mouse_move(designPos);
+        }
 }
 
 void Input::on_touch_end(std::uint64_t id) {
     auto it = std::find_if(touches_.begin(), touches_.end(), [&](const Touch& t) { return t.id == id; });
     if (it == touches_.end()) return;
+    Vec2 last = it->position;
     touches_.erase(it);
     if (touches_.empty() && touchDown_) {
         touchDown_ = false;
         touchReleasedEdge_ = true;
+    }
+    if (primaryTouchDown_ && primaryTouchId_ == id) {
+        primaryTouchDown_ = false;
+        on_mouse_move(last);
+        on_mouse_button(MouseButton::Left, false);
     }
 }
 
@@ -168,6 +186,7 @@ void Input::release_all() {
     if (touchDown_) touchReleasedEdge_ = true;
     touches_.clear();
     touchDown_ = false;
+    primaryTouchDown_ = false;  // its mouse button was released above
 }
 
 // ---------------------------------------------------------------------------
