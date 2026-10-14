@@ -323,7 +323,7 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 | Build on macOS, Windows, iOS and Android | Scripts and presets ready; not yet tested on those platforms. The mobile code could not be built on the development machine (`docs/MOBILE.md`) |
 | Engine: scenes, JavaScript scripts, 2D and 3D rendering, physics (including one-way platforms and tilemaps), particles and screenshots | Works on Linux. Audio has not been tested in the documentation environment |
 | `factoria` CLI: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Works on Linux |
-| `factoria editor` (visual editor) | Included in the desktop builds. Needs a display; not tested in the documentation environment |
+| `factoria editor` (visual editor) | Included in the desktop builds (`docs/EDITOR.md`). Needs a display. On Linux the ctest entries `editor_autotest` drive it end to end under `xvfb-run` |
 | Project templates (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Works |
 | MCP server for Claude Code and Codex (`factoria mcp`) | Works |
 | Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |

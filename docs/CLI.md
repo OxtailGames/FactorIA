@@ -12,6 +12,21 @@ over MCP, run the built-in AI agent, manage `ENGINE_FEEDBACK.json`.
 - A command that needs a project takes it as the optional first argument, or via `--project DIR`; without
   either it uses the project that contains the current directory (the nearest `factoria.json`).
 
+## Paths
+
+A path given to a command-line option follows one of three rules, so `factoria run games/x --headless --input
+replays/jump.json` works from any folder:
+
+| Kind | Options | Rule |
+|---|---|---|
+| Input file | `--input` (`run`, `call`, `session`), `@args.json` and `--batch-file` (`call`) | Absolute: used as it is. Relative: the file in the **current directory** if it exists there, otherwise the one in the **project folder**. When neither is a file, the error lists every location tried (absolute) and suggests a similarly named file; exit code 2. |
+| Output file | `--state-out`, `--screenshot-pattern`, `--record-audio` (`run`), `--out` (`screenshot`, `api`) | Relative to the **current directory**, like any shell tool; parent folders are created. The report prints the absolute path written. Defaults live in the project: `<project>/.factoria/screenshots/...`. |
+| Project path | `--scene`, and the paths inside command arguments (`scene.load`, `scene.import_ascii` `path`/`from`, `game.screenshot`, `fs.*`) | Relative to the **project folder** (the engine's file system). Not looked up in the current directory. |
+
+Writes made by commands (`scene.save`, `scene.import_ascii` with `path`, `fs.write`, `fs.edit`, `fs.delete`) never go
+into `.factoria/` or the version-control folder, except the scratch folder `.factoria/tmp/`, where files can be created
+and deleted.
+
 ## Projects
 
 ### `factoria new <dir> [--template T] [--name NAME] [--id ID] [--force] [--json]`
@@ -39,7 +54,9 @@ current machine's platform is used; `--out` is the parent folder (default `<proj
 Prints the output folder, warnings and the next steps.
 
 ### `factoria editor [project]`
-Opens the visual editor (only in builds with the editor).
+Opens the visual editor (only in builds with the editor). Its panels, the entity menu (Save as prefab...), File > Import ASCII level...,
+File > Format scene files... and View > Audio are described in `docs/EDITOR.md`; each of them runs an engine command (`prefab.save`,
+`scene.import_ascii`, `scene.format`, `audio.log`), so everything the editor does can also be done with `factoria call`.
 
 ## Running
 
@@ -51,11 +68,11 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--scene S`, `--width W`, `--height H` | Start scene / resolution override |
 | `--headless` | No window; every frame is exactly `1/fixedHz` s |
 | `--frames N` | Frames to simulate (default 60) |
-| `--input replay.json` | Input replay: `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}` |
+| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}` |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
-| `--screenshot-pattern P` | PNG path containing `{frame}` (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
-| `--state-out f.json` | Final world state dump |
-| `--record-audio f.wav` | Record the audio mix |
+| `--screenshot-pattern P` | PNG path containing `{frame}`, relative to the current directory (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
+| `--state-out f.json` | Final world state dump (relative to the current directory) |
+| `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
 | `--seed N` | World RNG seed |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
 | `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
@@ -101,6 +118,9 @@ the first failure (`--keep-going` continues) and exits 1 if any command failed.
 ```
 factoria call scene.list_entities
 factoria call scene.spawn '{"name":"Enemy","components":{"Transform":{"position":[100,50,0]}}}'
+factoria call scene.import_ascii @level1.json   # ASCII rows + legend -> Tilemap + coins/enemies; "path": "scenes/level1.scene.json" writes that scene FILE and leaves the running game alone
+factoria call prefab.save '{"id":"boss","path":"prefabs/boss.prefab.json"}'   # an entity of the start scene (or one spawned earlier in a --batch) -> prefab file
+factoria call scene.format '{"check":true}'     # list scene/prefab files not in the canonical layout; without "check" it rewrites them
 factoria call game.screenshot '{"path":"/tmp/s.png"}' --frames-before 60
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'

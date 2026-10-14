@@ -2,32 +2,19 @@
   "format": "factoria.prefab/1",
   "entity": {
     "name": "Mini",
-    "tags": [
-      "enemy",
-      "chaser"
-    ],
+    "tags": ["enemy", "chaser"],
     "components": {
       "Transform": {
-        "position": [
-          0,
-          0,
-          0
-        ]
+        "position": [0, 0, 0]
       },
-      "Sprite": {
-        "texture": "assets/img/glow_circle.png",
-        "size": [
-          32.0,
-          32.0
-        ],
-        "color": [
-          0.8,
-          0.5,
-          1,
-          1
-        ],
+      "Shape2D": {
+        "shape": "circle",
+        "size": [28, 28],
+        "color": [0.8, 0.5, 1, 1],
+        "filled": false,
+        "thickness": 5,
         "layer": 5,
-        "pixelArt": false
+        "blend": "additive"
       },
       "RigidBody2D": {
         "type": "kinematic"

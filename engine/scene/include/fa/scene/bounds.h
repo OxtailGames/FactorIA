@@ -1,0 +1,70 @@
+// Where the 2D visuals of an entity are and how big they are: the ONE definition behind `entity.bounds()` in scripts and
+// behind the editor's picking and selection outline, so what a script measures is exactly what the editor outlines.
+//
+// The geometry follows what the renderer draws (render/scene2d.cpp):
+//   * Tilemap  tilemap_size() x tileSize; the entity origin is the map's TOP-LEFT corner, local x right, local y DOWN.
+//   * Sprite   `size` (0 = the region, else the texture, else 32 x 32; a SpriteAnimator divides the texture into its
+//              frames), placed by `pivot` (0,0 = bottom-left).
+//   * Shape2D  the size box placed by `pivot`. A Circle is its bounding square of side size.x; a Line is the stroked
+//              segment from the origin to `size`; a Diamond has its tips on the middles of the size box.
+//   * Text     the laid-out text box placed by `pivot` (default 0,1 = top-left).
+// Everything is a convex quad in the entity's LOCAL space (y up, before the world matrix: rotation, scale and parents
+// are applied by the caller).
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "fa/core/math.h"
+#include "fa/scene/components.h"
+#include "fa/scene/world.h"
+
+namespace fa {
+
+// What the scene module cannot know by itself (it has no files and no fonts). Both are optional.
+struct VisualMeasure {
+    // Pixel size of a texture file as the renderer sees it (32 x 32 for a missing or unreadable file). Empty: 32 x 32 for all.
+    std::function<Vec2(const std::string& path)> textureSize;
+    // Size {w, h} of `text` laid out like the renderer does. Empty: approx_text_size().
+    std::function<Vec2(const Text& text)> textSize;
+};
+
+// Size of a text without a renderer (headless): 0.6 em per character and 1.2 em per line, wrapping at maxWidth (> 0).
+Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth);
+
+// One drawn thing of an entity.
+struct VisualFootprint {
+    const char* component = "";                  // "Tilemap", "Sprite", "Shape2D" or "Text"
+    RenderSpace space = RenderSpace::World;      // Screen: design pixels, origin top-left, local y flipped (see below)
+    std::int32_t layer = 0;                      // the component's draw layer
+    Vec2 anchor{0, 0};                           // Screen space only: the component's anchor (fraction of the design size)
+    // The drawn box in local space (y up), as 4 corners around the quad: what to outline and to hit-test. For a Diamond it is
+    // the size box the tips touch; for a Line the stroked segment; for a Circle its bounding square.
+    std::array<Vec2, 4> box{};
+    // The points whose bounding rectangle in the world is the entity.bounds() rectangle. Equal to `box` except for a Diamond,
+    // whose tips are the middles of the box edges (so a diamond turned by 45 degrees has a smaller rectangle than its box).
+    std::array<Vec2, 4> hull{};
+};
+
+// Every visual of `e`, in the order Tilemap, Sprite, Shape2D, Text, screen-space ones included (`space`) unless
+// `includeScreenSpace` is false. Empty when the entity draws nothing (an empty map, a zero-length line, empty text).
+// `active` and colour alpha are ignored.
+//
+// Screen space: the renderer draws these with local y negated and the translation moved by `anchor` * design size, so a
+// point (lx, ly) of the box lands at world_matrix * (lx, -ly) + anchor * designSize. Callers that need that do it themselves.
+std::vector<VisualFootprint> visual_footprints(const World& w, Entity e, const VisualMeasure& measure = {},
+                                               bool includeScreenSpace = true);
+
+// The world-space axis-aligned rectangle (x, y = the minimum corner, +Y up) around the world-space visuals of `e`
+// after the entity's world matrix (rotation, scale, parents). nullopt when there are none. Screen-space visuals are
+// skipped. This is `entity.bounds()`.
+std::optional<Rect> entity_world_rect(const World& w, Entity e, const VisualMeasure& measure = {});
+
+// True when `p` lies inside the convex quad (either winding), borders included.
+bool point_in_quad(Vec2 p, const std::array<Vec2, 4>& quad);
+
+}  // namespace fa

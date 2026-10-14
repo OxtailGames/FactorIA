@@ -1,43 +1,119 @@
 # Engine feedback report
 
-Status: 55 entries reported by the four example games; 52 verified fixed-in-engine, 3 open (below).
+Status: 73 entries reported by the four example games; 63 verified fixed-in-engine, 10 open (below; work package M6).
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
+10 entries from 4 project(s), 10 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
-3 entries from 4 project(s), 3 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+## 1. Bug: fa.call drops ToolError data
 
-## 1. Tilemap has no per-tile entity hooks (coins/enemies/spawn must be separate entities)
+- **Category:** scripting
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Block Push
+- **Entries:** Block Push/FB-0019
+- **Suggestion:** Copy error.data onto the thrown Error (e.data).
+- **Workarounds seen:**
+  - The check_levels test asserts on message and hint instead of the report.
+
+## 2. Invalid JSON import error has no line or column
+
+- **Category:** tooling
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Block Push
+- **Entries:** Block Push/FB-0021
+- **Suggestion:** Report the JSON parse error once, as file:line:column.
+- **Workarounds seen:**
+  - Located the error with an external JSON linter.
+
+## 3. No file-targeted component edits
 
 - **Category:** scene
 - **Severity:** minor (score 2)
 - **Total occurrences:** 1
 - **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0014
-- **Suggestion:** Tilemap object layer or 'scene.import_ascii' / 'tilemap.paint' commands; tile-to-prefab mapping.
+- **Entries:** Sky Hopper/FB-0021
+- **Suggestion:** An 'edits' argument on scene.import_ascii, or scene.set_component with a path.
 - **Workarounds seen:**
-  - Scene generation scripts (scratch + tools/generate_level.js).
+  - tools/generate_level.js writes .factoria/tmp/generate_level.base.scene.json and passes it as 'from'.
 
-## 2. No additive blend mode / glow for neon looks
+## 4. game.touch does not drive the mouse like a device
+
+- **Category:** input
+- **Severity:** minor (score 2)
+- **Total occurrences:** 1
+- **Projects affected:** Block Push
+- **Entries:** Block Push/FB-0020
+- **Suggestion:** Mirror the first touch to the mouse in the test harness, or document the difference.
+- **Workarounds seen:**
+  - A device-style test combines touchStart with game.click.
+
+## 5. No polygon or star shape in Shape2D
 
 - **Category:** rendering-2d
 - **Severity:** nice-to-have (score 1)
 - **Total occurrences:** 1
 - **Projects affected:** Neon Swarm
-- **Entries:** Neon Swarm/FB-0008
-- **Suggestion:** Add blendMode (alpha|additive) on Sprite/ParticleEmitter/Shape2D and a simple bloom camera option.
+- **Entries:** Neon Swarm/FB-0017
+- **Suggestion:** A 'polygon' shape with a number of sides, and a 'star'.
 - **Workarounds seen:**
-  - Generated blurred white glow PNGs (assets/img/glow_*.png) tinted via Sprite.color.
+  - None.
 
-## 3. No way to verify audio events in tests
+## 6. No script query for a texture's size
 
-- **Category:** audio
+- **Category:** scripting
 - **Severity:** nice-to-have (score 1)
 - **Total occurrences:** 1
 - **Projects affected:** Sky Hopper
-- **Entries:** Sky Hopper/FB-0015
-- **Suggestion:** Add game.audioLog() / expect(audio).toHavePlayed(path) in tests.
+- **Entries:** Sky Hopper/FB-0023
+- **Suggestion:** A renderer-side texture size query exposed to scripts.
 - **Workarounds seen:**
-  - Checked --record-audio output non-empty; no assertion in tests.
+  - None in the game.
+
+## 7. ParticleEmitter has no screen space
+
+- **Category:** rendering-2d
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Neon Swarm
+- **Entries:** Neon Swarm/FB-0015
+- **Suggestion:** ParticleEmitter.space like Sprite and Shape2D.
+- **Workarounds seen:**
+  - None needed yet.
+
+## 8. Scene files are not written atomically
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Sky Hopper
+- **Entries:** Sky Hopper/FB-0022
+- **Suggestion:** Write to a temporary file and rename it over the target.
+- **Workarounds seen:**
+  - None.
+
+## 9. Triangle outline is centred on its edges
+
+- **Category:** rendering-2d
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Neon Swarm
+- **Entries:** Neon Swarm/FB-0016
+- **Suggestion:** Draw triangle outlines inward like the other shapes (moves existing goldens).
+- **Workarounds seen:**
+  - None.
+
+## 10. Validate does not flag non-canonical scene files
+
+- **Category:** tooling
+- **Severity:** nice-to-have (score 1)
+- **Total occurrences:** 1
+- **Projects affected:** Neon Swarm
+- **Entries:** Neon Swarm/FB-0018
+- **Suggestion:** A validate warning or an exit-code option on scene.format check.
+- **Workarounds seen:**
+  - Ran scene.format --check by hand.
 
 # Next engine milestones
 
@@ -45,6 +121,15 @@ Hand-written triage section (the ranked list above is generated; regenerate it w
 `feedback/README.md` and keep this section). Triage date 2026-10-13, against commit `e2b0090`: of the 55
 entries from the four example games, the engine already fixed most; the work packages below cover what is left,
 plus two packages for gaps seen while verifying that no game has hit yet (marked *proactive*).
+
+Re-triage 2026-10-13, after `40b049c`: the last three open entries are fixed (SH/FB-0015 in `ebb054d`,
+SH/FB-0014 in `ae8bb15`, NS/FB-0008 in `40b049c`). M1-M4 are done; M5 is the only package left and no game has
+reported its gaps yet.
+
+Re-triage 2026-10-13, after `99eebad`: the four examples were migrated off their workarounds (Neon Swarm `804c00d`,
+Sky Hopper `9dc7fd5`, Block Push `53fab56`, Gem Roller `99eebad`; each removed workaround has a note on its entry).
+The migrations found 18 new gaps: 8 were fixed right away (NS/FB-0011..0014 in `f649d8d`/`afbd0e9`, SH/FB-0017..0020
+in `cc789f7`) and 10 are open, grouped in M6 below.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
@@ -82,8 +167,9 @@ Acceptance criteria:
 - `factoria test` prints `console.log` from tests under the failing/passing test without `--log-level info`.
 - Test harness exposes `game.audioLog()` (list of `{frame, path, volume, bus}`) and
   `expect(game.audioLog()).toContainPlayed(path)`; a test plays a sound from a behaviour and asserts it.
+  Done in `ebb054d` (plus the `audio.log` command for MCP/CLI agents; Sky Hopper's tests assert its sounds).
 
-## M3. 2D level authoring and cameras (M)
+## M3. 2D level authoring and cameras (M) — DONE (`ae8bb15`)
 
 Closes: SH/FB-0004, SH/FB-0014 (and removes the hand-made Python/JS level builders in sky-hopper).
 
@@ -96,7 +182,13 @@ Acceptance criteria:
   spawned entities; round-trips through scene JSON. Test: a 10x6 ASCII level yields the expected tile ids,
   3 coins, 1 player spawn; `factoria validate` checks the legend.
 
-## M4. Post-processing and glow (M)
+Outcome: the object layer shipped as the `scene.import_ascii` command (rows + legend -> Tilemap + prefabs at cell
+centres, tagged `tilemap:<entity>` so re-imports replace them; `save` writes the scene). The legend is not stored
+in the scene, so `factoria validate` checks the Tilemap data instead (tiles vs width*height, rows, solidTiles,
+tile indices vs the tileset image); the command itself rejects bad legends with row/column and suggestions.
+`CameraFollow2D` was not built: SH/FB-0004 was closed by the AI_GUIDE 9.6 "Camera follow with level bounds" recipe.
+
+## M4. Post-processing and glow (M) — DONE (`40b049c`)
 
 Closes: NS/FB-0008 (additive blend already shipped in e2b0090; this is the bloom half).
 
@@ -106,6 +198,12 @@ Acceptance criteria:
   and none when off (`factoria run --headless --screenshot-at`, compare against pixel counts); cost under
   2 ms/frame at 1280x720 on llvmpipe.
 - Documented in COMPONENTS.md and AI_GUIDE (neon recipe: additive + bloom, no hand-blurred sprites).
+
+Outcome: flat fields `Camera.bloom`, `bloomThreshold`, `bloomIntensity`, `bloomRadius` (reflection has no nested
+structs); AI_GUIDE 9.20. The cost target was missed: about 5 ms per drawn frame at 1280x720 on llvmpipe, because
+the bright-pass read and the full-screen add are each ~1.5-2 ms on the software renderer. Headless tests only
+draw for screenshots, so they do not pay it. Only the GL backend was run; D3D11, Metal and GLES3 compile the same
+sokol-shdc shaders and fall back to "no bloom" with one error if creation fails.
 
 ## M5. 3D physics 2.0 and gamepad input (L, *proactive*, no game reported these yet)
 
@@ -124,3 +222,40 @@ Acceptance criteria:
 - `physics.shapeCast(shape, from, to, opts)` for 2D and 3D, honouring `ignore`/`mask`.
 - Gamepad: `input.actions` bindings `"Gamepad:A"`, `"Gamepad:LeftStickX"` (+/-), `axis()` and `vector()` work;
   `game.gamepad(index).press/axis(...)` in tests; replay JSON accepts the same.
+
+## M6. Polish found while migrating the examples (S-M)
+
+Closes: BP/FB-0019 (fa.call drops ToolError data), BP/FB-0020 (game.touch vs mouse), BP/FB-0021 (JSON import errors
+without position), NS/FB-0015 (screen-space particles), NS/FB-0016 (triangle outline), NS/FB-0017 (polygon/star),
+NS/FB-0018 (validate and non-canonical files), SH/FB-0021 (file-targeted component edits), SH/FB-0022 (atomic writes),
+SH/FB-0023 (texture size query).
+
+Acceptance criteria:
+- `fa.call` of a tool that throws `ToolError(msg, hint, data)` throws an Error with `e.data` equal to `data`
+  (script test), and Block Push's check_levels test asserts on the report.
+- In tests, the first touch also moves the mouse and presses mouse-left, as on a device (or the difference is
+  documented in SCRIPTING.md and AI_GUIDE section 10); a test taps to continue through the mouse branch.
+- `factoria validate` reports a broken imported `.json` once, as `file:line:column`, with no cascading warnings.
+- `ParticleEmitter.space` ("world" | "screen"); screen-space particles are drawn in the HUD pass when
+  `bloomScreenSpace` is false.
+- Triangle outlines grow inward like the other shapes (goldens regenerated and reviewed).
+- `Shape2D` `polygon` (sides) and `star` (points, inner radius) shapes with pixel tests.
+- `scene.format {check:true}` can fail (non-zero exit / ToolError) when files are not canonical, and
+  `project.validate` warns about them.
+- `scene.import_ascii` (or a new `scene.set_component {path}`) can patch components of the scene file it writes;
+  Sky Hopper's generator drops its scratch base copy.
+- Scene/prefab/JSON files are written to a temporary file and renamed over the target.
+- A script can read a texture's pixel size (e.g. `assets.textureSize(path)`), and `entity.bounds()` uses it.
+
+## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
+
+The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
+
+- A dynamic `RigidBody2D` that fell asleep did not wake when a script wrote `Transform.position` or `rotation`: it
+  hovered at the new place and `isGrounded()` kept the old ground. A teleport now wakes the body and every body
+  touching it (moved platforms and tilemaps too). The collider hash also stopped rebuilding rotating bodies every few
+  steps (float noise in the world scale), so resting bodies fall asleep and stop emitting contact events. (`cc14514`)
+- The template tests skipped their level checks on hosts without `scene.import_ascii`. `fa_test_cli` now runs every
+  template's tests on the engine `factoria test` builds, and the skip guard is gone. (`20e1e34`)
+- Saved scenes showed `"settings": {}` and hid the default gravity. The writer now always emits `gravity2D` and
+  `gravity3D`; committed scenes were regenerated with engine commands. (`20e1e34`)

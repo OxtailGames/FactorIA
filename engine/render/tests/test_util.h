@@ -24,7 +24,8 @@ struct Gfx {
     std::string error;
 
     Gfx(int w = 320, int h = 180, int samples = std::getenv("FA_TEST_SAMPLES") ? std::atoi(std::getenv("FA_TEST_SAMPLES")) : 1) {
-        projectDir = std::filesystem::temp_directory_path() / "fa_render_test_project";
+        static const std::filesystem::path dir = fs::make_temp_dir("fa_render_test_project");  // one per test process
+        projectDir = dir;
         std::filesystem::create_directories(projectDir / "assets");
         fs::set_project_root(projectDir);
         if (!gpu.init(&error)) return;

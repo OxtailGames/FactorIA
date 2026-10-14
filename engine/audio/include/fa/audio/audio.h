@@ -2,13 +2,16 @@
 //
 // Headless runs use a null device: the mixer still runs deterministically and
 // can record the mixed output to a WAV file, so AIs can verify that sounds
-// play (`factoria run --headless --record-audio out.wav`).
+// play (`factoria run --headless --record-audio out.wav`). Every play request
+// is also kept in a play log (play_log()) that tests and the `audio.log`
+// command read to assert which sounds played, when, and on which bus.
 #pragma once
 
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/json.h"
 #include "fa/scene/world.h"
@@ -23,6 +26,22 @@ struct PlayParams {
     float pan = 0.0f;  // -1 left .. 1 right
     bool loop = false;
     std::string bus = "sfx";  // "sfx" | "music" | "ui" — each bus has its own volume
+};
+
+// One play request, as recorded in the play log: play() calls (scripts), AudioSource components starting a clip and
+// play_music() (scripts and SceneSettings.music). Failed requests are logged too, with ok = false.
+struct AudioEvent {
+    std::uint64_t seq = 0;    // increasing id (1, 2, ...); never reused, survives clear_play_log()
+    std::uint64_t frame = 0;  // World::frame() of the clock world when requested (what scripts see as time.frame)
+    double time = 0.0;        // World::time() of the clock world
+    std::string path;         // normalized project-relative clip path
+    float volume = 1.0f, pitch = 1.0f, pan = 0.0f;
+    std::string bus = "sfx";
+    bool loop = false;
+    bool music = false;   // started through play_music()
+    std::string source;   // entity id when an AudioSource component started it, "" otherwise
+    bool ok = true;       // false when the clip could not be loaded (the error is logged once)
+    Json to_json() const;
 };
 
 class Audio {
@@ -46,6 +65,13 @@ public:
     void set_master_volume(float volume);
     void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f);
     void stop_music(float fadeSeconds = 0.5f);
+
+    // Play log (game thread). Entries are stamped with the frame/time of `world` (the engine passes its World; null =
+    // the world of the last update()). The log keeps the newest 4096 entries; play_log_dropped() counts the rest.
+    void set_clock(const World* world);
+    std::vector<AudioEvent> play_log(std::uint64_t afterSeq = 0) const;
+    void clear_play_log();
+    std::uint64_t play_log_dropped() const;
 
     // Drives AudioSource/AudioListener components and scene music.
     void update(World& world, float dt);

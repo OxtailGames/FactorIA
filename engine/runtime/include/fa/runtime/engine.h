@@ -15,7 +15,7 @@
 //   engine.info, project.info, scene.list_entities, scene.get_entity,
 //   scene.spawn, scene.destroy, scene.set_component, scene.remove_component,
 //   scene.load, scene.save, scene.reload, game.step, game.input, game.screenshot,
-//   game.state, game.logs, game.pause, game.resume, script.eval, script.errors,
+//   game.state, game.logs, game.pause, game.resume, audio.log, script.eval, script.errors,
 //   physics.raycast, api.components, api.commands, api.scripting, assets.list
 #pragma once
 

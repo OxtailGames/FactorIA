@@ -3,18 +3,22 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/scene/tilemap.h"
 #include "ui_backend.h"
 
 namespace fa::editor {
 
 Vec2 Editor::image_size_of(const std::string& path) {
+    // 32 x 32 is what the renderer shows for a missing or unreadable texture. Re-read when the file changes on disk.
+    const std::int64_t mtime = fs::modified_time(path);
     auto it = imageSizes_.find(path);
-    if (it != imageSizes_.end()) return it->second;
-    Vec2 sz{32, 32};
+    if (it != imageSizes_.end() && it->second.mtime == mtime) return it->second.size;
+    ImageSizeEntry entry;
+    entry.mtime = mtime;
     auto img = load_image(path);
-    if (img && !img->empty()) sz = Vec2{float(img->width), float(img->height)};
-    imageSizes_[path] = sz;
-    return sz;
+    if (img && !img->empty()) entry.size = Vec2{float(img->width), float(img->height)};
+    imageSizes_[path] = entry;
+    return entry.size;
 }
 
 bool Editor::primary_is_ortho() {
@@ -26,54 +30,20 @@ bool Editor::primary_is_ortho() {
     return ortho;
 }
 
-PickBounds Editor::bounds_of(Entity e) {
-    PickBounds b;
-    World& w = world();
-    b.valid = true;
-    if (const Sprite* s = w.get<Sprite>(e)) {
-        Vec2 size = s->size;
-        if (size.x <= 0 || size.y <= 0) {
-            if (s->region.w > 0 && s->region.h > 0) size = Vec2{s->region.w, s->region.h};
-            else if (!s->texture.empty()) size = image_size_of(s->texture);
-            else size = Vec2{32, 32};
-        }
-        b.half = size * 0.5f;
-        b.center = Vec2{(0.5f - s->pivot.x) * size.x, (0.5f - s->pivot.y) * size.y};
-        b.layer = s->layer;
-        b.screenSpace = s->space == RenderSpace::Screen;
-    } else if (const Shape2D* sh = w.get<Shape2D>(e)) {
-        Vec2 size = sh->size;
-        if (sh->shape == ShapeType::Circle) {
-            b.half = Vec2{size.x * 0.5f, size.x * 0.5f};
-        } else if (sh->shape == ShapeType::Line) {
-            b.center = size * 0.5f;
-            b.half = Vec2{std::max(std::fabs(size.x) * 0.5f, sh->thickness), std::max(std::fabs(size.y) * 0.5f, sh->thickness)};
-        } else {
-            b.half = Vec2{std::fabs(size.x) * 0.5f, std::fabs(size.y) * 0.5f};
-        }
-        b.layer = sh->layer;
-        b.screenSpace = sh->space == RenderSpace::Screen;
-    } else if (const Text* t = w.get<Text>(e)) {
-        float tw = t->maxWidth > 0 ? t->maxWidth : float(t->text.size()) * t->fontSize * 0.55f;
-        float th = t->fontSize * 1.2f;
-        b.half = Vec2{tw * 0.5f, th * 0.5f};
-        b.center = Vec2{(0.5f - t->pivot.x) * tw, (0.5f - t->pivot.y) * th};
-        b.layer = t->layer;
-        b.screenSpace = t->space == RenderSpace::Screen;
-    } else if (const Tilemap* tm = w.get<Tilemap>(e)) {
-        b.half = Vec2{tm->width * tm->tileSize.x * 0.5f, tm->height * tm->tileSize.y * 0.5f};
-        b.layer = tm->layer;
-        if (b.half.x <= 0 || b.half.y <= 0) b.half = Vec2{16, 16};
-    } else if (const Collider2D* c = w.get<Collider2D>(e)) {
-        b.center = c->offset;
-        b.half = c->shape == ColliderShape::Circle ? Vec2{c->radius, c->radius} : c->size * 0.5f;
-        b.layer = -1000;
-    } else {
-        b.half = Vec2{12, 12};
-        b.layer = -2000;
-    }
-    return b;
+// What the engine's bounds code cannot know by itself: texture files and the renderer's text layout. With these the
+// editor measures exactly what `entity.bounds()` measures in a script.
+VisualMeasure Editor::visual_measure() {
+    VisualMeasure m;
+    m.textureSize = [this](const std::string& path) { return image_size_of(path); };
+    m.textSize = [this](const Text& t) {
+        Renderer* r = engine_ ? engine_->renderer() : nullptr;
+        if (r && r->initialized()) return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth);
+        return approx_text_size(t.text, t.fontSize, t.maxWidth);
+    };
+    return m;
 }
+
+PickBounds Editor::bounds_of(Entity e) { return pick_bounds(world(), e, visual_measure()); }
 
 namespace {
 bool ray_box(Vec3 o, Vec3 d, Vec3 lo, Vec3 hi, float& tOut) {
@@ -118,25 +88,21 @@ Entity Editor::pick_at(Vec2 design) {
         return best;
     }
     const Vec3 wp = r->screen_to_world(design, 0.0f);
+    const Vec2 designSize{float(r->target_width()), float(r->target_height())};
+    const VisualMeasure measure = visual_measure();
     Entity best = kNullEntity;
     std::int64_t bestKey = -(std::int64_t(1) << 40);  // int64: `long` is 32-bit on Windows
     std::int64_t order = 0;
     for (Entity e : all) {
         ++order;
         if (!w.active_in_hierarchy(e)) continue;
-        PickBounds b = bounds_of(e);
+        const PickBounds b = pick_bounds(w, e, measure);
         if (!b.valid) continue;
-        Vec2 local;
-        if (b.screenSpace) {
-            const Vec3 p = w.world_position(e);
-            local = Vec2{design.x - p.x, design.y - p.y};
-        } else {
-            Vec3 lp = w.world_matrix(e).inverse().transform_point(Vec3{wp.x, wp.y, 0});
-            local = Vec2{lp.x, lp.y};
-        }
-        if (std::fabs(local.x - b.center.x) > b.half.x || std::fabs(local.y - b.center.y) > b.half.y) continue;
-        if (b.layer > -500 && b.layer <= -500) continue;
-        std::int64_t key = std::int64_t(b.layer) * 1000000 + order + (b.screenSpace ? std::int64_t(100000000000) : 0);
+        int layer = 0;
+        // World-space entities are tested at the world point under the cursor, screen-space ones at the design pixel.
+        if (!pick_hit(w, e, b, b.screenSpace ? design : Vec2{wp.x, wp.y}, designSize, &layer)) continue;
+        // Higher layer wins, then later in the scene; screen-space items (HUD) are drawn over the world, so they win over it.
+        const std::int64_t key = std::int64_t(layer) * 1000000 + order + (b.screenSpace ? std::int64_t(100000000000) : 0);
         if (key > bestKey) {
             bestKey = key;
             best = e;
@@ -189,12 +155,13 @@ void Editor::draw_viewport() {
     auto to_vp = [&](Vec2 d) { return ImVec2(imgMin.x + d.x / tw * sz.x, imgMin.y + d.y / th * sz.y); };
     World& w = world();
     auto project = [&](Entity e, Vec3 local, bool screenSpace) {
-        if (screenSpace) {
-            Vec3 p = w.world_position(e);
-            return to_vp(Vec2{p.x + local.x, p.y + local.y});
-        }
+        (void)screenSpace;  // only used for colliders, which are world-space
         Vec3 wp = w.world_matrix(e).transform_point(local);
         return to_vp(r->world_to_screen(wp));
+    };
+    // A point from pick_outlines(): world xy (at the entity's depth) or a design pixel.
+    auto outline_pt = [&](Vec2 p, bool screenSpace, float z) {
+        return screenSpace ? to_vp(p) : to_vp(r->world_to_screen(Vec3{p.x, p.y, z}));
     };
 
     // ---- interaction (edit / paused only; while playing, events go to the game)
@@ -253,17 +220,26 @@ void Editor::draw_viewport() {
             static const int edges[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3}, {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
             for (auto& ed : edges) dl->AddLine(c8[ed[0]], c8[ed[1]], col, 2.0f);
         } else {
-            PickBounds b = bounds_of(sel);
-            ImVec2 p[4] = {project(sel, Vec3{b.center.x - b.half.x, b.center.y - b.half.y, 0}, b.screenSpace),
-                           project(sel, Vec3{b.center.x + b.half.x, b.center.y - b.half.y, 0}, b.screenSpace),
-                           project(sel, Vec3{b.center.x + b.half.x, b.center.y + b.half.y, 0}, b.screenSpace),
-                           project(sel, Vec3{b.center.x - b.half.x, b.center.y + b.half.y, 0}, b.screenSpace)};
-            dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 2.0f);
-            for (auto& q : p) dl->AddRectFilled(ImVec2(q.x - 3, q.y - 3), ImVec2(q.x + 3, q.y + 3), col);
+            // The engine's own footprint of the entity's visuals: one oriented box per visual (rotation and scale included),
+            // and for a diamond also its tips. Screen-space (HUD) entities are outlined in design pixels.
+            const PickBounds b = bounds_of(sel);
+            const Vec2 designSize{tw, th};
+            const float z = w.world_position(sel).z;
+            for (const PickOutline& o : pick_outlines(w, sel, b, designSize)) {
+                ImVec2 p[4], h[4];
+                for (int i = 0; i < 4; ++i) {
+                    p[i] = outline_pt(o.box[size_t(i)], o.screenSpace, z);
+                    h[i] = outline_pt(o.hull[size_t(i)], o.screenSpace, z);
+                }
+                dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, 2.0f);
+                if (o.hasHull) dl->AddPolyline(h, 4, IM_COL32(255, 205, 60, 150), ImDrawFlags_Closed, 1.0f);
+                for (auto& q : p) dl->AddRectFilled(ImVec2(q.x - 3, q.y - 3), ImVec2(q.x + 3, q.y + 3), col);
+            }
+            const Vec2 org = pick_origin(w, sel, b, designSize);
+            ImVec2 o = outline_pt(org, b.screenSpace, z);
+            dl->AddCircleFilled(o, 4.0f, IM_COL32(255, 80, 60, 255));
+            dl->AddCircle(o, 4.5f, IM_COL32(0, 0, 0, 200));
         }
-        ImVec2 o = project(sel, Vec3{0, 0, 0}, w.has<Sprite>(sel) && w.get<Sprite>(sel)->space == RenderSpace::Screen);
-        dl->AddCircleFilled(o, 4.0f, IM_COL32(255, 80, 60, 255));
-        dl->AddCircle(o, 4.5f, IM_COL32(0, 0, 0, 200));
     }
     dl->PopClipRect();
 

@@ -71,6 +71,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         path = n.value();
     }
     hasPendingScene = false;
+    implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
     audio.stop_all();
     physics.reset();
     LoadReport report = load_scene_file(world, path);
@@ -306,6 +307,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         FA_WARN("audio", "Audio init failed: {}", aerr);
         I.startupProblems.push_back("audio: " + aerr);
     }
+    I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
     std::string serr;
     if (!I.scripts.init(*this, &serr)) {
@@ -333,6 +335,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         } else {
             I.load_scene_impl(scenePath, &serrText);
         }
+        I.implicitStartScene = config.scene.empty();  // load_scene_impl cleared it; the default scene was not chosen by anyone
     }
     if (I.windowed && I.project.scaleMode == ScaleMode::Expand) { /* resize handler adapts the target */ }
     I.poll_hot_reload();  // seeds the watch snapshot when hot reload is active

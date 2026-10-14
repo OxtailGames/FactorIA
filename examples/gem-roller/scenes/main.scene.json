@@ -1,923 +1,460 @@
 {
- "format": "factoria.scene/1",
- "settings": {
-  "ambientLight": [
-   0.35,
-   0.38,
-   0.5,
-   1
-  ],
-  "gravity3D": [
-   0,
-   -20,
-   0
-  ],
-  "skyColor": [
-   0.25,
-   0.45,
-   0.85,
-   1
-  ],
-  "horizonColor": [
-   0.95,
-   0.8,
-   0.7,
-   1
-  ],
-  "fogColor": [
-   0.85,
-   0.78,
-   0.78,
-   1
-  ],
-  "fogDensity": 0.012
- },
- "entities": [
-  {
-   "id": "camera",
-   "name": "Main Camera",
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      5,
-      9
-     ],
-     "rotation": [
-      -22,
-      0,
-      0
-     ]
-    },
-    "Camera": {
-     "projection": "perspective",
-     "fov": 60,
-     "primary": true,
-     "farPlane": 200
-    },
-    "AudioListener": {},
-    "Script": {
-     "path": "scripts/chase_camera.js",
-     "props": {
-      "target": "ball"
-     }
-    }
-   }
+  "format": "factoria.scene/1",
+  "settings": {
+    "ambientLight": [0.35, 0.38, 0.5, 1.0],
+    "gravity2D": [0.0, -980.0],
+    "gravity3D": [0.0, -20.0, 0.0],
+    "fogColor": [0.85, 0.78, 0.78, 1.0],
+    "fogDensity": 0.012,
+    "skyColor": [0.25, 0.45, 0.85, 1.0],
+    "horizonColor": [0.95, 0.8, 0.7, 1.0]
   },
-  {
-   "id": "sun",
-   "name": "Sun",
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      20,
-      0
-     ],
-     "rotation": [
-      -55,
-      -35,
-      0
-     ]
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [0.0, 5.0, 9.0],
+          "rotation": [-22.0, 0.0, 0.0]
+        },
+        "Camera": {
+          "projection": "perspective",
+          "farPlane": 200.0
+        },
+        "AudioListener": {},
+        "Script": {
+          "path": "scripts/chase_camera.js",
+          "props": {
+            "target": "ball"
+          }
+        }
+      }
     },
-    "Light": {
-     "type": "directional",
-     "intensity": 1.2,
-     "color": [
-      1,
-      0.96,
-      0.88,
-      1
-     ],
-     "castShadows": true
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": {
+        "Transform": {
+          "position": [0.0, 20.0, 0.0],
+          "rotation": [-55.0, -35.0, 0.0]
+        },
+        "Light": {
+          "color": [1.0, 0.96, 0.88, 1.0],
+          "intensity": 1.2,
+          "castShadows": true
+        }
+      }
+    },
+    {
+      "id": "plat_start",
+      "name": "Platform start",
+      "tags": ["platform"],
+      "components": {
+        "Transform": {
+          "scale": [8.0, 1.0, 8.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "roughness": 0.8,
+          "uvScale": [4.0, 4.0]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {}
+      }
+    },
+    {
+      "id": "plat_a",
+      "name": "Platform a",
+      "tags": ["platform"],
+      "components": {
+        "Transform": {
+          "position": [0.0, 0.0, -9.0],
+          "scale": [6.0, 1.0, 6.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "roughness": 0.8,
+          "uvScale": [3.0, 3.0]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {}
+      }
+    },
+    {
+      "id": "plat_b",
+      "name": "Platform b",
+      "tags": ["platform"],
+      "components": {
+        "Transform": {
+          "position": [7.0, 0.0, -16.0],
+          "scale": [6.0, 1.0, 6.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "roughness": 0.8,
+          "uvScale": [3.0, 3.0]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {}
+      }
+    },
+    {
+      "id": "plat_c",
+      "name": "Platform c",
+      "tags": ["platform"],
+      "components": {
+        "Transform": {
+          "position": [7.0, 0.0, -32.0],
+          "scale": [6.0, 1.0, 6.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "roughness": 0.8,
+          "uvScale": [3.0, 3.0]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {}
+      }
+    },
+    {
+      "id": "plat_d",
+      "name": "Platform d",
+      "tags": ["platform"],
+      "components": {
+        "Transform": {
+          "position": [-1.0, 0.0, -39.0],
+          "scale": [6.0, 1.0, 6.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "roughness": 0.8,
+          "uvScale": [3.0, 3.0]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {}
+      }
+    },
+    {
+      "id": "plat_goal",
+      "name": "Platform goal",
+      "tags": ["platform"],
+      "components": {
+        "Transform": {
+          "position": [-1.0, 0.0, -56.0],
+          "scale": [8.0, 1.0, 8.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "roughness": 0.8,
+          "uvScale": [4.0, 4.0]
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {}
+      }
+    },
+    {
+      "id": "mover_1",
+      "name": "Mover 1",
+      "tags": ["mover"],
+      "components": {
+        "Transform": {
+          "position": [7.0, 0.0, -24.0],
+          "scale": [4.0, 1.0, 4.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "color": [1.0, 0.75, 0.3, 1.0],
+          "uvScale": [2.0, 2.0]
+        },
+        "RigidBody3D": {
+          "type": "kinematic"
+        },
+        "Collider3D": {},
+        "Script": {
+          "path": "scripts/mover.js",
+          "props": {
+            "amplitude": [5, 0, 0],
+            "speed": 0.8
+          }
+        }
+      }
+    },
+    {
+      "id": "mover_2",
+      "name": "Mover 2",
+      "tags": ["mover"],
+      "components": {
+        "Transform": {
+          "position": [-1.0, 0.0, -47.5],
+          "scale": [4.0, 1.0, 4.0]
+        },
+        "MeshRenderer": {
+          "texture": "assets/textures/tile.png",
+          "color": [1.0, 0.75, 0.3, 1.0],
+          "uvScale": [2.0, 2.0]
+        },
+        "RigidBody3D": {
+          "type": "kinematic"
+        },
+        "Collider3D": {},
+        "Script": {
+          "path": "scripts/mover.js",
+          "props": {
+            "amplitude": [0, 0, 2.5],
+            "speed": 0.7
+          }
+        }
+      }
+    },
+    {
+      "id": "checkpoint_1",
+      "name": "Checkpoint 1",
+      "tags": ["checkpoint"],
+      "components": {
+        "Transform": {
+          "position": [0.0, 0.52, -9.0],
+          "scale": [3.0, 0.06, 3.0]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [0.3, 1.0, 0.5, 1.0],
+          "emissive": [0.1, 0.5, 0.2, 1.0],
+          "castShadows": false
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "size": [1.0, 30.0, 1.0],
+          "offset": [0.0, 10.0, 0.0],
+          "isTrigger": true
+        },
+        "Script": {
+          "path": "scripts/checkpoint.js"
+        }
+      }
+    },
+    {
+      "id": "checkpoint_2",
+      "name": "Checkpoint 2",
+      "tags": ["checkpoint"],
+      "components": {
+        "Transform": {
+          "position": [7.0, 0.52, -32.0],
+          "scale": [3.0, 0.06, 3.0]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [0.3, 1.0, 0.5, 1.0],
+          "emissive": [0.1, 0.5, 0.2, 1.0],
+          "castShadows": false
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "size": [1.0, 30.0, 1.0],
+          "offset": [0.0, 10.0, 0.0],
+          "isTrigger": true
+        },
+        "Script": {
+          "path": "scripts/checkpoint.js"
+        }
+      }
+    },
+    {
+      "id": "checkpoint_3",
+      "name": "Checkpoint 3",
+      "tags": ["checkpoint"],
+      "components": {
+        "Transform": {
+          "position": [-1.0, 0.52, -39.0],
+          "scale": [3.0, 0.06, 3.0]
+        },
+        "MeshRenderer": {
+          "mesh": "cylinder",
+          "color": [0.3, 1.0, 0.5, 1.0],
+          "emissive": [0.1, 0.5, 0.2, 1.0],
+          "castShadows": false
+        },
+        "RigidBody3D": {
+          "type": "static"
+        },
+        "Collider3D": {
+          "size": [1.0, 30.0, 1.0],
+          "offset": [0.0, 10.0, 0.0],
+          "isTrigger": true
+        },
+        "Script": {
+          "path": "scripts/checkpoint.js"
+        }
+      }
+    },
+    {
+      "id": "ball",
+      "name": "Ball",
+      "tags": ["player"],
+      "components": {
+        "Transform": {
+          "position": [0.0, 1.2, 2.0]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "texture": "assets/textures/ball.png",
+          "roughness": 0.35
+        },
+        "RigidBody3D": {},
+        "Collider3D": {
+          "shape": "sphere",
+          "friction": 0.0
+        },
+        "Script": {
+          "path": "scripts/ball.js",
+          "props": {
+            "cameraId": "camera"
+          }
+        }
+      }
+    },
+    {
+      "id": "game",
+      "name": "Game Manager",
+      "components": {
+        "Script": {
+          "path": "scripts/game.js",
+          "props": {
+            "timeLimit": 90,
+            "gemCount": 8,
+            "seed": 7
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_panel_l",
+      "components": {
+        "Transform": {
+          "position": [12.0, 12.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [250.0, 86.0],
+          "color": [0.0, 0.0, 0.0, 0.45],
+          "layer": 90,
+          "space": "screen",
+          "pivot": [0.0, 1.0]
+        }
+      }
+    },
+    {
+      "id": "hud_panel_r",
+      "components": {
+        "Transform": {
+          "position": [-12.0, 12.0, 0.0]
+        },
+        "Shape2D": {
+          "size": [250.0, 86.0],
+          "color": [0.0, 0.0, 0.0, 0.45],
+          "layer": 90,
+          "space": "screen",
+          "pivot": [1.0, 1.0],
+          "anchor": [1.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "hud_time",
+      "name": "hud_time",
+      "components": {
+        "Transform": {
+          "position": [28.0, 28.0, 0.0]
+        },
+        "Text": {
+          "text": "Time 90.0",
+          "fontSize": 36.0,
+          "layer": 101,
+          "space": "screen"
+        }
+      }
+    },
+    {
+      "id": "hud_gems",
+      "name": "hud_gems",
+      "components": {
+        "Transform": {
+          "position": [-28.0, 28.0, 0.0]
+        },
+        "Text": {
+          "text": "Gems 0/8",
+          "fontSize": 36.0,
+          "color": [0.5, 0.95, 1.0, 1.0],
+          "align": "right",
+          "pivot": [1.0, 1.0],
+          "layer": 101,
+          "space": "screen",
+          "anchor": [1.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "hud_msg",
+      "name": "hud_msg",
+      "components": {
+        "Transform": {
+          "position": [0.0, -60.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 72.0,
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "layer": 110,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
+      }
+    },
+    {
+      "id": "hud_sub",
+      "name": "hud_sub",
+      "components": {
+        "Transform": {
+          "position": [0.0, 20.0, 0.0]
+        },
+        "Text": {
+          "text": "",
+          "fontSize": 28.0,
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "layer": 110,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
+      }
+    },
+    {
+      "id": "overlay",
+      "components": {
+        "Shape2D": {
+          "size": [1280.0, 720.0],
+          "color": [0.0, 0.0, 0.0, 0.0],
+          "layer": 100,
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        }
+      }
     }
-   }
-  },
-  {
-   "id": "plat_start",
-   "name": "Platform start",
-   "tags": [
-    "platform"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      0
-     ],
-     "scale": [
-      8,
-      1,
-      8
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      4.0,
-      4.0
-     ],
-     "roughness": 0.8
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "plat_a",
-   "name": "Platform a",
-   "tags": [
-    "platform"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0,
-      -9
-     ],
-     "scale": [
-      6,
-      1,
-      6
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      3.0,
-      3.0
-     ],
-     "roughness": 0.8
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "plat_b",
-   "name": "Platform b",
-   "tags": [
-    "platform"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      7,
-      0,
-      -16
-     ],
-     "scale": [
-      6,
-      1,
-      6
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      3.0,
-      3.0
-     ],
-     "roughness": 0.8
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "plat_c",
-   "name": "Platform c",
-   "tags": [
-    "platform"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      7,
-      0,
-      -32
-     ],
-     "scale": [
-      6,
-      1,
-      6
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      3.0,
-      3.0
-     ],
-     "roughness": 0.8
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "plat_d",
-   "name": "Platform d",
-   "tags": [
-    "platform"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      -1,
-      0,
-      -39
-     ],
-     "scale": [
-      6,
-      1,
-      6
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      3.0,
-      3.0
-     ],
-     "roughness": 0.8
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "plat_goal",
-   "name": "Platform goal",
-   "tags": [
-    "platform"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      -1,
-      0,
-      -56
-     ],
-     "scale": [
-      8,
-      1,
-      8
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      4.0,
-      4.0
-     ],
-     "roughness": 0.8
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    }
-   }
-  },
-  {
-   "id": "mover_1",
-   "name": "Mover 1",
-   "tags": [
-    "mover"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      7,
-      0,
-      -24
-     ],
-     "scale": [
-      4,
-      1,
-      4
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      0.75,
-      0.3,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      2,
-      2
-     ]
-    },
-    "RigidBody3D": {
-     "type": "kinematic"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    },
-    "Script": {
-     "path": "scripts/mover.js",
-     "props": {
-      "amplitude": [
-       5,
-       0,
-       0
-      ],
-      "speed": 0.8
-     }
-    }
-   }
-  },
-  {
-   "id": "mover_2",
-   "name": "Mover 2",
-   "tags": [
-    "mover"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      -1,
-      0,
-      -47.5
-     ],
-     "scale": [
-      4,
-      1,
-      4
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cube",
-     "color": [
-      1,
-      0.75,
-      0.3,
-      1
-     ],
-     "texture": "assets/textures/tile.png",
-     "uvScale": [
-      2,
-      2
-     ]
-    },
-    "RigidBody3D": {
-     "type": "kinematic"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      1,
-      1
-     ]
-    },
-    "Script": {
-     "path": "scripts/mover.js",
-     "props": {
-      "amplitude": [
-       0,
-       0,
-       2.5
-      ],
-      "speed": 0.7
-     }
-    }
-   }
-  },
-  {
-   "id": "checkpoint_1",
-   "name": "Checkpoint 1",
-   "tags": [
-    "checkpoint"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      0.52,
-      -9
-     ],
-     "scale": [
-      3,
-      0.06,
-      3
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cylinder",
-     "color": [
-      0.3,
-      1,
-      0.5,
-      1
-     ],
-     "emissive": [
-      0.1,
-      0.5,
-      0.2,
-      1
-     ],
-     "castShadows": false
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      30,
-      1
-     ],
-     "isTrigger": true,
-     "offset": [
-      0,
-      10,
-      0
-     ]
-    },
-    "Script": {
-     "path": "scripts/checkpoint.js"
-    }
-   }
-  },
-  {
-   "id": "checkpoint_2",
-   "name": "Checkpoint 2",
-   "tags": [
-    "checkpoint"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      7,
-      0.52,
-      -32
-     ],
-     "scale": [
-      3,
-      0.06,
-      3
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cylinder",
-     "color": [
-      0.3,
-      1,
-      0.5,
-      1
-     ],
-     "emissive": [
-      0.1,
-      0.5,
-      0.2,
-      1
-     ],
-     "castShadows": false
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      30,
-      1
-     ],
-     "isTrigger": true,
-     "offset": [
-      0,
-      10,
-      0
-     ]
-    },
-    "Script": {
-     "path": "scripts/checkpoint.js"
-    }
-   }
-  },
-  {
-   "id": "checkpoint_3",
-   "name": "Checkpoint 3",
-   "tags": [
-    "checkpoint"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      -1,
-      0.52,
-      -39
-     ],
-     "scale": [
-      3,
-      0.06,
-      3
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "cylinder",
-     "color": [
-      0.3,
-      1,
-      0.5,
-      1
-     ],
-     "emissive": [
-      0.1,
-      0.5,
-      0.2,
-      1
-     ],
-     "castShadows": false
-    },
-    "RigidBody3D": {
-     "type": "static"
-    },
-    "Collider3D": {
-     "shape": "box",
-     "size": [
-      1,
-      30,
-      1
-     ],
-     "isTrigger": true,
-     "offset": [
-      0,
-      10,
-      0
-     ]
-    },
-    "Script": {
-     "path": "scripts/checkpoint.js"
-    }
-   }
-  },
-  {
-   "id": "ball",
-   "name": "Ball",
-   "tags": [
-    "player"
-   ],
-   "components": {
-    "Transform": {
-     "position": [
-      0,
-      1.2,
-      2
-     ]
-    },
-    "MeshRenderer": {
-     "mesh": "sphere",
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "texture": "assets/textures/ball.png",
-     "roughness": 0.35
-    },
-    "RigidBody3D": {
-     "type": "dynamic",
-     "mass": 1,
-     "linearDamping": 0.0
-    },
-    "Collider3D": {
-     "shape": "sphere",
-     "radius": 0.5,
-     "friction": 0.0,
-     "layer": 1
-    },
-    "Script": {
-     "path": "scripts/ball.js",
-     "props": {
-      "cameraId": "camera"
-     }
-    }
-   }
-  },
-  {
-   "id": "game",
-   "name": "Game Manager",
-   "components": {
-    "Script": {
-     "path": "scripts/game.js",
-     "props": {
-      "timeLimit": 90,
-      "gemCount": 8,
-      "seed": 7
-     }
-    }
-   }
-  },
-  {
-   "id": "hud_panel_l",
-   "components": {
-    "Transform": {
-     "position": [
-      137,
-      55,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      250,
-      86
-     ],
-     "color": [
-      0,
-      0,
-      0,
-      0.45
-     ],
-     "space": "screen",
-     "layer": 90
-    }
-   }
-  },
-  {
-   "id": "hud_panel_r",
-   "components": {
-    "Transform": {
-     "position": [
-      1143,
-      55,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      250,
-      86
-     ],
-     "color": [
-      0,
-      0,
-      0,
-      0.45
-     ],
-     "space": "screen",
-     "layer": 90
-    }
-   }
-  },
-  {
-   "id": "hud_time",
-   "name": "hud_time",
-   "components": {
-    "Transform": {
-     "position": [
-      28,
-      28,
-      0
-     ]
-    },
-    "Text": {
-     "text": "Time 90.0",
-     "fontSize": 36,
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0,
-      1
-     ],
-     "align": "left",
-     "space": "screen",
-     "layer": 101
-    }
-   }
-  },
-  {
-   "id": "hud_gems",
-   "name": "hud_gems",
-   "components": {
-    "Transform": {
-     "position": [
-      1252,
-      28,
-      0
-     ]
-    },
-    "Text": {
-     "text": "Gems 0/8",
-     "fontSize": 36,
-     "color": [
-      0.5,
-      0.95,
-      1,
-      1
-     ],
-     "pivot": [
-      1,
-      1
-     ],
-     "align": "right",
-     "space": "screen",
-     "layer": 101
-    }
-   }
-  },
-  {
-   "id": "hud_msg",
-   "name": "hud_msg",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      300,
-      0
-     ]
-    },
-    "Text": {
-     "text": "",
-     "fontSize": 72,
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 110
-    }
-   }
-  },
-  {
-   "id": "hud_sub",
-   "name": "hud_sub",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      380,
-      0
-     ]
-    },
-    "Text": {
-     "text": "",
-     "fontSize": 28,
-     "color": [
-      1,
-      1,
-      1,
-      1
-     ],
-     "pivot": [
-      0.5,
-      0.5
-     ],
-     "align": "center",
-     "space": "screen",
-     "layer": 110
-    }
-   }
-  },
-  {
-   "id": "overlay",
-   "components": {
-    "Transform": {
-     "position": [
-      640,
-      360,
-      0
-     ]
-    },
-    "Shape2D": {
-     "shape": "rectangle",
-     "size": [
-      1280,
-      720
-     ],
-     "color": [
-      0,
-      0,
-      0,
-      0
-     ],
-     "space": "screen",
-     "layer": 100
-    }
-   }
-  }
- ]
+  ]
 }

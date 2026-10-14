@@ -7,7 +7,8 @@
 //   * pivot is VISUAL: (0,0) = bottom-left of the item's box, (1,1) = top-right, (0.5,0.5) = center, in
 //     world space AND screen space (screen +Y is down, but pivot [0,1] is still the visual top-left). The
 //     pivot point of the item is placed at the entity position. Defaults: Sprite/Shape2D [0.5,0.5], Text [0,1].
-//   * Shape2D pivot applies to rectangle/circle/triangle bounding boxes (circle: square of side size.x).
+//   * Shape2D pivot applies to rectangle/circle/triangle/diamond bounding boxes (circle: square of side size.x). A triangle
+//     (apex at the top-middle of its box) has its centroid at pivot [0.5, 1/3]: use that to spin it without wobble.
 //   * Screen space: position is in design pixels from the TOP-LEFT, +Y down, drawn after the world.
 //     `anchor` shifts the position by anchor * target size, e.g. anchor [1,0], pivot [1,1], position [-20,20]
 //     = top-right corner of the item 20px inside the screen corner; with Expand the target grows so HUDs stay on the edges.

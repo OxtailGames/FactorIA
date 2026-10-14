@@ -1,5 +1,9 @@
 #include <doctest.h>
 
+#include <span>
+#include <string>
+#include <vector>
+
 #include "fa/core/json.h"
 
 using namespace fa;
@@ -143,4 +147,119 @@ TEST_CASE("json: key order is preserved") {
     j["alpha"] = 2;
     CHECK(j.dump() == "{\"zeta\":1,\"alpha\":2}");
     CHECK(dump_json(j).back() == '\n');
+}
+
+namespace {
+std::vector<std::string> split_lines(const std::string& text) {
+    std::vector<std::string> lines;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        std::size_t end = text.find('\n', start);
+        if (end == std::string::npos) end = text.size();
+        lines.push_back(text.substr(start, end - start));
+        start = end + 1;
+    }
+    return lines;
+}
+}  // namespace
+
+TEST_CASE("json compact layout: short scalar arrays on one line, the rest as dump_json") {
+    Json j = Json::parse(R"({
+        "name": "hero", "empty": [], "none": {},
+        "position": [0, 12.5, -3], "tags": ["player", "alive"], "flags": [true, false, null],
+        "kids": [ {"id": "a", "size": [1, 2]}, {"id": "b"} ],
+        "nested": [[0, 1], [2, 3]]
+    })");
+    const std::string expected =
+        "{\n"
+        "  \"name\": \"hero\",\n"
+        "  \"empty\": [],\n"
+        "  \"none\": {},\n"
+        "  \"position\": [0, 12.5, -3],\n"
+        "  \"tags\": [\"player\", \"alive\"],\n"
+        "  \"flags\": [true, false, null],\n"
+        "  \"kids\": [\n"
+        "    {\n"
+        "      \"id\": \"a\",\n"
+        "      \"size\": [1, 2]\n"
+        "    },\n"
+        "    {\n"
+        "      \"id\": \"b\"\n"
+        "    }\n"
+        "  ],\n"
+        "  \"nested\": [\n"
+        "    [0, 1],\n"
+        "    [2, 3]\n"
+        "  ]\n"
+        "}\n";
+    CHECK(dump_json(j, JsonFormat{}) == expected);
+    CHECK(Json::parse(expected) == j);
+
+    // Without scalar arrays the output is exactly the plain pretty-printer's.
+    Json plain = Json::parse(R"({"a": {"b": {"c": 1, "d": "x\"y\n"}, "e": []}, "f": [{"g": 2}, {}], "h": 1.5e3})");
+    CHECK(dump_json(plain, JsonFormat{}) == dump_json(plain));
+    CHECK(dump_json(Json(3), JsonFormat{}) == "3\n");
+    CHECK(dump_json(Json::array(), JsonFormat{}) == "[]\n");
+}
+
+TEST_CASE("json compact layout: long scalar arrays wrap, long strings keep one element per line") {
+    Json numbers = Json::array();
+    for (int i = 0; i < 200; ++i) numbers.push_back(i * 7 - 300);
+    Json doc = Json::object({{"values", numbers}, {"deep", Json::object({{"more", numbers}})}});
+    std::string text = dump_json(doc, JsonFormat{});
+
+    std::vector<std::string> lines = split_lines(text);
+    CHECK(lines.size() < 70);  // 400 numbers, a handful per line, not 400 lines
+    for (const std::string& line : lines) CHECK(line.size() <= 100);
+    CHECK(lines[0] == "{");
+    CHECK(lines[1] == "  \"values\": [");
+    CHECK(lines[2].rfind("    -300, -293, -286", 0) == 0);  // wrapped lines are indented one level deeper
+    CHECK(lines[2].back() == ',');                           // commas stay at the end of the line
+    CHECK(Json::parse(text) == doc);
+
+    JsonFormat narrow;
+    narrow.maxWidth = 40;
+    std::string narrowText =
+        dump_json(Json::parse("[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]"), narrow);
+    for (const std::string& line : split_lines(narrowText)) CHECK(line.size() <= 40);
+    CHECK(narrowText.rfind("[\n  1, 2, 3, 4, 5,", 0) == 0);
+
+    // A string longer than maxInlineString keeps the array in the one-element-per-line layout.
+    Json longStrings = Json::parse(R"({"files": ["assets/textures/a_really_long_texture_name_that_goes_on.png", "b"]})");
+    CHECK(dump_json(longStrings, JsonFormat{}) == dump_json(longStrings));
+}
+
+TEST_CASE("json compact layout: the rowLength hook lays numbers out in aligned rows") {
+    Json doc = Json::parse(R"({"grid": {"width": 3, "cells": [-1, 0, 12, 4, 5, -1, 7, 8, 9, 1]}, "other": [1, 2]})");
+    int calls = 0;
+    JsonFormat fmt;
+    fmt.rowLength = [&](std::span<const std::string> path, const Json& parent, const Json& array) -> int {
+        if (path.size() == 2 && path[0] == "grid" && path[1] == "cells") {
+            ++calls;
+            CHECK(parent.is_object());
+            CHECK(array.size() == 10);
+            return parent["width"].get<int>();
+        }
+        return 0;
+    };
+    const std::string expected =
+        "{\n"
+        "  \"grid\": {\n"
+        "    \"width\": 3,\n"
+        "    \"cells\": [\n"
+        "      -1,  0, 12,\n"
+        "       4,  5, -1,\n"
+        "       7,  8,  9,\n"
+        "       1\n"
+        "    ]\n"
+        "  },\n"
+        "  \"other\": [1, 2]\n"
+        "}\n";
+    CHECK(dump_json(doc, fmt) == expected);
+    CHECK(calls == 1);
+    CHECK(Json::parse(expected) == doc);
+
+    // The hook only applies to arrays of numbers.
+    Json strings = Json::parse(R"({"grid": {"width": 2, "cells": ["a", "b", "c"]}})");
+    CHECK(dump_json(strings, fmt).find("\"cells\": [\"a\", \"b\", \"c\"]") != std::string::npos);
 }

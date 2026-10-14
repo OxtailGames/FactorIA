@@ -18,7 +18,9 @@ Json parse_schema(const char* text) {
     return r.value();
 }
 
-std::vector<std::string> all_entity_names(World& w) {
+}  // namespace
+
+static std::vector<std::string> all_entity_names(World& w) {
     std::vector<std::string> out;
     for (Entity e : w.entities()) {
         out.push_back(w.id_of(e));
@@ -27,7 +29,7 @@ std::vector<std::string> all_entity_names(World& w) {
     return out;
 }
 
-Entity need_entity(World& w, const Json& args, const char* key = "id") {
+Entity need_entity(World& w, const Json& args, const char* key) {
     if (!args.contains(key) || !args[key].is_string())
         throw CommandError("invalid_argument", std::string("Missing string argument '") + key + "'.",
                            "Use scene.list_entities to find entity ids.");
@@ -40,6 +42,8 @@ Entity need_entity(World& w, const Json& args, const char* key = "id") {
     }
     return e;
 }
+
+namespace {
 
 const TypeInfo& need_component_type(const std::string& name) {
     const TypeInfo* t = TypeRegistry::global().find_ci(name);
@@ -338,7 +342,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"scene.save", "Save the running world to a scene file (current scene path by default).",
-           "Writes canonical scene JSON (only non-default fields). Example: scene.save {\"path\":\"scenes/snapshot.scene.json\"}",
+           "Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are "
+           "always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: "
+           "only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a "
+           "scene FILE without touching the running world use scene.import_ascii with `path`. Example: "
+           "scene.save {\"path\":\"scenes/snapshot.scene.json\"}",
            parse_schema(R"({"type":"object","properties":{
                "path":{"type":"string","description":"Project-relative output path. Default: the current scene."}}})"),
            false, "scene"},
@@ -346,6 +354,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               std::string path = a.value("path", I.currentScene);
               if (path.empty())
                   throw CommandError("invalid_argument", "No current scene path.", "Pass {\"path\":\"scenes/name.scene.json\"}.");
+              if (auto w = fs::check_writable(path); !w.ok()) throw CommandError("invalid_argument", w.error().message, w.error().hint);
               auto r = save_scene_file(I.world, path);
               if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
               if (I.watchSeeded) I.watched[path] = fs::modified_time(path);
@@ -362,6 +371,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               bool ok = I.load_scene_impl(I.currentScene, &err);
               return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
           });
+
+    register_level_commands(engine, I);       // scene.import_ascii
+    register_scene_file_commands(engine, I);  // prefab.save, scene.format
 
     // --------------------------------------------------------------------- game
     I.commands.add({"game.step", "Advance the simulation by N fixed frames (deterministic) and return a state summary.",
@@ -467,6 +479,40 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                                {"category", l.category}, {"message", l.message}}));
               return Json::object({{"count", list.size()}, {"lastSeq", entries.empty() ? a.value("after", std::uint64_t(0)) : entries.back().seq},
                                    {"logs", list}});
+          });
+
+    I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
+           "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "
+           "music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
+           "(time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq "
+           "from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with "
+           "/<path>. Example: audio.log {\"path\":\"jump.wav\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "after":{"type":"integer","default":0,"minimum":0,"description":"Only entries with seq greater than this."},
+               "path":{"type":"string","description":"Only this clip: a project-relative path or a file name like \"jump.wav\"."},
+               "max":{"type":"integer","default":200,"minimum":1,"description":"Return at most this many (the newest)."}}})"),
+           true, "audio"},
+          [&I](const Json& a) {
+              const std::string path = fs::normalize(a.value("path", std::string()));
+              const std::size_t max = std::size_t(std::max<std::int64_t>(1, a.value("max", std::int64_t(200))));
+              std::vector<AudioEvent> evs = I.audio.play_log(a.value("after", std::uint64_t(0)));
+              const std::uint64_t lastSeq = evs.empty() ? a.value("after", std::uint64_t(0)) : evs.back().seq;
+              std::vector<const AudioEvent*> keep;
+              for (const AudioEvent& ev : evs)
+                  if (path.empty() || ev.path == path || ends_with(ev.path, "/" + path)) keep.push_back(&ev);
+              Json list = Json::array();
+              for (std::size_t i = keep.size() > max ? keep.size() - max : 0; i < keep.size(); ++i) list.push_back(keep[i]->to_json());
+              Json out = Json::object({{"count", list.size()}, {"matched", keep.size()}, {"lastSeq", lastSeq},
+                                       {"dropped", I.audio.play_log_dropped()}, {"plays", list}});
+              if (!path.empty() && keep.empty()) {
+                  std::vector<std::string> played;
+                  for (const AudioEvent& ev : evs)
+                      if (std::find(played.begin(), played.end(), ev.path) == played.end()) played.push_back(ev.path);
+                  out["hint"] = played.empty() ? std::string("no sound has been played yet; step the game first (game.step)")
+                                               : "'" + path + "' was not played; played clips: " + join(played, ", ") + ". " +
+                                                     did_you_mean(path, played);
+              }
+              return out;
           });
 
     I.commands.add({"game.pause", "Pause the simulation (frame() stops simulating; game.step still works).",

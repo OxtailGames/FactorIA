@@ -1,12 +1,18 @@
 {
   "format": "factoria.scene/1",
-  "settings": { "gravity2D": [0, 0] },
+  "settings": {
+    "gravity2D": [0, 0]
+  },
   "entities": [
     {
       "id": "camera",
       "name": "Main Camera",
       "components": {
-        "Camera": { "projection": "orthographic", "clearColor": [0.08, 0.09, 0.14, 1], "primary": true }
+        "Camera": {
+          "projection": "orthographic",
+          "clearColor": [0.08, 0.09, 0.14, 1],
+          "primary": true
+        }
       }
     },
     {
@@ -14,16 +20,30 @@
       "name": "Player",
       "tags": ["player"],
       "components": {
-        "Transform": { "position": [0, 0, 0] },
-        "Shape2D": { "shape": "rectangle", "size": [48, 48], "color": [0.95, 0.75, 0.2, 1], "layer": 1 },
-        "Script": { "path": "scripts/player.js", "props": { "speed": 300 } }
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [48, 48],
+          "color": [0.95, 0.75, 0.2, 1],
+          "layer": 1
+        },
+        "Script": {
+          "path": "scripts/player.js",
+          "props": {
+            "speed": 300
+          }
+        }
       }
     },
     {
       "id": "title",
       "name": "Title",
       "components": {
-        "Transform": { "position": [24, 24, 0] },
+        "Transform": {
+          "position": [24, 24, 0]
+        },
         "Text": {
           "text": "{{PROJECT_NAME}}: move with WASD / arrows",
           "fontSize": 24,

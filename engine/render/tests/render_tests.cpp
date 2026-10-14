@@ -194,6 +194,73 @@ TEST_CASE("2D textured sprites, pixel art, animator and tilemap") {
     CHECK(g.renderer.stats().sprites == 5);
 }
 
+TEST_CASE("tilemap: columns left unset is derived from the tileset width") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    make(w, "cam");
+    w.add<Camera>(w.find("cam"));
+    // 64x32 image of 16x16 tiles = 4 columns x 2 rows; tile n has a distinct flat color (see write_tileset).
+    std::string tileset = write_tileset();
+
+    // Rows form, no width/height, no columns: top-left corner of the map at the top-left of the screen.
+    Entity rowsMap = make(w, "rows", {-160, 90, 0});
+    {
+        auto& tm = w.add<Tilemap>(rowsMap);
+        REQUIRE(tm.columns == 0);  // the default: derive from the texture
+        tm.tileset = tileset;
+        tm.tileSize = {16, 16};
+        tm.tiles = Json::array({Json::array({3, 4, 7})});
+    }
+    // Flat form with width/height, below it.
+    Entity flatMap = make(w, "flat", {-160, 58, 0});
+    {
+        auto& tm = w.add<Tilemap>(flatMap);
+        tm.tileset = tileset;
+        tm.tileSize = {16, 16};
+        tm.width = 3;
+        tm.height = 2;
+        tm.tiles = Json::array({5, 6, 2, 3, -1, 4});
+    }
+    // An explicit columns value still wins: "columns": 2 on the same 4-wide image reads tile 3 as column 1 of row 1.
+    Entity explicitMap = make(w, "explicit", {-160, 10, 0});
+    {
+        auto& tm = w.add<Tilemap>(explicitMap);
+        tm.tileset = tileset;
+        tm.tileSize = {16, 16};
+        tm.columns = 2;
+        tm.width = 1;
+        tm.height = 1;
+        tm.tiles = Json::array({3});
+    }
+    Image img = g.render(w);
+    const Color tileColor[8] = {Color::hex(0x3b7d3b), Color::hex(0x8b5a2b), Color::hex(0x4a90d9), Color::hex(0xd9c24a),
+                                Color::hex(0x9a9a9a), Color::hex(0xd94a4a), Color::hex(0x7a4ad9), Color::hex(0x4ad9c2)};
+    // Centre of cell (col, row) of a map whose top-left corner is at screen y = top.
+    auto expect_tile = [&](int top, int col, int row, int tile, const char* what) {
+        Color got = img.pixel(col * 16 + 8, top + row * 16 + 8);
+        INFO(what << ": cell (" << col << ", " << row << ") should show tile " << tile << ", got rgb " << got.r << " " << got.g << " " << got.b);
+        CHECK(std::fabs(got.r - tileColor[tile].r) < 0.03f);
+        CHECK(std::fabs(got.g - tileColor[tile].g) < 0.03f);
+        CHECK(std::fabs(got.b - tileColor[tile].b) < 0.03f);
+    };
+    // Tile 3 is the 4th column of the first image row (yellow), 4 the first column of the second row (grey), 7 the last.
+    expect_tile(0, 0, 0, 3, "rows form");
+    expect_tile(0, 1, 0, 4, "rows form");
+    expect_tile(0, 2, 0, 7, "rows form");
+    expect_tile(32, 0, 0, 5, "flat form");
+    expect_tile(32, 1, 0, 6, "flat form");
+    expect_tile(32, 2, 0, 2, "flat form");
+    expect_tile(32, 0, 1, 3, "flat form");
+    expect_tile(32, 2, 1, 4, "flat form");
+    Color emptyCell = img.pixel(1 * 16 + 8, 32 + 16 + 8);  // tile -1 draws nothing: clear color
+    CHECK(emptyCell.r < 0.2f);
+    // columns = 2: tile 3 is column 1 of row 1 of the image, which is the 4x2 sheet's tile 5.
+    Color explicitGot = img.pixel(8, 80 + 8);
+    CHECK(std::fabs(explicitGot.r - tileColor[5].r) < 0.03f);
+    CHECK(std::fabs(explicitGot.g - tileColor[5].g) < 0.03f);
+}
+
 TEST_CASE("text: sizes, alignment, wrapping, accents, pixel font, screen space") {
     Gfx& g = gfx();
     REQUIRE(g.ok);

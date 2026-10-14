@@ -1,0 +1,8 @@
+{
+  "name": "ci",
+  "version": "0.1.0",
+  "description": "/ci shows the CI checks of the current branch's GitHub pull request and watches them until they finish.",
+  "author": {
+    "name": "FactorIA contributors"
+  }
+}

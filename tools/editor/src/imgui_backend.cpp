@@ -14,6 +14,7 @@
 #endif
 
 #include "editor_fonts.h"
+#include "editor_mono_font.h"
 #include "ui_backend.h"
 
 namespace fa::editor::ui {
@@ -102,6 +103,11 @@ void gfx_shutdown() {
     if (sg_isvalid()) sg_shutdown();
 }
 
+namespace {
+ImFont* g_mono = nullptr;
+}
+ImFont* mono_font() { return g_mono; }
+
 void setup(const char* iniFile) {
     simgui_desc_t d{};
     d.no_default_font = true;
@@ -120,6 +126,11 @@ void setup(const char* iniFile) {
         break;
     }
     if (!font) io.Fonts->AddFontDefault();
+    g_mono = nullptr;
+    for (const auto& f : fa_editor_mono::files()) {
+        g_mono = io.Fonts->AddFontFromMemoryTTF(const_cast<char*>(f.data.data()), int(f.data.size()), 15.0f, &cfg);
+        break;
+    }
     apply_theme();
 
     sg_sampler_desc sd{};

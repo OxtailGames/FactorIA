@@ -6,11 +6,13 @@
 #include <sstream>
 
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/serialize.h"
+#include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
 #include "fa/tooling/feedback.h"
 #include "util.h"
@@ -90,6 +92,55 @@ void check_component_assets(Ctx& c, const std::string& file, const std::string& 
     }
 }
 
+// The structure of Tilemap data (tiles vs width*height, rows, solidTiles) is checked by the scene loader; here the tile
+// indices are compared with the tileset image, which needs the file. `fields` is the Tilemap object as written.
+void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& pointer, const Json& fields) {
+    if (!fields.is_object() || !fields.contains("tileset") || !fields["tileset"].is_string() || !fields.contains("tiles") ||
+        !fields["tiles"].is_array())
+        return;
+    const std::string path = fields["tileset"].get<std::string>();
+    if (path.empty() || !stdfs::exists(stdfs::path(c.dir) / path)) return;  // a missing file is reported as a missing asset
+    auto img = load_image(path);
+    if (!img.ok()) return;
+    Tilemap tm;
+    if (fields.contains("tileSize") && fields["tileSize"].is_array() && fields["tileSize"].size() == 2 &&
+        fields["tileSize"][0].is_number() && fields["tileSize"][1].is_number())
+        tm.tileSize = {fields["tileSize"][0].get<float>(), fields["tileSize"][1].get<float>()};
+    if (fields.contains("columns") && fields["columns"].is_number_integer()) tm.columns = fields["columns"].get<int>();
+    const int count = tileset_tile_count(tm, img->width, img->height);
+    if (count <= 0) return;
+    // First offending tile (flat or rows form) and how many there are.
+    std::string firstPointer;
+    long long firstValue = 0, offenders = 0;
+    auto visit = [&](const Json& v, const std::string& ptr) {
+        if (!v.is_number() || v.get<double>() < count) return;
+        if (offenders++ == 0) {
+            firstPointer = ptr;
+            firstValue = static_cast<long long>(v.get<double>());
+        }
+    };
+    const Json& tiles = fields["tiles"];
+    for (std::size_t i = 0; i < tiles.size(); ++i) {
+        if (tiles[i].is_array())
+            for (std::size_t k = 0; k < tiles[i].size(); ++k) visit(tiles[i][k], "/tiles/" + std::to_string(i) + "/" + std::to_string(k));
+        else
+            visit(tiles[i], "/tiles/" + std::to_string(i));
+    }
+    if (offenders == 0) return;
+    // `columns` unset (0) is derived from the image, so a mismatch can only come from an explicit value.
+    const int tilesX = std::max(0, int(float(img->width) / tm.tileSize.x));
+    const int columns = tileset_columns(tm, img->width);
+    std::string hint = "Tile indices count from 0, left-to-right then top-to-bottom, so valid indices are 0.." + std::to_string(count - 1) + ".";
+    if (tm.columns > 0 && tm.columns != tilesX && tilesX > 0)
+        hint += " The image has " + std::to_string(tilesX) + " tile columns but columns is " + std::to_string(tm.columns) +
+                ": remove \"columns\" (it is derived from the image) or set \"columns\": " + std::to_string(tilesX) + ".";
+    c.error(file, pointer + firstPointer,
+            "Tile index " + std::to_string(firstValue) + " is outside the tileset '" + path + "' (" + std::to_string(img->width) + "x" + std::to_string(img->height) +
+                " px, tileSize [" + std::to_string(int(tm.tileSize.x)) + ", " + std::to_string(int(tm.tileSize.y)) + "], columns " + std::to_string(columns) +
+                " = " + std::to_string(count) + " tiles)" + (offenders > 1 ? "; " + std::to_string(offenders - 1) + " more tile(s) are outside too" : ""),
+            hint);
+}
+
 void check_entity_assets(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity,
                          std::set<std::string>& scripts) {
     if (!entity.is_object()) return;
@@ -101,6 +152,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
     if (entity.contains("components") && entity["components"].is_object()) {
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
+            if (it.key() == "Tilemap") check_tilemap_tileset(c, file, pointer + "/components/Tilemap", it.value());
             if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
                 scripts.insert(it.value()["path"].get<std::string>());
                 if (it.value().contains("props") && it.value()["props"].is_object() && !it.value()["props"].empty())

@@ -109,6 +109,13 @@ struct ScriptSystem::Impl {
     std::unordered_map<std::uint64_t, std::string> destroyedIds;
     std::vector<std::uint64_t> destroyedOrder;
 
+    // ---- entity.bounds(): pixel sizes of texture files (normalized path -> size + file time), so sprites without a `size` are cheap
+    struct TexSize {
+        int w = 0, h = 0;
+        std::int64_t mtime = 0;
+    };
+    std::unordered_map<std::string, TexSize> texSizes;
+
     // ---- tools
     std::map<std::string, ToolEntry> tools;  // by command name
     std::function<void()> toolsChanged;

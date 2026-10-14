@@ -71,7 +71,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: Dynamic bodies resting on a kinematic RigidBody3D now ride it (inherit its displacement; friction acts on relative velocity). Verified with friction 0, 0.5 and 1 over 2 s. Stacked riders are not carried."
+        "Fixed in e2b0090: Dynamic bodies resting on a kinematic RigidBody3D now ride it (inherit its displacement; friction acts on relative velocity). Verified with friction 0, 0.5 and 1 over 2 s. Stacked riders are not carried.",
+        "Workaround removed in 99eebad: ball.js no longer adds the platform velocity; the ball rides the kinematic movers through the engine."
       ]
     },
     {
@@ -95,7 +96,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: raycast3d accepts [x,y,z] arrays or vec3(); { ignore: entity|id } option; colliders containing the origin are skipped. Verified."
+        "Fixed in e2b0090: raycast3d accepts [x,y,z] arrays or vec3(); { ignore: entity|id } option; colliders containing the origin are skipped. Verified.",
+        "Workaround removed in 99eebad: ground() uses physics.raycast3d(pos, [0,-1,0], d, { ignore: this.entity }); the collider-layer trick is gone."
       ]
     },
     {
@@ -119,7 +121,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: RigidBody3D.angularVelocity (deg/s) and rollWithMotion (default true): a sphere on the ground spins to match its motion (visual only, colliders stay axis-aligned). Caveat: friction still slows the ball as if sliding (no rolling resistance model), so keep applying your own force/velocity."
+        "Fixed in e2b0090: RigidBody3D.angularVelocity (deg/s) and rollWithMotion (default true): a sphere on the ground spins to match its motion (visual only, colliders stay axis-aligned). Caveat: friction still slows the ball as if sliding (no rolling resistance model), so keep applying your own force/velocity.",
+        "Workaround removed in 99eebad: rollWithMotion spins the ball; the manual rotation (which double-rotated it together with the engine's rolling) is gone."
       ]
     },
     {
@@ -143,7 +146,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: Shape2D.pivot ([0.5,0.5] default, [0,1] = top-left in screen space) and Sprite/Shape2D/Text 'anchor' (screen-space anchors such as [1,0] top-right). Verified by screenshot."
+        "Fixed in e2b0090: Shape2D.pivot ([0.5,0.5] default, [0,1] = top-left in screen space) and Sprite/Shape2D/Text 'anchor' (screen-space anchors such as [1,0] top-right). Verified by screenshot.",
+        "Workaround removed in 99eebad: HUD panels and texts use anchor/pivot and follow the screen edges at any width."
       ]
     },
     {
@@ -167,7 +171,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: Headless runs/tests render only when a screenshot is taken (--render-all to force): 5400 simulated frames take ~0.4 s. No flag needed."
+        "Fixed in e2b0090: Headless runs/tests render only when a screenshot is taken (--render-all to force): 5400 simulated frames take ~0.4 s. No flag needed.",
+        "99eebad: tests let time run (game.step(5400) takes about 2.8 s with physics and scripts) instead of poking timeLeft."
       ]
     },
     {
@@ -192,7 +197,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n); autoDestroy:true for one-shots."
+        "Fixed in e2b0090: ParticleEmitter.burst fires with emitting:false; particles.burst(entity, n); autoDestroy:true for one-shots.",
+        "Workaround removed in 99eebad: gem pickups spawn prefabs/gem_burst.prefab.json (emitting:false, burst, autoDestroy); the cleanup timer is gone."
       ]
     },
     {
@@ -216,7 +222,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: world.destroy() unregisters the id immediately, so world.spawn with the same id right after works (verified)."
+        "Fixed in e2b0090: world.destroy() unregisters the id immediately, so world.spawn with the same id right after works (verified).",
+        "Workaround removed in 99eebad: scatter_gems spawns plain gem_N ids."
       ]
     },
     {
@@ -267,7 +274,8 @@
       "status": "fixed-in-engine",
       "engineIssue": "e2b0090",
       "notes": [
-        "Fixed in e2b0090: Rendering is skipped in tests by default, so game.step(5400) is fast; read script fields with game.find(id).behaviour (usable right after game.load, see SCRIPTING.md 'When behaviours exist')."
+        "Fixed in e2b0090: Rendering is skipped in tests by default, so game.step(5400) is fast; read script fields with game.find(id).behaviour (usable right after game.load, see SCRIPTING.md 'When behaviours exist').",
+        "99eebad: tests drive the camera by input and let timers expire; direct behaviour reads are kept only where they are the clearest assertion."
       ]
     }
   ]

@@ -15,7 +15,9 @@
 //
 // Conventions
 //   * Bodies use WORLD transforms (parents included); Transform.scale (x,y) scales colliders. Transform
-//     changes made by gameplay since the last step teleport the body (also for static colliders).
+//     changes made by gameplay since the last step teleport the body (also for static colliders). A teleport wakes
+//     the body and every body touching it, so a body that fell asleep falls again from its new place, and bodies
+//     asleep on a platform that was moved away do not hover; isGrounded() reflects the new place after one step.
 //     Inactive entities (active_in_hierarchy == false) have their body disabled.
 //   * Collider2D.layer is the category bit (1 << layer), mask the accepted categories (-1 = all). Triggers
 //     (isTrigger) are sensors: they never collide, and are invisible to raycasts; overlap_* queries DO report
@@ -25,7 +27,8 @@
 //   * TILEMAP: Tilemap.solidTiles => static boxes (horizontal runs per row merged, equal consecutive rows
 //     merged too). The Tilemap entity's world position is the map's TOP-LEFT corner, +Y up, row 0 = top row:
 //     tile (col,row) covers x in [px + col*tw, px + (col+1)*tw], y in [py - (row+1)*th, py - row*th]
-//     (tw,th = tileSize * world scale). The renderer must draw tilemaps with the same convention.
+//     (tw,th = tileSize * world scale). The renderer must draw tilemaps with the same convention, and both read the map
+//     through tilemap_grid() (fa/scene/tilemap.h): an array of rows defines its own size, a flat list uses width/height.
 //   * apply_impulse/apply_force take world units (impulse / ppm is passed to Box2D); mass comes from
 //     collider area (meters^2) * density.
 //   * RAYCASTS: a collider that contains the ray origin is skipped (see RaycastOptions); `ignore` skips an entity and

@@ -9,7 +9,8 @@
     "types": [],
     "paths": {
       "factoria": ["./types/factoria.d.ts"],
-      "factoria:test": ["./types/factoria.d.ts"]
+      "factoria:test": ["./types/factoria.d.ts"],
+      "*": ["./*"]
     }
   },
   "include": ["scripts/**/*.js", "tools/**/*.js", "tests/**/*.js", "types/**/*.d.ts"]

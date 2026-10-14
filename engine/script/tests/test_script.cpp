@@ -2,7 +2,9 @@
 #include <sstream>
 
 #include "test_host.h"
+#include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/scene/tilemap.h"
 
 using namespace fa;
 using namespace fa::test;
@@ -111,21 +113,33 @@ void copy_template(TestHost& h, const char* name) {
 }
 }  // namespace
 
-TEST_CASE("templates: scripts, tools and tests run against the host") {
+// What this checks: every template's scripts, project tools and test files load and compile on the MINIMAL host
+// (TestHost: world, input, audio, physics and the script API, nothing from fa_runtime or fa_tooling), and the main scene
+// plays for half a second without a script error. It keeps the templates inside what fa_script alone can run.
+// It does NOT run the templates' tests: they use commands that live above fa_script (fs.*, scene.import_ascii,
+// scene.format), which this host does not have. fa_test_cli ("templates: every template's tests pass ...") runs them on
+// the engine the CLI builds for `factoria test`, with all the commands.
+TEST_CASE("templates: scripts, tools and test files load on the minimal host") {
     for (const char* name : {"2d-empty", "2d-platformer", "3d-empty"}) {
         CAPTURE(name);
         TestHost h(std::string("tpl_") + name);
         copy_template(h, name);
         REQUIRE(h.start());
         CHECK(h.scripts.errors().empty());
-        std::vector<std::string> files = fs::list("tests", true, ".js");
-        REQUIRE(!files.empty());
-        TestReport rep = h.scripts.run_tests(files);
-        MESSAGE(rep.summary());
-        CHECK(rep.ok());
+        CHECK(h.cmds.has("project.spawn_" + std::string(name == std::string("2d-empty") ? "box" : name == std::string("3d-empty") ? "cube" : "coin")));
+        std::size_t checked = 0;
+        for (const char* dir : {"scripts", "tools", "tests"}) {
+            for (const std::string& file : fs::list(dir, true, ".js")) {
+                auto syntax = h.scripts.check_syntax(file);
+                CHECK_MESSAGE(syntax.ok(), file);
+                ++checked;
+            }
+        }
+        CHECK(checked >= 3);
+        REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
+        h.step_frames(30);
         for (const auto& e : h.scripts.errors()) MESSAGE(e.to_string());
         CHECK(h.scripts.errors().empty());
-        CHECK(h.cmds.has("project.spawn_" + std::string(name == std::string("2d-empty") ? "box" : name == std::string("3d-empty") ? "cube" : "coin")));
     }
 }
 
@@ -510,6 +524,56 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
 }
 
+TEST_CASE("setting an entity's position from JS on a body that fell asleep teleports a live body") {
+    TestHost h("sleepteleport");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-200]}, Collider2D:{size:[2000,40]}}})");
+    ev_ok(h, "world.spawn({id:'player', components:{Transform:{position:[0,-100]}, RigidBody2D:{}, Collider2D:{size:[32,32]}}})");
+    auto player_awake = [&] {  // Box2D's view of the body
+        for (const Json& j : h.ph.debug_state(h.w))
+            if (j.value("entity", std::string()) == "player") return j["awake"].get<bool>();
+        return true;
+    };
+    for (int i = 0; i < 600 && (i < 2 || player_awake()); ++i) h.step_frames(1);
+    REQUIRE_FALSE(player_awake());  // resting on the ground, asleep
+    CHECK(ev_ok(h, "world.find('player').isGrounded()") == true);
+    const double rest = ev_ok(h, "world.find('player').position.y").get<double>();
+    CHECK(rest == doctest::Approx(-180.0 + 16.0).epsilon(0.02));
+
+    // What a game does to respawn or nudge the player: write the entity's position.
+    ev_ok(h, "const p = world.find('player'); p.position = [p.position.x, p.position.y + 28]");
+    h.step_frames(1);
+    CHECK(player_awake());  // the write woke the body
+    CHECK(ev_ok(h, "world.find('player').isGrounded()") == false);  // no stale ground contact
+    h.step_frames(90);
+    CHECK(ev_ok(h, "world.find('player').position.y").get<double>() == doctest::Approx(rest).epsilon(0.02));  // fell back
+    CHECK(ev_ok(h, "world.find('player').isGrounded()") == true);
+
+    // The same from a behaviour's onUpdate, as a respawn would: teleport a body that is asleep.
+    h.file("scripts/respawn.js", R"(
+import { Behaviour } from "factoria";
+export default class Respawn extends Behaviour {
+  onUpdate() { if (globalThis.__respawn) { globalThis.__respawn = false; this.entity.position = [300, 60]; } }
+}
+)");
+    ev_ok(h, "world.spawn({id:'p2', components:{Transform:{position:[300,-100]}, RigidBody2D:{}, Collider2D:{size:[32,32]}, Script:{path:'scripts/respawn.js'}}})");
+    auto p2_awake = [&] {
+        for (const Json& j : h.ph.debug_state(h.w))
+            if (j.value("entity", std::string()) == "p2") return j["awake"].get<bool>();
+        return true;
+    };
+    for (int i = 0; i < 600 && (i < 2 || p2_awake()); ++i) h.step_frames(1);
+    REQUIRE_FALSE(p2_awake());
+    ev_ok(h, "globalThis.__respawn = true");
+    h.step_frames(10);
+    CHECK(ev_ok(h, "world.find('p2').position.y").get<double>() < 55.0);  // it left the respawn point...
+    CHECK(p2_awake());                                                    // ...because it is simulated again
+    h.step_frames(120);
+    CHECK(ev_ok(h, "world.find('p2').position.y").get<double>() == doctest::Approx(rest).epsilon(0.02));
+    CHECK(ev_ok(h, "world.find('p2').position.x").get<double>() == doctest::Approx(300.0).epsilon(0.01));
+    CHECK(h.scripts.errors().empty());
+}
+
 TEST_CASE("Script.props validation: one warning with did-you-mean, check_props without side effects") {
     TestHost h("props");
     h.file("scripts/foo.js", kBeh);
@@ -589,4 +653,361 @@ TEST_CASE("unknown Script.props warn once naming the entity") {
     int n = 0;
     for (auto& m : msgs) if (m.find("sped") != std::string::npos) { ++n; CHECK(m.find("bad_1") != std::string::npos); CHECK(m.find("did you mean 'speed'") != std::string::npos); }
     CHECK(n == 1);
+}
+
+namespace {
+// A 0.1 s silent 16-bit mono PCM WAV (the audio module only needs it to decode).
+std::string tiny_wav() {
+    const std::uint32_t n = 4410;
+    std::string b;
+    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
+    auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
+    b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
+    b += "data"; u32(n * 2);
+    b.append(std::size_t(n) * 2, '\0');
+    return b;
+}
+}  // namespace
+
+TEST_CASE("tests: game.audioLog and toContainPlayed assert which sounds played") {
+    TestHost h("audiolog");
+    h.file("assets/sfx/jump.wav", tiny_wav());
+    h.file("assets/sfx/coin.wav", tiny_wav());
+    h.file("scripts/jumper.js", R"(
+import { Behaviour, input, audio, time } from "factoria";
+export default class Jumper extends Behaviour {
+  playedAt = -1;
+  onUpdate() {
+    if (input.pressed("jump")) { audio.play("assets/sfx/jump.wav", { volume: 0.5 }); this.playedAt = time.frame; }
+  }
+}
+)");
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { audio } from "factoria";
+const scene = { format: "factoria.scene/1", entities: [{ id: "hero", components: { Script: { path: "scripts/jumper.js" } } }] };
+test("jump plays a sound", () => {
+  game.loadJson(scene);
+  game.step(2);
+  expect(game.audioLog()).toHaveLength(0);
+  game.tap("jump");
+  const log = game.audioLog();
+  expect(log).toContainPlayed("assets/sfx/jump.wav");
+  expect(log).toContainPlayed("jump.wav", { times: 1, bus: "sfx", source: "" });
+  expect(log).toHavePlayed(/jump/);
+  expect(log).not.toContainPlayed("coin.wav");
+  expect(log[0].volume).toBeCloseTo(0.5);
+  expect(log[0].frame).toBe(game.find("hero").behaviour.playedAt);
+});
+test("the log is cleared before each test", () => {
+  expect(game.audioLog()).toHaveLength(0);
+  audio.play("assets/sfx/coin.wav", { bus: "ui" });
+  audio.play("assets/sfx/missing.wav");
+  audio.music("assets/sfx/coin.wav");
+  const log = game.audioLog();
+  expect(log).toContainPlayed("coin.wav", { times: 2 });
+  expect(log).not.toContainPlayed("missing.wav");
+  expect(log[1].ok).toBe(false);
+  expect(log[2].music).toBe(true);
+  game.clearAudioLog();
+  expect(game.audioLog()).toEqual([]);
+});
+test("a failing assertion lists what played", () => {
+  audio.play("assets/sfx/coin.wav");
+  expect(game.audioLog()).toContainPlayed("jump.wav");
+});
+test("a wrong receiver explains the usage", () => {
+  expect(game).toContainPlayed("jump.wav");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    REQUIRE(rep.cases.size() == 4);
+    CHECK_MESSAGE(rep.cases[0].passed, rep.cases[0].message);
+    CHECK_MESSAGE(rep.cases[1].passed, rep.cases[1].message);
+    CHECK_FALSE(rep.cases[2].passed);
+    const std::string& msg = rep.cases[2].message;
+    CHECK(msg.find("toContainPlayed(\"jump.wav\")") != std::string::npos);
+    CHECK(msg.find("assets/sfx/coin.wav [sfx] x1") != std::string::npos);
+    CHECK_FALSE(rep.cases[3].passed);
+    CHECK(rep.cases[3].message.find("game.audioLog()") != std::string::npos);
+}
+
+// ======================================================================================================================
+// rng.create: independent seeded generators (mulberry32)
+// ======================================================================================================================
+TEST_CASE("rng.create: a seed gives a fixed sequence (mulberry32 is stable across versions)") {
+    TestHost h("rngcreate_fixed");
+    REQUIRE(h.start());
+    // Reference values of mulberry32: these must never change, stored seeds depend on them.
+    // The generators are created once per call, so each line starts a fresh sequence.
+    CHECK(ev_ok(h, "(() => { const g = rng.create(0); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
+          Json::parse("[1144304738, 1416247, 958946056, 627933444, 2007157716]"));
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
+          Json::parse("[2693262067, 11749833, 2265367787, 4213581821, 4159151403]"));
+    CHECK(ev_ok(h, "(() => { const g = rng.create(12345); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
+          Json::parse("[4207900869, 1317490944, 2079646450, 3513001552, 2187978186]"));
+    // The seed is reduced to 32 bits like `seed >>> 0`: the integer part, modulo 2^32.
+    CHECK(ev_ok(h, "(() => { const g = rng.create(-1); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
+          Json::parse("[3850105811, 813802916, 3073704848, 4054706436, 3630262831]"));
+    CHECK(ev_ok(h, "rng.create(4294967297).float() === rng.create(1).float() && rng.create(1.9).float() === rng.create(1).float()") == true);
+    // The same algorithm in C++ (an independent implementation) for many steps.
+    std::uint32_t a = 777;
+    Json js = ev_ok(h, "(() => { const g = rng.create(777); return Array.from({ length: 200 }, () => Math.round(g.float() * 4294967296)); })()");
+    REQUIRE(js.size() == 200);
+    for (std::size_t i = 0; i < js.size(); ++i) {
+        a += 0x6d2b79f5u;
+        std::uint32_t t = a;
+        t = (t ^ (t >> 15)) * (t | 1u);
+        t ^= t + (t ^ (t >> 7)) * (t | 61u);
+        CHECK(js[i].get<std::uint64_t>() == static_cast<std::uint32_t>(t ^ (t >> 14)));
+    }
+}
+
+TEST_CASE("rng.create: methods, draw counts and errors") {
+    TestHost h("rngcreate_methods");
+    REQUIRE(h.start());
+    // Same seed, same sequence; different seed, different sequence; seed(n) restarts.
+    CHECK(ev_ok(h, "(() => { const a = rng.create(9), b = rng.create(9); return [0, 1, 2, 3, 4].every(() => a.float() === b.float()); })()") == true);
+    CHECK(ev_ok(h, "rng.create(9).float() !== rng.create(10).float()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(5); const first = [g.float(), g.float()]; g.float(); g.seed(5); return g.float() === first[0] && g.float() === first[1]; })()") == true);
+    // Derived methods (fixed values for seed 1 / 7 / 3).
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1); return Array.from({ length: 8 }, () => g.int(1, 6)); })()") == Json::parse("[4, 1, 4, 6, 6, 2, 4, 5]"));
+    CHECK(ev_ok(h, "rng.create(7).shuffle([1, 2, 3, 4, 5, 6])") == Json::parse("[5, 2, 3, 4, 6, 1]"));
+    CHECK(ev_ok(h, "(() => { const g = rng.create(7); return Array.from({ length: 5 }, () => g.pick(['a', 'b', 'c', 'd', 'e'])).join(''); })()") == "aaedc");
+    CHECK(ev_ok(h, "(() => { const g = rng.create(3); return Array.from({ length: 8 }, () => (g.chance(0.5) ? 1 : 0)).join(''); })()") == "01110111");
+    Json r = ev_ok(h, "(() => { const g = rng.create(1); return [g.range(10, 20), g.range(10, 20), g.range(10, 20)]; })()");
+    CHECK(r[0].get<double>() == doctest::Approx(16.270739405881613));
+    CHECK(r[1].get<double>() == doctest::Approx(10.027357211802155));
+    CHECK(r[2].get<double>() == doctest::Approx(15.274470399599522));
+    // Ranges: int is inclusive on both ends, float stays in [0, 1), the input of shuffle is not modified.
+    CHECK(ev_ok(h, "(() => { const g = rng.create(2); const seen = new Set(); for (let i = 0; i < 400; i++) seen.add(g.int(-2, 2)); return [...seen].sort((p, q) => p - q).join(','); })()") == "-2,-1,0,1,2");
+    CHECK(ev_ok(h, "(() => { const g = rng.create(4); for (let i = 0; i < 1000; i++) { const f = g.float(); if (f < 0 || f >= 1) return false; } return true; })()") == true);
+    CHECK(ev_ok(h, "(() => { const src = [1, 2, 3, 4]; const out = rng.create(1).shuffle(src); return src.join('') === '1234' && out.length === 4 && [...out].sort().join('') === '1234'; })()") == true);
+    CHECK(ev_ok(h, "rng.create(1).pick([]) === undefined") == true);
+    // Every call draws a fixed number of steps, whatever its arguments: int(5, 5) still draws, an empty pick does not,
+    // pick draws once and shuffle draws length - 1 times.
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.int(5, 5); s.float(); return g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.pick([]); return g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.pick([1, 2, 3]); s.float(); return g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.shuffle([1, 2, 3, 4]); s.float(); s.float(); s.float(); return g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.chance(); g.range(0, 1); s.float(); s.float(); return g.float() === s.float(); })()") == true);
+    // Errors say what to pass.
+    for (const char* bad : {"rng.create()", "rng.create('7')", "rng.create(NaN)", "rng.create(Infinity)"}) {
+        CAPTURE(bad);
+        std::string e = ev_err(h, bad);
+        CHECK(e.find("rng.create(seed) expects a finite number") != std::string::npos);
+    }
+    CHECK(ev_err(h, "rng.create(1).int(1)").find("generator.int(min, max) expects two finite numbers") != std::string::npos);
+    CHECK(ev_err(h, "rng.create(1).range('a', 2)").find("generator.range(min, max)") != std::string::npos);
+    CHECK(ev_err(h, "rng.create(1).seed('x')").find("generator.seed(n) expects a finite number") != std::string::npos);
+}
+
+TEST_CASE("rng.create: generators never touch the world RNG, Math.random or each other") {
+    TestHost h("rngcreate_independent");
+    REQUIRE(h.start());
+    // The world sequence is the same with and without a generator being used in between.
+    ev_ok(h, "rng.seed(9)");
+    Json plain = ev_ok(h, "[rng.float(), rng.int(0, 1000), Math.random(), rng.float()]");
+    ev_ok(h, "rng.seed(9)");
+    Json mixed = ev_ok(h, R"((() => {
+      const g = rng.create(1), other = rng.create(1);
+      const out = [rng.float()];
+      for (let i = 0; i < 50; i++) { g.float(); g.int(0, 9); g.chance(); g.pick([1, 2, 3]); g.shuffle([1, 2, 3]); g.range(0, 3); }
+      out.push(rng.int(0, 1000));
+      g.seed(77);
+      other.float();
+      out.push(Math.random());
+      rng.create(5).float();
+      out.push(rng.float());
+      return out;
+    })())");
+    CHECK(mixed == plain);
+    // The state of the C++ world RNG is untouched by creating and using generators.
+    h.w.rng().reseed(1234);
+    const std::uint64_t before = h.w.rng().state();
+    ev_ok(h, "(() => { const g = rng.create(3); for (let i = 0; i < 100; i++) g.float(); g.seed(4); g.shuffle([1, 2, 3]); })()");
+    CHECK(h.w.rng().state() == before);
+    // Reseeding the world RNG does not move a generator, and generators do not share state.
+    CHECK(ev_ok(h, "(() => { const g = rng.create(3), r = rng.create(3); g.float(); rng.seed(1); rng.float(); r.float(); return g.float() === r.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const a = rng.create(3), b = rng.create(3); a.float(); a.float(); return b.float() === rng.create(3).float(); })()") == true);
+}
+
+// ======================================================================================================================
+// entity.bounds(): world rectangle of the 2D visual
+// ======================================================================================================================
+namespace {
+// bounds() of entity `id` as { x, y, w, h } (or null).
+Json bounds_json(TestHost& h, const std::string& id) {
+    return ev_ok(h, ("(() => { const b = world.find('" + id + "').bounds(); return b === null ? null : { x: b.x, y: b.y, w: b.w, h: b.h }; })()").c_str());
+}
+void check_rect(const Json& b, double x, double y, double w, double hh) {
+    REQUIRE(b.is_object());
+    CHECK(b["x"].get<double>() == doctest::Approx(x).epsilon(1e-4));
+    CHECK(b["y"].get<double>() == doctest::Approx(y).epsilon(1e-4));
+    CHECK(b["w"].get<double>() == doctest::Approx(w).epsilon(1e-4));
+    CHECK(b["h"].get<double>() == doctest::Approx(hh).epsilon(1e-4));
+}
+}  // namespace
+
+TEST_CASE("entity.bounds: Tilemap size x tileSize from its top-left corner, rows and flat forms") {
+    TestHost h("bounds_tilemap");
+    REQUIRE(h.start());
+    // Rows form: 3 rows of 4, tiles 32 x 16, top-left corner at (100, 300): spans x 100..228, y 252..300.
+    ev_ok(h, "world.spawn({id: 'rows', components: {Transform: {position: [100, 300]}, Tilemap: {tileSize: [32, 16], tiles: [[0, 0, -1, 0], [-1, 1, 1, 1], [2, 2, 2, 2]]}}})");
+    check_rect(bounds_json(h, "rows"), 100, 252, 128, 48);
+    // Flat form: width and height fields.
+    ev_ok(h, "world.spawn({id: 'flat', components: {Transform: {position: [-50, 20]}, Tilemap: {tileSize: [10, 8], width: 5, height: 2, tiles: [0,0,0,0,0, 1,1,1,1,1]}}})");
+    check_rect(bounds_json(h, "flat"), -50, 4, 50, 16);
+    // A flat list without width is ONE row; with only a height it is tiles / height columns (tilemap_size decides, as in the renderer).
+    ev_ok(h, "world.spawn({id: 'oneRow', components: {Tilemap: {tileSize: [16, 16], tiles: [0, 1, 2, 3]}}})");
+    check_rect(bounds_json(h, "oneRow"), 0, -16, 64, 16);
+    ev_ok(h, "world.spawn({id: 'byHeight', components: {Tilemap: {tileSize: [16, 16], height: 2, tiles: [0, 1, 2, 3, 4, 5]}}})");
+    check_rect(bounds_json(h, "byHeight"), 0, -32, 48, 32);
+    {
+        const Tilemap* tm = h.w.get<Tilemap>(h.w.find("byHeight"));
+        REQUIRE(tm);
+        const TilemapSize sz = tilemap_size(*tm);
+        CHECK(sz.width == 3);
+        CHECK(sz.height == 2);
+    }
+    // Sky Hopper layout: 60 x 16 tiles of 32 px, top-left corner at (0, 512) (anchor bottom-left at the origin).
+    ev_ok(h, "world.spawn({id: 'level', components: {Transform: {position: [0, 512]}, Tilemap: {tileSize: [32, 32], width: 60, height: 16, tiles: new Array(960).fill(-1)}}})");
+    check_rect(bounds_json(h, "level"), 0, 0, 1920, 512);
+    // Scale, parent and rotation are applied: a scaled map, a child of a scaled parent, and a map rotated by 90 degrees.
+    ev_ok(h, "world.spawn({id: 'scaled', components: {Transform: {position: [10, 10], scale: 2}, Tilemap: {tileSize: [8, 8], tiles: [[0, 0], [0, 0]]}}})");
+    check_rect(bounds_json(h, "scaled"), 10, -22, 32, 32);
+    ev_ok(h, "world.spawn({id: 'parent', components: {Transform: {position: [100, 100], scale: 3}}}); world.spawn({id: 'kid', components: {Transform: {position: [1, 0]}, Tilemap: {tileSize: [2, 2], tiles: [[0, 0]]}}}, {parent: 'parent'})");
+    check_rect(bounds_json(h, "kid"), 103, 94, 12, 6);
+    ev_ok(h, "world.spawn({id: 'turned', components: {Transform: {position: [0, 0], rotation: 90}, Tilemap: {tileSize: [10, 10], tiles: [[0, 0, 0], [0, 0, 0]]}}})");
+    check_rect(bounds_json(h, "turned"), 0, 0, 20, 30);  // local x 0..30, y -20..0  ->  (x, y) = (-y, x): x 0..20, y 0..30
+    // No bounds: an empty map, an entity without 2D visual.
+    ev_ok(h, "world.spawn({id: 'empty', components: {Tilemap: {tileSize: [16, 16]}}}); world.spawn({id: 'plain', components: {Transform: {position: [5, 5]}}})");
+    CHECK(bounds_json(h, "empty").is_null());
+    CHECK(bounds_json(h, "plain").is_null());
+    // The result is a Rect: usable with Rect.contains and physics.overlapBox.
+    CHECK(ev_ok(h, "(() => { const b = world.find('level').bounds(); return b.contains({x: 5, y: 5}) && !b.contains({x: -1, y: 5}) && b.toArray().join() === '0,0,1920,512'; })()") == true);
+    CHECK(ev_ok(h, "Array.isArray(physics.overlapBox(world.find('level').bounds()))") == true);
+}
+
+TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and flip") {
+    TestHost h("bounds_sprite");
+    Image img;
+    img.width = 40;
+    img.height = 20;
+    img.rgba.assign(static_cast<std::size_t>(img.width) * img.height * 4, 255);
+    REQUIRE(h.start());
+    fs::set_project_root(h.root);
+    REQUIRE(save_png(img, "assets/tex.png").ok());
+    // Explicit size; the default pivot (0.5, 0.5) is the centre.
+    ev_ok(h, "world.spawn({id: 'centre', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32]}}})");
+    check_rect(bounds_json(h, "centre"), 68, 34, 64, 32);
+    // pivot (0, 0) = bottom-left: the position is the bottom-left corner; pivot (1, 1) = top-right; (0.25, 0.75) in between.
+    ev_ok(h, "world.spawn({id: 'bl', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "bl"), 100, 50, 64, 32);
+    ev_ok(h, "world.spawn({id: 'tr', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: [1, 1]}}})");
+    check_rect(bounds_json(h, "tr"), 36, 18, 64, 32);
+    ev_ok(h, "world.spawn({id: 'mid', components: {Transform: {position: [0, 0]}, Sprite: {size: [40, 40], pivot: [0.25, 0.75]}}})");
+    check_rect(bounds_json(h, "mid"), -10, -30, 40, 40);
+    // Flips only mirror the picture; the box stays.
+    ev_ok(h, "world.spawn({id: 'flip', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: [0, 0], flipX: true, flipY: true}}})");
+    check_rect(bounds_json(h, "flip"), 100, 50, 64, 32);
+    // No size: the whole texture (40 x 20), one axis given, a region, a SpriteAnimator frame, a plain colour quad, a missing texture.
+    ev_ok(h, "world.spawn({id: 'tex', components: {Sprite: {texture: 'assets/tex.png', pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "tex"), 0, 0, 40, 20);
+    ev_ok(h, "world.spawn({id: 'texw', components: {Sprite: {texture: 'assets/tex.png', size: [100, 0], pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "texw"), 0, 0, 100, 20);
+    ev_ok(h, "world.spawn({id: 'region', components: {Sprite: {texture: 'assets/tex.png', region: [0, 0, 10, 5], pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "region"), 0, 0, 10, 5);
+    ev_ok(h, "world.spawn({id: 'anim', components: {Sprite: {texture: 'assets/tex.png', pivot: [0, 0]}, SpriteAnimator: {columns: 4, rows: 2}}})");
+    check_rect(bounds_json(h, "anim"), 0, 0, 10, 10);
+    ev_ok(h, "world.spawn({id: 'quad', components: {Sprite: {pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "quad"), 0, 0, 32, 32);
+    ev_ok(h, "world.spawn({id: 'missing', components: {Sprite: {texture: 'assets/nope.png', pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "missing"), 0, 0, 32, 32);
+    // A texture that changes on disk is read again.
+    img.width = 8;
+    img.height = 6;
+    img.rgba.assign(static_cast<std::size_t>(img.width) * img.height * 4, 255);
+    REQUIRE(save_png(img, "assets/tex.png").ok());
+    std::filesystem::last_write_time(h.root / "assets/tex.png", std::filesystem::file_time_type::clock::now() + std::chrono::seconds(30));
+    check_rect(bounds_json(h, "tex"), 0, 0, 8, 6);
+    // Scale, rotation and a parent move the box: 64 x 32 centred at the origin, scale 2 -> 128 x 64; rotated 90 -> 32 x 64.
+    ev_ok(h, "world.spawn({id: 'scaled', components: {Transform: {position: [10, 20], scale: 2}, Sprite: {size: [64, 32]}}})");
+    check_rect(bounds_json(h, "scaled"), -54, -12, 128, 64);
+    ev_ok(h, "world.spawn({id: 'turned', components: {Transform: {position: [10, 20], rotation: 90}, Sprite: {size: [64, 32]}}})");
+    check_rect(bounds_json(h, "turned"), -6, -12, 32, 64);
+    ev_ok(h, "world.spawn({id: 'diag', components: {Transform: {rotation: 45}, Sprite: {size: [20, 20]}}})");
+    check_rect(bounds_json(h, "diag"), -14.142136, -14.142136, 28.284271, 28.284271);
+    // Screen-space sprites are not in the world: null.
+    ev_ok(h, "world.spawn({id: 'hud', components: {Transform: {position: [24, 16]}, Sprite: {size: [64, 32], space: 'screen'}}})");
+    CHECK(bounds_json(h, "hud").is_null());
+}
+
+TEST_CASE("entity.bounds: Shape2D, Text, unions and destroyed entities") {
+    TestHost h("bounds_shape");
+    REQUIRE(h.start());
+    // Rectangle and triangle: size and pivot.
+    ev_ok(h, "world.spawn({id: 'rect', components: {Transform: {position: [10, 20]}, Shape2D: {shape: 'rectangle', size: [20, 10], pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "rect"), 10, 20, 20, 10);
+    ev_ok(h, "world.spawn({id: 'tri', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'triangle', size: [20, 10]}}})");
+    check_rect(bounds_json(h, "tri"), -10, -5, 20, 10);
+    // Circle: the pivot refers to the bounding square of diameter size.x.
+    ev_ok(h, "world.spawn({id: 'circle', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'circle', size: [20, 20]}}})");
+    check_rect(bounds_json(h, "circle"), -10, -10, 20, 20);
+    ev_ok(h, "world.spawn({id: 'circleBl', components: {Transform: {position: [5, 5]}, Shape2D: {shape: 'circle', size: [20, 99], pivot: [0, 0]}}})");
+    check_rect(bounds_json(h, "circleBl"), 5, 5, 20, 20);
+    // Line: from the origin to `size`, thickness 2 -> the box around the stroked segment.
+    ev_ok(h, "world.spawn({id: 'line', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'line', size: [30, 40], thickness: 2}}})");
+    check_rect(bounds_json(h, "line"), -0.8, -0.6, 31.6, 41.2);
+    ev_ok(h, "world.spawn({id: 'flatLine', components: {Transform: {position: [0, 10]}, Shape2D: {shape: 'line', size: [50, 0], thickness: 4}}})");
+    check_rect(bounds_json(h, "flatLine"), 0, 8, 50, 4);
+    ev_ok(h, "world.spawn({id: 'noLine', components: {Shape2D: {shape: 'line', size: [0, 0]}}})");
+    CHECK(bounds_json(h, "noLine").is_null());
+    // Rotation: the box around the rotated rectangle.
+    // Diamond: unrotated it fills its size box; rotated 45 degrees, the AABB of its 4 tips (not of the rotated box).
+    ev_ok(h, "world.spawn({id: 'dia', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'diamond', size: [20, 20]}}})");
+    check_rect(bounds_json(h, "dia"), -10, -10, 20, 20);
+    ev_ok(h, "world.spawn({id: 'diaRot', components: {Transform: {position: [0, 0], rotation: 45}, Shape2D: {shape: 'diamond', size: [20, 20]}}})");
+    check_rect(bounds_json(h, "diaRot"), -7.0710678, -7.0710678, 14.1421356, 14.1421356);
+    ev_ok(h, "world.spawn({id: 'rot', components: {Transform: {position: [0, 0], rotation: 90}, Shape2D: {shape: 'rectangle', size: [40, 20]}}})");
+    check_rect(bounds_json(h, "rot"), -10, -20, 20, 40);
+    // Screen-space shapes: null.
+    ev_ok(h, "world.spawn({id: 'panel', components: {Shape2D: {size: [100, 40], space: 'screen'}}})");
+    CHECK(bounds_json(h, "panel").is_null());
+    // Text (no renderer here: the same 0.6 em approximation as ui.measureText). 'abcd' at 10: 24 x 12. The default pivot (0, 1)
+    // is the top-left corner; pivot (0.5, 0.5) centres the box; a wrapped text is taller.
+    ev_ok(h, "world.spawn({id: 'text', components: {Transform: {position: [5, 5]}, Text: {text: 'abcd', fontSize: 10}}})");
+    check_rect(bounds_json(h, "text"), 5, -7, 24, 12);
+    ev_ok(h, "world.spawn({id: 'textMid', components: {Transform: {position: [0, 0]}, Text: {text: 'abcd', fontSize: 10, pivot: [0.5, 0.5]}}})");
+    check_rect(bounds_json(h, "textMid"), -12, -6, 24, 12);
+    ev_ok(h, "world.spawn({id: 'textWrap', components: {Text: {text: 'abcdefgh', fontSize: 10, maxWidth: 30}}})");
+    CHECK(bounds_json(h, "textWrap")["h"].get<double>() > 12.0);
+    ev_ok(h, "world.spawn({id: 'textHud', components: {Text: {text: 'abcd', space: 'screen'}}}); world.spawn({id: 'textEmpty', components: {Text: {text: ''}}})");
+    CHECK(bounds_json(h, "textHud").is_null());
+    CHECK(bounds_json(h, "textEmpty").is_null());
+    // An entity with several visuals gets the union of their boxes; a screen-space one does not count.
+    ev_ok(h, "world.spawn({id: 'both', components: {Transform: {position: [0, 0]}, Sprite: {size: [10, 10], pivot: [0, 0]}, Shape2D: {size: [10, 10], pivot: [1, 1]}}})");
+    check_rect(bounds_json(h, "both"), -10, -10, 20, 20);
+    ev_ok(h, "world.spawn({id: 'mixed', components: {Transform: {position: [0, 0]}, Sprite: {size: [10, 10], pivot: [0, 0]}, Text: {text: 'abcd', space: 'screen'}}})");
+    check_rect(bounds_json(h, "mixed"), 0, 0, 10, 10);
+    // Inactive entities and zero alpha still have bounds; children are not included.
+    ev_ok(h, "world.spawn({id: 'hidden', active: false, components: {Sprite: {size: [10, 10], pivot: [0, 0], color: [1, 1, 1, 0]}}}); world.spawn({id: 'holder', components: {Sprite: {size: [4, 4], pivot: [0, 0]}}}); world.spawn({id: 'far', components: {Transform: {position: [500, 500]}, Sprite: {size: [4, 4]}}}, {parent: 'holder'})");
+    check_rect(bounds_json(h, "hidden"), 0, 0, 10, 10);
+    check_rect(bounds_json(h, "holder"), 0, 0, 4, 4);
+    // A destroyed entity throws the usual friendly error.
+    ev_ok(h, "globalThis.gone = world.find('rect'); gone.destroy()");
+    h.step_frames(1);
+    CHECK(ev_err(h, "gone.bounds()").find("destroyed") != std::string::npos);
+}
+
+TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
+    TestHost h("dts_bounds");
+    REQUIRE(h.start());
+    std::string dts = h.scripts.typescript_declarations();
+    for (const char* needle : {"create(seed: number): Rng;", "export interface Rng {", "bounds(): Rect | null;", "BOTTOM-LEFT"}) {
+        CAPTURE(needle);
+        CHECK(dts.find(needle) != std::string::npos);
+    }
 }

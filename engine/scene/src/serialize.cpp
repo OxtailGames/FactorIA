@@ -1,10 +1,14 @@
 #include "fa/scene/serialize.h"
 
 #include <algorithm>
+#include <iterator>
+#include <limits>
 #include <set>
+#include <span>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/scene/tilemap.h"
 
 namespace fa {
 
@@ -351,6 +355,14 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                 apply_component(e, *t, it.value(), kptr, true);
             }
         }
+        // Tilemap data (tiles vs width*height, rows, solidTiles) is checked once all its fields are in.
+        if (const Tilemap* tm = world_.get<Tilemap>(e)) {
+            for (const TilemapIssue& issue : check_tilemap(*tm)) {
+                std::string tptr = cptr + "/Tilemap" + issue.pointer;
+                if (issue.error) error(tptr, issue.message, issue.hint);
+                else warn(tptr, issue.message, issue.hint);
+            }
+        }
     }
 
     if (j.contains("children")) {
@@ -545,18 +557,72 @@ LoadReport load_scene_file(World& world, std::string_view path, const SceneLoadO
     return load_scene(world, json.value(), path, opts);
 }
 
+namespace {
+
+// `settings` of a saved scene: the non-default fields, plus the gravity ALWAYS, even at its default. A scene that says
+// `"settings": {}` hides what pulls its bodies down (and by how much), which a reader of the file cannot work out.
+// Fields keep the order of the reflected type.
+Json settings_to_json(const World& world) {
+    const TypeInfo* st = TypeRegistry::global().find("SceneSettings");
+    if (!st) return Json::object();
+    static const char* const kAlwaysWritten[] = {"gravity2D", "gravity3D"};
+    Json changed = object_to_json(*st, &world.settings(), false);
+    Json all = object_to_json(*st, &world.settings(), true);
+    Json out = Json::object();
+    for (auto it = all.begin(); it != all.end(); ++it) {
+        const bool always = std::find_if(std::begin(kAlwaysWritten), std::end(kAlwaysWritten),
+                                         [&](const char* name) { return it.key() == name; }) != std::end(kAlwaysWritten);
+        if (always || changed.contains(it.key())) out[it.key()] = *it;
+    }
+    return out;
+}
+
+}  // namespace
+
 Json save_scene(const World& world) {
     Json scene = Json::object();
     scene["format"] = kSceneFormat;
-    const TypeInfo* st = TypeRegistry::global().find("SceneSettings");
-    scene["settings"] = st ? object_to_json(*st, &world.settings(), false) : Json::object();
+    scene["settings"] = settings_to_json(world);
     Json ents = Json::array();
     for (Entity e : world.roots()) ents.push_back(entity_to_json(world, e));
     scene["entities"] = std::move(ents);
     return scene;
 }
 
-Result<void> save_scene_file(const World& world, std::string_view path) { return save_json_file(path, save_scene(world)); }
+namespace {
+
+// Elements per line for a flat Tilemap `tiles` array: the component's `width` (0 = no row layout).
+int tilemap_row_length(std::span<const std::string> path, const Json& parent, const Json&) {
+    const std::size_t n = path.size();
+    if (n < 3 || path[n - 1] != "tiles" || path[n - 2] != "Tilemap" || path[n - 3] != "components") return 0;
+    if (!parent.is_object()) return 0;
+    auto it = parent.find("width");
+    if (it == parent.end() || !it->is_number_integer()) return 0;
+    const std::int64_t width = it->get<std::int64_t>();
+    return width > 0 && width <= std::numeric_limits<int>::max() ? static_cast<int>(width) : 0;
+}
+
+const JsonFormat& scene_json_format() {
+    static const JsonFormat format = [] {
+        JsonFormat f;
+        f.maxWidth = 100;
+        f.rowLength = tilemap_row_length;
+        return f;
+    }();
+    return format;
+}
+
+}  // namespace
+
+std::string dump_scene_json(const Json& sceneOrPrefab) { return dump_json(sceneOrPrefab, scene_json_format()); }
+
+Result<void> save_scene_json_file(std::string_view path, const Json& sceneOrPrefab) {
+    return save_json_file(path, sceneOrPrefab, scene_json_format());
+}
+
+Result<void> save_scene_file(const World& world, std::string_view path) {
+    return save_scene_json_file(path, save_scene(world));
+}
 
 // ---------------------------------------------------------------- prefabs --
 Entity instantiate_prefab(World& world, std::string_view prefabPath, Entity parent, LoadReport& report, const Json& overrides) {

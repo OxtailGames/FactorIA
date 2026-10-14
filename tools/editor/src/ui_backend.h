@@ -5,11 +5,14 @@
 #include <cstdint>
 
 struct sapp_event;
+struct ImFont;
 
 namespace fa::editor::ui {
 
 // Call after sg_setup() (the renderer or editor_gfx_setup() did it). iniFile may be nullptr.
 void setup(const char* iniFile);
+// Monospaced font for text boxes where columns must line up (ASCII level rows, JSON). nullptr when it could not be loaded.
+ImFont* mono_font();
 void shutdown();
 void new_frame(int fbWidth, int fbHeight, double dt, float dpiScale);
 void flush();  // outside any pass, after building the UI

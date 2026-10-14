@@ -41,6 +41,11 @@ Renders the scene to the screen. The active camera with primary=true and the low
 | `clear` | bool | `true` | Clear the target before drawing. Set false on overlay cameras that draw on top of another camera. |
 | `primary` | bool | `true` | The first active primary camera renders the game. |
 | `depth` | int | `0` | Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap). |
+| `bloom` | bool | `false` | Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. |
+| `bloomThreshold` | float | `0.7` | Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99). Range 0.0..1.0. |
+| `bloomIntensity` | float | `1.2` | Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10. Range 0.0..10.0. |
+| `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. |
+| `bloomScreenSpace` | bool | `true` | Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow. |
 
 ## 2D
 
@@ -85,14 +90,14 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `shape` | enum: rectangle \\| circle \\| line \\| triangle | `"rectangle"` | Kind of primitive to draw. |
-| `size` | vec2 | `[32.0,32.0]` | rectangle/triangle: [width, height]. circle: diameter in x. line: end point offset from the entity origin. |
+| `shape` | enum: rectangle \\| circle \\| line \\| triangle \\| diamond | `"rectangle"` | Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers). |
+| `size` | vec2 | `[32.0,32.0]` | rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Fill or outline color. |
 | `filled` | bool | `true` | true = solid shape, false = outline only (lines are always drawn as strokes). |
 | `thickness` | float | `2.0` | Outline / line thickness in world units. Range 0.0..10000.0. |
 | `layer` | int | `0` | Draw order. Higher layers draw on top. |
 | `space` | enum: world \\| screen | `"world"` | world: affected by cameras. screen: UI in design pixels, origin TOP-LEFT, +Y down. |
-| `pivot` | vec2 | `[0.5,0.5]` | Anchor point within the shape for rectangle/circle/triangle: [0.5,0.5] = centered on the position (default), [0,0] bottom-left, [1,1] top-right. In screen space +Y is down, so [0,1] puts the top-left corner at the position. |
+| `pivot` | vec2 | `[0.5,0.5]` | Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place. |
 | `blend` | enum: alpha \\| additive \\| multiply | `"alpha"` | Compositing: alpha (normal), additive (glow/neon), multiply (darken). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right). |
 
@@ -121,10 +126,10 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 |---|---|---|---|
 | `tileset` | asset (texture) | `""` | Project-relative path of the tileset image (tiles laid out left-to-right, top-to-bottom). |
 | `tileSize` | vec2 | `[16.0,16.0]` | Size of one tile [w, h], both in the tileset texture (pixels) and in the world (units). |
-| `columns` | int | `1` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Range 1.0..4096.0. |
-| `width` | int | `0` | Map width in tiles. Range 0.0..65536.0. |
-| `height` | int | `0` | Map height in tiles. Range 0.0..65536.0. |
-| `tiles` | json | `[]` | Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array of rows. -1 = empty. |
+| `columns` | int | `0` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout. Range 0.0..4096.0. |
+| `width` | int | `0` | Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it). Range 0.0..65536.0. |
+| `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
+| `tiles` | json | `[]` | Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. |
 | `solidTiles` | json | `[]` | List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the tileset. |
 | `layer` | int | `-10` | Draw order. Defaults below sprites (-10). |
@@ -375,6 +380,20 @@ Example: assets.list {"folder":"assets","extension":".png"}
 | `folder` | string | no | Project-relative folder. Default "assets". |
 | `extension` | string | no | Only files with this extension, e.g. .png |
 
+## audio
+
+### `audio.log`
+
+List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.
+
+Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock (time.frame / time.elapsed in scripts). Use it after game.step to check that a sound fired. `after` (a seq from a previous call) returns only newer entries; `path` keeps entries whose path equals it or ends with /<path>. Example: audio.log {"path":"jump.wav"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `after` | integer | no | Only entries with seq greater than this. Default 0. |
+| `path` | string | no | Only this clip: a project-relative path or a file name like "jump.wav". |
+| `max` | integer | no | Return at most this many (the newest). Default 200. |
+
 ## docs
 
 ### `docs.commands`
@@ -486,7 +505,7 @@ Engine developers use this when a gap is fixed (status fixed-in-engine), rejecte
 
 Delete a file or folder from the project.
 
-Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable unless the project is under version control. Example: {"path":"scripts/old.js"}
+Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be deleted. Not undoable unless the project is under version control. Inside .factoria/ (screenshots, saves, AI transcripts) only the scratch folder .factoria/tmp/ can be deleted, the same folder fs.write and scene.save may write to. Example: {"path":"scripts/old.js"} or {"path":".factoria/tmp","recursive":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -497,7 +516,7 @@ Folders need recursive=true. factoria.json and ENGINE_FEEDBACK.json cannot be de
 
 Replace exact text in a file (must match exactly once unless replaceAll).
 
-Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique.
+Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -510,7 +529,7 @@ Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360
 
 List files and folders in the project.
 
-Project-relative. Hides .git and .factoria. Example: {"path":"scenes","recursive":true}
+Project-relative. Hides the tools' folders (.factoria, version control) except the scratch folder .factoria/tmp. Example: {"path":"scenes","recursive":true}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -551,7 +570,7 @@ Skips binary files and .factoria/.git. Example: {"query":"RigidBody2D","glob":"*
 
 Create or overwrite a text file (parent folders are created).
 
-Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For small changes to an existing file prefer fs.edit. .json files are checked for syntax and a warning is returned if invalid; run project.validate afterwards.
+Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For small changes to an existing file prefer fs.edit. .json files are checked for syntax and a warning is returned if invalid; run project.validate afterwards. Writing into .factoria/ is refused except .factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -653,6 +672,20 @@ Cast a ray against colliders (2D segment or 3D ray) and return the first hit.
 | `maxDistance` | number | no |  Default 1000. |
 | `mask` | integer | no | Collision layer mask. Default -1. |
 
+## scene
+
+### `prefab.save` (modifies state)
+
+Save an entity of the running world, with its children, as a prefab file.
+
+Writes {"format":"factoria.prefab/1","entity":{...}} in the canonical compact layout (the one scene.save and scene.format write), ready to commit and to instantiate with scene.spawn {"prefab":path}, a scene entity {"prefab":path} or a scene.import_ascii legend. `id` is the id (or name) of an entity of the running world; the whole tree below it is saved with every component's non-default serialized fields (runtime state such as velocities and animation time is not). A prefab describes the reusable thing, not this instance, so the file does NOT carry: the ids (every instantiation gets fresh ones; an id stays only where another entity of the saved tree points at it through an Entity field, so those references survive); the root's Transform.position (where the instance happens to stand: the spawn call, the scene entity or the legend places each new instance; children keep their positions relative to the root; rotation and scale are kept); tags starting with 'tilemap:' (scene.import_ascii adds them to the objects it places, and a prefab carrying one would be destroyed when that map is re-imported); Entity fields pointing at an entity outside the saved tree (they would dangle). An entity created from a prefab saves fully expanded (no `prefab` key). To keep the exact position, save the whole world with scene.save instead. `path` is project-relative (or absolute inside the project), must end in .prefab.json and normally lives in prefabs/. An existing file is NOT replaced unless `overwrite` is true. Returns {path, entity (id of the saved entity in the running world), children (number of saved descendants), overwritten, notes?}; `notes` lists what was left out of the file when something noteworthy was. Errors name the id with did-you-mean suggestions or the path rule with a corrected name. Example: prefab.save {"id":"enemy_3","path":"prefabs/enemy.prefab.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the entity to save; its children are saved with it. |
+| `path` | string | yes | Project-relative output path ending in .prefab.json, e.g. prefabs/enemy.prefab.json. |
+| `overwrite` | boolean | no | Replace the file when it already exists. Without it an existing file is an error. Default false. |
+
 ## project
 
 ### `project.create` (modifies state)
@@ -721,6 +754,17 @@ Destruction is applied immediately when called outside a frame. Example: scene.d
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name). |
 
+### `scene.format` (modifies state)
+
+Rewrite scene and prefab files in the canonical compact layout, without loading them.
+
+Parses every *.scene.json and *.prefab.json file and writes it back exactly as the engine writes scenes (2-space indent, short arrays of numbers and strings on one line, long ones wrapped at about 100 columns, a Tilemap's `tiles` one map row per line). Run it after editing scenes or prefabs by hand so diffs stay small and the maps stay readable. Only whitespace changes: values and key order are kept, and every file is read back and compared with the original data before it is written. Nothing is loaded into the running world, so nothing else changes (files that already have the canonical layout are not touched). `paths` lists files (names ending in .scene.json or .prefab.json) or folders (searched recursively), project-relative; default: the whole project, skipping folders that start with '.', node_modules and a top-level build/. With `check` true nothing is written: the files that are not canonical are listed (use it in CI or to review). A file that is not valid JSON is reported in `errors` with its file, line and column and skipped; the other files are still processed. Returns {formatted: [paths], unchanged: n, errors: [{file, line?, column?, message, hint?}], notes?}, or with `check`: {notCanonical: [paths], unchanged: n, errors, notes?}. Example: scene.format {"paths":["prefabs"],"check":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `paths` | array | no | Scene/prefab files or folders (recursive), project-relative. Default: every *.scene.json and *.prefab.json in the project. |
+| `check` | boolean | no | true = write nothing, only list (notCanonical) the files whose layout differs from the canonical one. Default false. |
+
 ### `scene.get_entity`
 
 Get one entity with every component field (including defaults and runtime values).
@@ -730,6 +774,26 @@ Accepts the entity id or its name. Example: scene.get_entity {"id":"player"}
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | Entity id (or name). |
+
+### `scene.import_ascii` (modifies state)
+
+Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
+
+Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTER PER TILE, row 0 = the TOP row (all rows the same length). `legend` maps each character to a tile index (integer) or to an object: {"tile"?: int, "prefab"?: "prefabs/x.prefab.json", "id"?: "player", "overrides"?: {component patches}, "offset"?: [dx, dy]}. '.' and ' ' are empty tiles unless the legend defines them. A glyph with a `tile` draws that tile; with a `prefab` it also spawns the prefab at the CENTRE of its cell (a glyph may have both; a prefab-only glyph leaves the tile empty). `overrides` patch the prefab's components per glyph; `offset` shifts the object (world units) from the cell centre. The tilemap is the entity `entity` (default "tilemap"): created when missing, updated when it exists; `tilemap` sets its Tilemap fields (tileset, tileSize, columns, solidTiles, color, layer; columns is optional: left at 0 it is derived from the tileset width / tileSize.x). Its position is the map's TOP-LEFT corner (+Y up, like Tilemap everywhere); pass `position` (+ `anchor`: top-left, bottom-left or center) to place it, e.g. anchor bottom-left at [0,0] puts the level's floor at y=0. Objects are ordinary top-level entities that save with the scene; ids are `id` from the legend (unique objects such as "player") or generated in row-major order as <prefab name>_<n> (coin_1, coin_2...); every object is tagged "tilemap:<entity>". With `replace` (default true) the objects of earlier imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. If the file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose (--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. Nothing is changed when an argument is wrong: errors name the row/column, the glyph, the legend and suggestions. Returns {tilemap, created, width, height, tileCount, spawned:[{id, prefab, glyph, cell:[col,row], position:[x,y]}], removed, tag, warnings, notes?, saved?} plus, with `path`, {path, from (the file it started from, null = empty scene), entityCount, dryRun, scene? (dryRun)}. Example: scene.import_ascii {"rows":["..........","...o..o...",".P......o.","##########"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"player"}},"tilemap":{"tileset":"assets/tiles.png","tileSize":[32,32],"solidTiles":[0]},"anchor":"bottom-left","position":[0,0],"path":"scenes/level1.scene.json","from":"levels/base.scene.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
+| `legend` | object | yes | Glyph -> tile index (integer, -1 = empty) or {tile?: int, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
+| `tilemap` | object | no | Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
+| `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
+| `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
+| `path` | string | no | File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/). |
+| `from` | string | no | File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist. |
+| `dryRun` | boolean | no | File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`. Default false. |
+| `save` | boolean | no | Running-world mode: also write the current scene file (like scene.save). Refused when the running scene is only the default mainScene (no --scene, no scene.load): pass `path` instead. Ignored when `path` is given. Default false. |
+| `position` | array | no | [x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is. |
+| `anchor` | string ["top-left","bottom-left","center"] | no | Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin. |
 
 ### `scene.list_entities`
 
@@ -775,7 +839,7 @@ Transform and EntityInfo cannot be removed. Example: scene.remove_component {"id
 
 Save the running world to a scene file (current scene path by default).
 
-Writes canonical scene JSON (only non-default fields). Example: scene.save {"path":"scenes/snapshot.scene.json"}
+Writes canonical scene JSON (only non-default fields, except settings.gravity2D and settings.gravity3D, which are always written so the file shows the gravity the level uses). Files inside .factoria/ belong to the engine and its tools: only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To change a scene FILE without touching the running world use scene.import_ascii with `path`. Example: scene.save {"path":"scenes/snapshot.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1030,7 +1094,7 @@ declare module "factoria" {
   }
 
   /**
-   * Axis-aligned rectangle; (x, y) is the minimum corner.
+   * Axis-aligned rectangle; (x, y) is the minimum corner (the bottom-left in the +Y-up world), w and h the size. Entity.bounds() returns one.
    */
   export interface Rect {
     x: number;
@@ -1134,6 +1198,10 @@ declare module "factoria" {
      * Calls behaviour[method](...args) if it exists.
      */
     send(method: string, ...args: any[]): any;
+    /**
+     * World-space axis-aligned rectangle { x, y, w, h } of this entity's 2D visual, or null. (x, y) is the minimum corner, i.e. the BOTTOM-LEFT in the +Y-up world: the same Rect convention as physics.overlapBox and debug.rect. Tilemap: its size as drawn (rows form or width x height) times tileSize, from the top-left corner at the entity position. Sprite and Shape2D: size and pivot (a circle is its bounding square, a line its stroked segment; the outline thickness of other shapes is ignored). Text: the laid-out box (approximate when headless, like ui.measureText). Scale and rotation are applied (the box around the rotated corners) and several visuals give their union. null when the entity has no world-space 2D visual: none at all, an empty Tilemap, or only screen-space ones (space: "screen"). Children are not included. Example: const map = world.find("map").bounds();
+     */
+    bounds(): Rect | null;
     /**
      * Touching ground below (2D pixels tolerance, default 2; 3D meters, default 0.05).
      */
@@ -1475,7 +1543,45 @@ declare module "factoria" {
     pick<T>(items: readonly T[]): T | undefined;
     shuffle<T>(items: readonly T[]): T[];
     /**
-     * Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism).
+     * Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism). The running game draws from this one RNG, so reseeding it changes the game's random sequence: a level generator should use rng.create(seed) instead.
+     */
+    seed(n: number): void;
+    /**
+     * Creates an independent, deterministic generator with the same methods as rng. It has its own state and never reads or changes the world RNG (or Math.random), so a tool can generate a level from a seed without disturbing the running game. Algorithm: mulberry32 (32-bit state, one step per draw). The algorithm and the draws each method consumes are STABLE across engine versions, so a stored seed keeps giving the same sequence. The seed is reduced to 32 bits (ToUint32: integer part, modulo 2^32); 0 is a valid seed. Throws for a non-number or non-finite seed. Example: const r = rng.create(7); r.int(1, 6).
+     */
+    create(seed: number): Rng;
+  }
+
+  /**
+   * An independent seeded generator from rng.create(seed). Algorithm mulberry32, stable across engine versions: the same seed gives the same sequence on every platform. Every method draws a fixed number of 32-bit steps (float, range, int and chance: one per call; pick: one, none for an empty array; shuffle: items.length - 1), so a sequence does not depend on the arguments.
+   */
+  export interface Rng {
+    /**
+     * Next number in [0, 1): a 32-bit step divided by 2^32.
+     */
+    float(): number;
+    /**
+     * min + (max - min) * float(); in [min, max).
+     */
+    range(min: number, max: number): number;
+    /**
+     * Integer in [min, max], both inclusive (arguments are truncated to integers): min + floor(float() * (max - min + 1)). Returns min when max <= min (still one draw).
+     */
+    int(min: number, max: number): number;
+    /**
+     * True with probability p (default 0.5): float() < p.
+     */
+    chance(p?: number): boolean;
+    /**
+     * A random item (items[floor(float() * length)]), or undefined for an empty array.
+     */
+    pick<T>(items: readonly T[]): T | undefined;
+    /**
+     * A shuffled copy (Fisher-Yates from the end, j = floor(float() * (i + 1))); the input is not modified.
+     */
+    shuffle<T>(items: readonly T[]): T[];
+    /**
+     * Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG.
      */
     seed(n: number): void;
   }
@@ -1735,6 +1841,26 @@ declare module "factoria" {
      * Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).
      */
     depth: number;
+    /**
+     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.
+     */
+    bloom: boolean;
+    /**
+     * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
+     */
+    bloomThreshold: number;
+    /**
+     * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
+     */
+    bloomIntensity: number;
+    /**
+     * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
+     */
+    bloomRadius: number;
+    /**
+     * Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow.
+     */
+    bloomScreenSpace: boolean;
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -1846,11 +1972,11 @@ declare module "factoria" {
    */
   export interface Shape2DComponent {
     /**
-     * Kind of primitive to draw.
+     * Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers).
      */
-    shape: "rectangle" | "circle" | "line" | "triangle";
+    shape: "rectangle" | "circle" | "line" | "triangle" | "diamond";
     /**
-     * rectangle/triangle: [width, height]. circle: diameter in x. line: end point offset from the entity origin.
+     * rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -1876,7 +2002,7 @@ declare module "factoria" {
      */
     space: "world" | "screen";
     /**
-     * Anchor point within the shape for rectangle/circle/triangle: [0.5,0.5] = centered on the position (default), [0,0] bottom-left, [1,1] top-right. In screen space +Y is down, so [0,1] puts the top-left corner at the position.
+     * Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place.
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
@@ -1956,19 +2082,19 @@ declare module "factoria" {
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
     /**
-     * Number of tile columns in the tileset texture (used to find a tile's source rectangle).
+     * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
     /**
-     * Map width in tiles.
+     * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
     width: number;
     /**
-     * Map height in tiles.
+     * Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.
      */
     height: number;
     /**
-     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array of rows. -1 = empty. Returns a plain-object COPY; assign a new value to write.
+     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. Returns a plain-object COPY; assign a new value to write.
      */
     tiles: any;
     /**
@@ -2480,10 +2606,10 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     Text: { text?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean };
@@ -2534,6 +2660,14 @@ declare module "factoria:test" {
     toBeInstanceOf(cls: Function): void;
     toThrow(expected?: string | RegExp | Function): void;
     /**
+     * For expect(game.audioLog()): passes when a clip was played (path = project-relative path, file name like "jump.wav", or RegExp). times = exact count; plays whose clip failed to load do not count.
+     */
+    toContainPlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
+     * Same as toContainPlayed.
+     */
+    toHavePlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
      * Negates the matcher.
      */
     readonly not: Expectation;
@@ -2547,6 +2681,45 @@ declare module "factoria:test" {
   export interface DescribeFn {
     (name: string, fn: () => void): void;
     skip(name: string, fn: () => void): void;
+  }
+
+  /**
+   * One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.
+   */
+  export interface AudioPlay {
+    /**
+     * Increasing id.
+     */
+    readonly seq: number;
+    /**
+     * time.frame when the sound was requested.
+     */
+    readonly frame: number;
+    /**
+     * time.elapsed (seconds) when the sound was requested.
+     */
+    readonly time: number;
+    /**
+     * Project-relative clip path.
+     */
+    readonly path: string;
+    readonly volume: number;
+    readonly pitch: number;
+    readonly pan: number;
+    readonly bus: "sfx" | "music" | "ui";
+    readonly loop: boolean;
+    /**
+     * Started with audio.music() or SceneSettings.music.
+     */
+    readonly music: boolean;
+    /**
+     * Id of the entity whose AudioSource played it; "" for scripts and music.
+     */
+    readonly source: string;
+    /**
+     * false when the clip could not be loaded (the error is in the log).
+     */
+    readonly ok: boolean;
   }
 
   /**
@@ -2599,6 +2772,14 @@ declare module "factoria:test" {
      * JSON dump of the game state.
      */
     state(): Json;
+    /**
+     * Sounds played since the current test started (cleared before each test), oldest first. Assert with expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav").
+     */
+    audioLog(): AudioPlay[];
+    /**
+     * Empties the audio log (e.g. after setup, before the action under test).
+     */
+    clearAudioLog(): void;
   }
 
   /**

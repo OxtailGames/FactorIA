@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "fa/physics/physics.h"
+#include "fa/scene/tilemap.h"
 
 using namespace fa;
 
@@ -200,6 +201,71 @@ TEST_CASE("2d: tilemap solid tiles collide (origin = top-left corner)") {
     CHECK(hit->point.x == doctest::Approx(64.0f).epsilon(0.01));
     // empty tile on the left: ray passes through the open cell
     CHECK_FALSE(s.physics.raycast2d(s.world, {-100, -24}, {-85, -24}).has_value());
+}
+
+TEST_CASE("2d: a tilemap written as rows, without width/height, collides exactly where it is drawn") {
+    // Same map as above, but tiles is an array of rows and width/height are NOT set. The renderer sizes the map from the
+    // rows; physics must do the same (both use tilemap_grid), otherwise the floor would not exist.
+    Sim s;
+    Entity map = s.world.create("map", "map");
+    s.world.get<Transform>(map)->position = {-80, 0, 0};  // top-left corner of the map
+    Tilemap& tm = s.world.add<Tilemap>(map);
+    tm.tileSize = {16, 16};
+    REQUIRE(tm.width == 0);
+    REQUIRE(tm.height == 0);
+    Json rows = Json::array();
+    for (int r = 0; r < 3; ++r) {
+        Json row = Json::array();
+        for (int c = 0; c < 10; ++c) row.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
+        rows.push_back(row);
+    }
+    tm.tiles = rows;
+    tm.solidTiles = Json::array({1, 2});
+    CHECK(check_tilemap(tm).empty());
+    const TilemapGrid grid = tilemap_grid(tm);
+    CHECK((grid.width == 10 && grid.height == 3));
+
+    Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);
+    s.run(180);
+    // bottom row spans y in [-48, -32]: the box rests on top of it (y = -32 + 8), exactly like the flat form.
+    CHECK(pos_of(s.world, box).y == doctest::Approx(-24.0f).epsilon(0.03));
+    // wall tile at column 9, row 1: x in [64, 80]
+    auto hit = s.physics.raycast2d(s.world, {40, -24}, {100, -24});
+    REQUIRE(hit.has_value());
+    CHECK(hit->point.x == doctest::Approx(64.0f).epsilon(0.01));
+    CHECK_FALSE(s.physics.raycast2d(s.world, {-100, -24}, {-85, -24}).has_value());
+}
+
+TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list without width is one row") {
+    {
+        Sim s;
+        Entity map = s.world.create("map", "map");
+        s.world.get<Transform>(map)->position = {-80, 0, 0};
+        Tilemap& tm = s.world.add<Tilemap>(map);
+        tm.tileSize = {16, 16};
+        tm.width = 2;   // wrong on purpose (check_tilemap reports it); the renderer draws 10 x 1 and so does physics
+        tm.height = 5;
+        Json row = Json::array();
+        for (int c = 0; c < 10; ++c) row.push_back(1);
+        tm.tiles = Json::array({row});
+        tm.solidTiles = Json::array({1});
+        CHECK_FALSE(check_tilemap(tm).empty());
+        Entity box = add_box(s.world, "box", {70, 100}, {16, 16}, BodyType::Dynamic);  // over column 9, outside width 2
+        s.run(180);
+        CHECK(pos_of(s.world, box).y == doctest::Approx(8.0f).epsilon(0.03));  // row 0 spans y in [-16, 0]: rests on y = 0
+    }
+    {
+        Sim s;
+        Entity map = s.world.create("map", "map");
+        s.world.get<Transform>(map)->position = {-40, 0, 0};
+        Tilemap& tm = s.world.add<Tilemap>(map);
+        tm.tileSize = {16, 16};
+        tm.tiles = Json::array({-1, -1, 1, 1, -1});  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
+        tm.solidTiles = Json::array({1});
+        Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
+        s.run(180);
+        CHECK(pos_of(s.world, box).y == doctest::Approx(8.0f).epsilon(0.03));  // rests on the top edge y = 0
+    }
 }
 
 TEST_CASE("2d: is_grounded2d") {
@@ -609,4 +675,259 @@ TEST_CASE("2d: one-way platform lands from above and lets bodies jump through fr
     s2.world.get<RigidBody2D>(c)->velocity = {400, 0};
     s2.run(60);
     CHECK(pos_of(s2.world, c).x > 90.0f);
+}
+
+// ---------------------------------------------------- sleeping bodies ----
+// Box2D puts a resting body to sleep and then ignores it, so what gameplay does to a sleeping body matters.
+
+namespace {
+
+// Box2D's own view of a 2D body, read through Physics::debug_state: true while it simulates.
+bool body_awake(const Sim& s, const char* id) {
+    for (const Json& j : s.physics.debug_state(s.world)) {
+        if (j.value("entity", std::string()) == id && j.contains("awake")) return j["awake"].get<bool>();
+    }
+    FAIL("no 2D body '" << std::string(id) << "' in Physics::debug_state (bodies exist after the first step)");
+    return false;
+}
+
+// Steps until Box2D reports the body asleep (a resting body needs about half a second of calm).
+bool run_until_asleep(Sim& s, const char* id, int maxSteps = 600) {
+    s.run(1);  // bodies are created by the first step
+    for (int i = 0; i < maxSteps && body_awake(s, id); ++i) s.run(1);
+    return !body_awake(s, id);
+}
+
+constexpr float kRestY = -180.0f + 16.0f;  // centre of a 32 px box resting on the default ground
+
+}  // namespace
+
+TEST_CASE("2d: a body that lands rocking keeps its Box2D body, stops generating contact events and falls asleep") {
+    // A 64 px drop makes the box rock by a hair. Its world scale then comes back from the world matrix as 1 or
+    // 0.99999994 depending on the rotation; that noise used to rebuild the body over and over (an awake body with
+    // fresh contacts each time: begin/end events forever, never asleep).
+    Sim s;
+    add_ground(s.world);
+    Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+    CHECK(run_until_asleep(s, "box", 300));
+    CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.02));
+    CHECK(s.count(CollisionEvent::Phase::Begin, false) <= 3);  // landing (a bounce or two at most), not chattering
+    const std::size_t seen = s.events.size();
+    s.run(120);
+    CHECK(s.events.size() == seen);
+    CHECK_FALSE(body_awake(s, "box"));
+}
+
+// ------------------------------------- gameplay writes to sleeping bodies ----
+// Teleporting (Transform), tilting, moving the ground, enabling/disabling: a sleeping body must follow all of it.
+
+TEST_CASE("2d: writing Transform.position on a sleeping body wakes it; it falls, lands and isGrounded follows") {
+    Sim s;
+    add_ground(s.world);
+    Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "box"));
+    CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.02));
+    CHECK(s.physics.is_grounded(s.world, box));
+
+    s.world.get<Transform>(box)->position.y += 28.0f;  // what a script does: teleport 28 px up
+    s.run(1);
+    CHECK(body_awake(s, "box"));
+    CHECK_FALSE(s.physics.is_grounded(s.world, box));  // the stale ground contact is gone after one step
+    s.run(3);
+    CHECK(pos_of(s.world, box).y < kRestY + 28.0f);  // falling, not hovering
+    CHECK_FALSE(s.physics.is_grounded(s.world, box));
+    s.run(90);
+    CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.02));  // landed again
+    CHECK(s.physics.is_grounded(s.world, box));
+    CHECK(run_until_asleep(s, "box"));  // and rests until asleep once more
+}
+
+TEST_CASE("2d: a sleeping body teleported sideways off its ledge falls") {
+    Sim s;
+    add_box(s.world, "ledge", {0, -100}, {200, 20}, BodyType::Static, false);   // top at -90
+    add_box(s.world, "floor", {0, -400}, {2000, 20}, BodyType::Static, false);  // top at -390
+    Entity box = add_box(s.world, "box", {0, -60}, {32, 32}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "box"));
+    CHECK(pos_of(s.world, box).y == doctest::Approx(-74.0f).epsilon(0.02));
+    s.world.get<Transform>(box)->position.x = 400.0f;
+    s.run(1);
+    CHECK_FALSE(s.physics.is_grounded(s.world, box));
+    s.run(120);
+    CHECK(pos_of(s.world, box).x == doctest::Approx(400.0f).epsilon(0.01));
+    CHECK(pos_of(s.world, box).y == doctest::Approx(-390.0f + 16.0f).epsilon(0.02));
+}
+
+TEST_CASE("2d: writing Transform.rotation on a sleeping body wakes it") {
+    Sim s;
+    add_ground(s.world);
+    Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "box"));
+    s.world.get<Transform>(box)->rotation.z = 30.0f;
+    s.run(1);
+    CHECK(body_awake(s, "box"));
+    // the tilted box topples and settles flat again (a multiple of 90 degrees), then sleeps
+    CHECK(run_until_asleep(s, "box"));
+    float rot = std::fmod(std::fabs(s.world.get<Transform>(box)->rotation.z), 90.0f);
+    CHECK(std::min(rot, 90.0f - rot) < 1.0f);
+    CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.03));
+}
+
+TEST_CASE("2d: writing a velocity wakes a sleeping body") {
+    Sim s;
+    add_ground(s.world);
+    Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "box"));
+    s.world.get<RigidBody2D>(box)->velocity = {0, 400};
+    s.run(5);
+    CHECK(body_awake(s, "box"));
+    CHECK(pos_of(s.world, box).y > kRestY + 20.0f);
+    REQUIRE(run_until_asleep(s, "box"));
+    s.world.get<RigidBody2D>(box)->angularVelocity = 90.0f;
+    s.run(2);
+    CHECK(body_awake(s, "box"));
+}
+
+TEST_CASE("2d: teleporting the bottom of a sleeping stack wakes the whole pile") {
+    Sim s;
+    add_ground(s.world);
+    Entity lower = add_box(s.world, "lower", {0, -100}, {32, 32}, BodyType::Dynamic);
+    Entity upper = add_box(s.world, "upper", {0, -60}, {32, 32}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "lower"));
+    REQUIRE(run_until_asleep(s, "upper"));
+    CHECK(pos_of(s.world, upper).y == doctest::Approx(kRestY + 32.0f).epsilon(0.03));
+    s.world.get<Transform>(lower)->position.x = 600.0f;  // pull the bottom box out
+    s.run(1);
+    CHECK(body_awake(s, "lower"));
+    CHECK(body_awake(s, "upper"));
+    s.run(90);
+    CHECK(pos_of(s.world, upper).y == doctest::Approx(kRestY).epsilon(0.03));  // the top box dropped to the ground
+    CHECK(pos_of(s.world, lower).y == doctest::Approx(kRestY).epsilon(0.03));
+}
+
+TEST_CASE("2d: moving a static or kinematic platform wakes the body asleep on it") {
+    for (BodyType type : {BodyType::Static, BodyType::Kinematic}) {
+        CAPTURE(int(type));
+        Sim s;
+        add_box(s.world, "floor", {0, -400}, {2000, 20}, BodyType::Static, false);  // top at -390
+        Entity plat = add_box(s.world, "plat", {0, -100}, {200, 20}, type, type != BodyType::Static);
+        Entity box = add_box(s.world, "box", {0, -60}, {32, 32}, BodyType::Dynamic);
+        REQUIRE(run_until_asleep(s, "box"));
+        CHECK(s.physics.is_grounded(s.world, box));
+        s.world.get<Transform>(plat)->position.x = 700.0f;  // the platform leaves, the box stays
+        s.run(1);
+        CHECK(body_awake(s, "box"));
+        CHECK_FALSE(s.physics.is_grounded(s.world, box));
+        s.run(120);
+        CHECK(std::fabs(pos_of(s.world, box).x) < 2.0f);  // it dropped straight down (it was never carried along)
+        CHECK(pos_of(s.world, box).y == doctest::Approx(-390.0f + 16.0f).epsilon(0.02));
+        CHECK(pos_of(s.world, plat).x == doctest::Approx(700.0f).epsilon(0.001));
+        // a kinematic body can be teleported while it is the one asleep, too
+        if (type == BodyType::Kinematic) {
+            s.world.get<Transform>(plat)->position = {0, -300, 0};
+            s.run(1);
+            CHECK(pos_of(s.world, plat).y == doctest::Approx(-300.0f).epsilon(0.001));
+            CHECK(pos_of(s.world, plat).x == doctest::Approx(0.0f).epsilon(0.001));
+        }
+    }
+}
+
+TEST_CASE("2d: moving a tilemap wakes the body asleep on it") {
+    Sim s;
+    add_box(s.world, "floor", {0, -400}, {2000, 20}, BodyType::Static, false);  // top at -390
+    Entity map = s.world.create("map", "map");
+    s.world.get<Transform>(map)->position = {-80, -100, 0};
+    Tilemap& tm = s.world.add<Tilemap>(map);
+    tm.tileSize = {16, 16};
+    tm.width = 10;
+    tm.height = 1;
+    Json tiles = Json::array();
+    for (int c = 0; c < 10; ++c) tiles.push_back(1);
+    tm.tiles = tiles;
+    tm.solidTiles = Json::array({1});  // one row of solid tiles, top edge at y = -100
+    Entity box = add_box(s.world, "box", {0, -60}, {16, 16}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "box"));
+    CHECK(pos_of(s.world, box).y == doctest::Approx(-92.0f).epsilon(0.02));
+    s.world.get<Transform>(map)->position.x = 900.0f;
+    s.run(1);
+    CHECK(body_awake(s, "box"));
+    s.run(120);
+    CHECK(pos_of(s.world, box).y == doctest::Approx(-390.0f + 8.0f).epsilon(0.02));
+}
+
+TEST_CASE("2d: sleeping bodies wake when their entity or their ground is enabled, disabled or destroyed") {
+    // The entity is disabled while asleep, teleported while disabled, and enabled again.
+    {
+        Sim s;
+        add_ground(s.world);
+        Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+        REQUIRE(run_until_asleep(s, "box"));
+        s.world.set_active(box, false);
+        s.run(2);
+        s.world.get<Transform>(box)->position = {50, 100, 0};
+        s.run(2);
+        s.world.set_active(box, true);
+        s.run(1);
+        CHECK(body_awake(s, "box"));
+        s.run(120);
+        CHECK(pos_of(s.world, box).x == doctest::Approx(50.0f).epsilon(0.01));
+        CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.02));
+    }
+    // The ground under a sleeping box is disabled, then destroyed.
+    for (int mode = 0; mode < 2; ++mode) {
+        CAPTURE(mode);
+        Sim s;
+        Entity ground = add_ground(s.world);
+        Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+        REQUIRE(run_until_asleep(s, "box"));
+        if (mode == 0) s.world.set_active(ground, false);
+        else s.world.destroy(ground);
+        s.run(30);
+        CHECK(body_awake(s, "box"));
+        CHECK(pos_of(s.world, box).y < kRestY - 100.0f);  // nothing holds it any more
+    }
+}
+
+TEST_CASE("2d: changing the body type of a sleeping body takes effect") {
+    Sim s;
+    add_ground(s.world);
+    Entity box = add_box(s.world, "box", {0, -100}, {32, 32}, BodyType::Dynamic);
+    REQUIRE(run_until_asleep(s, "box"));
+    s.world.get<RigidBody2D>(box)->type = BodyType::Kinematic;
+    s.world.get<RigidBody2D>(box)->velocity = {120, 0};
+    s.run(30);
+    CHECK(pos_of(s.world, box).x == doctest::Approx(60.0f).epsilon(0.05));
+    s.world.get<RigidBody2D>(box)->type = BodyType::Dynamic;
+    s.world.get<RigidBody2D>(box)->velocity = {0, 0};
+    s.world.get<Transform>(box)->position.y += 28.0f;
+    s.run(90);
+    CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.03));
+}
+
+TEST_CASE("3d: bodies never sleep; writing Transform.position moves a resting body and drops grounded") {
+    Sim s;
+    add_box3(s.world, "ground", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
+    Entity ball = add_sphere3(s.world, "ball", {0, 2, 0}, 0.5f);
+    s.run(240);
+    CHECK(pos_of(s.world, ball).y == doctest::Approx(0.5f).epsilon(0.02));
+    CHECK(s.physics.is_grounded(s.world, ball));
+    s.world.get<Transform>(ball)->position.y += 2.0f;
+    s.run(1);
+    CHECK_FALSE(s.physics.is_grounded(s.world, ball));
+    s.run(2);
+    CHECK(pos_of(s.world, ball).y < 2.5f);  // falling
+    s.run(120);
+    CHECK(pos_of(s.world, ball).y == doctest::Approx(0.5f).epsilon(0.02));
+    CHECK(s.physics.is_grounded(s.world, ball));
+    // a ground teleported by gameplay carries the body resting on it (documented 3D rider behaviour), which keeps
+    // resting: nothing is left behind on stale contacts
+    Sim s2;
+    Entity ground = add_box3(s2.world, "ground", {0, -0.5f, 0}, {4, 1, 4}, BodyType::Static, false);
+    Entity cube = add_box3(s2.world, "cube", {0, 3, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+    s2.run(240);
+    CHECK(pos_of(s2.world, cube).y == doctest::Approx(0.5f).epsilon(0.02));
+    s2.world.get<Transform>(ground)->position.x = 100.0f;
+    s2.run(60);
+    CHECK(pos_of(s2.world, cube).x == doctest::Approx(100.0f).epsilon(0.01));
+    CHECK(pos_of(s2.world, cube).y == doctest::Approx(0.5f).epsilon(0.02));
+    CHECK(s2.physics.is_grounded(s2.world, cube));
 }

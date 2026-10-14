@@ -60,7 +60,7 @@ import { fa, rng } from "factoria";
 export default {
   name: "gen_arena",
   summary: "Generate a scene with random crates and write it to a .scene.json file.",
-  description: 'Example: {"path":"scenes/arena.scene.json","crates":12,"width":800,"height":480}. Overwrites the file. Run project_validate afterwards.',
+  description: 'Example: {"path":"scenes/arena.scene.json","crates":12,"width":800,"height":480,"seed":7}. Overwrites the file; the same seed gives the same arena. Run project_validate afterwards.',
   input: {
     type: "object",
     required: ["path"],
@@ -69,10 +69,12 @@ export default {
       crates: { type: "integer", minimum: 0, maximum: 200, default: 12, description: "How many crates to place." },
       width: { type: "number", minimum: 100, default: 800, description: "Width of the area, in pixels." },
       height: { type: "number", minimum: 100, default: 480, description: "Height of the area, in pixels." },
+      seed: { type: "integer", default: 1, description: "Seed; the same seed gives the same arena." },
     },
   },
   readOnly: false,
-  run({ path, crates, width, height }) {
+  run({ path, crates, width, height, seed }) {
+    const r = rng.create(seed); // own generator: rng.seed() would reseed the one RNG the running game draws from
     const entities = [
       { id: "camera", components: { Camera: { projection: "orthographic", clearColor: [0.1, 0.1, 0.15, 1], primary: true } } },
     ];
@@ -81,7 +83,7 @@ export default {
         id: `crate_${i}`,
         tags: ["crate"],
         components: {
-          Transform: { position: [rng.range(-width / 2, width / 2), rng.range(-height / 2, height / 2), 0] },
+          Transform: { position: [r.range(-width / 2, width / 2), r.range(-height / 2, height / 2), 0] },
           Shape2D: { shape: "rectangle", size: [40, 40], color: [0.6, 0.4, 0.2, 1] },
         },
       });
@@ -92,6 +94,8 @@ export default {
   },
 };
 ```
+
+`rng.create(seed)` returns an independent generator (`float`, `range`, `int`, `chance`, `pick`, `shuffle`, `seed`) that never touches the world RNG, so the tool does not change the random sequence of the game that is running. Its algorithm (mulberry32) is stable across engine versions, so a seed you store keeps giving the same arena. `rng.seed(n)` would reseed the game's own RNG instead.
 
 To write the state of the live world instead, call `scene.save` with `fa.call` (its arguments are in `docs_commands`).
 

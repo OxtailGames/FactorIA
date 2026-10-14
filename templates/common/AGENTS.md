@@ -32,11 +32,12 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `tests/*.test.js` | headless tests run by `factoria test` |
-| `data/*.json` | level and tuning data, imported with `import levels from "../data/levels.json";` (optional) |
+| `levels/*.json` | ASCII level maps, the arguments of `scene.import_ascii`; the source of truth of a tile level (optional, see Tile levels below) |
+| `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
 | `assets/` | textures, audio, fonts, models (add only what you really need) |
 | `types/factoria.d.ts` | script API typings (generated: `factoria validate --fix-types`) |
 | `ENGINE_FEEDBACK.json` | engine gaps you found (below) |
-| `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit |
+| `.factoria/` | generated output (screenshots, logs, saves). Git-ignored; never edit. Scratch files: `.factoria/tmp/` |
 
 ## Conventions
 
@@ -56,7 +57,8 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
   `onFixedUpdate`, `onCollisionEnter`, `onTriggerEnter`...). Tunable numbers are class fields
   that scenes can override via `"Script": {"path": ..., "props": {...}}`.
 - Determinism: use `rng` from `"factoria"` (never `Math.random`) and `time.dt` / the `dt`
-  argument (never `Date.now`). Tests and replays depend on it.
+  argument (never `Date.now`). Tests and replays depend on it. A tool or generator that must repeat from a seed uses
+  its own `rng.create(seed)` (same methods as `rng`, never touches the game's RNG), not `rng.seed`. Guide section 9.16.
 - Paths are project-relative with forward slashes (`assets/hero.png`).
 - Never put API keys or secrets in this project. Keys live in `~/.factoria/ai.json` or env vars.
 - Do not edit generated files (`.factoria/`, `types/factoria.d.ts`).
@@ -67,7 +69,27 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
   (Text default [0,1]). Guide section 9.4.
 - **One-shot effects:** a `ParticleEmitter` with `emitting: false`, `burst: 24`, `autoDestroy: true` and
   `blend: "additive"` fires once and removes itself. `particles.burst(entity, n)` bursts an existing one.
+- **Neon glow:** `"blend": "additive"` on bright Sprites/Shapes/particles plus `"bloom": true` on the primary `Camera`
+  (`bloomThreshold`, `bloomIntensity`, `bloomRadius`) over a dark `clearColor`. Never hand-draw blurred halo sprites.
+  `"bloomScreenSpace": false` keeps the HUD crisp. Spin a triangle with `pivot: [0.5, 0.3333]` (its centroid);
+  `Shape2D` also has `diamond`. Guide section 9.20.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
+- **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
+  ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep
+  the map in `levels/` and re-run it after every edit. Put `"path": "scenes/x.scene.json"` in the map file: it edits that scene
+  FILE (optionally starting `from` a base scene) and never touches the running game; no `--scene`, no `scene.save`.
+  `Tilemap.columns` is optional (0 = derived from the tileset image width): leave it out. Guide section 9.8. Do not place
+  tile objects by hand or write a level generator.
+- **Camera and area limits:** `entity.bounds()` is the world rectangle `{x, y, w, h}` (bottom-left corner and size) of a
+  Tilemap, Sprite or Shape2D. Clamp a follow camera with `world.find("map").bounds()`, not with map sizes copied into props.
+  Guide section 9.6.
+- **Sounds and their tests:** `audio.play("assets/sfx/jump.wav")`. Assert it with
+  `expect(game.audioLog()).toContainPlayed("jump.wav")` (options `times`, `bus`, `source`; `game.clearAudioLog()`). A clip that
+  failed to load does not count. MCP `audio_log`. Guide sections 9.7 and 10.
+- **Prefab files and tidy JSON:** `prefab.save` (MCP `prefab_save`) saves an entity you built in the running game, with its
+  children, as `prefabs/<name>.prefab.json` (it leaves out ids, the root position and `tilemap:` tags; it never overwrites
+  without `"overwrite": true`). `scene.format` (MCP `scene_format`; `{"check": true}` only lists) puts hand-edited scenes and
+  prefabs in the canonical layout. Guide section 6. Do not lay out prefab JSON by hand.
 - **Sensing:** `entity.isGrounded()`, `entity.isTouching([dx, dy])`, `physics.raycast(a, b, {ignore: this.entity})`.
   Skip the first two fixed steps before probing (bodies are created by the first physics step).
 - **Spawning:** `world.spawn(json, {position, parent, props})` and `world.spawnPrefab(path, {position, props, overrides})`;

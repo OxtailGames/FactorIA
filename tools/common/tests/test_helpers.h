@@ -1,10 +1,10 @@
 #pragma once
-#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <string>
 
 #include "fa/core/json.h"
+#include "fa/core/fs.h"
 
 namespace fa::testing {
 
@@ -12,12 +12,7 @@ namespace fa::testing {
 struct TempDir {
     std::filesystem::path path;
     TempDir() {
-        static std::atomic<int> counter{0};
-        path = std::filesystem::temp_directory_path() /
-               ("fa_tooling_test_" + std::to_string(std::hash<std::string>{}(std::to_string(counter++) + __TIME__)) + "_" +
-                std::to_string(reinterpret_cast<std::uintptr_t>(this)));
-        std::filesystem::remove_all(path);
-        std::filesystem::create_directories(path);
+        path = fa::fs::make_temp_dir("fa_tooling_test");
     }
     ~TempDir() {
         std::error_code ec;

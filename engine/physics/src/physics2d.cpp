@@ -5,6 +5,7 @@
 #include <functional>
 
 #include "fa/core/log.h"
+#include "fa/scene/tilemap.h"
 #include "physics_internal.h"
 
 namespace fa::detail {
@@ -34,6 +35,11 @@ float wrap_deg(float a) {
 
 constexpr float kMinHalf = 0.005f;  // meters; Box2D dislikes degenerate polygons
 
+// World scale is read back from the world matrix, so it carries float noise: a rotating body flips between 1 and
+// 0.99999994. That must not look like a scale change, because a changed hash rebuilds the body (a brand-new, awake
+// body with fresh contacts: endless begin/end events, and a resting body that never falls asleep).
+std::int64_t scale_key(float s) { return std::llround(double(s) * 1e4); }
+
 std::uint64_t hash_collider(const RigidBody2D* rb, const Collider2D* col, const WorldPose& pose) {
     Hasher h;
     h.add(rb != nullptr);
@@ -46,26 +52,9 @@ std::uint64_t hash_collider(const RigidBody2D* rb, const Collider2D* col, const 
         h.add(col->shape); h.add(col->size.x); h.add(col->size.y); h.add(col->radius);
         h.add(col->offset.x); h.add(col->offset.y); h.add(col->isTrigger); h.add(col->friction);
         h.add(col->restitution); h.add(col->density); h.add(col->oneWay); h.add(col->layer); h.add(col->mask);
-        h.add(pose.scale.x); h.add(pose.scale.y);
+        h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
     }
     return h.h;
-}
-
-std::vector<int> read_tiles(const Tilemap& tm) {
-    int w = std::max(tm.width, 0), hgt = std::max(tm.height, 0);
-    std::vector<int> out(std::size_t(w) * std::size_t(hgt), -1);
-    if (!tm.tiles.is_array() || tm.tiles.empty()) return out;
-    auto num = [](const Json& j) { return j.is_number() ? int(j.get<double>()) : -1; };
-    if (tm.tiles[0].is_array()) {
-        for (int r = 0; r < hgt && r < int(tm.tiles.size()); ++r) {
-            const Json& row = tm.tiles[std::size_t(r)];
-            if (!row.is_array()) continue;
-            for (int c = 0; c < w && c < int(row.size()); ++c) out[std::size_t(r) * std::size_t(w) + std::size_t(c)] = num(row[std::size_t(c)]);
-        }
-    } else {
-        for (std::size_t i = 0; i < out.size() && i < tm.tiles.size(); ++i) out[i] = num(tm.tiles[i]);
-    }
-    return out;
 }
 
 std::vector<int> read_solid(const Tilemap& tm) {
@@ -80,7 +69,7 @@ std::vector<int> read_solid(const Tilemap& tm) {
 std::uint64_t hash_tilemap(const Tilemap& tm, const WorldPose& pose) {
     Hasher h;
     h.add(tm.width); h.add(tm.height); h.add(tm.tileSize.x); h.add(tm.tileSize.y);
-    h.add(pose.scale.x); h.add(pose.scale.y);
+    h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
     auto add_json = [&](const Json& j, auto&& self) -> void {
         if (j.is_array()) { for (const Json& c : j) self(c, self); h.add(std::uint8_t(0xff)); }
         else if (j.is_number()) h.add(int(j.get<double>()));
@@ -104,6 +93,24 @@ const char* type_name(BodyType t) {
         case BodyType::Static: return "static";
         case BodyType::Kinematic: return "kinematic";
         default: return "dynamic";
+    }
+}
+
+// Call after b2Body_SetTransform. Box2D leaves a sleeping body asleep when it is moved, and wakes nothing around
+// it. A teleport changes what bodies rest on, so a sleeping body would hover where it was put (frozen gravity,
+// frozen contacts: isGrounded() keeps answering with the ground it left), and a body asleep on a platform that
+// was moved away would stay up in the air. Wake the body (a no-op for static bodies) and every body touching it;
+// waking one body wakes its whole island, so piles follow. The first step afterwards refreshes the contacts.
+void wake_after_teleport(b2BodyId body) {
+    b2Body_SetAwake(body, true);
+    const int cap = b2Body_GetContactCapacity(body);
+    if (cap <= 0) return;
+    std::vector<b2ContactData> contacts(static_cast<std::size_t>(cap));
+    const int n = b2Body_GetContactData(body, contacts.data(), cap);
+    for (int i = 0; i < n; ++i) {
+        const b2ContactData& c = contacts[static_cast<std::size_t>(i)];
+        const b2BodyId a = b2Shape_GetBody(c.shapeIdA), b = b2Shape_GetBody(c.shapeIdB);
+        b2Body_SetAwake(B2_ID_EQUALS(a, body) ? b : a, true);
     }
 }
 
@@ -329,6 +336,7 @@ void Physics2D::sync_entity(World& world, Entity e, RigidBody2D* rb, Collider2D*
         float newAngle = b.contAngle + radians(wrap_deg(pose.rotZ - b.lastRotZ));
         b2Vec2 p{pose.position.x * inv, pose.position.y * inv};
         b2Body_SetTransform(b.body, p, b2MakeRot(newAngle));
+        wake_after_teleport(b.body);
         b.contAngle = newAngle;
         b.lastB2Pos = p;
         b.lastB2Angle = newAngle;
@@ -371,14 +379,15 @@ void Physics2D::sync_tilemaps(World& world) {
         const bool active = world.active_in_hierarchy(e);
         if (it == tiles_.end()) {
             std::vector<int> solid = read_solid(*tm);
-            if (solid.empty() || tm->width <= 0 || tm->height <= 0) {
+            // The same grid the renderer draws (rows form: the rows; flat form: width/height).
+            const TilemapGrid grid = tilemap_grid(*tm);
+            if (solid.empty() || grid.empty()) {
                 // No collision: remember nothing; nothing to build.
                 continue;
             }
-            std::vector<int> tiles = read_tiles(*tm);
-            const int w = tm->width, hgt = tm->height;
+            const int w = grid.width, hgt = grid.height;
             auto is_solid = [&](int c, int r) {
-                int t = tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
+                int t = grid.at(c, r);
                 return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
             };
             // Horizontal runs per row, then merge identical runs of consecutive rows into taller boxes.
@@ -450,6 +459,7 @@ void Physics2D::sync_tilemaps(World& world) {
         if (active && (std::fabs(pose.position.x - tb.pos.x) > 1e-3f || std::fabs(pose.position.y - tb.pos.y) > 1e-3f ||
                        std::fabs(wrap_deg(pose.rotZ - tb.rotZ)) > 1e-3f)) {
             b2Body_SetTransform(tb.body, {pose.position.x * inv, pose.position.y * inv}, b2MakeRot(radians(pose.rotZ)));
+            wake_after_teleport(tb.body);  // bodies asleep on the map must not be left behind
             tb.pos = pose.position;
             tb.rotZ = pose.rotZ;
         }

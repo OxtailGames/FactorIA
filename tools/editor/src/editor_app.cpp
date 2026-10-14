@@ -267,6 +267,10 @@ bool Editor::boot(const std::string& dirIn) {
     feedbackMtime_ = INT64_MIN;
     feedbackDoc_ = Json();
     layoutBuilt_ = false;
+    reset_audio_log(audioLog_);  // a new engine has a new play log that starts at seq 1
+    prefabDlg_ = PrefabDialogState{};
+    importDlg_ = AsciiImportState{};
+    formatDlg_ = FormatDialogState{};
     bootError_.clear();
     projectDir_.clear();
     projectName_.clear();
@@ -345,6 +349,8 @@ void Editor::install_command_overrides() {
         CommandInfo info = *ci;
         reg.add(info, [this](const Json& a) -> Json {
             const std::string path = a.value("path", scenePath_);
+            if (auto w = fs::check_writable(path); !w.ok())  // same write rule as the engine's scene.save
+                throw CommandError("invalid_argument", w.error().message, w.error().hint);
             auto r = save_scene_file(world(), path);
             if (!r) throw CommandError("failed", r.error().message, r.error().hint);
             if (path == scenePath_) dirty_ = false;
@@ -454,10 +460,11 @@ void Editor::on_frame(double dt) {
     if (engine_) {
         queue_.pump([this](const std::string& name, const Json& args) {
             const CommandInfo* info = engine_->commands().info(name);
-            const bool mutating = info && !info->readOnly;
+            const bool mutating = info && !info->readOnly && command_edits_scene(name, args);
             if (mutating && play_ == PlayState::Edit) begin_edit("ai:" + name + ":" + std::to_string(uiFrame_));
             CommandResult r = engine_->commands().call(name, args);
             if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
+            after_command(name, args, r);
             return r;
         });
         sync_scene_path();
@@ -497,6 +504,27 @@ void Editor::restore_scene(const Json& snapshot) {
     // game.state, scene.save, scene.reload) keeps pointing at the scene being edited.
     std::string err;
     if (!engine_->load_scene_json(snapshot, "editor snapshot", &err)) notify("Scene restore failed: " + err, 2);
+}
+
+bool Editor::command_edits_scene(const std::string& name, const Json& args) const {
+    if (name == "prefab.save" || name == "scene.format") return false;  // files only
+    if (name == "scene.import_ascii" && args.is_object() && args.contains("path")) return false;  // file mode: the world is not touched
+    return true;
+}
+
+void Editor::after_command(const std::string& name, const Json& args, const CommandResult& r) {
+    if (!r.ok || !engine_) return;
+    const bool fileImport = name == "scene.import_ascii" && args.is_object() && args.contains("path") && !args.value("dryRun", false);
+    if (name == "prefab.save" || name == "scene.format" || fileImport) refresh_asset_lists();
+    if (!fileImport || !args["path"].is_string()) return;
+    // The scene file that is open was rebuilt on disk (hot reload is off in the editor): load it so the viewport shows it.
+    if (fs::normalize(args["path"].get<std::string>()) != fs::normalize(scenePath_)) return;
+    if (play_ != PlayState::Edit) {
+        notify(scenePath_ + " was rebuilt on disk while the game runs. Stop, then Reload the scene to see it.", 1);
+        return;
+    }
+    reload_scene_from_disk(true);  // keepUndo: nothing the user had on screen is lost
+    select_id("");
 }
 
 void Editor::sync_scene_path() {
@@ -544,9 +572,12 @@ bool Editor::save_scene_now() {
     return true;
 }
 
-void Editor::reload_scene_from_disk() {
+void Editor::reload_scene_from_disk(bool keepUndo) {
     if (!engine_) return;
     if (play_ != PlayState::Edit) stop();
+    // What is on screen now; with keepUndo it becomes the first Ctrl+Z step, so nothing is lost silently.
+    Json before;
+    if (keepUndo) before = save_scene(world());
     std::string err;
     if (!engine_->load_scene(scenePath_, &err)) {
         notify("Reload failed: " + err, 2);
@@ -555,6 +586,7 @@ void Editor::reload_scene_from_disk() {
     world().set_scene_path(scenePath_);
     undo_.clear();
     redo_.clear();
+    if (keepUndo) undo_.push_back(std::move(before));
     dirty_ = false;
     notify("Reloaded " + scenePath_);
 }
@@ -761,6 +793,7 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderDockWindow("AI Assistant", rightBottom);
     ImGui::DockBuilderDockWindow("Engine Feedback", rightBottom);
     ImGui::DockBuilderDockWindow("Console", bottom);
+    ImGui::DockBuilderDockWindow("Audio", bottom);
     ImGui::DockBuilderFinish(dockId);
 }
 
@@ -830,6 +863,7 @@ void Editor::build_ui() {
         if (showConsole_) draw_console();
         if (showAi_) draw_ai_panel();
         if (showFeedback_) draw_feedback_panel();
+        if (showAudio_) draw_audio_panel();
         if (pendingFocus_) {
             ImGui::SetWindowFocus(pendingFocus_);
             pendingFocus_ = nullptr;
@@ -839,6 +873,11 @@ void Editor::build_ui() {
     draw_project_dialog();
     draw_validation_window();
     draw_docs_window();
+    if (engine_) {
+        draw_ascii_import_window();
+        draw_format_window();
+        draw_prefab_dialog();
+    }
     draw_toasts();
 
     // Unsaved changes dialogs.
@@ -891,7 +930,9 @@ void Editor::draw_main_menu() {
     if (!ImGui::BeginMainMenuBar()) return;
     const bool have = engine_ != nullptr;
     const bool editing = have && play_ == PlayState::Edit;
-    if (ImGui::BeginMenu("File")) {
+    const bool fileOpen = ImGui::BeginMenu("File");
+    at_track("menu:file");
+    if (fileOpen) {
         if (ImGui::MenuItem("New Project...")) showProjectDialog_ = true;
         if (ImGui::MenuItem("Open Project...")) showProjectDialog_ = true;
         if (ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) {
@@ -909,6 +950,13 @@ void Editor::draw_main_menu() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Import ASCII level...", nullptr, false, have)) open_ascii_import();
+        at_track("menu:import_ascii");
+        ImGui::SetItemTooltip("Build a Tilemap level and the objects on it from text rows and a legend (scene.import_ascii)");
+        if (ImGui::MenuItem("Format scene files...", nullptr, false, have)) open_format_window();
+        at_track("menu:format");
+        ImGui::SetItemTooltip("Rewrite scenes and prefabs in the canonical compact layout (scene.format)");
+        ImGui::Separator();
         if (ImGui::MenuItem("Quit")) sapp_request_quit();
         ImGui::EndMenu();
     }
@@ -918,9 +966,14 @@ void Editor::draw_main_menu() {
         ImGui::Separator();
         if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, editing && !selected().is_null())) duplicate_entity(selected());
         if (ImGui::MenuItem("Delete", "Del", false, editing && !selected().is_null())) delete_entity(selected());
+        ImGui::Separator();
+        if (ImGui::MenuItem("Save as prefab...", nullptr, false, have && !selected().is_null())) open_prefab_dialog(selected());
+        ImGui::SetItemTooltip("Save the selected entity and its children as a prefab file (prefab.save)");
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("View")) {
+    const bool viewOpen = ImGui::BeginMenu("View");
+    at_track("menu:view");
+    if (viewOpen) {
         ImGui::MenuItem("Viewport", nullptr, &showViewport_);
         ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy_);
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
@@ -928,6 +981,9 @@ void Editor::draw_main_menu() {
         ImGui::MenuItem("Console", nullptr, &showConsole_);
         ImGui::MenuItem("AI Assistant", nullptr, &showAi_);
         ImGui::MenuItem("Engine Feedback", nullptr, &showFeedback_);
+        ImGui::MenuItem("Audio", nullptr, &showAudio_);
+        at_track("menu:audio");
+        ImGui::SetItemTooltip("The live audio.log: every sound played, with its bus, volume, source entity and whether the clip loaded");
         ImGui::Separator();
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::MenuItem("Selection overlay", nullptr, &showOverlay_);

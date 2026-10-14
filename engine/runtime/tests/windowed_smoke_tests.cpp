@@ -9,14 +9,14 @@
 
 #include "fa/core/log.h"
 #include "fa/runtime/engine.h"
+#include "fa/core/fs.h"
 
 using namespace fa;
 
 TEST_CASE("windowed smoke: Engine runs inside run_app, renders, presents and quits"
           * doctest::skip(std::getenv("FA_WINDOWED_SMOKE") == nullptr)) {
     namespace stdfs = std::filesystem;
-    stdfs::path dir = stdfs::temp_directory_path() / "fa_runtime_windowed";
-    stdfs::remove_all(dir);
+    stdfs::path dir = fs::make_temp_dir("fa_runtime_windowed");
     stdfs::create_directories(dir / "scenes");
     std::ofstream(dir / "factoria.json") << R"({"name":"Windowed","display":{"width":320,"height":180}})";
     std::ofstream(dir / "scenes/main.scene.json")

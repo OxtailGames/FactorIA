@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <set>
@@ -31,6 +32,7 @@ constexpr int kRate = 44100;
 constexpr std::size_t kMaxVoices = 64;
 constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minutes
 constexpr int kBlock = 512;
+constexpr std::size_t kMaxPlayLog = 4096;
 
 enum Bus { BusSfx = 0, BusMusic = 1, BusUi = 2, BusCount = 3 };
 const char* const kBusNames[BusCount] = {"sfx", "music", "ui"};
@@ -142,6 +144,49 @@ struct Audio::Impl {
     std::uint64_t stamp = 0;
     std::string sceneMusic;
     float sceneMusicVolume = -1.0f;
+
+    // play log (game thread)
+    const World* clockWorld = nullptr;
+    std::deque<AudioEvent> playLog;
+    std::uint64_t playSeq = 0;
+    std::uint64_t playDropped = 0;
+
+    void log_play(std::string_view path, const PlayParams& p, bool music, std::string_view source, bool ok) {
+        AudioEvent ev;
+        ev.seq = ++playSeq;
+        if (const World* w = clockWorld ? clockWorld : lastWorld) {
+            ev.frame = w->frame();
+            ev.time = w->time();
+        }
+        ev.path = fs::normalize(path);
+        ev.volume = p.volume;
+        ev.pitch = p.pitch;
+        ev.pan = p.pan;
+        ev.bus = bus_index(p.bus) < 0 ? std::string(kBusNames[BusSfx]) : p.bus;
+        ev.loop = p.loop;
+        ev.music = music;
+        ev.source = std::string(source);
+        ev.ok = ok;
+        std::lock_guard<std::mutex> lk(mu);
+        playLog.push_back(std::move(ev));
+        if (playLog.size() > kMaxPlayLog) {
+            playLog.pop_front();
+            ++playDropped;
+        }
+    }
+
+    // play() with the AudioSource entity id that requested it ("" for scripts).
+    VoiceId start(std::string_view clipPath, const PlayParams& params, std::string_view source) {
+        if (!inited) {
+            FA_ERROR("audio", "Audio::play('{}') called before Audio::init()", clipPath);
+            return 0;
+        }
+        auto clip = get_clip(clipPath);
+        log_play(clipPath, params, false, source, clip != nullptr);
+        if (!clip) return 0;
+        std::lock_guard<std::mutex> lk(mu);
+        return add_voice_locked(std::move(clip), params);
+    }
 
     // ------------------------------------------------------------ decode
     std::shared_ptr<const Clip> decode(const std::string& path, std::string* err) {
@@ -419,20 +464,14 @@ void Audio::shutdown() {
     impl_->lastWorld = nullptr;
     impl_->sceneMusic.clear();
     impl_->sceneMusicVolume = -1.0f;
+    impl_->clockWorld = nullptr;
+    impl_->playLog.clear();
+    impl_->playDropped = 0;
 }
 
 bool Audio::load(std::string_view clipPath) { return impl_->get_clip(clipPath) != nullptr; }
 
-VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) {
-    if (!impl_->inited) {
-        FA_ERROR("audio", "Audio::play('{}') called before Audio::init()", clipPath);
-        return 0;
-    }
-    auto clip = impl_->get_clip(clipPath);
-    if (!clip) return 0;
-    std::lock_guard<std::mutex> lk(impl_->mu);
-    return impl_->add_voice_locked(std::move(clip), params);
-}
+VoiceId Audio::play(std::string_view clipPath, const PlayParams& params) { return impl_->start(clipPath, params, ""); }
 
 void Audio::stop(VoiceId voice) {
     std::lock_guard<std::mutex> lk(impl_->mu);
@@ -477,6 +516,16 @@ void Audio::set_master_volume(float volume) {
 
 void Audio::play_music(std::string_view clipPath, float volume, float fadeSeconds) {
     auto clip = impl_->get_clip(clipPath);
+    PlayParams p;
+    p.volume = volume;
+    p.loop = true;
+    p.bus = "music";
+    bool retune = false;  // the track is already playing: not a new play, so not logged
+    {
+        std::lock_guard<std::mutex> lk(impl_->mu);
+        retune = clip && impl_->find_voice(impl_->musicVoice) && impl_->musicPath == clip->path;
+    }
+    if (!retune) impl_->log_play(clipPath, p, true, "", clip != nullptr);
     if (!clip) return;
     std::lock_guard<std::mutex> lk(impl_->mu);
     Impl& im = *impl_;
@@ -494,10 +543,6 @@ void Audio::play_music(std::string_view clipPath, float volume, float fadeSecond
             vs.erase(std::remove_if(vs.begin(), vs.end(), [&](const Voice& v) { return v.id == oldId; }), vs.end());
         }
     }
-    PlayParams p;
-    p.volume = volume;
-    p.loop = true;
-    p.bus = "music";
     VoiceId id = im.add_voice_locked(clip, p);
     if (Voice* v = im.find_voice(id)) {
         if (fadeSeconds > 0.0f) {
@@ -526,6 +571,33 @@ void Audio::stop_music(float fadeSeconds) {
 }
 
 void Audio::advance_null_device(double seconds) { impl_->advance(seconds); }
+
+void Audio::set_clock(const World* world) { impl_->clockWorld = world; }
+
+std::vector<AudioEvent> Audio::play_log(std::uint64_t afterSeq) const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    std::vector<AudioEvent> out;
+    for (const AudioEvent& ev : impl_->playLog)
+        if (ev.seq > afterSeq) out.push_back(ev);
+    return out;
+}
+
+void Audio::clear_play_log() {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->playLog.clear();
+    impl_->playDropped = 0;
+}
+
+std::uint64_t Audio::play_log_dropped() const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    return impl_->playDropped;
+}
+
+Json AudioEvent::to_json() const {
+    return Json::object({{"seq", seq}, {"frame", frame}, {"time", time}, {"path", path}, {"volume", volume},
+                         {"pitch", pitch}, {"pan", pan}, {"bus", bus}, {"loop", loop}, {"music", music},
+                         {"source", source}, {"ok", ok}});
+}
 
 void Audio::start_recording() {
     std::lock_guard<std::mutex> lk(impl_->mu);
@@ -708,7 +780,7 @@ void Audio::update(World& world, float dt) {
                 p.pitch = src->pitch;
                 p.pan = pan;
                 p.loop = src->loop;
-                ea.voice = play(src->clip, p);
+                ea.voice = im.start(src->clip, p, ea.id);
                 ea.clip = src->clip;
                 if (ea.voice == 0) src->playing = false;  // load failed (already logged)
             }

@@ -196,7 +196,7 @@ declare module "factoria" {
   }
 
   /**
-   * Axis-aligned rectangle; (x, y) is the minimum corner.
+   * Axis-aligned rectangle; (x, y) is the minimum corner (the bottom-left in the +Y-up world), w and h the size. Entity.bounds() returns one.
    */
   export interface Rect {
     x: number;
@@ -300,6 +300,10 @@ declare module "factoria" {
      * Calls behaviour[method](...args) if it exists.
      */
     send(method: string, ...args: any[]): any;
+    /**
+     * World-space axis-aligned rectangle { x, y, w, h } of this entity's 2D visual, or null. (x, y) is the minimum corner, i.e. the BOTTOM-LEFT in the +Y-up world: the same Rect convention as physics.overlapBox and debug.rect. Tilemap: its size as drawn (rows form or width x height) times tileSize, from the top-left corner at the entity position. Sprite and Shape2D: size and pivot (a circle is its bounding square, a line its stroked segment; the outline thickness of other shapes is ignored). Text: the laid-out box (approximate when headless, like ui.measureText). Scale and rotation are applied (the box around the rotated corners) and several visuals give their union. null when the entity has no world-space 2D visual: none at all, an empty Tilemap, or only screen-space ones (space: "screen"). Children are not included. Example: const map = world.find("map").bounds();
+     */
+    bounds(): Rect | null;
     /**
      * Touching ground below (2D pixels tolerance, default 2; 3D meters, default 0.05).
      */
@@ -641,7 +645,45 @@ declare module "factoria" {
     pick<T>(items: readonly T[]): T | undefined;
     shuffle<T>(items: readonly T[]): T[];
     /**
-     * Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism).
+     * Reseeds the deterministic world RNG (use from tools/tests for seed -> level determinism). The running game draws from this one RNG, so reseeding it changes the game's random sequence: a level generator should use rng.create(seed) instead.
+     */
+    seed(n: number): void;
+    /**
+     * Creates an independent, deterministic generator with the same methods as rng. It has its own state and never reads or changes the world RNG (or Math.random), so a tool can generate a level from a seed without disturbing the running game. Algorithm: mulberry32 (32-bit state, one step per draw). The algorithm and the draws each method consumes are STABLE across engine versions, so a stored seed keeps giving the same sequence. The seed is reduced to 32 bits (ToUint32: integer part, modulo 2^32); 0 is a valid seed. Throws for a non-number or non-finite seed. Example: const r = rng.create(7); r.int(1, 6).
+     */
+    create(seed: number): Rng;
+  }
+
+  /**
+   * An independent seeded generator from rng.create(seed). Algorithm mulberry32, stable across engine versions: the same seed gives the same sequence on every platform. Every method draws a fixed number of 32-bit steps (float, range, int and chance: one per call; pick: one, none for an empty array; shuffle: items.length - 1), so a sequence does not depend on the arguments.
+   */
+  export interface Rng {
+    /**
+     * Next number in [0, 1): a 32-bit step divided by 2^32.
+     */
+    float(): number;
+    /**
+     * min + (max - min) * float(); in [min, max).
+     */
+    range(min: number, max: number): number;
+    /**
+     * Integer in [min, max], both inclusive (arguments are truncated to integers): min + floor(float() * (max - min + 1)). Returns min when max <= min (still one draw).
+     */
+    int(min: number, max: number): number;
+    /**
+     * True with probability p (default 0.5): float() < p.
+     */
+    chance(p?: number): boolean;
+    /**
+     * A random item (items[floor(float() * length)]), or undefined for an empty array.
+     */
+    pick<T>(items: readonly T[]): T | undefined;
+    /**
+     * A shuffled copy (Fisher-Yates from the end, j = floor(float() * (i + 1))); the input is not modified.
+     */
+    shuffle<T>(items: readonly T[]): T[];
+    /**
+     * Restarts this generator from seed n (same reduction as rng.create); the same as a new rng.create(n). Does not touch the world RNG.
      */
     seed(n: number): void;
   }
@@ -901,6 +943,26 @@ declare module "factoria" {
      * Picks the rendering camera when several are primary: the lowest depth wins (multi-camera rendering is on the roadmap).
      */
     depth: number;
+    /**
+     * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace.
+     */
+    bloom: boolean;
+    /**
+     * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
+     */
+    bloomThreshold: number;
+    /**
+     * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
+     */
+    bloomIntensity: number;
+    /**
+     * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
+     */
+    bloomRadius: number;
+    /**
+     * Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow.
+     */
+    bloomScreenSpace: boolean;
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -1012,11 +1074,11 @@ declare module "factoria" {
    */
   export interface Shape2DComponent {
     /**
-     * Kind of primitive to draw.
+     * Kind of primitive to draw. triangle: isosceles, apex at the middle of the top edge of the size box, base along the bottom edge. diamond: a rhombus whose 4 points sit at the middles of the size box's 4 edges (a square rotated 45 degrees when size is square; handy for gems, enemies and neon markers).
      */
-    shape: "rectangle" | "circle" | "line" | "triangle";
+    shape: "rectangle" | "circle" | "line" | "triangle" | "diamond";
     /**
-     * rectangle/triangle: [width, height]. circle: diameter in x. line: end point offset from the entity origin.
+     * rectangle/triangle/diamond: [width, height] of the box that contains the shape. circle: diameter in x. line: end point offset from the entity origin.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -1042,7 +1104,7 @@ declare module "factoria" {
      */
     space: "world" | "screen";
     /**
-     * Anchor point within the shape for rectangle/circle/triangle: [0.5,0.5] = centered on the position (default), [0,0] bottom-left, [1,1] top-right. In screen space +Y is down, so [0,1] puts the top-left corner at the position.
+     * Anchor point within the shape's size box for rectangle/circle/triangle/diamond: [0.5,0.5] = the box centre sits on the position (default), [0,0] bottom-left, [1,1] top-right. This point is also what the entity rotates and scales around. In screen space +Y is down, so [0,1] puts the top-left corner at the position. For a triangle the box centre is NOT its centre of mass (the apex is at the top-middle, the base along the bottom): use [0.5, 0.3333] to put its centroid on the position, the natural point to spin a triangle around without it wobbling. Circles and diamonds are symmetric, so the default [0.5,0.5] already spins them in place.
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
@@ -1122,19 +1184,19 @@ declare module "factoria" {
     get tileSize(): Vec2;
     set tileSize(value: Vec2Like);
     /**
-     * Number of tile columns in the tileset texture (used to find a tile's source rectangle).
+     * Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout.
      */
     columns: number;
     /**
-     * Map width in tiles.
+     * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
      */
     width: number;
     /**
-     * Map height in tiles.
+     * Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.
      */
     height: number;
     /**
-     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers or an array of rows. -1 = empty. Returns a plain-object COPY; assign a new value to write.
+     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. Returns a plain-object COPY; assign a new value to write.
      */
     tiles: any;
     /**
@@ -1646,10 +1708,10 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like };
     Text: { text?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean };
@@ -1700,6 +1762,14 @@ declare module "factoria:test" {
     toBeInstanceOf(cls: Function): void;
     toThrow(expected?: string | RegExp | Function): void;
     /**
+     * For expect(game.audioLog()): passes when a clip was played (path = project-relative path, file name like "jump.wav", or RegExp). times = exact count; plays whose clip failed to load do not count.
+     */
+    toContainPlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
+     * Same as toContainPlayed.
+     */
+    toHavePlayed(path: string | RegExp, options?: { times?: number; bus?: "sfx" | "music" | "ui"; source?: EntityLike }): void;
+    /**
      * Negates the matcher.
      */
     readonly not: Expectation;
@@ -1713,6 +1783,45 @@ declare module "factoria:test" {
   export interface DescribeFn {
     (name: string, fn: () => void): void;
     skip(name: string, fn: () => void): void;
+  }
+
+  /**
+   * One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.
+   */
+  export interface AudioPlay {
+    /**
+     * Increasing id.
+     */
+    readonly seq: number;
+    /**
+     * time.frame when the sound was requested.
+     */
+    readonly frame: number;
+    /**
+     * time.elapsed (seconds) when the sound was requested.
+     */
+    readonly time: number;
+    /**
+     * Project-relative clip path.
+     */
+    readonly path: string;
+    readonly volume: number;
+    readonly pitch: number;
+    readonly pan: number;
+    readonly bus: "sfx" | "music" | "ui";
+    readonly loop: boolean;
+    /**
+     * Started with audio.music() or SceneSettings.music.
+     */
+    readonly music: boolean;
+    /**
+     * Id of the entity whose AudioSource played it; "" for scripts and music.
+     */
+    readonly source: string;
+    /**
+     * false when the clip could not be loaded (the error is in the log).
+     */
+    readonly ok: boolean;
   }
 
   /**
@@ -1765,6 +1874,14 @@ declare module "factoria:test" {
      * JSON dump of the game state.
      */
     state(): Json;
+    /**
+     * Sounds played since the current test started (cleared before each test), oldest first. Assert with expect(game.audioLog()).toContainPlayed("assets/sfx/jump.wav").
+     */
+    audioLog(): AudioPlay[];
+    /**
+     * Empties the audio log (e.g. after setup, before the action under test).
+     */
+    clearAudioLog(): void;
   }
 
   /**

@@ -47,7 +47,11 @@ constexpr int kMaxLights = 8;
 // ---------------------------------------------------------------------------
 // GPU resources
 // ---------------------------------------------------------------------------
-enum class SamplerKind : std::uint8_t { Nearest, Linear, LinearRepeat, NearestRepeat, Count };
+// Shader programs of the Camera.bloom post-process (bloom.glsl).
+enum class BloomStage : std::uint8_t { Bright, Down, Blur, Composite, Count };
+
+// LinearClamp: bilinear, clamp to edge, no mipmaps (post-processing).
+enum class SamplerKind : std::uint8_t { Nearest, Linear, LinearRepeat, NearestRepeat, LinearClamp, Count };
 
 struct TextureAsset {
     std::string path;
@@ -159,6 +163,16 @@ class Gpu;
 class Assets;
 class Fonts;
 
+// Camera.bloom* (flat fields on Camera), already clamped: see sanitize_bloom() in bloom.h. The defaults here are
+// the fallbacks for NaN values and equal the Camera component defaults.
+struct BloomSettings {
+    bool enabled = false;
+    float threshold = 0.7f;   // 0 .. 0.99, brightness (max of r, g, b) where the glow starts
+    float intensity = 1.2f;   // 0 .. 10, multiplier of the glow added to the frame
+    float radius = 20.0f;     // 1 .. 128 design pixels
+    bool screenSpace = true;  // Camera.bloomScreenSpace: false = screen-space items are drawn after the bloom
+};
+
 struct CameraInfo {
     Mat4 view, proj, viewProj, invViewProj;
     Vec3 position{0, 0, 0};
@@ -171,6 +185,7 @@ struct CameraInfo {
     Vec3 right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
     Color clearColor{0.08f, 0.08f, 0.12f, 1};
     bool clear = true;
+    BloomSettings bloom;  // Camera.bloom* after clamping to the supported ranges
 };
 
 // Texture/mesh/font caches keyed by project-relative path.
@@ -255,6 +270,11 @@ public:
     sg_pipeline sky_pipeline();
     sg_pipeline shadow_pipeline();
     sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount);
+    // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
+    // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
+    bool bloom_ready();
+    // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
+    sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1);
 
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
@@ -268,12 +288,14 @@ public:
     bool shadows_supported() const { return shadowsSupported_; }
 
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
+    sg_shader bloom_shaders_[int(BloomStage::Count)]{};
 
 private:
         sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
 
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
+    int bloomState_ = 0;  // 0 = shaders not created yet, 1 = ready, -1 = creation failed
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     std::map<PipelineKey, sg_pipeline> pipelines_;
