@@ -200,14 +200,14 @@ Result<void> field_from_json(const FieldInfo& f, void* o, const Json& value) {
         case FieldKind::Int: {
             int v;
             if (!json_to(value, v, &err)) return bad();
-            if (has_range(f) && (float(v) < f.minValue || float(v) > f.maxValue)) return range_error(f, v);
+            if (auto r = check_range(f, float(v)); !r) return r;
             as<std::int32_t>(f, o) = v;
             return {};
         }
         case FieldKind::Float: {
             float v;
             if (!json_to(value, v, &err)) return bad();
-            if (has_range(f) && (v < f.minValue || v > f.maxValue)) return range_error(f, v);
+            if (auto r = check_range(f, v); !r) return r;
             as<float>(f, o) = v;
             return {};
         }
