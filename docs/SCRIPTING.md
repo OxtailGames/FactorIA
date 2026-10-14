@@ -95,7 +95,7 @@ suggestion; `factoria validate` reports the same through
 |---|---|
 | `id`, `name`, `tags`, `active`, `alive` | identity (`id` is the stable scene id) |
 | `transform` | `Transform` view: `position`, `rotation`, `scale` (Vec3 views) |
-| `position` | shortcut for `transform.position` (assignable: `e.position = vec2(10, 0)`) |
+| `position` | shortcut for `transform.position` (assignable: `e.position = vec2(10, 0)`). On an entity with a physics body it teleports the body (also when it was asleep: it falls from the new place), and `isGrounded()` reflects the new place after the next physics step |
 | `worldPosition` | world-space position (get/set) |
 | `bounds()` | world-space rectangle of the entity's 2D visual, `Rect \| null` (see below) |
 | `get(name)` | live view of a component or `null` (`e.get("Sprite").color.a = 0.5`) |
