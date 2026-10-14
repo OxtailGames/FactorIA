@@ -36,6 +36,8 @@ public:
     void step(World& world, float dt);
 
     std::optional<RaycastHit> raycast(World& world, Vec2 from, Vec2 to, const RaycastOptions& opt);
+    std::optional<RaycastHit> shape_cast(World& world, const CastShape& shape, Vec2 from, Vec2 to,
+                                         const RaycastOptions& opt);
     std::vector<Entity> overlap_circle(World& world, Vec2 center, float radius, std::int32_t mask);
     std::vector<Entity> overlap_box(World& world, Rect box, std::int32_t mask);
     void apply_impulse(World& world, Entity e, Vec3 impulse);
@@ -129,6 +131,8 @@ public:
     void reset();
     void step(World& world, float dt);
     std::optional<RaycastHit> raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt);
+    std::optional<RaycastHit> shape_cast(World& world, const CastShape& shape, Vec3 from, Vec3 to,
+                                         const RaycastOptions& opt);
     bool is_touching(World& world, Entity e, Vec3 dir, float tolerance);
     std::vector<Entity> overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask);
     void apply_impulse(World& world, Entity e, Vec3 impulse);

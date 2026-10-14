@@ -760,6 +760,10 @@ std::vector<Entity> Physics2D::overlap_circle(World& world, Vec2 center, float r
     return finish_overlap(bits, world);
 }
 
+std::optional<RaycastHit> Physics2D::shape_cast(World&, const CastShape&, Vec2, Vec2, const RaycastOptions&) {
+    return std::nullopt;  // M5 package B implements this with b2World_CastShape
+}
+
 std::vector<Entity> Physics2D::overlap_box(World& world, Rect box, std::int32_t mask) {
     ensure_world(world);
     const float ppm = settings_.pixelsPerMeter;
