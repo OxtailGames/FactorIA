@@ -29,4 +29,5 @@ ai.local.json
 
 # agent worktrees (Claude Code)
 /.claude/worktrees/
+/.claude/settings.local.json
 /.claude/mods/*/.claude-plugin/types/
