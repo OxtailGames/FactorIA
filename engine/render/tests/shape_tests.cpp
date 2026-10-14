@@ -31,6 +31,22 @@ Entity black_camera(World& w) {
 
 bool drawn(const Image& img, int x, int y) { return img.pixel(x, y).r > 0.6f; }
 
+// Nothing outside the pixel box [x0, x1] x [y0, y1] is lit: the shape stays inside its size box.
+bool dark_outside(const Image& img, int x0, int y0, int x1, int y1) {
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x)
+            if ((x < x0 || x > x1 || y < y0 || y > y1) && img.pixel(x, y).r >= 0.05f) return false;
+    return true;
+}
+
+// Every stroked pixel of `ring` is inside the filled shape: an outline has the silhouette of the filled one.
+bool within(const Image& ring, const Image& filled) {
+    for (int y = 0; y < ring.height; ++y)
+        for (int x = 0; x < ring.width; ++x)
+            if (ring.pixel(x, y).r > 0.3f && filled.pixel(x, y).r <= 0.1f) return false;
+    return true;
+}
+
 // Area centroid of the lit pixels (weighted by brightness), in pixel coordinates.
 Vec2 lit_centroid(const Image& img) {
     double sx = 0, sy = 0, sw = 0;
@@ -228,9 +244,7 @@ TEST_CASE("Shape2D triangle: the outline grows inward, evenly thick on all edges
         // 60x60 box centred on the target: pixels x 130..189, y 60..119. Apex (160,60), base along y = 120.
         shape_at(w, ShapeType::Triangle, pos, {60, 60}, Color::white(), false, 6.0f, {0.5f, 0.5f}, space);
         Image ring = g.render(w);
-        for (int y = 0; y < ring.height; ++y)  // nothing leaves the size box (a centred stroke used to poke out by t/2)
-            for (int x = 0; x < ring.width; ++x)
-                if (x < 130 || x > 189 || y < 60 || y > 119) REQUIRE(ring.pixel(x, y).r < 0.05f);
+        CHECK(dark_outside(ring, 130, 60, 189, 119));  // nothing leaves the size box (a centred stroke poked out by t/2)
         CHECK_FALSE(drawn(ring, 160, 100));                           // hollow (incentre)
         CHECK_FALSE(drawn(ring, 160, 90));
         CHECK(drawn(ring, 160, 63));  CHECK(drawn(ring, 160, 70));    // the sharp apex is stroked
@@ -247,10 +261,7 @@ TEST_CASE("Shape2D triangle: the outline grows inward, evenly thick on all edges
         World f;
         black_camera(f);
         shape_at(f, ShapeType::Triangle, pos, {60, 60}, Color::white(), true, 6.0f, {0.5f, 0.5f}, space);
-        Image filled = g.render(f);
-        for (int y = 0; y < ring.height; ++y)
-            for (int x = 0; x < ring.width; ++x)
-                if (ring.pixel(x, y).r > 0.3f) REQUIRE(filled.pixel(x, y).r > 0.1f);
+        CHECK(within(ring, g.render(f)));
 
         // A stroke thicker than the triangle fills it instead of inverting.
         World t;
@@ -287,9 +298,7 @@ TEST_CASE("Shape2D polygon: a regular polygon on the ellipse inscribed in the si
     CHECK_FALSE(drawn(img, 131, 61));  CHECK_FALSE(drawn(img, 188, 61));     // the 4 corners of the size box
     CHECK_FALSE(drawn(img, 131, 118)); CHECK_FALSE(drawn(img, 188, 118));
     CHECK_FALSE(drawn(img, 160, 57));  CHECK_FALSE(drawn(img, 160, 123));    // beyond the vertices
-    for (int y = 0; y < img.height; ++y)                                       // nothing leaves the size box
-        for (int x = 0; x < img.width; ++x)
-            if (x < 129 || x > 190 || y < 59 || y > 120) REQUIRE(img.pixel(x, y).r < 0.05f);
+    CHECK(dark_outside(img, 129, 59, 190, 120));                               // nothing leaves the size box
 
     // sides = 4 is a diamond (first vertex up) stretched by the 60x40 box; sides = 3 an upward triangle.
     World sq;
@@ -333,10 +342,7 @@ TEST_CASE("Shape2D polygon: the outline grows inward and matches the filled silh
     World f;
     black_camera(f);
     shape_at(f, ShapeType::Polygon, {0, 0, 0}, {60, 60}, Color::white());
-    Image filled = g.render(f);
-    for (int y = 0; y < ring.height; ++y)
-        for (int x = 0; x < ring.width; ++x)
-            if (ring.pixel(x, y).r > 0.3f) REQUIRE(filled.pixel(x, y).r > 0.1f);
+    CHECK(within(ring, g.render(f)));
 
     World t;
     black_camera(t);
@@ -364,9 +370,7 @@ TEST_CASE("Shape2D star: tips on the outer radius, notches in between, outline g
     CHECK_FALSE(drawn(img, 160, 134));                                     // the bottom notch (radius 20 at 270 degrees)
     CHECK(drawn(img, 160, 106));                                           // ... which is solid closer to the centre
     CHECK_FALSE(drawn(img, 121, 51));  CHECK_FALSE(drawn(img, 199, 51));   // corners of the size box
-    for (int y = 0; y < img.height; ++y)                                    // nothing leaves the size box
-        for (int x = 0; x < img.width; ++x)
-            if (x < 119 || x > 200 || y < 49 || y > 130) REQUIRE(img.pixel(x, y).r < 0.05f);
+    CHECK(dark_outside(img, 119, 49, 200, 130));                            // nothing leaves the size box
 
     World ring;
     black_camera(ring);
@@ -375,9 +379,7 @@ TEST_CASE("Shape2D star: tips on the outer radius, notches in between, outline g
     CHECK_FALSE(drawn(outline, 160, 90));  CHECK_FALSE(drawn(outline, 160, 100));   // hollow
     CHECK(drawn(outline, 160, 54));  CHECK(drawn(outline, 127, 79));               // the tips are stroked
     CHECK_FALSE(drawn(outline, 139, 61));
-    for (int y = 0; y < outline.height; ++y)                                         // same silhouette as the filled star
-        for (int x = 0; x < outline.width; ++x)
-            if (outline.pixel(x, y).r > 0.3f) REQUIRE(img.pixel(x, y).r > 0.1f);
+    CHECK(within(outline, img));                                                     // same silhouette as the filled star
 
     // More points, a fatter or thinner star, and a thick stroke that fills it.
     World more;
