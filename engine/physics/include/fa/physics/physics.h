@@ -33,6 +33,10 @@
 //     collider area (meters^2) * density.
 //   * RAYCASTS: a collider that contains the ray origin is skipped (see RaycastOptions); `ignore` skips an entity and
 //     its children; triggers are skipped unless ignoreTriggers=false.
+//   * SHAPE CASTS (2D): b2World_CastShape with proxies built to stop ON the surface (raw Box2D stops a box 0.5 cm
+//     short of a wall and a circle 0.5 cm inside it). A collider the shape penetrates by more than 1 cm at `from` is
+//     skipped; one it only touches (resting contact) blocks the cast, at distance 0, only when the shape moves towards
+//     it. Tile boxes are reported as the Tilemap entity, like raycasts. Rotated colliders give the face normal.
 //   * ONE-WAY PLATFORMS (Collider2D.oneWay): contact enabled only while the other body's bottom is above the
 //     platform's top and it is not moving up relative to it (Box2D pre-solve; world runs single-threaded).
 //     Assumes the platform is unrotated or flipped 180 degrees (flipped = one-way from below). Sides never block.
@@ -103,6 +107,13 @@ struct CastShape {
     float radius = 0.5f;
     Vec3 size{1, 1, 1};
 };
+
+// Parses the JSON shape object of the physics.shape_cast command and physics.shapeCast(shape, ...) in scripts:
+//   2D: {"shape":"circle","radius":8}    {"shape":"box","size":[16,24]}
+//   3D: {"shape":"sphere","radius":0.5}  {"shape":"box","size":[1,2,1]}
+// `size` may also be {"x":..,"y":..(,"z":..)}; sizes and radii must be positive. Errors teach: what is wrong, an
+// example, "did you mean" for a misspelt shape or key, and a note when the 3D name is used in 2D or the other way round.
+Result<CastShape> cast_shape_from_json(const Json& j, bool is3d);
 
 class Physics {
 public:

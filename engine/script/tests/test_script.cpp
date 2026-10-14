@@ -553,6 +553,67 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
 }
 
+TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and teaches on bad shapes") {
+    TestHost h("shapecast");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");  // top at -90
+    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");
+    ev_ok(h, "world.spawn({id:'trig', components:{Transform:{position:[200,-60]}, Collider2D:{size:[20,20], isTrigger:true}}})");
+    h.step_frames(1);  // bodies are created on the first physics step
+
+    // a circle and a box land on the ground: the result has the same shape as a raycast hit
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).distance").get<double>() ==
+          doctest::Approx(182.0).epsilon(0.005));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).point.y").get<double>() ==
+          doctest::Approx(-90.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).normal.y").get<double>() ==
+          doctest::Approx(1.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: vec2(16, 24) }, vec2(100, 100), {x: 100, y: -300}).distance")
+              .get<double>() == doctest::Approx(178.0).epsilon(0.005));  // half height 12
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'BOX', size: [16, 24] }, [100, 100], [100, -300]).entity.id") == "ground");
+    // nothing in the way
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, 50])").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, 100])").is_null());
+    // a collider overlapping the start is skipped (ball), the ground is hit; ignore and mask work as for raycast
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300]).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: 'ball' }).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: world.find('ground') })").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { mask: 0 })").is_null());
+    // triggers are skipped unless ignoreTriggers is false
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300]).entity.id") == "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300], { ignoreTriggers: false }).entity.id") == "trig");
+
+    // 3D: nothing in the way is null
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, 5, 0])").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, vec3(0, 10, 0), vec3(0, 5, 0))").is_null());
+
+    // bad shapes throw an Error that says what is wrong and how to fix it
+    auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
+    std::string m = ev_err(h, "physics.shapeCast({ shape: 'circel', radius: 8 }, [0, 0], [1, 1])");
+    CHECK(has(m, "circel"));
+    CHECK(has(m, "Did you mean 'circle'"));
+    CHECK(has(m, "Example"));
+    m = ev_err(h, "physics.shapeCast({ shape: 'sphere', radius: 8 }, [0, 0], [1, 1])");  // 3D name in a 2D cast
+    CHECK(has(m, "3D shape"));
+    CHECK(has(m, "\"circle\""));
+    m = ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 1 }, [0, 0, 0], [1, 1, 1])");  // 2D name in a 3D cast
+    CHECK(has(m, "2D shape"));
+    CHECK(has(m, "\"sphere\""));
+    m = ev_err(h, "physics.shapeCast({ shape: 'sfere', radius: 1 }, [0, 0, 0], [1, 1, 1])");
+    CHECK(has(m, "Did you mean 'sphere'"));
+    m = ev_err(h, "physics.shapeCast({ shape: 'box' }, [0, 0], [1, 1])");
+    CHECK(has(m, "needs \"size\""));
+    m = ev_err(h, "physics.shapeCast({ shape: 'box', size: [1, 2] }, [0, 0, 0], [1, 1, 1])");
+    CHECK(has(m, "[x, y, z]"));
+    m = ev_err(h, "physics.shapeCast({ shape: 'circle' }, [0, 0], [1, 1])");
+    CHECK(has(m, "needs \"radius\""));
+    m = ev_err(h, "physics.shapeCast('box', [0, 0], [1, 1])");
+    CHECK(has(m, "must be an object"));
+    CHECK(has(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 1 }, 'x', [0, 0])"), "[x, y"));
+    CHECK(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 0 }, [0, 0], [1, 1])").find("positive") != std::string::npos);
+}
+
 TEST_CASE("setting an entity's position from JS on a body that fell asleep teleports a live body") {
     TestHost h("sleepteleport");
     REQUIRE(h.start());

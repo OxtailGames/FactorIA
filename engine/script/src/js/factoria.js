@@ -675,6 +675,18 @@
       const a = vecArr(origin, 3, "physics.raycast3d(origin, dir) `origin`"), d = vecArr(dir, 3, "physics.raycast3d(origin, dir) `dir`");
       return hitOf(N.raycast3d(a[0], a[1], a[2], d[0], d[1], d[2], maxDistance, maskOf(o), ignoreOf(o), trigOf(o)), false);
     },
+    // shapeCast(shape, from, to, { mask, ignore, ignoreTriggers }): sweeps a shape from `from` to `to` (2D when `from` is 2D, else 3D)
+    // and returns the first collider it touches like raycast does ({ entity, point, normal, distance } | null). distance = how far the
+    // CENTRE travels before contact. shape: { shape: "circle", radius } or { shape: "box", size: [w, h] } in 2D;
+    // { shape: "sphere", radius } or { shape: "box", size: [x, y, z] } in 3D. Bad shapes throw an Error that explains the fix.
+    shapeCast(shape, from, to, o) {
+      if (!is3dVec(from)) {
+        const a = vecArr(from, 2, "physics.shapeCast(shape, from, to) `from`"), b = vecArr(to, 2, "physics.shapeCast(shape, from, to) `to`");
+        return hitOf(N.shapeCast2d(shape, a[0], a[1], b[0], b[1], maskOf(o), ignoreOf(o), trigOf(o)), true);
+      }
+      const a = vecArr(from, 3, "physics.shapeCast(shape, from, to) `from`"), b = vecArr(to, 3, "physics.shapeCast(shape, from, to) `to`");
+      return hitOf(N.shapeCast3d(shape, a[0], a[1], a[2], b[0], b[1], b[2], maskOf(o), ignoreOf(o), trigOf(o)), false);
+    },
     overlapCircle(c, r, o) { const v = vecArr(c, 2, "physics.overlapCircle(center, r) `center`"); return N.overlapCircle(v[0], v[1], r, maskOf(o)).map(entityOf); },
     overlapBox(r, o) { const q = rectArr(r, "physics.overlapBox(rect)"); return N.overlapBox(q[0], q[1], q[2], q[3], maskOf(o)).map(entityOf); },
     overlapSphere(c, r, o) { const v = vecArr(c, 3, "physics.overlapSphere(center, r) `center`"); return N.overlapSphere(v[0], v[1], v[2], r, maskOf(o)).map(entityOf); },

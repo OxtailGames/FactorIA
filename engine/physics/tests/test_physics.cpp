@@ -503,6 +503,289 @@ TEST_CASE("2d: raycast skips colliders containing the origin, honours ignore and
     CHECK_FALSE(s.physics.raycast2d(s.world, {60, 0}, {300, 0}, o2).has_value());
 }
 
+// ------------------------------------------------------ 2D shape casts ----
+
+namespace {
+CastShape circle_cast(float radius) {
+    CastShape s;
+    s.kind = CastShape::Kind::Circle;
+    s.radius = radius;
+    return s;
+}
+CastShape box_cast(float w, float h) {
+    CastShape s;
+    s.kind = CastShape::Kind::Box;
+    s.size = {w, h, 1};
+    return s;
+}
+}  // namespace
+
+TEST_CASE("2d: shape cast of a circle and a box lands on the surface, with the hit normal") {
+    Sim s;
+    Entity ground = add_ground(s.world);  // top at y = -180
+    Entity wall = add_box(s.world, "wall", {100, 0}, {20, 100}, BodyType::Static, false);  // left face at x = 90
+    Entity ball = add_box(s.world, "ball", {100, 200}, {1, 1}, BodyType::Static, false);
+    Collider2D& bc = *s.world.get<Collider2D>(ball);
+    bc.shape = ColliderShape::Circle;
+    bc.radius = 20;  // circle collider centred at (100, 200)
+    s.run(2);
+
+    // circle r=8 falling onto the ground: the centre stops at y = -172
+    auto hit = s.physics.shape_cast2d(s.world, circle_cast(8), {0, 100}, {0, -300});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    CHECK(hit->distance == doctest::Approx(272.0f).epsilon(0.0005));
+    CHECK(hit->point.y == doctest::Approx(-180.0f).epsilon(0.01));
+    CHECK(hit->normal.x == doctest::Approx(0.0f).epsilon(0.01));
+    CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
+
+    // box 32x16 (half height 8) falling onto the ground: same stop
+    hit = s.physics.shape_cast2d(s.world, box_cast(32, 16), {0, 100}, {0, -300});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    CHECK(hit->distance == doctest::Approx(272.0f).epsilon(0.0005));
+    CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
+
+    // box 40x40 moving right into the wall: stops 20 px before its left face; the normal points back at the box
+    hit = s.physics.shape_cast2d(s.world, box_cast(40, 40), {-100, 0}, {300, 0});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(hit->distance == doctest::Approx(170.0f).epsilon(0.0005));
+    CHECK(hit->point.x == doctest::Approx(90.0f).epsilon(0.0005));
+    CHECK(hit->normal.x == doctest::Approx(-1.0f).epsilon(0.01));
+    // and from the other side
+    hit = s.physics.shape_cast2d(s.world, circle_cast(10), {300, 0}, {-100, 0});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(hit->distance == doctest::Approx(300.0f - 110.0f - 10.0f).epsilon(0.0005));
+    CHECK(hit->normal.x == doctest::Approx(1.0f).epsilon(0.01));
+
+    // circle r=10 against the circle collider (r=20 at (100, 200)): centres stop 30 apart
+    hit = s.physics.shape_cast2d(s.world, circle_cast(10), {-100, 200}, {300, 200});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ball);
+    CHECK(hit->distance == doctest::Approx(170.0f).epsilon(0.0005));
+    CHECK(hit->point.x == doctest::Approx(80.0f).epsilon(0.01));
+    CHECK(hit->normal.x == doctest::Approx(-1.0f).epsilon(0.01));
+
+    // a shape sweeps an area, a ray a line: the wall spans y in [-50, 50]; a ray along y=60 misses it, a box does not
+    CHECK_FALSE(s.physics.raycast2d(s.world, {-100, 60}, {300, 60}).has_value());
+    hit = s.physics.shape_cast2d(s.world, box_cast(40, 40), {-100, 60}, {300, 60});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(hit->normal.x == doctest::Approx(-1.0f).epsilon(0.01));
+    // a collider rotated by 45 degrees: the normal is the face normal, not an axis
+    Entity ramp = add_box(s.world, "ramp", {-500, 0}, {200, 20}, BodyType::Static, false);
+    s.world.get<Transform>(ramp)->rotation.z = 45.0f;
+    s.run(2);
+    hit = s.physics.shape_cast2d(s.world, circle_cast(10), {-500, 300}, {-500, -300});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ramp);
+    CHECK(hit->normal.x == doctest::Approx(-0.7071f).epsilon(0.01));
+    CHECK(hit->normal.y == doctest::Approx(0.7071f).epsilon(0.01));
+    CHECK(hit->distance == doctest::Approx(300.0f - 28.284f).epsilon(0.0005));
+    // null when the path is clear, and for a zero-length cast
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(40, 40), {-100, 120}, {300, 120}).has_value());
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, circle_cast(8), {0, 100}, {0, 100}).has_value());
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, circle_cast(8), {0, 100}, {0, -100}).has_value());  // stops short of the ground
+}
+
+TEST_CASE("2d: shape cast against tilemap tiles reports the Tilemap entity") {
+    Sim s;
+    Entity map = s.world.create("map", "map");
+    s.world.get<Transform>(map)->position = {-80, 0, 0};
+    Tilemap& tm = s.world.add<Tilemap>(map);
+    tm.tileSize = {16, 16};
+    tm.width = 10;
+    tm.height = 3;
+    Json tiles = Json::array();
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 10; ++c) tiles.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
+    tm.tiles = tiles;
+    tm.solidTiles = Json::array({1, 2});
+    s.run(2);
+    // wall tile: x in [64, 80], y in [-32, -16]; a circle r=4 along y=-24 stops with its centre at x=60
+    auto hit = s.physics.shape_cast2d(s.world, circle_cast(4), {40, -24}, {100, -24});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == map);
+    CHECK(hit->distance == doctest::Approx(20.0f).epsilon(0.01));
+    CHECK(hit->normal.x == doctest::Approx(-1.0f).epsilon(0.01));
+    // a box falling onto the bottom row (top at y=-32): the centre stops at y=-28
+    hit = s.physics.shape_cast2d(s.world, box_cast(8, 8), {0, 0}, {0, -100});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == map);
+    CHECK(hit->distance == doctest::Approx(28.0f).epsilon(0.01));
+    CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
+    // the open cell on the left lets a small shape through
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, circle_cast(4), {-100, -24}, {-85, -24}).has_value());
+}
+
+TEST_CASE("2d: shape cast honours mask, ignore (and descendants) and ignoreTriggers") {
+    Sim s;
+    Entity ground = add_ground(s.world);
+    Entity crate = add_box(s.world, "crate", {200, -150}, {60, 60}, BodyType::Static, false);
+    s.world.get<Collider2D>(crate)->layer = 3;
+    Entity trig = add_box(s.world, "trig", {-200, -100}, {40, 40}, BodyType::Static, false);
+    s.world.get<Collider2D>(trig)->isTrigger = true;
+    Entity child = add_box(s.world, "child", {400, -150}, {30, 30}, BodyType::Static, false);
+    s.world.set_parent(child, crate, true);
+    s.run(2);
+    const CastShape box = box_cast(20, 20);
+
+    // mask: layer 0 is the ground, layer 3 the crate
+    RaycastOptions o;
+    o.mask = 1 << 3;
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box, {0, 100}, {0, -300}, o).has_value());
+    auto hit = s.physics.shape_cast2d(s.world, box, {200, 100}, {200, -300}, o);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == crate);
+    o.mask = 1 << 0;
+    hit = s.physics.shape_cast2d(s.world, box, {200, 100}, {200, -300}, o);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);  // the crate is not in the mask: the cast reaches the ground
+
+    // ignore skips the entity and its descendants
+    o = {};
+    o.ignore = crate;
+    hit = s.physics.shape_cast2d(s.world, box, {200, 100}, {200, -300}, o);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    hit = s.physics.shape_cast2d(s.world, box, {400, 100}, {400, -300}, o);  // the child's column
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    hit = s.physics.shape_cast2d(s.world, box, {400, 100}, {400, -300});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == child);
+    o = {};
+    o.ignore = ground;
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box, {0, 100}, {0, -300}, o).has_value());
+
+    // triggers are invisible unless ignoreTriggers=false
+    hit = s.physics.shape_cast2d(s.world, box, {-200, 100}, {-200, -300});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    o = {};
+    o.ignoreTriggers = false;
+    hit = s.physics.shape_cast2d(s.world, box, {-200, 100}, {-200, -300}, o);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == trig);
+    CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
+}
+
+TEST_CASE("2d: shape cast skips colliders it overlaps at the start, but not ones it only touches") {
+    Sim s;
+    Entity ground = add_ground(s.world);  // top at y = -180
+    add_box(s.world, "caster", {0, 0}, {40, 40}, BodyType::Static, false);
+    Entity wall = add_box(s.world, "wall", {100, 0}, {20, 100}, BodyType::Static, false);  // left face at x = 90
+    s.run(2);
+
+    // overlapping the caster's own collider at the start: skipped, the wall is the first hit
+    auto hit = s.physics.shape_cast2d(s.world, box_cast(20, 20), {0, 0}, {300, 0});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(hit->distance == doctest::Approx(80.0f).epsilon(0.0005));
+    hit = s.physics.shape_cast2d(s.world, circle_cast(10), {0, 0}, {300, 0});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(hit->distance == doctest::Approx(80.0f).epsilon(0.0005));
+    // buried in the ground: the ground is skipped
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(20, 20), {0, -190}, {0, -300}).has_value());
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, circle_cast(10), {500, -185}, {500, -300}).has_value());
+
+    // touching without overlapping: the collider blocks a cast moving towards it (distance 0) and nothing else.
+    // a box 20x20 sitting exactly on the ground (centre y = -170)
+    hit = s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {500, -270});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    CHECK(std::fabs(hit->distance) < 0.5f);
+    CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {500, -100}).has_value());  // moving away
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(20, 20), {500, -170}, {800, -170}).has_value());  // sliding along
+    hit = s.physics.shape_cast2d(s.world, circle_cast(10), {500, -170}, {500, -270});
+    REQUIRE(hit.has_value());
+    CHECK(std::fabs(hit->distance) < 0.5f);
+    // touching the wall's left face (box right edge at x = 90): moving right is blocked at once, moving left is free
+    hit = s.physics.shape_cast2d(s.world, box_cast(20, 20), {80, 40}, {200, 40});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == wall);
+    CHECK(std::fabs(hit->distance) < 0.5f);
+    CHECK(hit->normal.x == doctest::Approx(-1.0f).epsilon(0.01));
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(20, 20), {80, 40}, {-200, 40}).has_value());
+}
+
+TEST_CASE("2d: a body resting on the ground is touching it: a cast down hits at once, a cast up does not") {
+    Sim s;
+    Entity ground = add_ground(s.world);
+    Entity box = add_box(s.world, "box", {0, 100}, {32, 32}, BodyType::Dynamic);
+    s.run(180);
+    const Vec3 p = pos_of(s.world, box);
+    REQUIRE(p.y == doctest::Approx(-164.0f).epsilon(0.02));
+    RaycastOptions o;
+    o.ignore = box;
+    // the same shape as the body, cast from where it rests (the solver leaves it up to 0.5 px into the ground)
+    auto hit = s.physics.shape_cast2d(s.world, box_cast(32, 32), {p.x, p.y}, {p.x, p.y - 50}, o);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+    CHECK(hit->distance < 1.0f);
+    CHECK(hit->normal.y == doctest::Approx(1.0f).epsilon(0.01));
+    CHECK_FALSE(s.physics.shape_cast2d(s.world, box_cast(32, 32), {p.x, p.y}, {p.x, p.y + 50}, o).has_value());
+    // without `ignore` the body's own collider contains the start: skipped, same result
+    hit = s.physics.shape_cast2d(s.world, box_cast(32, 32), {p.x, p.y}, {p.x, p.y - 50});
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == ground);
+}
+
+TEST_CASE("cast_shape_from_json parses 2D and 3D shapes and explains mistakes") {
+    auto msg = [](const char* json, bool is3d) {
+        auto r = cast_shape_from_json(Json::parse(json), is3d);
+        REQUIRE_FALSE(r.ok());
+        return r.error().to_string();
+    };
+    auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
+
+    auto c = cast_shape_from_json(Json::parse(R"({"shape":"circle","radius":8})"), false);
+    REQUIRE(c.ok());
+    CHECK(c->kind == CastShape::Kind::Circle);
+    CHECK(c->radius == 8.0f);
+    auto b = cast_shape_from_json(Json::parse(R"({"shape":"box","size":[16,24]})"), false);
+    REQUIRE(b.ok());
+    CHECK(b->kind == CastShape::Kind::Box);
+    CHECK(b->size.x == 16.0f);
+    CHECK(b->size.y == 24.0f);
+    auto b2 = cast_shape_from_json(Json::parse(R"({"shape":"Box","size":{"x":2,"y":3}})"), false);
+    REQUIRE(b2.ok());
+    CHECK(b2->size.y == 3.0f);
+    auto sp = cast_shape_from_json(Json::parse(R"({"shape":"sphere","radius":0.5})"), true);
+    REQUIRE(sp.ok());
+    CHECK(sp->kind == CastShape::Kind::Circle);
+    auto b3 = cast_shape_from_json(Json::parse(R"({"shape":"box","size":[1,2,3]})"), true);
+    REQUIRE(b3.ok());
+    CHECK(b3->size.z == 3.0f);
+
+    std::string m = msg(R"({"shape":"circel","radius":8})", false);
+    CHECK(has(m, "circel"));
+    CHECK(has(m, "Did you mean 'circle'"));
+    CHECK(has(m, "Example"));
+    m = msg(R"({"shape":"sphere","radius":8})", false);
+    CHECK(has(m, "3D shape"));
+    CHECK(has(m, "\"circle\""));
+    m = msg(R"({"shape":"circle","radius":8})", true);
+    CHECK(has(m, "2D shape"));
+    CHECK(has(m, "\"sphere\""));
+    m = msg(R"({"shape":"sfere","radius":1})", true);
+    CHECK(has(m, "Did you mean 'sphere'"));
+    CHECK(has(msg(R"({"shape":"circle"})", false), "needs \"radius\""));
+    CHECK(has(msg(R"({"shape":"circle","radius":-3})", false), "-3"));
+    CHECK(has(msg(R"({"shape":"circle","size":[1,2]})", false), "\"radius\", not \"size\""));
+    CHECK(has(msg(R"({"shape":"box","radius":4})", false), "\"size\", not \"radius\""));
+    CHECK(has(msg(R"({"shape":"circle","raduis":4,"radius":4})", false), "Did you mean 'radius'"));
+    CHECK(has(msg(R"({"shape":"box","size":[1,2]})", true), "[x, y, z]"));
+    CHECK(has(msg(R"({"shape":"box","size":[1,2,3]})", false), "[width, height]"));
+    CHECK(has(msg(R"({"shape":"box","size":[0,2]})", false), "positive"));
+    CHECK(has(msg(R"({"radius":2})", false), "no \"shape\" name"));
+    CHECK(has(msg(R"("circle")", false), "object"));
+}
+
 TEST_CASE("3d: raycast from inside the caster, ignore option, triggers") {
     Sim s;
     Entity ball = add_sphere3(s.world, "ball", {0, 1, 0}, 0.5f);
