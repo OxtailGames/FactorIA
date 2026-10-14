@@ -94,6 +94,14 @@ std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir
 std::vector<Entity> Physics::overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask) {
     return impl_->p3d.overlap_sphere(world, center, radius, mask);
 }
+std::optional<RaycastHit> Physics::shape_cast2d(World& world, const CastShape& shape, Vec2 from, Vec2 to,
+                                                const RaycastOptions& options) {
+    return impl_->p2d.shape_cast(world, shape, from, to, options);
+}
+std::optional<RaycastHit> Physics::shape_cast3d(World& world, const CastShape& shape, Vec3 from, Vec3 to,
+                                                const RaycastOptions& options) {
+    return impl_->p3d.shape_cast(world, shape, from, to, options);
+}
 
 void Physics::apply_impulse(World& world, Entity e, Vec3 impulse) {
     if (impl_->p2d.has_body(e)) impl_->p2d.apply_impulse(world, e, impulse);

@@ -476,6 +476,10 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
     return h;
 }
 
+std::optional<RaycastHit> Physics3D::shape_cast(World&, const CastShape&, Vec3, Vec3, const RaycastOptions&) {
+    return std::nullopt;  // M5 package A implements this
+}
+
 bool Physics3D::is_touching(World& world, Entity e, Vec3 dir, float tolerance) {
     auto it = index_.find(e.bits());
     if (it == index_.end()) return false;

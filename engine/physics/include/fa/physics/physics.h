@@ -95,6 +95,15 @@ struct RaycastHit {
     float distance = 0.0f;  // from ray origin, world units
 };
 
+// Shape swept by shape_cast2d/3d, centred on the cast position and axis-aligned. Sizes are full sizes in world units
+// (2D pixels, 3D meters), like Collider2D/Collider3D. 2D: Circle (radius) or Box (size.x, size.y). 3D: Circle is a
+// sphere (radius), Box uses size.x/y/z.
+struct CastShape {
+    enum class Kind { Circle, Box } kind = Kind::Circle;
+    float radius = 0.5f;
+    Vec3 size{1, 1, 1};
+};
+
 class Physics {
 public:
     Physics();
@@ -119,6 +128,14 @@ public:
     std::optional<RaycastHit> raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
                                         const RaycastOptions& options);
     std::vector<Entity> overlap_sphere3d(World& world, Vec3 center, float radius, std::int32_t mask = -1);
+    // Sweep `shape` with its centre moving from `from` to `to` and return the first collider it would touch:
+    // distance = how far the centre travels before contact, point = contact point, normal = the hit surface's normal
+    // (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a raycast that
+    // starts inside a collider. Options as for raycasts (mask, ignore + descendants, ignoreTriggers).
+    std::optional<RaycastHit> shape_cast2d(World& world, const CastShape& shape, Vec2 from, Vec2 to,
+                                           const RaycastOptions& options = {});
+    std::optional<RaycastHit> shape_cast3d(World& world, const CastShape& shape, Vec3 from, Vec3 to,
+                                           const RaycastOptions& options = {});
 
     // ----- direct body control (applied immediately if the body exists)
     void apply_impulse(World& world, Entity e, Vec3 impulse);  // 2D uses x,y
