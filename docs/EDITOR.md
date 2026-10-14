@@ -12,7 +12,8 @@ menu entry does, you can also type in the Console (`scene.import_ascii {...}`) o
 Without a project the editor starts on the **Open or create a project** dialog (also File > New Project... / Open
 Project...). Type a path or press **Browse...** for the system's folder dialog (Windows, macOS; on Linux it needs
 `zenity` or `kdialog`): browsing to a project folder opens it at once. New projects go to `<Folder>/<Name>`; Folder
-starts at your Documents folder. Recent projects are listed under the path (`~/.factoria/editor_recent.json`).
+starts at your Documents folder. Recent projects, and projects found in the current folder,
+are listed by name under the path; hover one to see its path (`~/.factoria/editor_recent.json`).
 
 ## Layout
 

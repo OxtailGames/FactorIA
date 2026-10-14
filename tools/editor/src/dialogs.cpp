@@ -92,22 +92,19 @@ void Editor::draw_project_dialog() {
     }
     if (!recentProjects_.empty() || !detectedProjects_.empty()) {
         ImGui::BeginChild("##proj_list", ImVec2(0, 96), ImGuiChildFlags_Borders);
-        for (const auto& r : recentProjects_) {
+        // The folder name; the full path in the tooltip.
+        auto project_row = [&](const std::string& r) {
             ImGui::PushID(r.c_str());
-            if (ImGui::Selectable(("recent   " + r).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick)) {
+            if (ImGui::Selectable(stdfs::path(r).filename().string().c_str(), dlgOpenPath_ == r, ImGuiSelectableFlags_AllowDoubleClick)) {
                 dlgOpenPath_ = r;
                 if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
             }
+            ImGui::SetItemTooltip("%s", r.c_str());
             ImGui::PopID();
-        }
-        for (const auto& r : detectedProjects_) {
-            ImGui::PushID(r.c_str());
-            if (ImGui::Selectable(("found    " + r).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick)) {
-                dlgOpenPath_ = r;
-                if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
-            }
-            ImGui::PopID();
-        }
+        };
+        for (const auto& r : recentProjects_) project_row(r);
+        for (const auto& r : detectedProjects_)
+            if (std::find(recentProjects_.begin(), recentProjects_.end(), r) == recentProjects_.end()) project_row(r);
         ImGui::EndChild();
     }
     ImGui::SeparatorText("New project from template");
