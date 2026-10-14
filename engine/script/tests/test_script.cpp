@@ -408,6 +408,27 @@ TEST_CASE("relative imports, ../ and JSON modules") {
     auto bj = h.scripts.check_props("scripts/usesbad.js", Json::object({{"a", 1}}));
     REQUIRE(!bj.empty());
     CHECK(bj[0].find("badjson.json") != std::string::npos);
+    CHECK(bj[0].find("badjson.json:1:4: invalid JSON") != std::string::npos);  // the .json's own position, not the importer's
+
+    // check_syntax blames the data file: its path, line and column, and a hint from the JSON parser.
+    std::string broken;
+    auto syn = h.scripts.check_syntax("scripts/usesbad.js", &broken);
+    REQUIRE(!syn.ok());
+    CHECK(broken == "scripts/badjson.json");
+    CHECK(syn.error().message.rfind("scripts/badjson.json:1:4: invalid JSON", 0) == 0);
+    CHECK_FALSE(syn.error().hint.empty());
+    // ... and checking again, or checking another importer, gives the same message (validate de-duplicates on it).
+    std::string again;
+    auto syn2 = h.scripts.check_syntax("scripts/usesbad.js", &again);
+    CHECK(again == broken);
+    CHECK(syn2.error().message == syn.error().message);
+    // A script that is fine, or that has a syntax error of its own, does not name a data file.
+    h.file("scripts/typo.js", "export default class {\n");
+    std::string none;
+    CHECK(h.scripts.check_syntax("scripts/sibling.js", &none).ok());
+    CHECK(none.empty());
+    CHECK_FALSE(h.scripts.check_syntax("scripts/typo.js", &none).ok());
+    CHECK(none.empty());
 }
 
 TEST_CASE("rng.seed reseeds the world rng deterministically") {

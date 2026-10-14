@@ -620,6 +620,27 @@ Result<void> save_scene_json_file(std::string_view path, const Json& sceneOrPref
     return save_json_file(path, sceneOrPrefab, scene_json_format());
 }
 
+Result<CanonicalScene> canonical_scene_layout(std::string_view file) {
+    auto bytes = fs::read_bytes(file);
+    if (!bytes.ok()) return bytes.error();
+    const std::string text(bytes->begin(), bytes->end());
+    const bool bom = starts_with(text, "\xEF\xBB\xBF");
+    auto parsed = parse_json(std::string_view(text).substr(bom ? 3 : 0), file);
+    if (!parsed.ok()) return parsed.error();
+    if (!parsed->is_object())
+        return make_error(std::string(file) + ": a scene or prefab file must be a JSON object, got " + describe_json_value(*parsed),
+                          "Start from {\"format\": \"factoria.scene/1\", \"entities\": []} or "
+                          "{\"format\": \"factoria.prefab/1\", \"entity\": {...}}.");
+    CanonicalScene out;
+    out.text = dump_scene_json(*parsed);
+    auto again = parse_json(out.text, file);
+    if (!again.ok() || *again != *parsed)
+        return make_error(std::string(file) + ": the canonical layout would not read back as the same data.",
+                          "This is an engine bug: report it with feedback.report and attach the file.");
+    out.same = text == out.text;
+    return out;
+}
+
 Result<void> save_scene_file(const World& world, std::string_view path) {
     return save_scene_json_file(path, save_scene(world));
 }

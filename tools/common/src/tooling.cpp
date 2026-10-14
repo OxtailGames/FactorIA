@@ -19,12 +19,20 @@ ValidateOptions engine_validate_options(Engine& engine) {
     Engine* e = &engine;
     vo.scriptCheck = [e](const std::string&, const std::string& scriptPath) {
         std::vector<ValidationIssue> issues;
-        auto r = e->scripts().check_syntax(scriptPath);
+        std::string brokenImport;
+        auto r = e->scripts().check_syntax(scriptPath, &brokenImport);
         if (!r.ok()) {
             ValidationIssue i;
-            i.file = scriptPath;
-            i.message = "Syntax error: " + r.error().message;
-            i.hint = r.error().hint.empty() ? "Fix the script; 'factoria call script.eval' can test snippets." : r.error().hint;
+            if (!brokenImport.empty()) {
+                // An imported .json that does not parse: the problem is IN that file ("file:line:column: invalid JSON").
+                i.file = brokenImport;
+                i.message = r.error().message;
+                i.hint = r.error().hint;
+            } else {
+                i.file = scriptPath;
+                i.message = "Syntax error: " + r.error().message;
+                i.hint = r.error().hint.empty() ? "Fix the script; 'factoria call script.eval' can test snippets." : r.error().hint;
+            }
             issues.push_back(std::move(i));
         }
         return issues;

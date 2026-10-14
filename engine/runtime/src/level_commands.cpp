@@ -338,6 +338,7 @@ struct Request {
     std::string path;        // normalized, project-relative; "" = edit the running world
     std::string from;        // scene file to start from instead of `path` ("" = `path` itself)
     bool dryRun = false;     // file mode: write nothing, return the scene JSON
+    Json edits = Json::object();     // file mode: {entity id: {Component: {field: value}}}, applied like scene.set_component
     Json tilemap = Json::object();  // Tilemap fields to apply
     bool place = false;             // position and/or anchor given
     Vec3 position{0, 0, 0};
@@ -388,7 +389,11 @@ Request parse_request(const Engine::Impl& I, const Json& a) {
     if (a.contains("path")) q.path = scene_file_arg(a["path"], "path", true);
     if (a.contains("from")) q.from = scene_file_arg(a["from"], "from", false);
     q.dryRun = a.value("dryRun", false);
+    if (a.contains("edits")) q.edits = a["edits"];  // {entity: {Component: {fields}}}: the input schema checked the shape
     if (q.path.empty()) {
+        if (!q.edits.empty())
+            bad_arg("'edits' needs 'path': it patches entities of the scene file 'path' before it is written",
+                    "Add \"path\": \"scenes/<name>.scene.json\". To change the RUNNING world use scene.set_component.");
         if (!q.from.empty())
             bad_arg("'from' needs 'path': it is the scene file to start from when building the scene file 'path'",
                     "Add \"path\": \"scenes/<name>.scene.json\" (the file to write), or drop 'from'.");
@@ -695,6 +700,20 @@ void add_note(Json& out, const std::string& note) {
     out["notes"].push_back(note);
 }
 
+// `edits` ({entity id: {Component: {fields}}}) on the scratch World, one scene.set_component each (same code: components
+// are added when missing, fields patched, errors name the field with did-you-mean). The error says which edit it was.
+void apply_edits(World& scratch, const Json& edits) {
+    for (auto e = edits.begin(); e != edits.end(); ++e)
+        for (auto c = e->begin(); c != e->end(); ++c) {
+            try {
+                set_component(scratch, Json::object({{"id", e.key()}, {"component", c.key()}, {"fields", *c}}));
+            } catch (const CommandError& err) {
+                throw CommandError(err.code, "edits[\"" + e.key() + "\"][\"" + c.key() + "\"]: " + err.what(),
+                                   (err.hint.empty() ? std::string() : err.hint + " ") + "Nothing was written.", err.data);
+            }
+        }
+}
+
 // File mode (`path`): the scene FILE is loaded into a scratch World, the map is imported into it and the result is
 // written back with the canonical writer (the same layout as scene.save). Nothing of the running engine is involved:
 // not its World, scenes, physics, audio or scripts; a scratch World is plain data. The reads go through the VFS (prefab
@@ -734,6 +753,7 @@ Json import_into_scene_file(const Request& q, const Grid& grid, std::vector<Lege
     }
 
     Json out = apply_import(scratch, true, q, grid, legend, cells);
+    apply_edits(scratch, q.edits);  // after the import, so they can also reach what it placed; before the write, so a wrong one writes nothing
 
     Json scene = save_scene(scratch);
     out["path"] = q.path;
@@ -821,8 +841,12 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is "
          "imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, "
          "audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the "
-         "file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. If the file "
-         "has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like "
+         "file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` "
+         "(file mode only) patches components of that scene's entities right after the map is imported and before the write, "
+         "e.g. the camera and sky colour of a base scene: {\"<entity id>\": {\"<Component>\": {field: value}}}, each entry "
+         "exactly scene.set_component (a missing component is added, only the given fields change, Script.props is replaced as "
+         "a whole); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the "
+         "file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like "
          "scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose "
          "(--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is "
          "refused (error unsafe_save) instead of overwriting it. With `path`, `save` is ignored: the file is always written. "
@@ -849,6 +873,9 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "path":{"type":"string","description":"File mode: project-relative scene file (e.g. scenes/level1.scene.json) to edit. It is loaded into a scratch world, the map is imported into it and it is written back; the running world is not touched. Does not exist yet (and no `from`): starts as an empty scene. Writable places only (not .factoria/ except .factoria/tmp/)."},
                "from":{"type":"string","description":"File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist."},
                "dryRun":{"type":"boolean","default":false,"description":"File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`."},
+               "edits":{"type":"object",
+                        "description":"File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {\"camera\": {\"Camera\": {\"clearColor\": [0.5, 0.7, 0.9, 1]}}}). A wrong entity/component/field fails and nothing is written.",
+                        "additionalProperties":{"type":"object","additionalProperties":{"type":"object"}}},
                "save":{"type":"boolean","default":false,"description":"Running-world mode: also write the current scene file (like scene.save). Refused when the running scene is only the default mainScene (no --scene, no scene.load): pass `path` instead. Ignored when `path` is given."},
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,
                            "description":"[x, y] (or [x, y, z]) world position of the map's anchor point. Default: a new tilemap sits at [0,0] (its top-left corner); an existing one stays where it is."},

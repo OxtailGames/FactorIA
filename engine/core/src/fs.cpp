@@ -236,14 +236,43 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
         return make_error("Cannot create directory '" + to_generic(full.parent_path()) + "': " + ec.message(),
                           "Check permissions; on mobile the project folder is read-only (write to fs::user_dir()).");
     }
-    std::ofstream out(full, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        return make_error("Cannot open '" + to_generic(full) + "' for writing",
-                          "Check permissions; on mobile the project folder is read-only (write to fs::user_dir()).");
+    // Atomic: the bytes go to a temporary file next to the target, which then replaces it (rename replaces an existing
+    // file on Windows and POSIX). A crash, a full disk or a reader never sees a half-written file, and on any failure the
+    // original stays as it was. The ".fa-tmp" suffix matches no extension anything watches or lists.
+    if (stdfs::is_symlink(full, ec)) {  // write through the link, as an in-place write would
+        stdfs::path target = stdfs::canonical(full, ec);
+        if (!ec) full = target;
     }
-    if (size) out.write(static_cast<const char*>(data), std::streamsize(size));
-    out.close();
-    if (!out) return make_error("Failed while writing '" + to_generic(full) + "'", "Is the disk full?");
+    static std::atomic<unsigned> counter{0};
+#ifdef _WIN32
+    const long long pid = _getpid();
+#else
+    const long long pid = static_cast<long long>(::getpid());
+#endif
+    stdfs::path tmp = full;
+    tmp += ".fa-tmp" + std::to_string(pid) + "_" + std::to_string(counter++);
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return make_error("Cannot open '" + to_generic(tmp) + "' for writing",
+                              "Check permissions; on mobile the project folder is read-only (write to fs::user_dir()).");
+        }
+        if (size) out.write(static_cast<const char*>(data), std::streamsize(size));
+        out.close();
+        if (!out) {
+            stdfs::remove(tmp, ec);
+            return make_error("Failed while writing '" + to_generic(full) + "'", "Is the disk full?");
+        }
+    }
+    auto existing = stdfs::status(full, ec);  // keep the mode (executable bit, read-only) of the file being replaced
+    if (stdfs::is_regular_file(existing)) stdfs::permissions(tmp, existing.permissions(), ec);
+    stdfs::rename(tmp, full, ec);
+    if (ec) {
+        std::error_code ignored;
+        stdfs::remove(tmp, ignored);
+        return make_error("Cannot replace '" + to_generic(full) + "': " + ec.message(),
+                          "Is it a folder, read-only, or open in another program? The original file was left untouched.");
+    }
     return {};
 }
 

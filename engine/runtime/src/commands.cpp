@@ -56,6 +56,23 @@ const TypeInfo& need_component_type(const std::string& name) {
     return *t;
 }
 
+}  // namespace
+
+// scene.set_component on `world`: `a` is {id, component, fields?}.
+Json set_component(World& world, const Json& a) {
+    Entity e = need_entity(world, a);
+    const std::string cname = a["component"].get<std::string>();
+    const TypeInfo& t = need_component_type(cname);
+    Json fields = a.contains("fields") ? a["fields"] : Json::object();
+    auto r = patch_component(world, e, t, fields);
+    if (!r.ok())
+        throw CommandError("invalid_argument", r.error().message,
+                           r.error().hint.empty() ? "Use api.components to see the fields of " + t.name + "." : r.error().hint);
+    return Json::object({{"id", world.id_of(e)}, {"component", t.name}, {"value", component_to_json(world, e, t, true, true)}});
+}
+
+namespace {
+
 Json vec_json(Vec3 v) { return Json::array({to_json(v.x), to_json(v.y), to_json(v.z)}); }
 
 Json load_messages_json(const LoadReport& r) {
@@ -291,17 +308,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "component":{"type":"string","description":"Component name, e.g. Transform, Sprite, RigidBody2D."},
                "fields":{"type":"object","description":"Field name -> value."}}})"),
            false, "scene"},
-          [&engine, &I](const Json& a) {
-              Entity e = need_entity(I.world, a);
-              const std::string cname = a["component"].get<std::string>();
-              const TypeInfo& t = need_component_type(cname);
-              Json fields = a.contains("fields") ? a["fields"] : Json::object();
-              auto r = patch_component(I.world, e, t, fields);
-              if (!r.ok())
-                  throw CommandError("invalid_argument", r.error().message,
-                                     r.error().hint.empty() ? "Use api.components to see the fields of " + t.name + "." : r.error().hint);
-              return Json::object({{"id", I.world.id_of(e)}, {"component", t.name}, {"value", component_to_json(I.world, e, t, true, true)}});
-          });
+          [&I](const Json& a) { return set_component(I.world, a); });
 
     I.commands.add({"scene.remove_component", "Remove a component from an entity.",
            "Transform and EntityInfo cannot be removed. Example: scene.remove_component {\"id\":\"player\",\"component\":\"Script\"}",
