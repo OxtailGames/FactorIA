@@ -26,6 +26,8 @@ namespace {
 
 constexpr const char* kRoleNames[] = {"orchestrator", "worker", "fast"};
 constexpr const char* kEfforts[] = {"", "low", "medium", "high", "xhigh", "max"};  // "" = the role's default
+constexpr const char* kRolesBlurb = "Your messages go to the orchestrator. It answers and plans, and hands implementation work to\n"
+                                    "the worker and small mechanical edits to fast by itself.";
 constexpr std::size_t kMaxPendingImages = 10;  // per message (the API providers take 20 and the CLIs read each one)
 constexpr float kThumb = 56.0f;                // pending pictures
 constexpr float kThumbSent = 48.0f;            // pictures in the transcript
@@ -484,8 +486,7 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
     }
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (!ImGui::BeginPopupModal("AI roles", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::TextUnformatted("Your messages go to the orchestrator. It answers and plans, and hands implementation work to\n"
-                           "the worker and small mechanical edits to fast by itself.");
+    ImGui::TextUnformatted(kRolesBlurb);
     ImGui::Spacing();
     if (ImGui::BeginTable("##roles", 4, ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("Role");
@@ -504,10 +505,8 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
             ImGui::SetNextItemWidth(170);
             if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
                 for (const auto& [pname, pc] : cfg.providers) {
-                    const ai::ProviderStatus* st = nullptr;
-                    for (const auto& s : status) {
-                        if (s.name == pname) st = &s;
-                    }
+                    const auto found = std::ranges::find(status, pname, &ai::ProviderStatus::name);
+                    const ai::ProviderStatus* st = found == status.end() ? nullptr : &*found;
                     const std::string label = pname + (st && !st->available ? "  (not available)" : "");
                     if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
                         r = {pname, "", "", r.maxTokens};  // another provider: its own default model and effort
@@ -676,21 +675,18 @@ void Editor::draw_ai_panel() {
 
     // The roles. Every message goes to the orchestrator; it hands the work to the worker and fast roles itself.
     const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
-    {
-        if (ImGui::SmallButton("Roles...")) aiRolesOpen_ = true;
-        ImGui::SetItemTooltip("Choose the provider and model of each role. Takes effect with the next message.");
-        std::string summary;
-        for (const char* name : kRoleNames) {
-            const ai::RoleConfig rc = cfg.role(name);
-            summary += (summary.empty() ? "" : "   ") + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model);
-        }
-        ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("%s", summary.c_str());
-        ImGui::PopStyleColor();
-        ImGui::SetItemTooltip("Your messages go to the orchestrator. It answers and plans, and hands implementation work to the\n"
-                              "worker and small mechanical edits to fast by itself.");
+    if (ImGui::SmallButton("Roles...")) aiRolesOpen_ = true;
+    ImGui::SetItemTooltip("Choose the provider and model of each role. Takes effect with the next message.");
+    std::string roles;
+    for (const char* name : kRoleNames) {
+        const ai::RoleConfig rc = cfg.role(name);
+        roles += (roles.empty() ? "" : "   ") + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model);
     }
+    ImGui::SameLine();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", roles.c_str());
+    ImGui::PopStyleColor();
+    ImGui::SetItemTooltip("%s", kRolesBlurb);
 
     if (!detected) {
         ImGui::TextDisabled(aiDetecting_.load() ? "Detecting providers..." : "Provider detection not started.");
