@@ -143,11 +143,8 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
                               known ? ", against the size of its context window" : "");
         }
     }
-    const ai::Usage u = [&] {
-        ai::Usage sum = chat.usage;
-        sum += chat.runUsage;
-        return sum;
-    }();
+    ai::Usage u = chat.usage;
+    u += chat.runUsage;
     const double cost = chat.costUsd + chat.runCostUsd;
     if (cost > 0) {
         char text[64];
@@ -242,23 +239,23 @@ void Editor::ai_sync_chats() {
     aiTabForce_ = 2;
 }
 
+// Adds a copied picture to the active chat's pending strip, or tells the user why not.
+void Editor::ai_add_pending(Result<ChatAttachment> attached) {
+    if (attached) chat_.current().pending.push_back(*attached);
+    else notify(attached.error().to_string(), 1);
+}
+
 void Editor::ai_attach_path(const std::string& path) {
     ai_sync_chats();
     if (!engine_) {
         notify("Open a project first: attached pictures are kept in the project's .factoria/ai/attachments folder.", 1);
         return;
     }
-    AiChat& chat = chat_.current();
-    if (chat.pending.size() >= kMaxPendingImages) {
+    if (chat_.current().pending.size() >= kMaxPendingImages) {
         notify("At most " + std::to_string(kMaxPendingImages) + " pictures per message. Send this one first, then attach more.", 1);
         return;
     }
-    auto attached = attach_file(projectDir_, path);
-    if (!attached) {
-        notify(attached.error().to_string(), 1);
-        return;
-    }
-    chat.pending.push_back(*attached);
+    ai_add_pending(attach_file(projectDir_, path));
 }
 
 void Editor::ai_paste_image() {
@@ -266,17 +263,11 @@ void Editor::ai_paste_image() {
     if (!engine_) return;
     const std::vector<std::uint8_t> png = clipboard_image_png();
     if (png.empty()) return;  // no picture on the clipboard: nothing to attach
-    AiChat& chat = chat_.current();
-    if (chat.pending.size() >= kMaxPendingImages) {
+    if (chat_.current().pending.size() >= kMaxPendingImages) {
         notify("At most " + std::to_string(kMaxPendingImages) + " pictures per message. Send this one first, then paste more.", 1);
         return;
     }
-    auto attached = attach_bytes(projectDir_, "paste.png", png);
-    if (!attached) {
-        notify(attached.error().to_string(), 1);
-        return;
-    }
-    chat.pending.push_back(*attached);
+    ai_add_pending(attach_bytes(projectDir_, "paste.png", png));
 }
 
 void Editor::ai_on_files_dropped() {
@@ -382,17 +373,19 @@ void Editor::ai_drain_events() {
     std::vector<ChatItem>& items = c.items;
     bool limitsChanged = false;
     using T = ai::AgentEvent::Type;
+    auto note = [&](ChatItem::Kind kind, const std::string& text, int depth) {
+        ChatItem it;
+        it.kind = kind;
+        it.text = text;
+        it.depth = depth;
+        items.push_back(std::move(it));
+    };
     for (const auto& ev : events) {
         c.scrollDown = true;
         switch (ev.type) {
-            case T::SessionStart: {
-                ChatItem it;
-                it.kind = ChatItem::Kind::Info;
-                it.text = "session started (" + ev.role + ")";
-                it.depth = ev.depth;
-                items.push_back(std::move(it));
+            case T::SessionStart:
+                note(ChatItem::Kind::Info, "session started (" + ev.role + ")", ev.depth);
                 break;
-            }
             case T::TextDelta:
                 if (items.empty() || items.back().kind != ChatItem::Kind::Assistant || items.back().depth != ev.depth) {
                     ChatItem it;
@@ -446,22 +439,12 @@ void Editor::ai_drain_events() {
                     }
                 }
                 break;
-            case T::Info: {
-                ChatItem it;
-                it.kind = ChatItem::Kind::Info;
-                it.text = ev.text;
-                it.depth = ev.depth;
-                items.push_back(std::move(it));
+            case T::Info:
+                note(ChatItem::Kind::Info, ev.text, ev.depth);
                 break;
-            }
-            case T::Error: {
-                ChatItem it;
-                it.kind = ChatItem::Kind::Error;
-                it.text = ev.text;
-                it.depth = ev.depth;
-                items.push_back(std::move(it));
+            case T::Error:
+                note(ChatItem::Kind::Error, ev.text, ev.depth);
                 break;
-            }
             case T::Done:
                 c.runCostUsd = ev.costUsd;
                 break;

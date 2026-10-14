@@ -65,10 +65,9 @@ struct Message {
     static Message tool_results(std::vector<ToolResult> results);
 };
 
-// Message <-> JSON (the editor saves a conversation's history with it). `withImages` false leaves the base64 payloads out
-// (user images and tool-result images become a note in the text): a saved chat stays small, and the pictures are files in
-// the project anyway.
-Json message_to_json(const Message& m, bool withImages);
+// Message <-> JSON (the editor saves a conversation's history with it). The base64 payloads are left out (user images and
+// tool-result images become a note in the text): a saved chat stays small, and the pictures are files in the project anyway.
+Json saved_message_json(const Message& m);
 Message message_from_json(const Json& j);
 
 enum class StopReason { EndTurn, ToolUse, MaxTokens, PauseTurn, Refusal, Other };

@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <ctime>
-#include <fstream>
 
 #include "ai_chat.h"
 
@@ -12,19 +10,7 @@ namespace fa::editor {
 
 namespace {
 
-// ok = false for a time the C library cannot convert (then the callers show nothing rather than a made-up date)
-std::tm local_tm(i64 epoch, bool* ok = nullptr) {
-    std::time_t t = static_cast<std::time_t>(epoch);
-    std::tm tm{};
-#ifdef _WIN32
-    const bool good = localtime_s(&tm, &t) == 0;
-#else
-    const bool good = localtime_r(&t, &tm) != nullptr;
-#endif
-    if (ok) *ok = good;
-    return tm;
-}
-
+// (local_tm: ok = false for a time the C library cannot convert; then the callers show nothing rather than a made-up date)
 std::string strftime_of(const char* format, const std::tm& tm) {
     char buf[64];
     return std::strftime(buf, sizeof buf, format, &tm) ? buf : "";
@@ -40,8 +26,6 @@ std::string one_decimal(double v) {
 }
 
 int window_rank(const std::string& name) { return name == "five_hour" ? 0 : name == "seven_day" ? 1 : 2; }
-
-bool starts_with(const std::string& s, const std::string& prefix) { return s.compare(0, prefix.size(), prefix) == 0; }
 
 }  // namespace
 
@@ -62,8 +46,8 @@ std::string format_percent(double fraction) {
 std::string limit_label(const std::string& name) {
     if (name == "five_hour") return "Session (5h)";
     if (name == "seven_day") return "Week";
-    if (starts_with(name, "seven_day_")) return "Week (" + name.substr(10) + ")";
-    if (starts_with(name, "five_hour_")) return "Session (5h, " + name.substr(10) + ")";
+    if (name.starts_with("seven_day_")) return "Week (" + name.substr(10) + ")";
+    if (name.starts_with("five_hour_")) return "Session (5h, " + name.substr(10) + ")";
     std::string out = name;
     std::replace(out.begin(), out.end(), '_', ' ');
     if (!out.empty()) out[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(out[0])));
@@ -144,20 +128,11 @@ LimitsByProvider limits_from_json(const Json& j) {
 }
 
 LimitsByProvider load_limits(const std::string& path) {
-    std::ifstream in(utf8_path(path), std::ios::binary);
-    if (!in) return {};
-    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    return limits_from_json(Json::parse(text, nullptr, false));
+    const auto j = read_json(path);
+    return j ? limits_from_json(*j) : LimitsByProvider{};
 }
 
-bool save_limits(const std::string& path, const LimitsByProvider& limits) {
-    std::error_code ec;
-    std::filesystem::create_directories(utf8_path(path).parent_path(), ec);
-    std::ofstream out(utf8_path(path), std::ios::binary | std::ios::trunc);
-    if (!out) return false;
-    out << limits_to_json(limits).dump(2, ' ', false, Json::error_handler_t::replace) << "\n";
-    return static_cast<bool>(out);
-}
+bool save_limits(const std::string& path, const LimitsByProvider& limits) { return write_json(path, limits_to_json(limits)); }
 
 std::string limits_path(const std::string& home) {
     return home.empty() ? std::string() : utf8_string(utf8_path(home) / ".factoria" / "ai_limits.json");

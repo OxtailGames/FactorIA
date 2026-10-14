@@ -9,7 +9,9 @@
 // Closing a tab only closes it: the file stays and the conversation is listed in History.
 #pragma once
 
+#include <ctime>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,6 +26,13 @@ namespace fa::editor {
 // would read them in the Windows ANSI code page.
 std::filesystem::path utf8_path(const std::string& s);
 std::string utf8_string(const std::filesystem::path& p);
+
+// Local time of an epoch second; `ok` is false when the C library cannot convert it (a tiny epoch on Windows).
+std::tm local_tm(i64 epoch, bool* ok = nullptr);
+// JSON files at UTF-8 paths. read_json: nullopt when the file is missing or not a JSON object. write_json: creates the
+// folders on the way; false when it cannot write.
+std::optional<Json> read_json(const std::string& path);
+bool write_json(const std::string& path, const Json& j);
 
 struct ChatItem {
     enum class Kind { User, Assistant, Thinking, Tool, Info, Error };

@@ -25,7 +25,7 @@ struct Conversation {
     double cliCostUsd = 0;             // running total the CLI reported for the session (Claude Code counts cumulatively)
     std::vector<Message> history;
     bool empty() const { return cliSessionId.empty() && history.empty(); }
-    Json to_json(bool withImages = false) const;
+    Json to_json() const;
     static Conversation from_json(const Json& j);
 };
 

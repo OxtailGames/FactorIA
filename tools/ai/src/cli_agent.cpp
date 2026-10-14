@@ -116,12 +116,7 @@ std::string prompt_with_image_paths(const std::string& prompt, const std::vector
 
 static std::string limit_name_for_minutes(double minutes, const std::string& fallback) {
     const long m = static_cast<long>(minutes + 0.5);
-    if (m <= 0) return fallback;
-    if (m == 300) return "five_hour";
-    if (m == 10080) return "seven_day";
-    if (m % 1440 == 0) return std::to_string(m / 1440) + "_day";
-    if (m % 60 == 0) return std::to_string(m / 60) + "_hour";
-    return std::to_string(m) + "_minute";
+    return m == 300 ? "five_hour" : m == 10080 ? "seven_day" : fallback;  // other lengths: the JSON key names it
 }
 
 std::vector<LimitWindow> parse_codex_rate_limits(const Json& rateLimits, i64 now) {
@@ -241,7 +236,6 @@ void CliStreamParser::feed_claude(const Json& j, std::vector<AgentEvent>& out) {
         const Json* info = child(j, "rate_limit_info");
         std::vector<LimitWindow> windows = info ? parse_claude_rate_limits(*info) : std::vector<LimitWindow>{};
         if (windows.empty()) return;
-        merge_limit_windows(limits_, windows);
         usage_event(out, std::move(windows));
         return;
     }
@@ -357,7 +351,6 @@ void CliStreamParser::feed_codex(const Json& j, std::vector<AgentEvent>& out) {
         if (!rl || !rl->is_object()) continue;
         std::vector<LimitWindow> windows = parse_codex_rate_limits(*rl, static_cast<i64>(std::time(nullptr)));
         if (windows.empty()) continue;
-        merge_limit_windows(limits_, windows);
         usage_event(out, std::move(windows));
         break;
     }
