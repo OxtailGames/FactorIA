@@ -205,8 +205,6 @@ TestReport run_project_tests(Engine& engine, const std::string& nameFilter) {
     return engine.scripts().run_tests(files, nameFilter);
 }
 
-void install_script_check(Engine& engine) { set_script_check_hook(engine_validate_options(engine).scriptCheck); }
-
 void register_cli_commands(CommandRegistry& registry, const std::string& projectDir, Engine* engine) {
     if (engine) {
         if (!registry.has("project.create")) register_project_commands(*engine, projectDir);
