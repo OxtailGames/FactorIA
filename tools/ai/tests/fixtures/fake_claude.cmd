@@ -2,10 +2,11 @@
 rem Fake `claude` CLI for Windows (npm installs the real one as a .cmd too): the same script as fake_claude.sh, with the
 rem modes the Windows tests need. Records its argv (one argument per line) and then "stdin:<what it was sent>" in
 rem %FAKE_ARGV_FILE%. FAKE_COST overrides total_cost_usd; FAKE_MODE=resume_fails answers --resume with claude's
-rem "No conversation found" error. Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
+rem "No conversation found" error. A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
 if not defined FAKE_COST set FAKE_COST=0.0123
 if defined FAKE_ARGV_FILE (
   for %%a in (%*) do >>"%FAKE_ARGV_FILE%" echo %%~a
+  if defined CLAUDE_CODE_AUTO_COMPACT_WINDOW >>"%FAKE_ARGV_FILE%" echo compact-window:%CLAUDE_CODE_AUTO_COMPACT_WINDOW%
   <nul set /p "=stdin:">>"%FAKE_ARGV_FILE%"
   findstr "^">>"%FAKE_ARGV_FILE%"
 ) else (

@@ -79,6 +79,46 @@ TEST_CASE("anthropic headers") {
     CHECK(find(hk, "anthropic-beta") == "<none>");
 }
 
+TEST_CASE("anthropic request: a context limit turns on server-side compaction") {
+    ProviderConfig cfg;
+    auto beta = [&](const ChatRequest& r) {
+        for (auto& [k, v] : anthropic::build_headers(r, {"k", ""}, cfg)) if (k == "anthropic-beta") return v;
+        return std::string();
+    };
+    ChatRequest r = base_request("claude-opus-5-5", "high");
+    CHECK_FALSE(anthropic::build_request(r).contains("context_management"));
+    CHECK(beta(r).find("compact-2026-01-12") == std::string::npos);
+    r.maxContextTokens = 400000;
+    Json edit = anthropic::build_request(r)["context_management"]["edits"][0];
+    CHECK(edit["type"] == "compact_20260112");
+    CHECK(edit["trigger"] == Json::parse(R"({"type":"input_tokens","value":400000})"));
+    CHECK(edit["instructions"].get<std::string>().find("do not call any tool") != std::string::npos);
+    CHECK(beta(r) == "server-side-fallback-2026-07-01,compact-2026-01-12");
+
+    // The answer's own tokens are the context now; the compaction run is billed on top.
+    auto resp = anthropic::parse_response(Json::parse(R"({"content":[{"type":"compaction","content":"Summary."},
+        {"type":"text","text":"Hi"}],"stop_reason":"end_turn","usage":{"input_tokens":23000,"output_tokens":1000,
+        "iterations":[{"type":"compaction","input_tokens":180000,"output_tokens":3500},
+                      {"type":"message","input_tokens":23000,"output_tokens":1000}]}})"));
+    REQUIRE(resp);
+    CHECK(resp->contextTokens == 23000);
+    CHECK(resp->usage.inputTokens == 203000);
+    CHECK(resp->usage.outputTokens == 4500);
+    CHECK(resp->message.raw[0]["type"] == "compaction");  // resent unchanged with the next request
+    CHECK(resp->message.text == "Hi");
+
+    // Streamed: the summary arrives in one compaction_delta.
+    anthropic::StreamAssembler as({});
+    as.feed("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"role\":\"assistant\",\"content\":[]}}\n\n"
+            "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"compaction\",\"content\":null}}\n\n"
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"compaction_delta\",\"content\":\"Summary.\"}}\n\n"
+            "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n");
+    as.finish();
+    REQUIRE(as.done());
+    CHECK(as.message()["content"][0] == Json::parse(R"({"type":"compaction","content":"Summary."})"));
+}
+
 TEST_CASE("anthropic request: history is replayed verbatim; tool results are one user message") {
     ChatRequest r = base_request("claude-sonnet-5-5", "medium");
     Json fixtureBody = fixture_json("anthropic_tool_use.json");

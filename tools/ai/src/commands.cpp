@@ -50,6 +50,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             Json roles = Json::object();
             for (const auto& [name, r] : cfg->roles) {
                 roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}});
+                if (r.maxContextTokens > 0) roles[name]["maxContextTokens"] = r.maxContextTokens;
             }
             Json out = Json::object({{"configPath", cfg->sourcePath.empty() ? default_config_path() : cfg->sourcePath},
                                      {"configFound", !cfg->sourcePath.empty()},

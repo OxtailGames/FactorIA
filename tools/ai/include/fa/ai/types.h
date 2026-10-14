@@ -101,6 +101,7 @@ struct ChatRequest {
     std::vector<ToolDef> tools;  // sorted by name by the caller for byte-stable caching
     std::vector<Message> messages;
     bool stream = false;
+    u64 maxContextTokens = 0;  // > 0: the API summarizes earlier turns past this many input tokens (Anthropic only)
 };
 
 struct ChatResponse {
@@ -108,6 +109,7 @@ struct ChatResponse {
     StopReason stopReason = StopReason::EndTurn;
     std::string rawStopReason;
     Usage usage;
+    u64 contextTokens = 0;  // input + cache of the call that answered, when the provider tells it apart from `usage`
     std::string model;
     std::string refusalCategory;     // only when stopReason == Refusal
     std::string refusalExplanation;

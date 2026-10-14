@@ -16,6 +16,12 @@ namespace {
 constexpr const char* kApiVersion = "2023-06-01";
 constexpr const char* kOauthBeta = "oauth-2025-04-20";
 constexpr const char* kFallbackBeta = "server-side-fallback-2026-07-01";
+constexpr const char* kCompactionBeta = "compact-2026-01-12";
+// The summary request carries the tools too: without this the model sometimes calls one instead of summarizing.
+constexpr const char* kCompactionInstructions =
+    "Summarize the conversation so far inside <summary></summary> tags so the work can continue from the summary alone: "
+    "the user's requests, decisions, files and entities changed, what was verified, and what is still to do. "
+    "Answer with text only; do not call any tool.";
 constexpr int kDefaultMaxTokens = 16000;
 constexpr int kStreamMaxTokens = 64000;
 
@@ -105,6 +111,15 @@ Json build_request(const ChatRequest& req) {
     if (!req.effort.empty()) body["output_config"] = Json::object({{"effort", req.effort}});
     body["cache_control"] = Json::object({{"type", "ephemeral"}});
     if (supports_fallbacks(req.model)) body["fallbacks"] = "default";
+    if (req.maxContextTokens > 0) {
+        // Server-side compaction: the response starts with a `compaction` block that replaces everything before it.
+        // It is resent with the rest of the raw content, so nothing else is needed.
+        // ponytail: the history before that block is still sent (the API ignores it); drop it if requests get too big.
+        Json edit = Json::object({{"type", "compact_20260112"},
+                                  {"trigger", Json::object({{"type", "input_tokens"}, {"value", req.maxContextTokens}})},
+                                  {"instructions", kCompactionInstructions}});
+        body["context_management"] = Json::object({{"edits", Json::array({edit})}});
+    }
     if (req.stream) body["stream"] = true;
     return body;
 }
@@ -122,6 +137,7 @@ std::vector<std::pair<std::string, std::string>> build_headers(const ChatRequest
         betas.push_back(kOauthBeta);
     }
     if (supports_fallbacks(req.model)) betas.push_back(kFallbackBeta);
+    if (req.maxContextTokens > 0) betas.push_back(kCompactionBeta);
     if (!betas.empty()) h.emplace_back("anthropic-beta", fa::join(betas, ","));
     if (req.stream) h.emplace_back("accept", "text/event-stream");
     for (const auto& kv : cfg.headers) h.push_back(kv);
@@ -137,14 +153,12 @@ static StopReason map_stop(const std::string& s) {
     return StopReason::Other;
 }
 
-static Usage parse_usage(const Json& body) {
+static Usage usage_of(const Json& uj) {
     Usage u;
-    if (const Json* uj = child(body, "usage")) {
-        u.inputTokens = static_cast<u64>(num(*uj, "input_tokens"));
-        u.outputTokens = static_cast<u64>(num(*uj, "output_tokens"));
-        u.cacheCreationTokens = static_cast<u64>(num(*uj, "cache_creation_input_tokens"));
-        u.cacheReadTokens = static_cast<u64>(num(*uj, "cache_read_input_tokens"));
-    }
+    u.inputTokens = static_cast<u64>(num(uj, "input_tokens"));
+    u.outputTokens = static_cast<u64>(num(uj, "output_tokens"));
+    u.cacheCreationTokens = static_cast<u64>(num(uj, "cache_creation_input_tokens"));
+    u.cacheReadTokens = static_cast<u64>(num(uj, "cache_read_input_tokens"));
     return u;
 }
 
@@ -185,7 +199,17 @@ Result<ChatResponse> parse_response(const Json& body) {
     r.stopReason = map_stop(r.rawStopReason);
     if (r.stopReason == StopReason::EndTurn && !r.message.toolCalls.empty() && r.rawStopReason.empty())
         r.stopReason = StopReason::ToolUse;
-    r.usage = parse_usage(body);
+    if (const Json* uj = child(body, "usage")) {
+        // The top-level numbers are the answer itself, i.e. the context now. A compaction run in the same request is
+        // billed on top of them and reported only in usage.iterations.
+        r.usage = usage_of(*uj);
+        r.contextTokens = r.usage.inputTokens + r.usage.cacheCreationTokens + r.usage.cacheReadTokens;
+        if (const Json* its = child(*uj, "iterations"); its && its->is_array()) {
+            for (const auto& it : *its) {
+                if (str(it, "type") == "compaction") r.usage += usage_of(it);
+            }
+        }
+    }
     r.model = str(body, "model");
     if (r.stopReason == StopReason::Refusal) {
         // stop_details is only read for refusals.
@@ -239,6 +263,8 @@ void StreamAssembler::handle_event(const std::string& event, const std::string& 
             if (hooks_.onThinking) hooks_.onThinking(t);
         } else if (dt == "signature_delta") {
             block["signature"] = str(block, "signature") + str(*d, "signature");
+        } else if (dt == "compaction_delta") {
+            if (d->contains("content")) block["content"] = (*d)["content"];  // the whole summary in one delta
         }
     } else if (type == "content_block_stop") {
         auto idx = static_cast<std::size_t>(num(j, "index"));

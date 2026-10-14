@@ -1,9 +1,11 @@
 #!/bin/sh
 # Fake `claude` CLI: prints stream-json lines. Records its argv (and stdin as "stdin:...") in $FAKE_ARGV_FILE if set.
 # FAKE_COST overrides total_cost_usd; FAKE_MODE: notloggedin | crash | slow | resume_fails (--resume is answered with
-# claude's "No conversation found" error). fake_claude.cmd is the same script for Windows.
+# claude's "No conversation found" error). A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>".
+# fake_claude.cmd is the same script for Windows.
 if [ -n "$FAKE_ARGV_FILE" ]; then
   for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV_FILE"; done
+  if [ -n "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" ]; then printf 'compact-window:%s\n' "$CLAUDE_CODE_AUTO_COMPACT_WINDOW" >> "$FAKE_ARGV_FILE"; fi
 fi
 stdin=$(cat)
 if [ -n "$FAKE_ARGV_FILE" ] && [ -n "$stdin" ]; then printf 'stdin:%s\n' "$stdin" >> "$FAKE_ARGV_FILE"; fi

@@ -256,13 +256,20 @@ SessionResult AgentSession::run_cli(const std::string& role, const RoleConfig& r
     tr.write(Json::object({{"kind", "start"}, {"role", role}, {"provider", pc.name}, {"model", req.model}, {"task", task}}));
     res.transcriptPath = tr.path();
 
-    CliAgent agent(pc);
+    // The role's context limit: Claude Code compacts the session when it reaches this window. Shown as the window too.
+    ProviderConfig cliPc = pc;
+    const u64 window = pc.kind == ProviderKind::ClaudeCode ? rc.maxContextTokens : 0;
+    if (window > 0) cliPc.env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = std::to_string(window);
+    CliAgent agent(cliPc);
     // Claude Code's total_cost_usd counts the whole resumed session (checked with 2.1.296): subtract what the earlier
     // messages already cost, so every message reports its own.
     double costBase = resuming ? prev.cliCostUsd : 0;
     const auto onEvent = [&](const AgentEvent& ev) {
         AgentEvent copy = ev;
         if (ev.type == AgentEvent::Type::Usage && copy.costUsd >= costBase) copy.costUsd -= costBase;
+        if (ev.type == AgentEvent::Type::Usage && window > 0 && (copy.contextWindow == 0 || copy.contextWindow > window)) {
+            copy.contextWindow = window;
+        }
         tr.write(Json::object({{"kind", event_type_name(ev.type)}, {"text", ev.text}, {"tool", ev.toolName},
                                {"input", ev.toolInput}, {"result", ev.toolResult}}));
         emit(copy, depth, "cli");
@@ -429,6 +436,7 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
     req.model = rc.model;
     req.effort = rc.effort;
     req.maxTokens = rc.maxTokens;
+    req.maxContextTokens = rc.maxContextTokens;  // only the Anthropic provider sends it (server-side compaction)
     req.system = build_system_prompt(pctx);
     req.tools = tools_from_registry(registry_, canDelegate);
     req.stream = opt_.stream;
@@ -520,7 +528,9 @@ SessionResult AgentSession::run_chat(const std::string& role, const RoleConfig& 
             u.type = AgentEvent::Type::Usage;
             u.usage = totalUsage_;
             u.costUsd = totalCost_;
-            u.contextTokens = resp->usage.inputTokens + resp->usage.cacheCreationTokens + resp->usage.cacheReadTokens;
+            u.contextTokens = resp->contextTokens ? resp->contextTokens
+                                                  : resp->usage.inputTokens + resp->usage.cacheCreationTokens + resp->usage.cacheReadTokens;
+            if (pc.kind == ProviderKind::Anthropic) u.contextWindow = rc.maxContextTokens;  // compacts there; 0 = unknown
             emit(u, depth, role);
         }
         history.push_back(resp->message);  // APPEND the assistant message unchanged (raw content kept)
