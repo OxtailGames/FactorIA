@@ -155,6 +155,11 @@ Error range_error(const FieldInfo& f, double value) {
 
 }  // namespace
 
+Result<void> check_range(const FieldInfo& f, double value) {
+    if (has_range(f) && (value < f.minValue || value > f.maxValue)) return range_error(f, value);
+    return {};
+}
+
 Json field_to_json(const FieldInfo& f, const void* o) {
     switch (f.kind) {
         case FieldKind::Bool: return as<bool>(f, o);
