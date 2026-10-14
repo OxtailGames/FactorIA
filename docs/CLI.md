@@ -60,9 +60,9 @@ current machine's platform is used; `--out` is the parent folder (default `<proj
 Prints the output folder, warnings and the next steps.
 
 ### `factoria editor [project]`
-Opens the visual editor (only in builds with the editor). Its panels, the entity menu (Save as prefab...), File > Import ASCII level...,
-File > Format scene files... and View > Audio are described in `docs/EDITOR.md`; each of them runs an engine command (`prefab.save`,
-`scene.import_ascii`, `scene.format`, `audio.log`), so everything the editor does can also be done with `factoria call`.
+Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio
+are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
+`scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
 ## Running
 
