@@ -131,9 +131,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # iOS: compile the player for the simulator with Xcode. Code signing is off
-  # (the build only checks that the code compiles and links). No ccache here:
-  # launcher support with the Xcode generator is not reliable.
+  # iOS: build the player for the simulator with Xcode, then run it on an iOS Simulator. Code signing is off for the
+  # build (the simulator does not need it; the smoke script signs ad hoc). No ccache here: launcher support with the
+  # Xcode generator is not reliable.
   ios:
     name: iOS Simulator (Xcode)
     runs-on: macos-latest
@@ -158,6 +158,23 @@ jobs:
           test -f "$app/game/factoria.json"
           test ! -e "$app/game/ENGINE_FEEDBACK.json"
           plutil -lint "$app/Info.plist"
+
+      # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
+      # the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
+      # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
+      - name: Run the app in the iOS Simulator (smoke test)
+        run: |
+          app=$(find "$PWD/build/ios-simulator" -name factoria_player.app -type d | head -n 1)
+          ./scripts/ios-smoke.sh "$app" dev.factoria.ci 90 build/ios-smoke
+
+      - name: Upload simulator logs, screenshot and crash reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-smoke
+          path: build/ios-smoke
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Android: arm64-v8a player library with the preinstalled NDK on the runner.
   android:
@@ -233,3 +250,58 @@ jobs:
           gradle wrapper --gradle-version 8.7
           ./gradlew assembleDebug --no-daemon
           ls -la app/build/outputs/apk/debug/
+
+      # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md).
+      - name: Check the APK contains the native library for both ABIs
+        run: |
+          unzip -l /tmp/ci-out/ci-game-android/app/build/outputs/apk/debug/app-debug.apk | tee /tmp/apk-contents.txt
+          grep -q 'lib/arm64-v8a/libfactoria_player.so' /tmp/apk-contents.txt
+          grep -q 'lib/x86_64/libfactoria_player.so' /tmp/apk-contents.txt
+          grep -q 'assets/factoria.json' /tmp/apk-contents.txt
+
+      - name: Upload the debug APK for the emulator job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-game-debug-apk
+          path: /tmp/ci-out/ci-game-android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 2
+
+  # Android on a real (virtual) device: boot an x86_64 emulator, install the APK of the job above, start it and assert
+  # that the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
+  # a picture (scripts/android-smoke.sh). Needs KVM, which GitHub's Linux runners offer once the udev rule below is set.
+  android-emulator:
+    name: Android emulator (API 34 x86_64, run the APK)
+    needs: android-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-game-debug-apk
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the APK in the emulator (smoke test)
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          script: bash scripts/android-smoke.sh apk/app-debug.apk dev.factoria.cigame 120 build/android-smoke
+
+      - name: Upload logcat, screenshot and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke
+          path: build/android-smoke
+          if-no-files-found: ignore
+          retention-days: 7

@@ -17,6 +17,7 @@ struct WindowedState {
     ProjectSettings project;  // loaded early for title/size (the engine reloads it in init)
     bool ok = false;
     int exitCode = 0;
+    int framesRendered = 0;  // drawn frames, for the run marker in AppDesc.frame
 };
 
 // Expand mode: the visible area grows on the long axis to match the window aspect.
@@ -76,6 +77,9 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.frame = [st](double dt) {
         if (!st->ok) return;
         st->engine.frame(dt);
+        // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
+        // scripts/android-smoke.sh) grep for it to prove the game started and kept rendering on a simulator/emulator.
+        if (st->engine.renderer() && ++st->framesRendered == 60) FA_INFO("player", "60 frames rendered");
         if (st->engine.quit_requested()) app_request_quit();
     };
     d.event = [st](const AppEvent& e) {

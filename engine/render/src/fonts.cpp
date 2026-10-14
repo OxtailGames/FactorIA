@@ -282,7 +282,7 @@ void Fonts::sync() {
     d.pixel_format = SG_PIXELFORMAT_R8;
     d.data.mip_levels[0] = {im.pixels.data(), im.pixels.size()};
     d.label = "glyph-atlas";
-    atlasTex_.image = sg_make_image(&d);
+    atlasTex_.image = make_image(d);
     sg_view_desc vd{};
     vd.texture.image = atlasTex_.image;
     vd.label = "glyph-atlas";
