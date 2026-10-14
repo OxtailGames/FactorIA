@@ -1,5 +1,7 @@
 #include "fa/core/reflect.h"
 
+#include <cmath>
+
 #include "fa/core/strings.h"
 
 namespace fa {
@@ -136,7 +138,27 @@ Error field_error(const FieldInfo& f, const std::string& why) {
     return make_error("Field '" + f.name + "': " + why, hint);
 }
 
+// A number outside the field's range(): refused, never clamped on the side (a file that says 200 while the game
+// shows 64 would be a silent lie). The hint gives the allowed interval and the nearest allowed value.
+Error range_error(const FieldInfo& f, double value) {
+    auto number = [](double v) {  // 3, 0.001, 179: no trailing ".0"
+        const Json j = to_json(float(v));
+        const double d = j.get<double>();
+        return d == std::floor(d) && std::fabs(d) < 1e15 ? std::to_string(std::int64_t(d)) : j.dump();
+    };
+    const std::string lo = number(f.minValue), hi = number(f.maxValue), text = number(value);
+    std::string hint = "Use a value from " + lo + " to " + hi + " (both allowed); the nearest is " +
+                       (value < f.minValue ? lo : hi) + ".";
+    if (!f.doc.empty()) hint += " " + f.doc;
+    return make_error("Field '" + f.name + "': value " + text + " is outside the allowed range " + lo + ".." + hi, hint);
+}
+
 }  // namespace
+
+Result<void> check_range(const FieldInfo& f, double value) {
+    if (has_range(f) && (value < f.minValue || value > f.maxValue)) return range_error(f, value);
+    return {};
+}
 
 Json field_to_json(const FieldInfo& f, const void* o) {
     switch (f.kind) {
@@ -178,22 +200,14 @@ Result<void> field_from_json(const FieldInfo& f, void* o, const Json& value) {
         case FieldKind::Int: {
             int v;
             if (!json_to(value, v, &err)) return bad();
-            if (has_range(f) && (float(v) < f.minValue || float(v) > f.maxValue)) {
-                err = "value " + std::to_string(v) + " is outside the allowed range " + std::to_string(int(f.minValue)) +
-                      ".." + std::to_string(int(f.maxValue));
-                return bad();
-            }
+            if (auto r = check_range(f, float(v)); !r) return r;
             as<std::int32_t>(f, o) = v;
             return {};
         }
         case FieldKind::Float: {
             float v;
             if (!json_to(value, v, &err)) return bad();
-            if (has_range(f) && (v < f.minValue || v > f.maxValue)) {
-                err = "value " + describe_json_value(value) + " is outside the allowed range " +
-                      describe_json_value(to_json(f.minValue)) + ".." + describe_json_value(to_json(f.maxValue));
-                return bad();
-            }
+            if (auto r = check_range(f, v); !r) return r;
             as<float>(f, o) = v;
             return {};
         }

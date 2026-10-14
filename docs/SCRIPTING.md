@@ -213,8 +213,15 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   `{ connected, down(button), pressed(button), released(button), axis(name), rawAxis(name) }`. Buttons: `A B X Y Start Back
   Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes: `LeftX LeftY RightX RightY`
   (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). `axis` has the deadzone applied (what the bindings see), `rawAxis`
-  does not. Real pads are read in windowed runs only (Windows XInput, Linux joystick API, macOS/iOS GameController;
-  Android and web: not yet), so headless runs and tests stay deterministic.
+  does not. Real pads are read in windowed runs only (Windows XInput, Linux joystick API, macOS/iOS GameController,
+  Android's input queue; web: not yet), so headless runs and tests stay deterministic. A pad that stays plugged in
+  survives the window losing focus (inputs are released meanwhile, and the pad reports its real state when focus is
+  back). Face buttons are positional: `A` is the bottom one, `B` right, `X` left, `Y` top, whatever the pad prints on
+  them (a Switch Pro's bottom button, printed B, is `A`). On Linux each pad is identified by its USB/Bluetooth ids and
+  translated through a mapping table: DualShock 4, DualSense and Switch Pro are built in, any other pad gets the
+  Xbox (xpad) layout. If a pad's buttons come out wrong, set the standard `SDL_GAMECONTROLLERCONFIG` environment
+  variable to one or more mapping lines (newline separated; copy them from SDL's GameControllerDB, the engine logs the
+  pad's GUID when it has no mapping); they win over the built-in ones.
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
@@ -226,7 +233,7 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 - `raycast(from, to, { mask, ignore, ignoreTriggers })` → `{ entity, point, normal, distance } | null` (2D when `from` has no z)
 - `raycast3d(origin, dir, maxDistance, { mask, ignore, ignoreTriggers })`. Colliders that contain the ray origin are
   skipped. From a behaviour pass the caster so it does not hit itself: `physics.raycast(a, b, { ignore: this.entity })`
-  (`ignore` is an Entity or id; triggers are skipped unless `ignoreTriggers: false`). Ledge check pattern: cast a short
+  (`ignore` is an Entity or id; triggers are skipped unless `ignoreTriggers: false`; the commands `physics.raycast` and `physics.shape_cast` take the same three options). Ledge check pattern: cast a short
   ray down from just ahead of the feet and treat "no hit" as a ledge.
 - `shapeCast(shape, from, to, { mask, ignore, ignoreTriggers })` → the same `{ entity, point, normal, distance } | null`
   as `raycast`, for a shape with size (2D when `from` has no z, else 3D). `shape` is `{ shape: "circle", radius: 8 }` or

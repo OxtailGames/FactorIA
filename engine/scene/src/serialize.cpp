@@ -641,6 +641,28 @@ Result<CanonicalScene> canonical_scene_layout(std::string_view file) {
     return out;
 }
 
+bool is_scene_or_prefab_file(std::string_view path) {
+    const std::string lower = to_lower(path);
+    return ends_with(lower, ".scene.json") || ends_with(lower, ".prefab.json");
+}
+
+std::vector<std::string> project_scene_files(std::string_view dir) {
+    std::vector<std::string> out;
+    const std::string prefix = dir.empty() ? std::string() : std::string(dir) + "/";
+    for (const std::string& f : fs::list(dir.empty() ? "." : dir, true, ".json")) {
+        if (!is_scene_or_prefab_file(f)) continue;
+        const std::vector<std::string> parts = split(f.substr(prefix.size()), '/');
+        const bool skip = [&] {  // a folder of tool state or copies somewhere on the way
+            for (std::size_t i = 0; i + 1 < parts.size(); ++i)
+                if ((!parts[i].empty() && parts[i][0] == '.') || parts[i] == "node_modules" || (i == 0 && dir.empty() && parts[i] == "build"))
+                    return true;
+            return false;
+        }();
+        if (!skip) out.push_back(f);
+    }
+    return out;
+}
+
 Result<void> save_scene_file(const World& world, std::string_view path) {
     return save_scene_json_file(path, save_scene(world));
 }

@@ -1,6 +1,9 @@
 // Simple 3D physics: spheres + oriented boxes, semi-implicit Euler, impulse resolution, automatic continuous collision.
-// Boxes follow the entity's world rotation; the rotation itself only comes from Transform / angularVelocity (collisions
-// apply no torque). An unrotated box keeps the exact axis-aligned code paths.
+// Boxes follow the entity's world rotation. A dynamic box without lockRotation is a rigid body: its contacts are
+// manifolds (clipped faces), the solver applies normal and friction impulses at the contact points and so turns the box
+// (inertia tensor from its size and mass, orientation kept as a quaternion). Everything else (spheres, locked boxes,
+// kinematic and static bodies) keeps the original torque-free single-point solver. An unrotated box keeps the exact
+// axis-aligned code paths.
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -20,6 +23,10 @@ constexpr float kRiderGap = 0.02f;    // a dynamic body this close above a kinem
 constexpr float kAlignedEps = 1e-6f;  // off-diagonal rotation below this = axis-aligned (exact AABB paths)
 constexpr float kSweepTol = 1e-4f;    // swept contacts are bisected to this distance (m)
 constexpr float kCastSkin = 0.01f;    // shape casts: penetration at `from` up to this is a resting touch, not an overlap
+constexpr float kManifoldGap = 0.003f;  // box-box manifold points this far above the reference face still count (m)
+constexpr int kRigidIterations = 8;     // velocity iterations of the rigid-body solver, per sub-step
+constexpr int kMaxToiEvents = 6;        // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
+constexpr float kWarmRadius = 0.05f;    // a contact point inherits the impulses of the previous sub-step's one this close (m)
 
 const char* type_name(BodyType t) {
     switch (t) {
@@ -49,6 +56,49 @@ Vec3 euler_of(const Vec3* ax) {
     return {degrees(std::asin(sp)), degrees(yaw), degrees(roll)};
 }
 
+// True when the unit basis is not the identity (beyond float noise): the box then takes the oriented code paths.
+bool is_turned(const Vec3* r) {
+    return std::fabs(r[0].y) > kAlignedEps || std::fabs(r[0].z) > kAlignedEps || std::fabs(r[1].x) > kAlignedEps ||
+           std::fabs(r[1].z) > kAlignedEps || std::fabs(r[2].x) > kAlignedEps || std::fabs(r[2].y) > kAlignedEps;
+}
+
+// Unit quaternion <-> basis columns (the columns of Mat4::from_quat).
+void axes_of(Quat q, Vec3* ax) {
+    const float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z, xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
+    const float wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
+    ax[0] = {1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy)};
+    ax[1] = {2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx)};
+    ax[2] = {2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy)};
+}
+Quat quat_of(const Vec3* ax) {
+    const float m00 = ax[0].x, m11 = ax[1].y, m22 = ax[2].z, tr = m00 + m11 + m22;
+    Quat q;
+    if (tr > 0.0f) {
+        const float s = std::sqrt(tr + 1.0f) * 2.0f;
+        q = {(ax[1].z - ax[2].y) / s, (ax[2].x - ax[0].z) / s, (ax[0].y - ax[1].x) / s, 0.25f * s};
+    } else if (m00 >= m11 && m00 >= m22) {
+        const float s = std::sqrt(1.0f + m00 - m11 - m22) * 2.0f;
+        q = {0.25f * s, (ax[1].x + ax[0].y) / s, (ax[2].x + ax[0].z) / s, (ax[1].z - ax[2].y) / s};
+    } else if (m11 >= m22) {
+        const float s = std::sqrt(1.0f + m11 - m00 - m22) * 2.0f;
+        q = {(ax[1].x + ax[0].y) / s, 0.25f * s, (ax[2].y + ax[1].z) / s, (ax[2].x - ax[0].z) / s};
+    } else {
+        const float s = std::sqrt(1.0f + m22 - m00 - m11) * 2.0f;
+        q = {(ax[2].x + ax[0].z) / s, (ax[2].y + ax[1].z) / s, 0.25f * s, (ax[0].y - ax[1].x) / s};
+    }
+    return normalize(q);
+}
+
+// Transform.rotation (local euler degrees) that gives the entity the world basis `ax`.
+Vec3 local_euler(const World& world, Entity e, const Vec3* ax) {
+    const Entity parent = world.parent(e);
+    if (parent.is_null()) return euler_of(ax);
+    const WorldPose pp = world_pose(world, parent);
+    Vec3 lc[3];
+    for (int i = 0; i < 3; ++i) lc[i] = {dot(pp.axis[0], ax[i]), dot(pp.axis[1], ax[i]), dot(pp.axis[2], ax[i])};
+    return euler_of(lc);
+}
+
 // Axis-aligned bounds of a shape (for the sweep broad phase); an unturned box has the identity frame, so this is `half`.
 void bounds_of(const Vec3* ax, bool box, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
     const Vec3 e = !box ? Vec3{radius}
@@ -64,6 +114,7 @@ void Physics3D::reset() {
     bodies_.clear();
     index_.clear();
     touching_.clear();
+    warm_.clear();
     lastWorld_ = nullptr;
     nextSeq_ = 1;
 }
@@ -126,11 +177,12 @@ void Physics3D::sphere_box(const Body& box, const Body& sph, float margin, Conta
 
 // Oriented box vs oriented box (at least one turned): 15-axis SAT. The normal is the least-penetration axis, preferring
 // the six face axes over the nine edge-edge axes unless an edge axis is clearly shallower (stable resting contacts).
-void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact& c) {
+void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact& c, bool manifold) {
     const Vec3 d = b.center - a.center;
     float faceOv = 1e30f, edgeOv = 1e30f;
     Vec3 faceN, edgeN;
-    auto test = [&](Vec3 axis, bool edge) {  // false = separated by more than the margin
+    int faceOwner = 0, faceAxis = 0;  // which body (0 = a, 1 = b) and axis index gave the least-penetration face axis
+    auto test = [&](Vec3 axis, bool edge, int owner, int index) {  // false = separated by more than the margin
         float ra = 0.0f, rb = 0.0f;
         for (int i = 0; i < 3; ++i) {
             ra += std::fabs(dot(a.ax[i], axis)) * a.half[i];
@@ -143,16 +195,17 @@ void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact&
         if (ov < best) {
             best = ov;
             (edge ? edgeN : faceN) = proj >= 0.0f ? axis : -axis;
+            if (!edge) { faceOwner = owner; faceAxis = index; }
         }
         return true;
     };
-    for (int i = 0; i < 3; ++i) if (!test(a.ax[i], false) || !test(b.ax[i], false)) return;
+    for (int i = 0; i < 3; ++i) if (!test(a.ax[i], false, 0, i) || !test(b.ax[i], false, 1, i)) return;
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
             Vec3 x = cross(a.ax[i], b.ax[j]);
             const float len = length(x);
             if (len < 1e-4f) continue;  // parallel edges: the face axes cover them
-            if (!test(x / len, true)) return;
+            if (!test(x / len, true, 0, 0)) return;
         }
     }
     const bool useEdge = edgeOv < faceOv * 0.95f - 0.01f;
@@ -168,10 +221,60 @@ void Physics3D::box_box_sat(const Body& a, const Body& b, float margin, Contact&
     const Vec3 q = a.center + frame_to_world(a.ax, min(max(world_to_frame(a.ax, p - a.center), -a.half), a.half));
     c.point = (p + q) * 0.5f;
     c.hit = true;
+    if (manifold && !useEdge) {  // face contact: the incident face clipped to the reference face (edge contacts: one point)
+        if (faceOwner == 0) face_manifold(a, faceAxis, c.normal, b, c);
+        else face_manifold(b, faceAxis, -c.normal, a, c);
+        if (c.n > 0) {
+            c.point = {};
+            for (int i = 0; i < c.n; ++i) c.point += c.pts[i];
+            c.point = c.point / float(c.n);
+        }
+    }
+}
+
+// Contact manifold of a face-to-face box contact: the face of `inc` that points most against `refNormal` (the outward
+// normal of face `refAxis` of `ref`) is clipped to the side planes of that reference face, and the corners of the result
+// that are not more than kManifoldGap above the reference plane become the contact points (depth < 0 = still apart).
+void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& c) {
+    int k = 0;
+    float bestDot = 0.0f;
+    for (int i = 0; i < 3; ++i) {
+        const float d = std::fabs(dot(inc.ax[i], refNormal));
+        if (d > bestDot) { bestDot = d; k = i; }
+    }
+    const float side = dot(inc.ax[k], refNormal) > 0.0f ? -1.0f : 1.0f;  // outward direction of the incident face
+    const Vec3 fc = inc.center + inc.ax[k] * (side * inc.half[k]);
+    const Vec3 up = inc.ax[(k + 1) % 3] * inc.half[(k + 1) % 3], uq = inc.ax[(k + 2) % 3] * inc.half[(k + 2) % 3];
+    Vec3 poly[16] = {fc + up + uq, fc - up + uq, fc - up - uq, fc + up - uq}, tmp[16];
+    int cnt = 4;
+    for (int s = 0; s < 4 && cnt > 0; ++s) {  // Sutherland-Hodgman against the reference face's four side planes
+        const int u = (refAxis + 1 + (s >> 1)) % 3;
+        const Vec3 m = (s & 1) ? -ref.ax[u] : ref.ax[u];
+        const float h = ref.half[u];
+        int out = 0;
+        for (int i = 0; i < cnt; ++i) {
+            const Vec3 cur = poly[i], nxt = poly[(i + 1) % cnt];
+            const float dc = dot(cur - ref.center, m) - h, dn = dot(nxt - ref.center, m) - h;
+            if (dc <= 0.0f) tmp[out++] = cur;
+            if ((dc <= 0.0f) != (dn <= 0.0f)) tmp[out++] = cur + (nxt - cur) * (dc / (dc - dn));
+        }
+        for (int i = 0; i < out; ++i) poly[i] = tmp[i];
+        cnt = out;
+    }
+    const Vec3 faceCenter = ref.center + refNormal * ref.half[refAxis];
+    c.n = 0;
+    for (int i = 0; i < cnt && c.n < kMaxPts; ++i) {
+        const float sep = dot(poly[i] - faceCenter, refNormal);
+        if (sep > kManifoldGap) continue;
+        c.pts[c.n] = poly[i] - refNormal * (sep * 0.5f);  // half way between the corner and the reference plane
+        c.depths[c.n] = -sep;
+        ++c.n;
+    }
 }
 
 // Contact between a and b; normal points from a to b. depth > 0 means penetrating; hit when depth > -margin.
-Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin) {
+// manifold: box-box contacts also fill the contact points of the touching face (see face_manifold).
+Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin, bool manifold) {
     Contact c;
     if (!a.hasShape || !b.hasShape) return c;
     if (!a.box && !b.box) {
@@ -183,7 +286,7 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
         c.hit = c.depth > -margin;
     } else if (a.box && b.box) {
         if (a.rotated || b.rotated) {
-            box_box_sat(a, b, margin, c);
+            box_box_sat(a, b, margin, c, manifold);
             return c;
         }
         Vec3 d = b.center - a.center;
@@ -200,6 +303,19 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
         Vec3 lo = max(a.center - a.half, b.center - b.half), hi = min(a.center + a.half, b.center + b.half);
         c.point = (lo + hi) * 0.5f;
         c.hit = true;
+        if (manifold) {  // the four corners of the overlap rectangle, on the plane half way through the overlap
+            const int i = (axis + 1) % 3, j = (axis + 2) % 3;
+            for (int si = 0; si < 2; ++si) {
+                for (int sj = 0; sj < 2; ++sj) {
+                    Vec3 p;
+                    p[axis] = (lo[axis] + hi[axis]) * 0.5f;
+                    p[i] = si ? hi[i] : lo[i];
+                    p[j] = sj ? hi[j] : lo[j];
+                    c.pts[c.n] = p;
+                    c.depths[c.n++] = best;
+                }
+            }
+        }
     } else if (a.box) {
         sphere_box(a, b, margin, c);
     } else {
@@ -289,6 +405,7 @@ void Physics3D::sync(World& world) {
         b.gravityScale = rb ? rb->gravityScale : 1.0f;
         b.damping = rb ? std::max(rb->linearDamping, 0.0f) : 0.0f;
         b.rollWithMotion = rb ? rb->rollWithMotion : false;
+        b.angDamping = rb ? std::max(rb->angularDamping, 0.0f) : 0.0f;
         b.hasShape = col != nullptr;
         const Vec3 oldOffset = b.offset;
         if (col) {
@@ -301,11 +418,27 @@ void Physics3D::sync(World& world) {
             // entity keeps the identity frame and the exact axis-aligned paths. ponytail: a sheared world matrix (a
             // non-uniformly scaled, rotated parent) has non-orthogonal columns, which are used as if orthonormal.
             const Vec3* r = pose.axis;
-            const bool turned = std::fabs(r[0].y) > kAlignedEps || std::fabs(r[0].z) > kAlignedEps ||
-                                std::fabs(r[1].x) > kAlignedEps || std::fabs(r[1].z) > kAlignedEps ||
-                                std::fabs(r[2].x) > kAlignedEps || std::fabs(r[2].y) > kAlignedEps;
-            const Vec3 local = col->offset * pose.scale;
-            b.offset = turned ? frame_to_world(r, local) : local;
+            Vec3 ownAx[3];
+            const bool wantRot = rb && rb->type == BodyType::Dynamic && b.box && !col->isTrigger && !rb->lockRotation;
+            if (wantRot) {
+                // A rotating box keeps its quaternion between steps; only a Transform.rotation that differs from what
+                // the solver wrote last (or a parent in the way) makes it re-read the orientation from the Transform.
+                const Transform* tr = world.get<Transform>(e);
+                const bool keep = b.rotDyn && tr && tr->rotation == b.lastEuler &&
+                                  world.parent(e).is_null();
+                if (!keep) {
+                    b.orient = quat_of(pose.axis);
+                    b.lastEuler = tr ? tr->rotation : Vec3{};
+                }
+                axes_of(b.orient, ownAx);
+                r = ownAx;
+                const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
+                b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+            }
+            b.rotDyn = wantRot;
+            const bool turned = is_turned(r);
+            b.localOffset = col->offset * pose.scale;
+            b.offset = turned ? frame_to_world(r, b.localOffset) : b.localOffset;
             b.rotated = b.box && turned;
             for (int i = 0; i < 3; ++i) b.ax[i] = b.rotated ? r[i] : kIdentityAxes[i];
             b.trigger = col->isTrigger;
@@ -315,7 +448,9 @@ void Physics3D::sync(World& world) {
             b.mask = col->mask;
         } else {
             b.offset = {};
+            b.localOffset = {};
             b.rotated = false;
+            b.rotDyn = false;
             b.trigger = false;
         }
         b.rollMu = (rb && col && rb->type == BodyType::Dynamic && rb->rollWithMotion && !b.box)
@@ -357,11 +492,48 @@ void Physics3D::sync(World& world) {
     }
 }
 
-void Physics3D::solve_pair(Body& a, Body& b, const Contact& c, float, float& impact, bool carried) {
+// Rebuilds the collision frame (basis, offset) of a rotating box from its quaternion.
+void Physics3D::refresh_frame(Body& b) {
+    Vec3 r[3];
+    axes_of(b.orient, r);
+    const bool turned = is_turned(r);
+    const Vec3 oldOffset = b.offset;
+    b.rotated = b.box && turned;
+    for (int i = 0; i < 3; ++i) b.ax[i] = b.rotated ? r[i] : kIdentityAxes[i];
+    b.offset = turned ? frame_to_world(r, b.localOffset) : b.localOffset;
+    if (b.offset != oldOffset) b.originDirty = true;  // the entity origin hangs off the (offset) collider centre
+}
+
+// Turns a rotating box by its angular velocity for `seconds` (about its centre, world axes).
+void Physics3D::integrate_orient(Body& b, float seconds) {
+    const Vec3 w = b.angVel * kDegToRad;
+    const float len = length(w);
+    if (!(len > 0.0f)) return;
+    const float half = 0.5f * len * seconds, s = std::sin(half) / len;
+    b.orient = normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * b.orient);
+    b.rotDirty = true;
+    refresh_frame(b);
+}
+
+// Velocity of the point at lever arm r from the centre. Only bodies that contacts can turn contribute their spin: the
+// spin of a rolling sphere (rollWithMotion), a kinematic bar or a locked box is not part of the contact velocity, as in
+// the single-point solver (a rolling sphere would otherwise be at rest at its contact point and feel no friction).
+Vec3 Physics3D::point_velocity(const Body& b, Vec3 r) {
+    return b.rotDyn ? b.vel + cross(b.angVel * kDegToRad, r) : b.vel;
+}
+
+// World inverse inertia times v: R * diag(invI) * R^T * v. Zero for bodies contacts cannot turn.
+Vec3 Physics3D::inv_inertia_mul(const Body& b, Vec3 v) {
+    if (!b.rotDyn) return {};
+    return frame_to_world(b.ax, world_to_frame(b.ax, v) * b.invI);
+}
+
+// Original torque-free solver for one pair: one contact point, no angular terms (spheres, locked boxes, kinematic).
+void Physics3D::solve_pair(Body& a, Body& b, const Contact& c, float, float& impact, bool carried, bool positional) {
     const float ia = a.invMass, ib = b.invMass, sum = ia + ib;
     if (sum <= 0.0f) return;
     const Vec3 n = c.normal;
-    if (c.depth > kSlop) {
+    if (positional && c.depth > kSlop) {
         Vec3 corr = n * ((c.depth - kSlop) * kPercent / sum);
         a.center -= corr * ia;
         b.center += corr * ib;
@@ -392,6 +564,95 @@ void Physics3D::solve_pair(Body& a, Body& b, const Contact& c, float, float& imp
             a.vel += t * (jt * ia);
             b.vel -= t * (jt * ib);
         }
+    }
+}
+
+// Prepares the rigid-body solver's view of a manifold: lever arms, effective normal mass and the velocity each point's
+// normal constraint aims for (a bounce, or the closing speed that just reaches a point still slightly apart).
+bool Physics3D::build_rigid_contact(const Body& a, const Body& b, std::size_t ia, std::size_t ib, const Contact& c,
+                                    float h, int carrier, float& impact, RigidContact& rc) {
+    if (a.invMass + b.invMass <= 0.0f) return false;
+    rc.ia = ia;
+    rc.ib = ib;
+    rc.n = c.normal;
+    rc.ca = a.center;
+    rc.cb = b.center;
+    rc.carrier = carrier;
+    rc.mu = (a.rollMu >= 0.0f || b.rollMu >= 0.0f) ? std::max(a.rollMu, b.rollMu) : std::sqrt(a.friction * b.friction);
+    rc.count = c.n > 0 ? c.n : 1;  // single-point contacts (spheres, box edges) use Contact::point
+    const float e = std::max(a.restitution, b.restitution);
+    for (int i = 0; i < rc.count; ++i) {
+        RigidContact::Pt& p = rc.pt[i];
+        const Vec3 pos = c.n > 0 ? c.pts[i] : c.point;
+        p.depth = c.n > 0 ? c.depths[i] : c.depth;
+        p.ra = pos - a.center;
+        p.rb = pos - b.center;
+        const Vec3 rna = cross(p.ra, c.normal), rnb = cross(p.rb, c.normal);
+        p.kn = a.invMass + b.invMass + dot(rna, inv_inertia_mul(a, rna)) + dot(rnb, inv_inertia_mul(b, rnb));
+        const float vn = dot(point_velocity(b, p.rb) - point_velocity(a, p.ra), c.normal);
+        if (vn < 0.0f) impact = std::max(impact, -vn);
+        p.target = (e > 0.0f && -vn >= kBounceThreshold) ? -e * vn : std::min(p.depth, 0.0f) / h;
+        p.jn = 0.0f;
+        p.jt = {};
+    }
+    return true;
+}
+
+// One velocity pass over a manifold: per point a friction impulse (cone of mu * accumulated normal impulse) and then a
+// normal impulse (accumulated and clamped at zero, so a later point can take back what an earlier one over-corrected).
+// Impulses act at the contact point, so they change the angular velocity of boxes that contacts can turn.
+void Physics3D::solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse) {
+    Body& a = bodies[rc.ia];
+    Body& b = bodies[rc.ib];
+    const float ia = a.invMass, ib = b.invMass;
+    const Vec3 n = rc.n;
+    auto push = [](Body& x, Vec3 r, Vec3 impulse) {  // impulse at lever arm r
+        x.vel += impulse * x.invMass;
+        x.angVel += inv_inertia_mul(x, cross(r, impulse)) * kRadToDeg;
+    };
+    for (int step = 0; step < rc.count; ++step) {
+        RigidContact::Pt& p = rc.pt[reverse ? rc.count - 1 - step : step];  // alternate the sweep order: no bias
+        {
+            const Vec3 va = point_velocity(a, p.ra), vb = point_velocity(b, p.rb);
+            // A carried rider already moved with its platform: friction acts on the rider's own velocity.
+            const Vec3 rv = rc.carrier == 1 ? vb : (rc.carrier == 2 ? -va : vb - va);
+            const Vec3 vt = rv - n * dot(rv, n);
+            const float lt = length(vt);
+            if (lt > 1e-6f) {
+                const Vec3 t = vt / lt;
+                const Vec3 rta = cross(p.ra, t), rtb = cross(p.rb, t);
+                const float kt = ia + ib + dot(rta, inv_inertia_mul(a, rta)) + dot(rtb, inv_inertia_mul(b, rtb));
+                Vec3 total = p.jt - t * (lt / kt);
+                const float limit = rc.mu * p.jn, len = length(total);
+                if (len > limit) total = total * (limit / len);
+                const Vec3 delta = total - p.jt;
+                p.jt = total;
+                push(b, p.rb, delta);
+                push(a, p.ra, -delta);
+            }
+        }
+        const float vn = dot(point_velocity(b, p.rb) - point_velocity(a, p.ra), n);
+        const float before = p.jn;
+        p.jn = std::max(before + (p.target - vn) / p.kn, 0.0f);
+        const Vec3 impulse = n * (p.jn - before);
+        push(b, p.rb, impulse);
+        push(a, p.ra, -impulse);
+    }
+}
+
+// Pushes the pair apart along the normal by the part of its deepest point's penetration that exceeds kSlop (translation
+// only; rotation is left to the velocity pass). The depth is kept up to date from the centres' motion since the build.
+void Physics3D::correct_position(std::vector<Body>& bodies, const RigidContact& rc) {
+    Body& a = bodies[rc.ia];
+    Body& b = bodies[rc.ib];
+    const float sum = a.invMass + b.invMass;
+    float depth = -1e30f;
+    for (int i = 0; i < rc.count; ++i) depth = std::max(depth, rc.pt[i].depth);
+    depth -= dot((b.center - rc.cb) - (a.center - rc.ca), rc.n);
+    if (depth > kSlop) {
+        const Vec3 corr = rc.n * ((depth - kSlop) * kPercent / sum);
+        a.center -= corr * a.invMass;
+        b.center += corr * b.invMass;
     }
 }
 
@@ -439,59 +700,99 @@ void Physics3D::step(World& world, float dt) {
     }
 
     auto movable = [](const Body& b) { return b.type != BodyType::Static; };
+    auto half_extent = [](const Body& b) { return b.box ? std::min({b.half.x, b.half.y, b.half.z}) : b.radius; };
     std::vector<std::size_t> riders;
-    for (int s = 0; s < subs; ++s) {
-        std::fill(carrier.begin(), carrier.end(), -1);
-        for (std::size_t k = 0; k < n; ++k) {
-            const Body& p = bodies_[k];
-            if (p.type != BodyType::Kinematic || p.vel == Vec3{}) continue;
-            riders.clear();
-            find_riders(k, riders);
-            Vec3 disp = p.vel * h;
-            if (disp.y > 0.0f) disp.y = 0.0f;  // upward motion is delivered by the contact itself
-            for (std::size_t i : riders) {
-                if (carrier[i] >= 0) continue;
-                carrier[i] = int(k);
-                bodies_[i].center += disp;
+    std::vector<Vec3> disp(n);
+    std::vector<RigidContact> rigid;
+
+    // Time of the first impact (fraction of `disp`, 1 = none) among all pairs that close in on each other faster than
+    // the smaller body's half extent per sub-step. The pair is swept in relative motion: the smaller body moves by
+    // disp[mover] - disp[target] against the other one standing still at its start position, so two fast dynamic bodies
+    // and a fast kinematic body against a dynamic one are caught as well as a dynamic body against a static wall.
+    // Pairs that already overlap at the start are left to the contact solver.
+    auto first_impact = [&]() {
+        float tFirst = 1.0f;
+        for (std::size_t i = 0; i < n; ++i) {
+            Body& a = bodies_[i];
+            if (!a.enabled || !a.hasShape || a.trigger) continue;
+            for (std::size_t k = i + 1; k < n; ++k) {
+                Body& b = bodies_[k];
+                if (!b.enabled || !b.hasShape || b.trigger) continue;
+                const bool dynA = a.type == BodyType::Dynamic, dynB = b.type == BodyType::Dynamic;
+                if ((!dynA && !dynB) || !filters_pass(a, b)) continue;
+                const bool bMoves = !dynA || (dynB && half_extent(b) < half_extent(a));  // b is the mover
+                Body& mover = bMoves ? b : a;
+                const Body& target = bMoves ? a : b;
+                const Vec3 rel = bMoves ? disp[k] - disp[i] : disp[i] - disp[k];
+                const float he = half_extent(mover);
+                float t = 1.0f;
+                if (length_sq(rel) > he * he && sweep(mover, rel, target, t) && t < tFirst) tFirst = t;
             }
         }
+        return tFirst;
+    };
+
+    // Resolves the contacts at the current positions. Pairs of rotating boxes (rotDyn) go through the rigid-body solver
+    // (manifolds, impulses at the contact points, accumulated and clamped); every other pair keeps the original solver.
+    // positional: also push overlapping bodies apart (not at a time-of-impact stop: the overlap there is ~0.1 mm).
+    auto resolve = [&](bool positional) {
+        rigid.clear();
         for (std::size_t i = 0; i < n; ++i) {
-            Body& b = bodies_[i];
-            if (!b.enabled) continue;
-            if (b.type == BodyType::Dynamic) {
-                b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
-                if (b.damping > 0.0f) b.vel *= 1.0f / (1.0f + h * b.damping);
-                Vec3 disp = b.vel * h;
-                // Continuous collision: a move longer than half the body's smallest extent is swept against the solid
-                // static/kinematic colliders and cut at the first contact. The body ends up ~0.1 mm INSIDE that
-                // surface, so the contact solver below resolves its velocity (stop / bounce) like any other contact.
-                // ponytail: dynamic-vs-dynamic pairs and kinematic motion inside the sub-step are not swept.
-                if (b.hasShape && !b.trigger) {
-                    const float halfExtent = b.box ? std::min({b.half.x, b.half.y, b.half.z}) : b.radius;
-                    if (length_sq(disp) > halfExtent * halfExtent) {
-                        float tFirst = 1.0f;
-                        for (std::size_t k = 0; k < n; ++k) {
-                            const Body& t = bodies_[k];
-                            const bool solid = t.enabled && t.hasShape && !t.trigger && t.type != BodyType::Dynamic;
-                            if (k == i || !solid || !filters_pass(b, t)) continue;
-                            float th = 1.0f;
-                            if (sweep(b, disp, t, th) && th < tFirst) tFirst = th;
+            Body& a = bodies_[i];
+            if (!a.enabled || !a.hasShape || a.trigger) continue;
+            for (std::size_t k = i + 1; k < n; ++k) {
+                Body& b = bodies_[k];
+                if (!b.enabled || !b.hasShape || b.trigger) continue;
+                if (!a.rotDyn && !b.rotDyn) continue;
+                if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
+                if (!filters_pass(a, b)) continue;
+                Contact c = collide(a, b, 0.0f, true);
+                if (!c.hit || c.depth < 0.0f) continue;
+                float& impact = impacts[{a.seq, b.seq}];
+                const int car = (carrier[k] == int(i) && a.type == BodyType::Kinematic)
+                                    ? 1
+                                    : ((carrier[i] == int(k) && b.type == BodyType::Kinematic) ? 2 : 0);
+                RigidContact rc;
+                if (!build_rigid_contact(a, b, i, k, c, h, car, impact, rc)) continue;
+                rc.key = {a.seq, b.seq};
+                if (positional) {  // warm start: re-apply what the same contact points carried in the previous sub-step
+                    auto cached = warm_.find(rc.key);
+                    if (cached != warm_.end()) {
+                        std::vector<WarmPt>& old = cached->second;
+                        std::vector<char> used(old.size(), 0);
+                        for (int pi = 0; pi < rc.count; ++pi) {
+                            RigidContact::Pt& p = rc.pt[pi];
+                            const Vec3 pos = a.center + p.ra;
+                            int best = -1;
+                            float bestD = kWarmRadius * kWarmRadius;
+                            for (std::size_t oi = 0; oi < old.size(); ++oi) {
+                                const float d = length_sq(old[oi].pos - pos);
+                                if (!used[oi] && d < bestD) { bestD = d; best = int(oi); }
+                            }
+                            if (best < 0) continue;
+                            used[best] = 1;
+                            p.jn = old[best].jn;
+                            p.jt = old[best].jt;
+                            const Vec3 impulse = rc.n * p.jn + p.jt;
+                            b.vel += impulse * b.invMass;
+                            b.angVel += inv_inertia_mul(b, cross(p.rb, impulse)) * kRadToDeg;
+                            a.vel -= impulse * a.invMass;
+                            a.angVel -= inv_inertia_mul(a, cross(p.ra, impulse)) * kRadToDeg;
                         }
-                        disp *= tFirst;
                     }
                 }
-                b.center += disp;
-            } else if (b.type == BodyType::Kinematic) {
-                b.center += b.vel * h;
+                rigid.push_back(rc);
             }
         }
-        for (int it = 0; it < kIterations; ++it) {
-            for (std::size_t i = 0; i < n; ++i) {
+        const int iterations = rigid.empty() ? kIterations : kRigidIterations;
+        for (int it = 0; it < iterations; ++it) {
+            for (std::size_t i = 0; i < n && it < kIterations; ++i) {
                 Body& a = bodies_[i];
                 if (!a.enabled || !a.hasShape || a.trigger) continue;
                 for (std::size_t k = i + 1; k < n; ++k) {
                     Body& b = bodies_[k];
                     if (!b.enabled || !b.hasShape || b.trigger) continue;
+                    if (a.rotDyn || b.rotDyn) continue;
                     if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
                     if (!filters_pass(a, b)) continue;
                     Contact c = collide(a, b, 0.0f);
@@ -503,13 +804,72 @@ void Physics3D::step(World& world, float dt) {
                         // keep the normal pointing from a to b: swap roles through the mirrored contact
                         Contact m = c;
                         m.normal = -m.normal;
-                        solve_pair(b, a, m, h, impact, carried);
+                        solve_pair(b, a, m, h, impact, carried, positional);
                     } else {
-                        solve_pair(a, b, c, h, impact, carried);
+                        solve_pair(a, b, c, h, impact, carried, positional);
                     }
                 }
             }
+            for (std::size_t ri = 0; ri < rigid.size(); ++ri) {
+                RigidContact& rc = rigid[(it & 1) ? rigid.size() - 1 - ri : ri];
+                if (positional && it < kIterations) correct_position(bodies_, rc);
+                solve_velocity(bodies_, rc, (it & 1) != 0);
+            }
         }
+        if (positional) {  // remember the solution as the next sub-step's starting point
+            warm_.clear();
+            for (const RigidContact& rc : rigid) {
+                std::vector<WarmPt>& cache = warm_[rc.key];
+                for (int pi = 0; pi < rc.count; ++pi)
+                    cache.push_back({rc.ca + rc.pt[pi].ra, rc.pt[pi].jn, rc.pt[pi].jt});
+            }
+        }
+    };
+
+    for (int s = 0; s < subs; ++s) {
+        std::fill(carrier.begin(), carrier.end(), -1);
+        for (std::size_t k = 0; k < n; ++k) {
+            const Body& p = bodies_[k];
+            if (p.type != BodyType::Kinematic || p.vel == Vec3{}) continue;
+            riders.clear();
+            find_riders(k, riders);
+            Vec3 d = p.vel * h;
+            if (d.y > 0.0f) d.y = 0.0f;  // upward motion is delivered by the contact itself
+            for (std::size_t i : riders) {
+                if (carrier[i] >= 0) continue;
+                carrier[i] = int(k);
+                bodies_[i].center += d;
+            }
+        }
+        for (Body& b : bodies_) {
+            if (!b.enabled || b.type != BodyType::Dynamic) continue;
+            b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
+            if (b.damping > 0.0f) b.vel *= 1.0f / (1.0f + h * b.damping);
+            if (b.angDamping > 0.0f) b.angVel *= 1.0f / (1.0f + h * b.angDamping);
+        }
+        // Motion with continuous collision. The bodies advance together up to the first impact (a time of impact), the
+        // contacts are resolved there (the velocity of the hit bodies changes: stop, bounce, slide), and the rest of the
+        // sub-step continues with the new velocities, so a fast body keeps sliding along the surface it hit.
+        float remaining = 1.0f;
+        for (int event = 0;; ++event) {
+            const float span = h * remaining;
+            for (std::size_t i = 0; i < n; ++i) {
+                const Body& b = bodies_[i];
+                disp[i] = (b.enabled && movable(b)) ? b.vel * span : Vec3{};
+            }
+            const float tHit = event < kMaxToiEvents ? first_impact() : 1.0f;
+            for (std::size_t i = 0; i < n; ++i) {
+                Body& b = bodies_[i];
+                if (!b.enabled || !movable(b)) continue;
+                b.center += disp[i] * tHit;
+                if (b.rotDyn) integrate_orient(b, span * tHit);
+            }
+            if (tHit >= 1.0f) break;
+            resolve(false);
+            remaining *= 1.0f - tHit;
+            if (remaining < 1e-3f) break;
+        }
+        resolve(true);
     }
     for (Body& b : bodies_) b.force = {};
 
@@ -581,18 +941,29 @@ void Physics3D::step(World& world, float dt) {
     // ---- write back
     for (Body& b : bodies_) {
         if (!b.enabled || b.type == BodyType::Static || !world.alive(b.e)) continue;
-        if (b.angVel != Vec3{}) {
-            if (Transform* t = world.get<Transform>(b.e)) t->rotation += b.angVel * dt;
+        if (Transform* t = world.get<Transform>(b.e)) {
+            if (b.rotDyn) {  // the quaternion was integrated during the sub-steps: write it as the entity's rotation
+                if (b.rotDirty) {
+                    Vec3 r[3];
+                    axes_of(b.orient, r);
+                    t->rotation = local_euler(world, b.e, r);
+                    b.lastEuler = t->rotation;
+                }
+            } else if (b.angVel != Vec3{}) {
+                t->rotation += b.angVel * dt;
+            }
         }
+        b.rotDirty = false;
         if (RigidBody3D* rb = world.get<RigidBody3D>(b.e)) {
             rb->angularVelocity = b.angVel;
             b.lastAngVel = b.angVel;
         }
-        if (b.center != b.lastCenter) {
+        if (b.center != b.lastCenter || b.originDirty) {
             world.set_world_position(b.e, b.center - b.offset);
             b.lastPos = world.world_position(b.e);
             b.lastCenter = b.center;
         }
+        b.originDirty = false;
         if (RigidBody3D* rb = world.get<RigidBody3D>(b.e)) {
             rb->velocity = b.vel;
             b.lastVel = b.vel;

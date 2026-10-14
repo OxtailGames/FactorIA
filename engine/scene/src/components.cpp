@@ -307,9 +307,11 @@ void register_builtin_components(TypeRegistry& r) {
 
     r.add<RigidBody3D>("RigidBody3D",
                        "Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. "
-                       "Gravity comes from scene settings (gravity3D). Fast bodies are swept against static and kinematic "
-                       "colliders (continuous collision, automatic). Rotation comes only from Transform.rotation and "
-                       "angularVelocity: collisions apply no torque.",
+                       "Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider "
+                       "(continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply "
+                       "torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles "
+                       "and settles on a face; set lockRotation for a character or an upright crate. Spheres keep the "
+                       "arcade rolling model (rollWithMotion / rollingFriction): contacts never spin them.",
                        "Physics")
         .enum_field("type", &RigidBody3D::type, {"static", "dynamic", "kinematic"},
                     "static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by velocity/Transform.")
@@ -327,7 +329,14 @@ void register_builtin_components(TypeRegistry& r) {
                "Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal "
                "force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about "
                "rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored "
-               "when rollWithMotion is false (then Collider3D.friction applies) and for boxes.").range(0, 10);
+               "when rollWithMotion is false (then Collider3D.friction applies) and for boxes.").range(0, 10)
+        .field("angularDamping", &RigidBody3D::angularDamping,
+               "Rotation drag of a dynamic body: angularVelocity is divided by (1 + dt * angularDamping) every step, so "
+               "0 = a spinning body keeps spinning in the air, larger values slow it down faster.").range(0, 1000)
+        .field("lockRotation", &RigidBody3D::lockRotation,
+               "true = collisions and friction never turn this (dynamic box) body: it stays upright and slides, as boxes "
+               "did before rotation dynamics. Use it for characters and upright crates. angularVelocity and "
+               "Transform.rotation written by gameplay still turn it. Spheres are never turned by contacts.");
 
     r.add<Collider3D>("Collider3D",
                       "Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world "

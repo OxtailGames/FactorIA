@@ -1,0 +1,437 @@
+// Gamepad mapping lines (SDL GameControllerDB format) and the raw -> logical translation. Platform-neutral on purpose:
+// see gamepad_mapping.h. The Linux backend is the only user at run time; the tests run it everywhere.
+#include "fa/platform/gamepad_mapping.h"
+
+#include <algorithm>
+#include <cctype>
+#include <charconv>
+#include <format>
+#include <iterator>
+
+#include "fa/core/strings.h"
+
+namespace fa {
+
+// ---------------------------------------------------------------------------
+// GamepadState
+// ---------------------------------------------------------------------------
+void GamepadState::feed(Input& input, int index) const {
+    input.on_gamepad_connected(index, true);
+    for (size_t i = 0; i < buttons.size(); ++i) input.on_gamepad_button(index, GamepadButton(i), buttons[i]);
+    for (size_t i = 0; i < axes.size(); ++i) input.on_gamepad_axis(index, GamepadAxis(i), axes[i]);
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+namespace {
+
+struct Element {
+    const char* name;
+    bool isAxis;
+    std::uint8_t id;  // GamepadButton or GamepadAxis
+};
+constexpr Element kElements[] = {
+    {"a", false, std::uint8_t(GamepadButton::A)},
+    {"b", false, std::uint8_t(GamepadButton::B)},
+    {"x", false, std::uint8_t(GamepadButton::X)},
+    {"y", false, std::uint8_t(GamepadButton::Y)},
+    {"back", false, std::uint8_t(GamepadButton::Back)},
+    {"start", false, std::uint8_t(GamepadButton::Start)},
+    {"guide", false, std::uint8_t(GamepadButton::Guide)},
+    {"leftshoulder", false, std::uint8_t(GamepadButton::LeftShoulder)},
+    {"rightshoulder", false, std::uint8_t(GamepadButton::RightShoulder)},
+    {"leftstick", false, std::uint8_t(GamepadButton::LeftThumb)},
+    {"rightstick", false, std::uint8_t(GamepadButton::RightThumb)},
+    {"dpup", false, std::uint8_t(GamepadButton::DpadUp)},
+    {"dpdown", false, std::uint8_t(GamepadButton::DpadDown)},
+    {"dpleft", false, std::uint8_t(GamepadButton::DpadLeft)},
+    {"dpright", false, std::uint8_t(GamepadButton::DpadRight)},
+    {"leftx", true, std::uint8_t(GamepadAxis::LeftX)},
+    {"lefty", true, std::uint8_t(GamepadAxis::LeftY)},
+    {"rightx", true, std::uint8_t(GamepadAxis::RightX)},
+    {"righty", true, std::uint8_t(GamepadAxis::RightY)},
+    {"lefttrigger", true, std::uint8_t(GamepadAxis::LeftTrigger)},
+    {"righttrigger", true, std::uint8_t(GamepadAxis::RightTrigger)},
+};
+// In SDL's database but with no FactorIA counterpart: accepted and ignored (deliberate cut, not an error).
+constexpr const char* kIgnoredKeys[] = {"misc1", "misc2", "misc3", "misc4", "misc5", "misc6", "paddle1", "paddle2",
+                                        "paddle3", "paddle4", "touchpad", "crc", "hint", "sdk", "sdk<", "sdk>",
+                                        "sdk<=", "sdk>="};
+
+constexpr const char* kFormatHint =
+    "A mapping line looks like <guid>,<name>,a:b0,b:b1,x:b2,y:b3,...,leftx:a0,lefty:a1,...,platform:Linux, "
+    "(the SDL GameControllerDB format, one line per pad; see fa/platform/gamepad_mapping.h).";
+constexpr const char* kSourceHint =
+    "A source is b<N> (button N), a<N> (axis N; +a<N> or -a<N> for one half of it, a<N>~ inverted) or h<N>.<M> "
+    "(hat N, direction mask M: 1 up, 2 right, 4 down, 8 left); numbers count from 0.";
+
+bool parse_uint(std::string_view s, int& out) {
+    if (s.empty() || s.size() > 4) return false;
+    int v = 0;
+    auto [end, ec] = std::from_chars(s.data(), s.data() + s.size(), v);
+    if (ec != std::errc() || end != s.data() + s.size() || v < 0) return false;
+    out = v;
+    return true;
+}
+
+Result<GamepadSource> parse_source(std::string_view text, const std::string& element) {
+    auto fail = [&](const std::string& why) {
+        return make_error(std::format("Cannot read '{}:{}': {}.", element, text, why), kSourceHint);
+    };
+    std::string_view s = text;
+    bool plus = false, minus = false, invert = false;
+    if (!s.empty() && (s.front() == '+' || s.front() == '-')) {
+        plus = s.front() == '+';
+        minus = !plus;
+        s.remove_prefix(1);
+    }
+    if (!s.empty() && s.back() == '~') {
+        invert = true;
+        s.remove_suffix(1);
+    }
+    if (s.empty()) return fail("nothing after the sign");
+
+    GamepadSource out;
+    int n = 0;
+    switch (s.front()) {
+        case 'b':
+            if (plus || minus || invert) return fail("'+', '-' and '~' only apply to axes (a<N>)");
+            if (!parse_uint(s.substr(1), n)) return fail("a button source is b followed by a number, such as b3");
+            if (n >= kGamepadMaxRawButtons)
+                return fail(std::format("button {} is out of range (0..{})", n, kGamepadMaxRawButtons - 1));
+            out.kind = GamepadSource::Kind::Button;
+            out.index = std::uint8_t(n);
+            return out;
+        case 'a':
+            if (!parse_uint(s.substr(1), n)) return fail("an axis source is a followed by a number, such as a2");
+            if (n >= kGamepadMaxRawAxes)
+                return fail(std::format("axis {} is out of range (0..{})", n, kGamepadMaxRawAxes - 1));
+            out.kind = GamepadSource::Kind::Axis;
+            out.index = std::uint8_t(n);
+            if (plus) { out.inMin = 0.0f; out.inMax = 1.0f; }
+            if (minus) { out.inMin = 0.0f; out.inMax = -1.0f; }
+            if (invert) std::swap(out.inMin, out.inMax);
+            return out;
+        case 'h': {
+            if (plus || minus || invert) return fail("'+', '-' and '~' only apply to axes (a<N>)");
+            const size_t dot = s.find('.');
+            int mask = 0;
+            if (dot == std::string_view::npos || !parse_uint(s.substr(1, dot - 1), n) || !parse_uint(s.substr(dot + 1), mask))
+                return fail("a hat source is h<hat>.<mask>, such as h0.1");
+            if (n >= kGamepadMaxRawHats)
+                return fail(std::format("hat {} is out of range (0..{})", n, kGamepadMaxRawHats - 1));
+            if (mask < 1 || mask > 15) return fail("the hat direction mask must be 1 (up), 2 (right), 4 (down) or 8 (left)");
+            out.kind = GamepadSource::Kind::Hat;
+            out.index = std::uint8_t(n);
+            out.hatMask = std::uint8_t(mask);
+            return out;
+        }
+        default: return fail("a source starts with b (button), a (axis) or h (hat)");
+    }
+}
+
+bool is_hex_guid(std::string_view g) {
+    return g.size() == 32 && std::all_of(g.begin(), g.end(), [](char c) { return std::isxdigit(static_cast<unsigned char>(c)) != 0; });
+}
+
+const std::vector<std::string>& element_names() {
+    static const std::vector<std::string> names = [] {
+        std::vector<std::string> v;
+        for (const Element& e : kElements) v.emplace_back(e.name);
+        return v;
+    }();
+    return names;
+}
+
+// `platform` empty: keep every line. `skipped` is set when the line is for another platform.
+Result<GamepadMapping> parse_line(std::string_view line, std::string_view platform, bool& skipped) {
+    skipped = false;
+    const std::vector<std::string> fields = split(trim(line), ',', false);  // lines end with a comma: empty fields are fine
+    if (fields.size() < 2 || trim(fields[0]).empty())
+        return make_error(std::format("Mapping line '{}' has {} field(s); it needs at least a GUID and a name.",
+                                      std::string(trim(line)), fields.size()),
+                          kFormatHint);
+
+    // The platform first: a line for another OS may use things this parser would reject (e.g. a Windows "xinput" GUID).
+    if (!platform.empty()) {
+        for (size_t i = 2; i < fields.size(); ++i) {
+            if (!starts_with(to_lower(fields[i]), "platform:")) continue;
+            if (!iequals(trim(std::string_view(fields[i]).substr(9)), platform)) {
+                skipped = true;
+                return GamepadMapping{};
+            }
+        }
+    }
+
+    GamepadMapping m;
+    m.guid = to_lower(trim(fields[0]));
+    m.name = std::string(trim(fields[1]));
+    if (!is_hex_guid(m.guid))
+        return make_error(std::format("The GUID '{}' of mapping '{}' must be 32 hexadecimal digits.", fields[0], m.name),
+                          std::string("Copy the whole line from a GameControllerDB file; on Linux the GUID is made of the "
+                                      "pad's bus, vendor, product and version. ") + kFormatHint);
+
+    for (size_t i = 2; i < fields.size(); ++i) {
+        const std::string& field = fields[i];
+        if (trim(field).empty()) continue;  // the trailing comma
+        const size_t colon = field.find(':');
+        if (colon == std::string::npos)
+            return make_error(std::format("Field '{}' of mapping '{}' has no ':'; every field after the name is "
+                                          "<element>:<source>.", field, m.name),
+                              kFormatHint);
+        const std::string key = to_lower(trim(std::string_view(field).substr(0, colon)));
+        const std::string_view value = trim(std::string_view(field).substr(colon + 1));
+        if (key == "platform") continue;
+        if (std::find(std::begin(kIgnoredKeys), std::end(kIgnoredKeys), key) != std::end(kIgnoredKeys)) continue;
+
+        const Element* element = nullptr;
+        for (const Element& e : kElements)
+            if (key == e.name) element = &e;
+        if (!element)
+            return make_error(std::format("Unknown element '{}' in the mapping for '{}'. {}", key, m.name,
+                                          did_you_mean(key, element_names(), 25)),
+                              kFormatHint);
+
+        Result<GamepadSource> src = parse_source(value, key);
+        if (!src) return make_error(src.error().message + std::format(" (mapping '{}')", m.name), src.error().hint);
+        const GamepadAxis axisId = GamepadAxis(element->id);
+        const bool isTrigger = element->isAxis && (axisId == GamepadAxis::LeftTrigger || axisId == GamepadAxis::RightTrigger);
+        const bool isStick = element->isAxis && !isTrigger;
+        if (isStick && src->kind != GamepadSource::Kind::Axis)
+            return make_error(std::format("'{}:{}' in the mapping for '{}': a stick axis can only read an axis.", key,
+                                          std::string(value), m.name),
+                              "Use an axis source such as " + key + ":a0 (or " + key + ":a0~ to invert it). Sticks driven "
+                              "by buttons or hats are not supported; bind the D-pad elements (dpup...) instead.");
+        if (isTrigger && src->kind == GamepadSource::Kind::Hat)
+            return make_error(std::format("'{}:{}' in the mapping for '{}': a trigger cannot read a hat.", key,
+                                          std::string(value), m.name),
+                              "Use an axis (" + key + ":a2) or a button (" + key + ":b6) source.");
+        if (element->isAxis) m.axes[element->id] = *src;
+        else m.buttons[element->id] = *src;
+    }
+    return m;
+}
+
+}  // namespace
+
+Result<GamepadMapping> parse_gamepad_mapping(std::string_view line) {
+    bool skipped = false;
+    return parse_line(line, {}, skipped);
+}
+
+GamepadMappingSet parse_gamepad_mappings(std::string_view text, std::string_view origin, std::string_view platform) {
+    GamepadMappingSet set;
+    int lineNo = 0;
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t end = text.find('\n', pos);
+        if (end == std::string_view::npos) end = text.size();
+        std::string_view line = trim(text.substr(pos, end - pos));  // trim also drops a '\r'
+        pos = end + 1;
+        ++lineNo;
+        if (line.empty() || line.front() == '#') continue;
+        bool skipped = false;
+        Result<GamepadMapping> m = parse_line(line, platform, skipped);
+        if (skipped) continue;
+        if (!m) {
+            set.problems.push_back(std::format("{}, line {}: {}{}{}", origin, lineNo, m.error().message,
+                                               m.error().hint.empty() ? "" : " ", m.error().hint));
+            continue;
+        }
+        set.mappings.push_back(std::move(*m));
+    }
+    return set;
+}
+
+// ---------------------------------------------------------------------------
+// GamepadMapper
+// ---------------------------------------------------------------------------
+GamepadMapper::GamepadMapper(GamepadMapping mapping) : mapping_(std::move(mapping)) {}
+
+void GamepadMapper::set_button(int raw, bool down) {
+    if (raw >= 0 && raw < kGamepadMaxRawButtons) buttons_[size_t(raw)] = down;
+}
+
+void GamepadMapper::set_axis(int raw, float value) {
+    if (raw < 0 || raw >= kGamepadMaxRawAxes) return;
+    if (!(value == value)) value = 0.0f;  // NaN
+    axes_[size_t(raw)] = std::clamp(value, -1.0f, 1.0f);
+    axisSeen_[size_t(raw)] = true;
+}
+
+void GamepadMapper::set_hat(int hat, int mask) {
+    if (hat >= 0 && hat < kGamepadMaxRawHats) hats_[size_t(hat)] = std::uint8_t(mask & 15);
+}
+
+void GamepadMapper::set_hat_axis(int hat, bool vertical, float value) {
+    if (hat < 0 || hat >= kGamepadMaxRawHats) return;
+    std::uint8_t& bits = hats_[size_t(hat)];
+    const std::uint8_t lo = vertical ? 1 : 8, hi = vertical ? 4 : 2;  // up / left, down / right
+    bits = std::uint8_t(bits & ~(lo | hi));
+    if (value < -0.5f) bits = std::uint8_t(bits | lo);
+    else if (value > 0.5f) bits = std::uint8_t(bits | hi);
+}
+
+float GamepadMapper::read(const GamepadSource& s) const {
+    switch (s.kind) {
+        case GamepadSource::Kind::Button: return buttons_[s.index] ? 1.0f : 0.0f;
+        case GamepadSource::Kind::Axis: {
+            if (s.index >= kGamepadMaxRawAxes || !axisSeen_[s.index]) return -1.0f;
+            const float span = s.inMax - s.inMin;
+            if (span == 0.0f) return 0.0f;
+            return std::clamp((axes_[s.index] - s.inMin) / span, 0.0f, 1.0f);
+        }
+        case GamepadSource::Kind::Hat:
+            return s.index < kGamepadMaxRawHats && (hats_[s.index] & s.hatMask) != 0 ? 1.0f : 0.0f;
+        case GamepadSource::Kind::None: break;
+    }
+    return 0.0f;
+}
+
+GamepadState GamepadMapper::state() const {
+    GamepadState st;
+    for (size_t i = 0; i < st.buttons.size(); ++i) st.buttons[i] = read(mapping_.buttons[i]) > 0.5f;
+    for (size_t i = 0; i < st.axes.size(); ++i) {
+        const GamepadSource& s = mapping_.axes[i];
+        const GamepadAxis a = GamepadAxis(i);
+        const float on = read(s);  // negative: not reported yet, the element stays at rest (0)
+        if (a == GamepadAxis::LeftTrigger || a == GamepadAxis::RightTrigger) {
+            st.axes[i] = std::max(on, 0.0f);
+        } else if (s.kind == GamepadSource::Kind::Axis && on >= 0.0f) {
+            const float v = on * 2.0f - 1.0f;  // -1..1, the mapping's +Y is down
+            st.axes[i] = (a == GamepadAxis::LeftY || a == GamepadAxis::RightY) ? 0.0f - v : v;
+        }
+    }
+    return st;
+}
+
+// ---------------------------------------------------------------------------
+// Identity, built-in mappings, selection
+// ---------------------------------------------------------------------------
+std::string gamepad_guid(const GamepadIdentity& id) {
+    static const char* const hex = "0123456789abcdef";
+    std::string g;
+    for (unsigned v : {unsigned(id.bus), 0u, unsigned(id.vendor), 0u, unsigned(id.product), 0u, unsigned(id.version), 0u})
+        for (unsigned byte : {v & 0xffu, (v >> 8) & 0xffu}) {  // little-endian
+            g += hex[byte >> 4];
+            g += hex[byte & 15u];
+        }
+    return g;
+}
+
+namespace {
+
+struct GuidFields {
+    unsigned bus = 0, vendor = 0, product = 0, version = 0;
+};
+GuidFields decode_guid(const std::string& guid) {  // guid: 32 hex digits (checked by the parser)
+    auto le16 = [&](size_t byteIndex) {
+        unsigned v = 0;
+        for (size_t b = 0; b < 2; ++b) {
+            unsigned byte = 0;
+            std::from_chars(guid.data() + (byteIndex + b) * 2, guid.data() + (byteIndex + b) * 2 + 2, byte, 16);
+            v |= byte << (8 * b);
+        }
+        return v;
+    };
+    if (guid.size() != 32) return {};
+    return {le16(0), le16(4), le16(8), le16(12)};
+}
+
+const GamepadMapping* pick(std::span<const GamepadMapping> list, const GamepadIdentity& id) {
+    const GamepadMapping* loose = nullptr;
+    for (size_t i = list.size(); i-- > 0;) {  // the later line of two equals wins, as in SDL
+        const GuidFields g = decode_guid(list[i].guid);
+        if (g.vendor == 0 && g.product == 0) continue;  // a GUID made of a name, not of ids: nothing to match
+        if (g.vendor != id.vendor || g.product != id.product) continue;
+        if (g.bus == id.bus && g.version == id.version) return &list[i];
+        if (!loose) loose = &list[i];
+    }
+    return loose;
+}
+
+// What the Linux kernel drivers report, numbered the way the joystick API numbers it: buttons by ascending evdev
+// code starting at BTN_JOYSTICK (0x120) and wrapping around to the lower codes; axes by ascending ABS_ code, the
+// D-pad hat as ABS_HAT0X/Y after them.
+//
+// hid-sony (DualShock 4) and hid-playstation (DualSense): BTN_SOUTH b0 (cross), BTN_EAST b1 (circle), BTN_NORTH b2
+// (triangle), BTN_WEST b3 (square), BTN_TL b4, BTN_TR b5, BTN_TL2 b6, BTN_TR2 b7, BTN_SELECT b8 (share/create),
+// BTN_START b9 (options), BTN_MODE b10 (PS), BTN_THUMBL b11, BTN_THUMBR b12; axes X Y Z RX RY RZ = a0..a5, where Z
+// and RZ are L2 and R2. The pad's own extra buttons (mic mute is BTN_MISC) sort after b12 and are not mapped.
+constexpr const char* kSonyBody =
+    "a:b0,b:b1,x:b3,y:b2,back:b8,start:b9,guide:b10,leftshoulder:b4,rightshoulder:b5,leftstick:b11,rightstick:b12,"
+    "dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,rightx:a3,righty:a4,lefttrigger:a2,"
+    "righttrigger:a5,platform:Linux,";
+// hid-nintendo (Switch Pro): the face buttons by position (so the button printed B is the bottom one: GamepadA),
+// then BTN_Z b4 (capture), BTN_TL b5, BTN_TR b6, BTN_TL2 b7 (ZL), BTN_TR2 b8 (ZR), BTN_SELECT b9 (minus), BTN_START
+// b10 (plus), BTN_MODE b11 (home), BTN_THUMBL b12, BTN_THUMBR b13; axes X Y RX RY = a0..a3 (ZL and ZR are digital) and
+// the D-pad as hat 0 ("joy-con d-pad inputs as buttons and pro controller as a hat", says the driver; a kernel that
+// reports BTN_DPAD_* buttons instead needs the line in SDL_GAMECONTROLLERCONFIG with dpup:b14,dpdown:b15,...).
+constexpr const char* kSwitchProBody =
+    "a:b0,b:b1,x:b3,y:b2,back:b9,start:b10,guide:b11,leftshoulder:b5,rightshoulder:b6,leftstick:b12,rightstick:b13,"
+    "dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:b7,"
+    "righttrigger:b8,platform:Linux,";
+// xpad (Xbox 360, Xbox One and everything imitating them): BTN_A b0, BTN_B b1, BTN_X b2, BTN_Y b3 (its BTN_X is the
+// code 0x133, which the Sony drivers call BTN_NORTH: that is why x and y swap places against the Sony body), BTN_TL
+// b4, BTN_TR b5, BTN_SELECT b6, BTN_START b7, BTN_MODE b8, BTN_THUMBL b9, BTN_THUMBR b10; axes X Y Z RX RY RZ = a0..a5
+// with Z and RZ the triggers; D-pad hat 0. This is the layout the engine assumed before mappings existed.
+constexpr std::uint16_t kBusUsb = 3, kSony = 0x054c, kNintendo = 0x057e;  // BUS_USB, vendor ids
+constexpr const char* kXpadBody =
+    "a:b0,b:b1,x:b2,y:b3,back:b6,start:b7,guide:b8,leftshoulder:b4,rightshoulder:b5,leftstick:b9,rightstick:b10,"
+    "dpup:h0.1,dpdown:h0.4,dpleft:h0.8,dpright:h0.2,leftx:a0,lefty:a1,rightx:a3,righty:a4,lefttrigger:a2,"
+    "righttrigger:a5,platform:Linux,";
+
+}  // namespace
+
+std::span<const GamepadMapping> builtin_gamepad_mappings() {
+    static const std::vector<GamepadMapping> mappings = [] {
+        std::string text;
+        auto add = [&](std::uint16_t vendor, std::uint16_t product, const char* name, const char* body) {
+            text += gamepad_guid({kBusUsb, vendor, product, 0, {}}) + "," + name + "," + body + "\n";
+        };
+        add(kSony, 0x05c4, "PS4 Controller", kSonyBody);
+        add(kSony, 0x09cc, "PS4 Controller", kSonyBody);
+        add(kSony, 0x0ba0, "PS4 Controller (USB wireless adapter)", kSonyBody);
+        add(kSony, 0x0ce6, "PS5 Controller", kSonyBody);
+        add(kSony, 0x0df2, "PS5 Edge Controller", kSonyBody);
+        add(kNintendo, 0x2009, "Nintendo Switch Pro Controller", kSwitchProBody);
+        return parse_gamepad_mappings(text, "built-in gamepad mappings", "Linux").mappings;  // tested to have no problems
+    }();
+    return mappings;
+}
+
+const GamepadMapping& fallback_gamepad_mapping() {
+    static const GamepadMapping m = [] {
+        auto r = parse_gamepad_mapping(std::string("00000000000000000000000000000000,Generic gamepad (xpad layout),") + kXpadBody);
+        return r ? *r : GamepadMapping{};
+    }();
+    return m;
+}
+
+GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> user, const GamepadIdentity& id) {
+    if (const GamepadMapping* m = pick(user, id)) return *m;
+    if (const GamepadMapping* m = pick(builtin_gamepad_mappings(), id)) return *m;
+    return fallback_gamepad_mapping();
+}
+
+std::vector<EvdevAxisRoute> route_evdev_axes(std::span<const std::uint8_t> absCodes) {
+    constexpr std::uint8_t kAbsHat0X = 0x10, kAbsHat3Y = 0x17;
+    std::vector<EvdevAxisRoute> routes;
+    routes.reserve(absCodes.size());
+    int next = 0;  // the mapping format counts axes without the hats
+    for (std::uint8_t code : absCodes) {
+        EvdevAxisRoute r;
+        if (code >= kAbsHat0X && code <= kAbsHat3Y) {
+            r.kind = ((code - kAbsHat0X) & 1) ? EvdevAxisRoute::Kind::HatY : EvdevAxisRoute::Kind::HatX;
+            r.index = std::uint8_t((code - kAbsHat0X) / 2);
+        } else if (next < kGamepadMaxRawAxes) {
+            r.kind = EvdevAxisRoute::Kind::Axis;
+            r.index = std::uint8_t(next++);
+        }
+        routes.push_back(r);
+    }
+    return routes;
+}
+
+}  // namespace fa

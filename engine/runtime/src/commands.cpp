@@ -56,14 +56,40 @@ const TypeInfo& need_component_type(const std::string& name) {
     return *t;
 }
 
+// `merge: true` of scene.set_component: `patch` read as an RFC 7386 JSON merge-patch against the component's current
+// values, field by field. A null removes the field's value, i.e. resets it to its default (a key that was never set); an
+// object for a Json-valued field (Script.props) is merged into the current object, recursively, null deleting a key;
+// every other value replaces the field, as without merge. Returns the plain `fields` patch_component applies.
+Json merge_fields(const World& world, Entity e, const TypeInfo& type, const Json& patch) {
+    if (!patch.is_object()) return patch;  // patch_component explains what is wrong
+    DefaultObject defaults(type);
+    const void* current = world.get(e, type);
+    Json out = Json::object();
+    for (auto it = patch.begin(); it != patch.end(); ++it) {
+        const FieldInfo* f = type.field(it.key());
+        const bool plain = f && !f->readOnly && f->kind != FieldKind::Entity;  // the rest is patch_component's to report
+        if (plain && it->is_null()) {
+            out[it.key()] = field_to_json(*f, defaults.get());
+        } else if (plain && f->kind == FieldKind::Json && it->is_object()) {
+            Json merged = field_to_json(*f, current ? current : defaults.get());
+            merged.merge_patch(*it);
+            out[it.key()] = std::move(merged);
+        } else {
+            out[it.key()] = *it;
+        }
+    }
+    return out;
+}
+
 }  // namespace
 
-// scene.set_component on `world`: `a` is {id, component, fields?}.
+// scene.set_component on `world`: `a` is {id, component, fields?, merge?}.
 Json set_component(World& world, const Json& a) {
     Entity e = need_entity(world, a);
     const std::string cname = a["component"].get<std::string>();
     const TypeInfo& t = need_component_type(cname);
     Json fields = a.contains("fields") ? a["fields"] : Json::object();
+    if (a.value("merge", false)) fields = merge_fields(world, e, t, fields);
     auto r = patch_component(world, e, t, fields);
     if (!r.ok())
         throw CommandError("invalid_argument", r.error().message,
@@ -74,6 +100,36 @@ Json set_component(World& world, const Json& a) {
 namespace {
 
 Json vec_json(Vec3 v) { return Json::array({to_json(v.x), to_json(v.y), to_json(v.z)}); }
+
+// The options physics.raycast and physics.shape_cast share: mask, ignore (an entity; its children are skipped too) and
+// ignoreTriggers. ONE parser and ONE schema fragment, so the two commands (and the script API they mirror) cannot drift.
+RaycastOptions cast_options(World& world, const Json& a) {
+    RaycastOptions opt;
+    opt.mask = a.value("mask", -1);
+    opt.ignoreTriggers = a.value("ignoreTriggers", true);
+    if (a.contains("ignore") && !a["ignore"].is_null()) opt.ignore = need_entity(world, a, "ignore");
+    return opt;
+}
+
+// `schema` (an object schema with "properties") plus the schema of cast_options().
+Json with_cast_options(Json schema) {
+    Json& props = schema["properties"];
+    props["mask"] = parse_schema(R"({"type":"integer","default":-1,"description":"Collision layer mask: bit i = layer i; -1 hits every layer."})");
+    props["ignore"] = parse_schema(R"({"type":"string","description":"Entity id or name whose colliders (and its children's) are skipped, usually the caster."})");
+    props["ignoreTriggers"] = parse_schema(R"({"type":"boolean","default":true,"description":"Skip trigger colliders; false hits them too."})");
+    return schema;
+}
+
+Json hit_json(const World& world, const std::optional<RaycastHit>& hit) {
+    Json j = Json::object({{"hit", hit.has_value()}});
+    if (hit) {
+        j["entity"] = hit->entity ? Json(world.id_of(hit->entity)) : Json(nullptr);
+        j["point"] = vec_json(hit->point);
+        j["normal"] = vec_json(hit->normal);
+        j["distance"] = hit->distance;
+    }
+    return j;
+}
 
 Json load_messages_json(const LoadReport& r) {
     Json a = Json::array();
@@ -301,12 +357,19 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"scene.set_component", "Add a component to an entity (if missing) and set the given fields.",
-           "`fields` is a partial object; unspecified fields keep their value. Errors name the field and valid values. "
-           "Example: scene.set_component {\"id\":\"player\",\"component\":\"Sprite\",\"fields\":{\"color\":\"red\"}}",
+           "`fields` is a partial object; unspecified fields keep their value. A value outside a field's range (see "
+           "api.components) is refused, and a bad field changes nothing: errors name the field, the allowed values and "
+           "the range. A field with free-form JSON content (Script.props) is REPLACED as a whole by default; with "
+           "`merge` true `fields` is an RFC 7386 JSON merge-patch instead: an object for such a field is merged into "
+           "the current one recursively (keys you do not mention stay, a null value deletes the key), and a null for any "
+           "other field resets it to its default. Example: scene.set_component "
+           "{\"id\":\"player\",\"component\":\"Sprite\",\"fields\":{\"color\":\"red\"}}; change one prop and keep the rest: "
+           "scene.set_component {\"id\":\"level\",\"component\":\"Script\",\"fields\":{\"props\":{\"levelIndex\":3,\"oldProp\":null}},\"merge\":true}",
            parse_schema(R"({"type":"object","required":["id","component"],"properties":{
                "id":{"type":"string","description":"Entity id (or name)."},
                "component":{"type":"string","description":"Component name, e.g. Transform, Sprite, RigidBody2D."},
-               "fields":{"type":"object","description":"Field name -> value."}}})"),
+               "fields":{"type":"object","description":"Field name -> value."},
+               "merge":{"type":"boolean","default":false,"description":"true = read `fields` as an RFC 7386 JSON merge-patch: objects (Script.props) merge into the current value recursively, null deletes a key (or resets a plain field to its default). false = every given field is replaced as a whole."}}})"),
            false, "scene"},
           [&I](const Json& a) { return set_component(I.world, a); });
 
@@ -601,14 +664,18 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     // ------------------------------------------------------------------ physics
     I.commands.add({"physics.raycast", "Cast a ray against colliders (2D segment or 3D ray) and return the first hit.",
-           "2D: {from:[x,y], to:[x,y]}. 3D: {dimension:\"3d\", origin:[x,y,z], direction:[x,y,z], maxDistance}. Triggers are "
-           "ignored. Example: physics.raycast {\"from\":[0,300],\"to\":[0,-300]}",
-           parse_schema(R"({"type":"object","properties":{
+           "2D: {from:[x,y], to:[x,y]}. 3D: {dimension:\"3d\", origin:[x,y,z], direction:[x,y,z], maxDistance}. Options, the same as "
+           "physics.shape_cast and the script API physics.raycast(a, b, {mask, ignore, ignoreTriggers}): mask = collision layer "
+           "bit mask (bit i = layer i, -1 = all layers); ignore = id (or name) of an entity whose colliders, and its children's, "
+           "are skipped (usually the caster, so a ray starting at a body's edge does not hit the body itself); ignoreTriggers "
+           "(default true) skips trigger colliders, false hits them too. A collider that contains the ray origin is always "
+           "skipped. Result: {hit:false} or {hit:true, entity, point, normal, distance}. Example: "
+           "physics.raycast {\"from\":[0,300],\"to\":[0,-300],\"ignore\":\"player\",\"ignoreTriggers\":false}",
+           with_cast_options(parse_schema(R"({"type":"object","properties":{
                "dimension":{"type":"string","enum":["2d","3d"],"default":"2d"},
                "from":{"type":"array","description":"2D start [x,y]."},"to":{"type":"array","description":"2D end [x,y]."},
                "origin":{"type":"array","description":"3D origin [x,y,z]."},"direction":{"type":"array","description":"3D direction."},
-               "maxDistance":{"type":"number","default":1000},
-               "mask":{"type":"integer","default":-1,"description":"Collision layer mask."}}})"),
+               "maxDistance":{"type":"number","default":1000}}})")),
            true, "physics"},
           [&engine, &I](const Json& a) {
               std::string err;
@@ -617,26 +684,19 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   if (!a.contains(key)) throw CommandError("invalid_argument", std::string("Missing '") + key + "'.", "See the command description for the 2D/3D forms.");
                   if (!json_to(a[key], out, &err)) throw CommandError("invalid_argument", std::string(key) + ": " + err);
               };
-              int mask = a.value("mask", -1);
+              const RaycastOptions opt = cast_options(I.world, a);
               if (a.value("dimension", std::string("2d")) == "3d") {
                   Vec3 o, d;
                   need("origin", o);
                   need("direction", d);
-                  hit = I.physics.raycast3d(I.world, o, d, a.value("maxDistance", 1000.0f), mask);
+                  hit = I.physics.raycast3d(I.world, o, d, a.value("maxDistance", 1000.0f), opt);
               } else {
                   Vec2 f, t;
                   need("from", f);
                   need("to", t);
-                  hit = I.physics.raycast2d(I.world, f, t, mask);
+                  hit = I.physics.raycast2d(I.world, f, t, opt);
               }
-              Json j = Json::object({{"hit", hit.has_value()}});
-              if (hit) {
-                  j["entity"] = hit->entity ? Json(I.world.id_of(hit->entity)) : Json(nullptr);
-                  j["point"] = vec_json(hit->point);
-                  j["normal"] = vec_json(hit->normal);
-                  j["distance"] = hit->distance;
-              }
-              return j;
+              return hit_json(I.world, hit);
           });
 
     I.commands.add({"physics.shape_cast",
@@ -648,16 +708,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "{hit:false} or {hit:true, entity, point, normal, distance}: distance is how far the CENTRE travels before contact, "
            "point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape "
            "already overlaps at `from` are skipped (like a ray starting inside one); a collider it only touches blocks the "
-           "cast only if it moves towards it. Triggers are skipped unless ignoreTriggers=false; ignore = id of an entity "
-           "whose colliders (and its children's) are skipped, usually the caster. Example: physics.shape_cast "
-           "{\"shape\":{\"shape\":\"box\",\"size\":[32,48]},\"from\":[0,100],\"to\":[0,-300],\"ignore\":\"player\"}",
-           parse_schema(R"({"type":"object","required":["shape","from","to"],"properties":{
+           "cast only if it moves towards it. Options as for physics.raycast: mask; ignore = id of an entity whose colliders "
+           "(and its children's) are skipped, usually the caster; triggers are skipped unless ignoreTriggers=false. Example: "
+           "physics.shape_cast {\"shape\":{\"shape\":\"box\",\"size\":[32,48]},\"from\":[0,100],\"to\":[0,-300],\"ignore\":\"player\"}",
+           with_cast_options(parse_schema(R"({"type":"object","required":["shape","from","to"],"properties":{
                "shape":{"type":"object","description":"2D: {shape:\"circle\",radius} or {shape:\"box\",size:[w,h]}. 3D: {shape:\"sphere\",radius} or {shape:\"box\",size:[x,y,z]}."},
                "from":{"type":"array","items":{"type":"number"},"description":"Start of the shape's centre, [x,y] (2D) or [x,y,z] (3D)."},
-               "to":{"type":"array","items":{"type":"number"},"description":"End of the shape's centre, same dimension as from."},
-               "mask":{"type":"integer","default":-1,"description":"Collision layer mask."},
-               "ignore":{"type":"string","description":"Entity id or name whose colliders (and its children's) are skipped."},
-               "ignoreTriggers":{"type":"boolean","default":true,"description":"Skip trigger colliders; false hits them too."}}})"),
+               "to":{"type":"array","items":{"type":"number"},"description":"End of the shape's centre, same dimension as from."}}})")),
            true, "physics"},
           [&engine, &I](const Json& a) {
               auto point = [&](const char* key, std::size_t& n) {
@@ -682,20 +739,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               const bool is3d = nf == 3;
               auto shape = cast_shape_from_json(a.value("shape", Json()), is3d);
               if (!shape.ok()) throw CommandError("invalid_argument", "shape: " + shape.error().message, shape.error().hint);
-              RaycastOptions opt;
-              opt.mask = a.value("mask", -1);
-              opt.ignoreTriggers = a.value("ignoreTriggers", true);
-              if (a.contains("ignore") && !a["ignore"].is_null()) opt.ignore = need_entity(I.world, a, "ignore");
+              const RaycastOptions opt = cast_options(I.world, a);
               std::optional<RaycastHit> hit = is3d ? I.physics.shape_cast3d(I.world, *shape, from, to, opt)
                                                    : I.physics.shape_cast2d(I.world, *shape, {from.x, from.y}, {to.x, to.y}, opt);
-              Json j = Json::object({{"hit", hit.has_value()}});
-              if (hit) {
-                  j["entity"] = hit->entity ? Json(I.world.id_of(hit->entity)) : Json(nullptr);
-                  j["point"] = vec_json(hit->point);
-                  j["normal"] = vec_json(hit->normal);
-                  j["distance"] = hit->distance;
-              }
-              return j;
+              return hit_json(I.world, hit);
           });
 
     // ---------------------------------------------------------------------- api

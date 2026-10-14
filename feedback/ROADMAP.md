@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open and every milestone (M1-M6) is done; M5 closed the proactive 3D-physics and gamepad gaps.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open and every milestone (M1-M7) is done; M5 closed the proactive 3D-physics and gamepad gaps, and M7 the gaps found while implementing M5 and M6.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -30,6 +30,10 @@ removed in the same commit. No entry is open.
 Re-triage 2026-10-14, after M5 (`d5ad914`, `c3b6073`, `022659c`; merges `bdff25f`, `fa07209`, `5c2296e`): the
 proactive package is done, so no milestone is left. What is still open is listed under "Found while implementing" in
 M5 and M6; no game has hit any of it yet.
+
+Re-triage 2026-10-14, after M7 (merges `6b9b85d`, `46d12bb`, `79d6f1e`, `2eadd1e`): every item of the M5 and M6
+"Found while implementing" lists is done (each is struck through with its commit), and CI now runs the mobile players
+on a simulator and an emulator. What M7 left open is listed under "Found while implementing M7".
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
@@ -140,14 +144,16 @@ in tests; replay frames and `game.input` take `gamepad` and `touch` (the M6 left
 to run them on (CI compiles them); Android and web report no pads.
 
 Found while implementing M5, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
-- 3D bodies get no torque from collisions and have no inertia tensor: a box never tips over by itself.
-- Continuous collision does not sweep dynamic-vs-dynamic pairs or kinematic motion within a sub-step, and drops the
-  rest of a sub-step's movement after an impact.
-- Linux pads with a non-Xbox layout (PlayStation, Switch, generic HID) map to the wrong buttons; Android and web have
-  no gamepad backend.
-- After focus loss a Linux pad shows as disconnected until it sends its next event (the joystick API only reports
-  changes).
-- The `physics.raycast` command takes no `ignore`/`ignoreTriggers`, unlike `physics.shape_cast` and the script API.
+- ~~3D bodies get no torque from collisions and have no inertia tensor: a box never tips over by itself.~~ Done in M7
+  (`e37aebe`): dynamic boxes are rigid bodies; `RigidBody3D.lockRotation` keeps one upright.
+- ~~Continuous collision does not sweep dynamic-vs-dynamic pairs or kinematic motion within a sub-step, and drops the
+  rest of a sub-step's movement after an impact.~~ Done in M7 (`e37aebe`).
+- ~~Linux pads with a non-Xbox layout (PlayStation, Switch, generic HID) map to the wrong buttons; Android and web have
+  no gamepad backend.~~ Done in M7 (`3e1f4d8`) for Linux (SDL GameControllerDB mappings) and Android; web has no build.
+- ~~After focus loss a Linux pad shows as disconnected until it sends its next event (the joystick API only reports
+  changes).~~ Done in M7 (`3e1f4d8`).
+- ~~The `physics.raycast` command takes no `ignore`/`ignoreTriggers`, unlike `physics.shape_cast` and the script API.~~
+  Done in M7 (`a90dee2`).
 
 ## M6. Polish found while migrating the examples (S-M) — DONE (`303db3e`, `6e5b5b2`, `2ff6faa`)
 
@@ -188,11 +194,55 @@ confirms they stay within tolerance there.
 Found while implementing M6, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
 - ~~`--input` replay files have no touch events (only `press`, `release`, `keys`, `mouse`), so a replay cannot tap.~~
   Done in M5 (`022659c`): replay frames take `touch` (and `gamepad`).
-- The scene loader does not enforce reflected `range()`: `"sides": 200` loads silently (the renderer clamps it to 64).
-- `edits`, like `scene.set_component`, replaces `Script.props` as a whole; Sky Hopper's generator still reads the base
-  scene once to keep `killY`. A merge mode would remove that read.
-- `project.validate` checks the canonical layout only under `scenes/` and `prefabs/`; a scene kept elsewhere (Sky
-  Hopper's `levels/generator_base.scene.json`) is covered by `scene.format {check, strict}` only.
+- ~~The scene loader does not enforce reflected `range()`: `"sides": 200` loads silently (the renderer clamps it to 64).~~
+  Wrong: the loader already refused it. M7 made the error teach (range and nearest value, `c604211`), made
+  `project.validate` load prefab files on their own (a bad prefab no scene placed passed), and made script writes
+  throw the same error (`233939d`).
+- ~~`edits`, like `scene.set_component`, replaces `Script.props` as a whole; Sky Hopper's generator still reads the base
+  scene once to keep `killY`. A merge mode would remove that read.~~ Done in M7 (`a90dee2`): `merge: true` /
+  `"$merge": true` (RFC 7386); the generator no longer reads the base scene.
+- ~~`project.validate` checks the canonical layout only under `scenes/` and `prefabs/`; a scene kept elsewhere (Sky
+  Hopper's `levels/generator_base.scene.json`) is covered by `scene.format {check, strict}` only.~~ Done in M7
+  (`c604211`): every `*.scene.json` / `*.prefab.json` of the project, like `scene.format`.
+
+## M7. Leftovers of M5 and M6, mobile players run in CI (M-L, *proactive*) — DONE (`6b9b85d`, `46d12bb`, `79d6f1e`, `2eadd1e`)
+
+Closes every item of the two lists above, plus "the mobile builds have never run" (docs/MOBILE.md).
+
+Outcome: four packages, one merge each.
+- Tooling (`c604211`, `a90dee2`, `d97f54c`, `233939d`): range errors name the range and the nearest allowed value, from
+  scene files, commands and script writes alike (`check_range`); `project.validate` checks and loads every scene and
+  prefab of the project (shared `project_scene_files`, the list `scene.format` uses) and each prefab on its own;
+  `scene.set_component {merge}` and `"$merge"` in `scene.import_ascii` edits; `physics.raycast` takes `mask`, `ignore`
+  and `ignoreTriggers` through the same parser and schema as `physics.shape_cast`.
+- Gamepads (`3e1f4d8`): Linux pads go through SDL GameControllerDB mapping lines (built in: DualShock 4, DualSense,
+  DualSense Edge, Switch Pro, matching SDL's entries for the kernel drivers; xpad layout as the fallback; more lines from
+  `SDL_GAMECONTROLLERCONFIG`); a pad stays connected through focus loss; Android pads come through sokol's
+  `native_event_cb` hook. Parser and Android mapping are platform-neutral and unit-tested.
+- 3D physics (`cd1feda`, `e37aebe`, `ae0f8ac`, `d89bf31`, `68e2993`): dynamic boxes have an inertia tensor, contact
+  manifolds (up to 8 points) and impulses at the contact points, so they tip, tumble and settle; `lockRotation`,
+  `angularDamping`. Continuous collision sweeps every pair with a dynamic body in relative motion (dynamic, kinematic,
+  static), and after a time of impact the rest of the sub-step continues (slide). No template or example changed.
+- Mobile players run in CI (`2f2d25b`, `35ca2aa`, `b8156b0`, `d6222c2`, `efddf3b`): the `ios` job runs the app on the
+  iOS Simulator and a new `android-emulator` job runs the APK on an API 34 x86_64 emulator; both wait for the player's
+  `player: 60 frames rendered` log line, check for errors and crashes, and check that a screenshot is not blank. The
+  first runs found two real bugs, both fixed: the player asked for OpenGL ES 3.1 (the emulator has 3.0 only; it now
+  asks for 3.0), and textures without mipmaps sampled black on drivers that do not clamp the mip range of
+  `glTexStorage2D` textures (every image now sets `GL_TEXTURE_MAX_LEVEL`).
+
+Found while implementing M7, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
+- Spheres get no torque from contacts (they keep the arcade `rollWithMotion` model), 3D bodies never sleep, there is
+  no gyroscopic term, edge-edge and sphere-box contacts are single-point, and boxes have no rolling friction.
+- Continuous collision ignores a box's own rotation within a sub-step and drops the movement left after 6 impacts in
+  one sub-step.
+- Linux built-in mappings cover the kernel-driver layouts only (hid-sony, hid-playstation, hid-nintendo); a pad on the
+  generic HID driver or any other non-xpad pad needs an `SDL_GAMECONTROLLERCONFIG` line. Android keeps an unplugged
+  pad's slot and cannot tell pads that use Z/RZ as triggers from pads that use them as the right stick. No real pad has
+  been used on Linux or Android yet.
+- CI runs the mobile players on a simulator and an x86_64 emulator with a software GPU: arm64 Android code, real GPUs,
+  touch, audio and suspend/resume are not covered. The Android smoke script waits 20 s after the emulator boots,
+  because an activity started right after boot was paused and destroyed after about 1 s (inferred to be a sokol_app
+  shutdown race; not proven, and sokol is vendored).
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

@@ -304,6 +304,9 @@ private:
     std::size_t transientUsed_ = 0;
 };
 
+// sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
+sg_image make_image(const sg_image_desc& desc);
+
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);
 

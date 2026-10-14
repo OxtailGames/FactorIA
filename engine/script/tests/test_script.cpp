@@ -69,6 +69,13 @@ TEST_CASE("component views, live vectors, enums, destroyed entities") {
     CHECK(bad.error().message.find("kinematic") != std::string::npos);
     bad = h.scripts.eval("world.find('thing').get('Sprite').colour = 1");
     CHECK(!bad.ok());
+    // a number outside the field's range() is refused, like in a scene file, and the field keeps its value
+    h.w.add<Camera>(e);
+    ev("world.find('thing').get('Camera').fov = 90");
+    bad = h.scripts.eval("world.find('thing').get('Camera').fov = 500");
+    CHECK(!bad.ok());
+    CHECK(bad.error().message.find("Camera.fov: Field 'fov': value 500 is outside the allowed range 1..179") != std::string::npos);
+    CHECK(h.w.get<Camera>(e)->fov == 90.0f);
     // id goes through set_id
     ev("world.find('thing').id = 'renamed'");
     CHECK(h.w.find_by_id("renamed") == e);
