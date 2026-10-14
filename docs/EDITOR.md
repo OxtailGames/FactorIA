@@ -1,6 +1,7 @@
 # The FactorIA editor
 
-`factoria editor [project]` opens the visual editor (a Dear ImGui window, desktop builds). It is a front end for the same
+`factoria editor [project]` opens the visual editor (a Dear ImGui window, desktop builds). On Windows, double-clicking
+`factoria.exe` opens it too (with no arguments from a terminal, `factoria` prints its help). It is a front end for the same
 **commands** that the CLI, the MCP server and the AI tools use: it does not have a private way to change a project. Whatever a
 menu entry does, you can also type in the Console (`scene.import_ascii {...}`) or call over MCP, and the result is the same.
 
