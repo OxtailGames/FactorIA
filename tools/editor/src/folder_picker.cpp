@@ -1,5 +1,6 @@
 // The system's folder dialog: IFileOpenDialog on Windows, AppleScript's `choose folder` on macOS, zenity or kdialog on
 // Linux. The external programs run without a shell (fa::ai::run_process), so paths need no quoting.
+// Also maximize_window: sokol_app has no "start maximized" option.
 #include <filesystem>
 
 #include "editor_internal.h"
@@ -50,6 +51,8 @@ std::string pick_folder(const std::string& title, const std::string& start) {
     return result;
 }
 
+void maximize_window() { ShowWindow(static_cast<HWND>(const_cast<void*>(sapp_win32_get_hwnd())), SW_MAXIMIZE); }
+
 #else
 
 std::string pick_folder(const std::string& title, const std::string& start) {
@@ -74,6 +77,8 @@ std::string pick_folder(const std::string& title, const std::string& start) {
     if (out.size() > 1 && out.back() == '/') out.pop_back();  // osascript ends folders with '/'
     return out;
 }
+
+void maximize_window() {}  // ponytail: Windows only, where a 1440x860 window at 125% DPI is taller than a 1080p screen
 
 #endif
 

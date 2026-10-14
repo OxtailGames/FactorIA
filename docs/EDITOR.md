@@ -16,16 +16,22 @@ starts at your Documents folder. Recent projects are listed under the path (`~/.
 
 ## Layout
 
+The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Viewport** on the left, **AI Assistant** on the
+right, and Console / Engine Feedback / Audio as tabs under the view. The panels for editing by hand (Hierarchy,
+Inspector, Assets) are hidden; open them from the View menu. View > Reset layout restores this layout
+(`~/.factoria/editor_layout2.ini` keeps yours).
+
 | Panel | What it does |
 |---|---|
 | Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot; Undo, Redo. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` included), with the selection outline. Click to select, drag to move (Ctrl snaps to 8). |
-| Hierarchy | The entity tree: drag to reparent, double-click to rename, right-click for the entity menu. |
-| Inspector | Every component of the selected entity, generated from the engine's reflection (see below). With nothing selected: the scene settings. |
-| Assets | The project's files. Double-click a scene to open it. |
+| AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
+| Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
 | Audio | (View > Audio) the live `audio.log`. |
-| AI Assistant, Engine Feedback | The built-in agent and the project's `ENGINE_FEEDBACK.json`. |
+| Hierarchy (hidden) | The entity tree: drag to reparent, double-click to rename, right-click for the entity menu. |
+| Inspector (hidden) | Every component of the selected entity, generated from the engine's reflection (see below). With nothing selected: the scene settings. |
+| Assets (hidden) | The project's files. Double-click a scene to open it. |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. Ctrl+Z / Ctrl+Y
 undo and redo scene edits (also the ones made by commands and by the AI).

@@ -309,7 +309,8 @@ public:
     float dpi_ = 1.0f;
 
     // panel visibility
-    bool showViewport_ = true, showHierarchy_ = true, showInspector_ = true, showAssets_ = true;
+    // Hierarchy, Inspector and Assets are for editing by hand: hidden by default (the AI edits the project), View menu.
+    bool showViewport_ = true, showHierarchy_ = false, showInspector_ = false, showAssets_ = false;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
@@ -482,5 +483,6 @@ bool asset_matches(const std::string& assetType, const std::string& path);
 // folder_picker.cpp: the system's folder dialog, opened at `start` (blocks until it closes). "" when cancelled, or
 // when there is no dialog (Linux without zenity or kdialog).
 std::string pick_folder(const std::string& title, const std::string& start);
+void maximize_window();
 
 }  // namespace fa::editor
