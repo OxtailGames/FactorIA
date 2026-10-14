@@ -155,7 +155,7 @@ TEST_CASE("save_roles changes only the roles and keeps the rest of the file") {
     std::ofstream(file) << R"({"providers":{"claude-code":{"unsetEnv":["ANTHROPIC_API_KEY"]}},
         "roles":{"worker":{"provider":"anthropic","model":"old","maxTokens":8000}},"limits":{"maxTurns":7}})";
     std::map<std::string, RoleConfig> roles;
-    roles["orchestrator"] = {"claude-code", "opus", "", 0};
+    roles["orchestrator"] = {"claude-code", "opus", "", 0, 400000};
     roles["worker"] = {"claude-code", "sonnet", "high", 0};
     roles["fast"] = {"anthropic", "", "", 0};  // no model: the role's default
     REQUIRE(save_roles(roles, file));
@@ -168,6 +168,9 @@ TEST_CASE("save_roles changes only the roles and keeps the rest of the file") {
     REQUIRE(cfg);
     CHECK(cfg->role("orchestrator").provider == "claude-code");
     CHECK(cfg->role("orchestrator").model == "opus");
+    CHECK(cfg->role("orchestrator").maxContextTokens == 400000);
+    CHECK_FALSE(j["roles"]["worker"].contains("maxContextTokens"));  // 0 = the model's whole window: no key
+    CHECK_FALSE(validate_config_json(Json::parse(R"({"roles":{"worker":{"maxContextTokens":5000}}})")).empty());
     CHECK(cfg->role("worker").model == "sonnet");
     CHECK(cfg->role("worker").effort == "high");
     CHECK(cfg->role("fast").model == "claude-haiku-5-5");

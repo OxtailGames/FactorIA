@@ -541,6 +541,28 @@ TEST_CASE("AgentSession with the Claude CLI: follow-ups resume and send only the
     CHECK(r5.costUsd == doctest::Approx(0.02));  // the fresh session's own total
 }
 
+TEST_CASE("Claude Code gets the role's context limit as its auto-compact window, and it is shown as the window") {
+    TempDir dir, scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    CommandRegistry registry = make_registry();
+    AiConfig cfg = default_config();
+    cfg.providers["claude-code"].command = fake_claude_path();
+    cfg.providers["claude-code"].env["FAKE_ARGV_FILE"] = argvFile;
+    cfg.roles["orchestrator"] = {"claude-code", "sonnet", "", 0, 400000};
+    SessionOptions so;
+    so.projectDir = dir.str();
+    AgentSession s(registry, cfg, so);
+    u64 window = 0;
+    s.set_event_handler([&](const AgentEvent& e) {
+        if (e.type == AgentEvent::Type::Usage && e.contextWindow) window = e.contextWindow;
+    });
+    REQUIRE(s.run("Hello").ok);
+    auto recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK(recs[0].has("compact-window:400000"));
+    CHECK(window == 400000);  // the fake reports a 1M model window
+}
+
 TEST_CASE("images reach a CLI without stream-json input as file paths in the prompt") {
     TempDir dir, scratch;
     const std::string argvFile = (scratch.path / "argv.txt").string();

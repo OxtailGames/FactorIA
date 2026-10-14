@@ -26,6 +26,7 @@ namespace {
 
 constexpr const char* kRoleNames[] = {"orchestrator", "worker", "fast"};
 constexpr const char* kEfforts[] = {"", "low", "medium", "high", "xhigh", "max"};  // "" = the role's default
+constexpr u64 kContextLimits[] = {0, 100000, 200000, 300000, 400000, 500000, 600000, 800000};  // 0 = the model's window
 constexpr const char* kRolesBlurb = "Your messages go to the orchestrator. It answers and plans, and hands implementation work to\n"
                                     "the worker and small mechanical edits to fast by itself.";
 constexpr std::size_t kMaxPendingImages = 10;  // per message (the API providers take 20 and the CLIs read each one)
@@ -488,11 +489,12 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
     if (!ImGui::BeginPopupModal("AI roles", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     ImGui::TextUnformatted(kRolesBlurb);
     ImGui::Spacing();
-    if (ImGui::BeginTable("##roles", 4, ImGuiTableFlags_SizingFixedFit)) {
+    if (ImGui::BeginTable("##roles", 5, ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("Role");
         ImGui::TableSetupColumn("Provider");
         ImGui::TableSetupColumn("Model");
         ImGui::TableSetupColumn("Effort");
+        ImGui::TableSetupColumn("Context");
         ImGui::TableHeadersRow();
         for (const char* name : kRoleNames) {
             ai::RoleConfig& r = aiRolesEdit_[name];
@@ -509,7 +511,7 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
                     const ai::ProviderStatus* st = found == status.end() ? nullptr : &*found;
                     const std::string label = pname + (st && !st->available ? "  (not available)" : "");
                     if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
-                        r = {pname, "", "", r.maxTokens};  // another provider: its own default model and effort
+                        r = {pname, "", "", r.maxTokens, r.maxContextTokens};  // another provider: its default model and effort
                     }
                     if (st && ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", st->detail.c_str(), st->available ? "" : st->hint.c_str());
                 }
@@ -529,6 +531,18 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
                 ImGui::EndCombo();
             }
             ImGui::SetItemTooltip("How hard the model thinks (API providers). CLI agents use their own setting.");
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(80);
+            const auto context_label = [](u64 n) { return n == 0 ? std::string("full") : format_tokens(n); };
+            if (ImGui::BeginCombo("##context", context_label(r.maxContextTokens).c_str())) {
+                for (const u64 n : kContextLimits) {
+                    if (ImGui::Selectable(context_label(n).c_str(), r.maxContextTokens == n)) r.maxContextTokens = n;
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SetItemTooltip("Most context a session of this role keeps. When it gets there, the earlier part of the\n"
+                                  "conversation is replaced by a summary, so each message reads (and costs) less.\n"
+                                  "full = the model's whole window. Claude Code and the Anthropic API; other providers ignore it.");
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -680,7 +694,8 @@ void Editor::draw_ai_panel() {
     std::string roles;
     for (const char* name : kRoleNames) {
         const ai::RoleConfig rc = cfg.role(name);
-        roles += (roles.empty() ? "" : "   ") + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model);
+        roles += (roles.empty() ? "" : "   ") + std::string(name) + ": " + rc.provider + (rc.model.empty() ? "" : " / " + rc.model) +
+                 (rc.maxContextTokens ? " (" + format_tokens(rc.maxContextTokens) + ")" : "");
     }
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));

@@ -136,11 +136,24 @@ Built-in providers exist without being listed: `anthropic`, `openai`,
 | `worker` | implements features and fixes | `claude-sonnet-5-5`, effort `medium` |
 | `fast` | small mechanical edits | `claude-haiku-5-5`, effort `max` |
 
-Each role is `{provider, model, effort?, maxTokens?}`. `effort` is one of
+Each role is `{provider, model, effort?, maxTokens?, maxContextTokens?}`. `effort` is one of
 `low|medium|high|xhigh|max` and is always sent explicitly to Anthropic. For
 `openai-compatible` providers it is ignored unless `"sendReasoningEffort": true`
 (then mapped to `low|medium|high`). A CLI provider runs its own loop and
 ignores `effort` (set the CLI's own option in `argv` if it has one).
+
+`maxContextTokens` (at least 100000) caps how much context a session of that
+role keeps, e.g. `400000` on a 1M model: when it gets there, the earlier turns
+are replaced by a summary, so every message reads (and costs) less. Without it a
+session uses the model's whole window.
+
+| Provider | How the limit is applied |
+|---|---|
+| `claude-code` | `CLAUDE_CODE_AUTO_COMPACT_WINDOW=<n>` in the CLI's environment: Claude Code auto-compacts at that window |
+| `anthropic` | server-side compaction (beta `compact-2026-01-12`, `context_management` edit `compact_20260112` with an `input_tokens` trigger); the summary block stays in the chat's history |
+| others | ignored |
+
+The panel's **Context** bar then shows the limit as the window (`47k / 400k`).
 
 The orchestrator delegates on its own: the built-in loop gives it the
 `agent_delegate {role, task}` tool; an orchestrator that is a CLI agent (Claude
@@ -153,7 +166,7 @@ turns delegation off.
 `factoria ai run "task"` and the `ai.run` command use the `orchestrator` role
 unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
 always sends your messages to the orchestrator; its **Roles...** button sets the
-provider, model and effort of the three roles and saves them in `ai.json` (only
+provider, model, effort and context limit of the three roles and saves them in `ai.json` (only
 `roles` is rewritten: providers, limits and a role's `maxTokens` stay).
 
 ## How the built-in agent behaves (API providers)

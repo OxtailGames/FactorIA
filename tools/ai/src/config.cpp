@@ -352,6 +352,7 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (rj.contains("effort")) r.effort = str(rj, "effort");
             else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd.effort) r.effort = rd.effort;
             if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
+            if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
             cfg.roles[it.key()] = std::move(r);
         }
     }
@@ -424,6 +425,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         rj["model"] = r.model;
         if (!r.effort.empty()) rj["effort"] = r.effort;
         if (r.maxTokens > 0) rj["maxTokens"] = r.maxTokens;
+        if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
         roles[name] = rj;
     }
     out["roles"] = roles;
@@ -469,6 +471,8 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
             if (value.empty()) rj.erase(key);
             else rj[key] = value;
         }
+        if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
+        else rj.erase("maxContextTokens");
     }
     return fs::write_text(path, dump_json(j));
 }
