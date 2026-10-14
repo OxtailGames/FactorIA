@@ -419,6 +419,32 @@ TEST_CASE("pasted picture bytes are saved as paste.png, paste-2.png...") {
     CHECK_FALSE(attach_bytes(project.str(), "paste.png", {}));
 }
 
+TEST_CASE("a big picture is shrunk to what the model looks at; a small one is kept byte for byte") {
+    TempDir project("shrink");
+    Image big;
+    big.width = 3200;
+    big.height = 1000;
+    big.rgba.assign(static_cast<std::size_t>(big.width) * big.height * 4, 200);
+    auto att = attach_bytes(project.str(), "paste.png", encode_png(big));
+    REQUIRE(att);
+    CHECK(att->name == "paste.png");
+    auto shrunk = load_image(utf8_string(project.dir / ".factoria" / "ai" / "attachments" / "paste.png"));
+    REQUIRE(shrunk);
+    CHECK(shrunk->width == 1568);
+    CHECK(shrunk->height == 490);
+    CHECK(shrunk->pixel(10, 10).r == doctest::Approx(200 / 255.0f).epsilon(0.01));
+
+    Image small;
+    small.width = small.height = 32;
+    small.rgba.assign(32 * 32 * 4, 90);
+    const std::vector<std::uint8_t> bytes = encode_png(small);
+    auto kept = attach_bytes(project.str(), "small.png", bytes);
+    REQUIRE(kept);
+    CHECK(read_file(project.dir / ".factoria" / "ai" / "attachments" / "small.png").size() == bytes.size());
+
+    CHECK(shrink_image(small, 64).width == 32);  // never enlarged
+}
+
 TEST_CASE("selection_line tells the AI which entity this and it mean") {
     CHECK(selection_line("Player", "").empty());
     const std::string line = selection_line("Player", "player_1");

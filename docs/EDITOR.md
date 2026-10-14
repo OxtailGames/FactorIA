@@ -47,10 +47,12 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
 - **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the
   clipboard, or press **Attach image...**. Pending pictures show above the input (remove one with its x); sent ones show
   in the transcript. Copies live in `.factoria/ai/attachments/`; other file types are refused with a message saying why.
+  A big picture (a 4K screenshot) is scaled down to 1568 px on its long side, what the model looks at anyway, so it costs
+  fewer tokens and stays under the API's 5 MB limit.
 - **Usage** (above the transcript): Session (5h) and Week plan limits with the reset time, the model's Context, Tokens
   and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported
   (kept in `~/.factoria/ai_limits.json`).
-- **Selection:** the entity selected in the viewport or hierarchy is named to the AI in each message.
+- **Selection:** the entity selected in the viewport (click it) is named to the AI in each message.
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
 
 ## Selecting things

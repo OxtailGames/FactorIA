@@ -242,6 +242,8 @@ void Editor::autotest_pre_frame() {
         aiFactory_ = [](const ai::ProviderConfig&) -> Result<std::shared_ptr<ai::ChatProvider>> {
             return std::shared_ptr<ai::ChatProvider>(std::make_shared<MockProvider>());
         };
+        // The mock replaces CHAT providers only: pin this chat to one, or the user's default CLI (claude, codex) would run.
+        chat_.current().provider = "anthropic";
         atUndoBeforeAi_ = undo_depth();
         ai_start("Add a gold coin above the origin of the scene.");
         atWaitAi_ = true;
