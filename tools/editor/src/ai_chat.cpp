@@ -243,7 +243,10 @@ void AiChats::open_dir(const std::string& chatsDir) {
             activeId = str_of(*open, "active");
         }
     }
-    if (tabs.empty()) tabs.push_back(blank_chat(make_id(static_cast<i64>(std::time(nullptr))), static_cast<i64>(std::time(nullptr))));
+    if (tabs.empty()) {
+        const i64 now = static_cast<i64>(std::time(nullptr));
+        tabs.push_back(blank_chat(make_id(now), now));
+    }
     const int a = index_of(activeId);
     active = a >= 0 ? a : static_cast<int>(tabs.size()) - 1;
 }
