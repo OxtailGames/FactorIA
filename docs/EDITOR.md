@@ -62,6 +62,11 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported
   (kept in `~/.factoria/ai_limits.json`).
 - **Selection:** the entity selected in the viewport (click it) is named to the AI in each message.
+- **Claude Code** runs its own loop in a child process, but its tools are the editor's: the editor serves MCP on a loopback
+  port (`http://127.0.0.1:<port>/mcp/<token>`) and the MCP config it writes for the CLI points there. Its tool calls run on
+  the editor's main thread like an API provider's, so its edits show in the viewport as it works, each is a Ctrl+Z step,
+  and Play waits for it. Codex still uses a `factoria mcp` process of its own (see `docs/AI_PROVIDERS.md`, CLI agents in
+  the editor).
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
 
 ## Selecting things
@@ -99,6 +104,7 @@ game itself.
   (`pick.cpp`), the reflected fields the AI edits, and what Save writes.
 - `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
-  files, play / pause / step / stop, keyboard input reaching the game and a scripted AI session after every action, and saves window
-  screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`).
+  files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
+  tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint. It checks the result after
+  every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`).
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`.

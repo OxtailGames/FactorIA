@@ -1,7 +1,8 @@
 // CLI agents: the user's own subscription through an official CLI that runs its
 // OWN agent loop (Claude Code, Codex, any other CLI). FactorIA spawns it with
-// the FactorIA MCP server attached (`factoria mcp --project <dir>`) and
-// forwards its events. FactorIA never touches subscription credentials.
+// the FactorIA MCP server attached (`factoria mcp --project <dir>`, or the
+// editor's own endpoint, CliRunRequest::mcpUrl) and forwards its events.
+// FactorIA never touches subscription credentials.
 #pragma once
 
 #include "fa/ai/config.h"
@@ -17,6 +18,9 @@ struct CliRunRequest {
     std::string sessionId;   // CLI session to continue ({session}); empty = start a new one
     std::vector<ImageData> images;          // images attached to the prompt (sent inline when the CLI reads stream-json)
     std::vector<std::string> imagePaths;    // the same images as absolute file paths (the text fallback names them)
+    // An MCP endpoint already serving this project (the editor's, fa/mcp/http_server.h): the {mcp_config} file points
+    // there, so the CLI's tool calls run on that process's world. Empty = the config starts `factoria mcp --project`.
+    std::string mcpUrl;
 };
 
 struct CliRunResult {
@@ -59,8 +63,9 @@ std::vector<LimitWindow> parse_codex_rate_limits(const Json& rateLimits, i64 now
 // Updates `into` with `from`: a window with the same name is replaced, a new one is appended.
 void merge_limit_windows(std::vector<LimitWindow>& into, const std::vector<LimitWindow>& from);
 
-// JSON for `claude --mcp-config`.
-Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand);
+// JSON for `claude --mcp-config`: {"type": "http", "url": mcpUrl} when there is one, else a `factoria mcp --project`
+// stdio server.
+Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl = {});
 
 // Install/login instructions per CLI.
 std::string cli_install_hint(const ProviderConfig& cfg);

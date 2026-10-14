@@ -1,7 +1,9 @@
 #!/bin/sh
 # Fake `claude` CLI: prints stream-json lines. Records its argv (and stdin as "stdin:...") in $FAKE_ARGV_FILE if set.
 # FAKE_COST overrides total_cost_usd; FAKE_MODE: notloggedin | crash | slow | resume_fails (--resume is answered with
-# claude's "No conversation found" error). A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>".
+# claude's "No conversation found" error) | mcp_spawn (calls the tool scene_spawn {"name":"CliCoin"} on the HTTP MCP
+# server of its --mcp-config with curl, like Claude Code calling a tool; the reply goes to $FAKE_ARGV_FILE.mcp).
+# A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>".
 # fake_claude.cmd is the same script for Windows.
 if [ -n "$FAKE_ARGV_FILE" ]; then
   for a in "$@"; do printf '%s\n' "$a" >> "$FAKE_ARGV_FILE"; done
@@ -26,6 +28,14 @@ case "$FAKE_MODE" in
         echo '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"gone","total_cost_usd":0,"usage":{},"errors":["No conversation found with session ID: gone"]}'
         exit 1 ;;
     esac ;;
+  mcp_spawn)
+    cfg=""; prev=""
+    for a in "$@"; do if [ "$prev" = "--mcp-config" ]; then cfg="$a"; fi; prev="$a"; done
+    url=$(sed -n 's/.*"url": *"\([^"]*\)".*/\1/p' "$cfg")
+    out=/dev/null
+    if [ -n "$FAKE_ARGV_FILE" ]; then out="$FAKE_ARGV_FILE.mcp"; fi
+    curl -s -o "$out" -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"CliCoin"}}}' "$url" ;;
 esac
 cost=${FAKE_COST:-0.0123}
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"sonnet","mcp_servers":[{"name":"factoria","status":"connected"},{"name":"other","status":"failed"}]}'

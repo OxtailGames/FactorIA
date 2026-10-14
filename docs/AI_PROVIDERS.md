@@ -13,8 +13,9 @@ role (see [Roles](#roles)) and can mix them.
 > **Subscriptions never go through FactorIA.** Using your Claude or ChatGPT
 > subscription works by spawning the *official* CLI that you install and log in
 > to yourself (`claude`, `codex`). FactorIA only starts that program and attaches
-> its MCP server (`factoria mcp --project <dir>`); it never reads, stores or
-> forwards subscription credentials or tokens.
+> its MCP server (`factoria mcp --project <dir>`, or in the editor the editor's own
+> endpoint, see [CLI agents in the editor](#cli-agents-in-the-editor)); it never
+> reads, stores or forwards subscription credentials or tokens.
 
 ## Quick start
 
@@ -33,7 +34,8 @@ FactorIA runs: `claude -p --output-format stream-json --input-format stream-json
 with the message on standard input (one `stream-json` line, which can carry pictures),
 in the project directory. `--resume <session>` is left out for the first message of a conversation
 (see [Conversations](#conversations-and-resume)). The MCP config file is generated at
-`<project>/.factoria/ai/mcp-claude-code.json` (no secrets in it).
+`<project>/.factoria/ai/mcp-claude-code.json`: a `factoria mcp --project <dir>` server, or the editor's endpoint when the
+editor started the CLI (see [below](#cli-agents-in-the-editor)).
 
 ### B) ChatGPT subscription (Codex CLI)
 1. `npm i -g @openai/codex`
@@ -42,6 +44,25 @@ in the project directory. `--resume <session>` is left out for the first message
    `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' -`,
    with the prompt on standard input. Codex starts a **fresh session every message**: FactorIA does not resume it,
    so a follow-up in the editor chat does not remember the earlier messages (the transcript on screen does).
+
+### CLI agents in the editor
+A CLI agent runs its own loop in a child process, so its tool calls have to come back to the editor to change the scene
+that is open. The editor serves MCP itself: an HTTP endpoint on `127.0.0.1` (a free port, and a path with a random token,
+`http://127.0.0.1:<port>/mcp/<token>`, new for each project the editor opens), started by the first message. The MCP
+config it writes for Claude Code is `{"mcpServers": {"factoria": {"type": "http", "url": "<that URL>"}}}` instead of a
+`factoria mcp` process. Every tool call then takes the same road as an API provider's: the editor's main thread runs the
+command between frames. So:
+
+* the viewport shows each edit while the agent works, and each one is a Ctrl+Z step;
+* the agent works in edit mode only, and Play / Step wait until it finishes (see `docs/EDITOR.md`);
+* `ai_run` (delegation) runs the worker or fast role inside the editor too; a CLI sub-agent gets the same endpoint.
+
+The endpoint speaks MCP Streamable HTTP without a server stream or a session (a POST with one JSON-RPC message gets its
+reply as `application/json`, a notification gets 202, GET gets 405). A call that runs longer than 10 s, such as an `ai_run`
+that hands a task to the worker, is answered as an event stream kept alive every 15 s, so the CLI does not give up on it
+after its HTTP timeout (5 minutes). Only the token's path is served, so other programs on
+the machine cannot drive the editor. **Codex** still starts its own `factoria mcp` (its argv names the command, not a
+config file): its scene edits happen in that process, not in the open scene.
 
 ### C) Any other CLI agent
 ```json
@@ -266,7 +287,7 @@ when they provide it. Set `limits.maxCostUsd` to cap a run.
 | `... is not logged in or its credentials were rejected` | Run the CLI in a terminal and log in again. |
 | Claude Code bills the API instead of your plan | `ANTHROPIC_API_KEY` is set in the environment; add `"unsetEnv": ["ANTHROPIC_API_KEY"]` to the `claude-code` provider. |
 | CLI exits at once / ignores flags | Flags changed in a newer CLI version: override `argv` in `ai.json`; test it in a terminal. |
-| MCP server `factoria` failed | `factoria` puts its own directory first on PATH for the agents it starts, so this only happens when `factoriaCommand` names another binary: fix it or set it to an absolute path. |
+| MCP server `factoria` failed | `factoria` puts its own directory first on PATH for the agents it starts, so this only happens when `factoriaCommand` names another binary: fix it or set it to an absolute path. (Claude Code started from the editor connects to the editor itself and needs neither.) |
 | `No Anthropic credentials found` | Set `ANTHROPIC_API_KEY` or log in with `ant auth login`. |
 | `No API key for provider 'openrouter'` | `export OPENROUTER_API_KEY=...` (see table above). |
 | `No model configured for role ...` | Set `roles.<role>.model` for non-Anthropic providers. |

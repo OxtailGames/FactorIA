@@ -93,10 +93,12 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             so.maxTurns = static_cast<int>(num(args, "maxTurns"));
             if (args.contains("maxCostUsd")) so.maxCostUsd = num(args, "maxCostUsd");
             so.stream = flag(args, "stream", true);
+            so.mcpUrl = opts->mcpUrl;
             for (const auto& w : scan_project_for_keys(so.projectDir, 500)) cfg->warnings.push_back(w);
             AgentSession session(registry, *cfg, so);
             if (opts->onEvent) session.set_event_handler(opts->onEvent);
             if (opts->providerFactory) session.set_provider_factory(opts->providerFactory);
+            session.set_cancel_flag(opts->cancel);
             SessionResult r = session.run(str(args, "task"));
             Json out = r.to_json();
             out["warnings"] = cfg->warnings;

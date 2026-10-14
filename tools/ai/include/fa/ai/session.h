@@ -42,6 +42,7 @@ struct SessionOptions {
     bool saveTranscript = true;        // <project>/.factoria/ai/sessions/*.jsonl
     bool allowDelegation = true;       // orchestrator gets agent_delegate
     std::string extraSystem;           // appended to the system prompt
+    std::string mcpUrl;                // CLI agents attach this MCP endpoint (the editor's) instead of `factoria mcp`
 };
 
 struct SessionResult {

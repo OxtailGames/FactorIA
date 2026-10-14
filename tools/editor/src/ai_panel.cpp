@@ -8,6 +8,11 @@
 // real registry and fulfils the promise. Events from the agent (text deltas, tool calls,
 // usage) are appended to aiPending_ under aiMu_ and drained on the main thread each frame.
 //
+// CLI AGENTS (Claude Code) run their own loop in a child process and call tools over MCP. The editor serves MCP itself
+// (aiMcp_, a loopback HTTP endpoint with a secret path) on the same proxy registry, and the CLI's MCP config points
+// there. Their edits therefore land in the live world, show in the viewport as they happen, take undo snapshots, and
+// the play guards (ai_start, ai_blocks_play) cover them like an API provider's.
+//
 // CONVERSATIONS: the panel holds several chats as tabs (chat_, ai_chat.h). Each chat keeps its own transcript, the
 // ai::Conversation that carries it from one message to the next (Claude Code session id / API message history), token
 // totals, the unsent text and the pending pictures. aiRunChat_ names the chat the agent thread works for; the events are
@@ -17,6 +22,8 @@
 #include <ctime>
 
 #include "editor_internal.h"
+#include "fa/ai/commands.h"
+#include "fa/mcp/server.h"
 #include "sokol_app.h"
 #include "ui_backend.h"
 
@@ -216,6 +223,18 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry() {
             return r.result;
         });
     }
+    // ai.run: a CLI orchestrator delegates with it over MCP. It runs on the caller's thread (an MCP connection), not
+    // through the queue: the sub-agent's own commands come back through this proxy, so the main thread stays free.
+    ai::AiCommandOptions ao;
+    ao.loadConfig = [this]() -> Result<ai::AiConfig> {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        return aiConfig_.providers.empty() ? ai::default_config() : aiConfig_;
+    };
+    ao.projectDir = [dir = projectDir_] { return dir; };
+    ao.providerFactory = aiFactory_;
+    ao.cancel = &aiCancel_;
+    ao.mcpUrl = aiMcp_.url();
+    ai::register_ai_commands(*reg, ao);
     return reg;
 }
 
@@ -287,6 +306,22 @@ void Editor::ai_start(const std::string& task) {
     // a second run (another tab) waits; per-chat threads and queues if parallel chats are ever wanted.
     if (aiRunning_.load() || !aiRunChat_.empty()) return;
     if (aiThread_.joinable()) aiThread_.join();
+    if (aiMcp_.url().empty()) {  // the endpoint CLI agents attach (see the top of this file)
+        auto started = aiMcp_.start([this, dir = projectDir_](std::string_view message) -> std::optional<std::string> {
+            std::shared_ptr<CommandRegistry> proxy;
+            {
+                std::lock_guard<std::mutex> lock(aiMu_);
+                proxy = aiProxy_;
+            }
+            if (!proxy) return std::nullopt;  // not reached: the URL is handed out after the run's proxy exists
+            SimpleMcpHost host(*proxy, dir);
+            return McpServer(host).handle_message(message);  // stateless: one server per message
+        });
+        if (!started) {
+            notify(started.error().to_string(), 2);
+            return;
+        }
+    }
     AiChat& chat = chat_.current();
     ai::AiConfig cfg;
     {
@@ -298,6 +333,7 @@ void Editor::ai_start(const std::string& task) {
     opt.projectDir = projectDir_;
     opt.role = ai::kRoleOrchestrator;  // it hands the work to the worker and fast roles itself (the "AI roles" popup)
     opt.conversation = chat.conversation;  // resumes the chat when the provider is the same one that produced it
+    opt.mcpUrl = aiMcp_.url();
     aiRunProvider_ = cfg.role(opt.role).provider;
 
     ChatItem user;
@@ -325,8 +361,11 @@ void Editor::ai_start(const std::string& task) {
     aiRunChat_ = chat.id;
     aiCancel_ = false;
     queue_.reopen();
-    aiProxy_ = make_proxy_registry();
-    auto proxy = aiProxy_;
+    auto proxy = make_proxy_registry();
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        aiProxy_ = proxy;
+    }
     aiRunning_ = true;
     ai::ProviderFactory factory = aiFactory_;
     aiThread_ = std::thread([this, cfg, opt, prompt, imageFiles, proxy, factory] {
@@ -350,6 +389,7 @@ void Editor::ai_stop() {
     aiCancel_ = true;
     queue_.close();
     if (aiThread_.joinable()) aiThread_.join();
+    aiMcp_.stop();  // after the cancel and the closed queue: its requests (ai.run included) end instead of waiting
     aiRunning_ = false;
     aiCancel_ = false;
     queue_.reopen();
