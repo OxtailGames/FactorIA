@@ -22,16 +22,6 @@ namespace fa {
 namespace stdfs = std::filesystem;
 
 namespace {
-ScriptCheckHook& global_hook() {
-    static ScriptCheckHook h;
-    return h;
-}
-
-ScriptPropsCheckHook& global_props_hook() {
-    static ScriptPropsCheckHook h;
-    return h;
-}
-
 struct PropsCheck {
     std::string file, pointer, module;
     Json props;
@@ -271,9 +261,6 @@ std::string ValidationReport::to_text() const {
     return o.str();
 }
 
-void set_script_check_hook(ScriptCheckHook hook) { global_hook() = std::move(hook); }
-void set_script_props_check_hook(ScriptPropsCheckHook hook) { global_props_hook() = std::move(hook); }
-
 ValidationReport validate_project(const std::string& projectDir, const ValidateOptions& options) {
     Ctx c;
     std::error_code ec;
@@ -351,13 +338,12 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (it->is_regular_file(ec) && it->path().extension() == ".js")
                 scripts.insert(stdfs::relative(it->path(), c.dir, ec).generic_string());
     }
-    const ScriptCheckHook& hook = options.scriptCheck ? options.scriptCheck : global_hook();
     std::set<std::string> failedScripts;  // scripts the check reported on: their Script.props are not checked on top
     for (const auto& s : scripts) {
         if (!stdfs::exists(stdfs::path(c.dir) / s)) continue;  // missing referenced scripts were reported as assets
         ++c.report.scriptsChecked;
-        if (!hook) continue;
-        for (auto& issue : hook(c.dir, s)) {
+        if (!options.scriptCheck) continue;
+        for (auto& issue : options.scriptCheck(c.dir, s)) {
             failedScripts.insert(s);
             // A broken file that several scripts import (a .json) is the same problem each time: report it once.
             auto same = [&](const ValidationIssue& o) {
@@ -366,11 +352,10 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (std::none_of(c.report.errors.begin(), c.report.errors.end(), same)) c.report.errors.push_back(std::move(issue));
         }
     }
-    const ScriptPropsCheckHook& propsHook = options.propsCheck ? options.propsCheck : global_props_hook();
-    if (propsHook) {
+    if (options.propsCheck) {
         for (const PropsCheck& pc : c.propChecks) {
             if (!stdfs::exists(stdfs::path(c.dir) / pc.module) || failedScripts.count(pc.module)) continue;
-            for (const std::string& msg : propsHook(pc.module, pc.props))
+            for (const std::string& msg : options.propsCheck(pc.module, pc.props))
                 c.warn(pc.file, pc.pointer, msg, "Fix the prop name, or declare the field in " + pc.module + " (props only set existing fields).");
         }
     }
