@@ -42,6 +42,18 @@
     },
     {
      "kind": "alias",
+     "name": "CastShape2D",
+     "type": "{ shape: \"circle\"; radius: number } | { shape: \"box\"; size: Vec2Like }",
+     "doc": "Shape swept by physics.shapeCast in 2D, centred on the cast position and axis-aligned. Sizes are full sizes in pixels, like Collider2D: { shape: \"circle\", radius: 8 } or { shape: \"box\", size: [16, 24] }."
+    },
+    {
+     "kind": "alias",
+     "name": "CastShape3D",
+     "type": "{ shape: \"sphere\"; radius: number } | { shape: \"box\"; size: Vec3Like }",
+     "doc": "Shape swept by physics.shapeCast in 3D, centred on the cast position and axis-aligned. Sizes are full sizes in meters, like Collider3D: { shape: \"sphere\", radius: 0.5 } or { shape: \"box\", size: [1, 2, 1] }."
+    },
+    {
+     "kind": "alias",
      "name": "SpawnOptions",
      "type": "{ position?: Vec3Like; rotation?: number | Vec3Like; scale?: number | Vec3Like; parent?: Entity; props?: Record<string, any> }",
      "doc": "Options of world.spawn / world.spawnPrefab. rotation as a number = degrees around z. props are merged into Script.props."
@@ -889,31 +901,39 @@
       },
       {
        "sig": "raycast3d(origin: Vec3Like, dir: Vec3Like, maxDistance?: number, opts?: RaycastOptions): RayHit<Vec3> | null",
-       "doc": ""
+       "doc": "3D raycast from an origin along a direction, at most maxDistance (default 1000) far."
+      },
+      {
+       "sig": "shapeCast(shape: CastShape3D, from: Vec3 | { x: number; y: number; z: number } | readonly [number, number, number], to: Vec3Like, opts?: RaycastOptions): RayHit<Vec3> | null",
+       "doc": "Sweeps a sphere or box from `from` to `to` (3D, when `from` has a z) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Answers 'will this fit / how far can it go' for shapes where a ray is too thin. Same options as raycast; from a behaviour pass { ignore: this.entity }."
+      },
+      {
+       "sig": "shapeCast(shape: CastShape2D, from: Vec2Like, to: Vec2Like, opts?: RaycastOptions): RayHit<Vec2> | null",
+       "doc": "Sweeps a circle or box from `from` to `to` (2D) and returns the first collider it touches: distance is how far the centre travels, point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape already overlaps at `from` are skipped, like a ray that starts inside one; a collider it only touches blocks the cast only if the shape moves towards it. Example: physics.shapeCast({ shape: \"box\", size: [16, 24] }, vec2(x, y), vec2(x, y - 40), { ignore: this.entity }). Throws an Error that explains the fix when the shape is wrong (misspelt name, \"sphere\" in 2D, missing size)."
       },
       {
        "sig": "overlapCircle(center: Vec2Like, radius: number, opts?: { mask?: number }): Entity[]",
-       "doc": ""
+       "doc": "Entities whose 2D colliders (triggers included) overlap the circle."
       },
       {
        "sig": "overlapBox(rect: RectLike, opts?: { mask?: number }): Entity[]",
-       "doc": ""
+       "doc": "Entities whose 2D colliders (triggers included) overlap the rectangle."
       },
       {
        "sig": "overlapSphere(center: Vec3Like, radius: number, opts?: { mask?: number }): Entity[]",
-       "doc": ""
+       "doc": "Entities whose 3D colliders (triggers included) overlap the sphere."
       },
       {
        "sig": "applyImpulse(entity: Entity, v: Vec3Like): void",
-       "doc": ""
+       "doc": "Instant change of momentum on a dynamic body (world units; 2D uses x, y)."
       },
       {
        "sig": "applyForce(entity: Entity, v: Vec3Like): void",
-       "doc": ""
+       "doc": "Force applied to a dynamic body for the current step."
       },
       {
        "sig": "setVelocity(entity: Entity, v: Vec3Like): void",
-       "doc": ""
+       "doc": "Sets a body's velocity (same as writing RigidBody.velocity)."
       }
      ]
     },

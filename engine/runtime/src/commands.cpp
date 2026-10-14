@@ -622,6 +622,65 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return j;
           });
 
+    I.commands.add({"physics.shape_cast",
+           "Sweep a circle, sphere or box from one point to another and return the first collider it touches.",
+           "Like physics.raycast, but the shape has size: use it to ask whether a character fits or how far a box can move "
+           "before it hits something. 2 numbers in from/to = 2D, 3 numbers = 3D. shape: 2D {\"shape\":\"circle\",\"radius\":8} "
+           "or {\"shape\":\"box\",\"size\":[16,24]}; 3D {\"shape\":\"sphere\",\"radius\":0.5} or {\"shape\":\"box\",\"size\":[1,2,1]} "
+           "(2D pixels, 3D meters, full sizes). The shape is centred on the cast position and axis-aligned. Result: "
+           "{hit:false} or {hit:true, entity, point, normal, distance}: distance is how far the CENTRE travels before contact, "
+           "point the contact point, normal the hit surface's normal (pointing back at the shape). Colliders the shape "
+           "already overlaps at `from` are skipped (like a ray starting inside one); a collider it only touches blocks the "
+           "cast only if it moves towards it. Triggers are skipped unless ignoreTriggers=false; ignore = id of an entity "
+           "whose colliders (and its children's) are skipped, usually the caster. Example: physics.shape_cast "
+           "{\"shape\":{\"shape\":\"box\",\"size\":[32,48]},\"from\":[0,100],\"to\":[0,-300],\"ignore\":\"player\"}",
+           parse_schema(R"({"type":"object","required":["shape","from","to"],"properties":{
+               "shape":{"type":"object","description":"2D: {shape:\"circle\",radius} or {shape:\"box\",size:[w,h]}. 3D: {shape:\"sphere\",radius} or {shape:\"box\",size:[x,y,z]}."},
+               "from":{"type":"array","items":{"type":"number"},"description":"Start of the shape's centre, [x,y] (2D) or [x,y,z] (3D)."},
+               "to":{"type":"array","items":{"type":"number"},"description":"End of the shape's centre, same dimension as from."},
+               "mask":{"type":"integer","default":-1,"description":"Collision layer mask."},
+               "ignore":{"type":"string","description":"Entity id or name whose colliders (and its children's) are skipped."},
+               "ignoreTriggers":{"type":"boolean","default":true,"description":"Skip trigger colliders; false hits them too."}}})"),
+           true, "physics"},
+          [&engine, &I](const Json& a) {
+              auto point = [&](const char* key, std::size_t& n) {
+                  if (!a.contains(key))
+                      throw CommandError("invalid_argument", std::string("Missing '") + key + "'.",
+                                         "Pass from and to as [x,y] (2D) or [x,y,z] (3D). Example: physics.shape_cast "
+                                         "{\"shape\":{\"shape\":\"circle\",\"radius\":8},\"from\":[0,100],\"to\":[0,-300]}");
+                  const Json& v = a[key];
+                  bool ok = v.is_array() && (v.size() == 2 || v.size() == 3);
+                  for (std::size_t i = 0; ok && i < v.size(); ++i) ok = v[i].is_number();
+                  if (!ok)
+                      throw CommandError("invalid_argument", std::string("'") + key + "' must be [x,y] (2D) or [x,y,z] (3D), but got " + v.dump() + ".",
+                                         "Use plain numbers, for example \"" + std::string(key) + "\":[0,100].");
+                  n = v.size();
+                  return Vec3{v[0].get<float>(), v[1].get<float>(), n == 3 ? v[2].get<float>() : 0.0f};
+              };
+              std::size_t nf = 0, nt = 0;
+              const Vec3 from = point("from", nf), to = point("to", nt);
+              if (nf != nt)
+                  throw CommandError("invalid_argument", "'from' has " + std::to_string(nf) + " numbers but 'to' has " + std::to_string(nt) + ".",
+                                     "Both are [x,y] for a 2D cast or both [x,y,z] for a 3D cast.");
+              const bool is3d = nf == 3;
+              auto shape = cast_shape_from_json(a.value("shape", Json()), is3d);
+              if (!shape.ok()) throw CommandError("invalid_argument", "shape: " + shape.error().message, shape.error().hint);
+              RaycastOptions opt;
+              opt.mask = a.value("mask", -1);
+              opt.ignoreTriggers = a.value("ignoreTriggers", true);
+              if (a.contains("ignore") && !a["ignore"].is_null()) opt.ignore = need_entity(I.world, a, "ignore");
+              std::optional<RaycastHit> hit = is3d ? I.physics.shape_cast3d(I.world, *shape, from, to, opt)
+                                                   : I.physics.shape_cast2d(I.world, *shape, {from.x, from.y}, {to.x, to.y}, opt);
+              Json j = Json::object({{"hit", hit.has_value()}});
+              if (hit) {
+                  j["entity"] = hit->entity ? Json(I.world.id_of(hit->entity)) : Json(nullptr);
+                  j["point"] = vec_json(hit->point);
+                  j["normal"] = vec_json(hit->normal);
+                  j["distance"] = hit->distance;
+              }
+              return j;
+          });
+
     // ---------------------------------------------------------------------- api
     I.commands.add({"api.components", "Describe every component type: fields, kinds, defaults, docs.",
            "Read this before writing scene JSON. Example: api.components {}",

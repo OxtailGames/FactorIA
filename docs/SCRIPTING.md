@@ -213,6 +213,21 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   skipped. From a behaviour pass the caster so it does not hit itself: `physics.raycast(a, b, { ignore: this.entity })`
   (`ignore` is an Entity or id; triggers are skipped unless `ignoreTriggers: false`). Ledge check pattern: cast a short
   ray down from just ahead of the feet and treat "no hit" as a ledge.
+- `shapeCast(shape, from, to, { mask, ignore, ignoreTriggers })` → the same `{ entity, point, normal, distance } | null`
+  as `raycast`, for a shape with size (2D when `from` has no z, else 3D). `shape` is `{ shape: "circle", radius: 8 }` or
+  `{ shape: "box", size: [16, 24] }` in 2D, `{ shape: "sphere", radius: 0.5 }` or `{ shape: "box", size: [1, 2, 1] }` in
+  3D (full sizes in pixels / meters, like the colliders), centred on the cast position and axis-aligned. `distance` is
+  how far the CENTRE can travel before the shape touches something, `point` the contact point and `normal` the hit
+  surface's normal (pointing back at the shape), so `from + dir * distance` is where the shape stops. Colliders the shape
+  already overlaps at `from` are skipped (like a ray starting inside one); a collider it merely touches blocks the cast
+  only if the shape moves towards it. `from === to` returns `null`; use `overlapBox` / `overlapCircle` to test a spot.
+  A bad shape throws an Error that says why, with a "did you mean" for a misspelt name, and notes that `"sphere"` is the 3D
+  name and `"circle"` the 2D one.
+  ```js
+  // Can a 16 x 24 body step 10 px right? Sweep its box first.
+  const hit = physics.shapeCast({ shape: "box", size: [16, 24] }, p, vec2(p.x + 10, p.y), { ignore: this.entity });
+  const room = hit ? hit.distance : 10;   // move at most this far
+  ```
 -  `overlapCircle(center, r)` · `overlapBox(rect)` · `overlapSphere(center, r)`
 - `applyImpulse(entity, v)` · `applyForce(entity, v)` · `setVelocity(entity, v)`
 
