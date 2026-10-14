@@ -44,6 +44,12 @@ Lists templates with dimension and description.
 ### `factoria validate [project] [--json] [--no-scenes] [--fix-types]`
 Checks `factoria.json`, every scene/prefab, asset references, `ENGINE_FEEDBACK.json` and the JavaScript syntax of
 `scripts/**/*.js` and `tools/*.js`. Messages give file, JSON pointer, the problem and a fix. Exit 1 on any error.
+"Every scene/prefab" means every `*.scene.json` and `*.prefab.json` of the project, wherever it lives (`scenes/`,
+`prefabs/`, `levels/`...; folders starting with `.`, `node_modules` and a top-level `build/` are skipped, like
+`scene.format`). Each is loaded, prefabs on their own too, and what the loader refuses is an error with its JSON pointer:
+an unknown field, or a number outside a field's range (`Shape2D.sides` 200 when the range is 3..64: the value is
+refused, never clamped, and the message gives the range and the nearest allowed value). A file that is not in the
+canonical layout is a warning (fix: `factoria call scene.format`).
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
@@ -128,6 +134,11 @@ factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":
 ```
 Commands that create or patch entities (`scene.spawn`, `scene.set_component`) fail (exit 1, with a "did you mean"
 hint) on unknown component or field names instead of creating a half-built entity.
+`scene.set_component` also refuses a number outside the field's range, naming the range. Its `merge` argument reads `fields` as a
+JSON merge-patch (RFC 7386) so that `Script.props` can be changed key by key: `factoria call scene.set_component
+'{"id":"level","component":"Script","merge":true,"fields":{"props":{"levelIndex":3}}}'` keeps every other prop
+(`null` deletes a key). `scene.import_ascii`'s `edits` do the same per edit with `"$merge": true`.
+`physics.raycast` takes `mask`, `ignore` and `ignoreTriggers` like `physics.shape_cast`.
 
 ### `factoria session [project] [options]`
 A JSON-lines loop on ONE engine for AIs without MCP: read one request per stdin line, write one JSON answer per stdout

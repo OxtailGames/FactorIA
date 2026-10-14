@@ -325,6 +325,79 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     e.shutdown();
 }
 
+TEST_CASE("engine: physics.raycast takes mask, ignore and ignoreTriggers like physics.shape_cast, in 2D and 3D") {
+    // 2D: a wall (top at y=10) with a trigger box above it (top at y=70) and a caster standing between them.
+    // 3D: a ground box (top at y=0) with a trigger box above it (top at y=4).
+    const char* scene = R"({
+      "format": "factoria.scene/1",
+      "settings": { "gravity2D": [0, 0], "gravity3D": [0, 0, 0] },
+      "entities": [
+        { "id": "wall", "components": { "Transform": { "position": [0, 0, 0] }, "RigidBody2D": { "type": "static" },
+                                        "Collider2D": { "size": [100, 20] } } },
+        { "id": "sensor", "components": { "Transform": { "position": [0, 60, 0] }, "RigidBody2D": { "type": "static" },
+                                          "Collider2D": { "size": [100, 20], "isTrigger": true } } },
+        { "id": "ground", "components": { "Transform": { "position": [500, -0.5, 0] }, "RigidBody3D": { "type": "static" },
+                                          "Collider3D": { "shape": "box", "size": [10, 1, 10] } } },
+        { "id": "zone", "components": { "Transform": { "position": [500, 3, 0] }, "RigidBody3D": { "type": "static" },
+                                        "Collider3D": { "shape": "box", "size": [2, 2, 2], "isTrigger": true } } }
+      ]
+    })";
+    TempProject p("raycast_options", kProject, scene);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+    REQUIRE(c.call("game.step", Json{{"frames", 2}}).ok);  // bodies are created by the first physics step
+    const CommandInfo* info = c.info("physics.raycast");
+    REQUIRE(info != nullptr);
+    for (const char* prop : {"mask", "ignore", "ignoreTriggers"}) {
+        CHECK_MESSAGE(info->inputSchema["properties"].contains(prop), prop);
+        CHECK_MESSAGE(info->description.find(prop) != std::string::npos, prop);
+        // the same schema as physics.shape_cast: one definition for both
+        CHECK(info->inputSchema["properties"][prop] == c.info("physics.shape_cast")->inputSchema["properties"][prop]);
+    }
+    auto ray = [&](const char* json) { return c.call("physics.raycast", Json::parse(json)); };
+    auto entity = [](const CommandResult& r) { return r.result["hit"] == true ? r.result["entity"].get<std::string>() : std::string("none"); };
+
+    // 2D: the trigger is skipped by default and hit with ignoreTriggers=false; ignore skips an entity; mask 0 hits nothing.
+    auto r = ray(R"({"from":[0,200],"to":[0,-200]})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(entity(r) == "wall");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(190.0).epsilon(0.005));
+    r = ray(R"({"from":[0,200],"to":[0,-200],"ignoreTriggers":false})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(entity(r) == "sensor");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(130.0).epsilon(0.005));
+    r = ray(R"({"from":[0,200],"to":[0,-200],"ignoreTriggers":false,"ignore":"sensor"})");
+    CHECK(entity(r) == "wall");
+    r = ray(R"({"from":[0,200],"to":[0,-200],"ignore":"wall"})");
+    REQUIRE(r.ok);
+    CHECK(entity(r) == "none");
+    r = ray(R"({"from":[0,200],"to":[0,-200],"ignoreTriggers":false,"mask":0})");
+    CHECK(entity(r) == "none");
+    // 3D: the same options.
+    r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(entity(r) == "ground");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(10.0).epsilon(0.005));
+    r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignoreTriggers":false})");
+    CHECK(entity(r) == "zone");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(6.0).epsilon(0.01));
+    r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignoreTriggers":false,"ignore":"zone"})");
+    CHECK(entity(r) == "ground");
+    r = ray(R"({"dimension":"3d","origin":[500,10,0],"direction":[0,-1,0],"maxDistance":30,"ignore":"ground"})");
+    REQUIRE(r.ok);
+    CHECK(entity(r) == "none");
+
+    // An unknown id is refused with a suggestion, like in physics.shape_cast; a wrong type is caught by the schema.
+    r = ray(R"({"from":[0,200],"to":[0,-200],"ignore":"wal"})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("wall") != std::string::npos);
+    r = ray(R"({"from":[0,200],"to":[0,-200],"ignoreTriggers":"no"})");
+    CHECK_FALSE(r.ok);
+    e.shutdown();
+}
+
 TEST_CASE("engine: physics.shape_cast sweeps a shape, honours ignore and explains bad arguments") {
     TempProject p("shape_cast");
     Engine e;

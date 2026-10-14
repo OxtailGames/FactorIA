@@ -702,11 +702,23 @@ void add_note(Json& out, const std::string& note) {
 
 // `edits` ({entity id: {Component: {fields}}}) on the scratch World, one scene.set_component each (same code: components
 // are added when missing, fields patched, errors name the field with did-you-mean). The error says which edit it was.
+// An edit may carry the key "$merge": true next to its fields: that edit is a scene.set_component with `merge` (RFC 7386:
+// Script.props merges into the current props, null deletes a key). It is a key no field is called, so it cannot be
+// mistaken for one.
 void apply_edits(World& scratch, const Json& edits) {
     for (auto e = edits.begin(); e != edits.end(); ++e)
         for (auto c = e->begin(); c != e->end(); ++c) {
             try {
-                set_component(scratch, Json::object({{"id", e.key()}, {"component", c.key()}, {"fields", *c}}));
+                Json fields = *c;
+                bool merge = false;
+                if (fields.contains("$merge")) {
+                    if (!fields["$merge"].is_boolean())
+                        bad_arg("\"$merge\" must be true or false, got " + describe_json_value(fields["$merge"]),
+                                "Example: {\"Script\": {\"$merge\": true, \"props\": {\"levelIndex\": 3}}}.");
+                    merge = fields["$merge"].get<bool>();
+                    fields.erase("$merge");
+                }
+                set_component(scratch, Json::object({{"id", e.key()}, {"component", c.key()}, {"fields", fields}, {"merge", merge}}));
             } catch (const CommandError& err) {
                 throw CommandError(err.code, "edits[\"" + e.key() + "\"][\"" + c.key() + "\"]: " + err.what(),
                                    (err.hint.empty() ? std::string() : err.hint + " ") + "Nothing was written.", err.data);
@@ -844,8 +856,11 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` "
          "(file mode only) patches components of that scene's entities right after the map is imported and before the write, "
          "e.g. the camera and sky colour of a base scene: {\"<entity id>\": {\"<Component>\": {field: value}}}, each entry "
-         "exactly scene.set_component (a missing component is added, only the given fields change, Script.props is replaced as "
-         "a whole); a wrong entity, component or field fails the call naming it, with suggestions, and writes nothing. If the "
+         "exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's "
+         "range is refused; Script.props is replaced as a whole unless the edit has \"$merge\": true next to its fields, "
+         "e.g. {\"level\": {\"Script\": {\"$merge\": true, \"props\": {\"levelIndex\": 3}}}}, which merges the given props "
+         "into the current ones as an RFC 7386 JSON merge-patch: other props stay, null deletes one); a wrong entity, "
+         "component or field fails the call naming it, with suggestions, and writes nothing. If the "
          "file has load errors the call fails instead of dropping them. (2) Without `path` it changes the RUNNING world (like "
          "scene.spawn); `save` then also writes the current scene file like scene.save, so it needs a scene you chose "
          "(--scene or scene.load): when the running scene is only the project's mainScene loaded by default, `save` is "
@@ -874,7 +889,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "from":{"type":"string","description":"File mode (needs `path`): scene file to start from instead of `path`, e.g. a base scene with settings, camera and HUD but no map. `path` is then replaced by the result. Must exist."},
                "dryRun":{"type":"boolean","default":false,"description":"File mode (needs `path`): write nothing and return the resulting scene JSON in `scene`."},
                "edits":{"type":"object",
-                        "description":"File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {\"camera\": {\"Camera\": {\"clearColor\": [0.5, 0.7, 0.9, 1]}}}). A wrong entity/component/field fails and nothing is written.",
+                        "description":"File mode (needs `path`): {entity id: {Component: {field: value}}} applied to the scene after the map is imported and before it is written, each entry like scene.set_component (e.g. {\"camera\": {\"Camera\": {\"clearColor\": [0.5, 0.7, 0.9, 1]}}}). Add \"$merge\": true inside a component's entry to MERGE Script.props (RFC 7386: other props stay, null deletes a key) instead of replacing it: {\"level\": {\"Script\": {\"$merge\": true, \"props\": {\"levelIndex\": 3}}}}. A wrong entity/component/field fails and nothing is written.",
                         "additionalProperties":{"type":"object","additionalProperties":{"type":"object"}}},
                "save":{"type":"boolean","default":false,"description":"Running-world mode: also write the current scene file (like scene.save). Refused when the running scene is only the default mainScene (no --scene, no scene.load): pass `path` instead. Ignored when `path` is given."},
                "position":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":3,

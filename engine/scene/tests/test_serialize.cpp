@@ -234,6 +234,46 @@ TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos 
     CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
 }
 
+TEST_CASE("scene: a number outside a field's range() is an error at its pointer, reported once and never clamped") {
+    TempProject p;
+    REQUIRE(fs::write_text("prefabs/ball.prefab.json", R"({
+      "format": "factoria.prefab/1",
+      "entity": { "id": "ball", "components": { "Shape2D": { "shape": "polygon", "sides": 200 } } }})").ok());
+    World w;
+    LoadReport r = load_scene(w, Json::parse(R"({
+      "format": "factoria.scene/1",
+      "settings": { "musicVolume": 5 },
+      "entities": [
+        { "id": "poly", "components": { "Shape2D": { "shape": "polygon", "sides": 200 }, "Camera": { "fov": 0.5 } } },
+        { "id": "tiny", "components": { "Shape2D": { "shape": "star", "points": 2 } } },
+        { "id": "fine", "components": { "Shape2D": { "shape": "polygon", "sides": 64 } } },
+        { "prefab": "prefabs/ball.prefab.json" }
+      ]})"), "ranges.scene.json");
+    INFO(r.summary());
+    CHECK(!r.ok());
+    CHECK(r.error_count() == 5);
+
+    // File, JSON pointer, the value and the allowed range, and what to use instead.
+    CHECK(has_message(r, kErr, "ranges.scene.json#/entities/0/components/Shape2D/sides: Field 'sides': value 200 is outside the allowed range 3..64"));
+    CHECK(has_message(r, kErr, "Use a value from 3 to 64 (both allowed); the nearest is 64."));
+    CHECK(has_message(r, kErr, "ranges.scene.json#/entities/0/components/Camera/fov: Field 'fov': value 0.5 is outside the allowed range 1..179"));
+    CHECK(has_message(r, kErr, "the nearest is 1."));
+    CHECK(has_message(r, kErr, "#/entities/1/components/Shape2D/points: Field 'points': value 2 is outside the allowed range 3..64"));
+    CHECK(has_message(r, kErr, "#/settings/musicVolume: Field 'musicVolume': value 5 is outside the allowed range 0..1"));
+    CHECK(has_message(r, kErr, "#/entities/3/components/Shape2D/sides: Field 'sides': value 200 is outside the allowed range 3..64"));  // via a prefab
+    CHECK(has_message(r, kErr, "expanded from prefab 'prefabs/ball.prefab.json'"));
+    int mentions = 0;
+    for (const auto& m : r.messages)
+        if (m.pointer == "/entities/0/components/Shape2D/sides") ++mentions;
+    CHECK(mentions == 1);
+
+    // The entity still loads and the bad field keeps its default (the file says 200, the world does not pretend 64).
+    const Shape2D defaults;
+    CHECK(w.get<Shape2D>(w.find_by_id("poly"))->sides == defaults.sides);
+    CHECK(w.get<Camera>(w.find_by_id("poly"))->fov == 60.0f);
+    CHECK(w.get<Shape2D>(w.find_by_id("fine"))->sides == 64);  // the limits themselves are allowed
+}
+
 TEST_CASE("scene: Shape2D polygon and star, ParticleEmitter space and anchor round trip with defaults") {
     const char* text = R"({
       "format": "factoria.scene/1",
