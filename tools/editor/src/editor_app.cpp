@@ -593,15 +593,17 @@ void Editor::reload_scene_from_disk(bool keepUndo) {
 
 // The assistant edits the scene in edit mode only: what it changed after Play would be thrown away at Stop. So Play
 // (and Step, which starts the game too) waits for it, and the AI panel sends nothing while the game runs.
+constexpr const char* kAiEditingNote = "The assistant is changing the scene: wait for it to finish (or press Stop in the AI panel).";
+
 bool Editor::ai_blocks_play() {
-    if (!ai_running()) return false;
-    notify("The assistant is still changing the scene. Wait for it to finish (or press Stop in the AI panel), then Play.", 1);
+    if (play_ != PlayState::Edit || !ai_running()) return false;
+    notify(kAiEditingNote, 1);
     return true;
 }
 
 void Editor::play() {
     if (!engine_ || play_ == PlayState::Playing) return;
-    if (play_ == PlayState::Edit && ai_blocks_play()) return;
+    if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
@@ -619,7 +621,7 @@ void Editor::pause() {
 
 void Editor::step_once() {
     if (!engine_) return;
-    if (play_ == PlayState::Edit && ai_blocks_play()) return;
+    if (ai_blocks_play()) return;
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
         restore_scene(playSnapshot_);
@@ -914,13 +916,12 @@ void Editor::draw_toolbar() {
     };
     ImGui::BeginDisabled(!have);
     const bool aiEditing = play_ == PlayState::Edit && ai_running();
-    const char* aiEditingTip = "The assistant is changing the scene: wait for it to finish (or press Stop in the AI panel).";
     ImGui::BeginDisabled(play_ == PlayState::Playing || aiEditing);
     colored(ImVec4(0.18f, 0.48f, 0.26f, 1));
     if (ImGui::Button(" Play ")) play();
     ImGui::PopStyleColor(3);
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? aiEditingTip : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
+    ImGui::SetItemTooltip("%s", aiEditing ? kAiEditingNote : "Snapshot the scene and run the game (F5 toggles Play/Stop)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ != PlayState::Playing);
     if (ImGui::Button(" Pause ")) pause();
@@ -930,7 +931,7 @@ void Editor::draw_toolbar() {
     ImGui::BeginDisabled(aiEditing);
     if (ImGui::Button(" Step ")) step_once();
     ImGui::EndDisabled();
-    ImGui::SetItemTooltip("%s", aiEditing ? aiEditingTip : "Advance exactly one fixed frame (F10)");
+    ImGui::SetItemTooltip("%s", aiEditing ? kAiEditingNote : "Advance exactly one fixed frame (F10)");
     ImGui::SameLine();
     ImGui::BeginDisabled(play_ == PlayState::Edit);
     colored(ImVec4(0.62f, 0.22f, 0.20f, 1));
