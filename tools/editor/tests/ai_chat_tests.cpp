@@ -441,7 +441,6 @@ TEST_CASE("a big picture is shrunk to what the model looks at; a small one is ke
     auto kept = attach_bytes(project.str(), "small.png", bytes);
     REQUIRE(kept);
     CHECK(read_file(project.dir / ".factoria" / "ai" / "attachments" / "small.png").size() == bytes.size());
-
 }
 
 TEST_CASE("selection_line tells the AI which entity this and it mean") {
