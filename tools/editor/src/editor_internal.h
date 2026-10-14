@@ -33,6 +33,8 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/tooling.h"
+#include "ai_chat.h"
+#include "ai_usage.h"
 #include "editor_tools.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -71,19 +73,6 @@ struct Toast {
     std::string text;
     int level = 0;  // 0 info, 1 warn, 2 error
     double expires = 0;
-};
-
-struct ChatItem {
-    enum class Kind { User, Assistant, Thinking, Tool, Info, Error };
-    Kind kind = Kind::Info;
-    std::string text;
-    std::string tool;
-    Json input;
-    Json result;
-    bool done = false;
-    bool isError = false;
-    int depth = 0;
-    std::string role;
 };
 
 struct TextureEntry {
@@ -257,13 +246,17 @@ public:
 
     // AI
     void ai_refresh_providers();
-    void ai_start(const std::string& task);
-    void ai_stop();
+    void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
+    void ai_stop();                           // joins the agent thread, applies its last events, saves the chats
     void ai_drain_events();
+    void ai_sync_chats();                     // the chat tabs belong to the open project: switch when it changed
+    void ai_on_files_dropped();               // sokol file drop: images become pending attachments of the active chat
+    void ai_attach_path(const std::string& path);
+    void ai_paste_image();                    // clipboard picture -> pending attachment (does nothing without one)
     std::shared_ptr<CommandRegistry> make_proxy_registry();
     MainThreadQueue& queue() { return queue_; }
     bool ai_running() const { return aiRunning_.load(); }
-    const std::vector<ChatItem>& chat() const { return chat_; }
+    const std::vector<ChatItem>& chat() const { return chat_.current().items; }  // transcript of the active chat
 
     // autotest
     void autotest_pre_frame();
@@ -407,13 +400,15 @@ public:
     std::atomic<bool> aiCancel_{false};
     std::vector<ai::AgentEvent> aiPending_;  // produced by the agent thread, drained on the main thread
     std::optional<ai::SessionResult> aiResult_;
-    std::vector<ChatItem> chat_;
-    std::string aiInput_;
-    int aiProvider_ = 0;  // 0 = role default
-    int aiRole_ = 0;
-    ai::Usage aiUsage_;
-    double aiCost_ = 0;
-    bool aiScrollDown_ = false;
+    AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
+    std::string aiRunChat_;         // id of the chat the agent thread works for ("" = no run); set by ai_start, cleared on the result
+    std::string aiRunProvider_;     // provider of that run (the plan limits belong to it)
+    LimitsByProvider aiLimits_;     // last known plan windows, shared by every tab; kept in ~/.factoria/ai_limits.json
+    bool aiLimitsLoaded_ = false;
+    int aiTabForce_ = 0;            // frames left to force the active tab (a tab opened/closed by code)
+    bool aiHistoryOpen_ = false;    // request to open the History popup this frame
+    std::vector<ChatHistoryEntry> aiHistory_;
+    std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
     std::shared_ptr<CommandRegistry> aiProxy_;
     ai::ProviderFactory aiFactory_;  // test hook: replaces the real providers (autotest mock)
 
@@ -482,5 +477,10 @@ bool asset_matches(const std::string& assetType, const std::string& path);
 // folder_picker.cpp: the system's folder dialog, opened at `start` (blocks until it closes). "" when cancelled, or
 // when there is no dialog (Linux without zenity or kdialog).
 std::string pick_folder(const std::string& title, const std::string& start);
+// Same for one existing file of the given kinds (`filterName` "Images", `extensions` {"png", "jpg"}, no dot).
+std::string pick_file(const std::string& title, const std::string& start, const std::string& filterName,
+                      const std::vector<std::string>& extensions);
+// The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux).
+std::vector<std::uint8_t> clipboard_image_png();
 
 }  // namespace fa::editor
