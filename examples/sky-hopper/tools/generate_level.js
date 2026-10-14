@@ -9,7 +9,8 @@
 // running game is never touched (no scene is loaded, saved or restored, audio and physics keep going):
 //   - from: levels/generator_base.scene.json (settings, camera, level script and HUD, no map) is the scene to start from
 //   - edits: the sky colour, camera height and level number for this map, patched into that scene like scene.set_component
-//     (the camera takes its limits from the map itself: its follow_camera has "bounds": "map")
+//     (the level number merges into the level script's props: "$merge": true; the camera takes its limits from the map
+//     itself: its follow_camera has "bounds": "map")
 //   - it builds the Tilemap and the objects and writes `path` in the canonical layout (dryRun: writes nothing and returns
 //     the scene JSON)
 import { fa, ToolError, rng } from "factoria";
@@ -117,18 +118,16 @@ function call(name, args) {
 }
 
 // What differs between levels in the base scene (everything else in it is shared): sky colour, camera height, level
-// number. Like scene.set_component, an edit of Script.props replaces the props as a whole, so the level script's other
-// props are read from the base. The camera limits are not edited: the camera's "bounds": "map" makes follow_camera.js
-// clamp to the Tilemap this level imports.
+// number. An edit of Script.props replaces the props as a whole, unless it has "$merge": true: then only the props given
+// change (RFC 7386 merge-patch), so the level script's other props (killY...) stay as the base scene has them. The
+// camera limits are not edited: the camera's "bounds": "map" makes follow_camera.js clamp to the Tilemap this level imports.
 function edits_for_level({ levelH, difficulty, levelIndex }) {
-  const base = JSON.parse(call("fs.read", { path: BASE }).content);
-  const levelProps = base.entities.find((x) => x.id === "level")?.components?.Script?.props ?? {};
   return {
     camera: {
       Camera: { clearColor: [round3(0.55 - difficulty * 0.08), round3(0.7 - difficulty * 0.08), round3(0.95 - difficulty * 0.1), 1] },
       Transform: { position: [640, levelH / 2, 0] },
     },
-    level: { Script: { props: { ...levelProps, levelIndex } } },
+    level: { Script: { $merge: true, props: { levelIndex } } },
   };
 }
 
