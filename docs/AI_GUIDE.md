@@ -685,7 +685,7 @@ How tiles collide (verified against the physics rules):
 
 ### 9.9 3D scene with a light and fog
 
-From `templates/3d-empty/scenes/main.scene.json` (abridged):
+A camera, a sun and a floor (the `3d-empty` template has only the camera; add the rest):
 
 ```json
 {
