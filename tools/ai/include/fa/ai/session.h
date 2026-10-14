@@ -12,8 +12,26 @@
 
 namespace fa::ai {
 
+// What carries a chat from one message to the next. The caller (the editor) keeps it between `AgentSession::run` calls:
+// pass the previous `SessionResult::conversation` in `SessionOptions::conversation`.
+//   * CLI agents with a {session} placeholder in their argv (Claude Code): the CLI's own session id; a follow-up resumes
+//     it and sends only the new task (the system prompt is already part of it).
+//   * API chat providers: the messages so far (append-only, assistant payloads untouched).
+// `key` says who produced it ("<provider>" for a CLI, "<provider>/<model>" for a chat provider): a run with another key
+// (the user switched provider or model) starts a new conversation instead of feeding one provider another one's state.
+struct Conversation {
+    std::string key;
+    std::string cliSessionId;
+    double cliCostUsd = 0;             // running total the CLI reported for the session (Claude Code counts cumulatively)
+    std::vector<Message> history;
+    bool empty() const { return cliSessionId.empty() && history.empty(); }
+    Json to_json() const;
+    static Conversation from_json(const Json& j);
+};
+
 struct SessionOptions {
     std::string projectDir;            // project root (context, transcripts, MCP --project)
+    Conversation conversation;         // continue this conversation (empty = start a new one)
     std::string role = kRoleOrchestrator;
     std::string providerOverride;      // replaces the role's provider (depth 0 only)
     std::string modelOverride;         // replaces the role's model (depth 0 only)
@@ -36,6 +54,7 @@ struct SessionResult {
     double costUsd = 0;
     int turns = 0;
     std::string transcriptPath;        // main session transcript ("" when disabled)
+    Conversation conversation;         // pass it back in SessionOptions::conversation to continue the chat
     Json to_json() const;
 };
 
@@ -67,8 +86,9 @@ public:
     void set_provider_factory(ProviderFactory f) { factory_ = std::move(f); }
     void set_cancel_flag(const CancelFlag* c) { cancel_ = c; }
 
-    // Runs the task to completion (synchronously).
-    SessionResult run(const std::string& task);
+    // Runs the task to completion (synchronously). `imageFiles` are pictures (absolute paths, .png .jpg .jpeg .gif .webp)
+    // the user attached to this message; an unreadable one fails the run before anything is sent.
+    SessionResult run(const std::string& task, const std::vector<std::string>& imageFiles = {});
 
 private:
     SessionResult run_role(const std::string& role, const std::string& task, int depth);
@@ -94,6 +114,8 @@ private:
     int delegateCount_ = 0;
     std::string stamp_;
     std::string systemCache_;
+    std::vector<ImageData> images_;          // the attached pictures of the current run (depth 0 only)
+    std::vector<std::string> imagePaths_;
 };
 
 }  // namespace fa::ai

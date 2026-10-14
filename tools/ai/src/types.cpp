@@ -1,13 +1,105 @@
 #include "fa/ai/types.h"
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+
+#include "fa/core/strings.h"
 #include "util.h"
 
 namespace fa::ai {
 
-Message Message::user(std::string text) {
+using namespace util;
+
+Message Message::user(std::string text, std::vector<ImageData> images) {
     Message m;
     m.role = Role::User;
     m.text = std::move(text);
+    m.images = std::move(images);
+    return m;
+}
+
+std::string image_media_type_for_path(std::string_view path) {
+    const std::size_t dot = path.rfind('.');
+    if (dot == std::string_view::npos) return {};
+    const std::string ext = lower(std::string(path.substr(dot + 1)));
+    if (ext == "png") return "image/png";
+    if (ext == "jpg" || ext == "jpeg") return "image/jpeg";
+    if (ext == "gif") return "image/gif";
+    if (ext == "webp") return "image/webp";
+    return {};
+}
+
+Result<ImageData> load_image_data(const std::string& path) {
+    const std::string mediaType = image_media_type_for_path(path);
+    if (mediaType.empty()) {
+        return make_error("'" + path + "' is not an image type the AI accepts",
+                          "Use a .png, .jpg, .jpeg, .gif or .webp file.");
+    }
+    // The path is UTF-8 (the editor passes what the OS dialog gave it); path(std::string) would read it as ANSI on Windows.
+    std::ifstream in(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(path.data()), path.size())), std::ios::binary);
+    if (!in) return make_error("Cannot read the image '" + path + "'", "Does the file still exist, and can this user read it?");
+    const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (bytes.empty()) return make_error("The image '" + path + "' is empty", "Attach a different file.");
+    return ImageData{mediaType, fa::base64_encode(bytes.data(), bytes.size())};
+}
+
+Json saved_message_json(const Message& m) {
+    Json j = Json::object({{"role", m.role == Role::User ? "user" : "assistant"}, {"text", m.text}});
+    if (!m.toolCalls.empty()) {
+        Json calls = Json::array();
+        for (const auto& c : m.toolCalls) {
+            Json cj = Json::object({{"id", c.id}, {"name", c.name}, {"input", c.input}});
+            if (!c.inputError.empty()) cj["inputError"] = c.inputError;
+            calls.push_back(std::move(cj));
+        }
+        j["toolCalls"] = std::move(calls);
+    }
+    if (!m.toolResults.empty()) {
+        Json results = Json::array();
+        for (const auto& r : m.toolResults) {
+            std::string content = r.content;
+            Json rj = Json::object({{"toolUseId", r.toolUseId}, {"isError", r.isError}});
+            if (!r.images.empty()) {
+                content += "\n[" + std::to_string(r.images.size()) + " image(s) returned here are not kept in the saved conversation]";
+            }
+            rj["content"] = std::move(content);
+            results.push_back(std::move(rj));
+        }
+        j["toolResults"] = std::move(results);
+    }
+    if (!m.raw.is_null()) j["raw"] = m.raw;
+    if (!m.images.empty()) {
+        j["text"] = m.text + (m.text.empty() ? "" : "\n") + "[" + std::to_string(m.images.size()) +
+                    " image(s) attached here are not kept in the saved conversation]";
+    }
+    return j;
+}
+
+Message message_from_json(const Json& j) {
+    Message m;
+    m.role = str(j, "role") == "assistant" ? Role::Assistant : Role::User;
+    m.text = str(j, "text");
+    if (const Json* calls = child(j, "toolCalls"); calls && calls->is_array()) {
+        for (const auto& c : *calls) {
+            ToolCall tc;
+            tc.id = str(c, "id");
+            tc.name = str(c, "name");
+            if (const Json* in = child(c, "input")) tc.input = *in;
+            tc.inputError = str(c, "inputError");
+            m.toolCalls.push_back(std::move(tc));
+        }
+    }
+    if (const Json* results = child(j, "toolResults"); results && results->is_array()) {
+        for (const auto& r : *results) {
+            ToolResult tr;
+            tr.toolUseId = str(r, "toolUseId");
+            tr.content = str(r, "content");
+            tr.isError = flag(r, "isError");
+            m.toolResults.push_back(std::move(tr));
+        }
+    }
+    if (const Json* raw = child(j, "raw")) m.raw = *raw;
     return m;
 }
 

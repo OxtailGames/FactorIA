@@ -429,6 +429,9 @@ void Editor::on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_ICONIFIED:
             engine_->input().release_all();
             break;
+        case SAPP_EVENTTYPE_FILES_DROPPED:
+            ai_on_files_dropped();  // pictures dropped on the window go to the AI Assistant's message (ai_panel.cpp)
+            break;
         default:
             break;
     }

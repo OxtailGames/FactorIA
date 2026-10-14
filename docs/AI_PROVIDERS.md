@@ -29,9 +29,10 @@ factoria ai doctor        # what is installed / which keys are visible (never pr
    ```json
    { "roles": { "orchestrator": { "provider": "claude-code", "model": "opus" } } }
    ```
-FactorIA runs: `claude -p --output-format stream-json --verbose --model <model> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
-with the prompt on standard input,
-in the project directory. The MCP config file is generated at
+FactorIA runs: `claude -p --output-format stream-json --input-format stream-json --verbose --model <model> --resume <session> --mcp-config <file> --allowedTools mcp__factoria --permission-mode acceptEdits`,
+with the message on standard input (one `stream-json` line, which can carry pictures),
+in the project directory. `--resume <session>` is left out for the first message of a conversation
+(see [Conversations](#conversations-and-resume)). The MCP config file is generated at
 `<project>/.factoria/ai/mcp-claude-code.json` (no secrets in it).
 
 ### B) ChatGPT subscription (Codex CLI)
@@ -39,7 +40,8 @@ in the project directory. The MCP config file is generated at
 2. Run `codex` once (or `codex login`) and sign in with ChatGPT.
 3. Use provider `codex`. FactorIA runs
    `codex exec --json -m <model> -c mcp_servers.factoria.command="factoria" -c 'mcp_servers.factoria.args=["mcp","--project","<dir>"]' -`,
-   with the prompt on standard input.
+   with the prompt on standard input. Codex starts a **fresh session every message**: FactorIA does not resume it,
+   so a follow-up in the editor chat does not remember the earlier messages (the transcript on screen does).
 
 ### C) Any other CLI agent
 ```json
@@ -54,12 +56,16 @@ in the project directory. The MCP config file is generated at
 }
 ```
 Placeholders: `{prompt}` `{model}` `{project}` `{mcp_config}` (path of a generated
-MCP config JSON) plus `{project_json}` / `{factoria_json}` (JSON-quoted strings,
-used by the Codex template). A template without `{prompt}` gets the prompt on standard input: on Windows
+MCP config JSON) `{session}` (the CLI's session id of the conversation, see below) plus `{project_json}` / `{factoria_json}`
+(JSON-quoted strings, used by the Codex template). A template without `{prompt}` gets the prompt on standard input: on Windows
 prefer that, because CLIs installed with npm are `.cmd` files and `cmd.exe` cannot pass a multi-line argument
-(FactorIA refuses arguments with line breaks or `% & | < > ^` for them). If `{model}` is empty, that argument (and a bare
-flag right before it) is dropped. Output lines are shown as text; JSON lines
+(FactorIA refuses arguments with line breaks or `% & | < > ^` for them). If `{model}`, `{mcp_config}` or `{session}` is
+empty, that argument (and a bare flag right before it, like `--resume`) is dropped. Output lines are shown as text; JSON lines
 with `text`/`result`/`message` are unwrapped.
+
+A template with `--input-format stream-json` gets standard input as one JSON line
+`{"type":"user","message":{"role":"user","content":[{"type":"text",...},{"type":"image",...}]}}` (what Claude Code expects).
+Every other CLI gets the pictures as files: the prompt ends with `Attached images (read them): <absolute paths>`.
 
 ### D) Anthropic API key
 ```bash
@@ -156,6 +162,43 @@ runs its own loop and `agent_delegate` is not offered.
   the model saw, never your API keys.
 * Screenshots: a command result `{"image": {"mediaType": "image/png", "data": "<base64>"}}`
   is attached to the model as an image.
+
+## Conversations and resume
+
+The editor's AI panel keeps a real conversation per chat tab: a follow-up message continues the earlier one instead of
+starting from scratch.
+
+| Provider kind | How the conversation continues |
+|---|---|
+| Claude Code | the session id the CLI reports is kept and passed back with `--resume {session}`; only the new message is sent |
+| API providers (`anthropic`, `openai`, ...) | the message history (text, tool calls and results; picture bytes are dropped from the saved copy) is sent again with the new message |
+| Codex, other CLIs | no resume: every message is a fresh session (add `{session}` to `argv` if your CLI can resume one, and make it report the id in a `session_id` JSON field) |
+
+If Claude Code no longer knows the session (`No conversation found`, e.g. its data was cleaned up), FactorIA says so in
+the transcript and starts a new session with the whole earlier text. A conversation switched to another provider or
+model starts fresh. The API history is not trimmed: a very long chat costs more per message, so open a new tab to start clean.
+The editor also puts one line before the message that names the selected entity
+(`[Viewport selection: entity "Player" (id "e3"). "this" and "it" in the request mean this entity.]`), so "make it bigger" works.
+Chats are saved in `<project>/.factoria/ai/chats/` (see [EDITOR.md](EDITOR.md)).
+
+## Pictures in messages
+
+A message can carry pictures (png, jpg, jpeg, gif, webp; up to 20 MB each). In the editor you drop files on the window,
+paste with Ctrl+V while the AI input has focus, or press **Attach image...**; each one is copied to
+`<project>/.factoria/ai/attachments/`. Claude Code and the API providers get the pixels in the request itself; other CLIs get
+the absolute paths of those files at the end of the prompt, so the agent can open them.
+
+## Usage display
+
+The AI panel shows what the provider reports, never a guess:
+
+* **Session (5h)** and **Week**: how much of the plan's limit is used, with the local time the window resets. Claude Code
+  reports them in `rate_limit_event` lines, Codex in its `rate_limits`. A window whose reset time has passed shows as 0%.
+  Plan limits are shared by all chats, so the last values are kept per provider in `~/.factoria/ai_limits.json`
+  and shown before the next message (a dim "Plan usage updates after the first message." while there are none).
+* **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
+* **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
+  plans, which are not billed per token.
 
 ## Costs
 

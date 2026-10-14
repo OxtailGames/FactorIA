@@ -2,3 +2,6 @@
 # with LF, and tests compare committed scene files with what the engine writes byte for byte (scene.format also treats
 # CRLF as not canonical), so a CRLF checkout on Windows would fail them.
 *.json text eol=lf
+
+# The Windows fake CLI of the AI tests runs through cmd.exe: CRLF on every checkout.
+tools/ai/tests/fixtures/*.cmd text eol=crlf

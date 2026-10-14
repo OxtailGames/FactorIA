@@ -135,9 +135,11 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
         case ProviderKind::ClaudeCode:
             // No {prompt}: the prompt goes to standard input (npm installs these CLIs as .cmd files on Windows, and
             // cmd.exe cannot pass a multi-line argument). In -p mode Claude Code asks before every MCP tool, so the
-            // engine's own tools are allowed up front.
-            return {"-p", "--output-format", "stream-json", "--verbose", "--model", "{model}", "--mcp-config",
-                    "{mcp_config}", "--allowedTools", "mcp__factoria", "--permission-mode", "acceptEdits"};
+            // engine's own tools are allowed up front. `--input-format stream-json` makes stdin one JSON message, which can
+            // carry images; `--resume {session}` continues the chat's session (the argument disappears for the first message).
+            return {"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--model",
+                    "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria",
+                    "--permission-mode", "acceptEdits"};
         case ProviderKind::Codex:
             return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}",
                     "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]", "-"};
