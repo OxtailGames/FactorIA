@@ -226,7 +226,7 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 - `raycast(from, to, { mask, ignore, ignoreTriggers })` → `{ entity, point, normal, distance } | null` (2D when `from` has no z)
 - `raycast3d(origin, dir, maxDistance, { mask, ignore, ignoreTriggers })`. Colliders that contain the ray origin are
   skipped. From a behaviour pass the caster so it does not hit itself: `physics.raycast(a, b, { ignore: this.entity })`
-  (`ignore` is an Entity or id; triggers are skipped unless `ignoreTriggers: false`). Ledge check pattern: cast a short
+  (`ignore` is an Entity or id; triggers are skipped unless `ignoreTriggers: false`; the commands `physics.raycast` and `physics.shape_cast` take the same three options). Ledge check pattern: cast a short
   ray down from just ahead of the feet and treat "no hit" as a ledge.
 - `shapeCast(shape, from, to, { mask, ignore, ignoreTriggers })` → the same `{ entity, point, normal, distance } | null`
   as `raycast`, for a shape with size (2D when `from` has no z, else 3D). `shape` is `{ shape: "circle", radius: 8 }` or
