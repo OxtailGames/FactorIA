@@ -400,10 +400,18 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return brief_state(I, errs, seq);
           });
 
-    I.commands.add({"game.input", "Inject input: press/release actions or keys, or set an action state, mouse position/buttons.",
+    I.commands.add({"game.input", "Inject input: press/release actions or keys, or set an action state, mouse position/buttons, "
+           "gamepad buttons/sticks, touches.",
            "Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. "
            "Forms: {\"action\":\"jump\",\"down\":true}, {\"key\":\"Space\",\"down\":false}, "
-           "{\"press\":[\"jump\"],\"release\":[\"fire\"]}, {\"mouse\":{\"position\":[640,360]}}. "
+           "{\"press\":[\"jump\"],\"release\":[\"fire\"]}, {\"mouse\":{\"position\":[640,360]}}, "
+           "{\"gamepad\":{\"index\":0,\"buttons\":{\"A\":true},\"axes\":{\"LeftX\":-1}}}, "
+           "{\"touch\":{\"id\":1,\"position\":[200,300],\"down\":true}}. "
+           "gamepad: index 0..3 (default 0), connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, "
+           "LeftShoulder, RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y up; "
+           "LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). "
+           "touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); "
+           "the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. "
            "The input is applied now and seen by the next frame (game.step). Example: game.input {\"press\":[\"jump\"]}",
            parse_schema(R"({"type":"object","properties":{
                "action":{"type":"string","description":"Action name (with `down`)."},
@@ -411,7 +419,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "down":{"type":"boolean","default":true,"description":"New state for action/key."},
                "press":{"type":"array","items":{"type":"string"}},
                "release":{"type":"array","items":{"type":"string"}},
-               "mouse":{"type":"object","description":"{position:[x,y] in design pixels, left/right/middle: bool}."}}})"),
+               "mouse":{"type":"object","description":"{position:[x,y] in design pixels, left/right/middle: bool}."},
+               "gamepad":{"type":["object","array"],"description":"{index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads."},
+               "touch":{"type":["object","array"],"description":"{id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               std::string err;
@@ -432,6 +442,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   if (m.contains("right")) I.input.on_mouse_button(MouseButton::Right, m["right"].get<bool>());
                   if (m.contains("middle")) I.input.on_mouse_button(MouseButton::Middle, m["middle"].get<bool>());
               }
+              std::vector<std::string> problems;  // the valid parts are applied; the rest is reported with a hint
+              if (a.contains("gamepad")) apply_gamepad_json(I.input, a["gamepad"], problems);
+              if (a.contains("touch")) apply_touch_json(I.input, a["touch"], problems);
+              if (!problems.empty())
+                  throw CommandError("invalid_argument", join(problems, "\n"),
+                                     "gamepad: {\"index\":0,\"buttons\":{\"A\":true},\"axes\":{\"LeftX\":-1}}; "
+                                     "touch: {\"id\":1,\"position\":[x,y],\"down\":true}.");
               return I.input.snapshot();
           });
 

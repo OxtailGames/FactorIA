@@ -1095,3 +1095,118 @@ TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
         CHECK(dts.find(needle) != std::string::npos);
     }
 }
+
+TEST_CASE("gamepad: game.gamepad drives bound actions, input.gamepad reads pads, errors teach") {
+    Json settings = Json::object({{"input", Json::object({{"actions", Json::parse(R"({
+        "jump": ["Space", "GamepadA"],
+        "move_left": ["A", "GamepadLeftStickLeft"], "move_right": ["D", "GamepadLeftStickRight"],
+        "move_down": ["S", "GamepadLeftStickDown"], "move_up": ["W", "GamepadLeftStickUp"],
+        "fire": ["GamepadRightTrigger"]
+    })")}})}});
+    TestHost h("gamepad", settings);
+    h.file("tests/t.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { input } from "factoria";
+test("a button drives an action; press/release mirror keyDown/keyUp, tap steps", () => {
+  const pad = game.gamepad(0);
+  expect(input.gamepad(0).connected).toBe(false);   // asking for the handle does not plug the pad in
+  pad.press("A");
+  expect(input.gamepad(0).connected).toBe(true);
+  expect(input.gamepad().down("a")).toBe(true);     // case-insensitive, index defaults to 0
+  expect(input.gamepad(1).connected).toBe(false);
+  expect(input.pressed("jump")).toBe(true);
+  expect(input.gamepad(0).pressed("A")).toBe(true);
+  game.step(1);
+  expect(input.pressed("jump")).toBe(false);
+  expect(input.down("jump")).toBe(true);
+  pad.release("A");
+  expect(input.released("jump")).toBe(true);
+  expect(input.gamepad(0).released("A")).toBe(true);
+  game.step(1);
+  expect(input.down("jump")).toBe(false);
+  pad.tap("A");
+  expect(input.down("jump")).toBe(false);
+});
+test("the pad does not leak into the next test; a second pad works too", () => {
+  expect(input.gamepad(0).connected).toBe(false);
+  expect(input.down("jump")).toBe(false);
+  const two = game.gamepad(1);
+  two.press("A");
+  expect(input.down("jump")).toBe(true);                // a binding matches ANY pad
+  expect(input.gamepad(0).down("A")).toBe(false);
+  expect(input.gamepad(1).down("A")).toBe(true);
+  two.disconnect();
+  expect(input.gamepad(1).connected).toBe(false);
+  expect(input.down("jump")).toBe(false);
+  expect(input.released("jump")).toBe(true);
+  two.connect();
+  expect(input.gamepad(1).connected).toBe(true);
+});
+test("a stick moves axis(), vector() and value(), after the deadzone", () => {
+  const pad = game.gamepad();
+  pad.axis("LeftX", -1);
+  expect(input.axis("move_left", "move_right")).toBe(-1);
+  expect(input.value("move_left")).toBe(1);
+  expect(input.pressed("move_left")).toBe(true);
+  expect(input.gamepad(0).axis("LeftX")).toBe(-1);
+  game.step(1);
+  expect(input.pressed("move_left")).toBe(false);
+  pad.axis("LeftX", 0.1);                                  // inside the 0.2 deadzone
+  expect(input.axis("move_left", "move_right")).toBe(0);
+  expect(input.gamepad().axis("LeftX")).toBe(0);
+  expect(input.gamepad().rawAxis("LeftX")).toBeCloseTo(0.1);
+  pad.axis("LeftX", 0.7);                                  // (0.7 - 0.2) / 0.8
+  expect(input.value("move_right")).toBeCloseTo(0.625);
+  expect(input.down("move_right")).toBe(true);
+  pad.axis("LeftX", 0);
+  pad.axis("LeftY", 1);                                    // +Y is up
+  expect(input.vector("move_left", "move_right", "move_down", "move_up").y).toBe(1);
+  pad.axis("LeftY", 0.6);
+  expect(input.vector("move_left", "move_right", "move_down", "move_up").y).toBeCloseTo(0.5);
+  pad.axis("RightTrigger", 1);
+  expect(input.down("fire")).toBe(true);
+  pad.axis("RightTrigger", 0);
+  expect(input.down("fire")).toBe(false);
+});
+test("the deadzone is a setting scripts can read and change", () => {
+  expect(input.deadzone).toBeCloseTo(0.2);
+  input.deadzone = 0.5;
+  game.gamepad().axis("LeftX", 0.4);
+  expect(input.value("move_right")).toBe(0);
+  input.deadzone = 0;
+  expect(input.value("move_right")).toBeCloseTo(0.4);
+  expect(() => { input.deadzone = 1; }).toThrow("deadzone");
+});
+test("a changed deadzone does not leak into the next test", () => {
+  expect(input.deadzone).toBeCloseTo(0.2);
+});
+test("bad names and indices throw with a suggestion", () => {
+  const pad = game.gamepad();
+  expect(() => pad.press("Strat")).toThrow("Did you mean 'Start'");
+  expect(() => pad.press("Dpadleft ")).not.toThrow();
+  expect(() => pad.axis("LeftZ", 1)).toThrow("unknown gamepad axis");
+  expect(() => pad.axis("LeftX", "left")).toThrow("must be a number");
+  expect(() => input.gamepad().down("Strat")).toThrow("Start");
+  expect(() => input.gamepad().axis("LeftTrigr")).toThrow("LeftTrigger");
+  expect(() => game.gamepad(4)).toThrow("0 to 3");
+  expect(() => input.gamepad(-1)).toThrow("0 to 3");
+  expect(() => input.value("nope")).toThrow("unknown input action");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/t.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+}
+
+TEST_CASE("typescript declarations: gamepad input and the gamepad test API") {
+    TestHost h("dts_gamepad");
+    REQUIRE(h.start());
+    std::string dts = h.scripts.typescript_declarations();
+    for (const char* needle : {"export type GamepadButton =", "\"DpadLeft\"", "export interface GamepadAPI {", "gamepad(index?: number): GamepadAPI;",
+                               "value(action: string): number;", "deadzone: number;", "export interface TestGamepad {",
+                               "gamepad(index?: number): TestGamepad;", "GamepadButton, GamepadAxis } from \"factoria\""}) {
+        CAPTURE(needle);
+        CHECK(dts.find(needle) != std::string::npos);
+    }
+}

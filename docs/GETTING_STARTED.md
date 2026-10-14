@@ -143,7 +143,7 @@ factoria run --headless --frames 120 --screenshot-at 119
 - Frames start at 0, and the screenshot of frame N is taken after simulating it. That is why, with 120 frames, the screenshot is frame 119.
 - `--state-out out.json` saves the world state as JSON: entities, components, logs and errors.
 - `--record-audio out.wav` saves the mixed sound, so you can check that the game has sound.
-- `--input replay.json` applies a sequence of presses frame by frame (actions, keys and mouse), for example `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
+- `--input replay.json` applies a sequence of presses frame by frame (actions, keys, mouse, gamepad and touch), for example `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
 - For a single screenshot, `factoria screenshot --frames 120 --out shot.png` simulates the given frames and saves the image.
 - `--json` prints the report as JSON, including the screenshot paths.
 
@@ -294,12 +294,12 @@ Example entry:
 ```json
 {
   "category": "input",
-  "severity": "major",
-  "title": "No gamepad input",
-  "missing": "The game needs a controller, but gamepad bindings such as GamepadA are reserved and not supported yet.",
-  "workaround": "none: feature dropped. The game is keyboard and touch only.",
+  "severity": "minor",
+  "title": "No gamepad rumble",
+  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
+  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
   "workaroundFiles": [],
-  "suggestion": "Support GamepadA/B/X/Y and D-pad bindings in factoria.json input.actions.",
+  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad.",
   "effort": "small"
 }
 ```
@@ -329,7 +329,7 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 | Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |
 | Exporting games (`factoria export`) | Linux tested (`--platform linux`). Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md` |
 | Documentation for AI | In English: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Gamepads | Planned. Button names are reserved, but they do not work yet |
+| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput), Linux (joystick API) and macOS/iOS (GameController) are written but untested; Android and web have none yet (`docs/MOBILE.md`) |
 
 ## 9. Where to read next
 
