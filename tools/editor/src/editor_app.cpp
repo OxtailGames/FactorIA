@@ -59,12 +59,13 @@ Key map_key(sapp_keycode k) {
     }
 }
 
+}  // namespace
+
 std::string home_dir() {
     const char* h = std::getenv("HOME");
     if (!h) h = std::getenv("USERPROFILE");
     return h ? h : "";
 }
-}  // namespace
 
 std::string lower_str(std::string s) {
     for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));

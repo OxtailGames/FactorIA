@@ -14,6 +14,18 @@ endif()
 add_executable(factoria ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 target_link_libraries(factoria PRIVATE fa_cli fa_warnings)
 
+# Windows: FactorIA-Editor.exe opens the editor without a console window (factoria.exe is a console program).
+# Not "FactorIA.exe": Windows file names ignore case, so it would be factoria.exe.
+if(WIN32 AND TARGET fa_editor)
+    add_executable(factoria_editor_launcher WIN32 ${CMAKE_CURRENT_SOURCE_DIR}/launcher/editor_launcher_win32.cpp)
+    set_target_properties(factoria_editor_launcher PROPERTIES OUTPUT_NAME FactorIA-Editor)
+    target_link_libraries(factoria_editor_launcher PRIVATE fa_warnings)
+    if(MINGW)
+        target_link_options(factoria_editor_launcher PRIVATE -municode)
+    endif()
+    add_dependencies(factoria_editor_launcher factoria)
+endif()
+
 if(FA_BUILD_TESTS)
     file(GLOB cli_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(cli_tests)
