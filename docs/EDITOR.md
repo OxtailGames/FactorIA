@@ -32,7 +32,10 @@ what it did. View > Reset layout restores this layout (`~/.factoria/editor_layou
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
 | Audio | (View > Audio) the live `audio.log`. |
 
-Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. Ctrl+Z / Ctrl+Y
+Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that
+reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it
+to send"), and while it is working Play and Step are disabled until it finishes or you press Stop in the AI panel. The Console
+still runs commands during play, to inspect or poke the running game. Ctrl+Z / Ctrl+Y
 (toolbar and Edit menu too) undo and redo scene edits: the ones made by the AI and by commands typed in the Console. View >
 Show colliders and Selection overlay toggle the collider boxes and the selection outline in the viewport.
 
