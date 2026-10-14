@@ -28,7 +28,7 @@ std::string pick_folder(const std::string& title, const std::string& start) {
         dlg->SetTitle(std::filesystem::path(title).wstring().c_str());
         std::error_code ec;
         IShellItem* folder = nullptr;
-        if (!start.empty() && std::filesystem::is_directory(start, ec) &&
+        if (!start.empty() &&
             SUCCEEDED(SHCreateItemFromParsingName(std::filesystem::absolute(start, ec).wstring().c_str(), nullptr,
                                                   IID_PPV_ARGS(&folder)))) {
             dlg->SetFolder(folder);
