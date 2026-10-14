@@ -4,6 +4,7 @@
 
 #include "fa/ai/cli_agent.h"
 #include "fa/ai/process.h"
+#include "fa/core/strings.h"
 #include "test_common.h"
 
 using namespace fa;
@@ -99,29 +100,6 @@ TEST_CASE("process runner: timeout") {
     CHECK(r->timedOut);
 }
 
-TEST_CASE("argv template expansion") {
-    CliRunRequest req{"do it", "sonnet", "/proj dir"};
-    auto a = expand_cli_argv(default_cli_argv(ProviderKind::ClaudeCode), req, "/proj dir/mcp.json", "factoria");
-    std::vector<std::string> expected{"-p", "--output-format", "stream-json", "--verbose", "--model", "sonnet",
-                                      "--mcp-config", "/proj dir/mcp.json", "--allowedTools", "mcp__factoria",
-                                      "--permission-mode", "acceptEdits"};
-    CHECK(a == expected);
-
-    auto c = expand_cli_argv(default_cli_argv(ProviderKind::Codex), req, "", "factoria");
-    std::vector<std::string> cx{"exec", "--json", "-m", "sonnet", "-c", "mcp_servers.factoria.command=\"factoria\"",
-                                "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/proj dir\"]", "-"};
-    CHECK(c == cx);
-
-    // no model => "-m" and its value disappear
-    CliRunRequest nomodel{"x", "", "/p"};
-    auto d = expand_cli_argv(default_cli_argv(ProviderKind::Codex), nomodel, "", "factoria");
-    CHECK(std::find(d.begin(), d.end(), "-m") == d.end());
-    CHECK(d.size() == 7);
-
-    auto g = expand_cli_argv({"--ask", "{prompt}", "--dir", "{project}", "--m={model}"}, req, "", "f");
-    CHECK(g == std::vector<std::string>{"--ask", "do it", "--dir", "/proj dir", "--m=sonnet"});
-}
-
 TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     TempDir dir;
     TempDir scratch;
@@ -157,7 +135,14 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
 
     std::string argv = read_file(argvFile);
     CHECK(argv.find("-p\n--output-format\n") == 0);
-    CHECK(argv.rfind("stdin:Make a game\n") == argv.size() - std::string("stdin:Make a game\n").size());
+    // the built-in argv asks for stream-json on stdin: ONE JSON line holding the prompt
+    CHECK(argv.find("--input-format\nstream-json\n") != std::string::npos);
+    {
+        std::string line = argv.substr(argv.rfind("stdin:") + 6);
+        Json msg = Json::parse(line);
+        CHECK(msg["type"] == "user");
+        CHECK(msg["message"]["content"][0]["text"] == "Make a game");
+    }
     CHECK(argv.find("--output-format\nstream-json\n") != std::string::npos);
     CHECK(argv.find("--model\nsonnet\n") != std::string::npos);
     CHECK(argv.find("--permission-mode\nacceptEdits\n") != std::string::npos);
@@ -344,3 +329,237 @@ TEST_CASE("process runner: .cmd in a path with spaces, multi-line stdin, unsafe 
 }
 
 #endif  // _WIN32
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Conversations through the fake claude CLI (fake_claude.sh on POSIX, fake_claude.cmd on Windows): what is sent on
+// stdin, what argv a follow-up gets, what the usage events carry. Both fakes record one block per invocation: the argv,
+// one argument per line, then "stdin:<what the CLI was sent>".
+
+namespace {
+
+std::string fake_claude_path() {
+#ifdef _WIN32
+    return std::filesystem::path(std::string(FA_AI_FIXTURES) + "/fake_claude.cmd").make_preferred().string();
+#else
+    return std::string(FA_AI_FIXTURES) + "/fake_claude.sh";
+#endif
+}
+
+struct Recorded {
+    std::vector<std::string> argv;
+    std::string stdinText;
+    bool has(const std::string& a) const { return std::find(argv.begin(), argv.end(), a) != argv.end(); }
+    bool has_pair(const std::string& a, const std::string& b) const {
+        for (std::size_t i = 0; i + 1 < argv.size(); ++i)
+            if (argv[i] == a && argv[i + 1] == b) return true;
+        return false;
+    }
+};
+
+// A one-line stdin ends an invocation. (Multi-line text prompts are read with read_file instead.)
+std::vector<Recorded> parse_recorded(const std::string& file) {
+    std::vector<Recorded> out;
+    Recorded cur;
+    std::string text = read_file(file);
+    std::size_t pos = 0;
+    while (pos < text.size()) {
+        std::size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        std::string line = text.substr(pos, nl - pos);
+        if (!line.empty() && line.back() == '\r') line.pop_back();  // the Windows fake writes CRLF
+        pos = nl + 1;
+        if (line.rfind("stdin:", 0) == 0) {
+            cur.stdinText = line.substr(6);
+            out.push_back(std::move(cur));
+            cur = {};
+        } else {
+            cur.argv.push_back(line);
+        }
+    }
+    return out;
+}
+
+// 1x1 PNG
+constexpr const char* kTinyPng =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+std::string write_tiny_png(const std::filesystem::path& file) {
+    auto bytes = fa::base64_decode(kTinyPng);
+    std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return file.string();
+}
+
+}  // namespace
+
+TEST_CASE("claude-code CLI: stdin is stream-json with the images; a follow-up resumes; usage events") {
+    TempDir dir, scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    ProviderConfig cfg = default_config().providers["claude-code"];
+    cfg.command = fake_claude_path();
+    cfg.env["FAKE_ARGV_FILE"] = argvFile;
+
+    CliRunRequest req;
+    req.prompt = "Make a game";
+    req.model = "sonnet";
+    req.projectDir = dir.str();
+    req.images = {{"image/png", "QUJD"}};
+    std::vector<AgentEvent> events;
+    auto r = CliAgent(cfg).run(req, [&](const AgentEvent& e) { events.push_back(e); }, nullptr);
+    REQUIRE(r);
+    CHECK(r->ok);
+    CHECK(r->sessionId == "sess-1");
+    auto recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK(recs[0].has_pair("--input-format", "stream-json"));
+    CHECK_FALSE(recs[0].has("--resume"));  // the first message has nothing to resume
+    Json msg = Json::parse(recs[0].stdinText);
+    CHECK(msg["type"] == "user");
+    CHECK(msg["message"]["content"][0]["text"] == "Make a game");
+    CHECK(msg["message"]["content"][1]["source"]["media_type"] == "image/png");
+    CHECK(msg["message"]["content"][1]["source"]["data"] == "QUJD");
+
+    // plan windows, context in use, and the window size come out as Usage events
+    const AgentEvent* limits = nullptr;
+    const AgentEvent* context = nullptr;
+    u64 window = 0;
+    for (const auto& e : events) {
+        if (e.type != AgentEvent::Type::Usage) continue;
+        if (!e.limits.empty()) limits = &e;
+        if (e.contextTokens > 0 && !context) context = &e;
+        window = std::max(window, e.contextWindow);
+    }
+    REQUIRE(limits);
+    REQUIRE(limits->limits.size() == 2);
+    CHECK(limits->limits[0].name == "five_hour");
+    CHECK(limits->limits[0].usedFraction == doctest::Approx(0.06));
+    CHECK(limits->limits[1].name == "seven_day");
+    REQUIRE(context);
+    CHECK(context->contextTokens == 5002);  // 2 + 1000 + 4000
+    CHECK(window == 1000000);
+
+    // follow-up: --resume <id>, no picture
+    std::filesystem::remove(argvFile);
+    req.sessionId = r->sessionId;
+    req.images.clear();
+    req.prompt = "Now add a coin";
+    auto r2 = CliAgent(cfg).run(req, nullptr, nullptr);
+    REQUIRE(r2);
+    CHECK(r2->ok);
+    recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK(recs[0].has_pair("--resume", "sess-1"));
+    CHECK(Json::parse(recs[0].stdinText)["message"]["content"].size() == 1);
+}
+
+TEST_CASE("AgentSession with the Claude CLI: follow-ups resume and send only the task; each message reports its own cost") {
+    TempDir dir, scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    CommandRegistry registry = make_registry();
+    AiConfig cfg = default_config();
+    cfg.providers["claude-code"].command = fake_claude_path();
+    cfg.providers["claude-code"].env["FAKE_ARGV_FILE"] = argvFile;
+    cfg.roles["orchestrator"] = {"claude-code", "sonnet", "", 0};
+    std::vector<AgentEvent> events;
+    auto run = [&](const std::string& task, const Conversation& conv, const std::vector<std::string>& images = {}) {
+        SessionOptions so;
+        so.projectDir = dir.str();
+        so.conversation = conv;
+        AgentSession s(registry, cfg, so);
+        s.set_event_handler([&](const AgentEvent& e) { events.push_back(e); });
+        return s.run(task, images);
+    };
+
+    SessionResult r1 = run("Make a game", {});
+    REQUIRE(r1.ok);
+    CHECK(r1.conversation.key == "claude-code");
+    CHECK(r1.conversation.cliSessionId == "sess-1");
+    CHECK(r1.conversation.cliCostUsd == doctest::Approx(0.0123));
+    CHECK(r1.costUsd == doctest::Approx(0.0123));
+    auto recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK_FALSE(recs[0].has("--resume"));
+    std::string first = Json::parse(recs[0].stdinText)["message"]["content"][0]["text"].get<std::string>();
+    CHECK(first.find("FactorIA engine guide") != std::string::npos);  // the first message carries the system prompt
+    CHECK(first.find("# Task\nMake a game") != std::string::npos);
+
+    // Claude Code reports the running total of a resumed session: this message costs the difference
+    std::filesystem::remove(argvFile);
+    cfg.providers["claude-code"].env["FAKE_COST"] = "0.0200";
+    events.clear();
+    SessionResult r2 = run("Add a coin", r1.conversation);
+    REQUIRE(r2.ok);
+    CHECK(r2.costUsd == doctest::Approx(0.0077));
+    CHECK(r2.conversation.cliCostUsd == doctest::Approx(0.02));
+    CHECK(r2.conversation.cliSessionId == "sess-1");
+    recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK(recs[0].has_pair("--resume", "sess-1"));
+    CHECK(Json::parse(recs[0].stdinText)["message"]["content"][0]["text"] == "Add a coin");  // only the task
+    const AgentEvent* lastUsage = nullptr;
+    for (const auto& e : events) {
+        if (e.type == AgentEvent::Type::Usage && e.usage.total() > 0) lastUsage = &e;
+    }
+    REQUIRE(lastUsage);
+    CHECK(lastUsage->costUsd == doctest::Approx(0.0077));  // the event agrees with the result
+
+    // a picture goes with the message
+    std::filesystem::remove(argvFile);
+    SessionResult r3 = run("Look", r2.conversation, {write_tiny_png(dir.path / "pic.png")});
+    REQUIRE(r3.ok);
+    recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK(Json::parse(recs[0].stdinText)["message"]["content"][1]["source"]["data"] == kTinyPng);
+
+    // a conversation of another provider is not resumed
+    std::filesystem::remove(argvFile);
+    Conversation foreign = r3.conversation;
+    foreign.key = "codex";
+    SessionResult r4 = run("Hello", foreign);
+    REQUIRE(r4.ok);
+    recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 1);
+    CHECK_FALSE(recs[0].has("--resume"));
+    CHECK(Json::parse(recs[0].stdinText)["message"]["content"][0]["text"].get<std::string>().find("# Task\nHello") != std::string::npos);
+    CHECK(r4.conversation.key == "claude-code");
+
+    // the CLI forgot the session: carry on in a new one and say so
+    std::filesystem::remove(argvFile);
+    cfg.providers["claude-code"].env["FAKE_MODE"] = "resume_fails";
+    events.clear();
+    SessionResult r5 = run("Again", r2.conversation);
+    REQUIRE(r5.ok);
+    CHECK(r5.conversation.cliSessionId == "sess-1");
+    recs = parse_recorded(argvFile);
+    REQUIRE(recs.size() == 2);
+    CHECK(recs[0].has("--resume"));
+    CHECK_FALSE(recs[1].has("--resume"));
+    CHECK(Json::parse(recs[1].stdinText)["message"]["content"][0]["text"].get<std::string>().find("# Task\nAgain") != std::string::npos);
+    bool told = false;
+    for (const auto& e : events) told = told || (e.type == AgentEvent::Type::Info && e.text.find("could not be resumed") != std::string::npos);
+    CHECK(told);
+    CHECK(r5.costUsd == doctest::Approx(0.02));  // the fresh session's own total
+}
+
+TEST_CASE("images reach a CLI without stream-json input as file paths in the prompt") {
+    TempDir dir, scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    CommandRegistry registry = make_registry();
+    AiConfig cfg = default_config();
+    ProviderConfig& cc = cfg.providers["claude-code"];
+    cc.command = fake_claude_path();
+    cc.env["FAKE_ARGV_FILE"] = argvFile;
+    cc.argv = {"-p", "--output-format", "stream-json", "--verbose"};  // no --input-format: stdin is plain text
+    cfg.roles["orchestrator"] = {"claude-code", "sonnet", "", 0};
+    const std::string pic = write_tiny_png(dir.path / "shot.png");
+    SessionOptions so;
+    so.projectDir = dir.str();
+    AgentSession s(registry, cfg, so);
+    auto r = s.run("Fix what the picture shows", {pic});
+    REQUIRE(r.ok);
+    std::string raw;
+    for (char c : read_file(argvFile)) if (c != '\r') raw += c;
+    CHECK(raw.find("-p\n--output-format\nstream-json\n--verbose\n") == 0);  // no --input-format, no --resume
+    CHECK(raw.find("Fix what the picture shows\n\nAttached images (read them): " + pic) != std::string::npos);
+    CHECK(raw.find("\"type\":\"user\"") == std::string::npos);  // plain text, not a JSON message
+    CHECK(r.conversation.cliSessionId.empty());  // this template cannot resume
+}

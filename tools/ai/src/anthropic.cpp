@@ -41,7 +41,14 @@ Json message_to_json(const Message& m) {
     }
     out["role"] = "user";
     if (m.toolResults.empty()) {
-        out["content"] = m.text;
+        if (m.images.empty()) {
+            out["content"] = m.text;
+            return out;
+        }
+        Json parts = Json::array();  // images first, the question after them (the recommended order)
+        for (const auto& img : m.images) parts.push_back(image_block(img));
+        if (!m.text.empty()) parts.push_back(Json::object({{"type", "text"}, {"text", m.text}}));
+        out["content"] = std::move(parts);
         return out;
     }
     // All tool_result blocks of one assistant turn go into ONE user message, first.
