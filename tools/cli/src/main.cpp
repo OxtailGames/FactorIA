@@ -7,6 +7,13 @@
 
 #include "fa/cli/cli.h"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 // The AI agents factoria starts (Claude Code, Codex) run `factoria mcp` and `factoria` commands. Put this binary's
 // directory first on PATH so they find this very binary even when it was started by path and is not installed.
 static void put_self_on_path(const char* argv0) {
@@ -29,5 +36,16 @@ static void put_self_on_path(const char* argv0) {
 int main(int argc, char** argv) {
     if (argc > 0) put_self_on_path(argv[0]);
     std::vector<std::string> args(argv + 1, argv + argc);
+#ifdef _WIN32
+    // Double-clicked in Explorer (no shell shares our console, output not captured): open the editor instead of printing
+    // help into a window that closes at once, and let the console go.
+    // ponytail: the console still flashes for a moment; a GUI-subsystem launcher would avoid it.
+    DWORD pids[2];
+    if (args.empty() && GetConsoleProcessList(pids, 2) == 1 &&
+        GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) == FILE_TYPE_CHAR) {
+        FreeConsole();
+        args = {"editor"};
+    }
+#endif
     return fa::cli::cli_main(args, std::cout, std::cerr, std::cin);
 }
