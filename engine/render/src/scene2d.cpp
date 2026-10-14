@@ -33,6 +33,43 @@ void line_quad(const QuadEmitter& em, Vec2 a, Vec2 b, float t) {
     em.list.quad(v(a + n), v(a - n), v(b - n), v(b + n));
 }
 
+constexpr int kMaxPolygonTips = 64;                      // Shape2D.sides / .points limit
+constexpr int kMaxPolygonVerts = 2 * kMaxPolygonTips;    // a star has a tip and a notch per point
+
+// A closed polygon (any winding, local units) drawn filled, as a triangle fan from `centre` (which must see every vertex:
+// convex shapes and stars), or as an outline that grows INWARD like the rectangle's: every edge moves `t` towards the
+// inside and the corners are mitred, so the tips stay sharp and the silhouette equals the filled one. `t` is capped at
+// the distance from `centre` to the nearest edge, where the regular shapes (triangle about its incentre, diamond,
+// polygon, star) are entirely stroke instead of inverting.
+void polygon_shape(const QuadEmitter& em, const Vec2* p, int n, Vec2 centre, bool filled, float t) {
+    auto v = [&](Vec2 q) { Vec3 w = em.xf(q.x, q.y); return Vertex2D{w.x, w.y, w.z, 0, 0, em.color, kModeTextured, 0}; };
+    if (filled) {
+        for (int i = 0; i < n; ++i) { const Vertex2D b = v(p[(i + 1) % n]); em.list.quad(v(centre), v(p[i]), b, b); }
+        return;
+    }
+    float area2 = 0.0f;  // signed: > 0 = counter-clockwise, whose inside is on the left of every edge
+    for (int i = 0; i < n; ++i) area2 += cross(p[i], p[(i + 1) % n]);
+    Vec2 inward[kMaxPolygonVerts];  // unit normal of edge i -> i+1, pointing into the shape
+    float cap = 1e30f;
+    for (int i = 0; i < n; ++i) {
+        const Vec2 e = p[(i + 1) % n] - p[i];
+        const float len = length(e);
+        if (len < 1e-6f) return;  // a zero-size shape has no outline
+        inward[i] = perp(e) * ((area2 >= 0.0f ? 1.0f : -1.0f) / len);
+        cap = std::min(cap, std::fabs(dot(centre - p[i], inward[i])));
+    }
+    t = std::min(t, cap);
+    Vec2 inner[kMaxPolygonVerts];
+    for (int i = 0; i < n; ++i) {
+        const Vec2 a = inward[(i + n - 1) % n], b = inward[i];
+        inner[i] = p[i] + (a + b) * (t / std::max(1.0f + dot(a, b), 1e-3f));
+    }
+    for (int i = 0; i < n; ++i) {
+        const int j = (i + 1) % n;
+        em.list.quad(v(p[i]), v(p[j]), v(inner[j]), v(inner[i]));
+    }
+}
+
 // Screen-space anchoring: moves the entity's translation by anchor * design size.
 void apply_anchor(Mat4& m, Vec2 anchor, const Frame& f) {
     m.at(3, 0) += anchor.x * float(f.targetW);
@@ -142,38 +179,34 @@ void gather_2d(World& world, Frame& f) {
                 line_quad(em, {0, 0}, s.size, std::max(t, 0.5f));
                 break;
             case ShapeType::Triangle: {
-                Vec2 apex{bx0 + hw, by1}, bl{bx0, by0}, br{bx1, by0};
-                if (s.filled) {
-                    auto v = [&](Vec2 p) { Vec3 w = em.xf(p.x, p.y); return Vertex2D{w.x, w.y, w.z, 0, 0, em.color, kModeTextured, 0}; };
-                    list.quad(v(apex), v(bl), v(br), v(br));
-                } else {
-                    line_quad(em, apex, bl, t);
-                    line_quad(em, bl, br, t);
-                    line_quad(em, br, apex, t);
-                }
+                const Vec2 pts[3] = {{bx0 + hw, by1}, {bx0, by0}, {bx1, by0}};  // apex, bottom-left, bottom-right
+                // The incentre is equally far from all three edges, so the inward outline is as thick on every side.
+                const float a = distance(pts[1], pts[2]), b = distance(pts[2], pts[0]), c = distance(pts[0], pts[1]);
+                const float perimeter = a + b + c;
+                const Vec2 incentre = perimeter > 1e-6f ? (pts[0] * a + pts[1] * b + pts[2] * c) / perimeter : pts[0];
+                polygon_shape(em, pts, 3, incentre, s.filled, t);
                 break;
             }
             case ShapeType::Diamond: {
-                // Rhombus whose 4 points are the middles of the size box's edges. The outline grows INWARD (like the
-                // rectangle's), so filled and outlined diamonds have the same silhouette and sharp tips.
+                // Rhombus whose 4 points are the middles of the size box's edges.
                 const float cx = bx0 + hw, cy = by0 + hh;
                 const Vec2 pts[4] = {{cx, by1}, {bx0, cy}, {cx, by0}, {bx1, cy}};  // top, left, bottom, right
-                auto v = [&](Vec2 p) { Vec3 w = em.xf(p.x, p.y); return Vertex2D{w.x, w.y, w.z, 0, 0, em.color, kModeTextured, 0}; };
-                if (s.filled) {
-                    list.quad(v(pts[0]), v(pts[1]), v(pts[2]), v(pts[3]));
-                } else {
-                    // Distance from the centre to an edge of the rhombus; the inner rhombus is the outer one scaled so
-                    // its edges sit `t` closer to the centre (t is capped so a thick outline fills the shape).
-                    const float diag = std::sqrt(hw * hw + hh * hh);
-                    const float d = diag > 1e-6f ? hw * hh / diag : 0.0f;
-                    const float k = d > 1e-6f ? std::max(0.0f, d - t) / d : 0.0f;
-                    Vec2 inner[4];
-                    for (int i = 0; i < 4; ++i) inner[i] = {cx + (pts[i].x - cx) * k, cy + (pts[i].y - cy) * k};
-                    for (int i = 0; i < 4; ++i) {
-                        const int j = (i + 1) % 4;
-                        list.quad(v(pts[i]), v(pts[j]), v(inner[j]), v(inner[i]));
-                    }
+                polygon_shape(em, pts, 4, {cx, cy}, s.filled, t);
+                break;
+            }
+            case ShapeType::Polygon:
+            case ShapeType::Star: {
+                // Vertices on the ellipse inscribed in the size box, counter-clockwise, the first one pointing up. A star
+                // alternates tips (full radius) and notches (`innerRadius` of it).
+                const bool star = s.shape == ShapeType::Star;
+                const int n = std::clamp(star ? s.points : s.sides, 3, kMaxPolygonTips) * (star ? 2 : 1);
+                const float notch = std::clamp(s.innerRadius, 0.0f, 1.0f), cx = bx0 + hw, cy = by0 + hh;
+                Vec2 pts[kMaxPolygonVerts];
+                for (int i = 0; i < n; ++i) {
+                    const float ang = radians(90.0f) + kTau * float(i) / float(n), k = star && (i & 1) ? notch : 1.0f;
+                    pts[i] = {cx + hw * k * std::cos(ang), cy + hh * k * std::sin(ang)};
                 }
+                polygon_shape(em, pts, n, {cx, cy}, s.filled, t);
                 break;
             }
         }

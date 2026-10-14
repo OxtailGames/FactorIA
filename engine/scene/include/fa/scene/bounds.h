@@ -6,7 +6,8 @@
 //   * Sprite   `size` (0 = the region, else the texture, else 32 x 32; a SpriteAnimator divides the texture into its
 //              frames), placed by `pivot` (0,0 = bottom-left).
 //   * Shape2D  the size box placed by `pivot`. A Circle is its bounding square of side size.x; a Line is the stroked
-//              segment from the origin to `size`; a Diamond has its tips on the middles of the size box.
+//              segment from the origin to `size`; a Diamond has its tips on the middles of the size box;
+//              a Polygon or Star is measured by its size box too.
 //   * Text     the laid-out text box placed by `pivot` (default 0,1 = top-left).
 // Everything is a convex quad in the entity's LOCAL space (y up, before the world matrix: rotation, scale and parents
 // are applied by the caller).
