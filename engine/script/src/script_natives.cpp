@@ -1099,6 +1099,68 @@ NATIVE(inTouches) {
     return a;
 }
 
+NATIVE(inValue) {
+    SETUP;
+    std::string a = arg_str(ctx, argc, argv, 0);
+    JSValue exc = JS_UNDEFINED;
+    if (!check_action(I, ctx, a, exc)) return exc;
+    return float_to_js(ctx, I->host->input().action_value(a));
+}
+
+// A gamepad index argument (0..3). Returns false with the error thrown in `exc`.
+bool pad_index(JSContext* ctx, int argc, JSValueConst* argv, int at, int& out, JSValue& exc) {
+    double d = arg_num(ctx, argc, argv, at, 0);
+    if (!(d >= 0 && d < kMaxGamepads) || d != std::floor(d)) {
+        exc = throw_err(ctx, "gamepad index must be an integer from 0 to " + std::to_string(kMaxGamepads - 1) + ", got " +
+                                 arg_str(ctx, argc, argv, at));
+        return false;
+    }
+    out = static_cast<int>(d);
+    return true;
+}
+
+bool pad_button(JSContext* ctx, const std::string& name, GamepadButton& out, JSValue& exc) {
+    if (gamepad_button_from_name(name, out)) return true;
+    exc = throw_err(ctx, "unknown gamepad button '" + name + "'. " + did_you_mean(name, gamepad_button_names()));
+    return false;
+}
+
+bool pad_axis_name(JSContext* ctx, const std::string& name, GamepadAxis& out, JSValue& exc) {
+    if (gamepad_axis_from_name(name, out)) return true;
+    exc = throw_err(ctx, "unknown gamepad axis '" + name + "'. " + did_you_mean(name, gamepad_axis_names()));
+    return false;
+}
+
+NATIVE(inPad) {  // (kind 0 connected|1 down|2 pressed|3 released|4 axis (deadzone applied)|5 raw axis, index, name)
+    SETUP;
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 1, i, exc)) return exc;
+    Input& in = I->host->input();
+    if (kind == 0) return JS_NewBool(ctx, in.gamepad_connected(i));
+    std::string name = arg_str(ctx, argc, argv, 2);
+    if (kind >= 4) {
+        GamepadAxis a{};
+        if (!pad_axis_name(ctx, name, a, exc)) return exc;
+        return float_to_js(ctx, kind == 4 ? in.gamepad_axis(i, a) : in.gamepad_raw_axis(i, a));
+    }
+    GamepadButton b{};
+    if (!pad_button(ctx, name, b, exc)) return exc;
+    return JS_NewBool(ctx, kind == 1 ? in.gamepad_down(i, b) : kind == 2 ? in.gamepad_pressed(i, b) : in.gamepad_released(i, b));
+}
+
+NATIVE(inDeadzone) {  // (value?) sets when given; returns the current deadzone
+    SETUP;
+    Input& in = I->host->input();
+    if (argc > 0 && !JS_IsUndefined(argv[0])) {
+        double d = arg_num(ctx, argc, argv, 0);
+        if (!(d >= 0 && d < 1)) return throw_err(ctx, "input.deadzone must be a number from 0 up to (not including) 1, got " + arg_str(ctx, argc, argv, 0));
+        in.set_gamepad_deadzone(static_cast<float>(d));
+    }
+    return float_to_js(ctx, in.gamepad_deadzone());
+}
+
 // test injection
 NATIVE(inSetAction) {
     SETUP;
@@ -1500,6 +1562,29 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     return JS_UNDEFINED;
 }
 
+NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect, index, name, value)
+    SETUP;
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 1, i, exc)) return exc;
+    Input& in = I->host->input();
+    std::string name = arg_str(ctx, argc, argv, 2);
+    if (kind == 0 || kind == 1) {
+        GamepadButton b{};
+        if (!pad_button(ctx, name, b, exc)) return exc;
+        in.on_gamepad_button(i, b, kind == 0);
+    } else if (kind == 2) {
+        GamepadAxis a{};
+        if (!pad_axis_name(ctx, name, a, exc)) return exc;
+        if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
+        in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
+    } else {
+        in.on_gamepad_connected(i, kind == 3);
+    }
+    return JS_UNDEFINED;
+}
+
 NATIVE(testStep) {
     SETUP;
     int n = static_cast<int>(arg_num(ctx, argc, argv, 0, 1));
@@ -1532,8 +1617,16 @@ NATIVE(testState) {
 
 NATIVE(resetInput) {
     SETUP;
-    I->host->input().clear_action_overrides();
-    I->host->input().release_all();
+    Input& in = I->host->input();
+    in.clear_action_overrides();
+    in.release_all();  // also unplugs the gamepads
+    double dz = 0.2;  // a test that changed input.deadzone starts the next one from the project's value
+    Json ps = I->host->project_settings();
+    if (ps.is_object() && ps.contains("input") && ps["input"].is_object()) {
+        auto it = ps["input"].find("deadzone");
+        if (it != ps["input"].end() && it->is_number()) dz = it->get<double>();
+    }
+    in.set_gamepad_deadzone(static_cast<float>(dz));
     return JS_UNDEFINED;
 }
 
@@ -1561,6 +1654,7 @@ const Reg kRegs[] = {
     R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(requestScene, 1), R(rngFloat, 0),
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
+    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),

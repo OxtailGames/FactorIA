@@ -38,7 +38,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 engine/            runtime modules (ship inside every game)
   core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
-  platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions
+  platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres/AABBs)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording

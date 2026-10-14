@@ -517,6 +517,145 @@ TEST_CASE("run_headless: replay, screenshots, state dump, report, exit codes") {
     CHECK(report.contains("error"));
 }
 
+namespace {
+const char* kPadProject = R"({
+  "format": "factoria.project/1",
+  "name": "Pad Test",
+  "mainScene": "scenes/main.scene.json",
+  "display": { "width": 320, "height": 180 },
+  "input": { "deadzone": 0.3, "actions": { "jump": ["Space", "GamepadA"], "move_left": ["GamepadLeftStickLeft"],
+                                           "move_right": ["GamepadLeftStickRight"], "touching": ["Touch"] } }
+})";
+}  // namespace
+
+TEST_CASE("project: input.deadzone is read, validated, saved and handed to Input; unknown gamepad bindings warn") {
+    TempProject p("proj_deadzone", kPadProject);
+    auto r = load_project(p.path());
+    REQUIRE(r.ok());
+    CHECK(r->inputDeadzone == doctest::Approx(0.3));
+    CHECK(r->to_json()["input"]["deadzone"].get<double>() == doctest::Approx(0.3));
+    TempProject d("proj_deadzone_default");
+    CHECK(load_project(d.path())->inputDeadzone == doctest::Approx(0.2));
+
+    int n = 0;
+    for (const char* bad : {R"({"name":"x","input":{"deadzone":"big"}})", R"({"name":"x","input":{"deadzone":1}})",
+                            R"({"name":"x","input":{"deadzone":-0.1}})"}) {
+        TempProject b("proj_deadzone_bad" + std::to_string(n++), bad, nullptr);
+        auto e = load_project(b.path());
+        REQUIRE_FALSE(e.ok());
+        CHECK(e.error().message.find("/input/deadzone") != std::string::npos);
+        CHECK_FALSE(e.error().hint.empty());
+    }
+
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CHECK(e.input().gamepad_deadzone() == doctest::Approx(0.3f));
+    e.shutdown();
+
+    TempProject w("proj_pad_binding_typo", R"({"name":"x","input":{"actions":{"jump":["GamepadAA"]}}})");
+    Engine e2;
+    REQUIRE_MESSAGE(e2.init(headless_cfg(w), nullptr, &err), err);
+    auto info = e2.commands().call("engine.info", Json::object());
+    REQUIRE(info.ok);
+    REQUIRE(info.result.contains("startupProblems"));
+    CHECK(info.result["startupProblems"][0].get<std::string>().find("Did you mean 'GamepadA'") != std::string::npos);
+    e2.shutdown();
+}
+
+TEST_CASE("run_headless: gamepad and touch replay entries, with did-you-mean warnings") {
+    TempProject p("run_headless_pad", kPadProject);
+    p.write("replay.json", R"({"frames":{
+        "0":{"gamepad":{"buttons":{"A":true},"axes":{"LeftX":-1}},"touch":{"id":1,"position":[10,20]}},
+        "2":{"gamepad":[{"index":1,"buttons":{"Start":true}},{"index":0,"buttons":{"A":false}}],
+             "touch":[{"id":1,"position":[30,40]},{"id":2,"position":[50,60],"down":true}]},
+        "3":{"touch":{"id":1,"down":false}}}})");
+    EngineConfig c = headless_cfg(p);
+    HeadlessRunOptions o;
+    o.frames = 4;
+    o.inputReplayPath = (p.dir / "replay.json").generic_string();
+    o.stateOutPath = (p.dir / "out" / "state.json").generic_string();
+    Json report;
+    CHECK(run_headless(c, o, &report) == 0);
+    CHECK_FALSE(report.contains("problems"));
+    auto st = load_json_file(o.stateOutPath);
+    REQUIRE(st.ok());
+    const Json& in = st.value()["input"];
+    auto has = [](const Json& arr, const char* n) { return std::find(arr.begin(), arr.end(), Json(n)) != arr.end(); };
+    REQUIRE(in["gamepads"].size() == 2);
+    CHECK(in["gamepads"][0]["index"] == 0);
+    CHECK(in["gamepads"][0]["buttonsDown"].empty());  // A went up at frame 2
+    CHECK(in["gamepads"][0]["axes"]["LeftX"].get<double>() == doctest::Approx(-1.0));
+    CHECK(in["gamepads"][1]["buttonsDown"][0] == "Start");
+    CHECK(has(in["actionsDown"], "move_left"));  // the stick is bound, and 1.0 is past the 0.3 deadzone
+    CHECK_FALSE(has(in["actionsDown"], "jump"));
+    REQUIRE(in["touches"].size() == 1);          // finger 1 lifted at frame 3, finger 2 is still down
+    CHECK(in["touches"][0]["id"] == 2);
+    CHECK(in["touches"][0]["position"][0] == 50);
+    CHECK(has(in["actionsDown"], "touching"));
+    CHECK(in["mouse"]["position"][0] == 30);     // the first finger drove the mouse and lifted at (30, 40)
+
+    p.write("typo.json", R"({"frames":{
+        "0":{"gamepad":{"buton":{"A":true}}},
+        "1":{"gamepad":{"buttons":{"Strat":true},"axes":{"LeftZ":1,"LeftX":"left"}}},
+        "2":{"gamepad":{"index":9},"touch":{"id":1}},
+        "3":{"tuch":{"id":1},"touch":{"id":1,"position":[1,2],"dwon":true}}}})");
+    o.inputReplayPath = (p.dir / "typo.json").generic_string();
+    CHECK(run_headless(c, o, &report) == 0);
+    REQUIRE(report.contains("problems"));
+    std::string all;
+    for (const auto& pr : report["problems"]) all += pr.get<std::string>() + "\n";
+    CAPTURE(all);
+    CHECK(all.find("replay frame 0: gamepad: unknown field 'buton' (ignored). Did you mean 'buttons'") != std::string::npos);
+    CHECK(all.find("replay frame 1: gamepad: unknown button 'Strat' (ignored). Did you mean 'Start'") != std::string::npos);
+    CHECK(all.find("unknown axis 'LeftZ'") != std::string::npos);
+    CHECK(all.find("axis 'LeftX' must be a number") != std::string::npos);
+    CHECK(all.find("replay frame 2: gamepad: index must be an integer from 0 to 3") != std::string::npos);
+    CHECK(all.find("replay frame 2: touch: position is required to put a finger down") != std::string::npos);
+    CHECK(all.find("replay frame 3: unknown field 'tuch' (ignored). Did you mean 'touch'") != std::string::npos);
+    CHECK(all.find("replay frame 3: touch: unknown field 'dwon' (ignored). Did you mean 'down'") != std::string::npos);
+}
+
+TEST_CASE("game.input: gamepad and touch members drive actions, bad names teach") {
+    TempProject p("engine_input_pad", kPadProject);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto r = e.commands().call("game.input", Json::parse(R"({"gamepad":{"buttons":{"A":true},"axes":{"LeftX":1}},
+                                                            "touch":{"id":3,"position":[5,6]}})"));
+    REQUIRE(r.ok);
+    CHECK(e.input().action_down("jump"));
+    CHECK(e.input().action_down("move_right"));
+    CHECK(e.input().action_down("touching"));
+    CHECK(r.result["gamepads"][0]["buttonsDown"][0] == "A");
+    e.step(1);
+
+    // Pad 1 through an array; a known finger id moves, down:false lifts.
+    r = e.commands().call("game.input", Json::parse(R"({"gamepad":[{"index":1,"connected":true},{"index":0,"axes":{"LeftX":0}}],
+                                                       "touch":[{"id":3,"position":[7,8]}]})"));
+    REQUIRE(r.ok);
+    CHECK(e.input().gamepad_connected(1));
+    CHECK_FALSE(e.input().action_down("move_right"));
+    REQUIRE(e.input().touches().size() == 1);
+    CHECK(e.input().touches()[0].position == Vec2{7, 8});
+    REQUIRE(e.commands().call("game.input", Json::parse(R"({"touch":{"id":3,"down":false}})")).ok);
+    CHECK(e.input().touches().empty());
+    REQUIRE(e.commands().call("game.input", Json::parse(R"({"gamepad":{"index":1,"connected":false}})")).ok);
+    CHECK_FALSE(e.input().gamepad_connected(1));
+
+    auto bad = e.commands().call("game.input", Json::parse(R"({"gamepad":{"buttons":{"Strat":true}}})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("Did you mean 'Start'") != std::string::npos);
+    CHECK_FALSE(bad.error["hint"].get<std::string>().empty());
+    bad = e.commands().call("game.input", Json::parse(R"({"touch":{"id":1,"dwon":true}})"));
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("Did you mean 'down'") != std::string::npos);
+    bad = e.commands().call("game.input", Json::parse(R"({"press":["GamepadA"]})"));  // names go in the gamepad member
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("\"gamepad\"") != std::string::npos);
+    e.shutdown();
+}
+
 TEST_CASE("make_app_desc: title and size come from the project") {
     TempProject p("app_desc");
     EngineConfig c;

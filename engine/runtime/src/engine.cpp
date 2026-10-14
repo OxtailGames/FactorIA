@@ -53,6 +53,9 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
         for (int i = 1; i < int(Key::Count); ++i) candidates.emplace_back(key_name(Key(i)));
         for (const char* m : {"MouseLeft", "MouseRight", "MouseMiddle"}) candidates.emplace_back(m);
         *error = "Unknown input '" + name + "' (not an action, key or mouse button). " + did_you_mean(name, candidates);
+        if (starts_with(to_lower(name), "gamepad") || starts_with(to_lower(name), "touch"))
+            *error += " Gamepads and fingers have their own fields: {\"gamepad\": {\"buttons\": {\"A\": true}}}, "
+                      "{\"touch\": {\"position\": [x, y]}}.";
     }
     return false;
 }
@@ -261,6 +264,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
 
     // World + input.
     I.world.rng().reseed(config.seed);
+    I.input.set_gamepad_deadzone(float(I.project.inputDeadzone));
     for (const std::string& problem : I.input.set_actions(I.project.inputActions)) {
         FA_WARN("input", "{}", problem);
         I.startupProblems.push_back(problem);

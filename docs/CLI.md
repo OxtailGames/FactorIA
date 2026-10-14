@@ -68,7 +68,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--scene S`, `--width W`, `--height H` | Start scene / resolution override |
 | `--headless` | No window; every frame is exactly `1/fixedHz` s |
 | `--frames N` | Frames to simulate (default 60) |
-| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}` |
+| `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad` and `touch` (see `docs/AI_GUIDE.md` 11.2) |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
 | `--screenshot-pattern P` | PNG path containing `{frame}`, relative to the current directory (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
 | `--state-out f.json` | Final world state dump (relative to the current directory) |

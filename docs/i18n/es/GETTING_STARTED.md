@@ -145,7 +145,7 @@ factoria run --headless --frames 120 --screenshot-at 119
 - Los fotogramas empiezan en 0 y la captura del fotograma N se toma después de simularlo. Por eso, con 120 fotogramas, la captura es la 119.
 - `--state-out out.json` guarda el estado del mundo en JSON: entidades, componentes, registros y errores.
 - `--record-audio out.wav` guarda el sonido mezclado, para comprobar que el juego suena.
-- `--input replay.json` aplica una secuencia de pulsaciones fotograma a fotograma (acciones, teclas y ratón), por ejemplo `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
+- `--input replay.json` aplica una secuencia de pulsaciones fotograma a fotograma (acciones, teclas, ratón, mando y toques), por ejemplo `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`.
 - Para una sola captura, `factoria screenshot --frames 120 --out shot.png` simula los fotogramas indicados y guarda la imagen.
 - `--json` imprime el informe en JSON, con las rutas de las capturas.
 
@@ -296,12 +296,12 @@ Ejemplo de entrada:
 ```json
 {
   "category": "input",
-  "severity": "major",
-  "title": "No gamepad input",
-  "missing": "The game needs a controller, but gamepad bindings such as GamepadA are reserved and not supported yet.",
-  "workaround": "none: feature dropped. The game is keyboard and touch only.",
+  "severity": "minor",
+  "title": "No gamepad rumble",
+  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
+  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
   "workaroundFiles": [],
-  "suggestion": "Support GamepadA/B/X/Y and D-pad bindings in factoria.json input.actions.",
+  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad.",
   "effort": "small"
 }
 ```
@@ -331,7 +331,7 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 | IA integrada con clave de API (`factoria ai`) | `doctor`, `providers` y `config` funcionan. `ai run` necesita una clave de API o una CLI instalada (Claude Code o Codex) |
 | Exportar juegos (`factoria export`) | Linux probado (`--platform linux`). Windows, macOS, Android e iOS: ver `docs/EXPORTING.md` y `docs/MOBILE.md` |
 | Documentación para IA | En inglés: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Mandos (gamepad) | Planificado. Los nombres de los botones están reservados, pero aún no funcionan |
+| Mandos (gamepad) | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` y `game.gamepad(i)` en los tests. Mandos reales: Windows (XInput), Linux (API joystick) y macOS/iOS (GameController) están escritos pero sin probar; Android y web aún no tienen soporte (`docs/MOBILE.md`) |
 
 ## 9. Dónde seguir leyendo
 
