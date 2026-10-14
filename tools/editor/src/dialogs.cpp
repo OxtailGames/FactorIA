@@ -43,9 +43,9 @@ void Editor::draw_project_dialog() {
         std::error_code ec;
         // New projects go to Documents by default, not to the working directory (factoria's own folder when the
         // editor was started from Explorer).
-        if (dlgNewParent_.empty()) {
-            stdfs::path docs = stdfs::path(home_dir()) / "Documents";
-            dlgNewParent_ = !home_dir().empty() && stdfs::is_directory(docs, ec) ? docs.string() : stdfs::current_path(ec).string();
+        if (std::string h = home_dir(); dlgNewParent_.empty()) {
+            stdfs::path docs = stdfs::path(h) / "Documents";
+            dlgNewParent_ = !h.empty() && stdfs::is_directory(docs, ec) ? docs.string() : stdfs::current_path(ec).string();
         }
         if (dlgOpenPath_.empty() && !recentProjects_.empty()) dlgOpenPath_ = recentProjects_.front();
         if (recentProjects_.empty()) {
