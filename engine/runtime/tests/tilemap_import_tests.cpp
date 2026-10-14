@@ -893,6 +893,102 @@ TEST_CASE("import_ascii path: edits patch the scene's components like scene.set_
     fails(R"({"camera":{"Camera":3}})", {"/edits/camera/Camera: expected object"});
 }
 
+TEST_CASE("import_ascii path: an edit with \"$merge\" merges Script.props (RFC 7386), without it the props are replaced") {
+    Session s("file_edits_merge");
+    s.project.write("levels/base.scene.json", R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "level", "components": { "Script": { "path": "scripts/level.js",
+        "props": { "levelIndex": 1, "killY": -200, "speed": 3, "tuning": { "gravity": 9, "wind": 2 } } } } }
+  ]
+})");
+    auto levelProps = [&](const CommandResult& r) {
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        const Json file = scene_file(s, "scenes/merged.scene.json");
+        for (const Json& e : file["entities"])
+            if (e["id"] == "level") return e["components"]["Script"]["props"];
+        FAIL("no level entity");
+        return Json();
+    };
+    auto edit = [&](const char* edits) {
+        Json a = level(R"({"path":"scenes/merged.scene.json","from":"levels/base.scene.json"})");
+        a["edits"] = Json::parse(edits);
+        return s.import(a);
+    };
+
+    // Only the given props change; killY and speed stay, null deletes a key, objects merge recursively.
+    CHECK(levelProps(edit(R"({"level":{"Script":{"$merge":true,"props":{"levelIndex":3,"speed":null,"tuning":{"wind":null,"drag":0.5}}}}})")) ==
+          Json::parse(R"({"levelIndex":3,"killY":-200,"tuning":{"gravity":9,"drag":0.5}})"));
+    // The same edit without $merge (or with "$merge": false) replaces the props as a whole, as before.
+    CHECK(levelProps(edit(R"({"level":{"Script":{"props":{"levelIndex":3}}}})")) == Json::parse(R"({"levelIndex":3})"));
+    CHECK(levelProps(edit(R"({"level":{"Script":{"$merge":false,"props":{"levelIndex":3}}}})")) == Json::parse(R"({"levelIndex":3})"));
+    // $merge is not a field: it never reaches the file.
+    CHECK_FALSE(slurp(s.project.dir / "scenes/merged.scene.json").find("$merge") != std::string::npos);
+    // The other fields of the component keep their normal meaning next to a merge.
+    auto next = edit(R"({"level":{"Script":{"$merge":true,"enabled":false,"props":{"extra":1}}}})");
+    CHECK(levelProps(next) == Json::parse(R"({"levelIndex":1,"killY":-200,"speed":3,"tuning":{"gravity":9,"wind":2},"extra":1})"));
+    const Json file = scene_file(s, "scenes/merged.scene.json");
+    for (const Json& e : file["entities"])
+        if (e["id"] == "level") CHECK(e["components"]["Script"]["enabled"] == false);
+    // A flag that is not a boolean is refused, naming the edit; nothing is written.
+    auto bad = edit(R"({"level":{"Script":{"$merge":"yes","props":{"levelIndex":9}}}})");
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "edits[\"level\"][\"Script\"]"));
+    CHECK(contains(error_text(bad), "$merge"));
+    CHECK(contains(error_text(bad), "true or false"));
+    CHECK(contains(error_text(bad), "Nothing was written"));
+}
+
+TEST_CASE("scene.set_component: merge reads fields as a JSON merge-patch; out-of-range values are refused with the range") {
+    Session s("set_component_merge");
+    auto call = [&](const char* json) { return s.engine.commands().call("scene.set_component", Json::parse(json)); };
+    const CommandInfo* info = s.engine.commands().info("scene.set_component");
+    REQUIRE(info != nullptr);
+    CHECK(info->inputSchema["properties"].contains("merge"));
+    CHECK(contains(info->description, "merge"));
+
+    auto props = [&](const CommandResult& r) {
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        return r.result["value"]["props"];
+    };
+    // merge may add the component; a null for a key that was never there leaves it absent.
+    CHECK(props(call(R"({"id":"cam","component":"Script","merge":true,"fields":{"path":"scripts/x.js","props":{"a":1,"b":{"c":2,"d":3},"gone":true,"never":null}}})")) ==
+          Json::parse(R"({"a":1,"b":{"c":2,"d":3},"gone":true})"));
+    // Without merge the whole props object is replaced.
+    CHECK(props(call(R"({"id":"cam","component":"Script","fields":{"props":{"a":5}}})")) == Json::parse(R"({"a":5})"));
+    REQUIRE(call(R"({"id":"cam","component":"Script","fields":{"props":{"a":1,"b":{"c":2,"d":3},"gone":true}}})").ok);
+    // With merge only the named keys change; null deletes; objects merge recursively; the other fields are untouched.
+    auto merged = call(R"({"id":"cam","component":"Script","merge":true,"fields":{"props":{"a":7,"gone":null,"b":{"c":null,"e":4}}}})");
+    CHECK(props(merged) == Json::parse(R"({"a":7,"b":{"d":3,"e":4}})"));
+    CHECK(merged.result["value"]["path"] == "scripts/x.js");
+    // A non-object replaces, as in RFC 7386; null on a plain field resets it to its default.
+    CHECK(props(call(R"({"id":"cam","component":"Script","merge":true,"fields":{"props":{"b":[1,2]}}})")) == Json::parse(R"({"a":7,"b":[1,2]})"));
+    REQUIRE(call(R"({"id":"cam","component":"Camera","fields":{"fov":90}})").ok);
+    auto reset = call(R"({"id":"cam","component":"Camera","merge":true,"fields":{"fov":null}})");
+    REQUIRE_MESSAGE(reset.ok, error_text(reset));
+    CHECK(reset.result["value"]["fov"] == 60);
+    // Unknown fields are still reported with a suggestion.
+    auto typo = call(R"({"id":"cam","component":"Script","merge":true,"fields":{"prps":{"a":1}}})");
+    REQUIRE_FALSE(typo.ok);
+    CHECK(contains(error_text(typo), "props"));
+
+    // A value outside a field's range is refused (never clamped): the message has the pointer-like field name, the
+    // allowed range and the nearest allowed value, and nothing changes.
+    auto high = call(R"({"id":"cam","component":"Shape2D","fields":{"shape":"polygon","sides":200}})");
+    REQUIRE_FALSE(high.ok);
+    CHECK(high.error["code"] == "invalid_argument");
+    CHECK(contains(error_text(high), "sides"));
+    CHECK(contains(error_text(high), "value 200 is outside the allowed range 3..64"));
+    CHECK(contains(error_text(high), "Use a value from 3 to 64 (both allowed); the nearest is 64."));
+    CHECK(s.engine.world().get<Shape2D>(s.engine.world().find_by_id("cam")) == nullptr);  // the new component was rolled back
+    auto low = call(R"({"id":"cam","component":"Camera","fields":{"fov":-3}})");
+    REQUIRE_FALSE(low.ok);
+    CHECK(contains(error_text(low), "value -3 is outside the allowed range 1..179"));
+    CHECK(contains(error_text(low), "the nearest is 1."));
+    auto ok = call(R"({"id":"cam","component":"Shape2D","fields":{"shape":"polygon","sides":64}})");
+    CHECK_MESSAGE(ok.ok, error_text(ok));
+}
+
 TEST_CASE("import_ascii: edits need path (the running world has scene.set_component)") {
     Session s("file_edits_args");
     auto r = s.import(level(R"({"edits":{"cam":{"Camera":{"clearColor":"red"}}}})"));

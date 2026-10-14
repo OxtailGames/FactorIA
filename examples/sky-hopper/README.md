@@ -88,7 +88,8 @@ factoria call project.generate_level '{"width":40,"seed":2,"dryRun":true}'      
 The tool calls `scene.import_ascii {path, from, edits, dryRun}`, which edits the scene FILE in a scratch world: the
 running game is never touched, so there is nothing to save first or restore afterwards. `from` is
 `levels/generator_base.scene.json` and `edits` patch it for this level (sky colour, camera height, level number), so
-the tool writes no scratch file. With `dryRun` nothing is written and the scene JSON comes back in `scene`.
+the tool writes no scratch file and does not read the base scene. The level number is an edit with `"$merge": true`
+(a JSON merge-patch): only `levelIndex` changes in the level script's props, `killY` and the rest stay as the base has them. With `dryRun` nothing is written and the scene JSON comes back in `scene`.
 
 The tool draws its random numbers from `rng.create(seed)`, an independent generator: `rng.seed(seed)` would reseed
 the single world RNG that the running game draws from. The same seed gives the same level on every platform.

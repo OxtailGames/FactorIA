@@ -262,6 +262,11 @@ test("project.generate_level composes ASCII rows and scene.import_ascii builds t
   expect(out.enemies).toBe(1);
   expect(byId.camera.components.Script.props.bounds).toBe("map"); // limits come from the map, not from props
   expect(byId.camera.components.Script.props.maxX).toBe(undefined);
+  // The level number is a merge-patch of the level script's props: the base scene's other props (killY) stay.
+  const base = JSON.parse(fa.call("fs.read", { path: "levels/generator_base.scene.json" }).content);
+  const baseProps = base.entities.find((e) => e.id === "level").components.Script.props;
+  expect(baseProps.killY).toBeLessThan(0);
+  expect(byId.level.components.Script.props).toEqual({ ...baseProps, levelIndex: 3 });
 });
 
 // scene.import_ascii {path, from, edits} edits the scene FILE in a scratch world: there is nothing to restore afterwards.

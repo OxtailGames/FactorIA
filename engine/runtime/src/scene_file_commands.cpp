@@ -196,11 +196,6 @@ Json prefab_save(Engine::Impl& I, const Json& a) {
 }
 
 // ------------------------------------------------------------------------------------------------ scene.format
-bool is_scene_file(const std::string& path) {
-    const std::string lower = to_lower(path);
-    return ends_with(lower, kSceneExt) || ends_with(lower, kPrefabExt);
-}
-
 // "path:LINE:COL: invalid JSON: ..." (parse_json) -> line and column; false when the message has another shape.
 bool parse_location(const std::string& message, const std::string& file, int& line, int& column) {
     if (!starts_with(message, file + ":")) return false;
@@ -248,7 +243,7 @@ std::set<std::string> select_files(const Json& a, std::vector<std::string>& sear
             searched.push_back(rel);
             for (const std::string& f : project_scene_files(rel)) files.insert(f);
         } else if (fs::exists(rel)) {
-            if (!is_scene_file(rel))
+            if (!is_scene_or_prefab_file(rel))
                 bad_arg(what + " '" + rel + "' is not a scene or prefab file.",
                         "Scene files end in " + std::string(kSceneExt) + " and prefab files in " + kPrefabExt +
                             "; to format all of them pass a folder instead.");
