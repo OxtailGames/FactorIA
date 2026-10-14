@@ -222,7 +222,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
                              "scene.destroy", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
                              "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
-                             "game.pause", "game.resume", "audio.log", "script.eval", "script.errors", "project.test", "physics.raycast",
+                             "game.pause", "game.resume", "audio.log", "script.eval", "script.errors", "project.test", "physics.raycast", "physics.shape_cast",
                              "api.components", "api.commands", "api.scripting", "assets.list"}) {
         INFO(name);
         const CommandInfo* info = c.info(name);
@@ -322,6 +322,79 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     CHECK(e.paused());
     CHECK(c.call("game.resume", Json::object()).ok);
     CHECK_FALSE(e.paused());
+    e.shutdown();
+}
+
+TEST_CASE("engine: physics.shape_cast sweeps a shape, honours ignore and explains bad arguments") {
+    TempProject p("shape_cast");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+    const CommandInfo* info = c.info("physics.shape_cast");
+    REQUIRE(info != nullptr);
+    CHECK(info->readOnly);
+    CHECK(info->category == "physics");
+    for (const char* prop : {"shape", "from", "to", "mask", "ignore", "ignoreTriggers"})
+        CHECK_MESSAGE(info->inputSchema["properties"].contains(prop), prop);
+    auto call = [&](const char* json) { return c.call("physics.shape_cast", Json::parse(json)); };
+    auto text = [](const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error["hint"].dump(); };
+    auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
+
+    // a 20x20 box above the ground (top at y=-60) stops with its centre at y=-50
+    auto r = call(R"({"shape":{"shape":"box","size":[20,20]},"from":[100,100],"to":[100,-100]})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["hit"] == true);
+    CHECK(r.result["entity"] == "ground");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(150.0).epsilon(0.005));
+    CHECK(r.result["point"][1].get<double>() == doctest::Approx(-60.0).epsilon(0.01));
+    CHECK(r.result["normal"][1].get<double>() == doctest::Approx(1.0).epsilon(0.01));
+    // a circle falling at the ball hits the ball first (centres stop 20 apart); ignore lets it through to the ground
+    r = call(R"({"shape":{"shape":"circle","radius":10},"from":[0,200],"to":[0,-100]})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["entity"] == "ball");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(120.0).epsilon(0.005));
+    r = call(R"({"shape":{"shape":"circle","radius":10},"from":[0,200],"to":[0,-100],"ignore":"ball"})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["entity"] == "ground");
+    CHECK(r.result["distance"].get<double>() == doctest::Approx(250.0).epsilon(0.005));
+    r = call(R"({"shape":{"shape":"circle","radius":10},"from":[0,200],"to":[0,-100],"ignore":"ball","mask":0})");
+    REQUIRE(r.ok);
+    CHECK(r.result["hit"] == false);
+    // a clear path, and a 3D cast with nothing in the way
+    r = call(R"({"shape":{"shape":"box","size":[20,20]},"from":[100,100],"to":[100,0]})");
+    REQUIRE(r.ok);
+    CHECK(r.result["hit"] == false);
+    r = call(R"({"shape":{"shape":"sphere","radius":0.5},"from":[0,10,0],"to":[0,5,0]})");
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["hit"] == false);
+
+    // errors say what is wrong and how to fix it
+    r = call(R"({"shape":{"shape":"circel","radius":8},"from":[0,0],"to":[1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "Did you mean 'circle'"));
+    CHECK(has(text(r), "Example"));
+    r = call(R"({"shape":{"shape":"sphere","radius":8},"from":[0,0],"to":[1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "3D shape"));
+    r = call(R"({"shape":{"shape":"circle","radius":8},"from":[0,0,0],"to":[1,1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "2D shape"));
+    r = call(R"({"shape":{"shape":"box","size":[1,2]},"from":[0,0,0],"to":[1,1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "[x, y, z]"));
+    r = call(R"({"shape":{"shape":"circle","radius":8},"from":[0,0],"to":[1,1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "'from' has 2 numbers but 'to' has 3"));
+    r = call(R"({"shape":{"shape":"circle","radius":8},"from":"origin","to":[1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "from"));
+    r = call(R"({"shape":{"shape":"circle","radius":8},"from":[0,0],"to":[1,1],"ignore":"bal"})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "ball"));
+    r = call(R"({"from":[0,0],"to":[1,1]})");
+    REQUIRE_FALSE(r.ok);
+    CHECK(has(text(r), "shape"));
     e.shutdown();
 }
 

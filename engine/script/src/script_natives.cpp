@@ -1223,6 +1223,42 @@ NATIVE(raycast3d) {
     opt.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
     return hit_to_js(ctx, I->host->physics().raycast3d(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
 }
+// Shape casts. The shape arrives as the plain object the script wrote; cast_shape_from_json teaches what is wrong with it.
+bool cast_shape_arg(Impl* I, JSContext* ctx, int argc, JSValueConst* argv, bool is3d, CastShape& out, JSValue& exc) {
+    auto shape = cast_shape_from_json(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED), is3d);
+    if (!shape.ok()) {
+        exc = throw_err(ctx, "physics.shapeCast(shape, from, to): " + shape.error().to_string());
+        return false;
+    }
+    out = *shape;
+    return true;
+}
+NATIVE(shapeCast2d) {  // (shape, fromX, fromY, toX, toY, mask, ignore, ignoreTriggers)
+    SETUP;
+    CastShape shape;
+    JSValue exc = JS_UNDEFINED;
+    if (!cast_shape_arg(I, ctx, argc, argv, false, shape, exc)) return exc;
+    Vec2 a{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    Vec2 b{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))};
+    RaycastOptions o;
+    o.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 5, -1));
+    o.ignore = ent_from(ctx, argc > 6 ? argv[6] : JS_NULL);
+    o.ignoreTriggers = arg_bool(ctx, argc, argv, 7, true);
+    return hit_to_js(ctx, I->host->physics().shape_cast2d(W, shape, a, b, o));
+}
+NATIVE(shapeCast3d) {  // (shape, fromX, fromY, fromZ, toX, toY, toZ, mask, ignore, ignoreTriggers)
+    SETUP;
+    CastShape shape;
+    JSValue exc = JS_UNDEFINED;
+    if (!cast_shape_arg(I, ctx, argc, argv, true, shape, exc)) return exc;
+    Vec3 a{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    Vec3 b{static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5)), static_cast<float>(arg_num(ctx, argc, argv, 6))};
+    RaycastOptions o;
+    o.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1));
+    o.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
+    o.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
+    return hit_to_js(ctx, I->host->physics().shape_cast3d(W, shape, a, b, o));
+}
 NATIVE(overlapCircle) {
     SETUP;
     return entities_array(ctx, I->host->physics().overlap_circle2d(W, {static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
@@ -1527,7 +1563,7 @@ const Reg kRegs[] = {
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

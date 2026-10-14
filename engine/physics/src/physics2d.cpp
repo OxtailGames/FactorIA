@@ -760,8 +760,138 @@ std::vector<Entity> Physics2D::overlap_circle(World& world, Vec2 center, float r
     return finish_overlap(bits, world);
 }
 
-std::optional<RaycastHit> Physics2D::shape_cast(World&, const CastShape&, Vec2, Vec2, const RaycastOptions&) {
-    return std::nullopt;  // M5 package B implements this with b2World_CastShape
+// ---- shape casts
+// b2World_CastShape sweeps a proxy (a point cloud + radius) and reports, per shape, the fraction where the cores of
+// the two shapes come `max(slop, radiusA + radiusB - slop)` apart. Taken literally that stops a box `slop` short of a
+// wall and a circle `slop` inside it, so the proxies are built to land ON the surface (slop = Box2D's linear slop):
+//   * a box is inset by slop and given a true corner radius of slop (rounded corners of 0.5 px at the default scale);
+//   * every proxy reports a radius `slop` larger than its true one, which only moves Box2D's stop distance.
+// Box2D reports a shape that touches or overlaps the sweep's start as a hit with fraction 0 and a zero normal, in any
+// direction of travel. That is not what a caller wants: a box resting on the ground must still hit it when cast down,
+// and must not when cast up. Those results are re-classified with an explicit distance query between the shape and the
+// collider (see shape_cast_cb): inside by more than the skin -> skipped (like a ray starting inside a collider);
+// touching -> a hit at distance 0, but only if the sweep moves towards the collider.
+namespace {
+constexpr float kCastSlop = 0.005f;  // B2_LINEAR_SLOP, meters (Box2D's constants.h is private)
+constexpr float kCastSkin = 0.01f;   // meters: penetration at the start below this counts as touching, not overlapping
+constexpr float kOverlapEps = 0.1f * kCastSlop;  // distance at/below which Box2D's own overlap query reports a hit
+
+struct CastSizes {
+    bool circle = true;
+    float r = 0.0f;       // meters
+    b2Vec2 half{0, 0};    // meters
+};
+
+b2ShapeProxy box_proxy(b2Vec2 half, b2Vec2 c, float inset, float radius) {  // the box shrunk by `inset`, plus a radius
+    const float hx = std::max(half.x - inset, 0.0f), hy = std::max(half.y - inset, 0.0f);
+    const b2Vec2 p[4] = {{c.x - hx, c.y - hy}, {c.x + hx, c.y - hy}, {c.x + hx, c.y + hy}, {c.x - hx, c.y + hy}};
+    return b2MakeProxy(p, 4, radius);
+}
+b2ShapeProxy cast_proxy(const CastSizes& s, b2Vec2 c) {  // for b2World_CastShape (see above)
+    return s.circle ? b2MakeProxy(&c, 1, s.r + kCastSlop) : box_proxy(s.half, c, kCastSlop, 2.0f * kCastSlop);
+}
+b2ShapeProxy probe_proxy(const CastSizes& s, b2Vec2 c) {  // the shape inset by the skin, true geometry
+    return s.circle ? b2MakeProxy(&c, 1, std::max(s.r - kCastSkin, 0.0f)) : box_proxy(s.half, c, kCastSkin, 0.0f);
+}
+bool collider_proxy(b2ShapeId s, b2ShapeProxy& out) {  // local to the body
+    switch (b2Shape_GetType(s)) {
+        case b2_circleShape: {
+            b2Circle c = b2Shape_GetCircle(s);
+            out = b2MakeProxy(&c.center, 1, c.radius);
+            return true;
+        }
+        case b2_capsuleShape: {
+            b2Capsule c = b2Shape_GetCapsule(s);
+            const b2Vec2 p[2] = {c.center1, c.center2};
+            out = b2MakeProxy(p, 2, c.radius);
+            return true;
+        }
+        case b2_polygonShape: {
+            b2Polygon g = b2Shape_GetPolygon(s);
+            out = b2MakeProxy(g.vertices, g.count, g.radius);
+            return true;
+        }
+        case b2_segmentShape: {
+            b2Segment g = b2Shape_GetSegment(s);
+            const b2Vec2 p[2] = {g.point1, g.point2};
+            out = b2MakeProxy(p, 2, 0.0f);
+            return true;
+        }
+        default: return false;
+    }
+}
+
+struct CastCtx {
+    std::function<bool(b2ShapeId)> accept;
+    b2ShapeProxy probe;
+    b2Vec2 translation{0, 0};
+    b2ShapeId shape = b2_nullShapeId;
+    b2Vec2 point{0, 0}, normal{0, 0};
+    float fraction = 2.0f;
+};
+float shape_cast_cb(b2ShapeId shape, b2Vec2 point, b2Vec2 normal, float fraction, void* ctx) {
+    auto* c = static_cast<CastCtx*>(ctx);
+    if (!c->accept(shape)) return -1.0f;
+    if (fraction <= 0.0f) {  // Box2D's "initial overlap" marker: touching or overlapping at the start
+        b2DistanceInput in{};
+        if (!collider_proxy(shape, in.proxyA)) return -1.0f;
+        in.proxyB = c->probe;
+        in.transformA = b2Body_GetTransform(b2Shape_GetBody(shape));
+        in.transformB = b2Transform_identity;
+        in.useRadii = true;
+        b2SimplexCache cache{};
+        const b2DistanceOutput d = b2ShapeDistance(&in, &cache, nullptr, 0);
+        if (d.distance <= kOverlapEps) return -1.0f;  // inside the collider: skipped, like a ray starting inside it
+        // touching: only a collider the sweep moves towards blocks it (normal points from the collider to the shape)
+        if (b2Dot(c->translation, d.normal) >= -1e-4f * b2Length(c->translation)) return -1.0f;
+        point = d.pointA;
+        normal = d.normal;
+        fraction = 0.0f;
+    }
+    if (fraction < c->fraction) {
+        c->fraction = fraction;
+        c->shape = shape;
+        c->point = point;
+        c->normal = normal;
+    }
+    return fraction;
+}
+}  // namespace
+
+std::optional<RaycastHit> Physics2D::shape_cast(World& world, const CastShape& shape, Vec2 from, Vec2 to,
+                                                const RaycastOptions& opt) {
+    ensure_world(world);
+    const float ppm = settings_.pixelsPerMeter;
+    const Vec2 d = to - from;
+    const float len = length(d);
+    if (!std::isfinite(len) || len < 1e-6f) return std::nullopt;
+    CastSizes s;
+    s.circle = shape.kind == CastShape::Kind::Circle;
+    s.r = std::max(shape.radius, 0.0f) / ppm;
+    s.half = {std::max(shape.size.x, 0.0f) * 0.5f / ppm, std::max(shape.size.y, 0.0f) * 0.5f / ppm};
+    const b2Vec2 start{from.x / ppm, from.y / ppm};
+    CastCtx ctx;
+    ctx.probe = probe_proxy(s, start);
+    ctx.translation = {d.x / ppm, d.y / ppm};
+    ctx.accept = [&](b2ShapeId sh) {
+        bool trig = false;
+        Entity e = entity_of(sh, &trig);
+        if (e.is_null() || !world.alive(e)) return false;
+        if (trig && opt.ignoreTriggers) return false;
+        return !entity_or_ancestor_is(world, e, opt.ignore);
+    };
+    b2QueryFilter qf = b2DefaultQueryFilter();
+    qf.categoryBits = ~0ull;
+    qf.maskBits = mask_bits(opt.mask);
+    const b2ShapeProxy proxy = cast_proxy(s, start);
+    b2World_CastShape(world_, &proxy, ctx.translation, qf, shape_cast_cb, &ctx);
+    if (B2_IS_NULL(ctx.shape)) return std::nullopt;
+    RaycastHit h;
+    h.entity = entity_of(ctx.shape);
+    h.point = {ctx.point.x * ppm, ctx.point.y * ppm, 0.0f};
+    h.normal = {ctx.normal.x, ctx.normal.y, 0.0f};
+    h.distance = ctx.fraction * len;
+    return h;
 }
 
 std::vector<Entity> Physics2D::overlap_box(World& world, Rect box, std::int32_t mask) {

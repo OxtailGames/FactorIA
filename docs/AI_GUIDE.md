@@ -131,6 +131,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `script_eval` | `script.eval` | Evaluate JavaScript in the running game: `{"code":"world.findByTag(\"coin\").length"}`. |
 | `script_errors` | `script.errors` | Exceptions thrown by scripts. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Only `mask` is available here; `ignore` exists in scripts (section 8). |
+| `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
@@ -347,7 +348,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, props})`, `spawnPrefab(path, {position, rotation, scale, parent, props, overrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
 | `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`) |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)` |
-| `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
+| `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 pauses gameplay); `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused`, `game.project`, `game.screenSize`; `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
@@ -361,7 +362,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 Options worth knowing:
 
 - `world.spawn(json, {parent})` makes the new entity a child. `parent` is an Entity or an id string, and `position` is then local to the parent.
-- `raycast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin are skipped too.
+- `raycast` and `shapeCast` options: `mask` (layer bits), `ignore` (an Entity or id whose colliders are skipped, including its children), `ignoreTriggers` (default true). Colliders that already contain the ray origin (or overlap the cast shape at its start) are skipped too.
 - `input.touches` entries: `id` (the finger), `position` (Vec2, design pixels, top-left origin), `world` (Vec3 in the world through the main camera) and `pressed` (true only on the first frame of contact). The first finger also drives the mouse (`input.mouse.position`, left button down while it is down), on a phone and in tests (`game.touch`) alike: read the mouse OR the touches for a tap, or make the second reading harmless.
 - `world.find` no longer returns destroyed entities, and their id can be reused right away.
 
@@ -979,6 +980,37 @@ Glow is a camera setting, not artwork. Draw the bright things with `"blend": "ad
 - **Screenshots and tests.** The glow is part of the image (`factoria run --headless --screenshot-at`, MCP screenshots), and it is deterministic. Look at a screenshot after tuning; compare with `bloom: false` to see what it adds.
 - **Animating it.** `this.entity.get("Camera").bloomIntensity = 1 + Math.sin(time.elapsed * 4) * 0.5;` pulses the glow from a script.
 - **Cost.** Bloom reads the finished frame once, blurs a reduced-resolution copy and adds it back (4 to 7 extra passes, the number grows with the radius). That is cheap on a GPU; the software renderer used for headless runs spends about 5 ms per drawn frame at 1280x720. Headless tests and `factoria call` only draw when they take a screenshot, so bloom costs them nothing otherwise.
+
+### 9.21 Sweep a shape instead of a ray: will it fit, how far can it go
+
+A ray is a line. When the thing that has to fit has a size (a character stepping into a gap, a crate being pushed, a dash, a placement preview), sweep its shape with `physics.shapeCast(shape, from, to, opts)`. It returns the same `{ entity, point, normal, distance } | null` as `raycast`; `distance` is how far the centre of the shape travels before it touches something.
+
+```js
+// scripts/dash.js: dash right as far as the player's own box fits, never into a wall (needs a "dash" input action).
+import { Behaviour, input, physics, vec2 } from "factoria";
+
+export default class Dash extends Behaviour {
+  size = [28, 44];     // the same size as the player's Collider2D
+  length = 120;
+
+  onFixedUpdate() {
+    if (!input.pressed("dash")) return;
+    const p = this.entity.position;
+    const from = vec2(p.x, p.y), to = vec2(p.x + this.length, p.y);
+    // Skips the player's own collider (ignore) and anything it already overlaps at `from`.
+    const hit = physics.shapeCast({ shape: "box", size: this.size }, from, to, { ignore: this.entity });
+    const travel = hit ? hit.distance : this.length;     // hit.normal is the wall's surface normal
+    this.entity.position = [p.x + travel, p.y];
+  }
+}
+```
+
+- **Shapes.** 2D: `{ shape: "circle", radius: 8 }` or `{ shape: "box", size: [w, h] }` (pixels). 3D (pass 3D `from`/`to`): `{ shape: "sphere", radius: 0.5 }` or `{ shape: "box", size: [x, y, z] }` (meters). Full sizes, like the colliders; the shape is centred on the cast position and never rotates. Sweep a capsule collider with a box or circle of similar size.
+- **Where it stops.** At contact: in 2D, to a fraction of a pixel, so moving the centre by `distance` puts the shape against the surface, not into it.
+- **Touching is not overlapping.** A body standing on the ground touches it: a cast down hits at once (`distance` about 0, `normal` up) and a cast up or sideways ignores the ground. A collider the shape is deeper inside than 1 cm (1 pixel at the default 100 pixels per meter) is skipped, as a ray starting inside a collider is. Put `ignore: this.entity` for the caster's own collider.
+- **Not for** testing a spot (`from === to` returns `null`; use `overlapBox` / `overlapCircle`), ground checks (`isGrounded`) or walls (`isTouching`).
+- From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
+- A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
 
 ## 10. Tests
 
