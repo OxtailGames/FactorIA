@@ -462,10 +462,10 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
     }
     if (fs::extension(file) == ".json") {
         // JSON data module: `import levels from "./levels.json"` -> default export = the parsed data.
-        Json parsed = Json::parse(*text, nullptr, false);
-        if (parsed.is_discarded()) {
-            JS_ThrowSyntaxError(ctx, "%s: invalid JSON (not a valid .json data file). Check commas, quotes and brackets; "
-                                     "`factoria validate` or any JSON linter shows the position.", file.c_str());
+        auto parsed = parse_json(*text, file);  // "file:LINE:COL: invalid JSON: ..." + hint
+        if (!parsed.ok()) {
+            brokenData = BrokenData{file, parsed.error()};
+            JS_ThrowSyntaxError(ctx, "%s", parsed.error().to_string().c_str());
             return nullptr;
         }
         std::string src = "export default " + *text + ";";
@@ -741,9 +741,9 @@ Result<Json> ScriptSystem::eval(std::string_view code) {
     if (!impl_->initialized) return Error{"script system is not initialized", ""};
     return impl_->eval(code);
 }
-Result<void> ScriptSystem::check_syntax(std::string_view modulePath) {
+Result<void> ScriptSystem::check_syntax(std::string_view modulePath, std::string* brokenImport) {
     if (!impl_->initialized) return Error{"script system is not initialized", ""};
-    return impl_->check_syntax(modulePath);
+    return impl_->check_syntax(modulePath, brokenImport);
 }
 TestReport ScriptSystem::run_tests(const std::vector<std::string>& files, std::string_view nameFilter) {
     if (!impl_->initialized) {

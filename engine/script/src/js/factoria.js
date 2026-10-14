@@ -813,6 +813,16 @@
     },
   };
 
+  const assets = {
+    // Pixel size { width, height } of the texture file at `path` (project-relative), as the renderer and entity.bounds() see it.
+    // 32 x 32 (the missing-texture checker) when the file is missing or unreadable.
+    textureSize(path) {
+      if (typeof path !== "string" || path === "") throw new Error(`assets.textureSize(path) expects a project path such as "assets/hero.png", got ${inspect(path)}`);
+      const s = N.textureSize(path);
+      return { width: s[0], height: s[1] };
+    },
+  };
+
   const math = {
     clamp: (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v),
     lerp: (a, b, t) => a + (b - a) * t,
@@ -834,6 +844,7 @@
         const err = r.error || {};
         const e = new Error(`${name} failed: ${err.message || "unknown error"}` + (err.hint ? ` (hint: ${err.hint})` : ""));
         e.code = err.code; e.hint = err.hint;
+        if (err.data !== undefined) e.data = err.data; // structured details, e.g. the report of a ToolError(message, hint, data)
         throw e;
       }
       return r.result;
@@ -843,7 +854,7 @@
 
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets,
   };
 
   // ============================================================================================ eval serialization

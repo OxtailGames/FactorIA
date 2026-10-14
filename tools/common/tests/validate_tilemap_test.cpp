@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "fa/core/image.h"
+#include "fa/scene/serialize.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/validate.h"
 #include "test_helpers.h"
@@ -30,7 +31,7 @@ ValidationReport validate_with_tilemap(testing::TempDir& tmp, const char* tilema
     auto scene = load_json_file(tmp.sub("game/scenes/main.scene.json"));
     REQUIRE(scene.ok());
     (*scene)["entities"].push_back(Json::object({{"id", "map"}, {"components", Json::object({{"Tilemap", Json::parse(tilemapJson)}})}}));
-    REQUIRE(save_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());
+    REQUIRE(save_scene_json_file(tmp.sub("game/scenes/main.scene.json"), *scene).ok());  // canonical: validate warns about other layouts
     return validate_project(tmp.sub("game"));
 }
 

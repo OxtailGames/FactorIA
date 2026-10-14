@@ -103,19 +103,22 @@ struct SpriteAnimator {
     std::int32_t frame = 0;           // runtime: current frame index
 };
 
-enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond };
+enum class ShapeType : std::int32_t { Rectangle, Circle, Line, Triangle, Diamond, Polygon, Star };
 // Untextured primitive for prototypes, UI panels and debug visuals.
 struct Shape2D {
     ShapeType shape = ShapeType::Rectangle;
-    Vec2 size{32, 32};                // rectangle/triangle/diamond: width,height; circle: diameter in x; line: end point offset
+    Vec2 size{32, 32};                // rectangle/triangle/diamond/polygon/star: width,height; circle: diameter in x; line: end point offset
     Color color{1, 1, 1, 1};
     bool filled = true;
     float thickness = 2.0f;           // outline / line thickness in world units
     std::int32_t layer = 0;
     RenderSpace space = RenderSpace::World;
-    Vec2 pivot{0.5f, 0.5f};           // rectangle/circle/triangle/diamond anchor within the shape's size box: 0,0 = bottom-left, 1,1 = top-right
+    Vec2 pivot{0.5f, 0.5f};           // every shape but line: anchor within the shape's size box: 0,0 = bottom-left, 1,1 = top-right
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
+    std::int32_t sides = 6;           // polygon: number of sides (3..64); vertices on the ellipse inscribed in the size box, first one up
+    std::int32_t points = 5;          // star: number of tips (3..64); tips on the inscribed ellipse, first one up
+    float innerRadius = 0.5f;         // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
 };
 
 struct Text {
@@ -167,6 +170,8 @@ struct ParticleEmitter {
     std::int32_t layer = 50;
     BlendMode blend = BlendMode::Alpha;
     bool autoDestroy = false;         // destroy the entity once it stopped emitting and all particles died (one-shot effects)
+    RenderSpace space = RenderSpace::World;  // screen: drawn in the HUD pass in design pixels (origin top-left); ignored when is3D
+    Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
 };
 
 // ------------------------------------------------------------------- 3D ---

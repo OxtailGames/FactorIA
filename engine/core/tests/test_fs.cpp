@@ -85,6 +85,41 @@ TEST_CASE("fs: read/write/list in a temp project") {
     CHECK(fs::modified_time("missing") == -1);
 }
 
+namespace {
+// Names of the files directly in `dir`.
+std::vector<std::string> names_in(const stdfs::path& dir) {
+    std::vector<std::string> out;
+    for (const auto& e : stdfs::directory_iterator(dir)) out.push_back(e.path().filename().string());
+    return out;
+}
+}  // namespace
+
+TEST_CASE("fs: writes replace the file atomically through a temporary file that is never left behind") {
+    TempProject p;
+    REQUIRE(fs::write_text("scenes/a.scene.json", "{\"v\": 1}").ok());
+    const std::string big(1 << 20, 'x');
+    REQUIRE(fs::write_text("scenes/a.scene.json", big).ok());  // replaces an existing file (also on Windows)
+    CHECK(fs::read_text("scenes/a.scene.json").value() == big);
+    REQUIRE(fs::write_text("scenes/a.scene.json", "").ok());   // shrinking to nothing works too
+    CHECK(fs::read_text("scenes/a.scene.json").value().empty());
+    CHECK(names_in(p.dir / "scenes") == std::vector<std::string>{"a.scene.json"});
+
+    // A write that cannot replace its target fails, leaves the target as it was and removes the temporary file.
+    REQUIRE(fs::write_text("data/keep/inner.txt", "x").ok());
+    auto r = fs::write_text("data/keep", "x");  // 'keep' is a folder
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("data/keep") != std::string::npos);
+    CHECK(fs::is_directory("data/keep"));
+    CHECK(fs::read_text("data/keep/inner.txt").value() == "x");
+    CHECK(names_in(p.dir / "data") == std::vector<std::string>{"keep"});
+
+    // Absolute paths (tools) take the same route.
+    const std::string abs = (p.dir / "scenes" / "a.scene.json").generic_string();
+    REQUIRE(fs::write_text(abs, "{}").ok());
+    CHECK(fs::read_text("scenes/a.scene.json").value() == "{}");
+    CHECK(names_in(p.dir / "scenes") == std::vector<std::string>{"a.scene.json"});
+}
+
 TEST_CASE("fs: missing files get did-you-mean hints") {
     TempProject p;
     REQUIRE(fs::write_text("assets/player.png", "x").ok());

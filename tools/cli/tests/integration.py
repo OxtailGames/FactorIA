@@ -329,6 +329,12 @@ def test_template(tmp, template):
           and res["errors"] and res["errors"][0]["file"] == "prefabs/probe_broken.prefab.json" and res["errors"][0]["line"] == 3,
           "call scene.format check lists the messy prefab and reports the broken one with its line")
     check(open(messy).read().startswith('{"format"'), "scene.format check writes nothing")
+    code, out, err = run(["call", "scene.format", '{"check":true,"strict":true}', "--project", proj])
+    check(code == 1 and "prefabs/probe_messy.prefab.json" in err and "scene.format without 'check'" in err,
+          "call scene.format check+strict exits non-zero and lists the non-canonical files")
+    code, rep, err = jrun(["validate", proj, "--json"])
+    check(rep is not None and any(w.get("file") == "prefabs/probe_messy.prefab.json" and "canonical" in w.get("message", "")
+                                  for w in rep.get("warnings", [])), "validate warns about a prefab that is not canonical")
     code, res, err = jrun(["call", "scene.format", "{}", "--project", proj])
     check(code == 0 and res is not None and "prefabs/probe_messy.prefab.json" in res["formatted"], "call scene.format rewrites the messy prefab")
     check('"size": [10, 10]' in open(messy).read() and open(broken).read().endswith('"x",}\n}\n'), "the layout is canonical and the broken file is untouched")

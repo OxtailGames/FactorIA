@@ -100,8 +100,6 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
 
 // Runs tests/**/*.test.js on the engine's scripts.
 TestReport run_project_tests(Engine& engine, const std::string& nameFilter);
-// Kept for callers that validate through the process-wide hooks (project.validate is already engine-bound).
-void install_script_check(Engine& engine);
 
 // --- batch / session helpers (cmd_session.cpp) ---
 // Runs `{"command": "...", "args": {...}}` on `registry`; returns {"ok":true,"result":...} or

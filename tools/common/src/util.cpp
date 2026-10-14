@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "fa/core/fs.h"
 #include "fa/tooling/bundle.h"
 
 namespace fa::tooling_detail {
@@ -32,23 +33,13 @@ std::optional<std::string> read_file(const std::filesystem::path& p) {
 }
 
 bool write_file(const std::filesystem::path& p, std::string_view data, std::string* err) {
+    // `p` is a host path (relative to the current directory, not to the project root): make it absolute for the VFS.
+    // fs::write_bytes replaces the file atomically and creates the folders.
     std::error_code ec;
-    if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
-    if (ec) {
-        if (err) *err = "cannot create directory " + p.parent_path().string() + ": " + ec.message();
-        return false;
-    }
-    std::ofstream out(p, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        if (err) *err = "cannot open " + p.string() + " for writing";
-        return false;
-    }
-    out.write(data.data(), static_cast<std::streamsize>(data.size()));
-    if (!out) {
-        if (err) *err = "write failed for " + p.string();
-        return false;
-    }
-    return true;
+    const std::filesystem::path abs = std::filesystem::absolute(p, ec);
+    auto r = fs::write_bytes((ec ? p : abs).generic_string(), data.data(), data.size());
+    if (!r.ok() && err) *err = r.error().to_string();
+    return r.ok();
 }
 
 std::string slugify(std::string_view s, char sep) {
