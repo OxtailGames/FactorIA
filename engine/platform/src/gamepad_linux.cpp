@@ -1,62 +1,114 @@
-// Linux gamepads through the kernel joystick API: /dev/input/js0..3 is pad 0..3. UNTESTED: written without a Linux
-// machine at hand. The button and axis numbers are the ones the xpad driver (Xbox 360/One and compatible pads) gives;
-// pads with another layout (PlayStation, Switch, generic HID) report other numbers and map to the wrong buttons.
+// Linux gamepads through the kernel joystick API: /dev/input/js0..3 is pad 0..3. The kernel reports raw button and axis
+// NUMBERS and their meaning depends on the pad (an Xbox pad's button 2 is X, a DualShock's is Triangle), so each pad is
+// identified by its input ids (/sys/class/input/jsN/device/id/*) and name and translated through a mapping line in the
+// SDL GameControllerDB format: built-in ones for the common pads, the xpad (Xbox) layout for the rest, and whatever
+// the SDL_GAMECONTROLLERCONFIG environment variable adds. The parsing and the translation are platform-neutral and unit
+// tested (gamepad_mapping.cpp); this file only talks to the kernel. UNTESTED on hardware: written without a Linux
+// machine at hand.
+//
+// Each open pad keeps a mirror of the device (GamepadMapper), because the joystick API only reports CHANGES. After the
+// window loses focus Input::release_all() disconnects every pad and nothing is polled; the kernel keeps queueing the
+// pad's events meanwhile (and re-sends its whole state if the queue overflowed), so the first poll after focus returns
+// drains them into the mirror and feeds the mirror's complete state, which connects the pad again. A pad that is still
+// plugged in therefore comes back connected and correct without having to move first.
 #include <fcntl.h>
+#include <linux/joystick.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
-#include <iterator>
+#include <cstdlib>
+#include <fstream>
+#include <optional>
+#include <span>
+#include <string>
+#include <vector>
 
+#include "fa/core/log.h"
 #include "fa/platform/gamepad.h"
+#include "fa/platform/gamepad_mapping.h"
 
 namespace fa {
 
 namespace {
 
-// struct js_event of <linux/joystick.h>, spelled out so the kernel header is not needed.
-struct JsEvent {
-    std::uint32_t time;
-    std::int16_t value;
-    std::uint8_t type;
-    std::uint8_t number;
-};
-static_assert(sizeof(JsEvent) == 8, "js_event is 8 bytes");
-constexpr std::uint8_t kJsButton = 0x01, kJsAxis = 0x02, kJsInit = 0x80;  // kJsInit: the initial state sent on open
-
 struct Slot {
     int fd = -1;
+    std::optional<GamepadMapper> mapper;  // present while the pad is open
+    std::vector<EvdevAxisRoute> routes;   // raw axis number -> mapping axis or hat
 };
 Slot g_slots[kMaxGamepads];
 
-void apply(Input& in, int pad, const JsEvent& e) {
-    const std::uint8_t type = std::uint8_t(e.type & ~kJsInit);
-    if (type == kJsButton) {
-        static const GamepadButton buttons[] = {
-            GamepadButton::A, GamepadButton::B, GamepadButton::X, GamepadButton::Y, GamepadButton::LeftShoulder,
-            GamepadButton::RightShoulder, GamepadButton::Back, GamepadButton::Start, GamepadButton::Guide,
-            GamepadButton::LeftThumb, GamepadButton::RightThumb};
-        if (size_t(e.number) < std::size(buttons)) in.on_gamepad_button(pad, buttons[e.number], e.value != 0);
-    } else if (type == kJsAxis) {
+// SDL_GAMECONTROLLERCONFIG, read once: newline-separated mapping lines. Bad lines are reported and skipped.
+const std::vector<GamepadMapping>& user_mappings() {
+    static const std::vector<GamepadMapping> mappings = []() -> std::vector<GamepadMapping> {
+        const char* env = std::getenv("SDL_GAMECONTROLLERCONFIG");
+        if (!env || !*env) return {};
+        GamepadMappingSet set = parse_gamepad_mappings(env, "SDL_GAMECONTROLLERCONFIG", "Linux");
+        for (const std::string& problem : set.problems) FA_WARN("gamepad", "{}", problem);
+        return std::move(set.mappings);
+    }();
+    return mappings;
+}
+
+unsigned read_hex(const std::string& path) {  // the id files hold one hex number, such as "054c"
+    std::ifstream f(path);
+    unsigned v = 0;
+    f >> std::hex >> v;
+    return v;
+}
+
+bool open_pad(int index, Slot& s) {
+    char path[32];
+    std::snprintf(path, sizeof(path), "/dev/input/js%d", index);
+    const int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) return false;
+
+    GamepadIdentity id;
+    char name[128] = {};
+    if (ioctl(fd, JSIOCGNAME(sizeof(name)), name) >= 0) id.name = name;
+    const std::string ids = "/sys/class/input/js" + std::to_string(index) + "/device/id/";
+    id.bus = std::uint16_t(read_hex(ids + "bustype"));
+    id.vendor = std::uint16_t(read_hex(ids + "vendor"));
+    id.product = std::uint16_t(read_hex(ids + "product"));
+    id.version = std::uint16_t(read_hex(ids + "version"));
+
+    // The evdev ABS_ code behind each raw axis: it tells the D-pad hat (two axes) from the real axes.
+    std::uint8_t axisCount = 0;
+    std::uint8_t absCodes[ABS_CNT] = {};
+    if (ioctl(fd, JSIOCGAXES, &axisCount) < 0) axisCount = 0;
+    const int axes = std::min<int>(axisCount, ABS_CNT);
+    if (ioctl(fd, JSIOCGAXMAP, absCodes) < 0)  // very old kernels: assume the xpad numbering (X Y Z RX RY RZ, hat 0)
+        for (int i = 0; i < axes; ++i) absCodes[i] = std::uint8_t(i < 6 ? i : 0x10 + (i - 6));  // 0x10 = ABS_HAT0X
+    s.routes = route_evdev_axes(std::span<const std::uint8_t>(absCodes, size_t(axes)));
+
+    GamepadMapping mapping = select_gamepad_mapping(user_mappings(), id);
+    if (mapping.guid == fallback_gamepad_mapping().guid)
+        FA_INFO("gamepad", "pad {} ('{}', GUID {}) has no mapping: using the Xbox (xpad) layout. If its buttons are wrong, "
+                           "add a line for this GUID to SDL_GAMECONTROLLERCONFIG.",
+                index, id.name, gamepad_guid(id));
+    else
+        FA_INFO("gamepad", "pad {} ('{}', GUID {}) uses the mapping '{}'.", index, id.name, gamepad_guid(id), mapping.name);
+    s.mapper.emplace(std::move(mapping));
+    s.fd = fd;
+    return true;
+}
+
+void apply(Slot& s, const js_event& e) {
+    const std::uint8_t type = std::uint8_t(e.type & ~JS_EVENT_INIT);  // INIT: the state sent when the device is opened
+    if (type == JS_EVENT_BUTTON) {
+        s.mapper->set_button(e.number, e.value != 0);
+    } else if (type == JS_EVENT_AXIS && e.number < s.routes.size()) {
         const float v = std::clamp(float(e.value) / 32767.0f, -1.0f, 1.0f);
-        switch (e.number) {  // the joystick API's +Y is down; Input's is up
-            case 0: in.on_gamepad_axis(pad, GamepadAxis::LeftX, v); break;
-            case 1: in.on_gamepad_axis(pad, GamepadAxis::LeftY, -v); break;
-            case 2: in.on_gamepad_axis(pad, GamepadAxis::LeftTrigger, (v + 1.0f) * 0.5f); break;  // -1 released .. 1 pulled
-            case 3: in.on_gamepad_axis(pad, GamepadAxis::RightX, v); break;
-            case 4: in.on_gamepad_axis(pad, GamepadAxis::RightY, -v); break;
-            case 5: in.on_gamepad_axis(pad, GamepadAxis::RightTrigger, (v + 1.0f) * 0.5f); break;
-            case 6:  // the D-pad is a hat: two axes
-                in.on_gamepad_button(pad, GamepadButton::DpadLeft, v < -0.5f);
-                in.on_gamepad_button(pad, GamepadButton::DpadRight, v > 0.5f);
-                break;
-            case 7:
-                in.on_gamepad_button(pad, GamepadButton::DpadUp, v < -0.5f);
-                in.on_gamepad_button(pad, GamepadButton::DpadDown, v > 0.5f);
-                break;
-            default: break;
+        const EvdevAxisRoute& r = s.routes[e.number];
+        switch (r.kind) {
+            case EvdevAxisRoute::Kind::Axis: s.mapper->set_axis(r.index, v); break;
+            case EvdevAxisRoute::Kind::HatX: s.mapper->set_hat_axis(r.index, false, v); break;
+            case EvdevAxisRoute::Kind::HatY: s.mapper->set_hat_axis(r.index, true, v); break;
+            case EvdevAxisRoute::Kind::Unused: break;
         }
     }
 }
@@ -67,31 +119,32 @@ void poll_gamepads(Input& in) {
     static unsigned frame = 0;
     const bool rescan = (frame++ % 120) == 0;  // hot-plug: look for new pads about every 2 s (at 60 fps)
     for (int i = 0; i < kMaxGamepads; ++i) {
-        int& fd = g_slots[i].fd;
-        if (fd < 0) {
-            if (!rescan) continue;
-            char path[32];
-            std::snprintf(path, sizeof(path), "/dev/input/js%d", i);
-            fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-            if (fd < 0) continue;
-            in.on_gamepad_connected(i, true);
-        }
+        Slot& s = g_slots[i];
+        if (s.fd < 0 && (!rescan || !open_pad(i, s))) continue;
+        bool alive = true;
         for (;;) {
-            JsEvent e;
-            ssize_t n = read(fd, &e, sizeof(e));
+            js_event e;
+            const ssize_t n = read(s.fd, &e, sizeof(e));
             if (n == ssize_t(sizeof(e))) {
-                apply(in, i, e);
+                apply(s, e);
             } else if (n < 0 && errno == EINTR) {
                 continue;
             } else if (n < 0 && errno == EAGAIN) {
                 break;  // everything pending is read
             } else {  // unplugged (ENODEV) or a broken read
-                close(fd);
-                fd = -1;
-                in.on_gamepad_connected(i, false);
+                alive = false;
                 break;
             }
         }
+        if (!alive) {
+            close(s.fd);
+            s.fd = -1;
+            s.mapper.reset();
+            s.routes.clear();
+            in.on_gamepad_connected(i, false);
+            continue;
+        }
+        s.mapper->state().feed(in, i);  // all of it, every poll: also reconnects the pad after a focus loss
     }
 }
 

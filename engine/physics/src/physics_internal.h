@@ -144,6 +144,7 @@ public:
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
 
 private:
+    static constexpr int kMaxPts = 8;  // contact points of a box-box manifold (a quad clipped by 4 planes)
     struct Body {
         Entity e;
         std::string id;
@@ -155,7 +156,7 @@ private:
         bool trigger = false;
         bool enabled = true;
         float mass = 1.0f, invMass = 1.0f;
-        float gravityScale = 1.0f, damping = 0.0f;
+        float gravityScale = 1.0f, damping = 0.0f, angDamping = 0.0f;
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
         Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents along its own axes (scaled)
@@ -164,7 +165,17 @@ private:
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         bool rotated = false;
+        // Rotation dynamics: a dynamic box without lockRotation is turned by contacts. `orient` is then the authority
+        // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
+        // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
+        bool rotDyn = false;
+        bool rotDirty = false;     // orientation changed this step: Transform.rotation must be rewritten
+        bool originDirty = false;  // the box turned about an offset collider centre: the entity origin must be rewritten
+        Quat orient;
+        Vec3 lastEuler;
+        Vec3 invI;
         float rollMu = -1.0f;         // rolling resistance of a rolling sphere (replaces friction); < 0 = not rolling
+        Vec3 localOffset;             // collider offset (scaled, in the entity's own axes)
         Vec3 offset;                  // collider offset in world axes (scaled, rotated with the entity)
         Vec3 center;                  // collider center (world)
         Vec3 vel;
@@ -180,19 +191,47 @@ private:
         Vec3 normal;  // from a to b
         float depth = 0.0f;  // > 0 penetrating; may be slightly negative within margin
         Vec3 point;
+        // Box-box face contacts (collide(..., manifold = true)): the clipped incident face. depths[i] < 0 = still apart.
+        int n = 0;
+        Vec3 pts[kMaxPts];
+        float depths[kMaxPts] = {};
     };
     using PairKey = std::pair<std::uint64_t, std::uint64_t>;  // body seq numbers, lo < hi
     struct PairState {
         Entity a, b;
         bool trigger = false;
     };
+    // One manifold prepared for the rigid-body solver (see Physics3D::step).
+    struct RigidContact {
+        std::size_t ia, ib;
+        PairKey key;
+        Vec3 n;
+        Vec3 ca, cb;  // body centres when built (to track the translation done by the position pass)
+        float mu = 0.0f;
+        int carrier = 0;  // 1: a is the kinematic platform carrying b; 2: the other way round
+        int count = 0;
+        struct Pt {
+            Vec3 ra, rb;
+            float depth = 0.0f, kn = 1.0f, target = 0.0f, jn = 0.0f;
+            Vec3 jt;
+        } pt[kMaxPts];
+    };
 
-    static Contact collide(const Body& a, const Body& b, float margin);
+    static Contact collide(const Body& a, const Body& b, float margin, bool manifold = false);
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
-    static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out);
+    static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
+    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
     static bool sweep(Body& mover, Vec3 disp, const Body& target, float& tHit);
     static bool filters_pass(const Body& a, const Body& b);
-    void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried);
+    static void refresh_frame(Body& b);
+    static void integrate_orient(Body& b, float seconds);
+    static Vec3 inv_inertia_mul(const Body& b, Vec3 v);
+    static Vec3 point_velocity(const Body& b, Vec3 r);
+    void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried, bool positional);
+    static bool build_rigid_contact(const Body& a, const Body& b, std::size_t ia, std::size_t ib, const Contact& c,
+                                    float h, int carrier, float& impact, RigidContact& out);
+    static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
+    static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
 
     PhysicsSettings settings_;
     std::vector<Body> bodies_;  // sorted by seq (creation order)
@@ -201,6 +240,14 @@ private:
     const World* lastWorld_ = nullptr;
     std::uint64_t stepCounter_ = 0;
     std::map<PairKey, PairState> touching_;  // pairs overlapping after the previous step
+    // Warm start of the rigid-body solver: the accumulated impulses of each pair's contact points at the end of the
+    // previous sub-step (world position of the point + normal impulse + friction impulse).
+    struct WarmPt {
+        Vec3 pos;
+        float jn = 0.0f;
+        Vec3 jt;
+    };
+    std::map<PairKey, std::vector<WarmPt>> warm_;
 };
 
 }  // namespace fa::detail

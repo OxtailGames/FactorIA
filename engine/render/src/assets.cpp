@@ -457,7 +457,7 @@ void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
     d.data.mip_levels[0] = {level0, std::size_t(img.width) * img.height * 4};
     for (std::size_t i = 1; i < dims.size(); ++i) d.data.mip_levels[i] = {chain[i - 1].data(), chain[i - 1].size()};
     d.label = t.path.c_str();
-    t.image = sg_make_image(&d);
+    t.image = make_image(d);
     sg_view_desc vd{};
     vd.texture.image = t.image;
     vd.label = t.path.c_str();

@@ -3,6 +3,7 @@
 // (sokol_gfx is a process singleton: run this test case alone in its process.)
 #include <doctest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -30,8 +31,12 @@ TEST_CASE("windowed smoke: Engine runs inside run_app, renders, presents and qui
     auto frame = d.frame;
     d.frame = [frame](double dt) {
         frame(dt);
-        if (++frames == 10) app_request_quit();
+        if (++frames == 65) app_request_quit();
     };
     CHECK(run_app(d) == 0);
-    CHECK(frames >= 10);
+    CHECK(frames >= 65);
+    // The run marker the iOS/Android device smoke tests look for.
+    auto logs = recent_logs(4096);
+    CHECK(std::any_of(logs.begin(), logs.end(),
+                      [](const LogEntry& e) { return e.category == "player" && e.message == "60 frames rendered"; }));
 }

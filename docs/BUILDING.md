@@ -13,7 +13,7 @@ packages listed below.
 | macOS | `./scripts/bootstrap-macos.sh` | `./scripts/build.sh debug --test` |
 | Windows | Visual Studio 2022, workload "Desktop development with C++" | `powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Test` |
 | iOS (Simulator) | Full Xcode | `./scripts/build-ios.sh --simulator` |
-| Android (arm64 device) | Android NDK r26 or newer | `./scripts/build-android.sh` |
+| Android (arm64 device) | Android NDK r27 or newer | `./scripts/build-android.sh` |
 
 Each build writes to `build/<preset>/`. The `build/` folder is git-ignored.
 
@@ -57,7 +57,7 @@ the same components with your package manager.
 
 ### Android
 
-- Android NDK r26 or newer (Android Studio: SDK Manager, SDK Tools, "NDK (Side by side)").
+- Android NDK r27 or newer (Android Studio: SDK Manager, SDK Tools, "NDK (Side by side)").
 - CMake 3.24+ and Ninja on the host. `build-android.sh` runs on Linux and macOS.
 - `ANDROID_NDK_HOME` set to the NDK folder, the one that contains
   `build/cmake/android.toolchain.cmake`. If it is not set, `build-android.sh`
@@ -211,6 +211,13 @@ are free for public repositories. It runs once per change:
 A newer push to the same pull request or branch cancels the older run.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
+
+The mobile jobs also RUN the app: `ios` boots an iPhone simulator (`scripts/ios-smoke.sh`) and `android-emulator`
+boots an API 34 `x86_64` emulator with KVM, installs the debug APK that `android-apk` built and starts it
+(`scripts/android-smoke.sh`). Both assert that the process stays alive, the player logged `player: 60 frames rendered`,
+nothing crashed and the screenshot shows a picture, and upload their logs, the screenshot and crash reports as the
+artifacts `ios-smoke` and `android-smoke` (look there when one of them fails). What they cover is in
+[MOBILE.md](MOBILE.md).
 
 ## Troubleshooting
 

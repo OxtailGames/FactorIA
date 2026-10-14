@@ -867,13 +867,16 @@ NATIVE(fset) {
             double d = 0;
             JS_ToFloat64(ctx, &d, v);
             if (!std::isfinite(d)) return wrong("a finite integer");
-            *static_cast<std::int32_t*>(p) = static_cast<std::int32_t>(std::llround(d));
+            const auto n = std::llround(d);
+            if (auto r = check_range(f, double(n)); !r) return throw_err(ctx, what + ": " + r.error().to_string());
+            *static_cast<std::int32_t*>(p) = static_cast<std::int32_t>(n);
             break;
         }
         case FieldKind::Float: {
             if (!JS_IsNumber(v)) return wrong("a number");
             double d = 0;
             JS_ToFloat64(ctx, &d, v);
+            if (auto r = check_range(f, d); !r) return throw_err(ctx, what + ": " + r.error().to_string());
             *static_cast<float*>(p) = static_cast<float>(d);
             break;
         }
