@@ -256,3 +256,16 @@ The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded her
   template's tests on the engine `factoria test` builds, and the skip guard is gone. (`20e1e34`)
 - Saved scenes showed `"settings": {}` and hid the default gravity. The writer now always emits `gravity2D` and
   `gravity3D`; committed scenes were regenerated with engine commands. (`20e1e34`)
+
+## Found and fixed while starting a game from the editor on Windows
+
+The editor's AI Assistant had never run with a real CLI agent on Windows (the process runner had no Windows test), so
+the first try failed three ways, each fixed and covered by a test:
+
+- `claude` and `codex` are npm `.cmd` shims, and `cmd.exe` cut the prompt at its first line break (it would also expand
+  `%VAR%` and run text after `&`). The built-in templates now send the prompt on standard input (a template without
+  `{prompt}` does this); arguments a `.cmd` cannot take safely are refused; a `.cmd` path with spaces works (`/s`).
+- The MCP server `factoria` was not found when `factoria` was started by path: it now puts its own directory first on
+  PATH for the agents it starts.
+- In `-p` mode Claude Code asked before every MCP tool, so the agent could not use the engine: the template now passes
+  `--allowedTools mcp__factoria`.

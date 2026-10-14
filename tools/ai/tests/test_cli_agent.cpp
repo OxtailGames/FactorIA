@@ -81,6 +81,15 @@ TEST_CASE("process runner: lines arrive incrementally and cancel kills the proce
     CHECK(secs < 10);
 }
 
+TEST_CASE("process runner: stdin text") {
+    ProcessOptions po;
+    po.argv = {"sh", "-c", "cat"};
+    po.stdinText = "line one\nline two & \"quoted\" $HOME\n";
+    auto r = run_process(po);
+    REQUIRE(r);
+    CHECK(r->stdoutText == po.stdinText);
+}
+
 TEST_CASE("process runner: timeout") {
     ProcessOptions po;
     po.argv = {"sh", "-c", "sleep 30"};
@@ -93,13 +102,14 @@ TEST_CASE("process runner: timeout") {
 TEST_CASE("argv template expansion") {
     CliRunRequest req{"do it", "sonnet", "/proj dir"};
     auto a = expand_cli_argv(default_cli_argv(ProviderKind::ClaudeCode), req, "/proj dir/mcp.json", "factoria");
-    std::vector<std::string> expected{"-p", "do it", "--output-format", "stream-json", "--verbose", "--model", "sonnet",
-                                      "--mcp-config", "/proj dir/mcp.json", "--permission-mode", "acceptEdits"};
+    std::vector<std::string> expected{"-p", "--output-format", "stream-json", "--verbose", "--model", "sonnet",
+                                      "--mcp-config", "/proj dir/mcp.json", "--allowedTools", "mcp__factoria",
+                                      "--permission-mode", "acceptEdits"};
     CHECK(a == expected);
 
     auto c = expand_cli_argv(default_cli_argv(ProviderKind::Codex), req, "", "factoria");
     std::vector<std::string> cx{"exec", "--json", "-m", "sonnet", "-c", "mcp_servers.factoria.command=\"factoria\"",
-                                "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/proj dir\"]", "do it"};
+                                "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/proj dir\"]", "-"};
     CHECK(c == cx);
 
     // no model => "-m" and its value disappear
@@ -146,7 +156,8 @@ TEST_CASE("claude-code agent: stream-json events, usage, MCP config, argv") {
     CHECK(infos.find("MCP server 'other' is failed") != std::string::npos);
 
     std::string argv = read_file(argvFile);
-    CHECK(argv.find("-p\nMake a game\n") == 0);
+    CHECK(argv.find("-p\n--output-format\n") == 0);
+    CHECK(argv.rfind("stdin:Make a game\n") == argv.size() - std::string("stdin:Make a game\n").size());
     CHECK(argv.find("--output-format\nstream-json\n") != std::string::npos);
     CHECK(argv.find("--model\nsonnet\n") != std::string::npos);
     CHECK(argv.find("--permission-mode\nacceptEdits\n") != std::string::npos);
@@ -247,7 +258,7 @@ TEST_CASE("codex agent: JSON events and codex argv") {
     std::string argv = read_file(argvFile);
     CHECK(argv.find("exec\n--json\n-m\ngpt-x\n-c\nmcp_servers.factoria.command=\"factoria\"\n-c\n") == 0);
     CHECK(argv.find("mcp_servers.factoria.args=[\"mcp\",\"--project\",\"" + dir.str() + "\"]") != std::string::npos);
-    CHECK(argv.rfind("Fix bug\n") == argv.size() - std::string("Fix bug\n").size());
+    CHECK(argv.rfind("-\nstdin:Fix bug\n") == argv.size() - std::string("-\nstdin:Fix bug\n").size());
 }
 
 TEST_CASE("generic-cli: placeholders, raw text passthrough") {
@@ -302,3 +313,34 @@ TEST_CASE("AgentSession with a CLI provider forwards the CLI's events") {
 }
 
 #endif  // !_WIN32
+
+#ifdef _WIN32
+
+// npm installs claude and codex as .cmd files, which run through cmd.exe.
+TEST_CASE("process runner: .cmd in a path with spaces, multi-line stdin, unsafe arguments refused") {
+    TempDir dir;
+    std::filesystem::create_directories(dir.path / "npm dir");
+    std::string cmd = (dir.path / "npm dir" / "fake cli.cmd").string();
+    std::ofstream(cmd) << "@echo arg:%~1\r\n@findstr \"^\"\r\n";
+
+    ProcessOptions po;
+    po.argv = {cmd, "two words"};
+    po.stdinText = "line one\nline two & \"quoted\" %PATH%\n";
+    std::vector<std::string> lines;
+    po.onStdoutLine = [&](std::string_view l) { lines.emplace_back(l); };
+    auto r = run_process(po);
+    REQUIRE(r);
+    CHECK(r->exitCode == 0);
+    CHECK(lines == std::vector<std::string>{"arg:two words", "line one", "line two & \"quoted\" %PATH%"});
+
+    for (const char* arg : {"line one\nline two", "100%", "a & calc"}) {
+        ProcessOptions bad;
+        bad.argv = {cmd, arg};
+        auto b = run_process(bad);
+        REQUIRE_FALSE(b.ok());
+        CHECK(b.error().message.find(".cmd/.bat") != std::string::npos);
+        CHECK(b.error().hint.find("{prompt}") != std::string::npos);
+    }
+}
+
+#endif  // _WIN32
