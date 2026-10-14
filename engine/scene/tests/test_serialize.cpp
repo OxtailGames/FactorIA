@@ -234,6 +234,47 @@ TEST_CASE("scene: Shape2D diamond and Camera.bloomScreenSpace round trip, typos 
     CHECK(again.get<Camera>(again.find_by_id("cam"))->bloomScreenSpace == false);
 }
 
+TEST_CASE("scene: Shape2D polygon and star, ParticleEmitter space and anchor round trip with defaults") {
+    const char* text = R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "oct", "components": { "Shape2D": { "shape": "polygon", "sides": 8 } } },
+        { "id": "star", "components": { "Shape2D": { "shape": "star", "points": 7, "innerRadius": 0.4 } } },
+        { "id": "plain", "components": { "Shape2D": { "shape": "star" }, "ParticleEmitter": {} } },
+        { "id": "hud", "components": { "ParticleEmitter": { "space": "screen", "anchor": [1, 0] } } },
+        { "id": "typo", "components": { "Shape2D": { "shape": "polgon" } } }
+      ]
+    })";
+    World w;
+    LoadReport r = load_scene(w, Json::parse(text), "stars.scene.json");
+    CHECK(has_message(r, kErr, "Did you mean 'polygon'?"));
+    CHECK(w.get<Shape2D>(w.find_by_id("oct"))->shape == ShapeType::Polygon);
+    CHECK(w.get<Shape2D>(w.find_by_id("oct"))->sides == 8);
+    CHECK(w.get<Shape2D>(w.find_by_id("star"))->shape == ShapeType::Star);
+    CHECK(w.get<Shape2D>(w.find_by_id("star"))->points == 7);
+    CHECK(w.get<Shape2D>(w.find_by_id("star"))->innerRadius == doctest::Approx(0.4f));
+    const Shape2D defaults;  // 6 sides, 5 points, notches at half the outer radius
+    CHECK(defaults.sides == 6);
+    CHECK(defaults.points == 5);
+    CHECK(defaults.innerRadius == doctest::Approx(0.5f));
+    CHECK(w.get<Shape2D>(w.find_by_id("plain"))->points == 5);
+    CHECK(w.get<ParticleEmitter>(w.find_by_id("plain"))->space == RenderSpace::World);
+    CHECK(w.get<ParticleEmitter>(w.find_by_id("hud"))->space == RenderSpace::Screen);
+    CHECK(w.get<ParticleEmitter>(w.find_by_id("hud"))->anchor == Vec2{1, 0});
+
+    Json saved = save_scene(w);
+    CHECK(saved["entities"][0]["components"]["Shape2D"]["shape"] == "polygon");
+    CHECK(saved["entities"][0]["components"]["Shape2D"]["sides"] == 8);
+    CHECK(saved["entities"][1]["components"]["Shape2D"]["shape"] == "star");
+    CHECK(!saved["entities"][2]["components"]["Shape2D"].contains("points"));  // defaults are omitted
+    CHECK(saved["entities"][3]["components"]["ParticleEmitter"]["space"] == "screen");
+    World again;
+    CHECK(load_scene(again, saved, "again").ok());
+    CHECK(again.get<Shape2D>(again.find_by_id("star"))->innerRadius == doctest::Approx(0.4f));
+    CHECK(again.get<ParticleEmitter>(again.find_by_id("hud"))->space == RenderSpace::Screen);
+    CHECK(again.get<ParticleEmitter>(again.find_by_id("hud"))->anchor == Vec2{1, 0});
+}
+
 TEST_CASE("scene: structural problems are reported, not crashed on") {
     World w;
     CHECK(!load_scene(w, Json::array(), "x").ok());

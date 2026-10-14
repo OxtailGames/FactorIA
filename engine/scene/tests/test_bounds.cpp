@@ -230,3 +230,18 @@ TEST_CASE("bounds: point_in_quad handles either winding, borders and empty quads
     const std::array<Vec2, 4> flat = {Vec2{0, 0}, Vec2{10, 0}, Vec2{10, 0}, Vec2{0, 0}};
     CHECK_FALSE(point_in_quad({5, 0}, flat));
 }
+
+TEST_CASE("bounds: a polygon or star is measured by its size box, placed by the pivot") {
+    Fixture f;
+    Entity hex = f.make("hex", {10, 20, 0});
+    f.shape(hex, ShapeType::Polygon, {40, 30});
+    Entity star = f.make("star", {-50, 0, 0});
+    f.shape(star, ShapeType::Star, {60, 60}, {0, 0});
+    for (Entity e : {hex, star}) {
+        const auto parts = visual_footprints(f.w, e);
+        REQUIRE(parts.size() == 1);
+        CHECK(std::string(parts[0].component) == "Shape2D");
+    }
+    check_rect(entity_world_rect(f.w, hex), -10.0f, 5.0f, 40.0f, 30.0f);
+    check_rect(entity_world_rect(f.w, star), -50.0f, 0.0f, 60.0f, 60.0f);
+}
