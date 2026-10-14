@@ -867,6 +867,7 @@ NATIVE(fset) {
             double d = 0;
             JS_ToFloat64(ctx, &d, v);
             if (!std::isfinite(d)) return wrong("a finite integer");
+            if (auto r = check_range(f, double(std::llround(d))); !r) return throw_err(ctx, what + ": " + r.error().to_string());
             *static_cast<std::int32_t*>(p) = static_cast<std::int32_t>(std::llround(d));
             break;
         }
@@ -874,6 +875,7 @@ NATIVE(fset) {
             if (!JS_IsNumber(v)) return wrong("a number");
             double d = 0;
             JS_ToFloat64(ctx, &d, v);
+            if (auto r = check_range(f, d); !r) return throw_err(ctx, what + ": " + r.error().to_string());
             *static_cast<float*>(p) = static_cast<float>(d);
             break;
         }

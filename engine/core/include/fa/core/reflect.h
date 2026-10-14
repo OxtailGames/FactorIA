@@ -104,6 +104,9 @@ Json field_to_json(const FieldInfo& f, const void* object);
 // enum names. On failure returns an Error whose message names the field and the
 // expected form. Entity fields are rejected here (resolve them in fa_scene).
 Result<void> field_from_json(const FieldInfo& f, void* object, const Json& value);
+// The field's range() check on its own (ok when the field has no range): the error field_from_json gives for a number
+// outside it, for writers that do not go through JSON (script property writes).
+Result<void> check_range(const FieldInfo& f, double value);
 // Whole object <-> JSON object (unknown keys -> error with "did you mean" hint).
 // includeDefaults=false omits fields equal to a default-constructed instance. Runtime-only
 // fields (serialized == false) are skipped unless includeRuntime is true.

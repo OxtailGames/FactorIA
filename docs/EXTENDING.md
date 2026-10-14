@@ -377,7 +377,7 @@ Do not add a component for something a script can already do with `props`. Add o
 |---|---|---|
 | `bool` | Bool | |
 | `int`, `std::int32_t` | Int | `.range(lo, hi)` works as for `float`. |
-| `float` | Float | Add `.range(lo, hi)`: the editor clamps to it, and scene loading, `scene.set_component` and `project.validate` refuse a number outside it (an error with the JSON pointer, the range and the nearest allowed value; nothing is clamped silently). Writing the field from a script is not checked. |
+| `float` | Float | Add `.range(lo, hi)`: the editor clamps to it, and scene loading, `scene.set_component` and `project.validate` refuse a number outside it (an error with the JSON pointer, the range and the nearest allowed value; nothing is clamped silently). A script that writes a number outside it gets the same error, thrown. |
 | `std::string` | String | |
 | `Vec2`, `Vec3`, `Vec4`, `Color`, `Rect` | Vec2, Vec3, Vec4, Color, Rect | JSON arrays. See `json.h` for the accepted forms. |
 | `fa::Entity` | Entity | Scene files reference entities by string id. |
