@@ -473,9 +473,14 @@ const FieldInfo* inspector_switch_field(const TypeInfo& type, const FieldInfo& f
 // Helpers shared across panel files.
 extern Editor* g_editor;
 std::string lower_str(std::string s);
+std::string home_dir();  // HOME, else USERPROFILE (Windows sets no HOME), else ""
 bool contains_ci(const std::string& hay, const std::string& needle);
 ImVec4 level_color(LogLevel l);
 const char* asset_extensions_hint(const std::string& assetType);
 bool asset_matches(const std::string& assetType, const std::string& path);
+
+// folder_picker.cpp: the system's folder dialog, opened at `start` (blocks until it closes). "" when cancelled, or
+// when there is no dialog (Linux without zenity or kdialog).
+std::string pick_folder(const std::string& title, const std::string& start);
 
 }  // namespace fa::editor
