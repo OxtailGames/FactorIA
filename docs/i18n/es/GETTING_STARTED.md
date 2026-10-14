@@ -8,7 +8,7 @@
 
 FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree juegos sin depender de un editor gráfico. Las escenas son JSON, la lógica va en JavaScript y cada capacidad del motor es un comando que la IA puede invocar. Esta guía explica cómo compilar el motor, crear un juego y conectar una IA.
 
-> **Estado del proyecto.** Está en desarrollo temprano. En Linux funciona el flujo completo: crear un proyecto, validarlo, probarlo, simularlo sin ventana con capturas, exportarlo y conectar una IA por MCP. La CI compila y prueba el motor en Windows (MSVC) y macOS (sin las pruebas de GPU), y compila la app del simulador de iOS, el player de Android y un APK de Android exportado en cada push; las builds móviles aún no se han ejecutado en un dispositivo (ver `docs/MOBILE.md`). La sección 8 resume lo que funciona y lo que falta.
+> **Estado del proyecto.** Está en desarrollo temprano. En Linux funciona el flujo completo: crear un proyecto, validarlo, probarlo, simularlo sin ventana con capturas, exportarlo y conectar una IA por MCP. La CI compila y prueba el motor en Windows (MSVC) y macOS (sin las pruebas de GPU), y ejecuta la app de iOS en el simulador de iOS y un APK de Android exportado en un emulador x86_64 en cada push; las builds móviles aún no se han ejecutado en un dispositivo real (ver `docs/MOBILE.md`). La sección 8 resume lo que funciona y lo que falta.
 
 ## 1. Requisitos e instalación
 
@@ -322,7 +322,7 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 | Parte | Estado |
 |---|---|
 | Compilación en Linux (`./scripts/build.sh`) | Probada |
-| Compilación en Windows, macOS, iOS y Android | La CI compila en cada push. Windows (MSVC) y macOS ejecutan los tests (macOS sin las pruebas de GPU); simulador de iOS y Android solo se compilan, sin ejecutar aún en un dispositivo (`docs/MOBILE.md`) |
+| Compilación en Windows, macOS, iOS y Android | La CI compila en cada push. Windows (MSVC) y macOS ejecutan los tests (macOS sin las pruebas de GPU); la app de iOS se ejecuta en el simulador de iOS y el APK de Android en un emulador x86_64, y ambas deben renderizar el juego; sin ejecutar aún en un dispositivo real (`docs/MOBILE.md`) |
 | Motor: escenas, scripts de JavaScript, render 2D y 3D, física (incluidas plataformas de un sentido y tilemaps), partículas y capturas | Funciona en Linux. El audio no se ha probado en el entorno de documentación |
 | CLI `factoria`: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Funciona en Linux |
 | `factoria editor` (editor visual) | Incluido en las builds de escritorio (`docs/EDITOR.md`, en inglés). Necesita pantalla. En Linux las pruebas `editor_autotest` de ctest lo ejercitan de punta a punta con `xvfb-run` |
