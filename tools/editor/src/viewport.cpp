@@ -1,4 +1,4 @@
-// Viewport panel: shows the engine's game target, selection overlay, 2D picking and drag-to-move.
+// Viewport panel: shows the engine's game target, the selection outline and 2D picking (a click = point at something for the AI).
 #include <algorithm>
 #include <cmath>
 
@@ -7,6 +7,23 @@
 #include "ui_backend.h"
 
 namespace fa::editor {
+
+// An ImGui texture for a project image (cached; nullptr when the file cannot be loaded). Used for image thumbnails.
+const TextureEntry* Editor::texture_for(const std::string& path) {
+    auto it = textures_.find(path);
+    if (it != textures_.end()) return it->second.failed ? nullptr : &it->second;
+    TextureEntry t;
+    auto img = load_image(path);
+    if (!img || img->empty() || img->width > 8192 || img->height > 8192 ||
+        !ui::make_texture(img->width, img->height, img->rgba.data(), t.image, t.view)) {
+        t.failed = true;
+    } else {
+        t.w = img->width;
+        t.h = img->height;
+    }
+    auto& slot = textures_[path] = t;
+    return slot.failed ? nullptr : &slot;
+}
 
 Vec2 Editor::image_size_of(const std::string& path) {
     // 32 x 32 is what the renderer shows for a missing or unreadable texture. Re-read when the file changes on disk.
@@ -164,32 +181,12 @@ void Editor::draw_viewport() {
         return screenSpace ? to_vp(p) : to_vp(r->world_to_screen(Vec3{p.x, p.y, z}));
     };
 
-    // ---- interaction (edit / paused only; while playing, events go to the game)
+    // ---- interaction (edit / paused only; while playing, events go to the game). A click selects what is under the
+    // cursor: the selection is how the user points at something for the AI. Nothing moves by dragging.
     if (play_ != PlayState::Playing) {
-        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            Entity hit = pick_at(design_of(io.MousePos));
-            select(hit);
-            if (!hit.is_null() && primary_is_ortho() && !bounds_of(hit).screenSpace) {
-                dragging_ = true;
-                dragStartWorld_ = r->screen_to_world(design_of(io.MousePos), 0.0f);
-                dragStartPos_ = w.world_position(hit);
-            }
-        }
-        if (dragging_) {
-            Entity sel = selected();
-            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) || sel.is_null()) {
-                dragging_ = false;
-            } else if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 3.0f)) {
-                Vec3 cur = r->screen_to_world(design_of(io.MousePos), 0.0f);
-                Vec3 np = dragStartPos_ + Vec3{cur.x - dragStartWorld_.x, cur.y - dragStartWorld_.y, 0};
-                if (io.KeyCtrl) { np.x = std::round(np.x / 8) * 8; np.y = std::round(np.y / 8) * 8; }
-                begin_edit("drag:" + selectedId_);
-                w.set_world_position(sel, np);
-            }
-        }
-        if (hovered) ImGui::SetItemTooltip("Click: select   Drag: move (Ctrl snaps to 8)");
+        if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) select(pick_at(design_of(io.MousePos)));
+        if (hovered) ImGui::SetItemTooltip("Click: select (point at something for the AI)");
     } else {
-        dragging_ = false;
         if (vpFocused_) dl->AddRect(imgMin, ImVec2(imgMin.x + sz.x, imgMin.y + sz.y), IM_COL32(80, 220, 255, 255), 0, 0, 2.0f);
     }
 

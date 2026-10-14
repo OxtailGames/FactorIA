@@ -9,7 +9,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 1. **Everything an AI needs is text.** Projects, scenes, prefabs and input maps
    are JSON with schemas; gameplay is JavaScript; docs ship inside the binary.
 2. **One registration, every surface.** A component is reflected once and is
-   then loadable from JSON, editable in the editor, scriptable, documented and
+   then loadable from JSON, editable by commands, scriptable, documented and
    type-checked. A command is registered once and is then an MCP tool, an AI
    tool, a CLI subcommand, an editor console command and a JS function.
 3. **AIs must be able to see and test.** Headless deterministic runs, input
@@ -76,7 +76,7 @@ stable until removal. `destroy()` is deferred to the end of the frame.
 
 ### Reflection
 `fa::TypeRegistry::global()` (core/reflect.h) holds every component type with
-documented fields. From it we derive: JSON load/save, editor inspector, script
+documented fields. From it we derive: JSON load/save, `scene.set_component`, script
 property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
 ### Commands (the tool system)

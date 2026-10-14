@@ -92,19 +92,6 @@ struct TextureEntry {
     bool failed = false;
 };
 
-struct AssetNode {
-    std::string name;
-    std::string path;  // project-relative; folders end without '/'
-    bool isDir = false;
-    std::vector<AssetNode> children;
-};
-
-struct JsonEditState {
-    std::string text;
-    std::string error;
-    bool editing = false;
-};
-
 // What the viewport selects, outlines and hit-tests for one entity. The geometry is the engine's own footprint of the
 // entity's 2D visuals (fa/scene/bounds.h, shared with `entity.bounds()`), plus a marker for entities that draw nothing.
 struct PickBounds {
@@ -128,36 +115,6 @@ std::vector<PickOutline> pick_outlines(const World& w, Entity e, const PickBound
 Vec2 pick_origin(const World& w, Entity e, const PickBounds& b, Vec2 designSize);
 // `point` is world xy for world-space entities and a design pixel for screen-space ones. On a hit, *layerOut gets the layer.
 bool pick_hit(const World& w, Entity e, const PickBounds& b, Vec2 point, Vec2 designSize, int* layerOut = nullptr);
-
-// ------------------------------------------------------------------------------------------------------
-// Dialog / panel state of the tools that wrap engine commands (logic: editor_tools.h, drawing: *_dialog.cpp).
-struct PrefabDialogState {
-    bool open = false;               // request to open the modal this frame
-    std::string entityId, entityName;
-    std::string path;
-    bool askOverwrite = false;       // prefab.save said already_exists: waiting for the user's decision
-    bool done = false;               // saved: show what the file left out
-    PrefabSaveOutcome result;
-};
-
-struct AsciiImportState {
-    bool visible = false;            // the window is shown
-    AsciiImportForm form;
-    std::string levelFile;           // "Load from file" selection
-    bool askUnsaved = false;         // importing into the scene being edited while it has unsaved changes
-    bool hasResult = false;
-    bool resultIsPreview = false;
-    AsciiImportOutcome result;
-    std::string loadError;
-    bool seeded = false;             // the defaults (rows, legend) were filled in once
-};
-
-struct FormatDialogState {
-    bool visible = false;
-    bool checked = false;            // the check ran; `check.files` lists what a real run would rewrite
-    FormatOutcome check, run;
-    bool ran = false;
-};
 
 class Editor {
 public:
@@ -194,6 +151,7 @@ public:
     void stop();
 
     // ---------------------------------------------------------------- selection & edits
+    // The selection is what the user points at in the viewport for the AI; nothing edits it by hand.
     Entity selected();
     void select(Entity e);
     void select_id(const std::string& id) { selectedId_ = id; }
@@ -206,13 +164,6 @@ public:
     void redo();
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
-    // Writes one reflected field via fa::patch_component (the path every inspector widget uses).
-    bool apply_field(Entity e, const TypeInfo& type, const std::string& field, const Json& value, const std::string& key);
-    bool apply_field_by_name(const std::string& entityId, const std::string& component, const std::string& field,
-                             const Json& value);
-    Entity create_entity(const std::string& kind, Entity parent);
-    Entity duplicate_entity(Entity e);
-    void delete_entity(Entity e);
 
     // ---------------------------------------------------------------- UI helpers
     void notify(const std::string& text, int level = 0);
@@ -220,8 +171,8 @@ public:
     void run_console_line(const std::string& line);
     // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
     // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.import_ascii with `path`),
-    // so they neither take an undo snapshot nor mark the scene dirty; after_command() refreshes the file lists and, when
-    // scene.import_ascii rebuilt the scene file that is open, reloads it (Ctrl+Z brings back what was on screen).
+    // so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads the scene when
+    // scene.import_ascii rebuilt the scene file that is open (Ctrl+Z brings back what was on screen).
     bool command_edits_scene(const std::string& name, const Json& args) const;
     void after_command(const std::string& name, const Json& args, const CommandResult& result);
     const TextureEntry* texture_for(const std::string& path);
@@ -238,22 +189,14 @@ public:
     void draw_status_bar();
     void build_default_layout(unsigned dockId, ImVec2 size);
     void draw_viewport();
-    void draw_hierarchy();
-    void draw_inspector();
-    void draw_assets();
     void draw_console();
     void draw_ai_panel();
     void draw_feedback_panel();
     void draw_audio_panel();
-    void draw_prefab_dialog();
-    void draw_ascii_import_window();
-    void draw_format_window();
     void draw_project_dialog();
     void draw_validation_window();
     void draw_docs_window();
     void draw_toasts();
-    void draw_inspector_component(Entity e, const TypeInfo& t);
-    bool draw_field(Entity e, const TypeInfo& t, const FieldInfo& f, void* comp);
 
     // AI
     void ai_refresh_providers();
@@ -304,37 +247,16 @@ public:
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
     bool showOverlay_ = true;
-    bool dragging_ = false;
-    Vec3 dragStartWorld_{}, dragStartPos_{};
     float dpi_ = 1.0f;
 
     // panel visibility
-    // Hierarchy, Inspector and Assets are for editing by hand: hidden by default (the AI edits the project), View menu.
-    bool showViewport_ = true, showHierarchy_ = false, showInspector_ = false, showAssets_ = false;
+    bool showViewport_ = true;
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
 
-    // hierarchy
-    std::string hierFilter_;
-    std::string renamingId_;
-    bool renameFocus_ = false;
-    std::string pendingReparentChild_, pendingReparentParent_;
-    bool pendingReparent_ = false;
-
-    // inspector
-    std::unordered_map<std::string, JsonEditState> jsonEdits_;
-    std::string componentFilter_;
-    std::string assetPickFilter_;
-
-    // assets
-    AssetNode assetRoot_;
-    double assetsScanned_ = -10;
-    std::string assetSelected_;
-    std::vector<std::string> projectFiles_;
-    double filesScanned_ = -10;
-    const std::vector<std::string>& project_files();
+    // textures for ImGui (texture_for, viewport.cpp), and image sizes for the selection bounds
     std::unordered_map<std::string, TextureEntry> textures_;
     struct ImageSizeEntry { Vec2 size{32, 32}; std::int64_t mtime = 0; };
     std::unordered_map<std::string, ImageSizeEntry> imageSizes_;
@@ -362,23 +284,9 @@ public:
     std::vector<std::string> detectedProjects_;
     bool dlgScanned_ = false;
 
-    // tools that wrap engine commands
-    PrefabDialogState prefabDlg_;
-    AsciiImportState importDlg_;
-    FormatDialogState formatDlg_;
+    // Audio panel (View > Audio): the live audio.log
     AudioLogState audioLog_;
     double audioPolled_ = -10;
-    void open_prefab_dialog(Entity e);
-    PrefabSaveOutcome do_prefab_save(bool overwrite);       // runs prefab.save for prefabDlg_ and updates its state
-    void open_ascii_import();
-    void load_ascii_level(const std::string& file);          // fills importDlg_.form from a levels/*.json file
-    bool ascii_import_touches_open_scene() const;            // file mode and the target is the scene being edited
-    void do_ascii_preview();                                 // dry run
-    void do_ascii_import();                                  // the real import; reloads the scene being edited if it was the target
-    void open_format_window();
-    void do_format_check();
-    void do_format_run();
-    void refresh_asset_lists();                              // the Assets panel and pickers look at the disk again
     void poll_audio(bool force = false);
 
     // toasts
@@ -427,7 +335,6 @@ public:
     std::vector<std::string> atFailures_;
     std::vector<std::string> atLog_;
     std::vector<std::string> atPendingShots_;
-    std::future<CommandResult> atThreadResult_;
     std::thread atThread_;
     std::shared_ptr<CommandResult> atMarshalResult_;
     Vec3 atOriginalPos_{};
@@ -450,11 +357,8 @@ public:
     int atStepAt_ = 0;
     std::vector<std::function<void()>> atPostFrame_;       // run once after the UI was drawn (swapchain read-back)
     Image atShotBefore_;
-    std::string atPrefabText_;
-    bool atPrefabBefore_ = false;
     std::uint64_t atAudioAfter_ = 0;
     std::size_t atAudioBase_ = 0;
-    bool atInspectorScrollEnd_ = false;                    // scroll the Inspector to the bottom (screenshots)
     void at_build_tools_script();
     void at_run_steps(int frame);
     bool capture_window(Image& img);
@@ -467,18 +371,12 @@ public:
     void save_screenshot_now(const std::string& path);
 };
 
-// inspector.cpp: for a field documented "Only used when <flag> is true. ..." the bool field <flag> of the same component, else
-// nullptr. The inspector greys the field's name while the flag is off.
-const FieldInfo* inspector_switch_field(const TypeInfo& type, const FieldInfo& field);
-
 // Helpers shared across panel files.
 extern Editor* g_editor;
 std::string lower_str(std::string s);
 std::string home_dir();  // HOME, else USERPROFILE (Windows sets no HOME), else ""
 bool contains_ci(const std::string& hay, const std::string& needle);
 ImVec4 level_color(LogLevel l);
-const char* asset_extensions_hint(const std::string& assetType);
-bool asset_matches(const std::string& assetType, const std::string& path);
 
 // folder_picker.cpp: the system's folder dialog, opened at `start` (blocks until it closes). "" when cancelled, or
 // when there is no dialog (Linux without zenity or kdialog).
