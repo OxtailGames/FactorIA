@@ -24,7 +24,7 @@ android {
         versionName '{{VERSION_NAME}}'
 
         ndk {
-            abiFilters {{ABI_FILTERS}}
+            abiFilters 'arm64-v8a', 'x86_64'
         }
 {{#source}}
         externalNativeBuild {
@@ -50,9 +50,6 @@ android {
             // The game project (factoria.json, scenes/, scripts/, assets/ ...) plus assets_index.txt,
             // which the engine's VFS needs to list files inside the APK.
             assets.srcDirs = ['src/main/assets']
-{{#prebuilt}}
-            // The prebuilt engine, src/main/jniLibs/<abi>/libfactoria_player.so, is picked up by default.
-{{/prebuilt}}
         }
     }
 

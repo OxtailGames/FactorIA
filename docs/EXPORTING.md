@@ -102,7 +102,7 @@ and in the CLI output (`Exported android build to ... (22 files, mode: prebuilt)
 1. `--engine-root DIR` was given, or `$FACTORIA_ENGINE_DIR` is set (and no `--mobile-dir` was given): **source**, from that
    checkout. A path that is not an engine checkout is an error, not a silent fallback.
 2. `--mobile-dir DIR` was given, or the `mobile/` folder next to the `factoria` executable holds the players (Android: a
-   `libfactoria_player.so`; iOS: `libfactoria_player_main.a` in both `iphoneos` and `iphonesimulator`): **prebuilt**.
+   `libfactoria_player.so` for both `arm64-v8a` and `x86_64`; iOS: `libfactoria_player_main.a` in both `iphoneos` and `iphonesimulator`): **prebuilt**.
 3. The source checkout this `factoria` was built from still exists (a development build): **source**.
 4. Otherwise the export fails and says what to do: use the FactorIA download, or set `FACTORIA_ENGINE_DIR`.
 
@@ -127,8 +127,8 @@ my-game-android/
 The engine needs it because Android cannot enumerate folders inside an APK.
 
 **Prebuilt** (the download): `app/build.gradle` has no `externalNativeBuild`, `ndkVersion` or engine path; Gradle only
-packages `jniLibs` and the assets, so the build takes about a minute and needs the Android SDK alone. `abiFilters` lists
-the ABIs found in `mobile/android/jniLibs` (a missing `arm64-v8a` or `x86_64` is a warning in the report).
+packages `jniLibs` (`arm64-v8a` and `x86_64`, both required) and the assets, so the build takes about a minute and
+needs the Android SDK alone.
 
 **Source**: Gradle compiles the engine through CMake from the engine checkout (`factoria.engineDir` in `gradle.properties`,
 default: the checkout the export used; override with `FACTORIA_ENGINE_DIR`), which takes several minutes the first time.
