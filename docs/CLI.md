@@ -57,7 +57,8 @@ warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same 
 Packages the game (linux/windows/macos bundle, Android Gradle project, iOS project). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`.
 `--player` selects the `factoria_player` binary to bundle; `--engine-root` the engine checkout for Android/iOS.
-Prints the output folder, warnings and the next steps.
+Prints the output folder, warnings and the next steps. The command `project.export` (`platform`, `out`, `release`) does
+the same for MCP clients and `factoria call`; see [EXPORTING.md](EXPORTING.md).
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio

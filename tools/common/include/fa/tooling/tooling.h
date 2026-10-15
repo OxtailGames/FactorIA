@@ -5,6 +5,7 @@
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/docs.h"
+#include "fa/tooling/export.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/mcp_config.h"
 #include "fa/tooling/project_fs.h"
@@ -18,7 +19,7 @@ class Engine;
 
 // Registers every tooling command for the project at `projectDir`:
 // feedback.{report,list,update}, docs.{list,read,search,components,commands},
-// fs.{list,read,write,edit,search,delete}, project.validate.
+// fs.{list,read,write,edit,search,delete}, project.validate, project.export.
 void register_tooling_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa
