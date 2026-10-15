@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open and every milestone (M1-M8) is done; M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8, "Left open".
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M8) is done and M9 (run on Apple hardware) is in progress; M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8, "Left open".
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -294,6 +294,30 @@ Left open, not fixable in this repository alone:
   instead of tunnelling.
 - The AppImage does not update itself (AppImageUpdate/zsync would), and after an in-place update the Windows "Apps" list
   still shows the installed version.
+
+## M9. Run on Apple hardware (M, *proactive*) — in progress
+
+CI builds macOS and iOS but had never run the GPU tests on Metal, the editor on macOS, an Apple gamepad or an iOS device.
+The first full run on a Mac (Apple M5, macOS 26, Xcode 27) passed every registered test, GPU ones included: render goldens
+(bloom too), `cli_integration` and the four examples. It found the editor gaps below.
+
+1. Editor on macOS — DONE in this branch. The window read-back behind the autotest screenshots was GL-only, so on Metal 14
+   of the editor autotest's 103 checks failed; and the autotest exited with 0 anyway, because `sapp_run()` never returns on
+   macOS (Cocoa ends the process with 0). Now: Metal read-back (`tools/editor/src/backbuffer_apple.mm`: the layer is made
+   readable in autotest mode, the frame's drawable is blitted after `sg_commit()`); `AppDesc.exit_code`, which `run_app`
+   passes to `exit()` on macOS, so a windowed `factoria run` and the editor return their real code there too; both editor
+   autotests registered in ctest on macOS; the macOS CI job runs the whole suite (no `-LE gpu`).
+2. Gamepads: the GameController backend (`engine/platform/src/gamepad_apple.mm`) has never seen a real pad. Needs a pad
+   (DualSense, Xbox, Switch Pro) paired with the Mac.
+3. iOS: touch on the Simulator (not covered in CI: `simctl` cannot tap) can be driven by hand from Xcode's Simulator; a
+   real iPhone (a free Apple ID is enough for one's own device) would be the first run on a device and an Apple GPU.
+4. The unsigned macOS download: Gatekeeper and the editor's updater on a clean Mac. Signing needs the Apple Developer
+   Program (M8, "Left open").
+
+Found while implementing M9, not fixed:
+- Windows has no window read-back for the editor (D3D11), so the editor autotests are not registered there.
+- On a Retina screen the autotest screenshots are 2x (2940x1782 on a MacBook Air) and each takes about a second to encode
+  in a Debug build.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

@@ -5,6 +5,7 @@
 #include <cstdint>
 
 struct sapp_event;
+struct sg_swapchain;
 
 namespace fa::editor::ui {
 
@@ -25,7 +26,13 @@ void destroy_texture(std::uint32_t imageId, std::uint32_t viewId);
 void gfx_setup();
 void gfx_shutdown();
 
-// Reads the default framebuffer (BGRA/RGBA top-down) for autotest screenshots. Linux GL only.
+// Autotest screenshots of the whole window, top-down RGBA8. GL (Linux) and Metal (macOS); false elsewhere.
+// - prepare_backbuffer_readback(): once the window exists (Metal: drawables are framebuffer-only by default).
+// - note_window_swapchain(): every frame, with the swapchain of the window pass (Metal reads that frame's drawable).
+// - read_backbuffer(): after sg_commit(), before the frame callback returns (GL swaps after it; the Metal drawable
+//   lives until then).
+void prepare_backbuffer_readback();
+void note_window_swapchain(const sg_swapchain& swapchain);
 bool read_backbuffer(int w, int h, std::uint8_t* rgbaTopDown);
 
 }  // namespace fa::editor::ui

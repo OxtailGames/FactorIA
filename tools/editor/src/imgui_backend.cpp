@@ -12,6 +12,9 @@
 #if defined(__linux__)
 #include <dlfcn.h>
 #endif
+#if defined(__APPLE__)
+#include "backbuffer_apple.h"
+#endif
 
 #include "editor_fonts.h"
 #include "ui_backend.h"
@@ -20,6 +23,7 @@ namespace fa::editor::ui {
 
 namespace {
 sg_sampler g_linear{};
+const void* g_frameDrawable = nullptr;  // Metal: the window pass's drawable of this frame (read_backbuffer)
 
 void apply_theme() {
     ImGuiStyle& s = ImGui::GetStyle();
@@ -176,8 +180,18 @@ void destroy_texture(std::uint32_t imageId, std::uint32_t viewId) {
     if (imageId) sg_destroy_image(sg_image{imageId});
 }
 
+void prepare_backbuffer_readback() {
+#if defined(__APPLE__)
+    metal_make_window_readable();
+#endif
+}
+
+void note_window_swapchain(const sg_swapchain& swapchain) { g_frameDrawable = swapchain.metal.current_drawable; }
+
 bool read_backbuffer(int w, int h, std::uint8_t* out) {
-#if defined(__linux__)
+#if defined(__APPLE__)
+    return metal_read_drawable(g_frameDrawable, w, h, out);
+#elif defined(__linux__)
     // libGL is already loaded by sokol_app; resolve glReadPixels without linking GL.
     void* lib = dlopen("libGL.so.1", RTLD_LAZY | RTLD_NOLOAD);
     if (!lib) lib = dlopen("libGL.so.1", RTLD_LAZY);
