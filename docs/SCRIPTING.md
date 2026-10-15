@@ -439,6 +439,11 @@ behaviours; `game.load` also reseeds. Before each test input overrides, the game
 - Hot reload (`reload_module`) re-imports the module and every module that
   imports it, recreates affected behaviours (entity state kept, props re-applied,
   `onStart` runs again, `onDestroy` is NOT called) and reloads tools.
+- `scene.load`, `scene.reload` and `project.test` re-import every module whose file changed on disk (by mtime; the modules
+  importing it too) and `scene.load`/`scene.reload` clear `script.errors`, so an MCP client sees edited scripts without a
+  restart. `script.reload` does the same without touching the world (`force` re-imports everything). They also re-read
+  `factoria.json` when it changed: input actions, `fixedHz` and the gamepad deadzone (window size, scale mode and the
+  renderer need a restart).
 - A tool never replaces a built-in command: a tool whose `project.<name>`
   already exists is rejected with a script error.
 - `entity.get("Script").props` (a JSON field) returns a copy; assign to write.
