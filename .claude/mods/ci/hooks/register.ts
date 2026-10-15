@@ -4,7 +4,7 @@
 // `/ci off` stops that. `/ci prs` lists every open pull request and whether it can be merged now.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { type CheckRun, type PullRequest, type Target, counts, parse_args, parse_remote, prs_report, prs_status, report, status_line, verdict } from './ci'
+import { type CheckRun, type PullRequest, type Target, counts, parse_args, parse_remote, prs_report, report, status_line, verdict } from './ci'
 
 const POLL_MS = 60_000
 
@@ -53,7 +53,7 @@ async function fetch_ci($: EngineInterface, t: Target): Promise<Fetched> {
 // Every open PR with its detail (the list endpoint lacks mergeable_state) and its head's checks.
 async function open_prs($: EngineInterface): Promise<string> {
   const url = await git($, 'remote', 'get-url', 'origin')
-  const t = parse_args('prs', url ? parse_remote(url) : undefined)
+  const t = parse_args('', url ? parse_remote(url) : undefined)
   if ('error' in t) return `/ci: ${t.error}`
   const repo = `${t.owner}/${t.repo}`
   try {
@@ -63,7 +63,6 @@ async function open_prs($: EngineInterface): Promise<string> {
       if ('error' in got) throw new Error(got.error)
       return got
     }))
-    $.ui.status(prs_status(prs))
     return prs_report(repo, prs)
   } catch (err) {
     return `/ci: ${err instanceof Error ? err.message : String(err)}`
