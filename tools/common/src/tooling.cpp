@@ -12,6 +12,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_api_export_commands(registry);
     register_fs_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
+    register_export_commands(registry, projectDir);
 }
 
 ValidateOptions engine_validate_options(Engine& engine) {

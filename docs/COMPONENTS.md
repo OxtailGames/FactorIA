@@ -762,6 +762,18 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 | `name` | string | no | Display name (default: folder name). |
 | `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
 
+### `project.export` (modifies state)
+
+Package the game for a platform: a desktop bundle, or an Android/iOS project.
+
+Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project (needs the engine source checkout, $FACTORIA_ENGINE_DIR). ios: the game plus build_ios.sh. Returns {outputDir, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the Gradle build command). Nothing is built or signed here. Details: docs_read {"name":"exporting"}. Example: {"platform":"windows","release":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `platform` | string | no | linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria. |
+| `out` | string | no | Parent folder of the export; a relative path is relative to the project folder. Default: build/export inside the project. |
+| `release` | boolean | no | Release build: only changes the build commands in nextSteps (and the iOS script). Default false. |
+
 ### `project.info`
 
 Show the project settings, input actions, current scene, scenes and scripts.
