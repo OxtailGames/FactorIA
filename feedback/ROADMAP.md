@@ -301,7 +301,7 @@ CI builds macOS and iOS but had never run the GPU tests on Metal, the editor on 
 The first full run on a Mac (Apple M5, macOS 26, Xcode 27) passed every registered test, GPU ones included: render goldens
 (bloom too), `cli_integration` and the four examples. It found the editor gaps below.
 
-1. Editor on macOS — DONE in this branch. The window read-back behind the autotest screenshots was GL-only, so on Metal 14
+1. Editor on macOS — DONE (`b955fa0`, PR #33). The window read-back behind the autotest screenshots was GL-only, so on Metal 14
    of the editor autotest's 103 checks failed; and the autotest exited with 0 anyway, because `sapp_run()` never returns on
    macOS (Cocoa ends the process with 0). Now: Metal read-back (`tools/editor/src/backbuffer_apple.mm`: the layer is made
    readable in autotest mode, the frame's drawable is blitted after `sg_commit()`); `AppDesc.exit_code`, which `run_app`

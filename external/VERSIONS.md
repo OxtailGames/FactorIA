@@ -3,7 +3,9 @@
 All dependencies are vendored (copied verbatim) so the engine builds offline on
 every platform with nothing but CMake and a C/C++ compiler. Do not edit files in
 `external/` — wrap or patch from engine code instead. To upgrade, replace the
-files and update this table.
+files and update this table. A new library also goes in `third_party_components()`
+(`tools/common/src/notices.cpp`): its license text then ships with the downloads and
+every exported game, and a tooling test fails until it is there.
 
 | Library | Version / commit | License | Used by | Purpose |
 |---|---|---|---|---|

@@ -215,7 +215,9 @@ short title contained in a longer one counts; same-category or similar-suggestio
 cluster may span categories). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
 
 ### `factoria docs [name] | list | read <name> | search <query...>`
-The docs embedded in the binary (offline). `factoria docs scripting` prints SCRIPTING.md.
+The docs embedded in the binary (offline). `factoria docs scripting` prints SCRIPTING.md. Two are generated:
+`components` (the component reference) and `licenses` (FactorIA's MIT license and every third-party license inside
+the binaries; the downloads ship it as `THIRD_PARTY_NOTICES.txt`).
 
 ### `factoria version` / `--version`, `factoria help [command]`
 
