@@ -75,7 +75,7 @@ void Engine::Impl::refresh_from_disk() {
     const std::int64_t t = fs::modified_time(kProjectFileName);
     if (t != projectMtime) {
         projectMtime = t;
-        auto proj = load_project(std::string());
+        auto proj = load_project(fs::project_root().generic_string());  // the same folder init() read it from
         if (proj.ok()) {
             project = proj.value();
             apply_project_settings();
@@ -239,6 +239,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         physics.step(world, fdt);
         scripts.dispatch_events();
         world.advance_clock(fixedDt);
+        ++fixedStep;
     }
     scripts.update(float(dt));
     audio.update(world, float(dt));
@@ -398,7 +399,7 @@ void Engine::shutdown() {
 void Engine::frame(double dt) {
     Impl& I = *impl_;
     if (!I.initialized) return;
-    dt = std::clamp(dt, 0.0, 0.25);
+    dt = std::clamp(dt, 0.0, kMaxFrameDt);
     if (I.paused) {
         I.inFrame = true;
         I.render(0.0);
@@ -445,6 +446,7 @@ void Engine::reload_scene() {
 bool Engine::paused() const { return impl_->paused; }
 void Engine::set_paused(bool p) { impl_->paused = p; }
 std::uint64_t Engine::frame_index() const { return impl_->frame; }
+std::uint64_t Engine::fixed_step_index() const { return impl_->fixedStep; }
 bool Engine::quit_requested() const { return impl_->quit; }
 const ProjectSettings& Engine::project() const { return impl_->project; }
 const EngineConfig& Engine::config() const { return impl_->cfg; }

@@ -165,7 +165,11 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
     // Default the name to the folder name when absent.
     {
         std::string dirName = stdfs::path(std::string(projectDir)).filename().string();
-        if (dirName.empty() || dirName == ".") dirName = stdfs::absolute(stdfs::path(std::string(projectDir))).parent_path().filename().string();
+        if (dirName.empty() || dirName == ".") {
+            // "" means the current directory; libstdc++'s absolute("") throws (MSVC's does not).
+            std::error_code ec;
+            dirName = stdfs::absolute(stdfs::path(projectDir.empty() ? "." : std::string(projectDir)), ec).parent_path().filename().string();
+        }
         if (!dirName.empty()) s.name = dirName;
     }
     FA_TRY(read_string(j, "name", "", s.name));
