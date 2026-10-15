@@ -11,6 +11,8 @@
 
 namespace fa {
 
+constexpr double kMaxFrameDt = 0.25;  // Engine::frame clamps dt to this (a replayed frame too)
+
 struct Engine::Impl {
     Engine* self = nullptr;
     EngineConfig cfg;
@@ -32,6 +34,7 @@ struct Engine::Impl {
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw
     std::uint64_t frame = 0;
+    std::uint64_t fixedStep = 0;  // fixed simulation steps run so far (several per frame when the frame was slow)
     bool paused = false;
     bool quit = false;
     bool inFrame = false;  // between the start and the end of run_frame (commands defer risky work)
