@@ -97,9 +97,6 @@ jobs:
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
 
-      - name: TEMP ccache statistics
-        run: '& "$env:RUNNER_TEMP\ccache-4.14.1-windows-x86_64\ccache.exe" --show-stats --verbose'
-
       - name: Test (windows-release)
         run: ctest --preset windows-release
 
@@ -200,12 +197,6 @@ jobs:
           app=$(find "$PWD/build/ios-simulator" -name factoria_player.app -type d | head -n 1)
           ./scripts/ios-smoke.sh "$app" dev.factoria.ci 90 build/ios-smoke
 
-      - name: TEMP simulator device sizes
-        if: always()
-        run: |
-          du -sh ~/Library/Developer/CoreSimulator/Devices
-          du -sh ~/Library/Developer/CoreSimulator/Devices/*/data 2>/dev/null | sort -h | tail -n 3
-
       - name: Upload simulator logs, screenshot and crash reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -259,19 +250,22 @@ jobs:
     name: Android APK (factoria export + Gradle)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      CCACHE_COMPILERCHECK: content  # sdkmanager unpacks the NDK anew each run, so its compilers' mtime changes
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
 
-      # Also caches the engine's NDK build inside Gradle: CMakeLists.txt uses ccache whenever it finds it.
+      # Also caches the engine's NDK build inside Gradle: CMakeLists.txt uses ccache whenever it finds it. The key must
+      # not start with another job's (ccache-Linux-android-), or restore-keys would pick that job's cache.
       - name: Restore ccache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-android-apk-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-android-apk-
+          key: ccache-${{ runner.os }}-apk-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-apk-
 
       - name: Build the factoria CLI (no editor, no tests)
         run: |
@@ -297,6 +291,9 @@ jobs:
           gradle wrapper --gradle-version 8.7
           ./gradlew assembleDebug --no-daemon
           ls -la app/build/outputs/apk/debug/
+
+      - name: TEMP ccache statistics
+        run: ccache --show-stats
 
       # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md).
       - name: Check the APK contains the native library for both ABIs
