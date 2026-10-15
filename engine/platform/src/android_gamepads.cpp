@@ -29,11 +29,34 @@ bool key_to_button(int keyCode, GamepadButton& out) {
     }
 }
 
-// The right stick is Z/RZ on most pads and RX/RY on the others; the pad that is not using a pair leaves it at 0, so
-// the one that is further from rest is the stick.
+// For a pad whose layout is not known: the right stick is Z/RZ on most pads and RX/RY on the others; the pair the pad is
+// not using stays at 0 (a Z/RZ trigger that rests at -1 gets this wrong, which is what android_layout_for fixes), so the
+// one that is further from rest is the stick.
 float larger(float a, float b) { return std::fabs(a) >= std::fabs(b) ? a : b; }
 
+// A trigger on a centred axis (Z/RZ): -1 released .. +1 pulled -> 0..1.
+float trigger_from_centred(float v) { return std::clamp((v + 1.0f) * 0.5f, 0.0f, 1.0f); }
+
 }  // namespace
+
+AndroidLayout android_layout_for(const AndroidAxisCaps& caps) {
+    const bool dedicatedTriggers = caps.ltrigger || caps.rtrigger || caps.brake || caps.gas;
+    const bool zrz = caps.z && caps.rz;
+    const bool rxry = caps.rx && caps.ry;
+    AndroidLayout l;
+    if (zrz && rxry) {
+        if (dedicatedTriggers) return l;  // both pairs AND real triggers: no telling which pair is the stick
+        l.rightStick = AndroidRightStick::RxRy;  // the Xbox-like layout: Z/RZ are the triggers
+        l.zrzAreTriggers = true;
+    } else if (rxry) {
+        l.rightStick = AndroidRightStick::RxRy;
+    } else if (zrz) {
+        l.rightStick = AndroidRightStick::ZRz;
+    } else {
+        l.rightStick = AndroidRightStick::None;
+    }
+    return l;
+}
 
 bool AndroidGamepads::is_gamepad_key(int keyCode) {
     return (keyCode >= kAndroidKeyButtonA && keyCode <= kAndroidKeyButtonMode) ||
@@ -41,28 +64,27 @@ bool AndroidGamepads::is_gamepad_key(int keyCode) {
            (keyCode >= kAndroidKeyDpadUp && keyCode <= kAndroidKeyDpadCenter);
 }
 
+AndroidGamepads::Pad* AndroidGamepads::find(int deviceId) {
+    for (Pad& pad : pads_)
+        if (pad.used && pad.deviceId == deviceId) return &pad;
+    return nullptr;
+}
+
 AndroidGamepads::Pad& AndroidGamepads::pad_for(int deviceId) {
     ++tick_;
-    for (int i = 0; i < count_; ++i)
-        if (pads_[size_t(i)].deviceId == deviceId) {
-            pads_[size_t(i)].lastSeen = tick_;
-            return pads_[size_t(i)];
-        }
-    // A new device. Android gives a pad that reconnects a NEW device id and the NDK reports no removals, so when all
-    // slots are taken the one that has been silent longest is the best guess for the pad that went away.
-    int slot = count_;
-    if (count_ < kMaxGamepads) {
-        ++count_;
-    } else {
-        slot = 0;
-        for (int i = 1; i < kMaxGamepads; ++i)
-            if (pads_[size_t(i)].lastSeen < pads_[size_t(slot)].lastSeen) slot = i;
+    if (Pad* pad = find(deviceId)) {
+        pad->lastSeen = tick_;
+        return *pad;
     }
-    Pad& pad = pads_[size_t(slot)];
-    pad = Pad{};
-    pad.deviceId = deviceId;
-    pad.lastSeen = tick_;
-    return pad;
+    // A new device: the first free slot (an unplugged pad's, once release_device() has been told). When there is none,
+    // the pad that has been silent longest is the best guess for the one that went away without anybody telling us.
+    auto free = std::ranges::find_if(pads_, [](const Pad& p) { return !p.used; });
+    Pad& slot = free != pads_.end() ? *free : *std::ranges::min_element(pads_, {}, &Pad::lastSeen);
+    slot = Pad{};
+    slot.used = true;
+    slot.deviceId = deviceId;
+    slot.lastSeen = tick_;
+    return slot;
 }
 
 bool AndroidGamepads::on_key(int deviceId, int keyCode, bool down) {
@@ -78,14 +100,40 @@ bool AndroidGamepads::on_key(int deviceId, int keyCode, bool down) {
 void AndroidGamepads::on_motion(int deviceId, const AndroidMotionAxes& axes) {
     Pad& pad = pad_for(deviceId);
     pad.axes = axes;
+    pad.motionSeen = true;
     if (std::max(axes.ltrigger, axes.brake) > 0.0f) pad.analogLeft = true;
     if (std::max(axes.rtrigger, axes.gas) > 0.0f) pad.analogRight = true;
 }
 
-GamepadState AndroidGamepads::state(int index) const {
+void AndroidGamepads::set_layout(int deviceId, const AndroidLayout& layout) {
+    if (Pad* pad = find(deviceId)) {
+        pad->layout = layout;
+        pad->layoutSet = true;
+    }
+}
+
+void AndroidGamepads::release_device(int deviceId) {
+    if (Pad* pad = find(deviceId)) *pad = Pad{};
+}
+
+int AndroidGamepads::device_id(int slot) const {
+    return slot >= 0 && slot < kMaxGamepads && pads_[size_t(slot)].used ? pads_[size_t(slot)].deviceId : -1;
+}
+
+bool AndroidGamepads::needs_layout(int slot) const {
+    return slot >= 0 && slot < kMaxGamepads && pads_[size_t(slot)].used && !pads_[size_t(slot)].layoutSet;
+}
+
+bool AndroidGamepads::any_needs_layout() const {
+    return std::ranges::any_of(pads_, [](const Pad& p) { return p.used && !p.layoutSet; });
+}
+
+int AndroidGamepads::pad_count() const { return int(std::ranges::count_if(pads_, &Pad::used)); }
+
+GamepadState AndroidGamepads::state(int slot) const {
     GamepadState st;
-    if (index < 0 || index >= count_) return st;
-    const Pad& pad = pads_[size_t(index)];
+    if (slot < 0 || slot >= kMaxGamepads || !pads_[size_t(slot)].used) return st;
+    const Pad& pad = pads_[size_t(slot)];
     const AndroidMotionAxes& a = pad.axes;
     st.buttons = pad.keys;
     // The D-pad is keys on some pads and the hat axes on the others.
@@ -96,16 +144,33 @@ GamepadState AndroidGamepads::state(int index) const {
     dpad(GamepadButton::DpadDown, a.hatY > 0.5f);
     st.axes[size_t(GamepadAxis::LeftX)] = a.x;
     st.axes[size_t(GamepadAxis::LeftY)] = 0.0f - a.y;  // Android's +Y is down
-    st.axes[size_t(GamepadAxis::RightX)] = larger(a.z, a.rx);
-    st.axes[size_t(GamepadAxis::RightY)] = 0.0f - larger(a.rz, a.ry);
-    // A trigger with an analog axis uses it; one that only has the digital key is all or nothing.
-    st.axes[size_t(GamepadAxis::LeftTrigger)] = pad.analogLeft ? std::max(a.ltrigger, a.brake) : (pad.l2Key ? 1.0f : 0.0f);
-    st.axes[size_t(GamepadAxis::RightTrigger)] = pad.analogRight ? std::max(a.rtrigger, a.gas) : (pad.r2Key ? 1.0f : 0.0f);
+
+    float rx = 0.0f, ry = 0.0f;
+    switch (pad.layout.rightStick) {
+        case AndroidRightStick::ZRz: rx = a.z; ry = a.rz; break;
+        case AndroidRightStick::RxRy: rx = a.rx; ry = a.ry; break;
+        case AndroidRightStick::None: break;
+        case AndroidRightStick::Unknown: rx = larger(a.z, a.rx); ry = larger(a.rz, a.ry); break;
+    }
+    st.axes[size_t(GamepadAxis::RightX)] = rx;
+    st.axes[size_t(GamepadAxis::RightY)] = 0.0f - ry;
+
+    if (pad.layout.zrzAreTriggers && pad.motionSeen) {  // before the first motion event Z/RZ are 0, which would read as half pulled
+        st.axes[size_t(GamepadAxis::LeftTrigger)] = trigger_from_centred(a.z);
+        st.axes[size_t(GamepadAxis::RightTrigger)] = trigger_from_centred(a.rz);
+    } else {
+        // A trigger with an analog axis uses it; one that only has the digital key is all or nothing.
+        st.axes[size_t(GamepadAxis::LeftTrigger)] = pad.analogLeft ? std::max(a.ltrigger, a.brake) : (pad.l2Key ? 1.0f : 0.0f);
+        st.axes[size_t(GamepadAxis::RightTrigger)] = pad.analogRight ? std::max(a.rtrigger, a.gas) : (pad.r2Key ? 1.0f : 0.0f);
+    }
     return st;
 }
 
 void AndroidGamepads::feed(Input& input) const {
-    for (int i = 0; i < count_; ++i) state(i).feed(input, i);
+    for (int i = 0; i < kMaxGamepads; ++i) {
+        if (pads_[size_t(i)].used) state(i).feed(input, i);
+        else input.on_gamepad_connected(i, false);
+    }
 }
 
 }  // namespace fa

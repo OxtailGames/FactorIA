@@ -1,0 +1,22 @@
+#!/bin/sh
+# Entry point of FactorIA-linux-x64.AppImage (built by scripts/package-appimage.sh).
+#
+#   ./FactorIA-linux-x64.AppImage                        opens the editor (the CLI's help if this build has no editor)
+#   ./FactorIA-linux-x64.AppImage new mygame             any arguments are `factoria` arguments (a leading `factoria` is
+#   ./FactorIA-linux-x64.AppImage factoria new mygame    optional); `editor mygame` opens that project
+#   ln -s FactorIA-linux-x64.AppImage ~/.local/bin/factoria
+#                                                        called as `factoria` it is the CLI itself, so the bare `factoria`
+#                                                        command of a project's .mcp.json works from a terminal
+# The runtime sets APPDIR (where the image is mounted) and ARGV0 (the name the AppImage was called by).
+here="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+factoria="$here/usr/bin/factoria"
+
+[ "$(basename "${ARGV0:-}")" = factoria ] && exec "$factoria" "$@"
+
+if [ "$1" = factoria ]; then
+    shift
+    exec "$factoria" "$@"
+fi
+# `factoria version --json` says whether the editor is built in ("editor": true).
+if [ $# -eq 0 ] && "$factoria" version --json | grep -q '"editor": *true'; then set -- editor; fi
+exec "$factoria" "$@"

@@ -53,10 +53,12 @@ canonical layout is a warning (fix: `factoria call scene.format`).
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--json]`
+### `factoria export [project] [--platform P] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android Gradle project, iOS project). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`.
-`--player` selects the `factoria_player` binary to bundle; `--engine-root` the engine checkout for Android/iOS.
+`--player` selects the `factoria_player` binary to bundle. Android/iOS exports are `prebuilt` (the ready-made `mobile/`
+folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
+development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
 Prints the output folder, warnings and the next steps. The command `project.export` (`platform`, `out`, `release`) does
 the same for MCP clients and `factoria call`; see [EXPORTING.md](EXPORTING.md).
 

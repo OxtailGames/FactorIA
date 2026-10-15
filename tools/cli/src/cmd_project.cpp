@@ -165,7 +165,8 @@ Command make_export_command() {
                {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
                {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/ (default out: <project>/build/export)."},
                {"release", "", "Release build (assets packed, no dev tools)."},
-               {"engine-root", "DIR", "Android/iOS: engine checkout (default: $FACTORIA_ENGINE_DIR or the build-time source root)."},
+               {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
+               {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria)."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android"};
@@ -187,6 +188,7 @@ Command make_export_command() {
         eo.outDir = ctx.args.has("out") ? absolute_path(ctx.args.str("out")) : "";
         eo.release = ctx.args.has("release");
         eo.engineRoot = ctx.args.has("engine-root") ? absolute_path(ctx.args.str("engine-root")) : "";
+        eo.mobileDir = ctx.args.has("mobile-dir") ? absolute_path(ctx.args.str("mobile-dir")) : "";
         eo.playerBinary = ctx.args.has("player") ? absolute_path(ctx.args.str("player")) : "";
         auto r = export_project(eo);
         if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
@@ -194,7 +196,8 @@ Command make_export_command() {
             print_json(ctx.out, r->to_json());
             return 0;
         }
-        ctx.out << "Exported " << (platform.empty() ? "host" : platform) << " build to " << r->outputDir << " (" << r->files.size() << " files)\n";
+        ctx.out << "Exported " << (platform.empty() ? "host" : platform) << " build to " << r->outputDir << " (" << r->files.size() << " files"
+                << (r->mode.empty() ? "" : ", mode: " + r->mode) << ")\n";
         for (const auto& w : r->warnings) ctx.out << "warning: " << w << "\n";
         if (!r->nextSteps.empty()) ctx.out << "Next steps:\n";
         for (std::size_t i = 0; i < r->nextSteps.size(); ++i) ctx.out << "  " << (i + 1) << ". " << r->nextSteps[i] << "\n";

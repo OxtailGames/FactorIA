@@ -24,6 +24,7 @@ struct AppState {
     AppDesc desc;
     bool active = false;
     bool focused = true;  // pads are not polled while the window is in the background
+    bool touchLogged = false;  // the first touch is logged once (the mobile smoke tests wait for it)
     int fbW = 0, fbH = 0;
 };
 AppState g;
@@ -145,6 +146,11 @@ void on_event(const sapp_event* e) {
                     if (!t.changed) continue;
                     std::uint64_t id = std::uint64_t(t.identifier);
                     Vec2 p = to_design(t.pos_x, t.pos_y);
+                    if (!g.touchLogged && e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN) {
+                        g.touchLogged = true;
+                        FA_INFO("input", "first touch at design ({:.0f}, {:.0f}), {} finger(s) down", p.x, p.y,
+                                e->num_touches);
+                    }
                     // Input mirrors the first finger onto the mouse (see Input::on_touch_begin).
                     if (e->type == SAPP_EVENTTYPE_TOUCHES_BEGAN) in->on_touch_begin(id, p);
                     else if (e->type == SAPP_EVENTTYPE_TOUCHES_MOVED) in->on_touch_move(id, p);

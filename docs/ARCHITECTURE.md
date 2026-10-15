@@ -55,7 +55,7 @@ templates/         project templates used by `factoria new`
 schemas/           JSON Schemas (project, feedback, AI config); scene schema is generated
 docs/              documentation in English (embedded into the binary); translations in docs/i18n/<lang>/
 examples/          sample games (also used as integration tests)
-platforms/         android/ (Gradle) and ios/ packaging
+platforms/         android/ (Gradle) and ios/ packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
 external/          vendored third-party code (do not edit)
 ```
 

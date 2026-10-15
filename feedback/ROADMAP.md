@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open and every milestone (M1-M7) is done; M5 closed the proactive 3D-physics and gamepad gaps, and M7 the gaps found while implementing M5 and M6.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open and every milestone (M1-M8) is done; M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8, "Left open".
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -230,19 +230,70 @@ Outcome: four packages, one merge each.
   asks for 3.0), and textures without mipmaps sampled black on drivers that do not clamp the mip range of
   `glTexStorage2D` textures (every image now sets `GL_TEXTURE_MAX_LEVEL`).
 
-Found while implementing M7, not fixed (no game has hit them; record an ENGINE_FEEDBACK entry when one does):
-- Spheres get no torque from contacts (they keep the arcade `rollWithMotion` model), 3D bodies never sleep, there is
-  no gyroscopic term, edge-edge and sphere-box contacts are single-point, and boxes have no rolling friction.
-- Continuous collision ignores a box's own rotation within a sub-step and drops the movement left after 6 impacts in
-  one sub-step.
-- Linux built-in mappings cover the kernel-driver layouts only (hid-sony, hid-playstation, hid-nintendo); a pad on the
+Found while implementing M7 (all handled in M8 below, except what cannot run on hosted CI):
+- ~~Spheres get no torque from contacts (they keep the arcade `rollWithMotion` model), 3D bodies never sleep, there is
+  no gyroscopic term, edge-edge and sphere-box contacts are single-point, and boxes have no rolling friction.~~ Done in
+  M8; the single-point contacts and the boxes' rolling friction were not gaps (tests prove it, `47fe537`).
+- ~~Continuous collision ignores a box's own rotation within a sub-step and drops the movement left after 6 impacts in
+  one sub-step.~~ Done in M8 (`1e9abb1`).
+- ~~Linux built-in mappings cover the kernel-driver layouts only (hid-sony, hid-playstation, hid-nintendo); a pad on the
   generic HID driver or any other non-xpad pad needs an `SDL_GAMECONTROLLERCONFIG` line. Android keeps an unplugged
-  pad's slot and cannot tell pads that use Z/RZ as triggers from pads that use them as the right stick. No real pad has
-  been used on Linux or Android yet.
-- CI runs the mobile players on a simulator and an x86_64 emulator with a software GPU: arm64 Android code, real GPUs,
-  touch, audio and suspend/resume are not covered. The Android smoke script waits 20 s after the emulator boots,
-  because an activity started right after boot was paused and destroyed after about 1 s (inferred to be a sokol_app
-  shutdown race; not proven, and sokol is vendored).
+  pad's slot and cannot tell pads that use Z/RZ as triggers from pads that use them as the right stick.~~ Done in M8
+  (`75c378c`, `3e7088c`). No real pad has been used on Linux or Android yet.
+- ~~CI runs the mobile players on a simulator and an x86_64 emulator with a software GPU: arm64 Android code, real GPUs,
+  touch, audio and suspend/resume are not covered. The Android smoke script waits 20 s after the emulator boots.~~ Done
+  in M8 (`0fc77c2`, `c3b4de0`) for touch (Android), audio, suspend/resume and the 20 s wait. arm64 Android code, real
+  GPUs and touch on the iOS Simulator are still not covered (see M8).
+
+## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
+
+Closes the "Found while implementing M7" list above and the "Desktop download: next steps" list below. One worker
+branch per package, merged together in PR #29.
+
+Outcome:
+- 3D physics (`546a216`, `164a00d`, `cea851d`, `1e9abb1`, `47fe537`, `d739ae8`): a sphere with `rollWithMotion` off is a
+  rigid body (inertia 2/5 m r^2) turned by contact friction, so it rolls down a slope and spins when hit off-centre;
+  arcade spheres are unchanged. Calm 3D bodies fall asleep as an island (under 5 cm/s for 0.5 s) and wake on touch,
+  Transform/velocity writes, forces, gravity changes and lost support, like 2D. An implicit midpoint gyroscopic term
+  keeps energy and angular momentum within 0.05% (a single Newton step, Bullet-style, lost 18% in 10 s). Continuous
+  collision sweeps a box's own rotation and re-sweeps pairs left touching after an impact (a 40 rad/s rod at 150 m/s
+  tunnelled 24 times in 100, now 0); up to 32 impacts per sub-step, the rest of the movement carries over instead of
+  being applied unswept. Not gaps: a box on an edge parallel to a face gets a two-point manifold through face clipping,
+  and boxes do not roll (`angularDamping` is their spin drag).
+- Gamepads (`75c378c`, `3e7088c`, `2fd406a`): the 744 Linux lines of SDL_GameControllerDB are embedded
+  (`external/sdl_gamecontrollerdb`, zlib), plus an optional `<project>/gamecontrollerdb.txt`; priority
+  `SDL_GAMECONTROLLERCONFIG` > project file > built-in DB > xpad. Android asks `InputDevice` through JNI: an unplugged
+  pad frees its slot, and Z/RZ are the right stick or the triggers depending on which axes the device reports.
+- Mobile CI (`0fc77c2`, `c3b4de0`, `54b3442`): no fixed wait; a readiness gate (boot, package manager, provisioning,
+  keyguard). The cause was most likely an activity restart: the emulator's SIM changes mcc/mnc a few seconds after boot,
+  the activity was not declared to handle it, and sokol_app exits the process on destroy. The manifest now handles
+  every configuration change, and a font-scale change in the smoke test guards it. The smoke tests check audio (output
+  device open, stream running), touch (Android: a tap reaches `input: first touch`), suspend/resume (same process,
+  60 frames after resume, a new native window on Android) and a configuration change.
+- Prebuilt mobile players (`f63632a`, `4c8e4a1`, `5055f85`, `3a14bdf`, `fd7ab75`, `d1be230`): every package carries
+  `mobile/android/jniLibs/<abi>/libfactoria_player.so` (arm64-v8a, x86_64) and the macOS one also the iOS static
+  libraries (device arm64, simulator arm64 + x86_64). `factoria export --platform android|ios` uses them (`mode:
+  prebuilt`): the Gradle project needs no NDK or CMake, the iOS project needs Xcode and CMake but no engine source.
+  The engine checkout is still used when asked for or when factoria runs from a source build (`mode: source`). The
+  editor's updater swaps folders too, so `mobile/` stays in sync.
+- Desktop download (`083ad58`, `fb53f30`): `FactorIA-windows-x64-setup.exe` (Inno Setup, per user, Start menu, user
+  PATH, uninstaller that also removes what the updater leaves), `FactorIA-linux-x64.AppImage` (editor by default,
+  `factoria` CLI with arguments or through a `factoria` link; it does not update itself) and a universal macOS
+  package, `FactorIA-macos-universal.tar.gz` (the release also uploads it as `FactorIA-macos-arm64.tar.gz` for editors up
+  to 0.1.2). Code signing (signtool) and signing + notarization (codesign, notarytool) run when the repository secrets
+  exist (docs/BUILDING.md, "Releasing"); without them the packages stay unsigned.
+
+Left open, not fixable in this repository alone:
+- Certificates: an Authenticode certificate or Azure Trusted Signing, and the Apple Developer Program, are needed before
+  the signing steps do anything. New Authenticode certificates come on a token or a cloud HSM, so the `.pfx` path in
+  `scripts/sign-windows.sh` may have to become that service's signing action.
+- GitHub-hosted runners cannot run an arm64 Android emulator (no KVM on `ubuntu-24.04-arm`, no nested virtualization on
+  macOS) and have no real GPUs; that needs a device farm with an account. `simctl` cannot tap, so iOS touch is not run.
+- No real gamepad has been used on Linux or Android; the Android Z/RZ trigger scaling is taken from Android's docs.
+- 3D: a kinematic body's own rotation within a sub-step is not swept; in an extreme pile of impacts a body lags in time
+  instead of tunnelling.
+- The AppImage does not update itself (AppImageUpdate/zsync would), and after an in-place update the Windows "Apps" list
+  still shows the installed version.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
@@ -275,13 +326,15 @@ the first try failed three ways, each fixed and covered by a test:
   picture and no text no longer pastes the previous text again, so Ctrl+V attaches the picture. The editor autotest
   pastes into the AI Assistant input.
 
-## Desktop download: next steps (*proactive*)
+## Desktop download: next steps (*proactive*) — DONE in M8
 
 `.github/workflows/release.yml` packages the desktop tools as a zip / tar.gz that runs without dev tools
-(docs/GETTING_STARTED.md, "Download"). Left out of that first package:
-- A Windows installer that adds a Start menu entry and puts `factoria` on PATH, so `.mcp.json` (bare `factoria`
-  command) works from any terminal without editing PATH by hand.
-- Code signing on Windows and signing plus notarization on macOS, so SmartScreen and Gatekeeper stop warning.
-- Prebuilt Android and iOS player libraries in the package, so `factoria export --platform android|ios` works from the
-  download (today it needs the engine source and the SDKs, docs/MOBILE.md).
-- A Linux AppImage (one file, no tar.gz) and a macOS x86_64 or universal build (the package is Apple Silicon only).
+(docs/GETTING_STARTED.md, "Download"). Left out of that first package, all done in M8:
+- ~~A Windows installer that adds a Start menu entry and puts `factoria` on PATH, so `.mcp.json` (bare `factoria`
+  command) works from any terminal without editing PATH by hand.~~ (`fb53f30`)
+- ~~Code signing on Windows and signing plus notarization on macOS, so SmartScreen and Gatekeeper stop warning.~~ Wired
+  up (`fb53f30`); it signs once the certificates exist (M8, "Left open").
+- ~~Prebuilt Android and iOS player libraries in the package, so `factoria export --platform android|ios` works from the
+  download (today it needs the engine source and the SDKs, docs/MOBILE.md).~~ (`f63632a`, `5055f85`)
+- ~~A Linux AppImage (one file, no tar.gz) and a macOS x86_64 or universal build (the package is Apple Silicon only).~~
+  (`fb53f30`)

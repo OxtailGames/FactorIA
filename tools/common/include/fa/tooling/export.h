@@ -3,11 +3,17 @@
 // export_project() validates a game project and writes a shippable folder:
 //   linux / windows : <out>/<slug>-<platform>/{<slug>[.exe], game/...}
 //   macos           : <out>/<slug>-macos/<Name>.app/Contents/{Info.plist, MacOS/<slug>, Resources/game/...}
-//   android         : <out>/<slug>-android/  a complete Gradle project (from platforms/android of the engine
-//                     checkout) with the game in app/src/main/assets/ plus assets_index.txt (the file list
-//                     the engine VFS needs to enumerate files inside an APK: one project-relative path per line)
-//   ios             : <out>/<slug>-ios/{game/..., build_ios.sh}  the script configures the Xcode project with
+//   android         : <out>/<slug>-android/  a complete Gradle project with the game in app/src/main/assets/ plus
+//                     assets_index.txt (the file list the engine VFS needs to enumerate files inside an APK: one
+//                     project-relative path per line)
+//   ios             : <out>/<slug>-ios/{game/..., build_ios.sh, ...}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
+// Android and iOS have two modes (ExportReport::mode); docs/EXPORTING.md has the rule that picks one:
+//   prebuilt : the engine runtime is the ready-made player of the FactorIA download (<factoria dir>/mobile/): Android
+//              packages android/jniLibs/<abi>/libfactoria_player.so, iOS links ios/<sdk>/*.a. No engine source (and,
+//              on Android, no NDK or CMake) is needed; the project templates come from the factoria binary (platforms/).
+//   source   : the engine is compiled from a source checkout (--engine-root, $FACTORIA_ENGINE_DIR, or the build-time
+//              source root of a development build), with that checkout's platforms/ templates.
 // Never shipped: .factoria/, build/ (earlier exports), tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
 // jsconfig.json, every dot-file/dot-folder, and the output folder itself.
 #pragma once
@@ -29,11 +35,17 @@ struct ExportOptions {
     bool release = false;       // only changes the build commands in nextSteps / the iOS script
     std::string playerBinary;   // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
-    std::string engineRoot;     // android/ios: engine checkout ("" = $FACTORIA_ENGINE_DIR, else FA_SOURCE_ROOT)
+    std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
+    std::string mobileDir;      // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
+                                // ios/{iphoneos,iphonesimulator}/*.a); giving it selects "prebuilt" mode.
+                                // With neither: $FACTORIA_ENGINE_DIR set = source; else <factoria dir>/mobile when it
+                                // holds the players = prebuilt; else the build-time source root = source (docs/EXPORTING.md)
+    std::string buildSourceRoot;  // the checkout factoria was built from ("" = FA_SOURCE_ROOT); only tests change it
 };
 
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
+    std::string mode;                      // android/ios: "prebuilt" or "source" (see above); empty for desktop exports
     std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted)
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems

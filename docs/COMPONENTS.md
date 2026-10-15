@@ -236,7 +236,7 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 
 ### RigidBody3D
 
-Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. Spheres keep the arcade rolling model (rollWithMotion / rollingFriction): contacts never spin them.
+Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -245,11 +245,11 @@ Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it wi
 | `gravityScale` | float | `1.0` | Multiplier on world gravity. |
 | `linearDamping` | float | `0.0` | Air resistance; 0 = none. Range 0.0..1000.0. |
 | `velocity` | vec3 | `[0.0,0.0,0.0]` | Linear velocity [x, y, z] in meters per second. Read/write. |
-| `angularVelocity` | vec3 | `[0.0,0.0,0.0]` | Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step. |
-| `rollWithMotion` | bool | `true` | Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity). Such a sphere also uses rolling resistance (rollingFriction) instead of sliding friction. |
-| `rollingFriction` | float | `0.02` | Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored when rollWithMotion is false (then Collider3D.friction applies) and for boxes. Range 0.0..10.0. |
+| `angularVelocity` | vec3 | `[0.0,0.0,0.0]` | Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step. Read/write (writing it wakes a sleeping body). A box spinning about a non-principal axis keeps its angular momentum, so this vector wanders (precession) while it tumbles. |
+| `rollWithMotion` | bool | `true` | Sphere colliders only. true (default, arcade ball): while it touches the ground the sphere is spun to match its rolling motion (sets angularVelocity from the horizontal velocity) and uses rolling resistance (rollingFriction) instead of sliding friction; contacts never turn it, so setting velocity every frame steers it exactly. false: the sphere is a rigid body (solid-sphere inertia 2/5 m r^2): friction at the contact point spins it, so on a slope it rolls (spin = speed / radius) and a glancing hit makes it spin; on flat ground it keeps rolling until angularDamping / linearDamping or an obstacle stops it. Add lockRotation for a ball that slides and is never spun by contacts. |
+| `rollingFriction` | float | `0.02` | Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored when rollWithMotion is false (then Collider3D.friction acts at the contact point of the rigid sphere) and for boxes. Range 0.0..10.0. |
 | `angularDamping` | float | `0.0` | Rotation drag of a dynamic body: angularVelocity is divided by (1 + dt * angularDamping) every step, so 0 = a spinning body keeps spinning in the air, larger values slow it down faster. Range 0.0..1000.0. |
-| `lockRotation` | bool | `false` | true = collisions and friction never turn this (dynamic box) body: it stays upright and slides, as boxes did before rotation dynamics. Use it for characters and upright crates. angularVelocity and Transform.rotation written by gameplay still turn it. Spheres are never turned by contacts. |
+| `lockRotation` | bool | `false` | true = collisions and friction never turn this body (a dynamic box, or a sphere with rollWithMotion = false): it stays upright and slides, as boxes did before rotation dynamics. Use it for characters and upright crates. angularVelocity and Transform.rotation written by gameplay still turn it. A rollWithMotion sphere is never turned by contacts either way. |
 
 ### Collider3D
 
@@ -766,7 +766,7 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 
 Package the game for a platform: a desktop bundle, or an Android/iOS project.
 
-Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project (needs the engine source checkout, $FACTORIA_ENGINE_DIR). ios: the game plus build_ios.sh. Returns {outputDir, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the Gradle build command). Nothing is built or signed here. Details: docs_read {"name":"exporting"}. Example: {"platform":"windows","release":true}.
+Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project; ios: the game plus an Xcode/CMake project and build_ios.sh. Both have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. Returns {outputDir, mode (android/ios), files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the Gradle build command). Nothing is built or signed here. Details: docs_read {"name":"exporting"}. Example: {"platform":"windows","release":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2582,7 +2582,7 @@ declare module "factoria" {
     oneWay: boolean;
   }
   /**
-   * Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. Spheres keep the arcade rolling model (rollWithMotion / rollingFriction): contacts never spin them.
+   * Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
    * 
    * Category: Physics
    */
@@ -2609,16 +2609,16 @@ declare module "factoria" {
     get velocity(): Vec3;
     set velocity(value: Vec3Like);
     /**
-     * Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step.
+     * Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step. Read/write (writing it wakes a sleeping body). A box spinning about a non-principal axis keeps its angular momentum, so this vector wanders (precession) while it tumbles.
      */
     get angularVelocity(): Vec3;
     set angularVelocity(value: Vec3Like);
     /**
-     * Sphere colliders only: spin the sphere to match its rolling motion while it touches the ground (sets angularVelocity from the horizontal velocity). Such a sphere also uses rolling resistance (rollingFriction) instead of sliding friction.
+     * Sphere colliders only. true (default, arcade ball): while it touches the ground the sphere is spun to match its rolling motion (sets angularVelocity from the horizontal velocity) and uses rolling resistance (rollingFriction) instead of sliding friction; contacts never turn it, so setting velocity every frame steers it exactly. false: the sphere is a rigid body (solid-sphere inertia 2/5 m r^2): friction at the contact point spins it, so on a slope it rolls (spin = speed / radius) and a glancing hit makes it spin; on flat ground it keeps rolling until angularDamping / linearDamping or an obstacle stops it. Add lockRotation for a ball that slides and is never spun by contacts.
      */
     rollWithMotion: boolean;
     /**
-     * Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored when rollWithMotion is false (then Collider3D.friction applies) and for boxes.
+     * Rolling resistance of a dynamic sphere with rollWithMotion = true: friction cap = rollingFriction * normal force, replacing the sliding friction of its contacts, so on flat ground its speed decays by about rollingFriction * gravity per second (default 0.02 rolls about 23 m from 3 m/s; 0 never slows down). Ignored when rollWithMotion is false (then Collider3D.friction acts at the contact point of the rigid sphere) and for boxes.
      */
     rollingFriction: number;
     /**
@@ -2626,7 +2626,7 @@ declare module "factoria" {
      */
     angularDamping: number;
     /**
-     * true = collisions and friction never turn this (dynamic box) body: it stays upright and slides, as boxes did before rotation dynamics. Use it for characters and upright crates. angularVelocity and Transform.rotation written by gameplay still turn it. Spheres are never turned by contacts.
+     * true = collisions and friction never turn this body (a dynamic box, or a sphere with rollWithMotion = false): it stays upright and slides, as boxes did before rotation dynamics. Use it for characters and upright crates. angularVelocity and Transform.rotation written by gameplay still turn it. A rollWithMotion sphere is never turned by contacts either way.
      */
     lockRotation: boolean;
   }
