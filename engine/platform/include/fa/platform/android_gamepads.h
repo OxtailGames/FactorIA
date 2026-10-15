@@ -6,10 +6,16 @@
 // slots) and has no Android dependency, so every OS unit-tests it. Android's own layout files already normalise
 // pads to the Xbox-style naming, so unlike Linux there is no per-pad table.
 //
-// Deliberate cuts: a pad that is unplugged is not noticed (the NDK has no device-removal callback; Android
-// recentres the axes and releases the keys of a removed device itself, so nothing sticks, but the pad keeps its
-// slot until a new pad needs it); pads that put the right stick on RX/RY while ALSO using Z/RZ as triggers are not
-// told apart; AKEYCODE_DPAD_CENTER, BUTTON_C/Z/1..16 are swallowed but not mapped.
+// Two things the NDK's event API cannot tell, so gamepad_android.cpp asks the Java side (InputDevice, through JNI) at a
+// low rate and hands the answers to this class:
+//   * a pad was unplugged (InputDevice.getDevice(id) is null): release_device() frees its slot, so the next pad takes
+//     it and the game sees the pad disconnect. Without the answer (JNI unavailable) a pad keeps its slot until a fifth
+//     device needs one; Android recentres the axes and releases the keys of a removed device itself, so nothing sticks.
+//   * what Z and RZ mean: the right stick on most pads, the analog triggers on others (the Xbox-like layout, where the
+//     stick is RX/RY). android_layout_for() decides from which axes the device reports.
+//
+// Deliberate cuts: pads whose axes are ambiguous (see android_layout_for) use whichever pair is further from rest;
+// AKEYCODE_DPAD_CENTER, BUTTON_C/Z/1..16 are swallowed but not mapped.
 #pragma once
 
 #include <array>
@@ -42,6 +48,40 @@ struct AndroidMotionAxes {
     float brake = 0, gas = 0;      // AXIS_BRAKE, AXIS_GAS: the triggers of the pads that use these names
 };
 
+// Which motion axes an input device reports: whether InputDevice.getMotionRange(axis) is non-null for each of them.
+struct AndroidAxisCaps {
+    bool z = false, rz = false;              // AXIS_Z, AXIS_RZ
+    bool rx = false, ry = false;             // AXIS_RX, AXIS_RY
+    bool ltrigger = false, rtrigger = false; // AXIS_LTRIGGER, AXIS_RTRIGGER
+    bool brake = false, gas = false;         // AXIS_BRAKE, AXIS_GAS
+};
+
+// Where a pad's right stick is.
+enum class AndroidRightStick : std::uint8_t {
+    Unknown,  // not asked yet, or ambiguous: whichever of Z/RZ and RX/RY is further from rest
+    ZRz,      // AXIS_Z / AXIS_RZ
+    RxRy,     // AXIS_RX / AXIS_RY
+    None,     // the pad has no right stick
+};
+
+// How to read a pad's axes. The default (Unknown, no Z/RZ triggers) is what a pad gets before it has been asked.
+struct AndroidLayout {
+    AndroidRightStick rightStick = AndroidRightStick::Unknown;
+    // Z and RZ are the left and right analog triggers. Android reports a trigger on a centred axis like any stick axis:
+    // -1 released, +1 fully pulled (inferred from the framework's axis scaling, not seen on a real pad).
+    bool zrzAreTriggers = false;
+};
+
+// The decision, from what the device reports:
+//   * RX+RY and Z+RZ, and no LTRIGGER/RTRIGGER/BRAKE/GAS: the Xbox-like layout. RX/RY is the right stick, Z/RZ the triggers.
+//   * Z+RZ and no RX+RY: the right stick is Z/RZ (DualShock 4, Xbox One, most pads), triggers on LTRIGGER/RTRIGGER/BRAKE/GAS.
+//     A pad that has Z/RZ as its only extra axes and no trigger axes is taken for this one too (it could be a pad with
+//     triggers and no right stick; there is no telling them apart).
+//   * RX+RY and no Z+RZ: the right stick is RX/RY.
+//   * both pairs AND dedicated trigger axes: one pair is the stick and the other something odd. Unknown.
+//   * neither pair: no right stick.
+AndroidLayout android_layout_for(const AndroidAxisCaps& caps);
+
 class AndroidGamepads {
 public:
     // True for the keycodes a gamepad sends (and only those), so the caller can consume exactly them: A..MODE
@@ -55,25 +95,39 @@ public:
     // A joystick motion event: the new position of every axis.
     void on_motion(int deviceId, const AndroidMotionAxes& axes);
 
-    // Feeds every known pad (connect + all buttons and axes) to `input`. Call it once per frame.
+    // The device was queried (see the top of this file): its axis layout. Ignored for a device that has no slot.
+    void set_layout(int deviceId, const AndroidLayout& layout);
+    // The device is gone (InputDevice.getDevice(id) returned null): its slot is free for the next pad. The other pads
+    // keep their slots, so player 2 stays player 2. No effect on a device that has no slot.
+    void release_device(int deviceId);
+
+    // Feeds every slot (a pad: connect + all buttons and axes; a free slot: disconnect) to `input`. Once per frame.
     void feed(Input& input) const;
 
-    int pad_count() const { return count_; }
-    GamepadState state(int pad) const;  // pad in 0..pad_count()-1
+    // Slots are 0..kMaxGamepads-1, the pad numbers the game sees. A free slot is -1 / at rest.
+    int device_id(int slot) const;      // the Android device id of the pad in the slot, or -1
+    bool needs_layout(int slot) const;  // a pad is there and nobody has called set_layout() for it yet
+    bool any_needs_layout() const;
+    int pad_count() const;              // slots in use
+    GamepadState state(int slot) const;
 
 private:
     struct Pad {
-        int deviceId = -1;
+        bool used = false;
+        int deviceId = 0;
         std::uint64_t lastSeen = 0;
+        bool layoutSet = false;
+        AndroidLayout layout;
         std::array<bool, size_t(GamepadButton::Count)> keys{};  // buttons from key events
         bool l2Key = false, r2Key = false;                      // BUTTON_L2/R2: digital triggers
         bool analogLeft = false, analogRight = false;           // the trigger axis has moved: ignore the digital key
+        bool motionSeen = false;                                // at least one motion event: `axes` is real
         AndroidMotionAxes axes;
     };
-    Pad& pad_for(int deviceId);  // the pad of a device; a new device takes a free slot or the longest silent one
+    Pad& pad_for(int deviceId);  // the pad of a device; a new device takes the first free slot or the longest silent one
+    Pad* find(int deviceId);
 
     std::array<Pad, kMaxGamepads> pads_;
-    int count_ = 0;
     std::uint64_t tick_ = 0;
 };
 

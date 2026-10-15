@@ -11,6 +11,25 @@
 # (tools/editor/src/update.cpp). It looks for these exact names: FactorIA-<os>.zip / .tar.gz with one FactorIA/
 # folder inside. The names carry no version, so releases/latest/download/FactorIA-<os>.zip always is the newest.
 # Bump project(VERSION) in CMakeLists.txt before tagging: the tag must match `factoria version`.
+#
+# A release holds (docs/GETTING_STARTED.md, "Download"):
+#   FactorIA-windows-x64.zip          the Windows package; the editor's updater uses it, also for an installed copy
+#   FactorIA-windows-x64-setup.exe    installer of the same files (platforms/windows/FactorIA.iss): per user, no admin
+#                                     prompt, Start menu entry, folder on the user PATH
+#   FactorIA-macos-universal.tar.gz   arm64 + x86_64 in one binary; the editor's updater uses it
+#   FactorIA-macos-arm64.tar.gz       the same file again, only because editors up to 0.1.2 look for this name (the
+#                                     `publish` job copies it). Drop it once nobody runs those editors, together with
+#                                     the note in update_package_name() (tools/editor/src/update.cpp).
+#   FactorIA-linux-x64.tar.gz         the Linux package; the editor's updater uses it
+#   FactorIA-linux-x64.AppImage       the same files as one file (scripts/package-appimage.sh); does not update itself
+#
+# Signing: with the repository secrets set, the executables are signed on Windows (signtool; the installer too) and
+# signed + notarized on macOS (codesign, notarytool). Without them these steps only print a notice and the packages
+# are unsigned. Which secrets, what to buy: docs/BUILDING.md, "Releasing".
+# Mobile: `mobile-android` and `mobile-ios` build the game-independent player libraries once (libfactoria_player.so
+# per ABI; static archives per iOS SDK) and every package carries them in FactorIA/mobile/ (Android in all packages, iOS
+# in the macOS one), so `factoria export --platform android|ios` works from the download without the engine source
+# (docs/EXPORTING.md). The smoke tests export from the unpacked package and build with Gradle / Xcode.
 name: Release
 
 on:
@@ -24,8 +43,112 @@ permissions:
   contents: read
 
 jobs:
+  # libfactoria_player.so for the ABIs platforms/android filters, built with the runner's preinstalled NDK (Release,
+  # stripped). One job per ABI, in parallel. The library does not depend on the game: the game is in the APK assets.
+  mobile-android:
+    name: Android player (${{ matrix.abi }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: arm64-v8a
+            preset: android-arm64
+          - abi: x86_64
+            preset: android-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache
+
+      # Unlike the package jobs this one also saves the cache: runs of this file (and "Run workflow" on main) warm it.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-mobile-${{ matrix.abi }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-mobile-${{ matrix.abi }}-
+
+      - name: Select the preinstalled NDK
+        run: |
+          test -f "$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+
+      - name: Build libfactoria_player.so (${{ matrix.preset }}, Release)
+        run: |
+          cmake --preset ${{ matrix.preset }} -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON
+          cmake --build --preset ${{ matrix.preset }} --target factoria_player
+
+      # The layout of the packages: FactorIA/mobile/android/jniLibs/<abi>/libfactoria_player.so. Stripped here, so Gradle
+      # needs no NDK later. The player must export ANativeActivity_onCreate or NativeActivity cannot start it.
+      - name: Strip and stage the library
+        run: |
+          llvm="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          out="mobile/android/jniLibs/${{ matrix.abi }}"
+          mkdir -p "$out"
+          cp "build/${{ matrix.preset }}/player/libfactoria_player.so" "$out/"
+          "$llvm/llvm-strip" --strip-unneeded "$out/libfactoria_player.so"
+          "$llvm/llvm-nm" -D --defined-only "$out/libfactoria_player.so" | grep -q ANativeActivity_onCreate
+          ls -l "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android-${{ matrix.abi }}
+          path: mobile
+          if-no-files-found: error
+
+  # The iOS player as static libraries: the player's own archive (target factoria_player_main) and every engine archive it
+  # links, for the device (arm64) and the simulator (arm64 + x86_64). Only the macOS package carries them
+  # (FactorIA/mobile/ios/<sdk>/*.a). Xcode generator, so no ccache (see ci.yml).
+  mobile-ios:
+    name: iOS player (${{ matrix.sdk }})
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sdk: iphoneos
+            preset: ios
+            archs: arm64
+          - sdk: iphonesimulator
+            preset: ios-simulator
+            archs: "arm64;x86_64"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (${{ matrix.preset }}, ${{ matrix.archs }})
+        run: cmake --preset ${{ matrix.preset }} -DCMAKE_OSX_ARCHITECTURES="${{ matrix.archs }}"
+
+      - name: Build the player and engine libraries (Release)
+        run: cmake --build --preset ${{ matrix.preset }} --config Release --target factoria_player_main -- -sdk ${{ matrix.sdk }} CODE_SIGNING_ALLOWED=NO
+
+      - name: Collect the archives
+        run: |
+          out="mobile/ios/${{ matrix.sdk }}"
+          mkdir -p "$out"
+          # Only the products: Xcode also leaves one single-architecture copy of each archive per arch under *.build/.
+          find "build/${{ matrix.preset }}" -path "*Release-${{ matrix.sdk }}/*" -not -path '*.build/*' -name '*.a' -exec cp {} "$out/" \;
+          test -f "$out/libfactoria_player_main.a"
+          for lib in "$out"/*.a; do
+            lipo -info "$lib"
+            lipo "$lib" -verify_arch $(tr ';' ' ' <<< "${{ matrix.archs }}") || { echo "::error::$lib lacks a slice of ${{ matrix.archs }}"; exit 1; }
+          done
+          du -sh "$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ios-${{ matrix.sdk }}
+          path: mobile
+          if-no-files-found: error
+
   package:
     name: Package (${{ matrix.os }})
+    needs: [mobile-android, mobile-ios]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -39,10 +162,11 @@ jobs:
             exe: .exe
             ccache: ~\AppData\Local\ccache
             ccache-key: windows
-          - os: macos-arm64
+          - os: macos-universal
             runner: macos-latest
             preset: macos-release
-            ccache: ~/Library/Caches/ccache
+            cmake-args: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"  # one binary for Apple Silicon and Intel Macs
+            ccache: ~/Library/Caches/ccache  # ccache skips two-architecture compiles: this build is uncached
             ccache-key: macos
           - os: linux-x64
             runner: ubuntu-24.04
@@ -83,10 +207,48 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache-key }}-
 
       - name: Configure (${{ matrix.preset }}, no tests)
-        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }}
+        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }} ${{ matrix.cmake-args }}
 
       - name: Build (${{ matrix.preset }})
         run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      - name: Check the universal binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for f in "build/${{ matrix.preset }}/tools/cli/factoria" "build/${{ matrix.preset }}/player/factoria_player"; do
+            archs="$(lipo -archs "$f")"
+            echo "$f: $archs"
+            [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "::error::$f is not universal ($archs)"; exit 1; }
+          done
+
+      # Code signing (docs/BUILDING.md, "Releasing"). Each script prints a notice and does nothing without its secrets.
+      # The signed files are what the packages and the installer are made of, so this comes before "Package".
+      - name: Sign executables (Windows)
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          bin="build/${{ matrix.preset }}/tools/cli${{ matrix.cfg }}"
+          ./scripts/sign-windows.sh "$bin/factoria.exe" "$bin/FactorIA-Editor.exe" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player.exe"
+
+      - name: Sign and notarize executables (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERT_P12_BASE64: ${{ secrets.APPLE_CERT_P12_BASE64 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: ./scripts/sign-macos.sh "build/${{ matrix.preset }}/tools/cli/factoria" "build/${{ matrix.preset }}/player/factoria_player"
+
+      # FactorIA/mobile/: the Android players in every package, the iOS ones as well in the macOS package.
+      - name: Add the prebuilt mobile players
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ runner.os == 'macOS' && 'mobile-*' || 'mobile-android-*' }}
+          path: dist/FactorIA/mobile
+          merge-multiple: true
 
       # FactorIA-<os>.zip (.tar.gz on macOS and Linux) with one folder, FactorIA/, inside.
       - name: Package
@@ -126,12 +288,191 @@ jobs:
           "$fa" export "$tmp/g" --out "$tmp/export"
           ls "$tmp/export"/*
 
+      # The runner is Apple Silicon: the Intel half runs through Rosetta, installed here when the image lacks it.
+      - name: Smoke-test the Intel half (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license > /dev/null 2>&1 || true
+          if ! arch -x86_64 /usr/bin/true 2> /dev/null; then
+            echo "::warning::Rosetta is not available on this runner: the x86_64 half was not run"
+            exit 0
+          fi
+          tmp="$RUNNER_TEMP/smoke-intel"
+          mkdir -p "$tmp" && cd "$tmp"
+          cmake -E tar xf "$GITHUB_WORKSPACE/$PACKAGE"
+          arch -x86_64 FactorIA/factoria version
+          arch -x86_64 FactorIA/factoria new g --template 2d-platformer
+          arch -x86_64 FactorIA/factoria test g
+
+      # FactorIA-windows-x64-setup.exe wraps the same FactorIA/ folder as the zip (signed exes inside). Inno Setup is on
+      # the runner image; the fallback installs the same version.
+      - name: Build the installer (Windows)
+        if: runner.os == 'Windows'
+        env:
+          MSYS2_ARG_CONV_EXCL: '*'  # ISCC's /O<dir> is not a path
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          [[ -f "$iscc" ]] || choco install innosetup --version=6.7.1 -y --no-progress
+          # platforms/windows/FactorIA.iss reads both from the environment.
+          export FA_INSTALLER_VERSION="$(dist/FactorIA/factoria.exe version | tr -d '\r' | sed 's/^factoria //')"
+          export FA_INSTALLER_SOURCE="$(cygpath -w "$PWD/dist/FactorIA")"
+          echo "Installer for FactorIA $FA_INSTALLER_VERSION"
+          "$iscc" "/O$(cygpath -w "$PWD/dist")" "$(cygpath -w platforms/windows/FactorIA.iss)"
+          ./scripts/sign-windows.sh dist/FactorIA-windows-x64-setup.exe
+
+      # Installs for the current user the way a user would (silently), finds factoria through the user PATH that the
+      # installer wrote, installs again (no second PATH entry), then uninstalls: PATH entry, shortcut, files and folder
+      # must go, also what the editor's updater leaves behind (.update\, *.old).
+      - name: Smoke-test the installer (Windows)
+        if: runner.os == 'Windows'
+        env:
+          MSYS2_ARG_CONV_EXCL: '*'  # Inno's /VERYSILENT and the like are not paths
+        run: |
+          fail() { echo "::error::$*"; exit 1; }
+          user_path() { powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable('Path','User')" | tr -d '\r' | tr ';' '\n'; }
+          setup="dist/FactorIA-windows-x64-setup.exe"
+          log="$RUNNER_TEMP/setup.log"
+          dir_win="$(cygpath -w "$LOCALAPPDATA")\\Programs\\FactorIA"
+          dir="$(cygpath -u "$dir_win")"
+          lnk="$(cygpath -u "$APPDATA")/Microsoft/Windows/Start Menu/Programs/FactorIA Editor.lnk"
+
+          for pass in 1 2; do
+            "$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/LOG=$(cygpath -w "$log")" || { cat "$log"; fail "the installer failed (pass $pass)"; }
+          done
+          for f in factoria.exe factoria_player.exe FactorIA-Editor.exe unins000.exe; do
+            [[ -f "$dir/$f" ]] || { ls -la "$dir"; fail "$f is not in $dir_win"; }
+          done
+          [[ -f "$lnk" ]] || fail "no Start menu entry: $lnk"
+          [[ "$(user_path | grep -Fxic -- "$dir_win")" == 1 ]] || { user_path; fail "$dir_win must be in the user PATH exactly once"; }
+
+          # `factoria` from the installed copy, found through that PATH entry.
+          export PATH="$dir:$PATH"
+          [[ "$(command -v factoria)" == "$dir"/factoria* ]] || fail "factoria is not found through the PATH ($(command -v factoria))"
+          tmp="${RUNNER_TEMP//\\//}/installed"
+          mkdir -p "$tmp"
+          factoria version
+          factoria new "$tmp/g" --template 2d-platformer
+          factoria test "$tmp/g"
+
+          touch "$dir/factoria.exe.old"
+          mkdir -p "$dir/.update" && touch "$dir/.update/x"
+          "$dir/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          for _ in $(seq 60); do [[ -e "$dir" ]] || break; sleep 1; done  # the uninstaller may hand over to a copy of itself
+          [[ ! -e "$dir" ]] || { ls -la "$dir"; fail "the uninstaller left $dir_win behind"; }
+          [[ ! -e "$lnk" ]] || fail "the uninstaller left the Start menu entry"
+          [[ "$(user_path | grep -Fxic -- "$dir_win")" == 0 ]] || fail "the uninstaller left $dir_win in the user PATH"
+
+      - name: Build the AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/package-appimage.sh dist/FactorIA dist/FactorIA-linux-x64.AppImage
+
+      # No FUSE on the runner: --appimage-extract-and-run unpacks the image to a temp folder for each run.
+      - name: Smoke-test the AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tmp="$RUNNER_TEMP/appimage-smoke"
+          mkdir -p "$tmp/bin"
+          app="$PWD/dist/FactorIA-linux-x64.AppImage"
+          run() { "$app" --appimage-extract-and-run "$@"; }
+          fail() { echo "::error::$*"; exit 1; }
+
+          run factoria version
+          [[ "$(run version)" == "$(run factoria version)" ]] || fail "'version' and 'factoria version' differ"
+          run new "$tmp/g" --template 2d-platformer
+          xvfb-run -a "$app" --appimage-extract-and-run test "$tmp/g"
+          run export "$tmp/g" --out "$tmp/export"  # finds factoria_player inside the image
+          ls "$tmp/export"/*
+
+          # Called as `factoria` (a symlink) it is the CLI: no arguments print the help...
+          ln -s "$app" "$tmp/bin/factoria"
+          help="$(xvfb-run -a "$tmp/bin/factoria" --appimage-extract-and-run)"
+          grep -q "Usage:" <<< "$help" || fail "the factoria symlink did not print the CLI help"
+          # ...and called by its own name with no arguments it opens the editor, which keeps running (timeout: 124).
+          status=0
+          timeout 20 xvfb-run -a "$app" --appimage-extract-and-run > "$tmp/editor.log" 2>&1 || status=$?
+          cat "$tmp/editor.log"
+          [[ "$status" == 124 ]] || fail "the AppImage without arguments should open the editor and stay open (exit $status)"
+      # The mobile players made it into the package (the smoke folder above is the unpacked package).
+      - name: Check the mobile players in the package
+        run: |
+          tmp="${RUNNER_TEMP//\\//}/smoke"
+          for abi in arm64-v8a x86_64; do test -s "$tmp/FactorIA/mobile/android/jniLibs/$abi/libfactoria_player.so"; done
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            for sdk in iphoneos iphonesimulator; do test -s "$tmp/FactorIA/mobile/ios/$sdk/libfactoria_player_main.a"; done
+          fi
+          du -sh "$tmp/FactorIA/mobile"
+
+      # `factoria export --platform android` from the unpacked package, outside the checkout (whose path is compiled into
+      # factoria, so the report must say "prebuilt"), then a Gradle build with only the runner's Android SDK: the NDK and
+      # CMake folders are moved away to prove the prebuilt libraries need neither.
+      - name: Smoke-test the Android export (Gradle, prebuilt)
+        if: runner.os == 'Linux'
+        run: |
+          tmp="${RUNNER_TEMP//\\//}/smoke"
+          fa="$tmp/FactorIA/factoria"
+          "$fa" new "$tmp/ga" --template 2d-platformer --name "Smoke Game" --id dev.factoria.smoke
+          "$fa" export "$tmp/ga" --platform android --out "$tmp/export-android" --json | tee "$tmp/android-report.json"
+          grep -Eq '"mode": *"prebuilt"' "$tmp/android-report.json"
+          proj="$tmp/export-android/smoke-game-android"
+          if grep -q externalNativeBuild "$proj/app/build.gradle"; then echo "::error::the prebuilt build.gradle still builds native code"; exit 1; fi
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
+          for d in ndk ndk-bundle cmake; do
+            if [[ -d "$sdk/$d" ]]; then sudo mv "$sdk/$d" "$sdk/$d.away"; fi
+          done
+          echo "sdk.dir=$sdk" > "$proj/local.properties"
+          cd "$proj"
+          env -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME gradle wrapper --gradle-version 8.7
+          env -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME ./gradlew assembleDebug --no-daemon
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee "$tmp/apk-contents.txt"
+          grep -q 'lib/arm64-v8a/libfactoria_player.so' "$tmp/apk-contents.txt"
+          grep -q 'lib/x86_64/libfactoria_player.so' "$tmp/apk-contents.txt"
+          grep -q 'assets/factoria.json' "$tmp/apk-contents.txt"
+
+      # `factoria export --platform ios` from the unpacked package, then the generated project (CMake + Xcode, linking
+      # lib/<sdk>/*.a) is built for the simulator without code signing, as the ios-build job of ci.yml does.
+      - name: Smoke-test the iOS export (Xcode Simulator build, prebuilt)
+        if: runner.os == 'macOS'
+        run: |
+          tmp="$RUNNER_TEMP/smoke"
+          fa="$tmp/FactorIA/factoria"
+          "$fa" new "$tmp/gi" --template 2d-platformer --name "Smoke Game" --id dev.factoria.smoke
+          "$fa" export "$tmp/gi" --platform ios --out "$tmp/export-ios" --json | tee "$tmp/ios-report.json"
+          grep -Eq '"mode": *"prebuilt"' "$tmp/ios-report.json"
+          cd "$tmp/export-ios/smoke-game-ios"
+          ./build_ios.sh --simulator --build -- CODE_SIGNING_ALLOWED=NO
+          app=$(find build -name factoria_player.app -type d | head -n 1)
+          test -n "$app"
+          test -f "$app/game/factoria.json"
+          plutil -lint "$app/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")" = dev.factoria.smoke
+          lipo -info "$app/factoria_player"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PACKAGE_NAME }}
           path: ${{ env.PACKAGE }}
           if-no-files-found: error
           compression-level: 0  # already compressed
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: FactorIA-windows-x64-setup
+          path: dist/FactorIA-windows-x64-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: FactorIA-linux-x64-AppImage
+          path: dist/FactorIA-linux-x64.AppImage
+          if-no-files-found: error
+          compression-level: 0
 
   publish:
     name: Publish GitHub Release
@@ -145,6 +486,11 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      # Editors up to 0.1.2 update from FactorIA-macos-arm64.tar.gz. The universal package is that very file (it runs on
+      # Apple Silicon), so older installs keep updating. Drop this step once nobody runs those editors (see the header).
+      - name: Keep the old macOS package name for older editors
+        run: cp dist/FactorIA-macos-universal.tar.gz dist/FactorIA-macos-arm64.tar.gz
 
       - name: Create the release
         env:

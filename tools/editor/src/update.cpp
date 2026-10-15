@@ -59,13 +59,21 @@ std::string tar_exe() {
 
 }  // namespace
 
-std::string update_repo() { return FA_UPDATE_REPO; }
+std::string update_repo() {
+    // Started from the AppImage: its files are a read-only mount that install_update cannot replace. Updating means
+    // downloading the newer AppImage (docs/GETTING_STARTED.md, "Updates"), so the editor does not offer it.
+    if (std::getenv("APPIMAGE")) return {};
+    return FA_UPDATE_REPO;
+}
 
 std::string update_package_name() {
 #if defined(_WIN32)
     return "FactorIA-windows-x64.zip";
 #elif defined(__APPLE__)
-    return "FactorIA-macos-arm64.tar.gz";
+    // A universal binary (arm64 + x86_64). Editors up to 0.1.2 look for FactorIA-macos-arm64.tar.gz, so
+    // .github/workflows/release.yml still uploads this very file under that name too: drop that copy once nobody
+    // runs those editors.
+    return "FactorIA-macos-universal.tar.gz";
 #else
     return "FactorIA-linux-x64.tar.gz";
 #endif
@@ -187,12 +195,14 @@ Result<void> install_update(const UpdateInfo& info, const stdfs::path& installDi
     std::vector<Swapped> done;
     std::string error;
     for (const auto& entry : stdfs::directory_iterator(src, ec)) {
-        if (!entry.is_regular_file(ec)) continue;
+        // Files, and folders such as mobile/ (the prebuilt Android and iOS players that `factoria export` uses: they must
+        // match this factoria), are swapped whole.
+        if (!entry.is_regular_file(ec) && !entry.is_directory(ec)) continue;
         stdfs::path dst = installDir / entry.path().filename(), old = dst;
         old += ".old";
         bool had = stdfs::exists(dst, ec);
         if (had) {
-            stdfs::remove(old, ec);
+            stdfs::remove_all(old, ec);
             stdfs::rename(dst, old, ec);
             if (ec) { error = "cannot rename " + editor::utf8_string(dst) + ": " + ec.message(); break; }
         }
@@ -206,7 +216,7 @@ Result<void> install_update(const UpdateInfo& info, const stdfs::path& installDi
     }
     if (!error.empty()) {
         for (auto it = done.rbegin(); it != done.rend(); ++it) {
-            stdfs::remove(it->dst, ec);
+            stdfs::remove_all(it->dst, ec);
             stdfs::path old = it->dst;
             old += ".old";
             if (it->hadOld) stdfs::rename(old, it->dst, ec);
@@ -223,9 +233,9 @@ void remove_update_leftovers(const stdfs::path& installDir) {
     stdfs::remove_all(installDir / ".update", ec);
     for (const auto& entry : stdfs::directory_iterator(installDir, ec)) {
         const stdfs::path& p = entry.path();
-        // Only the <name>.old of a file that is still there: the ones install_update made. A running one (the old
-        // editor that just restarted) cannot be removed on Windows yet; the next start does it.
-        if (p.extension() == ".old" && stdfs::exists(p.parent_path() / p.stem(), ec)) stdfs::remove(p, ec);
+        // Only the <name>.old of a file or folder that is still there: the ones install_update made. A running one (the
+        // old editor that just restarted) cannot be removed on Windows yet; the next start does it.
+        if (p.extension() == ".old" && stdfs::exists(p.parent_path() / p.stem(), ec)) stdfs::remove_all(p, ec);
     }
 }
 

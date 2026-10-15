@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=FactorIA
+Comment=AI-native game engine: editor, tools and AI assistant
+Exec=FactorIA
+Icon=factoria
+Categories=Development;IDE;
+Terminal=false

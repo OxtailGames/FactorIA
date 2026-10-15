@@ -21,7 +21,8 @@ are listed by name under the path; hover one to see its path (`~/.factoria/edito
 The downloaded editor checks GitHub Releases when it opens. When a newer version is out, the **FactorIA update**
 window shows the release notes of every version newer than yours and blocks the editor until you choose: **Update**
 downloads it, replaces the files next to `factoria` and reopens the editor on the open project; **Not now** keeps this
-version until the next start. Builds from source never check (they have no `FA_UPDATE_REPO`). Details:
+version until the next start. Builds from source never check (they have no `FA_UPDATE_REPO`), and neither does the
+Linux AppImage (a read-only mount: download the newer one). Details:
 [GETTING_STARTED.md, Updates](GETTING_STARTED.md#updates).
 
 ## Layout

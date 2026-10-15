@@ -27,30 +27,9 @@ elseif(FA_PLATFORM STREQUAL "ios")
     set(FA_GAME_PROJECT_DIR "" CACHE PATH "Game folder (contains factoria.json) to copy into the app bundle")
     set(FA_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple developer team id used for signing")
 
-    if(FA_GAME_ORIENTATION STREQUAL "portrait")
-        set(FA_IOS_ORIENTATIONS "<string>UIInterfaceOrientationPortrait</string>")
-        set(FA_IOS_ORIENTATIONS_IPAD "<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>")
-    elseif(FA_GAME_ORIENTATION STREQUAL "any")
-        set(FA_IOS_ORIENTATIONS "<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>")
-        set(FA_IOS_ORIENTATIONS_IPAD "<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>")
-    else()
-        set(FA_IOS_ORIENTATIONS "<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>")
-        set(FA_IOS_ORIENTATIONS_IPAD "<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>")
-    endif()
-    # XML-escape the display name for the plist.
-    string(REPLACE "&" "&amp;" FA_GAME_NAME_XML "${FA_GAME_NAME}")
-    string(REPLACE "<" "&lt;" FA_GAME_NAME_XML "${FA_GAME_NAME_XML}")
-    string(REPLACE ">" "&gt;" FA_GAME_NAME_XML "${FA_GAME_NAME_XML}")
     set(FA_PLIST_OUT ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
-    configure_file(${FA_ROOT}/platforms/ios/Info.plist.in ${FA_PLIST_OUT} @ONLY)
+    include(${FA_ROOT}/platforms/ios/plist.cmake)  # fa_ios_configure_plist(): orientations + XML-escaped name -> Info.plist.in
+    fa_ios_configure_plist(${FA_PLIST_OUT})
 
     add_executable(factoria_player MACOSX_BUNDLE ${player_srcs} ${CMAKE_CURRENT_SOURCE_DIR}/ios_bundle.mm)
     set_source_files_properties(ios_bundle.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
@@ -65,6 +44,13 @@ elseif(FA_PLATFORM STREQUAL "ios")
     endif()
     target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit"
         "-framework QuartzCore" "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation")
+
+    # The player's own code as a static library. The release workflow builds it with the engine archives it links
+    # (every fa_* module, quickjs, box2d) for the device and the simulator, and the macOS download carries them in
+    # mobile/ios/<sdk>/: `factoria export --platform ios` then links an app from them, without the engine source
+    # (platforms/ios/prebuilt/CMakeLists.txt, docs/EXPORTING.md). Not part of ALL.
+    add_library(factoria_player_main STATIC EXCLUDE_FROM_ALL ${player_srcs} ${CMAKE_CURRENT_SOURCE_DIR}/ios_bundle.mm)
+    target_link_libraries(factoria_player_main PUBLIC fa_runtime PRIVATE fa_warnings)
 
     if(FA_GAME_PROJECT_DIR)
         if(NOT EXISTS "${FA_GAME_PROJECT_DIR}/factoria.json")

@@ -33,31 +33,36 @@ MCP server, the AI hub and the editor work, and four example games built by AI
 agents through the public interface are part of the test suite.
 
 CI builds and tests every pull request and every push to `main` on Linux, Windows
-(MSVC) and macOS, and builds the iOS Simulator app and the Android library and APK. iOS and Android are not run on
-devices or emulators in CI yet. Open gaps and next milestones:
+(MSVC) and macOS, builds the iOS Simulator app and the Android library and APK, and runs them on the iOS Simulator and
+an Android emulator (not on real devices; see [docs/MOBILE.md](docs/MOBILE.md)). Open gaps and next milestones:
 [feedback/ROADMAP.md](feedback/ROADMAP.md).
 
 ## Download
 
 No compiler or dev tools needed. Download the latest version for your system once:
-[Windows](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
-[macOS](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz) (Apple Silicon)
-or [Linux](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz). Unzip it into a
-folder of your choice, such as `C:\FactorIA` or `~/FactorIA`, and open the editor:
+[Windows installer](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64-setup.exe)
+(or the [zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip)),
+[macOS](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-universal.tar.gz)
+(Apple Silicon and Intel) or Linux ([tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz)
+or [AppImage](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.AppImage)). Run the
+installer, or unpack the zip / tar.gz into a folder of your choice, such as `C:\FactorIA` or `~/FactorIA`, and open the
+editor:
 
-- **Windows:** double-click `FactorIA-Editor.exe`. The exe is not signed, so SmartScreen may stop it: click
-  **More info > Run anyway**.
-- **macOS:** run `./factoria editor` in Terminal from the unzipped folder. The app is not notarized, so Gatekeeper
-  blocks it the first time: right-click `factoria` in Finder > **Open** (macOS 15 and later: System Settings >
+- **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. SmartScreen may
+  stop it (always for an unsigned release): click **More info > Run anyway**.
+- **macOS:** run `./factoria editor` in Terminal from the unzipped folder. Gatekeeper blocks a release that is not
+  notarized the first time: right-click `factoria` in Finder > **Open** (macOS 15 and later: System Settings >
   Privacy & Security > **Open Anyway**).
-- **Linux:** run `./factoria editor` from the unzipped folder.
+- **Linux:** run `./factoria editor` from the unpacked folder, or `./FactorIA-linux-x64.AppImage` (after
+  `chmod +x`; with arguments it is the `factoria` command).
 
 You do not download it again: when a new version is out, the editor shows its release notes as it opens and asks
 whether to update. **Update** installs it in the same folder and reopens the editor; **Not now** keeps your version.
 
 The AI assistant needs [Claude Code](https://claude.com/claude-code) installed and signed in, or an API key. To use
-Claude Code from a terminal outside the editor, add the folder to your PATH, and Android and iOS export still need
-the engine source and the platform SDKs. Details: [Download in GETTING_STARTED](docs/GETTING_STARTED.md#download-no-build-tools).
+Claude Code from a terminal outside the editor, add the folder to your PATH (the Windows installer does). Desktop,
+Android (JDK and Android SDK only) and iOS (macOS package, Xcode) export all work from the download, with no engine
+source. Details: [Download in GETTING_STARTED](docs/GETTING_STARTED.md#download-no-build-tools).
 
 ## Quick start (build from source)
 

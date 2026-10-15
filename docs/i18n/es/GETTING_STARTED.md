@@ -15,39 +15,60 @@ FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree jue
 ### Descarga (sin compilar nada)
 
 Descarga una sola vez el paquete de tu sistema de escritorio; el editor lo mantiene al día (ver
-[Actualizaciones](#actualizaciones)):
-[FactorIA-windows-x64.zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
-[FactorIA-macos-arm64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz)
-(Apple Silicon) o
-[FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz).
-Estos enlaces siempre dan la última versión; la [página de Releases](https://github.com/OxtailGames/FactorIA/releases)
-tiene todas. El paquete contiene una carpeta, `FactorIA`, con `factoria` (CLI, editor, servidor MCP e IA),
-`factoria_player` (el runtime que `factoria export` copia en tu juego) y, en Windows, `FactorIA-Editor.exe`. La
-documentación, las plantillas y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que
-un PC recién formateado no necesita nada más.
+[Actualizaciones](#actualizaciones)). Estos enlaces siempre dan la última versión; la
+[página de Releases](https://github.com/OxtailGames/FactorIA/releases) tiene todas.
 
-1. Descomprime el paquete en la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`.
+| Sistema | Descarga | Qué es |
+|---|---|---|
+| Windows | [FactorIA-windows-x64-setup.exe](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64-setup.exe) | Instalador: solo para tu usuario (sin contraseña de administrador), añade una entrada al menú Inicio y pone `factoria` en el PATH. |
+| Windows | [FactorIA-windows-x64.zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip) | Los mismos archivos para descomprimir donde quieras. |
+| macOS | [FactorIA-macos-universal.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-universal.tar.gz) | Macs con Apple Silicon e Intel. |
+| Linux | [FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz) | Los archivos para descomprimir donde quieras. |
+| Linux | [FactorIA-linux-x64.AppImage](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.AppImage) | Los mismos archivos en un único ejecutable. |
+
+El paquete contiene una carpeta, `FactorIA`, con `factoria` (CLI, editor, servidor MCP e IA), `factoria_player` (el
+runtime que `factoria export` copia en tu juego), `mobile/` (el runtime de Android ya compilado en todos los paquetes,
+las librerías de iOS en el de macOS; ver el punto 5) y, en Windows, `FactorIA-Editor.exe`. La documentación, las plantillas
+y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que un PC recién formateado no
+necesita nada más.
+
+1. Instálalo:
+   - **Instalador de Windows:** ejecuta `FactorIA-windows-x64-setup.exe`. Instala en
+     `%LOCALAPPDATA%\Programs\FactorIA` (una carpeta en la que puedes escribir, como necesita el actualizador), añade
+     **FactorIA Editor** al menú Inicio y añade la carpeta al PATH de tu usuario. Se desinstala desde
+     Configuración > Aplicaciones.
+   - **Zip o tar.gz:** descomprime el paquete en la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`.
+   - **AppImage:** `chmod +x FactorIA-linux-x64.AppImage`. Funciona donde funciona el tar.gz.
 2. Abre el editor:
-   - **Windows:** haz doble clic en `FactorIA-Editor.exe`. El exe no está firmado, así que Windows SmartScreen puede
-     mostrar "Windows protegió su PC": pulsa **Más información** y después **Ejecutar de todas formas**.
-   - **macOS:** abre Terminal en la carpeta y ejecuta `./factoria editor`. La app no está notarizada, así que
-     Gatekeeper la bloquea la primera vez: en Finder, clic derecho en `factoria` > **Abrir** y confirma. En macOS 15 y
+   - **Windows:** menú Inicio > **FactorIA Editor** (instalador), o doble clic en `FactorIA-Editor.exe`. Windows
+     SmartScreen puede mostrar "Windows protegió su PC": siempre lo hace con una versión sin firmar, y con una firmada
+     hasta que la han descargado suficientes personas. Pulsa **Más información** y después **Ejecutar de todas formas**.
+   - **macOS:** abre Terminal en la carpeta y ejecuta `./factoria editor`. Gatekeeper bloquea la primera vez una
+     versión que no está notarizada: en Finder, clic derecho en `factoria` > **Abrir** y confirma. En macOS 15 y
      posteriores, ve a Ajustes del Sistema > Privacidad y seguridad y pulsa **Abrir igualmente**. También puedes quitar
      la cuarentena de descarga de toda la carpeta: `xattr -dr com.apple.quarantine ~/FactorIA`.
    - **Linux:** ejecuta `./factoria editor` en la carpeta. Necesita X11 y OpenGL, que las distribuciones de escritorio
      ya incluyen.
+   - **AppImage de Linux:** ejecuta `./FactorIA-linux-x64.AppImage`. Sin argumentos abre el editor; con argumentos es
+     el comando `factoria` (`./FactorIA-linux-x64.AppImage new mi-juego`; `editor mi-juego` abre ese proyecto). Si no
+     puede montarse sola (sin FUSE), ejecútala como `./FactorIA-linux-x64.AppImage --appimage-extract-and-run`. No se
+     actualiza sola: descarga la nueva.
 3. El asistente de IA necesita Claude Code (o Codex) instalado y con la sesión iniciada, o una clave de API: ver la
    [sección 6](#6-conectar-una-ia). Dentro del editor no hace falta nada más, porque el propio editor sirve las
    herramientas MCP.
-4. Para usar Claude Code desde un terminal fuera del editor, añade la carpeta al PATH. El `.mcp.json` que escribe
-   `factoria new` arranca el comando `factoria` sin ruta, así que el terminal tiene que encontrarlo. Después abre un
-   terminal nuevo.
+4. Para usar Claude Code desde un terminal fuera del editor, pon `factoria` en el PATH. El `.mcp.json` que escribe
+   `factoria new` arranca el comando `factoria` sin ruta, así que el terminal tiene que encontrarlo. El instalador de
+   Windows ya lo hace. Si no, añade la carpeta y después abre un terminal nuevo:
    - Windows (PowerShell):
      `[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\FactorIA', 'User')`
    - macOS (zsh) o Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
-5. La exportación de escritorio (`factoria export`) funciona desde la descarga. La exportación a Android e iOS sigue
-   necesitando el código fuente del motor y los SDK de cada plataforma ([MOBILE.md](../../MOBILE.md), en inglés), así
-   que para eso compila desde el código fuente.
+   - AppImage: un enlace llamado `factoria` es el propio comando:
+     `ln -s ~/Descargas/FactorIA-linux-x64.AppImage ~/.local/bin/factoria`
+5. La exportación (`factoria export`) funciona desde la descarga para escritorio y móvil. Android necesita el JDK 17 y el
+   SDK de Android (sin NDK ni CMake): la carpeta `mobile/` junto a `factoria` trae el runtime de Android del motor, y el
+   proyecto Gradle exportado solo lo empaqueta. iOS (en un Mac, con Xcode y CMake) usa igual las librerías de iOS del
+   paquete de macOS. No hace falta el código fuente del motor ([EXPORTING.md](../../EXPORTING.md#mobile-exports-prebuilt-or-source)
+   y [MOBILE.md](../../MOBILE.md), en inglés). Compila desde el código fuente si quieres cambiar el motor.
 
 #### Actualizaciones
 
@@ -62,6 +83,15 @@ cada versión posterior a la tuya, y el editor espera a que respondas:
 Sin conexión, o si GitHub no responde, el editor se abre como siempre y la consola dice por qué. La carpeta FactorIA
 tiene que ser una en la que puedas escribir (no `C:\Program Files`). Para volver a una versión anterior, descárgala de
 la página de Releases. Las builds compiladas desde el código fuente nunca se actualizan: haz pull y vuelve a compilar.
+
+- Una copia hecha por el instalador de Windows se actualiza como una descomprimida, en su propia carpeta. El
+  desinstalador sigue funcionando (la actualización solo reemplaza los archivos del paquete), pero Configuración >
+  Aplicaciones sigue mostrando la versión que instalaste. Ejecutar un instalador más nuevo encima también funciona.
+- El AppImage de Linux nunca busca actualizaciones: sus archivos son un montaje de solo lectura que no se puede
+  reemplazar. Descarga el AppImage nuevo.
+- En macOS el paquete es `FactorIA-macos-universal.tar.gz` (Apple Silicon e Intel). La página de Releases también tiene
+  el mismo archivo como `FactorIA-macos-arm64.tar.gz`, el nombre que buscan los editores hasta la 0.1.2, para que
+  puedan seguir actualizándose.
 
 ### Compilar desde el código fuente
 
@@ -385,7 +415,7 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 | IA integrada con clave de API (`factoria ai`) | `doctor`, `providers` y `config` funcionan. `ai run` necesita una clave de API o una CLI instalada (Claude Code o Codex) |
 | Exportar juegos (`factoria export`) | Linux probado (`--platform linux`); la CI exporta un juego de Android y compila su APK. Windows, macOS, Android e iOS: ver `docs/EXPORTING.md` y `docs/MOBILE.md` |
 | Documentación para IA | En inglés: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Mandos (gamepad) | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` y `game.gamepad(i)` en los tests. Mandos reales: Windows (XInput), Linux (API joystick; distribuciones de PlayStation y Switch Pro incluidas, otras con una línea en `SDL_GAMECONTROLLERCONFIG`), macOS/iOS (GameController) y Android; la CI los compila todos, pero aún no se han probado con un mando físico. La build web no tiene soporte (`docs/MOBILE.md`, `docs/SCRIPTING.md`) |
+| Mandos (gamepad) | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` y `game.gamepad(i)` en los tests. Mandos reales: Windows (XInput), Linux (API joystick; incluye las líneas de Linux de la GameControllerDB de SDL, y se añaden más en `SDL_GAMECONTROLLERCONFIG` o en un `gamecontrollerdb.txt` junto a `factoria.json`), macOS/iOS (GameController) y Android; la CI los compila todos, pero aún no se han probado con un mando físico. La build web no tiene soporte (`docs/MOBILE.md`, `docs/SCRIPTING.md`) |
 
 ## 9. Dónde seguir leyendo
 

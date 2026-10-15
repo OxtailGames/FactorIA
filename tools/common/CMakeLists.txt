@@ -8,13 +8,15 @@ target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings)
 
-# Bake docs, templates and schemas into the binary (offline AI access).
+# Bake docs, templates and schemas into the binary (offline AI access), plus the Android/iOS project templates of
+# platforms/ so that `factoria export --platform android|ios` works without the engine source (prebuilt mode).
 file(GLOB_RECURSE FA_EMBED_DOCS CONFIGURE_DEPENDS ${FA_ROOT}/docs/*.md)
 # Translations (docs/i18n/<lang>/) are for humans browsing the repo; AIs get the English reference docs.
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
 file(GLOB_RECURSE FA_EMBED_SCHEMAS CONFIGURE_DEPENDS ${FA_ROOT}/schemas/*.json)
-set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS})
+file(GLOB_RECURSE FA_EMBED_PLATFORMS CONFIGURE_DEPENDS ${FA_ROOT}/platforms/*)
+set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS})
 if(FA_EMBED_ALL)
     fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
     target_compile_definitions(fa_tooling PRIVATE FA_HAS_EMBEDDED_FILES=1)

@@ -36,31 +36,35 @@ los tests.
 
 La CI compila y prueba cada pull request y cada push a `main` en Linux, Windows
 (MSVC) y macOS, y compila la app de iOS para el simulador y la librería y el APK de
-Android. iOS y Android todavía
-no se ejecutan en dispositivos ni emuladores en la CI. Carencias abiertas y
+Android, y los ejecuta en el simulador de iOS y en un emulador de Android (no en
+dispositivos reales; véase [docs/MOBILE.md](docs/MOBILE.md), en inglés). Carencias abiertas y
 próximos hitos: [feedback/ROADMAP.md](feedback/ROADMAP.md) (en inglés).
 
 ## Descarga
 
 No hace falta compilador ni herramientas de desarrollo. Descarga una sola vez la última versión para tu sistema:
-[Windows](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
-[macOS](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz) (Apple Silicon)
-o [Linux](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz). Descomprímela en
-la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`, y abre el editor:
+[instalador de Windows](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64-setup.exe)
+(o el [zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip)),
+[macOS](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-universal.tar.gz)
+(Apple Silicon e Intel) o Linux ([tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz)
+o [AppImage](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.AppImage)). Ejecuta el
+instalador, o descomprime el zip / tar.gz en la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`, y abre
+el editor:
 
-- **Windows:** haz doble clic en `FactorIA-Editor.exe`. El exe no está firmado, así que SmartScreen puede frenarlo:
-  pulsa **Más información > Ejecutar de todas formas**.
-- **macOS:** ejecuta `./factoria editor` en Terminal desde la carpeta descomprimida. La app no está notarizada, así que
-  Gatekeeper la bloquea la primera vez: en Finder, clic derecho en `factoria` > **Abrir** (macOS 15 y posteriores:
+- **Windows:** menú Inicio > **FactorIA Editor** (instalador), o doble clic en `FactorIA-Editor.exe`. SmartScreen puede
+  frenarlo (siempre con una versión sin firmar): pulsa **Más información > Ejecutar de todas formas**.
+- **macOS:** ejecuta `./factoria editor` en Terminal desde la carpeta descomprimida. Gatekeeper bloquea la primera vez
+  una versión que no está notarizada: en Finder, clic derecho en `factoria` > **Abrir** (macOS 15 y posteriores:
   Ajustes del Sistema > Privacidad y seguridad > **Abrir igualmente**).
-- **Linux:** ejecuta `./factoria editor` desde la carpeta descomprimida.
+- **Linux:** ejecuta `./factoria editor` desde la carpeta descomprimida, o `./FactorIA-linux-x64.AppImage` (tras
+  `chmod +x`; con argumentos es el comando `factoria`).
 
 No hace falta volver a descargarlo: cuando sale una versión nueva, el editor muestra sus notas al abrirse y pregunta
 si quieres actualizar. **Update** la instala en la misma carpeta y vuelve a abrir el editor; **Not now** mantiene tu
 versión.
 
 El asistente de IA necesita [Claude Code](https://claude.com/claude-code) instalado y con la sesión iniciada, o una
-clave de API. Para usar Claude Code desde un terminal fuera del editor, añade la carpeta al PATH; y la exportación a
+clave de API. Para usar Claude Code desde un terminal fuera del editor, añade la carpeta al PATH (el instalador de Windows lo hace); y la exportación a
 Android e iOS sigue necesitando el código fuente del motor y los SDK de cada plataforma. Detalles:
 [Descarga en GETTING_STARTED](docs/i18n/es/GETTING_STARTED.md#descarga-sin-compilar-nada).
 
