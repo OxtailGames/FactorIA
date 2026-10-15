@@ -5,6 +5,12 @@
 # A `v*` tag publishes the packages as a GitHub Release; "Run workflow" (workflow_dispatch) keeps them as workflow
 # artifacts, and so does a pull request that changes this file. Each package is smoke-tested from a folder outside the
 # checkout before it is uploaded.
+#
+# Updates: the packages are built with FA_UPDATE_REPO set to this repository, so their editor offers each newer
+# release when it opens, with the release notes (edit them on the release page), and installs it in place
+# (tools/editor/src/update.cpp). It looks for these exact names: FactorIA-<os>.zip / .tar.gz with one FactorIA/
+# folder inside. The names carry no version, so releases/latest/download/FactorIA-<os>.zip always is the newest.
+# Bump project(VERSION) in CMakeLists.txt before tagging: the tag must match `factoria version`.
 name: Release
 
 on:
@@ -53,27 +59,26 @@ jobs:
         run: brew install ninja
 
       - name: Configure (${{ matrix.preset }}, no tests)
-        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF
+        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }}
 
       - name: Build (${{ matrix.preset }})
         run: cmake --build --preset ${{ matrix.preset }}
 
-      # Tag v1.2.3 -> FactorIA-1.2.3-<os>; a manual run -> FactorIA-dev-<short sha>-<os>.
+      # FactorIA-<os>.zip (.tar.gz on macOS and Linux) with one folder, FactorIA/, inside.
       - name: Package
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; else version="dev-${GITHUB_SHA::7}"; fi
-          name="FactorIA-$version-${{ matrix.os }}"
+          name="FactorIA-${{ matrix.os }}"
           bin="build/${{ matrix.preset }}/tools/cli${{ matrix.cfg }}"
-          mkdir -p "dist/$name"
-          cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md "dist/$name/"
-          if [[ -f LICENSE ]]; then cp LICENSE "dist/$name/"; fi
+          mkdir -p dist/FactorIA
+          cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md dist/FactorIA/
+          if [[ -f LICENSE ]]; then cp LICENSE dist/FactorIA/; fi
           cd dist
           if [[ "$RUNNER_OS" == Windows ]]; then
-            cp "../$bin/FactorIA-Editor.exe" "$name/"
-            cmake -E tar cf "$name.zip" --format=zip "$name"
+            cp "../$bin/FactorIA-Editor.exe" FactorIA/
+            cmake -E tar cf "$name.zip" --format=zip FactorIA
             echo "PACKAGE=dist/$name.zip" >> "$GITHUB_ENV"
           else
-            cmake -E tar czf "$name.tar.gz" "$name"
+            cmake -E tar czf "$name.tar.gz" FactorIA
             echo "PACKAGE=dist/$name.tar.gz" >> "$GITHUB_ENV"
           fi
           echo "PACKAGE_NAME=$name" >> "$GITHUB_ENV"  # PACKAGE is relative: upload-artifact cannot read MSYS paths (/d/a/...)
@@ -84,8 +89,14 @@ jobs:
           tmp="${RUNNER_TEMP//\\//}/smoke"
           mkdir -p "$tmp" && cd "$tmp"
           cmake -E tar xf "$GITHUB_WORKSPACE/$PACKAGE"
-          fa="$tmp/$PACKAGE_NAME/factoria${{ matrix.exe }}"
-          "$fa" version
+          fa="$tmp/FactorIA/factoria${{ matrix.exe }}"
+          version="$("$fa" version | tr -d '\r')"
+          echo "$version"
+          # The editor offers a release when its tag is newer than `factoria version`: they must agree.
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$version" != "factoria ${GITHUB_REF_NAME#v}" ]]; then
+            echo "::error::'$version' does not match the tag $GITHUB_REF_NAME: set project(VERSION) in CMakeLists.txt"
+            exit 1
+          fi
           "$fa" new "$tmp/g" --template 2d-platformer
           ${{ matrix.wrap }} "$fa" test "$tmp/g"
           "$fa" export "$tmp/g" --out "$tmp/export"

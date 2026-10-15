@@ -12,11 +12,16 @@ FactorIA is a 2D and 3D game engine in C++20 designed so that an AI can create g
 
 ### Download (no build tools)
 
-The [Releases page](https://github.com/OxtailGames/FactorIA/releases) has a package for each desktop system:
-`FactorIA-<version>-windows-x64.zip`, `FactorIA-<version>-macos-arm64.tar.gz` (Apple Silicon) and
-`FactorIA-<version>-linux-x64.tar.gz`. It contains `factoria` (CLI, editor, MCP server and AI), `factoria_player`
-(the runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`. The docs, templates
-and schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs nothing else.
+Download the package for your desktop system once; the editor keeps it up to date (see [Updates](#updates)):
+[FactorIA-windows-x64.zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
+[FactorIA-macos-arm64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz)
+(Apple Silicon) or
+[FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz).
+These links always give the newest release; the [Releases page](https://github.com/OxtailGames/FactorIA/releases)
+has every version. The package holds one folder, `FactorIA`, with `factoria` (CLI, editor, MCP server and AI),
+`factoria_player` (the runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`.
+The docs, templates and schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs
+nothing else.
 
 1. Unzip the package into a folder of your choice, for example `C:\FactorIA` or `~/FactorIA`.
 2. Open the editor:
@@ -37,6 +42,20 @@ and schemas are built into `factoria`, and on Windows the C++ runtime is too, so
    - macOS (zsh) or Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
 5. Desktop export (`factoria export`) works from the download. Android and iOS export still need the engine source
    and the platform SDKs ([MOBILE.md](MOBILE.md)), so build from source for those.
+
+#### Updates
+
+When the editor opens, it asks GitHub whether a newer release is out. If one is, a window shows the release notes of
+every version newer than yours, and the editor waits for your answer:
+
+- **Update** downloads the package for your system, replaces the files in the FactorIA folder and reopens the editor
+  on the project you had open (if the scene has unsaved changes, it asks first). The replaced files stay as
+  `<name>.old` until the next start, which deletes them.
+- **Not now** keeps your version. The editor asks again the next time it opens.
+
+Offline, or when GitHub does not answer, the editor opens as usual and the Console says why. The FactorIA folder must
+be one you can write to (not `C:\Program Files`). To go back to an older version, download it from the Releases page.
+Builds from source never update: pull and rebuild instead.
 
 ### Build from source
 

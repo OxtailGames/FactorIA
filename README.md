@@ -39,9 +39,11 @@ devices or emulators in CI yet. Open gaps and next milestones:
 
 ## Download
 
-No compiler or dev tools needed. Get the package for your system from
-[Releases](https://github.com/OxtailGames/FactorIA/releases): `FactorIA-<version>-windows-x64.zip`,
-`-macos-arm64.tar.gz` (Apple Silicon) or `-linux-x64.tar.gz`. Unzip it and open the editor:
+No compiler or dev tools needed. Download the latest version for your system once:
+[Windows](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
+[macOS](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz) (Apple Silicon)
+or [Linux](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz). Unzip it into a
+folder of your choice, such as `C:\FactorIA` or `~/FactorIA`, and open the editor:
 
 - **Windows:** double-click `FactorIA-Editor.exe`. The exe is not signed, so SmartScreen may stop it: click
   **More info > Run anyway**.
@@ -49,6 +51,9 @@ No compiler or dev tools needed. Get the package for your system from
   blocks it the first time: right-click `factoria` in Finder > **Open** (macOS 15 and later: System Settings >
   Privacy & Security > **Open Anyway**).
 - **Linux:** run `./factoria editor` from the unzipped folder.
+
+You do not download it again: when a new version is out, the editor shows its release notes as it opens and asks
+whether to update. **Update** installs it in the same folder and reopens the editor; **Not now** keeps your version.
 
 The AI assistant needs [Claude Code](https://claude.com/claude-code) installed and signed in, or an API key. To use
 Claude Code from a terminal outside the editor, add the folder to your PATH, and Android and iOS export still need
