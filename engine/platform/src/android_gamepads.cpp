@@ -78,22 +78,13 @@ AndroidGamepads::Pad& AndroidGamepads::pad_for(int deviceId) {
     }
     // A new device: the first free slot (an unplugged pad's, once release_device() has been told). When there is none,
     // the pad that has been silent longest is the best guess for the one that went away without anybody telling us.
-    Pad* slot = nullptr;
-    for (Pad& pad : pads_)
-        if (!pad.used) {
-            slot = &pad;
-            break;
-        }
-    if (!slot) {
-        slot = &pads_[0];
-        for (Pad& pad : pads_)
-            if (pad.lastSeen < slot->lastSeen) slot = &pad;
-    }
-    *slot = Pad{};
-    slot->used = true;
-    slot->deviceId = deviceId;
-    slot->lastSeen = tick_;
-    return *slot;
+    auto free = std::ranges::find_if(pads_, [](const Pad& p) { return !p.used; });
+    Pad& slot = free != pads_.end() ? *free : *std::ranges::min_element(pads_, {}, &Pad::lastSeen);
+    slot = Pad{};
+    slot.used = true;
+    slot.deviceId = deviceId;
+    slot.lastSeen = tick_;
+    return slot;
 }
 
 bool AndroidGamepads::on_key(int deviceId, int keyCode, bool down) {
@@ -134,16 +125,10 @@ bool AndroidGamepads::needs_layout(int slot) const {
 }
 
 bool AndroidGamepads::any_needs_layout() const {
-    for (int i = 0; i < kMaxGamepads; ++i)
-        if (needs_layout(i)) return true;
-    return false;
+    return std::ranges::any_of(pads_, [](const Pad& p) { return p.used && !p.layoutSet; });
 }
 
-int AndroidGamepads::pad_count() const {
-    int n = 0;
-    for (const Pad& pad : pads_) n += pad.used ? 1 : 0;
-    return n;
-}
+int AndroidGamepads::pad_count() const { return int(std::ranges::count_if(pads_, &Pad::used)); }
 
 GamepadState AndroidGamepads::state(int slot) const {
     GamepadState st;

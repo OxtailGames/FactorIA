@@ -190,7 +190,7 @@ TEST_CASE("a Switch Pro: digital triggers, positional face buttons and a hat D-p
     id.vendor = 0x057e;
     id.product = 0x2009;
     id.version = 0x8111;
-    GamepadMapper pad(select_gamepad_mapping({}, id));
+    GamepadMapper pad(select_gamepad_mapping({}, {}, id));
     CHECK(pad.mapping().name == "Nintendo Switch Pro Controller");
     pad.set_button(7, true);   // ZL
     pad.set_hat_axis(0, true, -1.0f);  // D-pad up
@@ -269,8 +269,6 @@ TEST_CASE("a mapping text: comments, blank lines, other platforms and bad lines"
 }
 
 TEST_CASE("the built-in mappings all parse, and identify the common pads") {
-    // Six lines are written in the source; a line that did not parse would be missing here.
-    CHECK(builtin_gamepad_mappings().size() == 6);
     const GamepadMapping& fallback = fallback_gamepad_mapping();
     CHECK(fallback.guid == kZeroGuid);
     CHECK(fallback.buttons[size_t(GamepadButton::A)].kind == GamepadSource::Kind::Button);
@@ -282,13 +280,19 @@ TEST_CASE("the built-in mappings all parse, and identify the common pads") {
         id.vendor = std::uint16_t(vendor);
         id.product = std::uint16_t(product);
         id.version = std::uint16_t(version);
-        return select_gamepad_mapping({}, id).name;
+        return select_gamepad_mapping({}, {}, id).name;
     };
     CHECK(name_for(3, 0x054c, 0x09cc, 0x8111) == "PS4 Controller");  // DualShock 4 v2, USB
     CHECK(name_for(5, 0x054c, 0x09cc, 0x8100) == "PS4 Controller");  // the same over Bluetooth
     CHECK(name_for(5, 0x054c, 0x09cc, 0x7777) == "PS4 Controller");  // a version nobody listed: bus and version ignored
     CHECK(name_for(3, 0x054c, 0x05c4, 0x0100) == "PS4 Controller");  // DualShock 4 v1
     CHECK(name_for(3, 0x054c, 0x0ce6, 0x8111) == "PS5 Controller");  // DualSense
+    // The hand-written lines nobody else lists: each of the six answers for an unlisted version, so none failed to parse.
+    CHECK(name_for(3, 0x054c, 0x0ba0, 0x7777) == "PS4 Controller (USB wireless adapter)");
+    CHECK(name_for(3, 0x054c, 0x0df2, 0x7777) == "PS5 Edge Controller");
+    CHECK(name_for(3, 0x054c, 0x05c4, 0x7777) == "PS4 Controller");
+    CHECK(name_for(3, 0x054c, 0x0ce6, 0x7777) == "PS5 Controller");
+    CHECK(name_for(3, 0x057e, 0x2009, 0x7777) == "Nintendo Switch Pro Controller");
     CHECK(name_for(3, 0x057e, 0x2009, 0x8111) == "Nintendo Switch Pro Controller");
     CHECK(name_for(3, 0x045e, 0x028e, 0x0114) == "Xbox 360 Controller");  // listed in SDL_GameControllerDB
     CHECK(name_for(3, 0xbeef, 0xcafe, 0x0100) == fallback.name);           // listed nowhere: the xpad layout
@@ -333,7 +337,7 @@ TEST_CASE("user mappings win over built-in ones, an exact version over a loose o
     GamepadMappingSet user = parse_gamepad_mappings(
         "030000004c050000cc09000000000000,My PS4,b:b0,platform:Linux,", "SDL_GAMECONTROLLERCONFIG", "Linux");
     REQUIRE(user.mappings.size() == 1);
-    GamepadMapping m = select_gamepad_mapping(user.mappings, ds4);
+    GamepadMapping m = select_gamepad_mapping(user.mappings, {}, ds4);
     CHECK(m.name == "My PS4");
     CHECK(m.buttons[size_t(GamepadButton::B)].index == 0);
     CHECK(m.buttons[size_t(GamepadButton::A)].kind == GamepadSource::Kind::None);
@@ -342,19 +346,19 @@ TEST_CASE("user mappings win over built-in ones, an exact version over a loose o
         "030000004c050000cc09000011810000,Exact,a:b0,platform:Linux,\n"
         "030000004c050000cc09000000000000,Loose,a:b0,platform:Linux,\n", "t", "Linux");
     REQUIRE(two.mappings.size() == 2);
-    CHECK(select_gamepad_mapping(two.mappings, ds4).name == "Exact");  // exact version, though the loose one is later
+    CHECK(select_gamepad_mapping(two.mappings, {}, ds4).name == "Exact");  // exact version, though the loose one is later
     ds4.version = 0x0001;
-    CHECK(select_gamepad_mapping(two.mappings, ds4).name == "Loose");
+    CHECK(select_gamepad_mapping(two.mappings, {}, ds4).name == "Loose");
 
     GamepadMappingSet twice = parse_gamepad_mappings(
         "030000004c050000cc09000000000000,First,a:b0,platform:Linux,\n"
         "030000004c050000cc09000000000000,Second,a:b0,platform:Linux,\n", "t", "Linux");
-    CHECK(select_gamepad_mapping(twice.mappings, ds4).name == "Second");
+    CHECK(select_gamepad_mapping(twice.mappings, {}, ds4).name == "Second");
 
     // A GUID made of a name (vendor and product 0) matches nothing.
     GamepadMappingSet named = parse_gamepad_mappings("6e616d65000000000000000000000000,Named,a:b0,", "t", "Linux");
     GamepadIdentity none;
-    CHECK(select_gamepad_mapping(named.mappings, none).guid == kZeroGuid);
+    CHECK(select_gamepad_mapping(named.mappings, {}, none).guid == kZeroGuid);
 }
 
 // ---------------------------------------------------------------------------
@@ -380,7 +384,7 @@ TEST_CASE("the embedded SDL_GameControllerDB is indexed once and every line pars
 
 TEST_CASE("a generic pad of the database maps its buttons and axes by its own line, not by the Xbox layout") {
     const GamepadIdentity id = generic_usb_pad();
-    GamepadMapping m = select_gamepad_mapping({}, id);
+    GamepadMapping m = select_gamepad_mapping({}, {}, id);
     CHECK(m.name == "USB Gamepad");
     CHECK(m.guid == gamepad_guid(id));  // the database's own line, not a fallback or a near miss
     GamepadMapper pad(m);
@@ -426,7 +430,6 @@ TEST_CASE("a generic pad of the database maps its buttons and axes by its own li
 TEST_CASE("a GUID nobody lists falls back to the Xbox (xpad) layout") {
     const GamepadIdentity unknown = identity(3, 0xbeef, 0xcafe, 0x0100);
     CHECK_FALSE(builtin_gamepad_database().find(unknown).has_value());
-    CHECK(select_gamepad_mapping({}, unknown).guid == kZeroGuid);
     CHECK(select_gamepad_mapping({}, {}, unknown).guid == kZeroGuid);
     CHECK_FALSE(builtin_gamepad_database().find(identity(0, 0, 0, 0)).has_value());  // no ids: nothing to look up
 }
@@ -453,7 +456,7 @@ TEST_CASE("mapping priority: SDL_GAMECONTROLLERCONFIG, then the user's file, the
     m = select_gamepad_mapping({}, {}, id);
     CHECK(m.name == "USB Gamepad");  // the database
     CHECK(m.buttons[size_t(GamepadButton::A)].index == 2);
-    CHECK(select_gamepad_mapping(env, id).name == "Env pad");  // the two-argument form is the environment alone
+    CHECK(select_gamepad_mapping(env, {}, id).name == "Env pad");  // the environment alone
 
     // A tier outranks the ones below it even with a worse match: the user's word is final. This env line is for another
     // version of the pad (a loose match); the database has the exact one.
@@ -468,12 +471,12 @@ TEST_CASE("mapping priority: SDL_GAMECONTROLLERCONFIG, then the user's file, the
 TEST_CASE("an exact line of the database beats the hand-written one; an unlisted version gets the kernel driver's layout") {
     // A DualShock 4 on the legacy generic HID driver (version 0x0111) numbers its buttons differently (a:b1) from one
     // bound to hid-sony (0x8111, a:b0). The database lists both; the hand-written line is the answer for the rest.
-    GamepadMapping legacy = select_gamepad_mapping({}, identity(3, 0x054c, 0x09cc, 0x0111));
+    GamepadMapping legacy = select_gamepad_mapping({}, {}, identity(3, 0x054c, 0x09cc, 0x0111));
     CHECK(legacy.name == "PS4 Controller");
     CHECK(legacy.buttons[size_t(GamepadButton::A)].index == 1);
-    GamepadMapping sony = select_gamepad_mapping({}, identity(3, 0x054c, 0x09cc, 0x8111));
+    GamepadMapping sony = select_gamepad_mapping({}, {}, identity(3, 0x054c, 0x09cc, 0x8111));
     CHECK(sony.buttons[size_t(GamepadButton::A)].index == 0);
-    GamepadMapping unlisted = select_gamepad_mapping({}, identity(3, 0x054c, 0x09cc, 0x7777));
+    GamepadMapping unlisted = select_gamepad_mapping({}, {}, identity(3, 0x054c, 0x09cc, 0x7777));
     CHECK(unlisted.buttons[size_t(GamepadButton::A)].index == 0);
 }
 
@@ -568,7 +571,7 @@ TEST_CASE("a Linux pad end to end: DualShock 4 events through the routes into In
     // What gamepad_linux.cpp does, without the kernel: the pad's evdev axes, raw events, feed.
     const std::uint8_t codes[] = {0, 1, 2, 3, 4, 5, 0x10, 0x11};
     const auto routes = route_evdev_axes(codes);
-    GamepadMapper pad(select_gamepad_mapping({}, [] {
+    GamepadMapper pad(select_gamepad_mapping({}, {}, [] {
         GamepadIdentity id;
         id.bus = 3;
         id.vendor = 0x054c;
