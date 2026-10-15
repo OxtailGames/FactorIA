@@ -137,8 +137,6 @@ std::string gamepad_guid(const GamepadIdentity& id);
 // `problems`, when given.
 GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines, std::span<const GamepadMapping> fileLines,
                                       const GamepadIdentity& id, std::vector<std::string>* problems = nullptr);
-// Same without a user file: `user` is the SDL_GAMECONTROLLERCONFIG lines.
-GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> user, const GamepadIdentity& id);
 
 // The user's mapping file, project-relative (fa::fs): <project>/gamecontrollerdb.txt, in the SDL GameControllerDB
 // format. A game author ships it for the pads the players report; a player can drop one next to the game.
@@ -169,18 +167,13 @@ private:
     std::vector<Entry> entries_;
 };
 
-// The built-in database: the embedded Linux lines of SDL_GameControllerDB, then the hand-written lines of
-// builtin_gamepad_mappings() (they come last, so they win a tie: they are what a DualShock 4, DualSense or Switch Pro
-// on a version nobody listed gets). Indexed on first use.
+// The built-in database: the embedded Linux lines of SDL_GameControllerDB, then a few hand-written lines (DualShock 4,
+// DualSense and Switch Pro as the Linux kernel drivers hid-sony, hid-playstation and hid-nintendo number them; derived
+// from the drivers' key and axis lists with the joystick API's numbering rule, NOT verified on hardware). They come
+// last, so they win a tie: they are what those pads get on a version nobody listed. Indexed on first use.
 const GamepadMappingDb& builtin_gamepad_database();
 // The raw text of the embedded database (comment lines included), for tests and tools.
 std::string_view embedded_gamepad_database_text();
-
-// The hand-written lines of the built-in database, parsed: DualShock 4, DualSense and Switch Pro as the Linux kernel
-// drivers (hid-sony, hid-playstation, hid-nintendo) number them. Derived from the drivers' key and axis lists with the
-// joystick API's numbering rule, NOT verified on hardware; SDL_GameControllerDB lists the same layouts for the common
-// versions. They stay as the answer for a version the database does not list.
-std::span<const GamepadMapping> builtin_gamepad_mappings();
 // For pads nothing else matches: the xpad driver's layout (Xbox 360/One, and the many pads that imitate them).
 const GamepadMapping& fallback_gamepad_mapping();
 

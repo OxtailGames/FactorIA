@@ -413,8 +413,7 @@ const std::string& builtin_lines() {
 }  // namespace
 
 std::string_view embedded_gamepad_database_text() {
-    const auto files = fa::gamepad_db::files();
-    return files.empty() ? std::string_view{} : files.front().data;
+    return fa::gamepad_db::files().front().data;  // fa_embed_files() always emits the one file
 }
 
 void GamepadMappingDb::add_text(std::string_view text, std::string_view origin) {
@@ -441,8 +440,7 @@ std::optional<GamepadMapping> GamepadMappingDb::find(const GamepadIdentity& id, 
             const Entry& e = entries_[i];
             if (e.vendor != id.vendor || e.product != id.product) continue;
             if ((e.bus == id.bus && e.version == id.version) != (pass == 0)) continue;
-            bool skipped = false;
-            Result<GamepadMapping> m = parse_line(e.line, {}, skipped);
+            Result<GamepadMapping> m = parse_gamepad_mapping(e.line);
             if (m) return std::move(*m);
             if (problems)
                 problems->push_back(std::format("{}, line {}: {}{}{}", e.origin, e.lineNo, m.error().message,
@@ -462,12 +460,6 @@ const GamepadMappingDb& builtin_gamepad_database() {
     return db;
 }
 
-std::span<const GamepadMapping> builtin_gamepad_mappings() {
-    static const std::vector<GamepadMapping> mappings =
-        parse_gamepad_mappings(builtin_lines(), "built-in gamepad mappings", "Linux").mappings;  // tested to have no problems
-    return mappings;
-}
-
 const GamepadMapping& fallback_gamepad_mapping() {
     static const GamepadMapping m = [] {
         auto r = parse_gamepad_mapping(std::string("00000000000000000000000000000000,Generic gamepad (xpad layout),") + kXpadBody);
@@ -482,10 +474,6 @@ GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines, 
     if (const GamepadMapping* m = pick(fileLines, id)) return *m;
     if (std::optional<GamepadMapping> m = builtin_gamepad_database().find(id, problems)) return std::move(*m);
     return fallback_gamepad_mapping();
-}
-
-GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> user, const GamepadIdentity& id) {
-    return select_gamepad_mapping(user, {}, id);
 }
 
 std::vector<EvdevAxisRoute> route_evdev_axes(std::span<const std::uint8_t> absCodes) {
