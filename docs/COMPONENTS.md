@@ -839,7 +839,7 @@ Filters: name (substring, case-insensitive), tag (exact), component (name). limi
 
 Replace the running scene with a scene file.
 
-Loads immediately (outside a frame) or at the end of the current frame. Load problems are returned in `messages`. Example: scene.load {"path":"scenes/level2.scene.json"}
+Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in `messages`. Example: scene.load {"path":"scenes/level2.scene.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -849,7 +849,7 @@ Loads immediately (outside a frame) or at the end of the current frame. Load pro
 
 Reload the current scene from disk (discards runtime changes).
 
-Resets the world to the saved scene file. Example: scene.reload {}
+Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing them), factoria.json input actions, fixedHz and deadzone; script errors are cleared. Example: scene.reload {}
 
 ### `scene.remove_component` (modifies state)
 
@@ -908,7 +908,17 @@ Either pass entity JSON ({name, id?, tags?, components:{...}}) or {prefab, posit
 
 List script errors (load/runtime) and scene load problems.
 
-Clear them with a scene reload. Example: script.errors {}
+Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}
+
+### `script.reload` (modifies state)
+
+Re-import script modules edited on disk and restart the behaviours (the world is kept).
+
+scene.load and scene.reload already re-import every module whose file changed (by modification time) and clear the script errors; use this to do the same without reloading the scene (entity state is kept, onStart runs again), or with `force` to re-import every module even if no file changed. Example: script.reload {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `force` | boolean | no | Re-import all modules, not only the changed ones. Default false. |
 
 ### `script.eval` (modifies state)
 
