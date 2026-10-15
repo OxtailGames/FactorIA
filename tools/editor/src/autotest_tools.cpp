@@ -353,6 +353,24 @@ void Editor::at_build_tools_script() {
     });
     snap("editor_bloom.png");
 
+    // ------------------------------------------------------------------------- E. Ctrl+V into the AI Assistant input
+    // sokol_app turns Ctrl+V into a CLIPBOARD_PASTED event (only with the clipboard enabled); sokol_imgui then presses
+    // Ctrl+V for ImGui, which pastes the clipboard's text into the focused box.
+    static const char* kPasted = "A 3D tower game.\nThree levels.";
+    click("ai:input");
+    step(4, [this] {
+        chat_.current().input.clear();
+        sapp_set_clipboard_string(kPasted);
+        sapp_event ev{};
+        ev.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED;
+        on_event(&ev);
+    });
+    step(2, [this] {
+        at_check(chat_.current().input == kPasted, "Ctrl+V pastes the clipboard's text into the AI Assistant input");
+        chat_.current().input.clear();
+        focus_window("###Viewport");
+    });
+
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
