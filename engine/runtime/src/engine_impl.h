@@ -51,6 +51,7 @@ struct Engine::Impl {
     std::map<std::string, std::int64_t> watched;
     bool watchSeeded = false;
     double watchTimer = 0.0;
+    std::int64_t projectMtime = -1;  // factoria.json mtime when I.project was last read
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
@@ -60,6 +61,8 @@ struct Engine::Impl {
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
     void end_of_frame(double dt);
     bool load_scene_impl(const std::string& path, std::string* error);
+    void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
+    void apply_project_settings();
     void poll_hot_reload(bool force = false);
     void apply_scene_change();
 
@@ -79,6 +82,7 @@ void apply_touch_json(Input& input, const Json& value, std::vector<std::string>&
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");

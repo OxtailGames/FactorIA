@@ -130,7 +130,16 @@ Entity Editor::pick_at(Vec2 design) {
 
 void Editor::draw_viewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    const bool open = ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    // Status goes in the title (the ### id keeps docking/layout stable); an overlay would hide the game's HUD.
+    static float lastScale = 1.0f;  // one viewport window; the scale is only known after Begin, so the title is a frame behind
+    char title[96] = "Viewport###Viewport";
+    if (Renderer* tr = engine_->renderer(); tr && tr->target_width() > 0)
+        std::snprintf(title, sizeof title, "Viewport  -  %s  %dx%d  %.0f%%###Viewport",
+                      play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED",
+                      int(tr->target_width()), int(tr->target_height()), lastScale * 100.0f);
+    if (vpFocusNext_) ImGui::SetNextWindowFocus();
+    vpFocusNext_ = false;
+    const bool open = ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (!open) {
         vpHovered_ = vpFocused_ = false;
@@ -148,6 +157,7 @@ void Editor::draw_viewport() {
     const float tw = float(r->target_width()), th = float(r->target_height());
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float scale = std::max(0.01f, std::min(avail.x / tw, avail.y / th));
+    lastScale = scale;
     const ImVec2 sz(std::floor(tw * scale), std::floor(th * scale));
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const ImVec2 imgMin(std::floor(start.x + (avail.x - sz.x) * 0.5f), std::floor(start.y + (avail.y - sz.y) * 0.5f));
@@ -240,14 +250,6 @@ void Editor::draw_viewport() {
     }
     dl->PopClipRect();
 
-    // ---- status chip
-    char info[160];
-    std::snprintf(info, sizeof info, "%s   %dx%d   %.0f%%", play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED",
-                  int(tw), int(th), scale * 100.0f);
-    const ImVec2 ts = ImGui::CalcTextSize(info);
-    const ImVec2 p0(imgMin.x + 6, imgMin.y + 6);
-    dl->AddRectFilled(p0, ImVec2(p0.x + ts.x + 12, p0.y + ts.y + 6), IM_COL32(0, 0, 0, 150), 3.0f);
-    dl->AddText(ImVec2(p0.x + 6, p0.y + 3), IM_COL32(230, 235, 245, 255), info);
     ImGui::End();
 }
 

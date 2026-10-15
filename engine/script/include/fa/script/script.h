@@ -134,6 +134,10 @@ public:
     TestReport run_tests(const std::vector<std::string>& files, std::string_view nameFilter = {});
     const std::vector<ScriptError>& errors() const;
     void clear_errors();
+    // Scene-load refresh: marks every loaded module whose file changed on disk (all of them with `force`), and the modules
+    // importing them, for re-import on next use; reloads tools if affected; clears script errors. Behaviours are NOT
+    // touched (the caller recreates them, e.g. on_scene_loaded). Returns the stale files.
+    std::vector<std::string> refresh_modules(bool force = false);
     void reload_module(std::string_view modulePath);  // hot reload: re-import + recreate affected behaviours
     // (Re)loads every tools/*.js of the project and registers them as "project.<name>" commands (also done by init()).
     void reload_tools();

@@ -95,6 +95,7 @@ struct ScriptSystem::Impl {
     std::map<std::string, std::string> firstImporter;        // normalized name -> importer (for error text)
     std::map<std::string, JsVal> namespaces;                 // normalized name -> module namespace
     std::set<std::string> everLoaded;
+    std::map<std::string, std::int64_t> moduleMtime;  // file mtime when each module was last read
     // The last data module (.json) load_module could not parse: check_syntax reports THAT file (with line and column)
     // instead of the script that imports it.
     struct BrokenData {

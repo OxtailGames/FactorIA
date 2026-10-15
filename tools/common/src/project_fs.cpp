@@ -1,6 +1,7 @@
 #include "fa/tooling/project_fs.h"
 
 #include <algorithm>
+#include <cctype>
 #include <regex>
 #include <sstream>
 
@@ -224,20 +225,44 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.name = "fs.write";
         info.category = "fs";
         info.readOnly = false;
-        info.summary = "Create or overwrite a text file (parent folders are created).";
+        info.summary = "Create or overwrite a file (text, or binary via base64; parent folders are created).";
         info.description = "Example: {\"path\":\"scripts/enemy.js\",\"content\":\"export default class ...\"}. "
+                           "For binary files such as PNG sprites pass encoding=\"base64\" and the base64 of the bytes as content "
+                           "(e.g. {\"path\":\"sprites/hero.png\",\"encoding\":\"base64\",\"content\":\"iVBORw0KGgo...\"}). "
                            "For small changes to an existing file prefer fs.edit. .json files are checked for syntax "
                            "and a warning is returned if invalid; run project.validate afterwards. Writing into .factoria/ is refused except "
                            ".factoria/tmp/, the scratch folder for throw-away files (the same rule as scene.save).";
         info.inputSchema = Json::object({{"type", "object"},
             {"properties", Json::object({{"path", str_prop("Project-relative file path.")},
-                                         {"content", str_prop("Full new file content.")},
+                                         {"content", str_prop("Full new file content (base64 text when encoding=base64).")},
+                                         {"encoding", Json::object({{"type", "string"}, {"enum", Json::array({"utf8", "base64"})},
+                                              {"default", "utf8"},
+                                              {"description", "\"utf8\" writes content as text; \"base64\" decodes it and writes the bytes (images, audio)."}})},
                                          {"overwrite", bool_prop("Allow replacing an existing file.", true)}})},
             {"required", Json::array({"path", "content"})}});
         registry.add(info, [projectDir](const Json& args) {
             stdfs::path root = root_of(projectDir);
             std::string rel = arg_string(args, "path", true);
             std::string content = arg_string(args, "content", true);
+            std::string encoding = arg_string(args, "encoding", false, "utf8");
+            if (encoding != "utf8" && encoding != "base64")
+                fail("invalid_argument", "Unknown encoding '" + encoding + "'.", "Use \"utf8\" (default) or \"base64\".");
+            if (encoding == "base64") {
+                // base64_decode skips unknown characters, so validate first and point at the bad one.
+                size_t pad = 0;
+                for (size_t i = 0; i < content.size(); ++i) {
+                    char c = content[i];
+                    bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '+' || c == '/' || c == '-' || c == '_';
+                    if (c == '=') { ++pad; continue; }
+                    if (std::isspace(static_cast<unsigned char>(c))) continue;
+                    if (!ok || pad)
+                        fail("invalid_argument", std::string("Invalid base64 at character ") + std::to_string(i) + " ('" + c + "').",
+                             pad ? "'=' padding may only appear at the very end."
+                                 : "Use only A-Z a-z 0-9 + / (and optional trailing '='); no data: prefix, quotes or other text.");
+                }
+                auto bytes = base64_decode(content);
+                content.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            }
             stdfs::path p = resolve_or_throw(projectDir, rel);
             std::string r = rel_of(root, p);
             if (r == ".") fail("invalid_argument", "Writing to '" + rel + "' is not allowed.", "Give a file path inside the project.");
