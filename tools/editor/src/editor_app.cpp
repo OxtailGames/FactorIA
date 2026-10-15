@@ -1,6 +1,7 @@
 // Editor application shell: sokol callbacks, project/scene lifecycle, play mode, undo/redo,
 // docking layout, menu, toolbar and status bar.
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -114,14 +115,39 @@ CommandResult MainThreadQueue::call(const std::string& name, const Json& args, c
     }
 }
 
-int MainThreadQueue::pump(const std::function<CommandResult(const std::string&, const Json&)>& run) {
+int MainThreadQueue::pump(const std::function<std::optional<CommandResult>(const std::string&, const Json&)>& run,
+                          double budgetMs) {
     std::deque<Job> local;
     {
         std::lock_guard<std::mutex> lock(mu_);
         local.swap(jobs_);
     }
-    for (Job& j : local) j.promise->set_value(run(j.name, j.args));
-    return int(local.size());
+    const auto t0 = std::chrono::steady_clock::now();
+    int ran = 0;
+    while (!local.empty()) {
+        Job j = std::move(local.front());
+        local.pop_front();
+        current_ = j.promise;
+        std::optional<CommandResult> r = run(j.name, j.args);
+        const bool taken = !current_;
+        current_.reset();
+        if (!taken) j.promise->set_value(r ? std::move(*r) : CommandResult{});
+        ++ran;
+        if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budgetMs) break;
+    }
+    if (!local.empty()) {  // out of time: keep the rest, in order, ahead of anything queued meanwhile
+        std::lock_guard<std::mutex> lock(mu_);
+        if (closed_) {
+            for (Job& j : local) {
+                CommandResult r;
+                r.error = Json::object({{"code", "unavailable"}, {"message", "editor closing"}});
+                j.promise->set_value(r);
+            }
+        } else {
+            jobs_.insert(jobs_.begin(), std::make_move_iterator(local.begin()), std::make_move_iterator(local.end()));
+        }
+    }
+    return ran;
 }
 
 void MainThreadQueue::close() {
@@ -438,6 +464,114 @@ void Editor::on_event(const sapp_event* e) {
 }
 
 // ------------------------------------------------------------------------------------------
+std::optional<CommandResult> Editor::run_queued(const std::string& name, const Json& args) {
+    const auto t0 = std::chrono::steady_clock::now();
+    auto elapsed = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(); };
+    auto finish = [this, name, args](const std::shared_ptr<std::promise<CommandResult>>& promise, CommandResult r) {
+        after_command(name, args, r);
+        promise->set_value(std::move(r));
+    };
+
+    // game.step with many frames: run it in slices of ~8 ms, one slice per UI frame. A first {frames:0} call applies
+    // press/release (and reports bad input at once); the last one builds the same state summary a single call would,
+    // with the new-error/warning counters measured from before the first slice.
+    if (name == "game.step" && args.is_object() && args.contains("frames") && args["frames"].is_number_integer() &&
+        args["frames"].get<long long>() > 30 && args["frames"].get<long long>() <= 100000) {
+        Json first = args;
+        first["frames"] = 0;
+        CommandResult r = engine_->commands().call(name, first);
+        if (!r.ok) return r;
+        auto promise = queue_.take_current();
+        auto left = std::make_shared<int>(args["frames"].get<int>());
+        const std::size_t errs0 = error_count();
+        const std::uint64_t seq0 = log_last_seq();
+        slicedJob_ = [this, promise, left, errs0, seq0, finish]() {
+            const auto s0 = std::chrono::steady_clock::now();
+            while (*left > 0) {
+                engine_->step(1);
+                --*left;
+                if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count() > 8.0) break;
+            }
+            if (*left > 0) return false;
+            CommandResult r = engine_->commands().call("game.step", Json::object({{"frames", 0}}));
+            if (r.ok && r.result.is_object()) {
+                r.result["newLogErrors"] = error_count() - errs0;
+                r.result.erase("newWarnings");
+                Json logs = Json::array();
+                for (const LogEntry& l : recent_logs(10, LogLevel::Warn, seq0))
+                    logs.push_back(Json::object({{"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
+                if (!logs.empty()) r.result["newWarnings"] = logs;
+            }
+            finish(promise, std::move(r));
+            return true;
+        };
+        return std::nullopt;
+    }
+
+    // project.test: runs the engine's own test runner, which uses process-global state (log sinks and level, the
+    // project file system, the live world), so a second engine on a worker thread is not safe. Instead one test file
+    // runs per UI frame and the per-file reports are merged. (A single very long file still blocks for its duration.)
+    if (name == "project.test") {
+        std::vector<std::string> files;
+        if (args.is_object() && args.contains("files") && args["files"].is_array()) {
+            for (const Json& f : args["files"]) if (f.is_string()) files.push_back(f.get<std::string>());
+        } else {
+            for (const auto& f : fs::list("tests", true, ".js"))
+                if (f.size() >= 8 && f.compare(f.size() - 8, 8, ".test.js") == 0) files.push_back(f);
+        }
+        if (files.size() > 1) {
+            auto promise = queue_.take_current();
+            const std::string filter = args.is_object() ? args.value("filter", std::string()) : std::string();
+            auto merged = std::make_shared<Json>(Json::object({{"passed", 0}, {"failed", 0}, {"cases", Json::array()},
+                                                               {"loadErrors", Json::array()}, {"logs", Json::array()}}));
+            auto summary = std::make_shared<std::string>();
+            auto next = std::make_shared<std::size_t>(0);
+            slicedJob_ = [this, promise, files, filter, merged, summary, next, finish]() {
+                Json a = Json::object({{"files", Json::array({files[*next]})}});
+                if (!filter.empty()) a["filter"] = filter;
+                CommandResult r = engine_->commands().call("project.test", a);
+                ++*next;
+                if (!r.ok) {
+                    finish(promise, std::move(r));
+                    return true;
+                }
+                Json& m = *merged;
+                const Json& j = r.result;
+                m["passed"] = m["passed"].get<int>() + j.value("passed", 0);
+                m["failed"] = m["failed"].get<int>() + j.value("failed", 0);
+                for (const char* k : {"cases", "loadErrors", "logs"})
+                    if (j.contains(k) && j[k].is_array()) for (const Json& e : j[k]) m[k].push_back(e);
+                const std::string s = j.value("summary", std::string());
+                const auto nl = s.rfind('\n');
+                if (nl != std::string::npos) *summary += s.substr(0, nl + 1);  // drop the per-file totals line
+                if (*next < files.size()) return false;
+                if (m["logs"].empty()) m.erase("logs");
+                const bool ok = m["failed"].get<int>() == 0 && m["loadErrors"].empty();
+                *summary += std::to_string(m["passed"].get<int>()) + " passed, " + std::to_string(m["failed"].get<int>()) + " failed";
+                if (!m["loadErrors"].empty()) *summary += ", " + std::to_string(m["loadErrors"].size()) + " file(s) failed to load";
+                m["ok"] = ok;
+                m["summary"] = *summary;
+                m["files"] = files;
+                CommandResult done;
+                done.ok = true;
+                done.result = m;
+                finish(promise, std::move(done));
+                return true;
+            };
+            return std::nullopt;
+        }
+    }
+
+    const CommandInfo* info = engine_->commands().info(name);
+    const bool mutating = info && !info->readOnly && command_edits_scene(name, args);
+    if (mutating && play_ == PlayState::Edit) begin_edit("ai:" + name + ":" + std::to_string(uiFrame_));
+    CommandResult r = engine_->commands().call(name, args);
+    if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
+    after_command(name, args, r);
+    if (elapsed() > 100.0) FA_WARN("editor", "command {} took {:.0f} ms on the UI thread", name, elapsed());
+    return r;
+}
+
 void Editor::on_frame(double dt) {
     time_ += dt;
     if (dt > 0) fps_ = fps_ * 0.9 + (1.0 / dt) * 0.1;
@@ -459,20 +593,21 @@ void Editor::on_frame(double dt) {
     if (autotest_) autotest_pre_frame();
 
     if (engine_) {
-        queue_.pump([this](const std::string& name, const Json& args) {
-            const CommandInfo* info = engine_->commands().info(name);
-            const bool mutating = info && !info->readOnly && command_edits_scene(name, args);
-            if (mutating && play_ == PlayState::Edit) begin_edit("ai:" + name + ":" + std::to_string(uiFrame_));
-            CommandResult r = engine_->commands().call(name, args);
-            if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
-            after_command(name, args, r);
-            return r;
-        });
+        // The Win32 message loop only runs between frames: a long AI command inside this frame makes Windows treat the
+        // window as hung. So queued commands share a ~10 ms budget per frame, and the two known long ones are sliced.
+        if (slicedJob_) {
+            if (slicedJob_()) slicedJob_ = nullptr;
+        } else {
+            queue_.pump([this](const std::string& name, const Json& args) { return run_queued(name, args); }, 10.0);
+        }
+        const bool slicing = bool(slicedJob_);
         sync_scene_path();
         ai_drain_events();
         if (stepPending_ > 0) {
             --stepPending_;
             engine_->step(1);
+        } else if (slicing) {
+            // a sliced game.step/project.test owns the simulation: extra frames would change its result
         } else {
             engine_->frame(dt);
         }
@@ -610,6 +745,8 @@ void Editor::play() {
     }
     engine_->set_paused(false);
     play_ = PlayState::Playing;
+    // Keys reach the game only while the viewport is focused: focus it now (draw_viewport), unless the user types elsewhere.
+    vpFocusNext_ = !(ImGui::GetCurrentContext() && ImGui::GetIO().WantTextInput);
 }
 
 void Editor::pause() {
@@ -706,7 +843,7 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     // The AI builds the game: the game view and the AI chat fill the window, logs and feedback sit under the view.
     ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.38f, nullptr, &center);
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
-    ImGui::DockBuilderDockWindow("Viewport", center);
+    ImGui::DockBuilderDockWindow("###Viewport", center);
     ImGui::DockBuilderDockWindow("AI Assistant", ai);
     ImGui::DockBuilderDockWindow("Console", bottom);
     ImGui::DockBuilderDockWindow("Engine Feedback", bottom);

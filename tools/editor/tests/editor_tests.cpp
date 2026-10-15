@@ -46,6 +46,30 @@ TEST_CASE("MainThreadQueue runs worker-thread calls on the pumping thread") {
     CHECK(runId != workerId);
 }
 
+TEST_CASE("MainThreadQueue pump stops at its time budget and keeps the rest queued") {
+    MainThreadQueue q;
+    std::atomic<int> done{0};
+    std::vector<std::thread> workers;
+    for (int i = 0; i < 3; ++i)
+        workers.emplace_back([&, i] {
+            q.call("job." + std::to_string(i), Json::object(), nullptr);
+            ++done;
+        });
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));  // let all three enqueue
+    auto slow = [&](const std::string&, const Json&) -> std::optional<CommandResult> {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        CommandResult r;
+        r.ok = true;
+        return r;
+    };
+    CHECK(q.pump(slow, 10.0) == 1);  // the first job overran the budget: the others wait for the next frame
+    CHECK(q.pump(slow, 10.0) == 1);
+    CHECK(q.pump(slow, 10.0) == 1);
+    CHECK(q.pump(slow, 10.0) == 0);
+    for (auto& w : workers) w.join();
+    CHECK(done == 3);
+}
+
 TEST_CASE("MainThreadQueue fails pending calls when closed or cancelled") {
     MainThreadQueue q;
     std::atomic<bool> cancel{false};

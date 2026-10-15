@@ -322,11 +322,15 @@ void Editor::autotest_pre_frame() {
     } else if (f == 92) {
         at_check(near(player_pos(), atOriginalPos_), "the click did not move the entity");
         at_check(selected_id() == "player", "the selection stays after the click is released");
+    } else if (f == 94) {
+        pendingFocus_ = "Console";  // so the next check proves Play itself focuses the viewport
     } else if (f == 95) {
         play();
         atOriginalPos_ = player_pos();
         atMouse_ = Vec2{vpImageMin_.x + 100, vpImageMin_.y + 100};
         inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, atMouse_);
+    } else if (f == 96) {
+        at_check(vpFocused_, "Play focuses the viewport without a click");
     } else if (f == 97) {
         inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, atMouse_);
     } else if (f == 99) {
