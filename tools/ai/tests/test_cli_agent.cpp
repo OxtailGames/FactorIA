@@ -586,3 +586,56 @@ TEST_CASE("images reach a CLI without stream-json input as file paths in the pro
     CHECK(raw.find("\"type\":\"user\"") == std::string::npos);  // plain text, not a JSON message
     CHECK(r.conversation.cliSessionId.empty());  // this template cannot resume
 }
+
+TEST_CASE("list_models: Claude Code answers the initialize request; the hook line before it is skipped") {
+    TempDir scratch;
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    ProviderConfig cfg = default_config().providers["claude-code"];
+    cfg.command = fake_claude_path();
+    cfg.env["FAKE_MODE"] = "models";
+    cfg.env["FAKE_ARGV_FILE"] = argvFile;
+    cfg.env["FAKE_HANG"] = "1";  // the fake keeps running after its answer: it must be killed, not waited for
+    const auto start = std::chrono::steady_clock::now();
+    auto models = list_models(cfg);
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(20));
+    REQUIRE(models);
+    REQUIRE(models->size() == 3);
+    CHECK((*models)[0].id == "default");
+    CHECK((*models)[0].name == "Default recommended");
+    CHECK((*models)[0].description == "Opus 5.5 with 1M context");
+    CHECK((*models)[0].resolved == "claude-opus-5-5");
+    CHECK((*models)[1].id == "sonnet");
+    CHECK((*models)[1].resolved == "claude-sonnet-5-5");
+    CHECK((*models)[2].id == "claude-haiku-4-5-20251001");
+    CHECK((*models)[2].resolved.empty());
+    std::string raw;
+    for (char c : read_file(argvFile)) if (c != '\r') raw += c;
+    CHECK(raw.find("-p\n--input-format\nstream-json\n--output-format\nstream-json\n--verbose\n") == 0);
+    CHECK(raw.find("--model") == std::string::npos);  // no model call: only the initialize request
+
+    ProviderConfig missing = default_config().providers["claude-code"];
+    missing.command = "definitely-not-an-installed-claude";
+    auto none = list_models(missing);
+    REQUIRE_FALSE(none.ok());
+    CHECK(none.error().message.find("was not found in PATH") != std::string::npos);
+    CHECK(none.error().hint.find("npm i -g @anthropic-ai/claude-code") != std::string::npos);
+
+    // A CLI that does not answer (here: the plain run script, no initialize reply) is an error that says to update it.
+    cfg.env.erase("FAKE_MODE");
+    cfg.env.erase("FAKE_HANG");
+    auto silent = list_models(cfg);
+    REQUIRE_FALSE(silent.ok());
+    CHECK(silent.error().message.find("did not list its models") != std::string::npos);
+    CHECK(silent.error().hint.find("Update Claude Code") != std::string::npos);
+}
+
+#ifndef _WIN32
+TEST_CASE("list_models: a Claude Code that is not logged in says so") {
+    ProviderConfig cfg = claude_cfg();
+    cfg.env["FAKE_MODE"] = "notloggedin";
+    auto models = list_models(cfg);
+    REQUIRE_FALSE(models.ok());
+    CHECK(models.error().message.find("not logged in") != std::string::npos);
+    CHECK(models.error().hint.find("claude") != std::string::npos);
+}
+#endif
