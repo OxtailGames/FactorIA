@@ -15,6 +15,10 @@ namespace fa::detail {
 inline std::uint64_t category_bits(std::int32_t layer) { return 1ull << (layer < 0 ? 0 : (layer > 31 ? 31 : layer)); }
 inline std::uint64_t mask_bits(std::int32_t mask) { return mask == -1 ? ~0ull : std::uint64_t(std::uint32_t(mask)); }
 
+// An entity marked by World::destroy() is gone for physics at once (no body, no collisions, no query hits), although
+// World::flush() only erases it at the end of the frame. Use this instead of World::alive() for anything physical.
+inline bool live(const World& world, Entity e) { return world.alive(e) && !world.pending_destroy(e); }
+
 // World-space pose helpers (position, rotation about Z in degrees, scale) from World::world_matrix.
 struct WorldPose {
     Vec3 position;
