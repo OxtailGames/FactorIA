@@ -181,7 +181,7 @@ Entity Physics2D::entity_of(b2ShapeId s, bool* trigger) const {
 
 Entity Physics2D::entity_of_alive(const World& world, b2ShapeId s, bool* trigger) const {
     Entity e = entity_of(s, trigger);
-    return (!e.is_null() && world.alive(e)) ? e : kNullEntity;
+    return (!e.is_null() && live(world, e)) ? e : kNullEntity;
 }
 
 void Physics2D::destroy_body(Body& b) {
@@ -365,7 +365,7 @@ void Physics2D::push_state(World&, Entity, Body& b, RigidBody2D* rb) {
 void Physics2D::sync_tilemaps(World& world) {
     const float inv = 1.0f / settings_.pixelsPerMeter;
     for (Entity e : world.entities_with(&World::type_of<Tilemap>())) {
-        if (!world.alive(e)) continue;
+        if (!live(world, e)) continue;
         Tilemap* tm = world.get<Tilemap>(e);
         if (!tm) continue;
         const std::uint64_t key = e.bits();
@@ -628,13 +628,13 @@ void Physics2D::sync(World& world) {
     for (Entity e : world.entities()) {
         RigidBody2D* rb = world.get<RigidBody2D>(e);
         Collider2D* col = world.get<Collider2D>(e);
-        if (!rb && !col) continue;
+        if ((!rb && !col) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
         sync_entity(world, e, rb, col);
     }
     sync_tilemaps(world);
     // sweep: destroyed entities / removed components
     for (auto it = bodies_.begin(); it != bodies_.end();) {
-        if (it->second.seen != stepCounter_ || !world.alive(it->second.e)) {
+        if (it->second.seen != stepCounter_ || !live(world, it->second.e)) {
             destroy_body(it->second);
             it = bodies_.erase(it);
         } else {
@@ -642,7 +642,7 @@ void Physics2D::sync(World& world) {
         }
     }
     for (auto it = tiles_.begin(); it != tiles_.end();) {
-        if (it->second.seen != stepCounter_ || !world.alive(it->second.e)) {
+        if (it->second.seen != stepCounter_ || !live(world, it->second.e)) {
             std::uint64_t k = it->first;
             ++it;
             destroy_tile_body(k);
@@ -713,7 +713,7 @@ std::optional<RaycastHit> Physics2D::raycast(World& world, Vec2 from, Vec2 to, c
     ctx.accept = [&](b2ShapeId s) {
         bool trig = false;
         Entity e = entity_of(s, &trig);
-        if (e.is_null() || !world.alive(e)) return false;
+        if (e.is_null() || !live(world, e)) return false;
         if (trig && opt.ignoreTriggers) return false;
         if (entity_or_ancestor_is(world, e, opt.ignore)) return false;
         if (b2Shape_TestPoint(s, origin)) return false;  // origin inside this collider: skip it
@@ -738,7 +738,7 @@ static std::vector<Entity> finish_overlap(std::vector<std::uint64_t>& bits, cons
     std::vector<Entity> out;
     for (std::uint64_t b : bits) {
         Entity e = Entity::from_bits(b);
-        if (world.alive(e)) out.push_back(e);
+        if (live(world, e)) out.push_back(e);
     }
     return out;
 }
@@ -876,7 +876,7 @@ std::optional<RaycastHit> Physics2D::shape_cast(World& world, const CastShape& s
     ctx.accept = [&](b2ShapeId sh) {
         bool trig = false;
         Entity e = entity_of(sh, &trig);
-        if (e.is_null() || !world.alive(e)) return false;
+        if (e.is_null() || !live(world, e)) return false;
         if (trig && opt.ignoreTriggers) return false;
         return !entity_or_ancestor_is(world, e, opt.ignore);
     };
