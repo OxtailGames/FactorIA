@@ -198,6 +198,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
 
     // Replay file.
     std::map<int, Json> replay;
+    std::vector<std::pair<double, int>> timing;
     std::vector<std::string> replayProblems;
     if (!options.inputReplayPath.empty()) {
         auto r = load_json_file(options.inputReplayPath);
@@ -218,6 +219,20 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
                 replayProblems.push_back("replay: frame key '" + it.key() + "' is not a number");
             }
         }
+        // Optional "timing": [[dt, fixedSteps], ...] per frame (the editor records it): replayed frames run exactly the
+        // dt and fixed steps of the recorded ones, so onUpdate(dt) and input edges match a slow or fast windowed run.
+        if (const Json& t = r.value().value("timing", Json()); !t.is_null()) {
+            if (!t.is_array()) replayProblems.push_back("replay: timing must be an array of [dt, fixedSteps] (one per frame)");
+            for (std::size_t i = 0; t.is_array() && i < t.size(); ++i) {
+                const Json& e = t[i];
+                if (!(e.is_array() && e.size() == 2 && e[0].is_number() && e[1].is_number_integer() && e[1].get<int>() >= 0)) {
+                    replayProblems.push_back("replay: timing[" + std::to_string(i) + "] must be [dt, fixedSteps] like [0.0167, 1], got " +
+                                             describe_json_value(e) + "; the rest of the run steps one fixed step per frame");
+                    break;
+                }
+                timing.emplace_back(std::clamp(e[0].get<double>(), 0.0, kMaxFrameDt), e[1].get<int>());
+            }
+        }
     }
     if (!options.audioOutPath.empty()) I.audio.start_recording();
 
@@ -227,7 +242,11 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     int ran = 0;
     for (int f = 0; f < options.frames && !engine.quit_requested(); ++f) {
         if (auto it = replay.find(f); it != replay.end()) apply_replay_entry(I, it->second, replayProblems, f);
-        engine.step(1);
+        if (std::size_t(f) < timing.size()) {
+            I.run_frame(timing[f].first, timing[f].second);
+        } else {
+            engine.step(1);
+        }
         ++ran;
         if (std::binary_search(shots.begin(), shots.end(), f)) {
             std::string path = replace_all(options.screenshotPattern, "{frame}", std::to_string(f));

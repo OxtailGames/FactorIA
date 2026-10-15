@@ -612,15 +612,21 @@ void Editor::on_frame(double dt) {
         const bool slicing = bool(slicedJob_);
         sync_scene_path();
         ai_drain_events();
+        const std::uint64_t frameBefore = engine_->frame_index(), stepBefore = engine_->fixed_step_index();
+        double frameDt = engine_->fixed_dt();  // dt of the last frame run here (step(1) runs one fixed dt)
         if (stepPending_ > 0) {
             --stepPending_;
             engine_->step(1);
         } else if (slicing) {
             // a sliced game.step/project.test owns the simulation: extra frames would change its result
         } else {
-            const std::uint64_t frameBefore = engine_->frame_index();
             engine_->frame(dt);
+            frameDt = dt;
             if (play_ == PlayState::Playing) session_frame(dt, frameBefore);
+        }
+        if (run_.active && engine_->frame_index() > frameBefore) {
+            const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
+            run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());
         }
     }
 
