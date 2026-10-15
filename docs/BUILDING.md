@@ -180,8 +180,6 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   packages `factoria`, `factoria_player` and (Windows) `FactorIA-Editor.exe` as `FactorIA-<version>-<os>.zip`
   (`.tar.gz` on macOS and Linux). Each package is smoke-tested from a temp folder outside the checkout (`version`,
   `new`, `test`, `export`). A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as artifacts.
-  MSVC links the C++ runtime statically (`CMAKE_MSVC_RUNTIME_LIBRARY` in the top-level `CMakeLists.txt`), so the
-  Windows exes need no Visual C++ Redistributable.
 
 ## Continuous integration (local, no GitHub minutes)
 
