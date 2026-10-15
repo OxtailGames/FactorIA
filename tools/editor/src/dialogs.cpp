@@ -34,6 +34,23 @@ static void scan_projects(std::vector<std::string>& out) {
     out.erase(std::unique(out.begin(), out.end()), out.end());
 }
 
+// Deletes a project folder from disk. Only a folder with factoria.json: a typed path cannot wipe anything else. Returns
+// "" or what went wrong.
+static std::string delete_project_folder(const std::string& dir) {
+    std::error_code ec;
+    if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) return "'" + dir + "' is not a FactorIA project (no " + std::string(kProjectFileName) + "); nothing was deleted.";
+    if (stdfs::remove_all(dir, ec) == static_cast<std::uintmax_t>(-1) || ec) {
+        // Read-only files (a .git folder's objects) stop remove_all on Windows: make them writable and try again.
+        std::error_code ec2;
+        for (auto it = stdfs::recursive_directory_iterator(dir, ec2); !ec2 && it != stdfs::recursive_directory_iterator(); it.increment(ec2))
+            stdfs::permissions(it->path(), stdfs::perms::owner_write, stdfs::perm_options::add, ec2);
+        ec.clear();
+        stdfs::remove_all(dir, ec);
+    }
+    if (ec) return "Could not delete everything in '" + dir + "': " + ec.message() + ". Close the programs using files in it (a terminal, an editor, the game) and delete it again.";
+    return {};
+}
+
 void Editor::draw_project_dialog() {
     const bool forced = !engine_;
     if (!showProjectDialog_ && !forced) return;
@@ -72,7 +89,7 @@ void Editor::draw_project_dialog() {
     if (forced) ImGui::TextWrapped("No project is open. Open an existing FactorIA project folder (it contains factoria.json) or create a new one from a template.");
     if (!dlgError_.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", dlgError_.c_str());
     ImGui::SeparatorText("Open project");
-    ImGui::SetNextItemWidth(-176);
+    ImGui::SetNextItemWidth(-264);
     ImGui::InputTextWithHint("##openpath", "/path/to/project", &dlgOpenPath_);
     ImGui::SameLine();
     bool openNow = false;
@@ -91,6 +108,15 @@ void Editor::draw_project_dialog() {
         if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) dlgError_ = "No " + std::string(kProjectFileName) + " in '" + dir + "'. Pick the project's root folder, or create a new project below.";
         else { dlgError_.clear(); open_project(dir); }
     }
+    ImGui::SameLine();
+    {
+        std::error_code ec;
+        const bool isOpen = engine_ && stdfs::equivalent(dlgOpenPath_, projectDir_, ec);
+        ImGui::BeginDisabled(isOpen || !stdfs::exists(stdfs::path(dlgOpenPath_) / kProjectFileName, ec));
+        if (ImGui::Button("Delete...", ImVec2(80, 0))) dlgDelete_ = dlgOpenPath_;
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip(isOpen ? "This project is open: open another one first to delete it." : "Delete the selected project from disk (asks first).");
+    }
     if (!recentProjects_.empty() || !detectedProjects_.empty()) {
         ImGui::BeginChild("##proj_list", ImVec2(0, 96), ImGuiChildFlags_Borders);
         // The folder name; the full path in the tooltip.
@@ -101,6 +127,12 @@ void Editor::draw_project_dialog() {
                 if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
             }
             ImGui::SetItemTooltip("%s", r.c_str());
+            if (ImGui::BeginPopupContextItem()) {
+                std::error_code ec;
+                if (ImGui::MenuItem("Open")) open_project(r);
+                if (ImGui::MenuItem("Delete...", nullptr, false, !(engine_ && stdfs::equivalent(r, projectDir_, ec)))) dlgDelete_ = r;
+                ImGui::EndPopup();
+            }
             ImGui::PopID();
         };
         for (const auto& r : recentProjects_) project_row(r);
@@ -143,6 +175,30 @@ void Editor::draw_project_dialog() {
     }
     ImGui::EndDisabled();
     if (!forced && ImGui::Button("Close")) open = false;
+
+    if (!dlgDelete_.empty() && !ImGui::IsPopupOpen("Delete project?")) ImGui::OpenPopup("Delete project?");
+    if (ImGui::BeginPopupModal("Delete project?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Delete the project '%s'?", stdfs::path(dlgDelete_).filename().string().c_str());
+        ImGui::TextDisabled("%s", dlgDelete_.c_str());
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "The folder and everything in it are deleted from disk. This cannot be undone.");
+        const bool cancel = ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+        ImGui::SetItemDefaultFocus();
+        ImGui::SameLine();
+        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+            dlgError_ = delete_project_folder(dlgDelete_);
+            std::erase(recentProjects_, dlgDelete_);
+            std::erase(detectedProjects_, dlgDelete_);
+            save_recent_projects();
+            if (dlgOpenPath_ == dlgDelete_) dlgOpenPath_.clear();
+            if (dlgError_.empty()) notify("Deleted project " + dlgDelete_, 0);
+            dlgDelete_.clear();
+            ImGui::CloseCurrentPopup();
+        } else if (cancel) {
+            dlgDelete_.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
     ImGui::End();
     if (!open) showProjectDialog_ = false;
     if (engine_ && pendingOpen_.empty() && !open) dlgScanned_ = false;

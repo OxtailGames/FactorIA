@@ -1,5 +1,5 @@
-// What the AI panel shows about usage: the plan limits (session / week), token counts, and the file that keeps the last
-// known limits between runs of the editor. Pure functions, tested without a window (tools/editor/tests).
+// What the AI panel shows about usage: the plan limits (session / week) and token counts. Pure functions, tested without
+// a window (tools/editor/tests).
 #pragma once
 
 #include <map>
@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "fa/ai/types.h"
-#include "fa/core/json.h"
 
 namespace fa::editor {
 
@@ -35,18 +34,12 @@ struct LimitView {
 };
 LimitView limit_view(const ai::LimitWindow& window, i64 now);
 
-// Last known plan windows per provider, remembered in ~/.factoria/ai_limits.json so the bars show at startup.
+// Plan windows per provider, as the CLI last reported them in this run of the editor. Not kept between runs: other
+// Claude Code / Codex sessions use the same plan meanwhile, so remembered numbers would be wrong at the next start.
 struct ProviderLimits {
     i64 updated = 0;  // when the CLI last reported them (epoch seconds)
     std::vector<ai::LimitWindow> windows;
 };
 using LimitsByProvider = std::map<std::string, ProviderLimits>;
-
-Json limits_to_json(const LimitsByProvider& limits);
-LimitsByProvider limits_from_json(const Json& j);       // tolerant: anything unreadable is left out
-LimitsByProvider load_limits(const std::string& path);  // missing or broken file: empty
-bool save_limits(const std::string& path, const LimitsByProvider& limits);
-// <home>/.factoria/ai_limits.json ("" when home is empty)
-std::string limits_path(const std::string& home);
 
 }  // namespace fa::editor
