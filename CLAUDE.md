@@ -73,3 +73,16 @@ repository, not only the one where it was agreed:
   or its own build dir (`build/agent-<name>`, `-j2`), with tests and docs.
 - **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`): code searches,
   regenerating docs/typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
+
+## Finishing a task (every session on this project)
+
+A task is done only when its work is on `main` and nothing is left behind, so
+the next task starts from `main` with everything in it:
+
+- Start from the latest `origin/main` (`git fetch` first); merge `origin/main`
+  into the branch again before opening the PR.
+- Merge the PR once CI is green (no need to ask), then delete the branch, local
+  and on `origin`.
+- Remove the task's worktrees (agent worktrees included) and its
+  `build/agent-<name>` dirs.
+- Leave the main checkout on `main`, up to date with `origin/main`, clean.
