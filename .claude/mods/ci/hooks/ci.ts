@@ -11,6 +11,7 @@ export type PullRequest = {
   mergeable_state: string
   html_url: string
   head: { sha: string; ref: string }
+  base?: { ref: string }
 }
 
 export type CheckRun = {
@@ -41,10 +42,10 @@ export function parse_args(args: string, remote?: { owner: string; repo: string 
   const full = a.match(/^([\w.-]+)\/([\w.-]+)(?:#(\d+))?$/)
   if (full && full[1] && full[2]) return { owner: full[1], repo: full[2], number: full[3] ? Number(full[3]) : undefined }
   if (!remote) return { error: 'no GitHub remote named origin here: run /ci owner/repo#<number>' }
-  if (a === '') return { ...remote }
+  if (a === '' || a === 'prs') return { ...remote }
   const num = a.match(/^#?(\d+)$/)
   if (num && num[1]) return { ...remote, number: Number(num[1]) }
-  return { error: `cannot read "${a}": use /ci, /ci <number>, /ci owner/repo#<number> or /ci off` }
+  return { error: `cannot read "${a}": use /ci, /ci <number>, /ci owner/repo#<number>, /ci prs or /ci off` }
 }
 
 export function kind_of(c: CheckRun): Kind {
@@ -106,4 +107,39 @@ export function report(pr: PullRequest, checks: readonly CheckRun[], target: Tar
     if (c.html_url && k !== 'passed' && k !== 'skipped') lines.push(`   ${c.html_url}`)
   }
   return lines.join('\n')
+}
+
+// `/ci prs`: one line per open pull request, saying whether it can be merged now.
+export function merge_verdict(pr: PullRequest, checks: readonly CheckRun[]): string {
+  const n = counts(checks)
+  if (pr.draft) return '📝 draft'
+  if (pr.mergeable_state === 'dirty') return '⚠️ conflicts with the base branch'
+  if (n.failed > 0) return `${ICON.failed} CI failing (${n.failed})`
+  if (n.running > 0) return `${ICON.running} CI running (${n.running} left)`
+  if (pr.mergeable_state === 'behind') return '↩️ behind the base branch: update it'
+  if (pr.mergeable_state === 'blocked') return '🚫 blocked (reviews or required checks)'
+  if (pr.mergeable_state === 'unknown' || !pr.mergeable_state) return '… GitHub is still computing mergeability'
+  if (checks.length === 0) return '🟢 mergeable, but no checks ran'
+  return '🟢 ready to merge'
+}
+
+export function prs_report(repo: string, prs: readonly { pr: PullRequest; checks: readonly CheckRun[] }[]): string {
+  if (prs.length === 0) return `No open pull requests in ${repo}.`
+  const lines = [`Open pull requests of ${repo}:`, '']
+  for (const { pr, checks } of prs) {
+    const n = counts(checks)
+    const tally = (['failed', 'running', 'passed'] as const).filter(k => n[k] > 0).map(k => `${ICON[k]}${n[k]}`).join(' ')
+    lines.push(`#${pr.number} ${pr.title} (${pr.head.ref} → ${pr.base?.ref ?? '?'})`)
+    lines.push(`   ${merge_verdict(pr, checks)}${tally ? ` · ${tally}` : ''} · ${pr.html_url}`)
+  }
+  return lines.join('\n')
+}
+
+// Status bar for `/ci prs`: "PRs 🟢1 ⏳2".
+export function prs_status(prs: readonly { pr: PullRequest; checks: readonly CheckRun[] }[]): string {
+  const ready = prs.filter(p => merge_verdict(p.pr, p.checks).startsWith('🟢 ready')).length
+  const running = prs.filter(p => counts(p.checks).running > 0).length
+  const failing = prs.filter(p => counts(p.checks).failed > 0).length
+  const parts = [[ready, '🟢'], [running, ICON.running], [failing, ICON.failed]].filter(([k]) => Number(k) > 0).map(([k, i]) => `${i}${k}`)
+  return `PRs ${parts.length ? parts.join(' ') : prs.length ? `${prs.length} open` : 'none open'}`
 }
