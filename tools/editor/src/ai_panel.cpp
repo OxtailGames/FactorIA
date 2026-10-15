@@ -107,56 +107,6 @@ int text_menu_callback(ImGuiInputTextCallbackData* d) {
     return 0;
 }
 
-// The menu of the InputText just submitted on `text` (which must pass text_menu_callback with CallbackAlways).
-void text_menu(const std::string& text, bool readOnly) {
-    const ImGuiID id = ImGui::GetItemID();
-    if (!ImGui::BeginPopupContextItem()) return;
-    const ImGuiInputTextState* s = ImGui::GetInputTextState(id);
-    // ImGui keeps a box's cursor only while its text is unchanged (an editable box) and no other box was used since.
-    const bool fresh = !s || (!readOnly && std::string_view(s->TextA.Data ? s->TextA.Data : "", size_t(s->TextLen)) != text);
-    size_t a = 0, b = 0;
-    if (!fresh && s->HasSelection()) {
-        a = std::min<size_t>(std::min(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
-        b = std::min<size_t>(std::max(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
-    }
-    auto later = [&](TextAction action) {
-        pendingTextAction = {id, action, fresh};
-        ImGui::ActivateItemByID(id);
-    };
-    if (!readOnly && ImGui::MenuItem("Cut", "Ctrl+X", false, a < b)) later(TextAction::Cut);
-    if (ImGui::MenuItem("Copy", "Ctrl+C", false, a < b)) ImGui::SetClipboardText(text.substr(a, b - a).c_str());
-    if (!readOnly) {
-        const char* clip = ImGui::GetClipboardText();
-        if (ImGui::MenuItem("Paste", "Ctrl+V", false, clip && *clip)) later(TextAction::Paste);
-    }
-    ImGui::Separator();
-    if (ImGui::MenuItem("Select all", "Ctrl+A", false, !text.empty())) later(TextAction::SelectAll);
-    ImGui::EndPopup();
-}
-
-// A transcript message as a read-only, word-wrapped text box sized to its text: drag to select, Ctrl+C or the right-click
-// menu to copy. It looks like plain text and scrolls with the transcript.
-void message_text(const char* id, std::string& text, const ImVec4* color = nullptr) {
-    const ImGuiStyle& st = ImGui::GetStyle();
-    const float w = ImGui::GetContentRegionAvail().x;
-    const float wrap = std::max(1.0f, w - st.FramePadding.x * 2 - st.ScrollbarSize);  // what ImGuiInputTextFlags_WordWrap uses
-    // Its line count as InputTextLineIndexBuild counts it, so the box never needs a scrollbar of its own.
-    const char* end = text.data() + text.size();
-    int lines = 0;
-    for (const char* p = text.data(); p < end; p = *p == '\n' ? p + 1 : p) {
-        ++lines;
-        p = ImFontCalcWordWrapPositionEx(ImGui::GetFont(), ImGui::GetFontSize(), p, end, wrap, ImDrawTextFlags_WrapKeepBlanks);
-    }
-    lines = std::max(lines, 1) + (!text.empty() && text.back() == '\n' ? 1 : 0);
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-    if (color) ImGui::PushStyleColor(ImGuiCol_Text, *color);
-    ImGui::InputTextMultiline(id, &text, ImVec2(w, static_cast<float>(lines) * ImGui::GetFontSize() + st.FramePadding.y * 2),
-                              ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
-                              text_menu_callback);
-    ImGui::PopStyleColor(color ? 2 : 1);
-    text_menu(text, true);
-}
-
 // A picture of the project (project-relative path) fitted in a size x size box; a grey button when the engine cannot
 // read it (gif, webp) or the file is gone: the AI still gets the file either way.
 void draw_thumb(Editor& ed, const std::string& path, float size) {
@@ -278,6 +228,62 @@ std::string model_tip(const ai::ModelInfo& m) {
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
+
+// The menu of the InputText just submitted on `text` (which must pass text_menu_callback with CallbackAlways).
+void Editor::text_menu(const std::string& text, bool readOnly) {
+    const ImGuiID id = ImGui::GetItemID();
+    if (!ImGui::BeginPopupContextItem()) return;
+    const ImGuiInputTextState* s = ImGui::GetInputTextState(id);
+    // ImGui keeps a box's cursor only while its text is unchanged (an editable box) and no other box was used since.
+    const bool fresh = !s || (!readOnly && std::string_view(s->TextA.Data ? s->TextA.Data : "", size_t(s->TextLen)) != text);
+    size_t a = 0, b = 0;
+    if (!fresh && s->HasSelection()) {
+        a = std::min<size_t>(std::min(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
+        b = std::min<size_t>(std::max(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
+    }
+    auto later = [&](TextAction action) {
+        pendingTextAction = {id, action, fresh};
+        ImGui::ActivateItemByID(id);
+    };
+    auto item = [&](const char* label, const char* keys, bool enabled) {
+        const bool chosen = ImGui::MenuItem(label, keys, false, enabled);
+        at_track(std::string("textmenu:") + label);
+        return chosen;
+    };
+    if (!readOnly && item("Cut", "Ctrl+X", a < b)) later(TextAction::Cut);
+    if (item("Copy", "Ctrl+C", a < b)) ImGui::SetClipboardText(text.substr(a, b - a).c_str());
+    if (!readOnly) {
+        const char* clip = ImGui::GetClipboardText();
+        if (item("Paste", "Ctrl+V", clip && *clip)) later(TextAction::Paste);
+    }
+    ImGui::Separator();
+    if (item("Select all", "Ctrl+A", !text.empty())) later(TextAction::SelectAll);
+    ImGui::EndPopup();
+}
+
+// A transcript message as a read-only, word-wrapped text box sized to its text: drag to select, Ctrl+C or the right-click
+// menu to copy. It looks like plain text and scrolls with the transcript.
+void Editor::message_text(const char* id, std::string& text, const ImVec4* color) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float wrap = std::max(1.0f, w - st.FramePadding.x * 2 - st.ScrollbarSize);  // what ImGuiInputTextFlags_WordWrap uses
+    // Its line count as InputTextLineIndexBuild counts it, so the box never needs a scrollbar of its own.
+    const char* end = text.data() + text.size();
+    int lines = 0;
+    for (const char* p = text.data(); p < end; p = *p == '\n' ? p + 1 : p) {
+        ++lines;
+        p = ImFontCalcWordWrapPositionEx(ImGui::GetFont(), ImGui::GetFontSize(), p, end, wrap, ImDrawTextFlags_WrapKeepBlanks);
+    }
+    lines = std::max(lines, 1) + (!text.empty() && text.back() == '\n' ? 1 : 0);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    if (color) ImGui::PushStyleColor(ImGuiCol_Text, *color);
+    ImGui::InputTextMultiline(id, &text, ImVec2(w, static_cast<float>(lines) * ImGui::GetFontSize() + st.FramePadding.y * 2),
+                              ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
+                              text_menu_callback);
+    at_track("ai:message");
+    ImGui::PopStyleColor(color ? 2 : 1);
+    text_menu(text, true);
+}
 
 void Editor::ai_refresh_providers() {
     if (aiDetecting_.load()) return;

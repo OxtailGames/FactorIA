@@ -303,7 +303,7 @@ declare module "factoria" {
      */
     components(): string[];
     /**
-     * Destroys the entity (and children) at the end of the frame.
+     * Destroys the entity (and children) at the end of the frame. It leaves physics at once: no collisions and no raycast or overlap hits from the call on.
      */
     destroy(): void;
     readonly parent: Entity | null;

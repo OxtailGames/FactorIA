@@ -208,6 +208,10 @@ public:
     void draw_feedback_panel();
     void draw_audio_panel();
     void draw_project_dialog();
+    // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
+    // transcript message as a selectable read-only box (ai_panel.cpp)
+    void text_menu(const std::string& text, bool readOnly);
+    void message_text(const char* id, std::string& text, const ImVec4* color = nullptr);
     void draw_validation_window();
     void draw_docs_window();
     void draw_toasts();
@@ -423,6 +427,7 @@ public:
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
     Vec2 atMouse_{};
+    std::string atDeleteProject_;  // scratch project the autotest deletes through the Open project dialog
     size_t atUndoBeforeAi_ = 0;
     bool atWaitAi_ = false;
     std::vector<ai::ProviderStatus> atSavedStatus_;

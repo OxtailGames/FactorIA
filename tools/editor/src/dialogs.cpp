@@ -114,6 +114,7 @@ void Editor::draw_project_dialog() {
         const bool isOpen = engine_ && stdfs::equivalent(dlgOpenPath_, projectDir_, ec);
         ImGui::BeginDisabled(isOpen || !stdfs::exists(stdfs::path(dlgOpenPath_) / kProjectFileName, ec));
         if (ImGui::Button("Delete...", ImVec2(80, 0))) dlgDelete_ = dlgOpenPath_;
+        at_track("project:delete");
         ImGui::EndDisabled();
         ImGui::SetItemTooltip(isOpen ? "This project is open: open another one first to delete it." : "Delete the selected project from disk (asks first).");
     }
@@ -127,12 +128,6 @@ void Editor::draw_project_dialog() {
                 if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
             }
             ImGui::SetItemTooltip("%s", r.c_str());
-            if (ImGui::BeginPopupContextItem()) {
-                std::error_code ec;
-                if (ImGui::MenuItem("Open")) open_project(r);
-                if (ImGui::MenuItem("Delete...", nullptr, false, !(engine_ && stdfs::equivalent(r, projectDir_, ec)))) dlgDelete_ = r;
-                ImGui::EndPopup();
-            }
             ImGui::PopID();
         };
         for (const auto& r : recentProjects_) project_row(r);
@@ -184,7 +179,9 @@ void Editor::draw_project_dialog() {
         const bool cancel = ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
         ImGui::SetItemDefaultFocus();
         ImGui::SameLine();
-        if (ImGui::Button("Delete", ImVec2(120, 0))) {
+        const bool confirmed = ImGui::Button("Delete", ImVec2(120, 0));
+        at_track("project:delete-confirm");
+        if (confirmed) {
             dlgError_ = delete_project_folder(dlgDelete_);
             std::erase(recentProjects_, dlgDelete_);
             std::erase(detectedProjects_, dlgDelete_);
