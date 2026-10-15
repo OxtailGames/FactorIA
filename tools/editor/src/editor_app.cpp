@@ -175,6 +175,7 @@ Editor::~Editor() {
     ai_stop();
     if (aiDetectThread_.joinable()) aiDetectThread_.join();
     if (atThread_.joinable()) atThread_.join();
+    if (updateThread_.joinable()) updateThread_.join();
 }
 
 int Editor::run() {
@@ -223,6 +224,17 @@ void Editor::on_init() {
         // layout2: a new name, so everyone starts on the AI layout once
         if (!h.empty()) iniPath_ = (std::filesystem::path(h) / ".factoria" / "editor_layout2.ini").string();
         maximize_window();  // the game view and the AI chat use the whole screen
+        if (!update_repo().empty()) {  // a downloaded package: offer newer releases (draw_update_popup)
+            remove_update_leftovers(executable_dir());
+            updateThread_ = std::thread([this] {
+                auto r = check_for_update();
+                if (!r) FA_WARN("editor", "update check: {}", r.error().to_string());
+                else if (r->available()) {
+                    update_ = std::move(*r);
+                    updateStage_ = UpdateStage::Offer;
+                }
+            });
+        }
     }
     if (!dir.empty() && !fs::exists((std::filesystem::path(dir) / kProjectFileName).string())) {
         std::string root = find_project_root(dir);
@@ -258,6 +270,8 @@ void Editor::on_cleanup() {
         std::error_code ec;
         std::filesystem::remove_all(atTempProject_, ec);
     }
+    if (restartAfterQuit_)
+        if (auto r = start_editor_process(projectDir_); !r) FA_WARN("editor", "restart after the update: {}", r.error().to_string());
 }
 
 bool Editor::open_project(const std::string& dir) {
@@ -398,6 +412,10 @@ void Editor::install_command_overrides() {
 // ------------------------------------------------------------------------------------------
 void Editor::on_event(const sapp_event* e) {
     if (e->type == SAPP_EVENTTYPE_QUIT_REQUESTED) {
+        if (updateStage_ == UpdateStage::Installing) {  // the files are being replaced: wait for it
+            sapp_cancel_quit();
+            return;
+        }
         if (dirty_ && engine_ && !autotest_) {
             sapp_cancel_quit();
             showQuitDialog_ = true;
@@ -950,6 +968,7 @@ void Editor::build_ui() {
     draw_docs_window();
     draw_toasts();
     draw_mark_popup();
+    draw_update_popup();
 
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");
@@ -972,6 +991,7 @@ void Editor::build_ui() {
         ImGui::SameLine();
         if (ImGui::Button("Cancel")) {
             showQuitDialog_ = false;
+            restartAfterQuit_ = false;  // the update stays installed; the next start uses it
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

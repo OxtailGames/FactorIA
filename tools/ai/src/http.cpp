@@ -213,7 +213,7 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
     ProcessOptions po;
     po.argv = {"curl", "--silent", "--show-error", "--no-buffer", "--include", "--config", cfg.string(),
                "--connect-timeout", std::to_string(static_cast<int>(req.connectTimeoutSeconds)),
-               "--max-redirs", "5"};
+               "--location", "--max-redirs", "5"};  // follow redirects, as the libcurl backend does
     if (req.timeoutSeconds > 0) { po.argv.push_back("--max-time"); po.argv.push_back(std::to_string(static_cast<int>(req.timeoutSeconds))); }
     {
         std::string np = "localhost,127.0.0.1,::1";
@@ -256,6 +256,7 @@ HttpResponse http_request_curl_exe(const HttpRequest& req) {
             } else if (line.empty()) {
                 if (resp.status >= 100 && resp.status < 200) continue;  // 100-continue: next block follows
                 if (proxyBlock) { proxyBlock = false; continue; }       // proxy CONNECT reply: real response follows
+                if (resp.status >= 300 && resp.status < 400 && !resp.header("location").empty()) continue;  // followed
                 phase = Phase::Body;
                 std::string rest = std::move(pending);
                 pending.clear();

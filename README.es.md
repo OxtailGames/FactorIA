@@ -42,9 +42,11 @@ próximos hitos: [feedback/ROADMAP.md](feedback/ROADMAP.md) (en inglés).
 
 ## Descarga
 
-No hace falta compilador ni herramientas de desarrollo. Descarga el paquete de tu sistema en
-[Releases](https://github.com/OxtailGames/FactorIA/releases): `FactorIA-<versión>-windows-x64.zip`,
-`-macos-arm64.tar.gz` (Apple Silicon) o `-linux-x64.tar.gz`. Descomprímelo y abre el editor:
+No hace falta compilador ni herramientas de desarrollo. Descarga una sola vez la última versión para tu sistema:
+[Windows](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
+[macOS](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz) (Apple Silicon)
+o [Linux](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz). Descomprímela en
+la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`, y abre el editor:
 
 - **Windows:** haz doble clic en `FactorIA-Editor.exe`. El exe no está firmado, así que SmartScreen puede frenarlo:
   pulsa **Más información > Ejecutar de todas formas**.
@@ -52,6 +54,10 @@ No hace falta compilador ni herramientas de desarrollo. Descarga el paquete de t
   Gatekeeper la bloquea la primera vez: en Finder, clic derecho en `factoria` > **Abrir** (macOS 15 y posteriores:
   Ajustes del Sistema > Privacidad y seguridad > **Abrir igualmente**).
 - **Linux:** ejecuta `./factoria editor` desde la carpeta descomprimida.
+
+No hace falta volver a descargarlo: cuando sale una versión nueva, el editor muestra sus notas al abrirse y pregunta
+si quieres actualizar. **Update** la instala en la misma carpeta y vuelve a abrir el editor; **Not now** mantiene tu
+versión.
 
 El asistente de IA necesita [Claude Code](https://claude.com/claude-code) instalado y con la sesión iniciada, o una
 clave de API. Para usar Claude Code desde un terminal fuera del editor, añade la carpeta al PATH; y la exportación a

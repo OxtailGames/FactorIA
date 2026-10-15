@@ -1,9 +1,10 @@
-// Project dialog (open / new from template), validation report, docs viewer and toasts.
+// Project dialog (open / new from template), validation report, docs viewer, toasts and the update popup.
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "sokol_app.h"
 
 namespace fa::editor {
 
@@ -168,31 +169,87 @@ void Editor::draw_validation_window() {
     ImGui::End();
 }
 
+// Markdown, simply: headings coloured, code blocks indented, the rest as wrapped text (docs and release notes).
+static void draw_markdown(const std::string& text) {
+    ImGui::PushTextWrapPos(0);
+    bool code = false;
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t nl = text.find('\n', pos);
+        std::string line = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+        pos = nl == std::string::npos ? text.size() + 1 : nl + 1;
+        if (!line.empty() && line.back() == '\r') line.pop_back();  // GitHub release notes use CRLF
+        if (line.rfind("```", 0) == 0) { code = !code; continue; }
+        if (code) ImGui::TextColored(ImVec4(0.7f, 0.85f, 0.7f, 1), "  %s", line.c_str());
+        else if (line.rfind("#", 0) == 0) {
+            size_t k = line.find_first_not_of('#');
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "%s", line.substr(k == std::string::npos ? 0 : k).c_str());
+        } else if (line.empty()) ImGui::Spacing();
+        else ImGui::TextUnformatted(line.c_str());
+    }
+    ImGui::PopTextWrapPos();
+}
+
 void Editor::draw_docs_window() {
     if (!showDocs_) return;
     ImGui::SetNextWindowSize(ImVec2(760, 560), ImGuiCond_FirstUseEver);
     if (ImGui::Begin((docsTitle_ + "###docs").c_str(), &showDocs_)) {
         ImGui::BeginChild("##docbody");
-        ImGui::PushTextWrapPos(0);
-        bool code = false;
-        size_t pos = 0;
-        while (pos <= docsText_.size()) {
-            size_t nl = docsText_.find('\n', pos);
-            std::string line = docsText_.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-            pos = nl == std::string::npos ? docsText_.size() + 1 : nl + 1;
-            if (line.rfind("```", 0) == 0) { code = !code; continue; }
-            if (code) ImGui::TextColored(ImVec4(0.7f, 0.85f, 0.7f, 1), "  %s", line.c_str());
-            else if (line.rfind("#", 0) == 0) {
-                size_t k = line.find_first_not_of('#');
-                ImGui::Spacing();
-                ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1), "%s", line.substr(k == std::string::npos ? 0 : k).c_str());
-            } else if (line.empty()) ImGui::Spacing();
-            else ImGui::TextUnformatted(line.c_str());
-        }
-        ImGui::PopTextWrapPos();
+        draw_markdown(docsText_);
         ImGui::EndChild();
     }
     ImGui::End();
+}
+
+void Editor::draw_update_popup() {
+    const UpdateStage stage = updateStage_;
+    if (stage == UpdateStage::Idle) return;
+    const char* id = "FactorIA update###update";
+    if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
+    auto close = [&] {
+        updateStage_ = UpdateStage::Idle;
+        ImGui::CloseCurrentPopup();
+    };
+    ImGui::Text("FactorIA %s is available. You have %s.", update_.latest.c_str(), update_.current.c_str());
+    ImGui::BeginChild("##notes", ImVec2(640, 340), ImGuiChildFlags_Borders);
+    draw_markdown(update_.notes);
+    ImGui::EndChild();
+    if (stage == UpdateStage::Offer) {
+        ImGui::PushTextWrapPos(640);
+        ImGui::TextDisabled("Update downloads it, replaces this version and reopens the editor (and the open project). "
+                            "Not now keeps this version; the editor asks again the next time it opens.");
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Update", ImVec2(120, 0))) {
+            updateProgress_ = 0;
+            updateStage_ = UpdateStage::Installing;
+            if (updateThread_.joinable()) updateThread_.join();  // the check: already done
+            updateThread_ = std::thread([this] {
+                auto r = install_update(update_, executable_dir(), [this](double p) { updateProgress_ = float(p); });
+                if (!r) updateError_ = r.error().to_string();
+                updateStage_ = r ? UpdateStage::Installed : UpdateStage::Failed;
+            });
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Not now", ImVec2(120, 0))) close();
+        at_track("update:notnow");
+    } else if (stage == UpdateStage::Installing) {
+        std::string label = "Downloading FactorIA " + update_.latest + "...";
+        ImGui::ProgressBar(updateProgress_, ImVec2(640, 0), label.c_str());
+    } else if (stage == UpdateStage::Failed) {
+        ImGui::PushTextWrapPos(640);
+        ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", updateError_.c_str());
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Close", ImVec2(120, 0))) close();
+    } else {  // Installed: quit (the unsaved-changes dialog still asks), on_cleanup starts the new editor
+        restartAfterQuit_ = true;
+        sapp_request_quit();
+        close();
+    }
+    ImGui::EndPopup();
 }
 
 void Editor::draw_toasts() {
