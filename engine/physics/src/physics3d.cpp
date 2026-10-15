@@ -3,7 +3,8 @@
 // a rigid body: its contacts are manifolds (clipped faces), the solver applies normal and friction impulses at the
 // contact points and so turns it (inertia tensor from its size and mass, orientation kept as a quaternion). Everything
 // else (arcade rolling spheres, locked bodies, kinematic and static bodies) keeps the original torque-free single-point
-// solver. An unrotated box keeps the exact axis-aligned code paths.
+// solver. An unrotated box keeps the exact axis-aligned code paths. Calm dynamic bodies fall asleep in islands, a box
+// turning in the air precesses (gyroscopic_step), and the sub-step motion is swept for impacts, rotation included.
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -155,7 +156,6 @@ void Physics3D::reset() {
     warm_.clear();
     lastWorld_ = nullptr;
     nextSeq_ = 1;
-    nextSleepGroup_ = 1;
     carry_ = 0.0f;
     lastGravity_ = {1e30f, 1e30f, 1e30f};
 }
@@ -1121,14 +1121,11 @@ void Physics3D::step(World& world, float dt) {
         b.sleepTime = calm ? b.sleepTime + dt : 0.0f;
         if (b.sleepTime < kTimeToSleep || hold[i]) ready[find_root(i)] = 0;
     }
-    std::vector<std::uint64_t> group(n, 0);
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b) || !ready[find_root(i)]) continue;
-        std::uint64_t& id = group[find_root(i)];
-        if (id == 0) id = nextSleepGroup_++;
         b.asleep = true;
-        b.sleepGroup = id;
+        b.sleepGroup = bodies_[find_root(i)].seq;  // the island is named after its root (seq is never reused)
         b.vel = b.angVel = {};
     }
 

@@ -265,7 +265,6 @@ private:
     std::vector<Body> bodies_;  // sorted by seq (creation order)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
-    std::uint64_t nextSleepGroup_ = 1;
     float carry_ = 0.0f;  // fraction of a sub-step's move left undone because of too many impacts; done in the next one
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
