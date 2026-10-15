@@ -371,6 +371,70 @@ void Editor::at_build_tools_script() {
         focus_window("###Viewport");
     });
 
+    // ----------------------------------------------- F. AI Assistant text: wrapping, right-click menu, selectable messages
+    auto rclick = [this, &step](const std::string& name) {
+        step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+        step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+        step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+    };
+    static const char* kLong = "Make a 3D tower game: the player throws balls at towers of crates, three levels, each tower "
+                               "taller than the last, a score for every crate that falls off, and a restart button at the end.";
+    step(2, [this] { chat_.current().input = kLong; });  // before the click: an active box keeps its own copy of the text
+    click("ai:input");
+    snap("editor_ai_input_wrap.png");  // the long message wraps inside the box
+    rclick("ai:input");
+    click("textmenu:Select all");
+    rclick("ai:input");
+    snap("editor_ai_text_menu.png");
+    click("textmenu:Cut");
+    step(2, [this] {
+        at_check(chat_.current().input.empty(), "right-click > Select all, then Cut, empties the AI Assistant input");
+        const char* clip = ImGui::GetClipboardText();
+        at_check(clip && std::string(clip) == kLong, "Cut puts the text on the clipboard");
+    });
+    rclick("ai:input");
+    click("textmenu:Paste");
+    step(2, [this] {
+        at_check(chat_.current().input == kLong, "right-click > Paste puts the clipboard's text back");
+        chat_.current().input.clear();
+        ChatItem reply;
+        reply.kind = ChatItem::Kind::Assistant;
+        reply.text = "Copy this reply.";
+        chat_.current().items.push_back(reply);
+        chat_.current().scrollDown = true;
+    });
+    rclick("ai:message");
+    click("textmenu:Select all");
+    rclick("ai:message");
+    click("textmenu:Copy");
+    step(2, [this] {
+        const char* clip = ImGui::GetClipboardText();
+        at_check(clip && std::string(clip) == "Copy this reply.", "an assistant message can be selected and copied (right-click > Select all, Copy)");
+        chat_.current().items.pop_back();
+        focus_window("###Viewport");
+    });
+
+    // ------------------------------------------------------------- G. Delete a project from the Open project dialog
+    step(2, [this] {
+        atDeleteProject_ = atOutDir_ + "/delete-me";
+        ScaffoldOptions so;
+        so.name = "delete-me";
+        auto r = create_project(atDeleteProject_, "2d-empty", so);
+        at_check(bool(r), "a scratch project to delete was created");
+        showProjectDialog_ = true;
+    });
+    step(2, [this] { dlgOpenPath_ = atDeleteProject_; });
+    click("project:delete");
+    snap("editor_delete_project.png");  // the confirmation popup
+    step(2, [this] { at_check(stdfs::exists(atDeleteProject_), "Delete... only asks: the project is still there"); });
+    click("project:delete-confirm");
+    step(2, [this] {
+        at_check(!stdfs::exists(atDeleteProject_), "confirming deletes the project folder");
+        at_check(dlgError_.empty(), "no error deleting the project (" + dlgError_ + ")");
+        showProjectDialog_ = false;
+        dlgScanned_ = false;
+    });
+
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and

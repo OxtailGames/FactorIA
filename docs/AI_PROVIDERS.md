@@ -276,8 +276,9 @@ The AI panel shows what the provider reports, never a guess:
 
 * **Session (5h)** and **Week**: how much of the plan's limit is used, with the local time the window resets. Claude Code
   reports them in `rate_limit_event` lines, Codex in its `rate_limits`. A window whose reset time has passed shows as 0%.
-  Plan limits are shared by all chats, so the last values are kept per provider in `~/.factoria/ai_limits.json`
-  and shown before the next message (a dim "Plan usage updates after the first message." while there are none).
+  Plan limits are shared by all chats. They are not kept between runs of the editor: other Claude Code / Codex sessions
+  use the same plan in between, so old numbers would be wrong. Until the first message of a run the panel shows a dim
+  "Plan usage updates after the first message.".
 * **Context**: tokens in the model's context window now (the last request, not the sum of the run), for example `47k / 1M`.
 * **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
   plans, which are not billed per token.

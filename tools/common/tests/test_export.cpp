@@ -251,6 +251,51 @@ TEST_CASE("export: ios produces a script and the game folder") {
     CHECK(mentionsScript);
 }
 
+TEST_CASE("export: command project.export (MCP tool project_export)") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    CommandRegistry reg;
+    register_export_commands(reg, proj);
+    REQUIRE(reg.has("project.export"));
+    const CommandInfo* info = reg.info("project.export");
+    CHECK_FALSE(info->readOnly);
+    for (const char* field : {"platform", "out", "release"})
+        CHECK_FALSE(info->inputSchema["properties"][field].value("description", std::string()).empty());
+
+    // ios needs no player binary; a relative `out` is relative to the project; "iphone" is an alias. A first export to the
+    // default build/export must not be shipped inside the second one.
+    REQUIRE(reg.call("project.export", {{"platform", "ios"}}).ok);
+    auto ok = reg.call("project.export", {{"platform", "iphone"}, {"out", "dist"}, {"release", true}});
+    REQUIRE_MESSAGE(ok.ok, ok.error.dump());
+    stdfs::path root = ok.result["outputDir"].get<std::string>();
+    CHECK(stdfs::weakly_canonical(root) == stdfs::weakly_canonical(stdfs::path(proj) / "dist" / "space-dodge-ios"));
+    CHECK(stdfs::exists(root / "build_ios.sh"));
+    CHECK(has(ok.result["files"].get<std::vector<std::string>>(), "game/factoria.json"));
+    for (const std::string& f : ok.result["files"].get<std::vector<std::string>>()) CHECK(f.find("game/build/") != 0);
+    CHECK_FALSE(ok.result["nextSteps"].empty());
+    CHECK(ok.result["warnings"].is_array());
+    CHECK(testing::read_all(root / "build_ios.sh").find("--config Release") != std::string::npos);
+
+    // Unknown platform: a teaching error, nothing written.
+    auto bad = reg.call("project.export", {{"platform", "windwos"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["code"] == "invalid_argument");
+    CHECK(bad.error["hint"].get<std::string>().find("windows") != std::string::npos);
+
+    // `out` stays inside the project, like fs.*: the export folder is deleted and rewritten.
+    auto outside = reg.call("project.export", {{"platform", "ios"}, {"out", "../elsewhere"}});
+    REQUIRE_FALSE(outside.ok);
+    CHECK(outside.error["code"] == "invalid_argument");
+    CHECK_FALSE(stdfs::exists(stdfs::path(proj).parent_path() / "elsewhere"));
+
+    // Errors from export_project keep their message and hint.
+    CommandRegistry empty;
+    register_export_commands(empty, tmp.sub("no-project"));
+    auto missing = empty.call("project.export", {{"platform", "linux"}});
+    REQUIRE_FALSE(missing.ok);
+    CHECK(missing.error["message"].get<std::string>().find("does not exist") != std::string::npos);
+}
+
 // End to end on Linux: export a game and run the exported player for a few seconds under a (virtual) display.
 #if defined(__linux__)
 constexpr bool kIsLinux = true;

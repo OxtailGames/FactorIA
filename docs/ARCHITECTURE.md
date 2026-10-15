@@ -72,7 +72,8 @@ core -> scene -> platform -> render, physics, audio -> script -> runtime -> tool
 and reflected components in type-erased pools. Every entity has `EntityInfo`
 (stable string `id`, `name`, `tags`, `active`) and `Transform`. Components are
 plain data; systems in other modules read them. Pointers to components are
-stable until removal. `destroy()` is deferred to the end of the frame.
+stable until removal. `destroy()` is deferred to the end of the frame (physics treats a
+pending-destroy entity as gone at once: no body, no collisions, no query hits).
 
 ### Reflection
 `fa::TypeRegistry::global()` (core/reflect.h) holds every component type with
