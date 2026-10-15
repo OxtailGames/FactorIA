@@ -27,10 +27,11 @@ constexpr const char* kExe = ".exe";
 constexpr const char* kExe = "";
 #endif
 
+std::string strip_v(std::string tag) { return !tag.empty() && (tag[0] == 'v' || tag[0] == 'V') ? tag.substr(1) : tag; }
+
 std::vector<long> version_parts(std::string_view v) {
-    if (!v.empty() && (v[0] == 'v' || v[0] == 'V')) v.remove_prefix(1);
     std::vector<long> parts;
-    std::string s(v);
+    std::string s = strip_v(std::string(v));
     for (const char* p = s.c_str(); *p;) {
         char* end = nullptr;
         parts.push_back(std::strtol(p, &end, 10));
@@ -45,8 +46,6 @@ std::string str(const Json& j, const char* key) {
     auto it = j.find(key);
     return it != j.end() && it->is_string() ? it->get<std::string>() : std::string();
 }
-
-std::string strip_v(std::string tag) { return !tag.empty() && (tag[0] == 'v' || tag[0] == 'V') ? tag.substr(1) : tag; }
 
 // Windows' own bsdtar unpacks .zip; a Git for Windows `tar` found first in PATH would not.
 std::string tar_exe() {
@@ -250,8 +249,8 @@ Result<void> start_editor_process(const std::string& projectDir) {
     if (pid < 0) return make_error("Cannot start " + exeS + ": fork failed", "open the editor again yourself");
     if (pid == 0) {
         setsid();  // outlives this editor
-        if (projS.empty()) execl(exeS.c_str(), exeS.c_str(), "editor", static_cast<char*>(nullptr));
-        else execl(exeS.c_str(), exeS.c_str(), "editor", projS.c_str(), static_cast<char*>(nullptr));
+        execl(exeS.c_str(), exeS.c_str(), "editor", projS.empty() ? static_cast<const char*>(nullptr) : projS.c_str(),
+              static_cast<char*>(nullptr));
         _exit(127);
     }
 #endif
