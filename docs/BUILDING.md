@@ -289,4 +289,7 @@ Limit the parallel jobs: `cmake --build --preset <name> -- -j 2` (or
 `cmake --build build/<dir> -j 2`).
 
 **Rebuilds are slow**
-Install `ccache`. CMake uses it automatically when it is on the path.
+Install `ccache`. CMake uses it automatically when it is on the path, except with the Visual Studio presets: there,
+copy `ccache.exe` (4.13 or newer, not a Chocolatey or Scoop shim) as `cl.exe` into an empty folder and set the
+environment variables `CLToolPath=<that folder>` and `UseMultiToolTask=true` before building, as the Windows CI job
+does.
