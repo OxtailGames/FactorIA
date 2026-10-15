@@ -1,0 +1,71 @@
+#include <doctest.h>
+
+#include <filesystem>
+#include <set>
+#include <string>
+
+#include "fa/tooling/bundle.h"
+#include "fa/tooling/docs.h"
+#include "fa/tooling/notices.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+
+TEST_CASE("notices: every component has its license text bundled") {
+    const auto& list = third_party_components();
+    REQUIRE_FALSE(list.empty());
+    CHECK(list.front().name == "FactorIA");
+    CHECK(list.front().license == "MIT");
+    for (const auto& c : list) {
+        CAPTURE(c.name);
+        auto text = bundled_read(c.licenseFile);
+        REQUIRE(text.has_value());
+        CHECK(text->size() > 100);
+        CHECK_FALSE(c.url.empty());
+        CHECK_FALSE(c.license.empty());
+    }
+}
+
+TEST_CASE("notices: every library in external/ is listed (or never ships)") {
+    // doctest only links into the test executables.
+    const std::set<std::string> notShipped = {"doctest"};
+    std::set<std::string> listed;
+    for (const auto& c : third_party_components())
+        if (c.licenseFile.rfind("external/", 0) == 0) listed.insert(stdfs::path(c.licenseFile).parent_path().filename().string());
+    std::error_code ec;
+    for (const auto& e : stdfs::directory_iterator(stdfs::path(FA_REPO_ROOT) / "external", ec)) {
+        if (!e.is_directory()) continue;
+        const std::string dir = e.path().filename().string();
+        CAPTURE(dir);
+        CHECK_MESSAGE((listed.count(dir) || notShipped.count(dir)),
+                      "external/" << dir << " is not in third_party_components() (tools/common/src/notices.cpp)");
+    }
+}
+
+TEST_CASE("notices: game scope leaves out the editor-only parts, all scope has everything") {
+    const std::string game = third_party_notices(NoticeScope::Game);
+    const std::string all = third_party_notices(NoticeScope::All);
+    CHECK(game.find("This game was made with FactorIA") != std::string::npos);
+    CHECK(game.find("Copyright (c) 2026 Oxtail Games") != std::string::npos);  // FactorIA's own MIT license
+    for (const char* part : {"sokol", "QuickJS-ng", "Box2D", "stb", "cgltf", "dr_libs", "nlohmann/json",
+                             "SDL_GameControllerDB", "DejaVu Sans", "Press Start 2P"}) {
+        CAPTURE(part);
+        CHECK(game.find(std::string("\n") + part + " (") != std::string::npos);
+        CHECK(all.find(std::string("\n") + part + " (") != std::string::npos);
+    }
+    CHECK(game.find("SIL OPEN FONT LICENSE") != std::string::npos);  // the OFL asks for its text with the font
+    CHECK(game.find("Dear ImGui") == std::string::npos);
+    CHECK(all.find("\nDear ImGui (") != std::string::npos);
+    CHECK(game.find("license text missing") == std::string::npos);
+    CHECK(all.find("license text missing") == std::string::npos);
+}
+
+TEST_CASE("notices: readable as the 'licenses' document") {
+    auto doc = read_doc("licenses");
+    REQUIRE(doc.ok());
+    CHECK(*doc == third_party_notices(NoticeScope::All));
+    CHECK(read_doc("third-party-notices").ok());
+    bool listed = false;
+    for (const auto& d : list_docs()) listed |= d.name == "licenses";
+    CHECK_FALSE(listed);  // generated, like "components": docs.list adds it, list_docs() has files only
+}

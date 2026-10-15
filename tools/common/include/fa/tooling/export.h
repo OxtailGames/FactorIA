@@ -14,6 +14,8 @@
 //              on Android, no NDK or CMake) is needed; the project templates come from the factoria binary (platforms/).
 //   source   : the engine is compiled from a source checkout (--engine-root, $FACTORIA_ENGINE_DIR, or the build-time
 //              source root of a development build), with that checkout's platforms/ templates.
+// Every export also writes FACTORIA_NOTICES.txt (the licenses of the runtime inside the game, fa/tooling/notices.h):
+// next to the executable (linux, windows), in Contents/Resources (macos), in the APK assets (android), in game/ (ios).
 // Never shipped: .factoria/, build/ (earlier exports), tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
 // jsconfig.json, every dot-file/dot-folder, and the output folder itself.
 #pragma once
@@ -46,6 +48,7 @@ struct ExportOptions {
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); empty for desktop exports
+    std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
     std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted)
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems
