@@ -136,9 +136,7 @@ jobs:
           test -f "$out/libfactoria_player_main.a"
           for lib in "$out"/*.a; do
             lipo -info "$lib"
-            for arch in $(tr ';' ' ' <<< "${{ matrix.archs }}"); do
-              lipo "$lib" -verify_arch "$arch" || { echo "::error::$lib has no $arch slice"; exit 1; }
-            done
+            lipo "$lib" -verify_arch $(tr ';' ' ' <<< "${{ matrix.archs }}") || { echo "::error::$lib lacks a slice of ${{ matrix.archs }}"; exit 1; }
           done
           du -sh "$out"
 
