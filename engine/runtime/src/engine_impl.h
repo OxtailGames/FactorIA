@@ -51,6 +51,7 @@ struct Engine::Impl {
     std::map<std::string, std::int64_t> watched;
     bool watchSeeded = false;
     double watchTimer = 0.0;
+    std::int64_t projectMtime = -1;  // factoria.json mtime when I.project was last read
 
     // Lifecycle helpers
     void run_frame(double dt, int fixedSteps);
@@ -60,6 +61,8 @@ struct Engine::Impl {
     bool load_scene_json_impl(const Json& scene, std::string_view sourceName, std::string* error);
     void end_of_frame(double dt);
     bool load_scene_impl(const std::string& path, std::string* error);
+    void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
+    void apply_project_settings();
     void poll_hot_reload(bool force = false);
     void apply_scene_change();
 

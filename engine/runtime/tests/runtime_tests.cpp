@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -222,7 +223,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
                              "scene.destroy", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
                              "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
-                             "game.pause", "game.resume", "audio.log", "script.eval", "script.errors", "project.test", "physics.raycast", "physics.shape_cast",
+                             "game.pause", "game.resume", "audio.log", "script.eval", "script.errors", "script.reload", "project.test", "physics.raycast", "physics.shape_cast",
                              "api.components", "api.commands", "api.scripting", "assets.list"}) {
         INFO(name);
         const CommandInfo* info = c.info(name);
@@ -872,5 +873,82 @@ TEST_CASE("engine: audio.log lists played sounds with the scene frame, source an
     REQUIRE(r.ok);
     CHECK(r.result["count"] == 0);
     CHECK(r.result["hint"].get<std::string>().find("assets/sfx/beep.wav") != std::string::npos);
+    e.shutdown();
+}
+
+namespace {
+// Pushes a file's mtime forward so an edit made within the same clock tick is still seen as a change.
+void bump_mtime(const TempProject& p, const std::string& rel) {
+    std::error_code ec;
+    stdfs::last_write_time(p.dir / rel, stdfs::last_write_time(p.dir / rel, ec) + std::chrono::seconds(5), ec);
+}
+std::string project_with_action(const char* action) {
+    std::string s = kProject;
+    s.replace(s.find("\"fire\""), 6, std::string("\"") + action + "\": [\"Q\"], \"fire\"");
+    return s;
+}
+}  // namespace
+
+TEST_CASE("engine: scene.reload re-imports edited scripts, clears script errors and re-reads factoria.json input actions") {
+    TempProject p("engine_reload_disk");
+    p.write("scripts/helper.js", "export const v = () => 1;\n");
+    p.write("scripts/game.js",
+            "import { Behaviour } from 'factoria';\nimport { v } from './helper.js';\n"
+            "export default class G extends Behaviour { onStart() { globalThis.ver = v(); throw new Error('old boom'); } }\n");
+    p.write("scenes/main.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"g","components":{"Script":{"path":"scripts/game.js"}}}]})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    CommandRegistry& c = e.commands();
+    auto ver = [&] { return c.call("script.eval", Json::parse(R"({"code":"globalThis.ver"})")).result["value"].get<int>(); };
+    auto error_count = [&] { return c.call("script.errors", Json::object()).result["count"].get<int>(); };
+    e.step(1);
+    CHECK(ver() == 1);
+    CHECK(error_count() > 0);
+
+    // Edit the module and its import and fix the exception; reload picks up both.
+    p.write("scripts/helper.js", "export const v = () => 2;\n");
+    p.write("scripts/game.js",
+            "import { Behaviour } from 'factoria';\nimport { v } from './helper.js';\n"
+            "export default class G extends Behaviour { onStart() { globalThis.ver = v(); } }\n");
+    bump_mtime(p, "scripts/helper.js");
+    bump_mtime(p, "scripts/game.js");
+    REQUIRE(c.call("scene.reload", Json::object()).ok);
+    e.step(1);
+    CHECK(ver() == 2);
+    CHECK(error_count() == 0);
+
+    // Only the imported module changes: its importer is re-imported too (scene.load takes the same path).
+    p.write("scripts/helper.js", "export const v = () => 3;\n");
+    bump_mtime(p, "scripts/helper.js");
+    REQUIRE(c.call("scene.load", Json::parse(R"({"path":"scenes/main.scene.json"})")).ok);
+    e.step(1);
+    CHECK(ver() == 3);
+
+    // script.reload re-imports without a scene load.
+    p.write("scripts/helper.js", "export const v = () => 4;\n");
+    bump_mtime(p, "scripts/helper.js");
+    auto r = c.call("script.reload", Json::object());
+    REQUIRE(r.ok);
+    CHECK(r.result["reloaded"].size() >= 1);
+    e.step(1);
+    CHECK(ver() == 4);
+
+    // factoria.json: a new input action is unknown until the project file is re-read.
+    CHECK_FALSE(c.call("game.input", Json::parse(R"({"press":["pick1"]})")).ok);
+    p.write("factoria.json", project_with_action("pick1"));
+    bump_mtime(p, "factoria.json");
+    REQUIRE(c.call("scene.reload", Json::object()).ok);
+    CHECK(c.call("game.input", Json::parse(R"({"press":["pick1"]})")).ok);
+
+    // project.test re-reads it too.
+    p.write("factoria.json", project_with_action("pick2"));
+    bump_mtime(p, "factoria.json");
+    p.write("tests/a.test.js",
+            "import { test, expect, game } from 'factoria:test';\ntest('pick', () => { game.press('pick2'); });\n");
+    auto t = c.call("project.test", Json::object());
+    REQUIRE(t.ok);
+    CHECK(t.result["ok"].get<bool>());
     e.shutdown();
 }
