@@ -12,6 +12,7 @@
 // jsconfig.json, every dot-file/dot-folder, and the output folder itself.
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -42,5 +43,8 @@ Result<ExportReport> export_project(const ExportOptions& options);
 
 // Normalizes "win"/"mac"/"osx"/"Linux" -> "windows"/"macos"/"linux"; "" if unknown.
 std::string normalize_export_platform(const std::string& name);
+
+// Folder of the running executable (factoria finds factoria_player there; the editor updates its files).
+std::filesystem::path executable_dir();
 
 }  // namespace fa

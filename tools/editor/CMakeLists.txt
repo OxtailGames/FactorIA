@@ -7,6 +7,7 @@ target_include_directories(fa_editor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include 
 target_link_libraries(fa_editor PUBLIC fa_tooling PRIVATE fa_warnings)
 target_link_libraries(fa_editor PUBLIC fa_ai fa_mcp PRIVATE fa_ext_imgui fa_ext_sokol)
 target_link_libraries(fa_editor PRIVATE ${CMAKE_DL_LIBS})
+set_property(SOURCE src/update.cpp APPEND PROPERTY COMPILE_DEFINITIONS FA_UPDATE_REPO="${FA_UPDATE_REPO}")
 if(WIN32)
     target_link_libraries(fa_editor PRIVATE ole32 shell32 uuid)  # folder_picker.cpp: IFileOpenDialog
 endif()

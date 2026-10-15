@@ -16,6 +16,14 @@ Project...). Type a path or press **Browse...** for the system's folder dialog (
 starts at your Documents folder. Recent projects, and projects found in the current folder,
 are listed by name under the path; hover one to see its path (`~/.factoria/editor_recent.json`).
 
+## Updates
+
+The downloaded editor checks GitHub Releases when it opens. When a newer version is out, the **FactorIA update**
+window shows the release notes of every version newer than yours and blocks the editor until you choose: **Update**
+downloads it, replaces the files next to `factoria` and reopens the editor on the open project; **Not now** keeps this
+version until the next start. Builds from source never check (they have no `FA_UPDATE_REPO`). Details:
+[GETTING_STARTED.md, Updates](GETTING_STARTED.md#updates).
+
 ## Layout
 
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Viewport** on the left, **AI Assistant** on the
