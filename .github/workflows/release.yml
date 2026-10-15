@@ -71,19 +71,19 @@ jobs:
           if [[ "$RUNNER_OS" == Windows ]]; then
             cp "../$bin/FactorIA-Editor.exe" "$name/"
             cmake -E tar cf "$name.zip" --format=zip "$name"
-            echo "PACKAGE=$PWD/$name.zip" >> "$GITHUB_ENV"
+            echo "PACKAGE=dist/$name.zip" >> "$GITHUB_ENV"
           else
             cmake -E tar czf "$name.tar.gz" "$name"
-            echo "PACKAGE=$PWD/$name.tar.gz" >> "$GITHUB_ENV"
+            echo "PACKAGE=dist/$name.tar.gz" >> "$GITHUB_ENV"
           fi
-          echo "PACKAGE_NAME=$name" >> "$GITHUB_ENV"
+          echo "PACKAGE_NAME=$name" >> "$GITHUB_ENV"  # PACKAGE is relative: upload-artifact cannot read MSYS paths (/d/a/...)
 
       # Unpack in a temp folder outside the checkout and use only what the package contains.
       - name: Smoke-test the package
         run: |
           tmp="${RUNNER_TEMP//\\//}/smoke"
           mkdir -p "$tmp" && cd "$tmp"
-          cmake -E tar xf "$PACKAGE"
+          cmake -E tar xf "$GITHUB_WORKSPACE/$PACKAGE"
           fa="$tmp/$PACKAGE_NAME/factoria${{ matrix.exe }}"
           "$fa" version
           "$fa" new "$tmp/g" --template 2d-platformer
