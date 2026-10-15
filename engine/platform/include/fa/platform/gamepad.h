@@ -5,10 +5,10 @@
 // Backends:
 //   Windows  XInput (xinput1_4.dll, loaded at run time: Xbox-style pads, 4 slots).
 //   Linux    the kernel joystick API (/dev/input/js0..3). The raw button and axis numbers differ from pad to pad, so
-//            each pad is looked up by its ids (bus, vendor, product, version) in a table of SDL GameControllerDB
-//            mapping lines (fa/platform/gamepad_mapping.h): built in for the DualShock 4, DualSense and Switch Pro, the
-//            Xbox (xpad) layout for everything else, plus any lines in the SDL_GAMECONTROLLERCONFIG environment
-//            variable (newline separated, they win over the built-in ones).
+//            each pad is looked up by its ids (bus, vendor, product, version) in SDL GameControllerDB mapping lines
+//            (fa/platform/gamepad_mapping.h), best source first: the SDL_GAMECONTROLLERCONFIG environment variable
+//            (newline separated lines), a gamecontrollerdb.txt in the project folder, the built-in database (the Linux
+//            lines of SDL_GameControllerDB, embedded in the binary), and the Xbox (xpad) layout for a pad none lists.
 //   macOS/iOS  the GameController framework (extended gamepads).
 //   Android  key and motion events of the NativeActivity input queue, taken through sokol_app's native event hook
 //            (android_gamepad_event below).

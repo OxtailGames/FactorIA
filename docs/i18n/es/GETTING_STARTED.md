@@ -385,7 +385,7 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 | IA integrada con clave de API (`factoria ai`) | `doctor`, `providers` y `config` funcionan. `ai run` necesita una clave de API o una CLI instalada (Claude Code o Codex) |
 | Exportar juegos (`factoria export`) | Linux probado (`--platform linux`); la CI exporta un juego de Android y compila su APK. Windows, macOS, Android e iOS: ver `docs/EXPORTING.md` y `docs/MOBILE.md` |
 | Documentación para IA | En inglés: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Mandos (gamepad) | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` y `game.gamepad(i)` en los tests. Mandos reales: Windows (XInput), Linux (API joystick; distribuciones de PlayStation y Switch Pro incluidas, otras con una línea en `SDL_GAMECONTROLLERCONFIG`), macOS/iOS (GameController) y Android; la CI los compila todos, pero aún no se han probado con un mando físico. La build web no tiene soporte (`docs/MOBILE.md`, `docs/SCRIPTING.md`) |
+| Mandos (gamepad) | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` y `game.gamepad(i)` en los tests. Mandos reales: Windows (XInput), Linux (API joystick; incluye las líneas de Linux de la GameControllerDB de SDL, y se añaden más en `SDL_GAMECONTROLLERCONFIG` o en un `gamecontrollerdb.txt` junto a `factoria.json`), macOS/iOS (GameController) y Android; la CI los compila todos, pero aún no se han probado con un mando físico. La build web no tiene soporte (`docs/MOBILE.md`, `docs/SCRIPTING.md`) |
 
 ## 9. Dónde seguir leyendo
 
