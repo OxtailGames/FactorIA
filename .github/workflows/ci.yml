@@ -73,11 +73,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Visual Studio ignores compiler launchers, so MSBuild runs ccache as cl.exe (CLToolPath), one source per call
+      # in parallel (UseMultiToolTask). MSBuild reads both from the environment. ccache supports MSVC since 4.13.
+      - name: Install ccache
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ccache.zip" https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-windows-x86_64.zip
+          unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/ccache-cl"
+          cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
+          { echo "CCACHE_DIR=$LOCALAPPDATA\ccache"; echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ccache
+          key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-windows-
+
       - name: Configure (windows-release)
         run: cmake --preset windows-release
 
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
+
+      - name: TEMP ccache statistics
+        run: '& "$env:RUNNER_TEMP\ccache-4.14.1-windows-x86_64\ccache.exe" --show-stats --verbose'
 
       - name: Test (windows-release)
         run: ctest --preset windows-release
@@ -159,6 +180,13 @@ jobs:
           test ! -e "$app/game/ENGINE_FEEDBACK.json"
           plutil -lint "$app/Info.plist"
 
+      - name: TEMP diagnose the simulator boot
+        run: |
+          xcrun simctl runtime list -v || true
+          ls -la ~/Library/Developer/CoreSimulator/Caches/dyld /Library/Developer/CoreSimulator/Caches/dyld 2>&1 || true
+          time xcrun simctl runtime dyld_shared_cache update --all || true
+          du -sh ~/Library/Developer/CoreSimulator/Caches/dyld/* /Library/Developer/CoreSimulator/Caches/dyld/* 2>/dev/null || true
+
       # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
       # the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
       # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
@@ -225,6 +253,14 @@ jobs:
 
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
+
+      # Also caches the engine's NDK build inside Gradle: CMakeLists.txt uses ccache whenever it finds it.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-android-apk-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-android-apk-
 
       - name: Build the factoria CLI (no editor, no tests)
         run: |
