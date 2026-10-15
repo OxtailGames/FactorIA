@@ -314,10 +314,33 @@ The first full run on a Mac (Apple M5, macOS 26, Xcode 27) passed every register
 4. The unsigned macOS download: Gatekeeper and the editor's updater on a clean Mac. Signing needs the Apple Developer
    Program (M8, "Left open").
 
+Found and fixed while implementing M9 (Android, the `android-emulator` job of CI run 38821970366 on `main`):
+- The job failed with "no process for dev.factoria.cigame right after am start": the activity, started right after the
+  install, was relaunched for an assets-path change (`wm_relaunch_resume_activity ... 80000000`, `CONFIG_ASSETS_PATHS`,
+  which no `configChanges` value covers) while ActivityManager was still delivering `BOOT_COMPLETED` and the install's
+  broadcasts. `android-smoke.sh` now waits for `am wait-for-broadcast-idle` after the install.
+- That relaunch showed a real bug. sokol_app ends the process with `exit(0)` in `onDestroy`, and `exit()` ran the C++
+  static destructors while other threads still ran: the engine (owned by static `AppDesc`s) shut down on the main thread
+  with no GL context ("call to OpenGL ES API with no current context"), and the logger's mutex was destroyed while
+  sokol's loop thread still logged ("FORTIFY: pthread_mutex_lock called on a destroyed mutex", SIGABRT). Even a clean
+  exit lost the game: Android drops an activity whose process died without saved state ("app died, no saved state"),
+  so on a phone a wallpaper-colour or theme change (Android 12+) or an overlay closed the game. Now
+  `engine/platform/src/sokol_impl.c` wraps sokol_app's `ANativeActivity_onCreate` and turns that exit into `_exit(0)`,
+  and the activity is `stateNotNeeded`, so the system starts the game again in a new process. The smoke test's new
+  relaunch step (`am update-appinfo`, the update an overlay change sends) checks that the game comes back with no native
+  signal; with the old player it fails ("the game did not come back after the relaunch"). Checked on an arm64 API 35
+  emulator: `am update-appinfo`, the display-cutout overlay on and off, and Back (the game ends, no restart).
+
 Found while implementing M9, not fixed:
 - Windows has no window read-back for the editor (D3D11), so the editor autotests are not registered there.
 - On a Retina screen the autotest screenshots are 2x (2940x1782 on a MacBook Air) and each takes about a second to encode
   in a Debug build.
+- Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
+  exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
+  when it closes or restarts. `storage` saves on every write, so nothing is lost today.
+- A Debug APK aborts in `sg_setup` on an arm64 API 35 emulator started with `-gpu swiftshader_indirect`: sokol_gfx
+  asserts `glGetError() == 0` in `_sg_gl_init_limits` (which query fails is not known yet). `-gpu host` runs, and so
+  does CI's x86_64 API 34 software GPU.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

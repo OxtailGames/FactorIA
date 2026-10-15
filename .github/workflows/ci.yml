@@ -378,7 +378,8 @@ jobs:
 
   # Android on a virtual device: boot an x86_64 emulator, install the APK of the job above, start it and assert that the
   # process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, a tap reaches the player,
-  # the app survives HOME and coming back and a font-size change, nothing crashed and the display shows a picture
+  # the app survives HOME and coming back and a font-size change, nothing crashed, the display shows a picture, and the
+  # game comes back in a new process after a relaunch it cannot opt out of (`am update-appinfo`)
   # (scripts/android-smoke.sh; it waits for the system to be ready, no fixed sleep). Needs KVM, which GitHub's Linux
   # runners offer once the udev rule below is set. There is no arm64 emulator job: no hosted runner can run one
   # (docs/MOBILE.md).
