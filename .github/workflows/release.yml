@@ -62,7 +62,7 @@ jobs:
         run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }}
 
       - name: Build (${{ matrix.preset }})
-        run: cmake --build --preset ${{ matrix.preset }}
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
 
       # FactorIA-<os>.zip (.tar.gz on macOS and Linux) with one folder, FactorIA/, inside.
       - name: Package
