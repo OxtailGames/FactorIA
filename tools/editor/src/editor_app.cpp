@@ -278,6 +278,16 @@ void Editor::on_cleanup() {
         if (auto r = start_editor_process(projectDir_); !r) FA_WARN("editor", "restart after the update: {}", r.error().to_string());
 }
 
+void Editor::save_recent_projects() {
+    const std::string h = home_dir();
+    if (autotest_ || h.empty()) return;
+    Json j = Json::array();
+    for (auto& r : recentProjects_) j.push_back(r);
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(h) / ".factoria", ec);
+    (void)save_json_file((std::filesystem::path(h) / ".factoria" / "editor_recent.json").string(), j);
+}
+
 bool Editor::open_project(const std::string& dir) {
     pendingOpen_ = dir;
     return true;
@@ -368,16 +378,7 @@ bool Editor::boot(const std::string& dirIn) {
         recentProjects_.erase(std::remove(recentProjects_.begin(), recentProjects_.end(), projectDir_), recentProjects_.end());
         recentProjects_.insert(recentProjects_.begin(), projectDir_);
         if (recentProjects_.size() > 8) recentProjects_.resize(8);
-        if (!autotest_) {
-            std::string h = home_dir();
-            if (!h.empty()) {
-                Json j = Json::array();
-                for (auto& r : recentProjects_) j.push_back(r);
-                std::error_code ec;
-                std::filesystem::create_directories(std::filesystem::path(h) / ".factoria", ec);
-                (void)save_json_file((std::filesystem::path(h) / ".factoria" / "editor_recent.json").string(), j);
-            }
-        }
+        save_recent_projects();
         app_set_title("FactorIA Editor - " + projectName_);
         FA_INFO("editor", "opened project '{}' ({})", projectName_, projectDir_);
         if (!aiDetected_.load() && !aiDetecting_.load()) ai_refresh_providers();

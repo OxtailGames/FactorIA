@@ -132,6 +132,7 @@ public:
 
     // ---------------------------------------------------------------- project / scene
     bool open_project(const std::string& dir);      // deferred to the next frame start
+    void save_recent_projects();                    // ~/.factoria/editor_recent.json (not in the autotest)
     bool boot(const std::string& dir);              // immediate (tears down and rebuilds graphics)
     bool has_project() const { return engine_ != nullptr; }
     World& world() { return engine_->world(); }
@@ -328,6 +329,7 @@ public:
     std::vector<std::string> recentProjects_;
     std::vector<std::string> detectedProjects_;
     bool dlgScanned_ = false;
+    std::string dlgDelete_;  // project waiting for the "Delete project?" confirmation
 
     // Audio panel (View > Audio): the live audio.log
     AudioLogState audioLog_;
@@ -369,8 +371,7 @@ public:
     AiChats chat_;                  // the conversations (tabs); the active one is chat_.current()
     std::string aiRunChat_;         // id of the chat the agent thread works for ("" = no run); set by ai_start, cleared on the result
     std::string aiRunProvider_;     // provider of that run (the plan limits belong to it)
-    LimitsByProvider aiLimits_;     // last known plan windows, shared by every tab; kept in ~/.factoria/ai_limits.json
-    bool aiLimitsLoaded_ = false;
+    LimitsByProvider aiLimits_;     // plan windows reported since the editor started, shared by every tab
     int aiTabForce_ = 0;            // frames left to force the active tab (a tab opened/closed by code)
     bool aiHistoryOpen_ = false;    // request to open the History popup this frame
     std::vector<ChatHistoryEntry> aiHistory_;

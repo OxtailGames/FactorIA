@@ -93,49 +93,4 @@ LimitView limit_view(const ai::LimitWindow& window, i64 now) {
     return v;
 }
 
-Json limits_to_json(const LimitsByProvider& limits) {
-    Json providers = Json::object();
-    for (const auto& [name, pl] : limits) {
-        Json windows = Json::array();
-        for (const auto& w : pl.windows) {
-            Json wj = Json::object({{"name", w.name}, {"resetsAt", w.resetsAt}});
-            if (w.usedFraction >= 0) wj["usedFraction"] = w.usedFraction;
-            windows.push_back(std::move(wj));
-        }
-        providers[name] = Json::object({{"updated", pl.updated}, {"windows", windows}});
-    }
-    return Json::object({{"format", "factoria.ai_limits/1"}, {"providers", providers}});
-}
-
-LimitsByProvider limits_from_json(const Json& j) {
-    LimitsByProvider out;
-    if (!j.is_object() || !j.contains("providers") || !j["providers"].is_object()) return out;
-    for (const auto& [name, pj] : j["providers"].items()) {
-        if (!pj.is_object() || !pj.contains("windows") || !pj["windows"].is_array()) continue;
-        ProviderLimits pl;
-        pl.updated = pj.value("updated", static_cast<i64>(0));
-        for (const auto& wj : pj["windows"]) {
-            if (!wj.is_object() || !wj.contains("name") || !wj["name"].is_string()) continue;
-            ai::LimitWindow w;
-            w.name = wj["name"].get<std::string>();
-            w.usedFraction = wj.contains("usedFraction") && wj["usedFraction"].is_number() ? wj["usedFraction"].get<double>() : -1.0;
-            w.resetsAt = wj.value("resetsAt", static_cast<i64>(0));
-            pl.windows.push_back(std::move(w));
-        }
-        if (!pl.windows.empty()) out[name] = std::move(pl);
-    }
-    return out;
-}
-
-LimitsByProvider load_limits(const std::string& path) {
-    const auto j = read_json(path);
-    return j ? limits_from_json(*j) : LimitsByProvider{};
-}
-
-bool save_limits(const std::string& path, const LimitsByProvider& limits) { return write_json(path, limits_to_json(limits)); }
-
-std::string limits_path(const std::string& home) {
-    return home.empty() ? std::string() : utf8_string(utf8_path(home) / ".factoria" / "ai_limits.json");
-}
-
 }  // namespace fa::editor
