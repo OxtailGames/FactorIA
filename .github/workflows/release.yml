@@ -131,9 +131,15 @@ jobs:
         run: |
           out="mobile/ios/${{ matrix.sdk }}"
           mkdir -p "$out"
-          find "build/${{ matrix.preset }}" -path "*Release-${{ matrix.sdk }}/*" -name '*.a' -exec cp {} "$out/" \;
+          # Only the products: Xcode also leaves one single-architecture copy of each archive per arch under *.build/.
+          find "build/${{ matrix.preset }}" -path "*Release-${{ matrix.sdk }}/*" -not -path '*.build/*' -name '*.a' -exec cp {} "$out/" \;
           test -f "$out/libfactoria_player_main.a"
-          for lib in "$out"/*.a; do lipo -info "$lib"; done
+          for lib in "$out"/*.a; do
+            lipo -info "$lib"
+            for arch in $(tr ';' ' ' <<< "${{ matrix.archs }}"); do
+              lipo "$lib" -verify_arch "$arch" || { echo "::error::$lib has no $arch slice"; exit 1; }
+            done
+          done
           du -sh "$out"
 
       - uses: actions/upload-artifact@v4
