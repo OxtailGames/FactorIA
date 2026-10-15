@@ -150,8 +150,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # macOS: Apple Clang + Ninja. GPU-labelled tests (Metal) are excluded with
-  # -LE gpu while hosted runners cannot run them; drop the flag once they can.
+  # macOS: Apple Clang + Ninja. The whole suite runs, GPU-labelled tests included: Metal on the runner's GPU, and the
+  # editor autotests in a real window of the runner's desktop session.
   macos:
     name: macOS (Apple Clang, Ninja)
     needs: changes
@@ -176,8 +176,10 @@ jobs:
           cmake --preset macos-release
           cmake --build --preset macos-release
 
-      - name: Test (macos-release, GPU tests excluded)
-        run: ctest --preset macos-release -LE gpu
+      - name: Test (macos-release)
+        env:
+          FA_EDITOR_AUTOTEST_OUT: ${{ github.workspace }}/build/macos-release/test-output/editor  # uploaded on failure
+        run: ctest --preset macos-release
 
       - name: Upload test output on failure
         if: failure()

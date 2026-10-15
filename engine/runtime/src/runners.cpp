@@ -103,6 +103,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         }
     };
     d.cleanup = [st] { st->engine.shutdown(); };
+    d.exit_code = [st] { return st->exitCode; };
     return d;
 }
 }  // namespace
@@ -112,8 +113,7 @@ AppDesc make_app_desc(const EngineConfig& config) { return build_app_desc(config
 int run_windowed(const EngineConfig& config) {
     auto st = std::make_shared<WindowedState>();
     AppDesc d = build_app_desc(config, st);
-    int rc = run_app(d);
-    return rc != 0 ? rc : st->exitCode;
+    return run_app(d);  // st->exitCode, through d.exit_code
 }
 
 // ------------------------------------------------------------- headless --
