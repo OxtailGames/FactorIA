@@ -884,10 +884,12 @@ TEST_CASE("engine: audio.log lists played sounds with the scene frame, source an
 }
 
 namespace {
-// Pushes a file's mtime forward so an edit made within the same clock tick is still seen as a change.
+// Gives a file a new, never-repeated mtime: two writes within one clock tick (~15 ms on Windows, common in Release
+// builds) get the same mtime, and a fixed offset would keep them equal.
 void bump_mtime(const TempProject& p, const std::string& rel) {
+    static int bumps = 0;
     std::error_code ec;
-    stdfs::last_write_time(p.dir / rel, stdfs::last_write_time(p.dir / rel, ec) + std::chrono::seconds(5), ec);
+    stdfs::last_write_time(p.dir / rel, stdfs::file_time_type::clock::now() + std::chrono::seconds(5 * ++bumps), ec);
 }
 std::string project_with_action(const char* action) {
     std::string s = kProject;
