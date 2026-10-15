@@ -1,0 +1,117 @@
+# Release packages: build the developer tools with the release presets and package them as a download that works
+# without dev tools (docs/GETTING_STARTED.md, "Download"). Docs, templates and schemas are embedded in factoria, and
+# the C++ runtime is linked statically on Windows, so the package needs nothing from the repository.
+#
+# A `v*` tag publishes the packages as a GitHub Release; "Run workflow" (workflow_dispatch) keeps them as workflow
+# artifacts, and so does a pull request that changes this file. Each package is smoke-tested from a folder outside the
+# checkout before it is uploaded.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths: ['.github/workflows/release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.os }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-x64
+            runner: windows-2022  # the preset uses the "Visual Studio 17 2022" generator
+            preset: windows-release
+            cfg: /Release  # Visual Studio is a multi-config generator
+            exe: .exe
+          - os: macos-arm64
+            runner: macos-latest
+            preset: macos-release
+          - os: linux-x64
+            runner: ubuntu-24.04
+            preset: linux-release
+            wrap: xvfb-run -a  # headless tests on Mesa llvmpipe, as in ci.yml
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure (${{ matrix.preset }}, no tests)
+        run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF
+
+      - name: Build (${{ matrix.preset }})
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      # Tag v1.2.3 -> FactorIA-1.2.3-<os>; a manual run -> FactorIA-dev-<short sha>-<os>.
+      - name: Package
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; else version="dev-${GITHUB_SHA::7}"; fi
+          name="FactorIA-$version-${{ matrix.os }}"
+          bin="build/${{ matrix.preset }}/tools/cli${{ matrix.cfg }}"
+          mkdir -p "dist/$name"
+          cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md "dist/$name/"
+          if [[ -f LICENSE ]]; then cp LICENSE "dist/$name/"; fi
+          cd dist
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp "../$bin/FactorIA-Editor.exe" "$name/"
+            cmake -E tar cf "$name.zip" --format=zip "$name"
+            echo "PACKAGE=dist/$name.zip" >> "$GITHUB_ENV"
+          else
+            cmake -E tar czf "$name.tar.gz" "$name"
+            echo "PACKAGE=dist/$name.tar.gz" >> "$GITHUB_ENV"
+          fi
+          echo "PACKAGE_NAME=$name" >> "$GITHUB_ENV"  # PACKAGE is relative: upload-artifact cannot read MSYS paths (/d/a/...)
+
+      # Unpack in a temp folder outside the checkout and use only what the package contains.
+      - name: Smoke-test the package
+        run: |
+          tmp="${RUNNER_TEMP//\\//}/smoke"
+          mkdir -p "$tmp" && cd "$tmp"
+          cmake -E tar xf "$GITHUB_WORKSPACE/$PACKAGE"
+          fa="$tmp/$PACKAGE_NAME/factoria${{ matrix.exe }}"
+          "$fa" version
+          "$fa" new "$tmp/g" --template 2d-platformer
+          ${{ matrix.wrap }} "$fa" test "$tmp/g"
+          "$fa" export "$tmp/g" --out "$tmp/export"
+          ls "$tmp/export"/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: ${{ env.PACKAGE }}
+          if-no-files-found: error
+          compression-level: 0  # already compressed
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "FactorIA $GITHUB_REF_NAME" --generate-notes
