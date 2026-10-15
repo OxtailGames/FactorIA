@@ -6,24 +6,16 @@
 # needs a Mac with Xcode.
 #
 #   ./scripts/ios-smoke.sh <factoria_player.app> <bundleId> [timeoutSeconds] [outDir]
+#   ./scripts/ios-smoke.sh --boot    only start booting the simulator it would use, and return
 #
 # The app must be built for the simulator (`cmake --build --preset ios-simulator ... -sdk iphonesimulator`). The
-# first simulator boot takes ~5 minutes on a hosted runner (starting it during the build does not help: the two
-# compete for the same CPUs).
+# first simulator boot takes 5-7 minutes on a hosted runner and slows a build on the same machine, so CI runs
+# `--boot` on one runner while another builds the app.
 #
 # Output (outDir, default build/ios-smoke): stdout.log / stderr.log (the player's console; the engine logs to
 # stderr), screen.png, summary.txt; on failure also unified.log (the simulator's system log) and crash reports.
 # Exit code 0 = the game runs.
 set -uo pipefail
-
-APP="${1:?usage: ios-smoke.sh <factoria_player.app> <bundleId> [timeoutSeconds] [outDir]}"
-BUNDLE_ID="${2:?usage: ios-smoke.sh <factoria_player.app> <bundleId> [timeoutSeconds] [outDir]}"
-TIMEOUT="${3:-90}"
-OUT="${4:-build/ios-smoke}"
-MARKER="player: 60 frames rendered"
-mkdir -p "$OUT"
-OUT="$(cd "$OUT" && pwd)"
-: >"$OUT/summary.txt"
 
 # The newest iOS runtime's first iPhone.
 IFS= read -r -d '' PICK_DEVICE <<'PY'
@@ -39,6 +31,20 @@ for runtime in sorted((k for k in data if ".iOS-" in k), key=version, reverse=Tr
         break
 PY
 UDID="$(xcrun simctl list devices available -j | python3 -c "$PICK_DEVICE")"
+if [ "${1:-}" = --boot ]; then
+    [ -n "$UDID" ] && xcrun simctl boot "$UDID"
+    exit
+fi
+
+APP="${1:?usage: ios-smoke.sh <factoria_player.app> <bundleId> [timeoutSeconds] [outDir]}"
+BUNDLE_ID="${2:?usage: ios-smoke.sh <factoria_player.app> <bundleId> [timeoutSeconds] [outDir]}"
+TIMEOUT="${3:-90}"
+OUT="${4:-build/ios-smoke}"
+MARKER="player: 60 frames rendered"
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
+: >"$OUT/summary.txt"
+
 if [ -z "$UDID" ]; then
     xcrun simctl list devices available | tee -a "$OUT/summary.txt"
     echo "FAIL: no available iPhone simulator on this machine" >&2

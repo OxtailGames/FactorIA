@@ -222,12 +222,12 @@ A newer push to the same pull request or branch cancels the older run.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
 
-The mobile jobs also RUN the app: `ios` boots an iPhone simulator (`scripts/ios-smoke.sh`) and `android-emulator`
-boots an API 34 `x86_64` emulator with KVM, installs the debug APK that `android-apk` built and starts it
-(`scripts/android-smoke.sh`). Both assert that the process stays alive, the player logged `player: 60 frames rendered`,
-nothing crashed and the screenshot shows a picture, and upload their logs, the screenshot and crash reports as the
-artifacts `ios-smoke` and `android-smoke` (look there when one of them fails). What they cover is in
-[MOBILE.md](MOBILE.md).
+The mobile jobs also RUN the app: `ios` boots an iPhone simulator while `ios-build` builds the app, then runs it
+(`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM, installs the debug APK
+that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process stays alive, the
+player logged `player: 60 frames rendered`, nothing crashed and the screenshot shows a picture, and upload their logs,
+the screenshot and crash reports as the artifacts `ios-smoke` and `android-smoke` (look there when one of them fails).
+What they cover is in [MOBILE.md](MOBILE.md).
 
 ## Troubleshooting
 
