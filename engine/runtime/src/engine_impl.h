@@ -82,6 +82,7 @@ void apply_touch_json(Input& input, const Json& value, std::vector<std::string>&
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");
