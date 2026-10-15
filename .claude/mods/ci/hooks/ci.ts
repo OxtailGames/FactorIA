@@ -42,7 +42,7 @@ export function parse_args(args: string, remote?: { owner: string; repo: string 
   const full = a.match(/^([\w.-]+)\/([\w.-]+)(?:#(\d+))?$/)
   if (full && full[1] && full[2]) return { owner: full[1], repo: full[2], number: full[3] ? Number(full[3]) : undefined }
   if (!remote) return { error: 'no GitHub remote named origin here: run /ci owner/repo#<number>' }
-  if (a === '' || a === 'prs') return { ...remote }
+  if (a === '') return { ...remote }
   const num = a.match(/^#?(\d+)$/)
   if (num && num[1]) return { ...remote, number: Number(num[1]) }
   return { error: `cannot read "${a}": use /ci, /ci <number>, /ci owner/repo#<number>, /ci prs or /ci off` }
@@ -69,10 +69,13 @@ export function counts(checks: readonly CheckRun[]): Record<Kind, number> {
 }
 
 // One short line for the status bar: "CI #2 ✅5 ⏳1".
-export function status_line(pr: PullRequest, checks: readonly CheckRun[]): string {
+export function tally(checks: readonly CheckRun[]): string {
   const n = counts(checks)
-  const parts = (['failed', 'running', 'passed'] as const).filter(k => n[k] > 0).map(k => `${ICON[k]}${n[k]}`)
-  return `CI #${pr.number} ${parts.length ? parts.join(' ') : 'no checks'}`
+  return (['failed', 'running', 'passed'] as const).filter(k => n[k] > 0).map(k => `${ICON[k]}${n[k]}`).join(' ')
+}
+
+export function status_line(pr: PullRequest, checks: readonly CheckRun[]): string {
+  return `CI #${pr.number} ${tally(checks) || 'no checks'}`
 }
 
 // The verdict: what a person wants first.
@@ -127,19 +130,10 @@ export function prs_report(repo: string, prs: readonly { pr: PullRequest; checks
   if (prs.length === 0) return `No open pull requests in ${repo}.`
   const lines = [`Open pull requests of ${repo}:`, '']
   for (const { pr, checks } of prs) {
-    const n = counts(checks)
-    const tally = (['failed', 'running', 'passed'] as const).filter(k => n[k] > 0).map(k => `${ICON[k]}${n[k]}`).join(' ')
+    const t = tally(checks)
     lines.push(`#${pr.number} ${pr.title} (${pr.head.ref} → ${pr.base?.ref ?? '?'})`)
-    lines.push(`   ${merge_verdict(pr, checks)}${tally ? ` · ${tally}` : ''} · ${pr.html_url}`)
+    lines.push(`   ${merge_verdict(pr, checks)}${t ? ` · ${t}` : ''} · ${pr.html_url}`)
   }
   return lines.join('\n')
 }
 
-// Status bar for `/ci prs`: "PRs 🟢1 ⏳2".
-export function prs_status(prs: readonly { pr: PullRequest; checks: readonly CheckRun[] }[]): string {
-  const ready = prs.filter(p => merge_verdict(p.pr, p.checks).startsWith('🟢 ready')).length
-  const running = prs.filter(p => counts(p.checks).running > 0).length
-  const failing = prs.filter(p => counts(p.checks).failed > 0).length
-  const parts = [[ready, '🟢'], [running, ICON.running], [failing, ICON.failed]].filter(([k]) => Number(k) > 0).map(([k, i]) => `${i}${k}`)
-  return `PRs ${parts.length ? parts.join(' ') : prs.length ? `${prs.length} open` : 'none open'}`
-}

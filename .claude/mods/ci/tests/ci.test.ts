@@ -104,8 +104,6 @@ test('/ci off, explicit numbers and errors', async ($, on) => {
 test('/ci prs lists open PRs and says which can be merged', async ($, on) => {
   const ready = { ...PR, number: 3, title: 'Green one', mergeable_state: 'clean', head: { sha: 'bbbbbbb1', ref: 'claude/y' }, base: { ref: 'main' } }
   const green = [run('Linux', 'completed', 'success', 0, 2), run('Windows', 'completed', 'success', 0, 9)]
-  const statuses: (string | undefined)[] = []
-  on('ui.status', async (_$, e) => { statuses.push(e.text); return { value: undefined } })
   on('process.run', async (_$, e) => {
     const cmd = e.argv.join(' ')
     const ok = (v: unknown) => ({ value: { exitCode: 0, stdout: typeof v === 'string' ? v : JSON.stringify(v), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
@@ -122,7 +120,6 @@ test('/ci prs lists open PRs and says which can be merged', async ($, on) => {
   expect(out).toContain('❌ CI failing (1)')
   expect(out).toContain('#3 Green one (claude/y → main)')
   expect(out).toContain('🟢 ready to merge · ✅2')
-  expect(statuses.at(-1)).toBe('PRs 🟢1 ❌1')
   expect(merge_verdict({ ...PR, mergeable_state: 'dirty' }, green)).toContain('conflicts')
   expect(merge_verdict({ ...PR, mergeable_state: 'clean' }, RUNNING)).toContain('CI running')
 })
