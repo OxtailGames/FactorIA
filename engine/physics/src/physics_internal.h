@@ -188,7 +188,27 @@ private:
         bool rollWithMotion = true;
         Vec3 pendingCarry;  // displacement of a teleported static/kinematic body, applied to its riders
         Vec3 lastPos, lastVel, lastCenter;  // gameplay-visible values last written / observed
+        // Sleeping: a dynamic body (and every body linked to it by contacts) whose speed stayed tiny for kTimeToSleep stops
+        // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
+        bool asleep = false;
+        bool moved = false;  // gameplay teleported this body since the last step: it wakes whatever it now touches
+        float sleepTime = 0.0f;
+        std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;
+        // What a sleeping body's neighbours depend on: when any of it changes (a platform resized, disabled, made dynamic...)
+        // the body and the bodies that touched it wake up.
+        struct Sig {
+            BodyType type;
+            bool enabled, hasShape, box, trigger, rotDyn;
+            float mass, gravityScale, radius;
+            Vec3 half, offset, ax[3];
+            std::int32_t layer, mask;
+            bool operator==(const Sig&) const = default;
+        };
+        Sig sig() const {
+            return {type, enabled, hasShape, box, trigger, rotDyn, mass, gravityScale, radius, half, offset,
+                    {ax[0], ax[1], ax[2]}, layer, mask};
+        }
     };
     struct Contact {
         bool hit = false;
@@ -236,11 +256,15 @@ private:
                                     float h, int carrier, float& impact, RigidContact& out);
     static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
     static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
+    void wake(Body& b);                      // b and everything that fell asleep with it
+    void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
 
     PhysicsSettings settings_;
     std::vector<Body> bodies_;  // sorted by seq (creation order)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
+    std::uint64_t nextSleepGroup_ = 1;
+    Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
     std::uint64_t stepCounter_ = 0;
     std::map<PairKey, PairState> touching_;  // pairs overlapping after the previous step
