@@ -1250,12 +1250,13 @@ TEST_CASE("2d: changing the body type of a sleeping body takes effect") {
     CHECK(pos_of(s.world, box).y == doctest::Approx(kRestY).epsilon(0.03));
 }
 
-TEST_CASE("3d: bodies never sleep; writing Transform.position moves a resting body and drops grounded") {
+TEST_CASE("3d: writing Transform.position moves a resting (sleeping) body and drops grounded") {
     Sim s;
     add_box3(s.world, "ground", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
     Entity ball = add_sphere3(s.world, "ball", {0, 2, 0}, 0.5f);
     s.run(240);
     CHECK(pos_of(s.world, ball).y == doctest::Approx(0.5f).epsilon(0.02));
+    CHECK_FALSE(body_awake(s, "ball"));  // asleep on the ground: queries still see it
     CHECK(s.physics.is_grounded(s.world, ball));
     s.world.get<Transform>(ball)->position.y += 2.0f;
     s.run(1);
@@ -2230,4 +2231,170 @@ TEST_CASE("3d sphere: an off-centre hit spins both rigid spheres and conserves a
         }
         CHECK(length(total) < 0.02f);
     }
+}
+
+// --------------------------------------------- 3D sleeping bodies (M7 leftovers) ----
+// Resting bodies fall asleep as a group (a pile sleeps together), cost no solver work and send no events, and wake when
+// something touches them, gameplay writes to them, or what they rest on goes away.
+
+namespace {
+std::string stack_id(int i) { return "b" + std::to_string(i); }
+// `count` unit boxes standing on a floor, 2 cm apart: they land softly and come to rest.
+std::vector<Entity> add_stack(Sim& s, int count) {
+    add_box3(s.world, "floor", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
+    std::vector<Entity> boxes;
+    for (int i = 0; i < count; ++i)
+        boxes.push_back(add_box3(s.world, stack_id(i).c_str(), {0, 0.5f + 1.02f * float(i), 0}, {1, 1, 1}, BodyType::Dynamic, true));
+    return boxes;
+}
+bool all_awake(const Sim& s, int count, bool awake) {
+    for (int i = 0; i < count; ++i) if (body_awake(s, stack_id(i).c_str()) != awake) return false;
+    return true;
+}
+}  // namespace
+
+TEST_CASE("3d sleep: a stack of 5 boxes falls asleep together, stays put and sends no events") {
+    Sim s;
+    const auto boxes = add_stack(s, 5);
+    s.run(2);
+    CHECK(all_awake(s, 5, true));
+    REQUIRE(run_until_asleep(s, "b4", 900));
+    CHECK(all_awake(s, 5, false));  // the whole pile, not only the top box
+    std::vector<Vec3> at, turned;
+    for (Entity e : boxes) {
+        at.push_back(pos_of(s.world, e));
+        turned.push_back(s.world.get<Transform>(e)->rotation);
+        CHECK(s.world.get<RigidBody3D>(e)->velocity == Vec3{});
+        CHECK(s.world.get<RigidBody3D>(e)->angularVelocity == Vec3{});
+    }
+    CHECK(at[4].y == doctest::Approx(4.5f + 4 * 0.0f).epsilon(0.02));
+    const std::size_t seen = s.events.size();
+    s.run(300);
+    CHECK(s.events.size() == seen);
+    CHECK(all_awake(s, 5, false));
+    for (std::size_t i = 0; i < boxes.size(); ++i) {  // bit for bit: a sleeping body is not simulated at all
+        CHECK(pos_of(s.world, boxes[i]) == at[i]);
+        CHECK(s.world.get<Transform>(boxes[i])->rotation == turned[i]);
+    }
+    // sleeping bodies are still seen by queries
+    CHECK(s.physics.is_grounded(s.world, boxes[0]));
+    auto hit = s.physics.raycast3d(s.world, {0, 10, 0}, {0, -1, 0}, 20.0f);
+    REQUIRE(hit.has_value());
+    CHECK(hit->entity == boxes[4]);
+}
+
+TEST_CASE("3d sleep: a moving sphere wakes the pile it hits, which then settles and sleeps again") {
+    Sim s;
+    const auto boxes = add_stack(s, 3);
+    REQUIRE(run_until_asleep(s, "b2", 900));
+    Entity ball = add_sphere3(s.world, "ball", {-6, 0.3f, 0}, 0.3f);
+    s.world.get<RigidBody3D>(ball)->velocity = {6, 0, 0};
+    s.run(30);  // 0.5 s: the ball is still more than 2 cm away from b0
+    CHECK(all_awake(s, 3, false));
+    CHECK(body_awake(s, "ball"));
+    bool woke = false;
+    for (int i = 0; i < 90 && !woke; ++i) {
+        s.run(1);
+        woke = body_awake(s, "b0");
+    }
+    CHECK(woke);
+    CHECK(all_awake(s, 3, true));  // the group wakes as one
+    CHECK(pos_of(s.world, boxes[0]).x > -0.45f);  // the hit pushed the bottom box
+    s.run(1200);
+    CHECK_FALSE(body_awake(s, "b0"));
+    CHECK_FALSE(body_awake(s, "ball"));
+}
+
+TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity, or applying an impulse or force, wakes the pile") {
+    for (int how = 0; how < 5; ++how) {
+        Sim s;
+        const auto boxes = add_stack(s, 3);
+        REQUIRE(run_until_asleep(s, "b2", 900));
+        REQUIRE(all_awake(s, 3, false));
+        switch (how) {
+            case 0: s.world.get<Transform>(boxes[2])->position.y += 3.0f; break;
+            case 1: s.world.get<Transform>(boxes[2])->rotation.y = 20.0f; break;
+            case 2: s.world.get<RigidBody3D>(boxes[0])->velocity = {0.5f, 0, 0}; break;
+            case 3: s.physics.apply_impulse(s.world, boxes[1], {0, 0, 1.0f}); break;
+            default: s.physics.apply_force(s.world, boxes[1], {0, 0, 200.0f}); break;
+        }
+        s.run(1);
+        INFO("action " << how);
+        CHECK(all_awake(s, 3, true));
+        if (how == 0) {  // the top box falls from its new place, lands on the pile and the pile goes back to sleep
+            CHECK(pos_of(s.world, boxes[2]).y > 3.0f);
+            REQUIRE(run_until_asleep(s, "b2", 900));
+            CHECK(pos_of(s.world, boxes[2]).y == doctest::Approx(2.5f + 0.02f * 2).epsilon(0.03));
+        }
+        if (how == 1) {  // the written rotation is the new orientation of the sleeping box
+            CHECK(s.world.get<Transform>(boxes[2])->rotation.y == doctest::Approx(20.0f).epsilon(0.02));
+        }
+        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.005f);  // and it moves
+    }
+}
+
+TEST_CASE("3d sleep: a box asleep on a platform that is destroyed, disabled or moved away follows its support") {
+    for (int how = 0; how < 3; ++how) {
+        Sim s;
+        Entity platform = add_box3(s.world, "platform", {0, -0.5f, 0}, {4, 1, 4}, BodyType::Static, false);
+        Entity box = add_box3(s.world, "box", {0, 0.5f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+        REQUIRE(run_until_asleep(s, "box", 900));
+        INFO("action " << how);
+        if (how == 0) s.world.destroy(platform);
+        if (how == 1) s.world.get<EntityInfo>(platform)->active = false;
+        if (how == 2) s.world.get<Transform>(platform)->position.x += 3.0f;
+        s.run(2);
+        CHECK(body_awake(s, "box"));
+        s.run(60);
+        if (how == 2) {  // a moved platform carries its rider (documented rider behaviour), which keeps resting
+            CHECK(pos_of(s.world, box).x == doctest::Approx(3.0f).epsilon(0.01));
+            CHECK(pos_of(s.world, box).y == doctest::Approx(0.5f).epsilon(0.03));
+            CHECK(run_until_asleep(s, "box", 900));
+        } else {
+            CHECK(pos_of(s.world, box).y < -3.0f);  // fell: 1.2 s of free fall is 7 m
+        }
+    }
+}
+
+TEST_CASE("3d sleep: a rider on a moving kinematic platform never sleeps; once the platform stops it does") {
+    Sim s;
+    Entity plat = add_box3(s.world, "plat", {0, -0.5f, 0}, {400, 1, 6}, BodyType::Kinematic, true);
+    Entity box = add_box3(s.world, "box", {0, 0.5f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+    s.world.get<RigidBody3D>(plat)->velocity = {1, 0, 0};
+    for (int i = 0; i < 240; ++i) {
+        s.run(1);
+        if (i > 5) REQUIRE(body_awake(s, "box"));
+    }
+    CHECK(pos_of(s.world, box).x == doctest::Approx(pos_of(s.world, plat).x).epsilon(0.02));
+    s.world.get<RigidBody3D>(plat)->velocity = {};
+    CHECK(run_until_asleep(s, "box", 300));
+    // driving the platform again wakes the sleeping rider, which is carried along
+    const float x0 = pos_of(s.world, box).x;
+    s.world.get<RigidBody3D>(plat)->velocity = {1, 0, 0};
+    s.run(60);
+    CHECK(body_awake(s, "box"));
+    CHECK(pos_of(s.world, box).x > x0 + 0.9f);
+}
+
+TEST_CASE("3d sleep: a changed scene gravity wakes sleeping bodies; sleeping is deterministic") {
+    auto run = [](std::vector<int>* sleptAt) {
+        Sim s;
+        add_box3(s.world, "ground", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
+        Entity ball = add_sphere3(s.world, "ball", {0, 2, 0}, 0.5f);
+        Entity crate = add_box3(s.world, "crate", {3, 3, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+        for (int i = 0; i < 400; ++i) {
+            s.run(1);
+            if (!body_awake(s, "ball") && !body_awake(s, "crate") && sleptAt->empty()) sleptAt->push_back(i);
+        }
+        REQUIRE_FALSE(sleptAt->empty());
+        s.world.settings().gravity3D = {0, 20, 0};  // up: anything still asleep would hover
+        s.run(30);
+        CHECK(body_awake(s, "ball"));
+        CHECK(pos_of(s.world, ball).y > 1.0f);
+        return std::vector<Vec3>{pos_of(s.world, ball), pos_of(s.world, crate)};
+    };
+    std::vector<int> a, b;
+    const auto pa = run(&a), pb = run(&b);
+    CHECK(a == b);
+    CHECK(pa == pb);
 }

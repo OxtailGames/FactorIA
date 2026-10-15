@@ -27,6 +27,8 @@ constexpr float kManifoldGap = 0.003f;  // box-box manifold points this far abov
 constexpr int kRigidIterations = 8;     // velocity iterations of the rigid-body solver, per sub-step
 constexpr int kMaxToiEvents = 6;        // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
 constexpr float kWarmRadius = 0.05f;    // a contact point inherits the impulses of the previous sub-step's one this close (m)
+constexpr float kSleepSpeed = 0.05f;    // a body is calm below this speed (m/s; its fastest point counts, spin included)
+constexpr float kTimeToSleep = 0.5f;    // ...and falls asleep, with the bodies it touches, after this long (s)
 
 const char* type_name(BodyType t) {
     switch (t) {
@@ -117,6 +119,29 @@ void Physics3D::reset() {
     warm_.clear();
     lastWorld_ = nullptr;
     nextSeq_ = 1;
+    nextSleepGroup_ = 1;
+    lastGravity_ = {1e30f, 1e30f, 1e30f};
+}
+
+void Physics3D::wake(Body& b) {
+    b.sleepTime = 0.0f;
+    if (!b.asleep) return;
+    const std::uint64_t group = b.sleepGroup;
+    for (Body& o : bodies_) {
+        if (o.asleep && o.sleepGroup == group) {
+            o.asleep = false;
+            o.sleepTime = 0.0f;
+        }
+    }
+}
+
+void Physics3D::wake_touching(std::uint64_t seq) {
+    for (const auto& [key, st] : touching_) {
+        if (key.first != seq && key.second != seq) continue;
+        const std::uint64_t other = key.first == seq ? key.second : key.first;
+        auto it = std::lower_bound(bodies_.begin(), bodies_.end(), other, [](const Body& b, std::uint64_t s) { return b.seq < s; });
+        if (it != bodies_.end() && it->seq == other) wake(*it);
+    }
 }
 
 bool Physics3D::filters_pass(const Body& a, const Body& b) {
@@ -375,7 +400,10 @@ void Physics3D::sync(World& world) {
         const std::uint64_t key = e.bits();
         WorldPose pose = world_pose(world, e);
         auto it = index_.find(key);
+        bool existed = it != index_.end();
         if (it != index_.end() && bodies_[it->second].id != world.id_of(e)) {
+            wake_touching(bodies_[it->second].seq);
+            existed = false;
             bodies_[it->second] = Body{};  // entity slot reused after World::clear(): start fresh
             bodies_[it->second].seq = nextSeq_++;
             bodies_[it->second].e = e;
@@ -397,6 +425,7 @@ void Physics3D::sync(World& world) {
             bodies_.back().center = pose.position;  // the collider offset is added below
         }
         Body& b = bodies_[it->second];
+        const Body::Sig before = b.sig();
         b.seen = stamp;
         b.type = rb ? rb->type : BodyType::Static;
         b.hasRigid = rb != nullptr;
@@ -463,28 +492,43 @@ void Physics3D::sync(World& world) {
             b.lastCenter += b.offset - oldOffset;
         }
         b.enabled = world.active_in_hierarchy(e);
+        // Sleeping bodies must follow everything gameplay does to them or to what they rest on: a changed body or collider
+        // (including enabling and disabling) and a teleport wake the body and the bodies touching it; a written velocity
+        // wakes the body's group.
+        if (existed && b.sig() != before) {
+            wake(b);
+            wake_touching(b.seq);
+        }
         if (!b.enabled) continue;
         // Gameplay moved the Transform since the last writeback -> teleport (keep velocity).
         Vec3 dp = pose.position - b.lastPos;
-        if (std::fabs(dp.x) > 1e-4f || std::fabs(dp.y) > 1e-4f || std::fabs(dp.z) > 1e-4f || b.type == BodyType::Static) {
+        const bool moved = std::fabs(dp.x) > 1e-4f || std::fabs(dp.y) > 1e-4f || std::fabs(dp.z) > 1e-4f;
+        if (moved || b.type == BodyType::Static) {
             const bool placed = b.lastPos.x < 1e8f;  // false right after slot reuse (forced initial placement)
             if (placed && b.type != BodyType::Dynamic) b.pendingCarry += pose.position - b.lastPos;
             b.center = pose.position + b.offset;
             b.lastPos = pose.position;
             b.lastCenter = b.center;
         }
+        if (moved) {
+            b.moved = true;
+            wake(b);
+            wake_touching(b.seq);
+        }
         if (rb && rb->angularVelocity != b.lastAngVel) {
             b.angVel = rb->angularVelocity;
             b.lastAngVel = rb->angularVelocity;
+            wake(b);
         }
         if (rb && rb->velocity != b.lastVel) {
             b.vel = rb->velocity;
             b.lastVel = rb->velocity;
+            wake(b);
         }
     }
-    // Sweep destroyed entities / removed components, keeping creation order.
+    // Sweep destroyed entities / removed components, keeping creation order. What rested on them is woken first.
     bool any = false;
-    for (const Body& b : bodies_) if (b.seen != stamp || !live(world, b.e)) { any = true; break; }
+    for (const Body& b : bodies_) if (b.seen != stamp || !live(world, b.e)) { any = true; wake_touching(b.seq); }
     if (any) {
         std::vector<Body> kept;
         kept.reserve(bodies_.size());
@@ -672,6 +716,10 @@ void Physics3D::step(World& world, float dt) {
         return;
     }
     const Vec3 g = world.settings().gravity3D;
+    if (g != lastGravity_) {  // a body asleep on the old gravity would hover on the new one
+        lastGravity_ = g;
+        for (Body& b : bodies_) wake(b);
+    }
     const int subs = std::max(settings_.subSteps, 1);
     const float h = dt / float(subs);
     std::map<PairKey, float> impacts;
@@ -699,14 +747,35 @@ void Physics3D::step(World& world, float dt) {
         p.center -= dp;
         find_riders(k, riders);
         p.center += dp;
-        for (std::size_t i : riders) bodies_[i].center += dp;
+        for (std::size_t i : riders) {
+            wake(bodies_[i]);
+            bodies_[i].center += dp;
+        }
     }
 
     auto movable = [](const Body& b) { return b.type != BodyType::Static; };
     auto half_extent = [](const Body& b) { return b.box ? std::min({b.half.x, b.half.y, b.half.z}) : b.radius; };
+    auto live_dyn = [](const Body& b) { return b.type == BodyType::Dynamic && !b.asleep; };
     std::vector<std::size_t> riders;
     std::vector<Vec3> disp(n);
     std::vector<RigidContact> rigid;
+
+    // A sleeping body (with its whole group) wakes as soon as something that moves comes within kRiderGap of it: an awake
+    // dynamic body, a kinematic body with a velocity, or a body gameplay teleported this step (its new place may overlap).
+    auto wake_touched = [&]() {
+        if (std::none_of(bodies_.begin(), bodies_.end(), [](const Body& b) { return b.asleep; })) return;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Body& m = bodies_[i];
+            if (!m.enabled || !m.hasShape || m.trigger) continue;
+            const bool mover = live_dyn(m) || (m.type != BodyType::Dynamic && (m.moved || m.vel != Vec3{} || m.angVel != Vec3{}));
+            if (!mover) continue;
+            for (std::size_t k = 0; k < n; ++k) {
+                Body& s = bodies_[k];
+                if (!s.asleep || !s.enabled || !s.hasShape || s.trigger || !filters_pass(m, s)) continue;
+                if (collide(m, s, kRiderGap).hit) wake(s);
+            }
+        }
+    };
 
     // Time of the first impact (fraction of `disp`, 1 = none) among all pairs that close in on each other faster than
     // the smaller body's half extent per sub-step. The pair is swept in relative motion: the smaller body moves by
@@ -739,6 +808,7 @@ void Physics3D::step(World& world, float dt) {
     // (manifolds, impulses at the contact points, accumulated and clamped); every other pair keeps the original solver.
     // positional: also push overlapping bodies apart (not at a time-of-impact stop: the overlap there is ~0.1 mm).
     auto resolve = [&](bool positional) {
+        wake_touched();
         rigid.clear();
         for (std::size_t i = 0; i < n; ++i) {
             Body& a = bodies_[i];
@@ -747,7 +817,7 @@ void Physics3D::step(World& world, float dt) {
                 Body& b = bodies_[k];
                 if (!b.enabled || !b.hasShape || b.trigger) continue;
                 if (!a.rotDyn && !b.rotDyn) continue;
-                if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
+                if (!live_dyn(a) && !live_dyn(b)) continue;
                 if (!filters_pass(a, b)) continue;
                 Contact c = collide(a, b, 0.0f, true);
                 if (!c.hit || c.depth < 0.0f) continue;
@@ -796,7 +866,7 @@ void Physics3D::step(World& world, float dt) {
                     Body& b = bodies_[k];
                     if (!b.enabled || !b.hasShape || b.trigger) continue;
                     if (a.rotDyn || b.rotDyn) continue;
-                    if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
+                    if (!live_dyn(a) && !live_dyn(b)) continue;
                     if (!filters_pass(a, b)) continue;
                     Contact c = collide(a, b, 0.0f);
                     if (!c.hit || c.depth < 0.0f) continue;
@@ -845,7 +915,7 @@ void Physics3D::step(World& world, float dt) {
             }
         }
         for (Body& b : bodies_) {
-            if (!b.enabled || b.type != BodyType::Dynamic) continue;
+            if (!b.enabled || !live_dyn(b)) continue;
             b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
             if (b.damping > 0.0f) b.vel *= 1.0f / (1.0f + h * b.damping);
             if (b.angDamping > 0.0f) b.angVel *= 1.0f / (1.0f + h * b.angDamping);
@@ -858,7 +928,7 @@ void Physics3D::step(World& world, float dt) {
             const float span = h * remaining;
             for (std::size_t i = 0; i < n; ++i) {
                 const Body& b = bodies_[i];
-                disp[i] = (b.enabled && movable(b)) ? b.vel * span : Vec3{};
+                disp[i] = (b.enabled && movable(b) && !b.asleep) ? b.vel * span : Vec3{};
             }
             const float tHit = event < kMaxToiEvents ? first_impact() : 1.0f;
             for (std::size_t i = 0; i < n; ++i) {
@@ -874,7 +944,10 @@ void Physics3D::step(World& world, float dt) {
         }
         resolve(true);
     }
-    for (Body& b : bodies_) b.force = {};
+    for (Body& b : bodies_) {
+        b.force = {};
+        b.moved = false;
+    }
 
     // ---- events: track overlapping pairs across frames
     std::map<PairKey, PairState> cur;
@@ -882,17 +955,24 @@ void Physics3D::step(World& world, float dt) {
     struct Begin { PairKey key; PairState st; Contact c; };
     std::vector<Begin> begins;
     std::vector<char> supported(n, 0);  // dynamic body has solid ground (normal up) under it
+    std::vector<std::pair<std::size_t, std::size_t>> links;  // touching awake dynamic bodies: they sleep together
+    std::vector<char> hold(n, 0);  // touches a moving kinematic body: must stay awake
+    auto driving = [](const Body& b) { return b.type == BodyType::Kinematic && (b.vel != Vec3{} || b.angVel != Vec3{}); };
     for (std::size_t i = 0; i < n; ++i) {
         const Body& a = bodies_[i];
         if (!a.enabled || !a.hasShape) continue;
         for (std::size_t k = i + 1; k < n; ++k) {
             const Body& b = bodies_[k];
             if (!b.enabled || !b.hasShape) continue;
-            if (!movable(a) && !movable(b)) continue;
+            PairKey key{a.seq, b.seq};
+            if ((a.asleep || !movable(a)) && (b.asleep || !movable(b))) {  // nothing moves: the pair keeps its state
+                auto old = touching_.find(key);
+                if (old != touching_.end()) cur.insert(*old);
+                continue;
+            }
             if (!filters_pass(a, b)) continue;
             const bool trig = a.trigger || b.trigger;
             if (trig && a.trigger && b.trigger) continue;
-            PairKey key{a.seq, b.seq};
             bool was = touching_.count(key) != 0;
             float margin = trig ? 0.0f : (was ? kEndMargin : kBeginMargin);
             Contact c = collide(a, b, margin);
@@ -901,6 +981,9 @@ void Physics3D::step(World& world, float dt) {
             if (!trig) {
                 if (b.type == BodyType::Dynamic && c.normal.y > 0.7f) supported[k] = 1;
                 if (a.type == BodyType::Dynamic && c.normal.y < -0.7f) supported[i] = 1;
+                if (live_dyn(a) && live_dyn(b)) links.push_back({i, k});
+                if (live_dyn(a) && driving(b)) hold[i] = 1;
+                if (live_dyn(b) && driving(a)) hold[k] = 1;
             }
             PairState st{a.e, b.e, trig};
             cur[key] = st;
@@ -934,11 +1017,40 @@ void Physics3D::step(World& world, float dt) {
     // ---- rolling: spheres on the ground spin to match their horizontal motion
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
-        if (!b.enabled || b.type != BodyType::Dynamic || b.box || !b.hasShape || b.trigger) continue;
+        if (!b.enabled || !live_dyn(b) || b.box || !b.hasShape || b.trigger) continue;
         if (!b.rollWithMotion || !supported[i]) continue;
         // axis = up x v = (vz, 0, -vx); rate = |v| / r (rad/s) -> deg/s along that axis => components (vz, 0, -vx) / r
         const float k = degrees(1.0f) / b.radius;
         b.angVel = {b.vel.z * k, 0.0f, -b.vel.x * k};
+    }
+
+    // ---- sleeping: bodies linked by contacts form an island, and an island whose members were all calm for kTimeToSleep
+    // (and touch no moving kinematic body) falls asleep together: zero velocity, no solver work, no events, until woken.
+    std::vector<std::size_t> root(n);
+    for (std::size_t i = 0; i < n; ++i) root[i] = i;
+    auto find_root = [&](std::size_t x) {
+        while (root[x] != x) x = root[x] = root[root[x]];
+        return x;
+    };
+    for (const auto& [i, k] : links) root[find_root(i)] = find_root(k);
+    std::vector<char> ready(n, 1);
+    for (std::size_t i = 0; i < n; ++i) {
+        Body& b = bodies_[i];
+        if (!b.enabled || !live_dyn(b)) continue;
+        const float reach = !b.hasShape ? 0.0f : (b.box ? length(b.half) : b.radius);  // fastest point of the shape
+        const bool calm = std::max(length(b.vel), length(b.angVel) * kDegToRad * reach) < kSleepSpeed;
+        b.sleepTime = calm ? b.sleepTime + dt : 0.0f;
+        if (b.sleepTime < kTimeToSleep || hold[i]) ready[find_root(i)] = 0;
+    }
+    std::vector<std::uint64_t> group(n, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        Body& b = bodies_[i];
+        if (!b.enabled || !live_dyn(b) || !ready[find_root(i)]) continue;
+        std::uint64_t& id = group[find_root(i)];
+        if (id == 0) id = nextSleepGroup_++;
+        b.asleep = true;
+        b.sleepGroup = id;
+        b.vel = b.angVel = {};
     }
 
     // ---- write back
@@ -1138,6 +1250,7 @@ void Physics3D::apply_impulse(World& world, Entity e, Vec3 impulse) {
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
     if (b.type != BodyType::Dynamic) return;
+    wake(b);
     b.vel += impulse * b.invMass;
     if (auto* rb = world.get<RigidBody3D>(e)) rb->velocity = b.vel;
     b.lastVel = b.vel;
@@ -1147,7 +1260,9 @@ void Physics3D::apply_force(World&, Entity e, Vec3 force) {
     auto it = index_.find(e.bits());
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
-    if (b.type == BodyType::Dynamic) b.force += force;
+    if (b.type != BodyType::Dynamic) return;
+    wake(b);
+    b.force += force;
 }
 
 void Physics3D::set_velocity(World& world, Entity e, Vec3 velocity) {
@@ -1155,6 +1270,7 @@ void Physics3D::set_velocity(World& world, Entity e, Vec3 velocity) {
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
     if (b.type == BodyType::Static) return;
+    wake(b);
     b.vel = velocity;
     if (auto* rb = world.get<RigidBody3D>(e)) rb->velocity = velocity;
     b.lastVel = velocity;
@@ -1172,6 +1288,7 @@ void Physics3D::debug_state(const World& world, Json& out) const {
         j["position"] = Json::array({p.x, p.y, p.z});
         j["velocity"] = Json::array({b.vel.x, b.vel.y, b.vel.z});
         j["enabled"] = b.enabled;
+        j["awake"] = b.enabled && b.type != BodyType::Static && !b.asleep;  // like Box2D: false for static bodies
         Json shapes = Json::array();
         if (b.hasShape) {
             Json s = Json::object();
