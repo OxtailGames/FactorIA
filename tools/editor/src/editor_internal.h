@@ -445,6 +445,8 @@ std::string pick_file(const std::string& title, const std::string& start, const 
                       const std::vector<std::string>& extensions);
 // The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux).
 std::vector<std::uint8_t> clipboard_image_png();
+// Whether the system clipboard holds text (what Ctrl+V pastes into a text box).
+bool clipboard_has_text();
 void maximize_window();
 
 }  // namespace fa::editor

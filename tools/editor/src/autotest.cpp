@@ -184,8 +184,7 @@ void Editor::autotest_pre_frame() {
     if (f == 8) {
         select_id("player");
         at_check(!selected().is_null(), "select entity 'player'");
-        at_check(w.entity_count() > 3, "scene loaded with entities");
-    } else if (f == 9) {
+        at_check(w.entity_count() > 3, "scene loaded with entities");    } else if (f == 9) {
         Entity pl = w.find_by_id("player");
         Vec2 d = engine_->renderer()->world_to_screen(w.world_position(pl));
         Entity hit = pick_at(d);
