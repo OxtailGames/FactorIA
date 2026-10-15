@@ -12,34 +12,52 @@ FactorIA is a 2D and 3D game engine in C++20 designed so that an AI can create g
 
 ### Download (no build tools)
 
-Download the package for your desktop system once; the editor keeps it up to date (see [Updates](#updates)):
-[FactorIA-windows-x64.zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
-[FactorIA-macos-arm64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz)
-(Apple Silicon) or
-[FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz).
-These links always give the newest release; the [Releases page](https://github.com/OxtailGames/FactorIA/releases)
-has every version. The package holds one folder, `FactorIA`, with `factoria` (CLI, editor, MCP server and AI),
-`factoria_player` (the runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`.
-The docs, templates and schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs
-nothing else.
+Download the package for your desktop system once; the editor keeps it up to date (see [Updates](#updates)). These
+links always give the newest release; the [Releases page](https://github.com/OxtailGames/FactorIA/releases) has every
+version.
 
-1. Unzip the package into a folder of your choice, for example `C:\FactorIA` or `~/FactorIA`.
+| System | Download | What it is |
+|---|---|---|
+| Windows | [FactorIA-windows-x64-setup.exe](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64-setup.exe) | Installer: for your user only (no administrator password), adds a Start menu entry and puts `factoria` on your PATH. |
+| Windows | [FactorIA-windows-x64.zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip) | The same files to unzip anywhere. |
+| macOS | [FactorIA-macos-universal.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-universal.tar.gz) | Apple Silicon and Intel Macs. |
+| Linux | [FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz) | The files to unpack anywhere. |
+| Linux | [FactorIA-linux-x64.AppImage](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.AppImage) | The same files in one executable file. |
+
+The package holds one folder, `FactorIA`, with `factoria` (CLI, editor, MCP server and AI), `factoria_player` (the
+runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`. The docs, templates and
+schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs nothing else.
+
+1. Install it:
+   - **Windows installer:** run `FactorIA-windows-x64-setup.exe`. It installs into
+     `%LOCALAPPDATA%\Programs\FactorIA` (a folder you can write to, which the updater needs), adds **FactorIA Editor**
+     to the Start menu and adds the folder to your user PATH. Uninstall it from Settings > Apps.
+   - **Zip or tar.gz:** unpack the package into a folder of your choice, for example `C:\FactorIA` or `~/FactorIA`.
+   - **AppImage:** `chmod +x FactorIA-linux-x64.AppImage`. It runs where the tar.gz does.
 2. Open the editor:
-   - **Windows:** double-click `FactorIA-Editor.exe`. The exe is not signed, so Windows SmartScreen may show
-     "Windows protected your PC": click **More info**, then **Run anyway**.
-   - **macOS:** open Terminal in the folder and run `./factoria editor`. The app is not notarized, so Gatekeeper
-     blocks it the first time: in Finder, right-click `factoria` > **Open** and confirm. On macOS 15 and later, go to
+   - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. Windows
+     SmartScreen may show "Windows protected your PC": it always does for an unsigned release, and for a signed one
+     until enough people have downloaded it. Click **More info**, then **Run anyway**.
+   - **macOS:** open Terminal in the folder and run `./factoria editor`. Gatekeeper blocks a release that is not
+     notarized the first time: in Finder, right-click `factoria` > **Open** and confirm. On macOS 15 and later, go to
      System Settings > Privacy & Security and click **Open Anyway** instead. Or remove the download quarantine
      from the whole folder: `xattr -dr com.apple.quarantine ~/FactorIA`.
    - **Linux:** run `./factoria editor` in the folder. It needs X11 and OpenGL, which desktop distributions include.
+   - **Linux AppImage:** run `./FactorIA-linux-x64.AppImage`. Without arguments it opens the editor; with arguments it
+     is the `factoria` command (`./FactorIA-linux-x64.AppImage new my-game`; `editor my-game` opens that project).
+     If it cannot mount itself (no FUSE), run it as `./FactorIA-linux-x64.AppImage --appimage-extract-and-run`. It does
+     not update itself: download the newer one.
 3. The AI assistant needs Claude Code (or Codex) installed and signed in, or an API key: see
    [section 6](#6-connect-an-ai). Inside the editor nothing else is needed, because the editor serves the MCP tools
    itself.
-4. To use Claude Code from a terminal outside the editor, add the folder to your PATH. The `.mcp.json` that
-   `factoria new` writes starts the bare `factoria` command, so the terminal has to find it. Then open a new terminal.
+4. To use Claude Code from a terminal outside the editor, put `factoria` on your PATH. The `.mcp.json` that
+   `factoria new` writes starts the bare `factoria` command, so the terminal has to find it. The Windows installer
+   already did it. Otherwise add the folder, then open a new terminal:
    - Windows (PowerShell):
      `[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\FactorIA', 'User')`
    - macOS (zsh) or Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
+   - AppImage: a link named `factoria` is the command itself:
+     `ln -s ~/Downloads/FactorIA-linux-x64.AppImage ~/.local/bin/factoria`
 5. Desktop export (`factoria export`) works from the download. Android and iOS export still need the engine source
    and the platform SDKs ([MOBILE.md](MOBILE.md)), so build from source for those.
 
@@ -56,6 +74,14 @@ every version newer than yours, and the editor waits for your answer:
 Offline, or when GitHub does not answer, the editor opens as usual and the Console says why. The FactorIA folder must
 be one you can write to (not `C:\Program Files`). To go back to an older version, download it from the Releases page.
 Builds from source never update: pull and rebuild instead.
+
+- A copy made by the Windows installer updates like an unzipped one, in its own folder. The uninstaller keeps working
+  (the update only replaces the files of the package), but Settings > Apps keeps showing the version you installed.
+  Running a newer installer over it also works.
+- The Linux AppImage never checks for updates: its files are a read-only mount that cannot be replaced. Download the
+  newer AppImage instead.
+- On macOS the package is `FactorIA-macos-universal.tar.gz` (Apple Silicon and Intel). The Releases page also has the
+  same file as `FactorIA-macos-arm64.tar.gz`, the name that editors up to 0.1.2 look for, so they can still update.
 
 ### Build from source
 

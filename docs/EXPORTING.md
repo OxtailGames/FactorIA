@@ -66,10 +66,14 @@ Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 `%APPDATA%\<id>`, `~/Library/Application Support/<id>`).
 
 macOS distribution outside your own machine needs signing and notarization:
-`codesign --deep --options runtime --sign "Developer ID Application: ..." "My Game.app"`,
-then `xcrun notarytool submit` (needs an Apple developer account).
-Windows: the executable is not signed; SmartScreen may warn unless you sign it
-with `signtool`.
+`codesign --force --deep --options runtime --sign "Developer ID Application: ..." "My Game.app"`
+(`--force`: the player may already carry FactorIA's signature),
+then `xcrun notarytool submit` (needs an Apple developer account). The player of the macOS download is universal
+(Apple Silicon and Intel).
+Windows: the exported exe is a copy of `factoria_player.exe`. From a release download it carries FactorIA's signature
+once the release is signed ([BUILDING.md](BUILDING.md), "Releasing"), and from a build from source it is not signed.
+SmartScreen may still warn, and shows FactorIA's name as the publisher; sign the exe with `signtool` to publish under
+your own.
 
 ## Android
 

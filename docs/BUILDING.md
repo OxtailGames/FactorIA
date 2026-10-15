@@ -181,11 +181,93 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   macOS and Linux), one `FactorIA/` folder inside. Each package is smoke-tested from a temp folder outside the checkout
   (`version`, `new`, `test`, `export`). A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as
   artifacts. Bump `project(VERSION)` in `CMakeLists.txt` before tagging: the job fails when the tag and
-  `factoria version` differ.
+  `factoria version` differ. The installer, the AppImage, the universal macOS package and code signing are in
+  [Releasing](#releasing).
 - **Updates.** The packages are configured with `-DFA_UPDATE_REPO=<owner/repo>`, so their editor offers each newer
   release (with its release notes, which you can edit on the release page) and installs it in place
   (`tools/editor/src/update.cpp`, docs/GETTING_STARTED.md "Updates"). It is empty by default: builds from source
   never update.
+
+## Releasing
+
+1. Bump `project(VERSION)` in `CMakeLists.txt`, merge it, then tag that commit `v<version>` and push the tag.
+2. `.github/workflows/release.yml` builds and smoke-tests the packages and publishes them as a GitHub Release. Edit the
+   release notes on the release page: the editors that update themselves show them.
+   The same workflow runs, without publishing, on a pull request that changes it and on "Run workflow".
+
+A release holds these files (the header of `release.yml` says the same):
+
+| File | What it is | How CI checks it |
+|---|---|---|
+| `FactorIA-windows-x64.zip` | Windows package; what the editor's updater downloads, also for a copy made by the installer | `version`, `new`, `test`, `export` from a temp folder |
+| `FactorIA-windows-x64-setup.exe` | Installer of the same files, built with Inno Setup from `platforms/windows/FactorIA.iss`: per user (no administrator prompt) into `%LOCALAPPDATA%\Programs\FactorIA`, Start menu entry, folder on the user PATH (once), uninstaller | Silent install, PATH entry read from the registry, `factoria version/new/test` from the installed copy, a second install (no second PATH entry), silent uninstall (PATH entry, shortcut, files and the updater's leftovers gone) |
+| `FactorIA-macos-universal.tar.gz` | arm64 + x86_64 in one binary (`CMAKE_OSX_ARCHITECTURES="arm64;x86_64"`); what the editor's updater downloads | `lipo -archs` lists both; the Intel half runs through Rosetta when the runner has it |
+| `FactorIA-macos-arm64.tar.gz` | The same file, only because editors up to 0.1.2 download this name. Remove the `publish` step that copies it once nobody runs them | none (a copy) |
+| `FactorIA-linux-x64.tar.gz` | Linux package; what the editor's updater downloads | as the zip |
+| `FactorIA-linux-x64.AppImage` | The same files in one file (`scripts/package-appimage.sh`, `platforms/linux/`): no arguments open the editor, arguments are the `factoria` command, a link named `factoria` is the CLI. No self-update. Like the tar.gz it uses the system's X11, OpenGL and ALSA and the glibc of the runner (Ubuntu 24.04) | `--appimage-extract-and-run` (the runner has no FUSE): `version`, `new`, `test`, `export`, the `factoria` link prints the help, and with no arguments the editor stays open under Xvfb |
+
+The names carry no version, so `releases/latest/download/<name>` is always the newest. The AppImage tool and its
+runtime are pinned by version and SHA-256 in `scripts/package-appimage.sh`; to upgrade, change both together. Locally:
+`scripts/package-appimage.sh <unpacked FactorIA folder> out.AppImage` on Linux; on Windows, with Inno Setup 6.3 or newer,
+set `FA_INSTALLER_VERSION` and `FA_INSTALLER_SOURCE` and run `ISCC /O<dir> platforms\windows\FactorIA.iss` (the top of the
+`.iss` file has the example).
+
+### Code signing
+
+Both are optional and off until the repository secrets exist (Settings > Secrets and variables > Actions): without them
+the signing steps print a notice (`::notice`) and the packages come out unsigned, as before. `scripts/sign-windows.sh`
+and `scripts/sign-macos.sh` do the work and can be read for the exact commands.
+
+**Windows** (signtool, SHA-256, timestamped with DigiCert's server; signs `factoria.exe`, `FactorIA-Editor.exe`,
+`factoria_player.exe` before they go into the zip and the installer, then `FactorIA-windows-x64-setup.exe`; the
+uninstaller inside the installer stays unsigned):
+
+| Secret | Value |
+|---|---|
+| `WINDOWS_CERT_PFX_BASE64` | The code signing certificate with its private key as a `.pfx`, base64 encoded: `base64 -w0 cert.pfx`, or in PowerShell `[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))` |
+| `WINDOWS_CERT_PASSWORD` | The password of the `.pfx` |
+
+**macOS** (hardened runtime, timestamped; the executables go to Apple in a temporary zip, because `notarytool` takes
+zip, pkg or dmg and not a bare executable):
+
+| Secret | Value |
+|---|---|
+| `APPLE_CERT_P12_BASE64` | The **Developer ID Application** certificate with its private key, exported from Keychain Access as `.p12`, base64 encoded: `base64 -i cert.p12` |
+| `APPLE_CERT_PASSWORD` | The password chosen when exporting the `.p12` |
+| `APPLE_ID` | The Apple ID (email) of the developer account |
+| `APPLE_TEAM_ID` | The 10-character Team ID (developer.apple.com > Membership details) |
+| `APPLE_APP_PASSWORD` | An app-specific password (appleid.apple.com > Sign-In and Security), not the account password |
+
+With the certificate but without the three Apple ID secrets the macOS step signs but does not notarize (and says so).
+Bare executables cannot be stapled (only `.app`, `.pkg` and `.dmg` carry a ticket): Gatekeeper looks the notarization
+up online the first time a downloaded executable runs, so the very first launch needs internet. Updates installed by
+the editor are not quarantined and never show the prompt.
+
+**What to buy**
+
+- Windows: a code signing certificate from a certificate authority (OV or EV Authenticode), or Azure Trusted Signing
+  (Microsoft's cloud signing service). Since June 2023 the certificate authorities issue new code signing certificates
+  only with the key on a hardware token or in their cloud HSM, so a downloadable `.pfx` exists only for older
+  certificates. For a new one, use the CA's cloud signing, or Azure Trusted Signing, and replace the call to
+  `scripts/sign-windows.sh` in `release.yml` with the signing action of that service (the signed files and their order
+  stay the same). Either way SmartScreen's warning disappears as the publisher builds reputation (sooner with an EV
+  certificate or Trusted Signing).
+- macOS: the Apple Developer Program (US$99 a year). It gives the Developer ID Application certificate and the
+  notarization service.
+
+**What changes for users**
+
+- Windows: the publisher shows as the certificate's name, not "Unknown publisher", and SmartScreen stops blocking
+  once the certificate has reputation.
+- macOS: Gatekeeper accepts the executables without the "cannot be opened" dialog (so no right-click > Open, **Open
+  Anyway** or `xattr`).
+- When the first signed release is out, drop the SmartScreen and Gatekeeper workarounds from `README.md`, `docs/GETTING_STARTED.md`
+  (and their `i18n` translations).
+- Games exported from the download copy the signed `factoria_player` (see [EXPORTING.md](EXPORTING.md)).
+
+Pull requests from forks never receive the secrets. A pull request from a branch of this repository does, and the
+workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
+Environment with required reviewers is the stricter option).
 
 ## Continuous integration (local, no GitHub minutes)
 
