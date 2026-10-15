@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -25,6 +26,7 @@
 
 #include "fa/ai/config.h"
 #include "fa/ai/detect.h"
+#include "fa/ai/provider.h"
 #include "fa/ai/session.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
@@ -306,8 +308,13 @@ public:
     ai::AiConfig aiConfig_;
     std::string aiConfigError_;
     std::vector<ai::ProviderStatus> aiStatus_;
+    struct ProviderModels {  // what ai::list_models said about one available provider
+        std::vector<ai::ModelInfo> models;
+        std::string error;   // set when it could not list: the Roles window offers a text box instead of a list
+    };
+    std::map<std::string, ProviderModels> aiModels_;  // by provider name (under aiMu_); filled after the detection
     std::atomic<bool> aiDetected_{false};
-    std::atomic<bool> aiDetecting_{false};
+    std::atomic<bool> aiDetecting_{false};  // provider detection AND the model lists that follow it
     std::thread aiDetectThread_;
     std::thread aiThread_;
     std::atomic<bool> aiRunning_{false};
@@ -325,6 +332,7 @@ public:
     std::string aiHistoryDelete_;   // History row waiting for the second click on its Delete
     bool aiRolesOpen_ = false;      // request to open the AI roles popup this frame
     std::map<std::string, ai::RoleConfig> aiRolesEdit_;  // the roles being edited in that popup
+    std::set<std::string> aiRolesTyping_;                // roles whose model is a text box (Other... picked)
     std::shared_ptr<CommandRegistry> aiProxy_;  // the current run's proxy (under aiMu_: the MCP endpoint reads it)
     // The editor's MCP endpoint for CLI agents (Claude Code): it serves aiProxy_, so their tool calls run here like an
     // API provider's. Started by the first ai_start, stopped by ai_stop (project switch, quit).

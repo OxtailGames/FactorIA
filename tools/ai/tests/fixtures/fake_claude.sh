@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fake `claude` CLI: prints stream-json lines. Records its argv (and stdin as "stdin:...") in $FAKE_ARGV_FILE if set.
-# FAKE_COST overrides total_cost_usd; FAKE_MODE: notloggedin | crash | slow | resume_fails (--resume is answered with
+# FAKE_COST overrides total_cost_usd; FAKE_MODE: notloggedin | crash | slow | models (answers the `initialize`
+# control_request on stdin with a control_response listing three models, after one hook event line; with FAKE_HANG it then keeps running) | resume_fails (--resume is answered with
 # claude's "No conversation found" error) | mcp_spawn (calls the tool scene_spawn {"name":"CliCoin"} on the HTTP MCP
 # server of its --mcp-config with curl, like Claude Code calling a tool; the reply goes to $FAKE_ARGV_FILE.mcp).
 # A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>".
@@ -22,6 +23,15 @@ case "$FAKE_MODE" in
     echo '{"type":"system","subtype":"init","session_id":"s1","model":"sonnet","mcp_servers":[{"name":"factoria","status":"connected"}]}'
     sleep 30
     exit 0 ;;
+  models)
+    case "$stdin" in
+      *control_request*)
+        echo '{"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup","session_id":"sess-1"}'
+        echo '{"type":"control_response","response":{"subtype":"success","request_id":"fa-models","response":{"commands":[],"models":[{"value":"default","displayName":"Default recommended","description":"Opus 5.5 with 1M context","resolvedModel":"claude-opus-5-5"},{"value":"sonnet","displayName":"Sonnet 5.5","description":"Fast and capable","resolvedModel":"claude-sonnet-5-5"},{"value":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers","resolvedModel":"claude-haiku-4-5-20251001"}]}}}'
+        if [ -n "$FAKE_HANG" ]; then sleep 30; fi
+        exit 0 ;;
+    esac
+    exit 1 ;;
   resume_fails)
     case " $* " in
       *" --resume "*)

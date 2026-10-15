@@ -4,8 +4,10 @@ rem modes the Windows tests need. Records its argv (one argument per line) and t
 rem %FAKE_ARGV_FILE%. FAKE_COST overrides total_cost_usd; FAKE_MODE=resume_fails answers --resume with claude's
 rem "No conversation found" error; FAKE_MODE=mcp_spawn calls the tool scene_spawn {"name":"CliCoin"} on the HTTP MCP
 rem server of its --mcp-config with curl, like Claude Code calling a tool (the reply goes to %FAKE_ARGV_FILE%.mcp).
+rem FAKE_MODE=models answers the initialize control_request on stdin with a control_response of three models (argv is recorded, stdin is not; with FAKE_HANG it then keeps running).
 rem A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
 if not defined FAKE_COST set FAKE_COST=0.0123
+if "%FAKE_MODE%"=="models" goto models
 if defined FAKE_ARGV_FILE (
   for %%a in (%*) do >>"%FAKE_ARGV_FILE%" echo %%~a
   if defined CLAUDE_CODE_AUTO_COMPACT_WINDOW >>"%FAKE_ARGV_FILE%" echo compact-window:%CLAUDE_CODE_AUTO_COMPACT_WINDOW%
@@ -38,4 +40,12 @@ for /f "tokens=2" %%u in ('findstr /c:"/mcp/" "%~2"') do set "MCP_URL=%%~u"
 set "MCP_OUT=nul"
 if defined FAKE_ARGV_FILE set "MCP_OUT=%FAKE_ARGV_FILE%.mcp"
 curl -s -o "%MCP_OUT%" -H "content-type: application/json" -H "accept: application/json, text/event-stream" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"scene_spawn\",\"arguments\":{\"name\":\"CliCoin\"}}}" "%MCP_URL%"
+exit /b 0
+
+:models
+if defined FAKE_ARGV_FILE for %%a in (%*) do >>"%FAKE_ARGV_FILE%" echo %%~a
+findstr /c:"control_request" >nul || exit /b 1
+echo {"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup","session_id":"sess-1"}
+echo {"type":"control_response","response":{"subtype":"success","request_id":"fa-models","response":{"commands":[],"models":[{"value":"default","displayName":"Default recommended","description":"Opus 5.5 with 1M context","resolvedModel":"claude-opus-5-5"},{"value":"sonnet","displayName":"Sonnet 5.5","description":"Fast and capable","resolvedModel":"claude-sonnet-5-5"},{"value":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers","resolvedModel":"claude-haiku-4-5-20251001"}]}}}
+if defined FAKE_HANG ping -n 31 127.0.0.1 >nul
 exit /b 0

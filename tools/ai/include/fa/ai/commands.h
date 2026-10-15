@@ -1,4 +1,4 @@
-// Commands exposed by the AI module: ai.providers and ai.run.
+// Commands exposed by the AI module: ai.providers, ai.models and ai.run.
 #pragma once
 
 #include "fa/ai/config.h"
@@ -20,10 +20,12 @@ struct AiCommandOptions {
     const CancelFlag* cancel = nullptr;
     // MCP endpoint a CLI sub-agent attaches (SessionOptions::mcpUrl): the editor's, so ai.run edits its world too.
     std::string mcpUrl;
+    // HTTP transport and environment of ai.models (tests inject fakes). Default: the real ones.
+    ProviderRuntime runtime;
 };
 
-// Registers "ai.providers" (list/doctor) and "ai.run" (run a task synchronously
-// with the configured role). The registry is also the tool source for the agent
+// Registers "ai.providers" (list/doctor), "ai.models" (the models each provider offers) and "ai.run" (run a task
+// synchronously with the configured role). The registry is also the tool source for the agent
 // (ai.* commands are hidden from the model to avoid recursion). It must outlive
 // the registered handlers.
 void register_ai_commands(CommandRegistry& registry, AiCommandOptions options = {});

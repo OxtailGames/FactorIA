@@ -11,6 +11,10 @@ struct Auth {
     std::string bearerToken;  // Authorization: Bearer (+ anthropic-beta oauth) when no key
 };
 
+// The credentials requests use: the API key, else (useAntCli) the `ant` token (rt.antToken; default `ant auth
+// print-credentials`). An Error with a hint when there are none.
+Result<Auth> resolve_auth(const ProviderConfig& cfg, const ProviderRuntime& rt);
+
 // Request body for POST /v1/messages. Deterministic: tools sorted by name,
 // stable key order. Never contains thinking/temperature/top_p; tool_choice omitted.
 Json build_request(const ChatRequest& req);

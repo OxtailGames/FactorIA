@@ -329,6 +329,16 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ## ai
 
+### `ai.models`
+
+List the models each AI provider offers (the values for roles.<role>.model).
+
+Asks the providers themselves, so newly released models show up: Claude Code through its CLI (aliases such as opus first, then full names; no model call, no usage), the Anthropic API and OpenAI-compatible APIs through GET /models. Codex and generic CLIs cannot list their models: their entry has an error. Without `provider` it lists every provider that ai.providers reports available; one provider's failure is in its own entry (error, hint) and does not fail the call. Returns {providers:[{name, models:[{id, name, description, resolved}], error?, hint?}]}: id is the value for roles.<role>.model, name the display name (empty when the provider gives none), description one line, resolved the model an alias stands for (empty for a full name). Example: {"provider":"claude-code"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `provider` | string | no | Only this provider (a name from ai.providers). Omit for every available one. |
+
 ### `ai.providers`
 
 List configured AI providers and roles, or diagnose which ones are usable (doctor).
