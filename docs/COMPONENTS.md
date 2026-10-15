@@ -771,7 +771,7 @@ Validates the project (factoria.json, name, mainScene, reverse-DNS id) and write
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platform` | string | no | linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria. |
-| `out` | string | no | Parent folder of the export; a relative path is relative to the project folder. Default: build/export inside the project. |
+| `out` | string | no | Parent folder of the export, relative to the project folder and inside it. Default: build/export. |
 | `release` | boolean | no | Release build: only changes the build commands in nextSteps (and the iOS script). Default false. |
 
 ### `project.info`

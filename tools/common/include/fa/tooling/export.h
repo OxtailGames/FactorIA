@@ -8,7 +8,7 @@
 //                     the engine VFS needs to enumerate files inside an APK: one project-relative path per line)
 //   ios             : <out>/<slug>-ios/{game/..., build_ios.sh}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
-// Never shipped: .factoria/, tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
+// Never shipped: .factoria/, build/ (earlier exports), tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
 // jsconfig.json, every dot-file/dot-folder, and the output folder itself.
 #pragma once
 
