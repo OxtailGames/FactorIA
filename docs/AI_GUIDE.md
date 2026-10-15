@@ -124,7 +124,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{}` formats the whole project, `{"paths":["prefabs"],"check":true}` only lists the files that are not canonical (`"strict":true` makes that an error). Section 6. |
 | `game_step` | `game.step` | Advance N fixed frames: `{"frames":60,"press":["move_right"]}`. `press` and `release` apply before the first frame and stay in effect until released. |
 | `game_input` | `game.input` | Press or release an action or key now, or move the mouse, a gamepad or a finger. Forms: `{"action":"jump","down":true}`, `{"key":"Space","down":false}`, `{"mouse":{"position":[640,360]}}`, `{"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}`, `{"touch":{"id":1,"position":[200,300],"down":true}}`. The next `game_step` sees the input. |
-| `game_screenshot` | `game.screenshot` | Capture the last rendered frame as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. Needs graphics. |
+| `game_screenshot` | `game.screenshot` | Capture the game view as it is now (changes since the last step included) as an image. Optional `path`; by default it is saved under `.factoria/screenshots/`. Needs graphics. |
 | `game_state` | `game.state` | Dump the running game: entities, physics, script errors, render stats. Filters: `entities` (ids), `components` (names), `includeDefaults`, `maxEntities` (default 200). |
 | `game_logs` | `game.logs` | Recent log lines: `{"minLevel":"warn","max":50}`. Pass `after` (a `seq` from an earlier call) to get only new lines. |
 | `game_pause`, `game_resume` | `game.pause`, `game.resume` | Pause or resume the simulation. |
