@@ -2454,3 +2454,68 @@ TEST_CASE("3d gyro: a box tumbling in zero gravity precesses and conserves energ
     CHECK(b.maxE < 1.005f);
     CHECK(b.minE > 0.995f);
 }
+
+// ---------------------------------------------- 3D continuous collision ----
+
+TEST_CASE("3d ccd: a long thin box flying and spinning fast never swings through a thin wall") {
+    // A 2 x 0.1 x 0.1 rod at 100-150 m/s, spinning at 40 rad/s about a different axis each trial, against a 0.2 m wall.
+    // Within a sub-step (1/240 s) its ends swing 0.17 m on top of the 0.4-0.6 m the rod moves. After an end hits, the
+    // rod pivots about it at once, so the rest of the sub-step must sweep that turn too, or the far end goes through.
+    int passed = 0;
+    for (int i = 0; i < 100; ++i) {
+        Sim s;
+        no_gravity(s);
+        add_box3(s.world, "wall", {0, 0, 0}, {0.2f, 200, 200}, BodyType::Static, false);
+        Entity rod = add_box3(s.world, "rod", {-4, 0, 0}, {2, 0.1f, 0.1f}, BodyType::Dynamic, true);
+        s.world.get<Transform>(rod)->rotation = {360 * frac(i, 0.618f), 360 * frac(i, 0.414f), 360 * frac(i, 0.732f)};
+        RigidBody3D& rb = *s.world.get<RigidBody3D>(rod);
+        rb.velocity = {100 + 50 * frac(i, 0.271f), 0, 0};
+        rb.angularVelocity = normalize(Vec3{frac(i, 0.357f) - 0.5f, frac(i, 0.853f) - 0.5f, frac(i, 0.129f) - 0.5f}) * 2292.0f;
+        bool through = false;
+        for (int step = 0; step < 60; ++step) {
+            s.run(1);
+            if (pos_of(s.world, rod).x > 0.0f) through = true;
+        }
+        if (through) ++passed;
+    }
+    CHECK(passed == 0);
+}
+
+TEST_CASE("3d ccd: a sphere bouncing between close walls survives more impacts than one sub-step can resolve") {
+    // Walls 0.1 m apart (r 0.05 ball: 0.1 m of travel between bounces). Fast enough, it hits 10 walls per sub-step, which
+    // used to run out the per-sub-step impact budget and push the ball on, unswept, through the wall.
+    auto run = [](float speed, float* zOut, float* vxOut) {
+        Sim s;
+        no_gravity(s);
+        for (float x : {-0.2f, 0.2f}) {
+            Entity wall = add_box3(s.world, "wall", {x, 0, 0}, {0.2f, 4, 400}, BodyType::Static, false);
+            s.world.get<Collider3D>(wall)->restitution = 1.0f;
+            s.world.get<Collider3D>(wall)->friction = 0.0f;
+        }
+        Entity ball = add_sphere3(s.world, "ball", {0, 0, 0}, 0.05f);
+        s.world.get<Collider3D>(ball)->restitution = 1.0f;
+        s.world.get<Collider3D>(ball)->friction = 0.0f;
+        RigidBody3D& rb = *s.world.get<RigidBody3D>(ball);
+        rb.rollingFriction = 0.0f;
+        rb.velocity = {speed, 0, 5};
+        float maxX = 0.0f;
+        for (int i = 0; i < 60; ++i) {
+            s.run(1);
+            maxX = std::max(maxX, std::fabs(pos_of(s.world, ball).x));
+        }
+        *zOut = pos_of(s.world, ball).z;
+        *vxOut = std::fabs(rb.velocity.x);
+        return maxX;
+    };
+    float z = 0, vx = 0;
+    // 250 m/s: 10 impacts per sub-step. The ball stays in the corridor, bounces without losing speed, and its drift along
+    // the corridor is the full 5 m of a second.
+    CHECK(run(250.0f, &z, &vx) < 0.055f);
+    CHECK(z == doctest::Approx(5.0f).epsilon(0.01));
+    CHECK(vx == doctest::Approx(250.0f).epsilon(0.01));
+    // 3000 m/s: more than 100 impacts per sub-step. What is left of a sub-step's move waits for the next one, so the ball
+    // still never leaves the corridor (it falls behind in time instead) and keeps drifting.
+    CHECK(run(3000.0f, &z, &vx) < 0.055f);
+    CHECK(z > 0.5f);
+    CHECK(z <= 5.01f);
+}

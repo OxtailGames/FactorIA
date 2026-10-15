@@ -245,7 +245,9 @@ private:
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
     static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
-    static bool sweep(Body& mover, Vec3 disp, const Body& target, float& tHit);
+    static bool sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit);
+    // How far the far end of a box travels when it turns by `spin` (rad, world axes): |spin| times its bounding radius.
+    static float turning_reach(const Body& b, Vec3 spin) { return b.box ? length(spin) * length(b.half) : 0.0f; }
     static bool filters_pass(const Body& a, const Body& b);
     static void refresh_frame(Body& b);
     static void integrate_orient(Body& b, float seconds);
@@ -264,6 +266,7 @@ private:
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
     std::uint64_t nextSleepGroup_ = 1;
+    float carry_ = 0.0f;  // fraction of a sub-step's move left undone because of too many impacts; done in the next one
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
     std::uint64_t stepCounter_ = 0;
