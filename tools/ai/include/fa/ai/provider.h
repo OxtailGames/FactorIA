@@ -29,4 +29,17 @@ struct ProviderRuntime {
 // Creates the provider for a config entry. CLI kinds are rejected (use CliAgent).
 Result<std::shared_ptr<ChatProvider>> make_chat_provider(const ProviderConfig& cfg, ProviderRuntime rt = {});
 
+// A model a provider offers (list_models).
+struct ModelInfo {
+    std::string id;           // the value for roles.<role>.model: "opus", "claude-opus-5-5", "gpt-5"...
+    std::string name;         // display name ("Opus 5.5"); empty when the provider gives none
+    std::string description;  // one line; may be empty
+    std::string resolved;     // the model an alias stands for ("claude-opus-5-5" for "opus"); empty otherwise
+};
+
+// Asks the provider which models it offers: Claude Code through its CLI (the initialize request: no model call, no
+// usage), the Anthropic and OpenAI-compatible APIs through GET /models (rt.transport, rt.env). Codex and generic CLIs
+// cannot list their models: an Error with the hint to type the name. Failures are Errors that say what to check.
+Result<std::vector<ModelInfo>> list_models(const ProviderConfig& cfg, ProviderRuntime rt = {});
+
 }  // namespace fa::ai

@@ -188,7 +188,44 @@ turns delegation off.
 unless told otherwise (`role`, `provider`, `model` options). The editor AI panel
 always sends your messages to the orchestrator; its **Roles...** button sets the
 provider, model, effort and context limit of the three roles and saves them in `ai.json` (only
-`roles` is rewritten: providers, limits and a role's `maxTokens` stay).
+`roles` is rewritten: providers, limits and a role's `maxTokens` stay). The button is disabled
+until the first provider detection has read `ai.json`.
+
+### Choosing a model
+
+In the Roles window the **Model** column is a dropdown of the models the selected provider really offers, so
+nobody has to know or mistype their names. The lists are asked of the providers themselves when the editor opens a
+project (right after the provider detection) and again with **Refresh models** next to the "Saved in" line, so a model
+released today shows up without updating FactorIA. Only available providers are asked.
+
+| Provider | Where its list comes from |
+|---|---|
+| `claude-code` | The CLI's own `initialize` control request (`claude -p --input-format stream-json --output-format stream-json --verbose`, one JSON line on stdin). No model call, no usage. Aliases (`opus`, `sonnet`...) come first, with the model each one stands for, then full names |
+| `anthropic` | `GET <baseUrl>/v1/models?limit=1000`, authenticated like chat requests: the API key, or the `ant` login token |
+| `openai-compatible` (`openai`, `openrouter`, `gemini`, `groq`, `deepseek`, `ollama`, `lmstudio`...) | `GET <baseUrl>/models`, with `Authorization: Bearer <key>` when a key is set (local servers need none). A server that is not running fails after 3 seconds |
+| `codex`, other CLIs | They cannot list their models: the cell stays a text box, type the name |
+
+The dropdown starts with `default` (the model setting is left empty: the role's own default for the Anthropic API, the
+CLI's own for Claude Code, whose real default it shows when you hover it). Each model shows as `Display name  (id)`
+(just the id when the provider gives no name); hover one for its description and, for an alias, the model it stands
+for. **Other...** at the end turns that role's cell into a text box, for a name that is not in the list (clear it, or
+type a listed name, to get the list back). When a provider's list could not be fetched the cell is a text box with the
+reason as its tooltip; fix it (a key, a server that is down) and press **Refresh models**. Changing a role's
+provider resets its model to `default`.
+
+The same lists are available to tools and AIs as the read-only command `ai.models {provider?}` (a CLI call, an MCP
+tool `ai_models`):
+
+```json
+{"providers": [
+  {"name": "claude-code", "models": [
+    {"id": "default", "name": "Default (recommended)", "description": "Opus 5.5 · Best for everyday, complex tasks", "resolved": "claude-opus-5-5"},
+    {"id": "sonnet", "name": "Sonnet 5.5", "description": "Efficient for routine tasks", "resolved": "claude-sonnet-5-5"}]},
+  {"name": "codex", "models": [], "error": "Provider 'codex' (codex) does not list its models", "hint": "Type the model name; ..."}]}
+```
+
+Without `provider` it asks every available provider; one provider's failure is in its own entry (`error`, `hint`)
+and does not fail the call. `resolved` is empty for a full model name.
 
 ## How the built-in agent behaves (API providers)
 

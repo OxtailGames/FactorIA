@@ -50,7 +50,10 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
 - **Roles:** your messages always go to the orchestrator role, which answers, plans and hands implementation work to
   the worker role and small mechanical edits to the fast role by itself. **Roles...** at the top of the panel picks the
   provider, model and effort of each role (the line next to it shows the current ones); Save writes them into `ai.json`
-  and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). Its **Context** column caps how much of the
+  and the next message uses them (see `docs/AI_PROVIDERS.md`, Roles). The **Model** column is a dropdown of the models
+  the provider really offers, fetched when the project opens; **Refresh models** asks again (new releases show up), and
+  **Other...** types a name that is not listed (see `docs/AI_PROVIDERS.md`, Choosing a model). **Roles...** is disabled
+  until `ai.json` has been read. Its **Context** column caps how much of the
   conversation a session keeps (full, or 100k to 800k): past it the earlier part is summarized, so each message costs
   less. It works with Claude Code and the Anthropic API.
 - **Pictures:** drop image files (png, jpg, jpeg, gif, webp) on the window, press Ctrl+V in the input with a picture on the

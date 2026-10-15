@@ -36,6 +36,23 @@ bool looks_like_auth_failure(std::string_view text) {
     return false;
 }
 
+Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg) {
+    std::string command = cfg.command.empty() ? default_cli_command(cfg.kind) : cfg.command;
+    if (command.empty()) {
+        return make_error("CLI provider '" + cfg.name + "' has no \"command\"",
+                          "Set \"command\" and \"argv\" for it in ~/.factoria/ai.json.");
+    }
+    std::string exe = which(command);
+    if (exe.empty()) {
+        return make_error("'" + command + "' was not found in PATH (provider '" + cfg.name + "')", cli_install_hint(cfg));
+    }
+    ProcessOptions po;
+    po.argv = {std::move(exe)};
+    po.env = cfg.env;
+    po.unsetEnv = cfg.unsetEnv;
+    return po;
+}
+
 Json make_mcp_config(const std::string& projectDir, const std::string& factoriaCommand, const std::string& mcpUrl) {
     Json server = mcpUrl.empty() ? Json::object({{"command", factoriaCommand}, {"args", Json::array({"mcp", "--project", projectDir})}})
                                  : Json::object({{"type", "http"}, {"url", mcpUrl}});
@@ -448,15 +465,9 @@ static std::string tail(const std::string& s, std::size_t n = 800) {
 }
 
 Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler& onEvent, const CancelFlag* cancel) const {
-    std::string command = cfg_.command.empty() ? default_cli_command(cfg_.kind) : cfg_.command;
-    if (command.empty()) {
-        return make_error("CLI provider '" + cfg_.name + "' has no \"command\"",
-                          "Set \"command\" and \"argv\" for it in ~/.factoria/ai.json.");
-    }
-    std::string exe = which(command);
-    if (exe.empty()) {
-        return make_error("'" + command + "' was not found in PATH (provider '" + cfg_.name + "')", cli_install_hint(cfg_));
-    }
+    auto base = cli_process_options(cfg_);
+    if (!base) return base.error();
+    const std::string command = cfg_.command.empty() ? default_cli_command(cfg_.kind) : cfg_.command;
     std::vector<std::string> tmpl = cfg_.argv.empty() ? default_cli_argv(cfg_.kind) : cfg_.argv;
     if (tmpl.empty()) {
         return make_error("Provider '" + cfg_.name + "' has no \"argv\" template",
@@ -482,7 +493,7 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
     CliRunRequest effective = req;
     effective.projectDir = projectDir;
 
-    ProcessOptions po;
+    ProcessOptions po = std::move(*base);
     std::vector<std::string> expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);
     // Pictures: inline in the stdin JSON when the CLI reads stream-json, else the prompt names their files.
     const bool jsonInput = argv_wants_stream_json_input(expanded);
@@ -490,11 +501,8 @@ Result<CliRunResult> CliAgent::run(const CliRunRequest& req, const EventHandler&
         effective.prompt = prompt_with_image_paths(req.prompt, req.imagePaths);
         expanded = expand_cli_argv(tmpl, effective, mcpPath, cfg_.factoriaCommand);  // {prompt} carries the paths too
     }
-    po.argv.push_back(exe);
     for (auto& a : expanded) po.argv.push_back(std::move(a));
     po.workingDir = projectDir;
-    po.env = cfg_.env;
-    po.unsetEnv = cfg_.unsetEnv;
     // A template without {prompt} gets the prompt on standard input (one stream-json line when the CLI asks for that).
     if (jsonInput) po.stdinText = make_stream_json_input(req.prompt, req.images);
     else if (std::none_of(tmpl.begin(), tmpl.end(), [](const std::string& a) { return a.find("{prompt}") != std::string::npos; }))
