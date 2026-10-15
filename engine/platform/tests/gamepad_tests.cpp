@@ -802,3 +802,157 @@ TEST_CASE("Android: feeding Input connects every known pad again after a focus l
     CHECK(in.gamepad_down(0, GamepadButton::A));
     CHECK(in.gamepad_raw_axis(0, GamepadAxis::LeftX) == doctest::Approx(-0.5f));
 }
+
+TEST_CASE("Android: the axes a device reports decide what Z and RZ are") {
+    using R = AndroidRightStick;
+    // DualShock 4, Xbox One and most pads: the right stick is Z/RZ, the triggers have their own axes.
+    AndroidLayout l = android_layout_for({.z = true, .rz = true, .ltrigger = true, .rtrigger = true});
+    CHECK(l.rightStick == R::ZRz);
+    CHECK_FALSE(l.zrzAreTriggers);
+    l = android_layout_for({.z = true, .rz = true, .brake = true, .gas = true});  // the trigger axes by their other names
+    CHECK(l.rightStick == R::ZRz);
+    // The Xbox-like layout: RX/RY is the stick and Z/RZ are the triggers, since nothing else is.
+    l = android_layout_for({.z = true, .rz = true, .rx = true, .ry = true});
+    CHECK(l.rightStick == R::RxRy);
+    CHECK(l.zrzAreTriggers);
+    // RX/RY with dedicated triggers: the stick, and no Z/RZ to worry about.
+    l = android_layout_for({.rx = true, .ry = true, .ltrigger = true, .rtrigger = true});
+    CHECK(l.rightStick == R::RxRy);
+    CHECK_FALSE(l.zrzAreTriggers);
+    // Both pairs AND dedicated triggers: nobody can say which pair is the stick.
+    l = android_layout_for({.z = true, .rz = true, .rx = true, .ry = true, .ltrigger = true, .rtrigger = true});
+    CHECK(l.rightStick == R::Unknown);
+    CHECK_FALSE(l.zrzAreTriggers);
+    // No second stick at all; and half a pair is not a stick.
+    CHECK(android_layout_for({}).rightStick == R::None);
+    CHECK(android_layout_for({.ltrigger = true, .rtrigger = true}).rightStick == R::None);
+    CHECK(android_layout_for({.z = true, .rx = true}).rightStick == R::None);
+}
+
+TEST_CASE("Android: a pad with Z/RZ triggers does not push its right stick, and its triggers read 0..1") {
+    // An Xbox-like pad: Z/RZ are the triggers and rest at -1; RX/RY is the right stick.
+    AndroidMotionAxes m;
+    m.z = -1.0f;   // left trigger released
+    m.rz = 1.0f;   // right trigger fully pulled
+    m.rx = 0.5f;
+    m.ry = -0.5f;  // Android's +Y is down: the stick is pushed up
+
+    AndroidGamepads asked;
+    asked.on_key(1, kAndroidKeyButtonA, true);
+    asked.set_layout(1, android_layout_for({.z = true, .rz = true, .rx = true, .ry = true}));
+    asked.on_motion(1, m);
+    GamepadState st = asked.state(0);
+    CHECK(st.axes[size_t(GamepadAxis::RightX)] == doctest::Approx(0.5f));
+    CHECK(st.axes[size_t(GamepadAxis::RightY)] == doctest::Approx(0.5f));
+    CHECK(st.axes[size_t(GamepadAxis::LeftTrigger)] == doctest::Approx(0.0f));
+    CHECK(st.axes[size_t(GamepadAxis::RightTrigger)] == doctest::Approx(1.0f));
+    m.z = 0.0f;  // half pulled
+    asked.on_motion(1, m);
+    CHECK(asked.state(0).axes[size_t(GamepadAxis::LeftTrigger)] == doctest::Approx(0.5f));
+
+    // The same events on a pad nobody asked: the trigger at rest (-1) wins "further from rest" and pushes the stick.
+    m.z = -1.0f;
+    AndroidGamepads unasked;
+    unasked.on_motion(1, m);
+    CHECK(unasked.state(0).axes[size_t(GamepadAxis::RightX)] == doctest::Approx(-1.0f));
+    CHECK(unasked.state(0).axes[size_t(GamepadAxis::LeftTrigger)] == 0.0f);
+
+    // Before the pad's first motion event Z/RZ are 0, which must not read as half-pulled triggers.
+    AndroidGamepads quiet;
+    quiet.on_key(1, kAndroidKeyButtonA, true);
+    quiet.set_layout(1, android_layout_for({.z = true, .rz = true, .rx = true, .ry = true}));
+    CHECK(quiet.state(0).axes[size_t(GamepadAxis::LeftTrigger)] == 0.0f);
+    CHECK(quiet.state(0).axes[size_t(GamepadAxis::RightTrigger)] == 0.0f);
+}
+
+TEST_CASE("Android: a pad with Z/RZ as the right stick keeps its dedicated triggers and ignores RX/RY") {
+    AndroidGamepads pads;
+    pads.on_key(1, kAndroidKeyButtonA, true);
+    pads.set_layout(1, android_layout_for({.z = true, .rz = true, .ltrigger = true, .rtrigger = true}));
+    AndroidMotionAxes m;
+    m.z = 0.25f;
+    m.rz = -0.5f;
+    m.rx = 0.9f;  // not a stick on this pad: ignored
+    m.ltrigger = 0.3f;
+    pads.on_motion(1, m);
+    GamepadState st = pads.state(0);
+    CHECK(st.axes[size_t(GamepadAxis::RightX)] == doctest::Approx(0.25f));
+    CHECK(st.axes[size_t(GamepadAxis::RightY)] == doctest::Approx(0.5f));
+    CHECK(st.axes[size_t(GamepadAxis::LeftTrigger)] == doctest::Approx(0.3f));
+
+    // A pad with no right stick reports zeros there whatever its other axes do.
+    AndroidGamepads none;
+    none.on_key(1, kAndroidKeyButtonA, true);
+    none.set_layout(1, android_layout_for({.ltrigger = true, .rtrigger = true}));
+    none.on_motion(1, m);
+    CHECK(none.state(0).axes[size_t(GamepadAxis::RightX)] == 0.0f);
+    CHECK(none.state(0).axes[size_t(GamepadAxis::RightY)] == 0.0f);
+}
+
+TEST_CASE("Android: layouts are asked for once per pad, and again for the pad that takes a freed slot") {
+    AndroidGamepads pads;
+    CHECK_FALSE(pads.any_needs_layout());
+    pads.on_key(10, kAndroidKeyButtonA, true);
+    pads.on_key(20, kAndroidKeyButtonA, true);
+    CHECK(pads.any_needs_layout());
+    CHECK(pads.needs_layout(0));
+    CHECK(pads.needs_layout(1));
+    CHECK_FALSE(pads.needs_layout(2));  // no pad there
+    pads.set_layout(10, android_layout_for({.z = true, .rz = true}));
+    pads.set_layout(20, AndroidLayout{});  // what the glue does when JNI fails: asked, nothing learned
+    pads.set_layout(99, AndroidLayout{});  // a device with no slot: ignored
+    CHECK_FALSE(pads.any_needs_layout());
+    pads.release_device(20);
+    pads.on_key(30, kAndroidKeyButtonA, true);  // takes slot 1: a different pad, so it has to be asked
+    CHECK(pads.needs_layout(1));
+    CHECK_FALSE(pads.needs_layout(0));
+}
+
+TEST_CASE("Android: an unplugged pad frees its slot; the others keep theirs") {
+    AndroidGamepads pads;
+    for (int device : {10, 20, 30}) pads.on_key(device, kAndroidKeyButtonA, true);
+    pads.on_key(20, kAndroidKeyButtonX, true);
+    REQUIRE(pads.pad_count() == 3);
+    CHECK(pads.device_id(0) == 10);
+    CHECK(pads.device_id(1) == 20);
+    CHECK(pads.device_id(2) == 30);
+
+    Input in;
+    pads.feed(in);
+    REQUIRE(in.gamepad_connected(1));
+    CHECK(in.gamepad_down(1, GamepadButton::X));
+
+    pads.release_device(20);  // InputDevice.getDevice(20) returned null
+    CHECK(pads.pad_count() == 2);
+    CHECK(pads.device_id(1) == -1);
+    CHECK(pads.device_id(0) == 10);  // player 1 and player 3 stay where they were
+    CHECK(pads.device_id(2) == 30);
+    GamepadState gone = pads.state(1);
+    for (bool down : gone.buttons) CHECK_FALSE(down);
+    pads.feed(in);
+    CHECK_FALSE(in.gamepad_connected(1));  // the game sees the pad leave
+    CHECK_FALSE(in.gamepad_down(1, GamepadButton::X));
+    CHECK(in.gamepad_connected(0));
+    CHECK(in.gamepad_connected(2));
+    CHECK(in.gamepad_down(2, GamepadButton::A));
+
+    // The next pad takes the free slot, with nothing left of the old one.
+    pads.on_key(40, kAndroidKeyButtonY, true);
+    CHECK(pads.device_id(1) == 40);
+    CHECK(pads.pad_count() == 3);
+    GamepadState fresh = pads.state(1);
+    CHECK(fresh.buttons[size_t(GamepadButton::Y)]);
+    CHECK_FALSE(fresh.buttons[size_t(GamepadButton::A)]);
+    CHECK_FALSE(fresh.buttons[size_t(GamepadButton::X)]);
+
+    // Releasing a device that has no slot, or twice, changes nothing.
+    pads.release_device(777);
+    pads.release_device(20);
+    CHECK(pads.pad_count() == 3);
+
+    // With every pad gone, every slot is free and all four are reported disconnected.
+    for (int device : {10, 30, 40}) pads.release_device(device);
+    CHECK(pads.pad_count() == 0);
+    pads.feed(in);
+    for (int i = 0; i < kMaxGamepads; ++i) CHECK_FALSE(in.gamepad_connected(i));
+}

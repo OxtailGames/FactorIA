@@ -231,7 +231,9 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   pad nothing lists. Inside one source an exact bus + version match beats a vendor + product match; a source beats the
   ones below it even with the worse match (the user's word is final). The engine logs each pad's GUID and the mapping it chose, and warns about
   lines it cannot read; a database line for a stick driven by buttons or a hat (N64 and Joy-Con entries) is not
-  supported and is skipped. No real pad has been tried on Linux yet.
+  supported and is skipped. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
+  `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
+  (`docs/MOBILE.md`). Neither has been tried with a real pad yet.
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
