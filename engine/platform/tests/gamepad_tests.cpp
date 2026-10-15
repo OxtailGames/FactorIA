@@ -35,6 +35,19 @@ std::string error_text(const std::string& line) {
 
 constexpr const char* kZeroGuid = "00000000000000000000000000000000";
 
+GamepadIdentity identity(unsigned bus, unsigned vendor, unsigned product, unsigned version) {
+    GamepadIdentity id;
+    id.bus = std::uint16_t(bus);
+    id.vendor = std::uint16_t(vendor);
+    id.product = std::uint16_t(product);
+    id.version = std::uint16_t(version);
+    return id;
+}
+
+// A real pad of SDL_GameControllerDB that is NOT an Xbox pad: the DragonRise-style "USB Gamepad" (vendor 0x0079, product
+// 0x0006, version 0x0107). Its line is a:b2,b:b1,x:b3,y:b0, triggers on the buttons 6 and 7, right stick on axes 3 and 4.
+GamepadIdentity generic_usb_pad() { return identity(3, 0x0079, 0x0006, 0x0107); }
+
 }  // namespace
 
 TEST_CASE("a pasted DualShock 4 line parses: guid lower-cased, sources, ignored fields") {
@@ -222,6 +235,11 @@ TEST_CASE("malformed mapping lines are rejected with a message that teaches") {
     CHECK(error_text(head + "leftx:b3").find("stick axis can only read an axis") != std::string::npos);
     CHECK(error_text(head + "righty:h0.1").find("stick axis can only read an axis") != std::string::npos);
     CHECK(error_text(head + "lefttrigger:h0.1").find("cannot read a hat") != std::string::npos);
+    // SDL's digital sticks (+leftx:h0.2,-leftx:h0.8...) get their own explanation, not a "did you mean".
+    std::string digital = error_text(head + "a:b0,+rightx:b11,-rightx:b8");
+    CHECK(digital.find("digital stick") != std::string::npos);
+    CHECK(digital.find("Test pad") != std::string::npos);
+    CHECK(digital.find("Did you mean") == std::string::npos);
 
     // The message of the first problem wins and is specific to its field.
     std::string src = error_text(head + "a:b0,x:q1");
@@ -267,11 +285,13 @@ TEST_CASE("the built-in mappings all parse, and identify the common pads") {
         return select_gamepad_mapping({}, id).name;
     };
     CHECK(name_for(3, 0x054c, 0x09cc, 0x8111) == "PS4 Controller");  // DualShock 4 v2, USB
-    CHECK(name_for(5, 0x054c, 0x09cc, 0x0100) == "PS4 Controller");  // the same over Bluetooth: bus and version ignored
+    CHECK(name_for(5, 0x054c, 0x09cc, 0x8100) == "PS4 Controller");  // the same over Bluetooth
+    CHECK(name_for(5, 0x054c, 0x09cc, 0x7777) == "PS4 Controller");  // a version nobody listed: bus and version ignored
     CHECK(name_for(3, 0x054c, 0x05c4, 0x0100) == "PS4 Controller");  // DualShock 4 v1
     CHECK(name_for(3, 0x054c, 0x0ce6, 0x8111) == "PS5 Controller");  // DualSense
     CHECK(name_for(3, 0x057e, 0x2009, 0x8111) == "Nintendo Switch Pro Controller");
-    CHECK(name_for(3, 0x045e, 0x028e, 0x0114) == fallback.name);     // an Xbox 360 pad: the xpad layout
+    CHECK(name_for(3, 0x045e, 0x028e, 0x0114) == "Xbox 360 Controller");  // listed in SDL_GameControllerDB
+    CHECK(name_for(3, 0xbeef, 0xcafe, 0x0100) == fallback.name);           // listed nowhere: the xpad layout
     CHECK(name_for(0, 0, 0, 0) == fallback.name);
 
     GamepadIdentity ds4;
@@ -335,6 +355,183 @@ TEST_CASE("user mappings win over built-in ones, an exact version over a loose o
     GamepadMappingSet named = parse_gamepad_mappings("6e616d65000000000000000000000000,Named,a:b0,", "t", "Linux");
     GamepadIdentity none;
     CHECK(select_gamepad_mapping(named.mappings, none).guid == kZeroGuid);
+}
+
+// ---------------------------------------------------------------------------
+// The built-in database (SDL_GameControllerDB, Linux lines) and the user's own mapping file
+// ---------------------------------------------------------------------------
+TEST_CASE("the embedded SDL_GameControllerDB is indexed once and every line parses, except the digital sticks") {
+    const std::string_view text = embedded_gamepad_database_text();
+    REQUIRE_FALSE(text.empty());
+    GamepadMappingSet all = parse_gamepad_mappings(text, "gamecontrollerdb_linux.txt", "Linux");
+    CHECK(all.mappings.size() > 700);
+    // The lines FactorIA does not apply are known and explained: sticks driven by buttons or a hat (N64 pads, Joy-Cons)
+    // and the "xinput" line that carries no vendor/product ids. A new kind of problem after a database update fails here.
+    for (const std::string& problem : all.problems) {
+        INFO(problem);
+        CHECK((problem.find("digital stick") != std::string::npos || problem.find("'xinput'") != std::string::npos));
+    }
+    CHECK(all.problems.size() < 30);
+
+    const GamepadMappingDb& db = builtin_gamepad_database();
+    CHECK(db.size() > 700);
+    CHECK(&db == &builtin_gamepad_database());  // built once
+}
+
+TEST_CASE("a generic pad of the database maps its buttons and axes by its own line, not by the Xbox layout") {
+    const GamepadIdentity id = generic_usb_pad();
+    GamepadMapping m = select_gamepad_mapping({}, id);
+    CHECK(m.name == "USB Gamepad");
+    CHECK(m.guid == gamepad_guid(id));  // the database's own line, not a fallback or a near miss
+    GamepadMapper pad(m);
+
+    pad.set_button(2, true);  // a:b2 (the Xbox layout's button 2 is X)
+    GamepadState st = pad.state();
+    CHECK(st.buttons[size_t(GamepadButton::A)]);
+    CHECK_FALSE(st.buttons[size_t(GamepadButton::X)]);
+    pad.set_button(2, false);
+    pad.set_button(1, true);  // b:b1
+    pad.set_button(3, true);  // x:b3
+    pad.set_button(0, true);  // y:b0 (the Xbox layout's button 0 is A)
+    pad.set_button(9, true);  // start:b9
+    pad.set_button(8, true);  // back:b8
+    pad.set_button(4, true);  // leftshoulder:b4
+    st = pad.state();
+    CHECK(st.buttons[size_t(GamepadButton::B)]);
+    CHECK(st.buttons[size_t(GamepadButton::X)]);
+    CHECK(st.buttons[size_t(GamepadButton::Y)]);
+    CHECK_FALSE(st.buttons[size_t(GamepadButton::A)]);
+    CHECK(st.buttons[size_t(GamepadButton::Start)]);
+    CHECK(st.buttons[size_t(GamepadButton::Back)]);
+    CHECK(st.buttons[size_t(GamepadButton::LeftShoulder)]);
+
+    // Digital triggers on buttons 6 and 7; the right stick on axes 3 and 4; the D-pad as hat 0.
+    pad.set_button(7, true);
+    pad.set_axis(3, 0.5f);
+    pad.set_axis(4, -1.0f);
+    pad.set_hat_axis(0, true, -1.0f);
+    st = pad.state();
+    CHECK(st.axes[size_t(GamepadAxis::LeftTrigger)] == 0.0f);
+    CHECK(st.axes[size_t(GamepadAxis::RightTrigger)] == 1.0f);
+    CHECK(st.axes[size_t(GamepadAxis::RightX)] == doctest::Approx(0.5f));
+    CHECK(st.axes[size_t(GamepadAxis::RightY)] == doctest::Approx(1.0f));
+    CHECK(st.buttons[size_t(GamepadButton::DpadUp)]);
+
+    // The same events through the Xbox layout would press A (button 0) and read the triggers off axes: the lookup mattered.
+    GamepadMapper xpad(fallback_gamepad_mapping());
+    xpad.set_button(0, true);
+    CHECK(xpad.state().buttons[size_t(GamepadButton::A)]);
+}
+
+TEST_CASE("a GUID nobody lists falls back to the Xbox (xpad) layout") {
+    const GamepadIdentity unknown = identity(3, 0xbeef, 0xcafe, 0x0100);
+    CHECK_FALSE(builtin_gamepad_database().find(unknown).has_value());
+    CHECK(select_gamepad_mapping({}, unknown).guid == kZeroGuid);
+    CHECK(select_gamepad_mapping({}, {}, unknown).guid == kZeroGuid);
+    CHECK_FALSE(builtin_gamepad_database().find(identity(0, 0, 0, 0)).has_value());  // no ids: nothing to look up
+}
+
+TEST_CASE("mapping priority: SDL_GAMECONTROLLERCONFIG, then the user's file, then the built-in database") {
+    const GamepadIdentity id = generic_usb_pad();
+    auto lines = [&](unsigned version, const char* name, const char* button) {
+        GamepadIdentity other = id;
+        other.version = std::uint16_t(version);
+        GamepadMappingSet set =
+            parse_gamepad_mappings(gamepad_guid(other) + "," + name + "," + button + ",platform:Linux,", "t", "Linux");
+        REQUIRE(set.mappings.size() == 1);
+        return set.mappings;
+    };
+    const std::vector<GamepadMapping> env = lines(id.version, "Env pad", "a:b7");
+    const std::vector<GamepadMapping> file = lines(id.version, "File pad", "a:b6");
+
+    GamepadMapping m = select_gamepad_mapping(env, file, id);
+    CHECK(m.name == "Env pad");
+    CHECK(m.buttons[size_t(GamepadButton::A)].index == 7);
+    m = select_gamepad_mapping({}, file, id);
+    CHECK(m.name == "File pad");
+    CHECK(m.buttons[size_t(GamepadButton::A)].index == 6);
+    m = select_gamepad_mapping({}, {}, id);
+    CHECK(m.name == "USB Gamepad");  // the database
+    CHECK(m.buttons[size_t(GamepadButton::A)].index == 2);
+    CHECK(select_gamepad_mapping(env, id).name == "Env pad");  // the two-argument form is the environment alone
+
+    // A tier outranks the ones below it even with a worse match: the user's word is final. This env line is for another
+    // version of the pad (a loose match); the database has the exact one.
+    const std::vector<GamepadMapping> looseEnv = lines(0x0999, "Loose env pad", "a:b7");
+    CHECK(select_gamepad_mapping(looseEnv, {}, id).name == "Loose env pad");
+    // Inside a tier an exact match still beats a loose one.
+    std::vector<GamepadMapping> both = looseEnv;
+    both.push_back(file.front());
+    CHECK(select_gamepad_mapping(both, {}, id).name == "File pad");
+}
+
+TEST_CASE("an exact line of the database beats the hand-written one; an unlisted version gets the kernel driver's layout") {
+    // A DualShock 4 on the legacy generic HID driver (version 0x0111) numbers its buttons differently (a:b1) from one
+    // bound to hid-sony (0x8111, a:b0). The database lists both; the hand-written line is the answer for the rest.
+    GamepadMapping legacy = select_gamepad_mapping({}, identity(3, 0x054c, 0x09cc, 0x0111));
+    CHECK(legacy.name == "PS4 Controller");
+    CHECK(legacy.buttons[size_t(GamepadButton::A)].index == 1);
+    GamepadMapping sony = select_gamepad_mapping({}, identity(3, 0x054c, 0x09cc, 0x8111));
+    CHECK(sony.buttons[size_t(GamepadButton::A)].index == 0);
+    GamepadMapping unlisted = select_gamepad_mapping({}, identity(3, 0x054c, 0x09cc, 0x7777));
+    CHECK(unlisted.buttons[size_t(GamepadButton::A)].index == 0);
+}
+
+TEST_CASE("a database line FactorIA cannot apply is skipped for the next candidate and reported") {
+    const std::string text =
+        "# comment\n"
+        "\n"
+        "030000001111000022220000aaaa0000,Exact,a:b0,platform:Linux,\n"
+        "030000001111000022220000bbbb0000,Other version,a:b1,platform:Linux,\n"
+        "xinput,No ids,a:b2,platform:Linux,\n"                                   // skipped silently: can never match
+        "6e616d65000000000000000000000000,Made of a name,a:b3,platform:Linux,\n"  // vendor and product are 0: same
+        "030000001111000022220000cccc0000,Broken,leftshouldr:b4,platform:Linux,\n";  // line 7
+    GamepadMappingDb db;
+    db.add_text(text, "test db");
+    CHECK(db.size() == 3);
+
+    std::vector<std::string> problems;
+    CHECK(db.find(identity(3, 0x1111, 0x2222, 0xaaaa), &problems)->name == "Exact");
+    CHECK(problems.empty());
+    CHECK(db.find(identity(3, 0x1111, 0x2222, 0xbbbb))->name == "Other version");
+    CHECK_FALSE(db.find(identity(3, 0x1111, 0x3333, 0xaaaa)).has_value());
+
+    // An unlisted version: the last line would be the pick, but it does not parse, so the line before it is used.
+    auto m = db.find(identity(3, 0x1111, 0x2222, 0x1234), &problems);
+    REQUIRE(m.has_value());
+    CHECK(m->name == "Other version");
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].find("test db, line 7:") == 0);
+    CHECK(problems[0].find("Did you mean 'leftshoulder'") != std::string::npos);
+
+    // Only broken candidates: no mapping, so the caller falls back; the problems say why.
+    const std::string onlyBroken = "030000001111000044440000aaaa0000,Broken,+leftx:h0.2,-leftx:h0.8,platform:Linux,\n";
+    GamepadMappingDb bad;
+    bad.add_text(onlyBroken, "bad db");
+    problems.clear();
+    CHECK_FALSE(bad.find(identity(3, 0x1111, 0x4444, 0xaaaa), &problems).has_value());
+    REQUIRE(problems.size() == 1);
+    CHECK(problems[0].find("digital stick") != std::string::npos);
+}
+
+TEST_CASE("real digital-stick pads of the database: an N64 pad falls back, a Joy-Con takes its next candidate") {
+    // The NSO N64 controller is listed three times, each with a stick driven by buttons: nothing to apply.
+    std::vector<std::string> problems;
+    GamepadMapping m = select_gamepad_mapping({}, {}, identity(3, 0x057e, 0x2019, 0x8111), &problems);
+    CHECK(m.guid == kZeroGuid);
+    REQUIRE_FALSE(problems.empty());
+    CHECK(problems[0].find("digital stick") != std::string::npos);
+    CHECK(problems[0].find("SDL_GameControllerDB (built in), line ") == 0);
+
+    // The Joy-Con (L) on USB is a hat-driven stick, but the database also lists it for another bus and version with
+    // plain axes: the exact line is reported and skipped, that one is used.
+    problems.clear();
+    m = select_gamepad_mapping({}, {}, identity(3, 0x057e, 0x2006, 0x0001), &problems);
+    CHECK(m.name == "Nintendo Switch Joy-Con (L)");
+    CHECK(m.guid != kZeroGuid);
+    CHECK(m.axes[size_t(GamepadAxis::LeftX)].kind == GamepadSource::Kind::Axis);
+    REQUIRE_FALSE(problems.empty());
+    CHECK(problems[0].find("digital stick") != std::string::npos);
 }
 
 TEST_CASE("joystick API axes are renumbered the way the mapping format counts them") {

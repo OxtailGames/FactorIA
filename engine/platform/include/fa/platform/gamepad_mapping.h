@@ -26,12 +26,20 @@
 // Deliberate cuts (an SDL line that needs them is reported, not half-applied): sticks read axes only (not buttons or
 // hats, i.e. no "-leftx:b13" digital sticks), triggers read axes or buttons (not hats).
 //
+// Where a Linux pad's mapping comes from, best first (select_gamepad_mapping()):
+//   1. the SDL_GAMECONTROLLERCONFIG environment variable (newline separated lines, the SDL standard),
+//   2. a `gamecontrollerdb.txt` next to the game's factoria.json (kGamepadUserDbFile; one line per pad, `#` comments),
+//   3. the built-in database: SDL_GameControllerDB's Linux lines (external/sdl_gamecontrollerdb/, embedded in the
+//      binary) plus a few hand-written lines for the kernel drivers of the DualShock 4, DualSense and Switch Pro,
+//   4. the Xbox (xpad) layout.
+//
 // Everything here is platform-neutral so every OS unit-tests it; only gamepad_linux.cpp talks to the kernel.
 #pragma once
 
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -121,14 +129,57 @@ struct GamepadIdentity {
 // The SDL GUID of a Linux pad: bus, crc (0), vendor, 0, product, 0, version, 0, little-endian 16-bit each.
 std::string gamepad_guid(const GamepadIdentity& id);
 
-// The mapping for a pad. `user` lines (SDL_GAMECONTROLLERCONFIG) win over the built-in ones, a line that matches bus,
-// vendor, product and version wins over one that matches vendor and product only (the later of equals wins), and a
-// pad nothing matches gets the fallback.
+// The mapping for a pad. Lines from `envLines` (SDL_GAMECONTROLLERCONFIG) win over `fileLines` (the user's
+// gamecontrollerdb.txt), which win over the built-in database, which wins over the fallback. Inside one list a line that
+// matches bus, vendor, product and version wins over one that matches vendor and product only (the later of equals
+// wins); a better match in a lower list never beats a worse match in a higher one: the user's word is final.
+// A built-in line that does not parse (see the cuts above) is skipped for the next candidate and its message is added to
+// `problems`, when given.
+GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines, std::span<const GamepadMapping> fileLines,
+                                      const GamepadIdentity& id, std::vector<std::string>* problems = nullptr);
+// Same without a user file: `user` is the SDL_GAMECONTROLLERCONFIG lines.
 GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> user, const GamepadIdentity& id);
 
-// The built-in set: DualShock 4, DualSense and Switch Pro as the Linux kernel drivers (hid-sony, hid-playstation,
-// hid-nintendo) number them. Derived from the drivers' key and axis lists with the joystick API's numbering rule, NOT
-// verified on hardware: the escape hatch is a line in SDL_GAMECONTROLLERCONFIG.
+// The user's mapping file, project-relative (fa::fs): <project>/gamecontrollerdb.txt, in the SDL GameControllerDB
+// format. A game author ships it for the pads the players report; a player can drop one next to the game.
+inline constexpr const char* kGamepadUserDbFile = "gamecontrollerdb.txt";
+
+// A pile of mapping lines kept as TEXT: indexing reads only each line's GUID, and a line is parsed only when a pad asks
+// for it, so a database of hundreds of lines costs one pass over the text, once, and one line parse per lookup.
+class GamepadMappingDb {
+public:
+    // Indexes the lines of `text`, which must outlive the database (it is kept by reference). Blank lines, `#` comments
+    // and lines whose GUID is not 32 hex digits or carries no vendor/product ids (SDL's name-made GUIDs, "xinput") can
+    // never match a Linux pad and are skipped. Lines for another platform are NOT filtered: pass Linux lines.
+    // `origin` names the text in messages and must outlive the database too. Later lines win ties.
+    void add_text(std::string_view text, std::string_view origin);
+    size_t size() const { return entries_.size(); }  // indexed lines
+
+    // The best line for a pad (an exact bus + version match, else the last line with its vendor and product), parsed.
+    // A candidate that fails to parse is skipped for the next one; each such failure is added to `problems` (with the
+    // origin and line number), when given. Empty: no line matches.
+    std::optional<GamepadMapping> find(const GamepadIdentity& id, std::vector<std::string>* problems = nullptr) const;
+
+private:
+    struct Entry {
+        std::uint16_t bus = 0, vendor = 0, product = 0, version = 0;
+        std::string_view line, origin;
+        int lineNo = 0;
+    };
+    std::vector<Entry> entries_;
+};
+
+// The built-in database: the embedded Linux lines of SDL_GameControllerDB, then the hand-written lines of
+// builtin_gamepad_mappings() (they come last, so they win a tie: they are what a DualShock 4, DualSense or Switch Pro
+// on a version nobody listed gets). Indexed on first use.
+const GamepadMappingDb& builtin_gamepad_database();
+// The raw text of the embedded database (comment lines included), for tests and tools.
+std::string_view embedded_gamepad_database_text();
+
+// The hand-written lines of the built-in database, parsed: DualShock 4, DualSense and Switch Pro as the Linux kernel
+// drivers (hid-sony, hid-playstation, hid-nintendo) number them. Derived from the drivers' key and axis lists with the
+// joystick API's numbering rule, NOT verified on hardware; SDL_GameControllerDB lists the same layouts for the common
+// versions. They stay as the answer for a version the database does not list.
 std::span<const GamepadMapping> builtin_gamepad_mappings();
 // For pads nothing else matches: the xpad driver's layout (Xbox 360/One, and the many pads that imitate them).
 const GamepadMapping& fallback_gamepad_mapping();

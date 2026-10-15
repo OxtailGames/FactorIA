@@ -1,10 +1,10 @@
 // Linux gamepads through the kernel joystick API: /dev/input/js0..3 is pad 0..3. The kernel reports raw button and axis
 // NUMBERS and their meaning depends on the pad (an Xbox pad's button 2 is X, a DualShock's is Triangle), so each pad is
 // identified by its input ids (/sys/class/input/jsN/device/id/*) and name and translated through a mapping line in the
-// SDL GameControllerDB format: built-in ones for the common pads, the xpad (Xbox) layout for the rest, and whatever
-// the SDL_GAMECONTROLLERCONFIG environment variable adds. The parsing and the translation are platform-neutral and unit
-// tested (gamepad_mapping.cpp); this file only talks to the kernel. UNTESTED on hardware: written without a Linux
-// machine at hand.
+// SDL GameControllerDB format: the SDL_GAMECONTROLLERCONFIG environment variable, then the project's
+// gamecontrollerdb.txt, then the built-in database (SDL_GameControllerDB's Linux lines), then the xpad (Xbox) layout.
+// The parsing, the lookup and the translation are platform-neutral and unit tested (gamepad_mapping.cpp); this file
+// only talks to the kernel. UNTESTED on hardware: written without a Linux machine at hand.
 //
 // Each open pad keeps a mirror of the device (GamepadMapper), because the joystick API only reports CHANGES. After the
 // window loses focus Input::release_all() disconnects every pad and nothing is polled; the kernel keeps queueing the
@@ -27,6 +27,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/gamepad_mapping.h"
@@ -42,14 +43,27 @@ struct Slot {
 };
 Slot g_slots[kMaxGamepads];
 
-// SDL_GAMECONTROLLERCONFIG, read once: newline-separated mapping lines. Bad lines are reported and skipped.
-const std::vector<GamepadMapping>& user_mappings() {
-    static const std::vector<GamepadMapping> mappings = []() -> std::vector<GamepadMapping> {
-        const char* env = std::getenv("SDL_GAMECONTROLLERCONFIG");
-        if (!env || !*env) return {};
-        GamepadMappingSet set = parse_gamepad_mappings(env, "SDL_GAMECONTROLLERCONFIG", "Linux");
-        for (const std::string& problem : set.problems) FA_WARN("gamepad", "{}", problem);
-        return std::move(set.mappings);
+// The user's own mapping lines, read once (when the first pad is opened): the SDL_GAMECONTROLLERCONFIG environment
+// variable (newline-separated lines) and the project's gamecontrollerdb.txt. Bad lines are reported and skipped.
+struct UserMappings {
+    std::vector<GamepadMapping> env, file;
+};
+const UserMappings& user_mappings() {
+    static const UserMappings mappings = [] {
+        UserMappings u;
+        auto load = [](std::string_view text, std::string_view origin, std::vector<GamepadMapping>& out) {
+            GamepadMappingSet set = parse_gamepad_mappings(text, origin, "Linux");
+            for (const std::string& problem : set.problems) FA_WARN("gamepad", "{}", problem);
+            out = std::move(set.mappings);
+        };
+        if (const char* env = std::getenv("SDL_GAMECONTROLLERCONFIG"); env && *env)
+            load(env, "SDL_GAMECONTROLLERCONFIG", u.env);
+        if (fs::exists(kGamepadUserDbFile)) {
+            Result<std::string> text = fs::read_text(kGamepadUserDbFile);
+            if (text) load(*text, kGamepadUserDbFile, u.file);
+            else FA_WARN("gamepad", "Cannot read {}: {}", kGamepadUserDbFile, text.error().message);
+        }
+        return u;
     }();
     return mappings;
 }
@@ -59,6 +73,12 @@ unsigned read_hex(const std::string& path) {  // the id files hold one hex numbe
     unsigned v = 0;
     f >> std::hex >> v;
     return v;
+}
+
+// SDL's newer tools put a CRC of the pad's name in bytes 2-3 of the GUID; the lookup ignores it, so does the comparison.
+std::string guid_without_crc(std::string guid) {
+    if (guid.size() == 32) guid.replace(4, 4, "0000");
+    return guid;
 }
 
 bool open_pad(int index, Slot& s) {
@@ -85,13 +105,21 @@ bool open_pad(int index, Slot& s) {
         for (int i = 0; i < axes; ++i) absCodes[i] = std::uint8_t(i < 6 ? i : 0x10 + (i - 6));  // 0x10 = ABS_HAT0X
     s.routes = route_evdev_axes(std::span<const std::uint8_t>(absCodes, size_t(axes)));
 
-    GamepadMapping mapping = select_gamepad_mapping(user_mappings(), id);
+    const UserMappings& user = user_mappings();
+    std::vector<std::string> problems;
+    GamepadMapping mapping = select_gamepad_mapping(user.env, user.file, id, &problems);
+    for (const std::string& problem : problems) FA_WARN("gamepad", "{}", problem);
     if (mapping.guid == fallback_gamepad_mapping().guid)
         FA_INFO("gamepad", "pad {} ('{}', GUID {}) has no mapping: using the Xbox (xpad) layout. If its buttons are wrong, "
-                           "add a line for this GUID to SDL_GAMECONTROLLERCONFIG.",
-                index, id.name, gamepad_guid(id));
-    else
+                           "add a line for this GUID to SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
+                index, id.name, gamepad_guid(id), kGamepadUserDbFile);
+    else if (guid_without_crc(mapping.guid) == gamepad_guid(id))
         FA_INFO("gamepad", "pad {} ('{}', GUID {}) uses the mapping '{}'.", index, id.name, gamepad_guid(id), mapping.name);
+    else  // matched by vendor and product only: say so, it is the likely culprit when the buttons come out wrong
+        FA_INFO("gamepad", "pad {} ('{}', GUID {}) uses the mapping '{}', which is listed for another bus or version of "
+                           "this pad (GUID {}). If its buttons are wrong, add a line for this GUID to "
+                           "SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
+                index, id.name, gamepad_guid(id), mapping.name, mapping.guid, kGamepadUserDbFile);
     s.mapper.emplace(std::move(mapping));
     s.fd = fd;
     return true;
