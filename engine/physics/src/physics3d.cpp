@@ -1,9 +1,9 @@
 // Simple 3D physics: spheres + oriented boxes, semi-implicit Euler, impulse resolution, automatic continuous collision.
-// Boxes follow the entity's world rotation. A dynamic box without lockRotation is a rigid body: its contacts are
-// manifolds (clipped faces), the solver applies normal and friction impulses at the contact points and so turns the box
-// (inertia tensor from its size and mass, orientation kept as a quaternion). Everything else (spheres, locked boxes,
-// kinematic and static bodies) keeps the original torque-free single-point solver. An unrotated box keeps the exact
-// axis-aligned code paths.
+// Boxes follow the entity's world rotation. A dynamic box (or a sphere with rollWithMotion off) without lockRotation is
+// a rigid body: its contacts are manifolds (clipped faces), the solver applies normal and friction impulses at the
+// contact points and so turns it (inertia tensor from its size and mass, orientation kept as a quaternion). Everything
+// else (arcade rolling spheres, locked bodies, kinematic and static bodies) keeps the original torque-free single-point
+// solver. An unrotated box keeps the exact axis-aligned code paths.
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -419,7 +419,9 @@ void Physics3D::sync(World& world) {
             // non-uniformly scaled, rotated parent) has non-orthogonal columns, which are used as if orthonormal.
             const Vec3* r = pose.axis;
             Vec3 ownAx[3];
-            const bool wantRot = rb && rb->type == BodyType::Dynamic && b.box && !col->isTrigger && !rb->lockRotation;
+            // Boxes and spheres without rollWithMotion (the arcade rolling model) are rigid bodies turned by contacts.
+            const bool wantRot = rb && rb->type == BodyType::Dynamic && (b.box || !rb->rollWithMotion) && !col->isTrigger &&
+                                 !rb->lockRotation;
             if (wantRot) {
                 // A rotating box keeps its quaternion between steps; only a Transform.rotation that differs from what
                 // the solver wrote last (or a parent in the way) makes it re-read the orientation from the Transform.
@@ -433,7 +435,8 @@ void Physics3D::sync(World& world) {
                 axes_of(b.orient, ownAx);
                 r = ownAx;
                 const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
-                b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+                if (b.box) b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+                else b.invI = Vec3{2.5f / (m * b.radius * b.radius)};  // solid sphere: I = 2/5 m r^2
             }
             b.rotDyn = wantRot;
             const bool turned = is_turned(r);

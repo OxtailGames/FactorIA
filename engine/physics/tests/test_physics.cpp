@@ -430,6 +430,7 @@ TEST_CASE("3d: sphere falls onto a box ground and rests") {
     CHECK(s.count(CollisionEvent::Phase::Begin, false) >= 1);
     // sideways velocity decays through sliding friction (a rolling sphere keeps rolling: see the rolling resistance test)
     s.world.get<RigidBody3D>(ball)->rollWithMotion = false;
+    s.world.get<RigidBody3D>(ball)->lockRotation = true;  // contacts do not spin it: a sliding ball
     s.world.get<RigidBody3D>(ball)->velocity = {3, 0, 0};
     s.run(30);
     float x = pos_of(s.world, ball).x;
@@ -924,12 +925,13 @@ TEST_CASE("3d: angularVelocity integrates into Transform.rotation") {
     CHECK(s.world.get<Transform>(k)->rotation.z == doctest::Approx(90.0f).epsilon(0.02));
 }
 
-TEST_CASE("3d: rolling sphere spins to match its motion; rollWithMotion=false does not") {
+TEST_CASE("3d: rolling sphere spins to match its motion; rollWithMotion=false with lockRotation does not") {
     Sim s;
     add_box3(s.world, "ground", {0, -0.5f, 0}, {100, 1, 100}, BodyType::Static, false);
     Entity roll = add_sphere3(s.world, "roll", {0, 0.5f, -3}, 0.5f);
     Entity stay = add_sphere3(s.world, "stay", {0, 0.5f, 3}, 0.5f);
     s.world.get<RigidBody3D>(stay)->rollWithMotion = false;
+    s.world.get<RigidBody3D>(stay)->lockRotation = true;
     s.run(30);
     s.world.get<RigidBody3D>(roll)->velocity = {2, 0, 0};
     s.world.get<RigidBody3D>(stay)->velocity = {2, 0, 0};
@@ -1579,6 +1581,7 @@ TEST_CASE("3d: a rolling sphere keeps rolling (rolling resistance); a sliding on
         Entity ball = add_sphere3(s.world, "ball", {0, 0.5f, 0}, 0.5f);
         s.world.get<Collider3D>(ball)->friction = 0.5f;
         s.world.get<RigidBody3D>(ball)->rollWithMotion = rolling;
+        s.world.get<RigidBody3D>(ball)->lockRotation = !rolling;  // the sliding ball: contacts do not spin it
         s.run(30);
         const float x0 = pos_of(s.world, ball).x;
         s.world.get<RigidBody3D>(ball)->velocity = {3, 0, 0};
@@ -2154,4 +2157,77 @@ TEST_CASE("3d continuous collision: a 60 m/s sphere hitting a 45 degree ramp kee
     CHECK(dot(v, tangent) == doctest::Approx(42.426f).epsilon(0.01));
     CHECK(std::fabs(dot(v, normal)) < 0.1f);
     CHECK(s.count(CollisionEvent::Phase::Begin, false) == 1);
+}
+
+// ---------------------- 3D spheres as rigid bodies (rollWithMotion off, M7 leftovers) ----
+
+TEST_CASE("3d sphere: without rollWithMotion a sphere on a 30 degree slope rolls without slipping; locked it slides") {
+    const float sq = 0.5f, cq = std::sqrt(0.75f), r = 0.5f, g = 9.81f;
+    const Vec3 normal{-sq, cq, 0}, down{-cq, -sq, 0};  // the ramp rises towards +x; its top face has this normal
+    struct Run { float dist = 0, speed = 0; Vec3 spin, rotation; };
+    auto slope = [&](bool rollWithMotion, bool lockRotation) {
+        Sim s;
+        add_turned_box3(s.world, "ramp", normal * -0.5f, {40, 1, 10}, {0, 0, 30}, BodyType::Static, false);
+        Entity ball = add_sphere3(s.world, "ball", normal * r + Vec3{6.0f * cq, 6.0f * sq, 0}, r);
+        RigidBody3D* rb = s.world.get<RigidBody3D>(ball);
+        rb->rollWithMotion = rollWithMotion;
+        rb->lockRotation = lockRotation;
+        const Vec3 start = pos_of(s.world, ball);
+        s.run(90);  // 1.5 s
+        Run out;
+        out.dist = dot(pos_of(s.world, ball) - start, down);
+        out.speed = dot(rb->velocity, down);
+        out.spin = rb->angularVelocity * kDegToRad;
+        out.rotation = s.world.get<Transform>(ball)->rotation;
+        return out;
+    };
+    const Run rigid = slope(false, false), locked = slope(false, true);
+    MESSAGE("rigid: slid " << rigid.dist << " m at " << rigid.speed << " m/s, spin " << length(rigid.spin) << " rad/s (v / r = "
+                           << rigid.speed / r << ")");
+    // a solid sphere rolling down a slope: a = 5/7 g sin(theta) (0.5 * 3.5 * 1.5^2 = 3.9 m in 1.5 s), spin = v / r about
+    // the axis normal x velocity
+    CHECK(rigid.dist == doctest::Approx(0.5f * (5.0f / 7.0f) * g * sq * 1.5f * 1.5f).epsilon(0.05));
+    CHECK(length(rigid.spin) * r == doctest::Approx(rigid.speed).epsilon(0.05));
+    CHECK(length(rigid.spin - cross(normal, down) * (rigid.speed / r)) < 0.05f * length(rigid.spin));
+    // friction 0.4 on a 30 degree slope would give a = g (sin - 0.4 cos) = 1.5 m/s^2 for a sliding sphere
+    CHECK(locked.dist == doctest::Approx(0.5f * g * (sq - 0.4f * cq) * 1.5f * 1.5f).epsilon(0.08));
+    CHECK(locked.spin == Vec3{});
+    CHECK(locked.rotation == Vec3{});
+    CHECK(rigid.dist > locked.dist * 1.8f);
+}
+
+TEST_CASE("3d sphere: an off-centre hit spins both rigid spheres and conserves angular momentum; arcade spheres stay unspun") {
+    for (int rigid = 0; rigid < 2; ++rigid) {
+        Sim s;
+        no_gravity(s);
+        Entity a = add_sphere3(s.world, "a", {-3, 0, 0}, 0.5f);
+        Entity b = add_sphere3(s.world, "b", {0, 0, 0.3f}, 0.5f);
+        for (Entity e : {a, b}) s.world.get<RigidBody3D>(e)->rollWithMotion = rigid == 0;
+        s.world.get<RigidBody3D>(a)->velocity = {5, 0, 0};
+        s.run(60);
+        const RigidBody3D* ra = s.world.get<RigidBody3D>(a);
+        const RigidBody3D* rb = s.world.get<RigidBody3D>(b);
+        MESSAGE(std::string(rigid ? "rigid" : "arcade") << ": spin a " << ra->angularVelocity.y << " b " << rb->angularVelocity.y << " deg/s");
+        CHECK(s.count(CollisionEvent::Phase::Begin, false) == 1);
+        if (!rigid) {
+            CHECK(ra->angularVelocity == Vec3{});
+            CHECK(rb->angularVelocity == Vec3{});
+            continue;
+        }
+        // A's tangential velocity at the contact drags B's surface along it: B spins about -y (a hit on B's -x side, 0.3 m
+        // towards +z), A is spun the same way by the reaction. Friction (mu 0.4) removes the whole slip of 5 * 0.3 = 1.5 m/s:
+        // impulse 1.5 / (2/m + 2 r^2 / I) = 0.214, spin 0.214 * r / I = 1.07 rad/s = 61 deg/s each.
+        CHECK(rb->angularVelocity.y == doctest::Approx(-61.3f).epsilon(0.08));
+        CHECK(ra->angularVelocity.y == doctest::Approx(-61.3f).epsilon(0.08));
+        CHECK(std::fabs(rb->angularVelocity.x) < 1e-2f);
+        CHECK(std::fabs(rb->angularVelocity.z) < 1e-2f);
+        // nothing but the two spheres exchanged impulses: total angular momentum about the origin stays 0 (I = 2/5 m r^2)
+        const float inertia = 0.4f * 1.0f * 0.25f;
+        Vec3 total{};
+        for (Entity e : {a, b}) {
+            const RigidBody3D* body = s.world.get<RigidBody3D>(e);
+            total += cross(pos_of(s.world, e), body->velocity) + body->angularVelocity * kDegToRad * inertia;
+        }
+        CHECK(length(total) < 0.02f);
+    }
 }
