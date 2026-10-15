@@ -1,5 +1,6 @@
 // Windowed application shell on top of sokol_app (desktop + iOS/Android).
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
@@ -103,9 +104,15 @@ void on_frame() {
     if (g.desc.frame) g.desc.frame(dt);
 }
 
+int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
+
 void on_cleanup() {
     if (g.desc.cleanup) g.desc.cleanup();
     g.active = false;
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
+    // macOS: sapp_run() does not return; Cocoa ends the process with 0 right after this callback. Use our code instead.
+    std::exit(exit_code());
+#endif
 }
 
 void on_event(const sapp_event* e) {
@@ -237,7 +244,7 @@ int run_app(const AppDesc& desc) {
 #else
     sapp_desc s = to_sapp_desc(desc);
     sapp_run(&s);
-    return 0;
+    return exit_code();
 #endif
 }
 

@@ -56,9 +56,12 @@ struct AppDesc {
     std::function<void(double dt)> frame;  // once per display frame, dt in seconds (clamped to 0.25)
     std::function<void(const AppEvent&)> event;
     std::function<void()> cleanup;
+    // Process exit code once the window closed (after cleanup); unset = 0. run_app returns it.
+    std::function<int()> exit_code;
 };
 
-// Desktop: blocks until the window closes, returns exit code.
+// Desktop: blocks until the window closes, returns desc.exit_code(). On macOS sapp_run() never returns (Cocoa ends the
+// process after cleanup), so run_app exits the process with that code there: code after run_app does not run.
 // iOS/Android: see player/ — the platform entry point calls this from sokol_main.
 int run_app(const AppDesc& desc);
 
