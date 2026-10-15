@@ -25,7 +25,9 @@ constexpr float kSweepTol = 1e-4f;    // swept contacts are bisected to this dis
 constexpr float kCastSkin = 0.01f;    // shape casts: penetration at `from` up to this is a resting touch, not an overlap
 constexpr float kManifoldGap = 0.003f;  // box-box manifold points this far above the reference face still count (m)
 constexpr int kRigidIterations = 8;     // velocity iterations of the rigid-body solver, per sub-step
-constexpr int kMaxToiEvents = 6;        // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
+constexpr int kMaxToiEvents = 32;       // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
+constexpr float kTouchSkin = 0.002f;    // a swept pair this deep at the start of the move is touching, not overlapping (m)
+constexpr float kTouchGain = 0.0005f;   // ...and counts as hit again once it sinks this much deeper (m)
 constexpr float kWarmRadius = 0.05f;    // a contact point inherits the impulses of the previous sub-step's one this close (m)
 constexpr float kSleepSpeed = 0.05f;    // a body is calm below this speed (m/s; its fastest point counts, spin included)
 constexpr float kTimeToSleep = 0.5f;    // ...and falls asleep, with the bodies it touches, after this long (s)
@@ -127,6 +129,14 @@ Vec3 gyroscopic_step(Vec3 w0, Vec3 inertia, float h) {
     return w1;
 }
 
+// `q` turned by angular velocity `w` (rad/s, world axes) for `seconds`.
+Quat turned(Quat q, Vec3 w, float seconds) {
+    const float len = length(w);
+    if (!(len > 0.0f)) return q;
+    const float half = 0.5f * len * seconds, s = std::sin(half) / len;
+    return normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * q);
+}
+
 // Axis-aligned bounds of a shape (for the sweep broad phase); an unturned box has the identity frame, so this is `half`.
 void bounds_of(const Vec3* ax, bool box, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
     const Vec3 e = !box ? Vec3{radius}
@@ -146,6 +156,7 @@ void Physics3D::reset() {
     lastWorld_ = nullptr;
     nextSeq_ = 1;
     nextSleepGroup_ = 1;
+    carry_ = 0.0f;
     lastGravity_ = {1e30f, 1e30f, 1e30f};
 }
 
@@ -376,35 +387,60 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
     return c;
 }
 
-// First fraction t in (0, 1] of `disp` at which `mover` (centre moved by t * disp) overlaps `target`, found by stepping
-// at most half the mover's smallest extent and bisecting the first overlapping step to kSweepTol (tHit overlaps, by
-// <= ~0.1 mm). False when it never does, or when it already overlaps at t = 0 (that contact is left to the caller).
-// The mover is restored before returning.
-bool Physics3D::sweep(Body& mover, Vec3 disp, const Body& target, float& tHit) {
+// First fraction t in (0, 1] of `disp` at which `mover` (centre moved by t * disp, turned by t * moverSpin) overlaps
+// `target` (turned in place by t * targetSpin), found by stepping at most half the mover's smallest extent and bisecting
+// the first overlapping step to kSweepTol (tHit overlaps, by <= ~0.1 mm). The spins are the rotations (rad, about world
+// axes) a box makes over the whole move; the far end of a turning box counts as travel, so a long thin box spinning
+// fast cannot swing through a wall between two steps. False when it never overlaps, or when it already overlaps at
+// t = 0 by more than kTouchSkin (that contact is left to the caller). Both bodies are restored before returning.
+bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit) {
     const float len = length(disp);
-    if (!(len > 0.0f) || !std::isfinite(len)) return false;
+    const float travel = len + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin);
+    if (!(travel > 0.0f) || !std::isfinite(travel)) return false;
     Vec3 mlo, mhi, tlo, thi;
     bounds_of(mover.ax, mover.box, mover.center, mover.half, mover.radius, mlo, mhi);
     bounds_of(target.ax, target.box, target.center, target.half, target.radius, tlo, thi);
+    if (moverSpin != Vec3{}) { mlo = mover.center - Vec3{length(mover.half)}; mhi = mover.center + Vec3{length(mover.half)}; }
+    if (targetSpin != Vec3{}) { tlo = target.center - Vec3{length(target.half)}; thi = target.center + Vec3{length(target.half)}; }
     const Vec3 slo = min(mlo, mlo + disp), shi = max(mhi, mhi + disp);  // broad phase: swept bounds vs target bounds
     if (slo.x > thi.x || shi.x < tlo.x || slo.y > thi.y || shi.y < tlo.y || slo.z > thi.z || shi.z < tlo.z)
         return false;
     const float extent = mover.box ? 2.0f * std::min({mover.half.x, mover.half.y, mover.half.z}) : 2.0f * mover.radius;
-    const float steps = std::min(std::ceil(len / (0.5f * extent)), 100000.0f);
+    const float steps = std::min(std::ceil(travel / (0.5f * extent)), 100000.0f);
     const int n = std::max(int(steps), 1);
     const Vec3 from = mover.center;
+    const Vec3 moverAx[3] = {mover.ax[0], mover.ax[1], mover.ax[2]}, targetAx[3] = {target.ax[0], target.ax[1], target.ax[2]};
+    const bool moverRotated = mover.rotated, targetRotated = target.rotated;
+    auto turn = [](Body& b, Vec3 spin, float t) {  // the collision frame of b after t of its spin
+        if (spin == Vec3{}) return;
+        axes_of(turned(b.orient, spin, t), b.ax);
+        b.rotated = true;
+    };
+    // A pair that touches at the start (the previous impact left it ~0.1 mm in) is swept too: it only counts as hit once it
+    // sinks kTouchGain deeper, so the rest of a sub-step after an impact still catches the next one (a box pivoting
+    // about the corner that hit swings its far end into the wall). Deeper than kTouchSkin = a real overlap: the solver's.
+    float limit = -1e30f;  // penetration depth beyond which the mover counts as overlapping
     auto overlaps = [&](float t) {
         mover.center = from + disp * t;
-        return collide(target, mover, 0.0f).hit;
+        turn(mover, moverSpin, t);
+        turn(target, targetSpin, t);
+        const Contact c = collide(target, mover, 0.0f);
+        return c.hit && c.depth > limit;
     };
     bool found = false;
-    if (!overlaps(0.0f)) {
+    bool overlapping = false;
+    {
+        const Contact c0 = collide(target, mover, 0.0f);
+        if (c0.hit && c0.depth > kTouchSkin) overlapping = true;
+        else if (c0.hit) limit = c0.depth + kTouchGain;
+    }
+    if (!overlapping) {
         float lo = 0.0f;
         for (int i = 1; i <= n && !found; ++i) {
             const float t = float(i) / float(n);
             if (!overlaps(t)) { lo = t; continue; }
             float hi = t;
-            for (int k = 0; k < 32 && (hi - lo) * len > kSweepTol; ++k) {
+            for (int k = 0; k < 32 && (hi - lo) * travel > kSweepTol; ++k) {
                 const float mid = 0.5f * (lo + hi);
                 if (overlaps(mid)) hi = mid;
                 else lo = mid;
@@ -414,6 +450,9 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, const Body& target, float& tHit) {
         }
     }
     mover.center = from;
+    for (int i = 0; i < 3; ++i) { mover.ax[i] = moverAx[i]; target.ax[i] = targetAx[i]; }
+    mover.rotated = moverRotated;
+    target.rotated = targetRotated;
     return found;
 }
 
@@ -579,11 +618,8 @@ void Physics3D::refresh_frame(Body& b) {
 
 // Turns a rotating box by its angular velocity for `seconds` (about its centre, world axes).
 void Physics3D::integrate_orient(Body& b, float seconds) {
-    const Vec3 w = b.angVel * kDegToRad;
-    const float len = length(w);
-    if (!(len > 0.0f)) return;
-    const float half = 0.5f * len * seconds, s = std::sin(half) / len;
-    b.orient = normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * b.orient);
+    if (!(length_sq(b.angVel) > 0.0f)) return;
+    b.orient = turned(b.orient, b.angVel * kDegToRad, seconds);
     b.rotDirty = true;
     refresh_frame(b);
 }
@@ -807,8 +843,12 @@ void Physics3D::step(World& world, float dt) {
     // the smaller body's half extent per sub-step. The pair is swept in relative motion: the smaller body moves by
     // disp[mover] - disp[target] against the other one standing still at its start position, so two fast dynamic bodies
     // and a fast kinematic body against a dynamic one are caught as well as a dynamic body against a static wall.
-    // Pairs that already overlap at the start are left to the contact solver.
-    auto first_impact = [&]() {
+    // A rotating box also sweeps through the turn it makes within `span` (its far end can travel more than its centre).
+    // Pairs that already overlap at the start (deeper than a touch) are left to the contact solver.
+    auto first_impact = [&](float span) {
+        auto spin_over = [&](const Body& b) {
+            return b.box && b.rotDyn && live_dyn(b) ? b.angVel * (kDegToRad * span) : Vec3{};  // a sphere turns in place
+        };
         float tFirst = 1.0f;
         for (std::size_t i = 0; i < n; ++i) {
             Body& a = bodies_[i];
@@ -820,11 +860,14 @@ void Physics3D::step(World& world, float dt) {
                 if ((!dynA && !dynB) || !filters_pass(a, b)) continue;
                 const bool bMoves = !dynA || (dynB && half_extent(b) < half_extent(a));  // b is the mover
                 Body& mover = bMoves ? b : a;
-                const Body& target = bMoves ? a : b;
+                Body& target = bMoves ? a : b;
                 const Vec3 rel = bMoves ? disp[k] - disp[i] : disp[i] - disp[k];
+                const Vec3 moverSpin = spin_over(mover), targetSpin = spin_over(target);
                 const float he = half_extent(mover);
                 float t = 1.0f;
-                if (length_sq(rel) > he * he && sweep(mover, rel, target, t) && t < tFirst) tFirst = t;
+                if (length(rel) + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin) > he &&
+                    sweep(mover, rel, moverSpin, target, targetSpin, t) && t < tFirst)
+                    tFirst = t;
             }
         }
         return tFirst;
@@ -954,14 +997,19 @@ void Physics3D::step(World& world, float dt) {
         // Motion with continuous collision. The bodies advance together up to the first impact (a time of impact), the
         // contacts are resolved there (the velocity of the hit bodies changes: stop, bounce, slide), and the rest of the
         // sub-step continues with the new velocities, so a fast body keeps sliding along the surface it hit.
-        float remaining = 1.0f;
+        float remaining = 1.0f + carry_;  // plus what the previous sub-step had no impacts left to move
+        carry_ = 0.0f;
         for (int event = 0;; ++event) {
+            if (event == kMaxToiEvents) {  // more impacts than this sub-step can resolve: the rest of the move waits
+                carry_ = std::min(remaining, 1.0f);
+                break;
+            }
             const float span = h * remaining;
             for (std::size_t i = 0; i < n; ++i) {
                 const Body& b = bodies_[i];
                 disp[i] = (b.enabled && movable(b) && !b.asleep) ? b.vel * span : Vec3{};
             }
-            const float tHit = event < kMaxToiEvents ? first_impact() : 1.0f;
+            const float tHit = first_impact(span);
             for (std::size_t i = 0; i < n; ++i) {
                 Body& b = bodies_[i];
                 if (!b.enabled || !movable(b)) continue;
@@ -1212,7 +1260,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
     const std::uint64_t qmask = mask_bits(opt.mask);
     float bestT = 2.0f;
     const Body* best = nullptr;
-    for (const Body& b : bodies_) {
+    for (Body& b : bodies_) {  // (sweep restores what it touches)
         if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
@@ -1227,7 +1275,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
             continue;
         }
         float t = 0.0f;
-        if (sweep(probe, disp, b, t) && t < bestT) {
+        if (sweep(probe, disp, {}, b, {}, t) && t < bestT) {
             bestT = t;
             best = &b;
         }
