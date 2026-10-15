@@ -5,13 +5,16 @@ name: CI
 
 # All five platforms on GitHub-hosted runners (standard hosted runners are free
 # for public repositories). Runs once per change: on pull requests (every push to
-# a PR branch) and on pushes to main. Pushing to a branch without a PR does not
-# trigger a run, so PR branches are not built twice; use "Run workflow"
-# (workflow_dispatch) for those. The same checks can run locally with
+# a PR branch), on pushes to main and on `v*` tags. Pushing to a branch without a
+# PR does not trigger a run, so PR branches are not built twice; use "Run
+# workflow" (workflow_dispatch) for those. The same checks can run locally with
 # ./scripts/ci-local.sh (see docs/BUILDING.md).
+# Each run only builds what the change can break, and `CI result` is the check that
+# auto-merge waits for: docs/BUILDING.md, "Continuous integration".
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -24,10 +27,44 @@ permissions:
   contents: read
 
 jobs:
+  # What this change needs: `code` (anything but docs) for the desktop jobs, `mobile` for the iOS and Android ones.
+  changes:
+    name: What changed
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      mobile: ${{ steps.diff.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the base commit of the diff
+
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          # Tags, "Run workflow" and pushes without a usable base (git diff fails) run everything.
+          if [[ "$GITHUB_REF" == refs/tags/* ]] || ! files="$(git diff --name-only "$BASE" HEAD)"; then
+            echo "Everything runs ($GITHUB_EVENT_NAME $GITHUB_REF)"
+            { echo "code=true"; echo "mobile=true"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$files"
+          docs='^(docs/|feedback/|[^/]+\.md$|LICENSE$)'
+          # The mobile jobs build the engine and player, export a game made from templates/ with the CLI, and run the
+          # smoke scripts.
+          mobile='^(engine/|player/|platforms/|external/|cmake/|templates/|tools/common/|tools/cli/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|\.github/workflows/ci\.yml$)'
+          if grep -Evq "$docs" <<< "$files"; then code=true; else code=false; fi
+          if grep -Eq "$mobile" <<< "$files"; then mobile=true; else mobile=false; fi
+          echo "code=$code mobile=$mobile"
+          { echo "code=$code"; echo "mobile=$mobile"; } >> "$GITHUB_OUTPUT"
+
   # Linux: GCC + Ninja. Tests run under Xvfb with Mesa llvmpipe, so headless
   # GPU code gets a software OpenGL/EGL renderer.
   linux:
     name: Linux (Ubuntu 24.04, GCC)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -68,6 +105,8 @@ jobs:
   # One command per step, so a failing command fails the step (PowerShell).
   windows:
     name: Windows (Visual Studio 2022, MSVC)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
     timeout-minutes: 60
     steps:
@@ -115,6 +154,8 @@ jobs:
   # -LE gpu while hosted runners cannot run them; drop the flag once they can.
   macos:
     name: macOS (Apple Clang, Ninja)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -155,6 +196,8 @@ jobs:
   # ccache here: launcher support with the Xcode generator is not reliable.
   ios-build:
     name: iOS Simulator build (Xcode)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -193,6 +236,8 @@ jobs:
   # Touch is not covered: simctl cannot inject it (docs/MOBILE.md).
   ios:
     name: iOS Simulator (run the app)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
     permissions:
@@ -226,6 +271,8 @@ jobs:
   # Android: arm64-v8a player library with the preinstalled NDK on the runner.
   android:
     name: Android arm64 (NDK, Ninja)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -265,6 +312,8 @@ jobs:
   # (AGP 8.5 + NDK + CMake 3.31 from the SDK). Slow: builds the host tools and the engine for two ABIs.
   android-apk:
     name: Android APK (factoria export + Gradle)
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -366,3 +415,14 @@ jobs:
           path: build/android-smoke
           if-no-files-found: ignore
           retention-days: 7
+
+  # The one check main's branch protection requires: every job that ran passed (a skipped job had nothing to check).
+  result:
+    name: CI result
+    if: always()
+    needs: [changes, linux, windows, macos, ios-build, ios, android, android-apk, android-emulator]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail if a job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
