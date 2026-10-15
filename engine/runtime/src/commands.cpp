@@ -390,7 +390,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"scene.load", "Replace the running scene with a scene file.",
-           "Loads immediately (outside a frame) or at the end of the current frame. Load problems are returned in "
+           "Loads immediately (outside a frame) or at the end of the current frame. Like scene.reload it first re-reads script modules "
+           "and factoria.json input actions that changed on disk and clears script errors. Load problems are returned in "
            "`messages`. Example: scene.load {\"path\":\"scenes/level2.scene.json\"}",
            parse_schema(R"({"type":"object","required":["path"],"properties":{
                "path":{"type":"string","description":"Project-relative scene path."}}})"),
@@ -433,7 +434,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"scene.reload", "Reload the current scene from disk (discards runtime changes).",
-           "Resets the world to the saved scene file. Example: scene.reload {}",
+           "Resets the world to the saved scene file. Also re-reads what changed on disk: script modules (and the modules importing "
+           "them), factoria.json input actions, fixedHz and deadzone; script errors are cleared. Example: scene.reload {}",
            parse_schema(R"({"type":"object","properties":{}})"), false, "scene"},
           [&engine, &I](const Json&) {
               if (I.currentScene.empty()) throw CommandError("unavailable", "No scene is loaded.", "Use scene.load first.");
@@ -444,6 +446,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     register_level_commands(engine, I);       // scene.import_ascii
     register_scene_file_commands(engine, I);  // prefab.save, scene.format
+    register_play_session_commands(engine, I);  // play.sessions, play.report
 
     // --------------------------------------------------------------------- game
     I.commands.add({"game.step", "Advance the simulation by N fixed frames (deterministic) and return a state summary.",
@@ -627,8 +630,21 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"value", r.value()}});
           });
 
+    I.commands.add({"script.reload", "Re-import script modules edited on disk and restart the behaviours (the world is kept).",
+           "scene.load and scene.reload already re-import every module whose file changed (by modification time) and clear "
+           "the script errors; use this to do the same without reloading the scene (entity state is kept, onStart runs "
+           "again), or with `force` to re-import every module even if no file changed. Example: script.reload {}",
+           parse_schema(R"({"type":"object","properties":{
+               "force":{"type":"boolean","default":false,"description":"Re-import all modules, not only the changed ones."}}})"),
+           false, "script"},
+          [&engine, &I](const Json& a) {
+              std::vector<std::string> files = I.scripts.refresh_modules(a.value("force", false));
+              I.scripts.on_scene_loaded();
+              return Json::object({{"reloaded", files}, {"errors", I.scripts.errors().size()}});
+          });
+
     I.commands.add({"script.errors", "List script errors (load/runtime) and scene load problems.",
-           "Clear them with a scene reload. Example: script.errors {}",
+           "Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "script"},
           [&engine, &I](const Json&) {
               Json errs = Json::array();
@@ -646,6 +662,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "files":{"type":"array","items":{"type":"string"},"description":"Test files (default: tests/*.test.js)."}}})"),
            false, "project"},
           [&engine, &I](const Json& a) {
+              I.refresh_from_disk();  // factoria.json input actions and edited scripts, like a scene load
               std::vector<std::string> files;
               if (a.contains("files") && a["files"].is_array())
                   for (const Json& f : a["files"]) files.push_back(f.get<std::string>());

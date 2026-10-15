@@ -49,6 +49,28 @@ TEST_CASE("fs: sandbox rejects escapes with helpful errors") {
     CHECK(resolve_project_path(f.tmp.str(), "scripts/a.js").ok());
 }
 
+TEST_CASE("fs.write: base64 encoding writes binary files") {
+    FsFixture f;
+    // 1x1 PNG
+    const std::string b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    auto w = f.reg.call("fs.write", {{"path", "sprites/dot.png"}, {"content", b64}, {"encoding", "base64"}});
+    REQUIRE(w.ok);
+    std::string bytes = testing::read_all(f.tmp.path / "sprites/dot.png");
+    CHECK(w.result["bytes"] == bytes.size());
+    REQUIRE(bytes.size() > 24);
+    CHECK(bytes.substr(1, 3) == "PNG");
+    auto be32 = [&](size_t o) { return (unsigned char)bytes[o] << 24 | (unsigned char)bytes[o + 1] << 16 | (unsigned char)bytes[o + 2] << 8 | (unsigned char)bytes[o + 3]; };
+    CHECK(be32(16) == 1);  // IHDR width
+    CHECK(be32(20) == 1);  // IHDR height
+
+    auto bad = f.reg.call("fs.write", {{"path", "sprites/bad.png"}, {"content", "iVBO!Rw0K"}, {"encoding", "base64"}});
+    CHECK_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("character 4") != std::string::npos);
+    CHECK(bad.error["hint"].get<std::string>().size() > 5);
+    CHECK_FALSE(stdfs::exists(f.tmp.path / "sprites/bad.png"));
+    CHECK_FALSE(f.reg.call("fs.write", {{"path", "x.bin"}, {"content", "AA"}, {"encoding", "hex"}}).ok);
+}
+
 TEST_CASE("fs: list read write edit delete") {
     FsFixture f;
     auto list = f.reg.call("fs.list", {{"recursive", true}});

@@ -26,7 +26,7 @@ what it did. View > Reset layout restores this layout (`~/.factoria/editor_layou
 | Panel | What it does |
 |---|---|
 | Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot; Undo, Redo. |
-| Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` included). Click an entity to select it: the selection outline shows what you point at. |
+| Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` included). Click an entity to select it: the selection outline shows what you point at. Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
@@ -101,6 +101,24 @@ clip loaded. While the game runs it asks only for plays newer than the last one 
 and **Clear** keep it readable; a clip that failed to load (`ok: false`) is highlighted in red, because a wrong path is silent in the
 game itself.
 
+## Play sessions
+
+Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switch on.
+
+- **While you play**: the editor records the input it feeds the game, the frame times, and the warnings and errors that are logged.
+- **F9 marks a problem** (the toolbar shows "F9 marks a problem" while the game runs). The game pauses on that frame, a screenshot is taken
+  and a small window asks for a one-line note. **Enter** saves the mark and the game continues; **Esc** discards it.
+- **On Stop** the session is written to `.factoria/sessions/<yyyymmdd-hhmmss>/`:
+  `session.json` (scene, duration, frames, frame time avg/p95/max and frames over 16.7 / 33 ms, the 10 slowest frames with entity count and
+  render stats, warnings/errors, marks), `input.json` (the input in the replay format of `factoria run --headless --input`) and
+  `mark-<n>.png`. Frame numbers are the same in all of them. Input is replayed per engine frame, so a session that ran below the fixed rate
+  (several fixed steps in one frame) replays close to, not exactly, what happened. Mouse wheel and typed text are not recorded.
+- **Tell the AI**: after Stop, if the session has marks or errors, the AI Assistant panel shows a line with an **Attach** button. The
+  **Attach last play session** button next to **Attach image...** does the same at any time: it adds a short summary (performance, errors, your
+  notes) to the message and the mark screenshots as pictures.
+- **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path.
+  The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
+
 ## Testing the editor
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed (`tools/editor/src/editor_tools.*`), picking geometry
@@ -111,3 +129,5 @@ game itself.
   tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint. It checks the result after
   every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`).
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`.
+
+The AI's commands run on the editor's main thread, but never for long at a time: queued commands share about 10 ms per frame, and `game.step` with many frames and `project.test` run in slices (frames / one test file per UI frame) so the window stays responsive while the AI works. The results are the same as a single call.

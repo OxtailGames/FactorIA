@@ -22,6 +22,10 @@ is text; you never need a GUI. The full guide is `factoria docs read ai-guide` (
 
 Small steps: change one thing, validate, run, look. Commit-sized increments.
 
+When the user says they played the game (in the editor) and found problems (slow, ugly UI, bugs),
+call `play.report` (MCP: `play_report`) first: it has the frame times, errors, the user's notes and
+screenshots, and an input replay of their session (`factoria run --headless --input <replay>`).
+
 ## Where things live
 
 | Path | What |

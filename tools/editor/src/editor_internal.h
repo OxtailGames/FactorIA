@@ -34,6 +34,7 @@
 #include "fa/editor/editor.h"
 #include "fa/mcp/http_server.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/play_session.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/tooling.h"
@@ -42,6 +43,7 @@
 #include "editor_tools.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include "play_recorder.h"
 
 struct sapp_event;
 
@@ -56,8 +58,12 @@ public:
     // Called from worker threads. Blocks until the main thread ran the command, the queue was
     // closed, or `cancel` became true.
     CommandResult call(const std::string& name, const Json& args, const std::atomic<bool>* cancel);
-    // Main thread: runs every queued job (each through `run`). Returns how many ran.
-    int pump(const std::function<CommandResult(const std::string&, const Json&)>& run);
+    // Main thread: runs queued jobs (each through `run`) until `budgetMs` is used up (at least one job runs; the rest
+    // stay queued for the next frame so the UI keeps updating). Returns how many ran. `run` may call take_current() and
+    // return nullopt: it then owns the reply and must fulfil the promise later (sliced long commands).
+    int pump(const std::function<std::optional<CommandResult>(const std::string&, const Json&)>& run, double budgetMs = 1e9);
+    // Inside `run`: takes over the promise of the job being run.
+    std::shared_ptr<std::promise<CommandResult>> take_current() { return std::move(current_); }
     void close();   // fails pending and future calls (editor shutting down / project switch)
     void reopen();
 
@@ -69,6 +75,7 @@ private:
     };
     std::mutex mu_;
     std::deque<Job> jobs_;
+    std::shared_ptr<std::promise<CommandResult>> current_;
     bool closed_ = false;
 };
 
@@ -142,6 +149,16 @@ public:
     void pause();
     void step_once();
     void stop();
+
+    // ---------------------------------------------------------------- play sessions (play_session.cpp)
+    // Play .. Stop is recorded (input, frame times, warnings/errors, F9 marks) and written to .factoria/sessions/<name>/ at Stop.
+    void session_begin();
+    void session_end();
+    void session_frame(double dt, std::uint64_t frameBefore);  // after Engine::frame while Playing
+    void mark_problem();                                       // F9: pause, screenshot, ask for a note
+    void mark_finish(bool save);
+    void draw_mark_popup();
+    void ai_attach_last_session();                             // summary into the message + mark pictures
 
     // ---------------------------------------------------------------- selection & edits
     // The selection is what the user points at in the viewport for the AI; nothing edits it by hand.
@@ -225,7 +242,22 @@ public:
     bool uiUp_ = false;
     bool dirty_ = false;
     PlayState play_ = PlayState::Edit;
+    struct PlayRun {
+        bool active = false;
+        PlaySession session;
+        PlayRecorder rec;
+        std::vector<double> frameMs;
+        std::uint64_t startFrame = 0, logSeq = 0;
+        bool skipNext = true;  // the first frame after Play / Resume is not a frame time (scene restore, popup)
+    } run_;
+    bool markOpen_ = false, markFocus_ = false;
+    std::string markNote_;
+    PlayMark markPending_;
+    std::string playNotice_;  // offered in the AI panel after Stop when the session has marks or errors ("" = none)
     int stepPending_ = 0;
+    // A long AI command (game.step with many frames, project.test) run one slice per UI frame; returns true when done.
+    std::function<bool()> slicedJob_;
+    std::optional<CommandResult> run_queued(const std::string& name, const Json& args);
     Json playSnapshot_;
     std::string selectedId_;
     std::vector<Json> undo_, redo_;
@@ -244,6 +276,7 @@ public:
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
     ImVec2 vpImageMin_{0, 0}, vpImageSize_{1, 1};
     bool vpHovered_ = false, vpFocused_ = false;
+    bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
     bool showOverlay_ = true;

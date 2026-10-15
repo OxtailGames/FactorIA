@@ -474,6 +474,7 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
         auto* jm = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(jf));
         JS_FreeValue(ctx, jf);
         everLoaded.insert(file);
+        moduleMtime[file] = fs::modified_time(file);
         return jm;
     }
     JSValue func = JS_Eval(ctx, text->c_str(), text->size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -481,6 +482,7 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
     auto* m = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(func));
     JS_FreeValue(ctx, func);
     everLoaded.insert(file);
+    moduleMtime[file] = fs::modified_time(file);
     return m;
 }
 
@@ -757,6 +759,24 @@ const std::vector<ScriptError>& ScriptSystem::errors() const { return impl_->err
 void ScriptSystem::clear_errors() {
     impl_->errors.clear();
     impl_->loggedKeys.clear();
+}
+std::vector<std::string> ScriptSystem::refresh_modules(bool force) {
+    Impl& I = *impl_;
+    std::vector<std::string> stale;
+    if (!I.initialized) return stale;
+    for (const std::string& f : I.everLoaded) {
+        auto it = I.moduleMtime.find(f);
+        if (force || it == I.moduleMtime.end() || it->second != fs::modified_time(f)) stale.push_back(f);
+    }
+    bool toolsAffected = false;
+    for (const std::string& f : stale)
+        for (const std::string& p : I.bump_module_versions(f)) {
+            I.moduleMtime[p] = fs::modified_time(p);
+            if (p.rfind("tools/", 0) == 0) toolsAffected = true;
+        }
+    clear_errors();  // before reload_tools, which may record fresh errors
+    if (toolsAffected) I.reload_tools();
+    return stale;
 }
 void ScriptSystem::reload_module(std::string_view modulePath) {
     if (impl_->initialized) impl_->reload_module(modulePath);
