@@ -8,7 +8,7 @@
 //                     the engine VFS needs to enumerate files inside an APK: one project-relative path per line)
 //   ios             : <out>/<slug>-ios/{game/..., build_ios.sh}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
-// Never shipped: .factoria/, tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
+// Never shipped: .factoria/, build/ (earlier exports), tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
 // jsconfig.json, every dot-file/dot-folder, and the output folder itself.
 #pragma once
 
@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
 
@@ -43,6 +44,10 @@ Result<ExportReport> export_project(const ExportOptions& options);
 
 // Normalizes "win"/"mac"/"osx"/"Linux" -> "windows"/"macos"/"linux"; "" if unknown.
 std::string normalize_export_platform(const std::string& name);
+
+// Registers command "project.export" (-> MCP tool project_export, `factoria call`, editor console, fa.call) for the
+// project at `projectDir`. It runs export_project() and returns ExportReport::to_json().
+void register_export_commands(CommandRegistry& registry, const std::string& projectDir);
 
 // Folder of the running executable (factoria finds factoria_player there; the editor updates its files).
 std::filesystem::path executable_dir();

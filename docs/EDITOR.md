@@ -70,8 +70,8 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   A big picture (a 4K screenshot) is scaled down to 1568 px on its long side, what the model looks at anyway, so it costs
   fewer tokens and stays under the API's 5 MB limit.
 - **Usage** (above the transcript): Session (5h) and Week plan limits with the reset time, the model's Context, Tokens
-  and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported
-  (kept in `~/.factoria/ai_limits.json`).
+  and the estimated Cost of the chat. Hover a line for details. The limits are the last ones the provider reported in
+  this run of the editor; they show after the first message.
 - **Selection:** the entity selected in the viewport (click it) is named to the AI in each message.
 - **Claude Code** runs its own loop in a child process, but its tools are the editor's: the editor serves MCP on a loopback
   port (`http://127.0.0.1:<port>/mcp/<token>`) and the MCP config it writes for the CLI points there. Its tool calls run on

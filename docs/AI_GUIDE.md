@@ -112,6 +112,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `docs_list`, `docs_read`, `docs_search`, `docs_components`, `docs_commands` | `docs.*` | Read the built-in docs, the component reference and the command list. |
 | `project_validate` | `project.validate` | Check the whole project. Returns `ok`, `errors[]`, `warnings[]`; each issue has `file`, `pointer`, `message` and `hint`. It loads every `*.scene.json` and `*.prefab.json` of the project wherever it is kept (not only `scenes/` and `prefabs/`; hidden folders, `node_modules` and a top-level `build/` are skipped), each prefab on its own too, so a value outside a field's range (`Shape2D.sides` 200 when the range is 3..64) is an error with the JSON pointer and the allowed range. Nothing is clamped: fix the value. |
 | `project_test` | `project.test` | Run `tests/*.test.js` headless, optionally `{"filter":"player"}`. Tests change the running world, so call `scene_reload` afterwards. |
+| `project_export` | `project.export` | Package the game: `{"platform":"windows","release":true}` (all optional: `platform` default this machine, `out` parent folder relative to the project, `release`). Desktop needs the `factoria_player` next to the running binary, Android writes a Gradle project. Returns `outputDir`, `files`, `nextSteps`, `warnings`. See `docs_read {"name":"exporting"}`. |
 | `scene_list_entities` | `scene.list_entities` | List entities. Filters: `name` (substring), `tag`, `component`, `limit`. |
 | `scene_get_entity` | `scene.get_entity` | One entity with every field, by `id` (or name). |
 | `scene_spawn` | `scene.spawn` | Create an entity: `{"prefab":"prefabs/enemy.prefab.json","position":[300,0]}`, or entity JSON with `name`, `tags`, `components` and an optional `parent` id. |
@@ -450,7 +451,7 @@ const coin = world.spawn({
 }, { parent: "level" });   // optional: parent is an Entity or an id; position is local to it
 ```
 
-`props` in the spawn options is merged into the entity's `Script.props`. `destroy()` is deferred to the end of the frame. Destroy the entities you no longer need, so that spawners do not fill the scene.
+`props` in the spawn options is merged into the entity's `Script.props`. `destroy()` is deferred to the end of the frame, but the entity leaves physics at once (no collisions, no raycast or overlap hits), so you may destroy rigid bodies and spawn replacements at the same positions in the same frame. Destroy the entities you no longer need, so that spawners do not fill the scene.
 
 ### 9.4 HUD pinned to the screen corners
 

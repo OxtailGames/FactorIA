@@ -253,6 +253,9 @@ TEST_CASE("mcp: tool calls through the real tooling commands") {
                                          {"missing", "needed one-way"}, {"workaround", "script"}})["result"];
     CHECK(fb["isError"] == false);
     CHECK(fb["structuredContent"]["id"] == "FB-0001");
+    // project.export is a registered tooling command, so it is an MCP tool (an unknown platform is a tool error).
+    Json ex = f.call("project_export", {{"platform", "amiga"}})["result"];
+    CHECK(ex["isError"] == true);
 }
 
 TEST_CASE("mcp: resources list and read") {

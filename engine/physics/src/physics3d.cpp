@@ -371,7 +371,7 @@ void Physics3D::sync(World& world) {
     for (Entity e : world.entities()) {
         RigidBody3D* rb = world.get<RigidBody3D>(e);
         Collider3D* col = world.get<Collider3D>(e);
-        if (!rb && !col) continue;
+        if ((!rb && !col) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
         const std::uint64_t key = e.bits();
         WorldPose pose = world_pose(world, e);
         auto it = index_.find(key);
@@ -481,11 +481,11 @@ void Physics3D::sync(World& world) {
     }
     // Sweep destroyed entities / removed components, keeping creation order.
     bool any = false;
-    for (const Body& b : bodies_) if (b.seen != stamp || !world.alive(b.e)) { any = true; break; }
+    for (const Body& b : bodies_) if (b.seen != stamp || !live(world, b.e)) { any = true; break; }
     if (any) {
         std::vector<Body> kept;
         kept.reserve(bodies_.size());
-        for (Body& b : bodies_) if (b.seen == stamp && world.alive(b.e)) kept.push_back(std::move(b));
+        for (Body& b : bodies_) if (b.seen == stamp && live(world, b.e)) kept.push_back(std::move(b));
         bodies_ = std::move(kept);
         index_.clear();
         for (std::size_t i = 0; i < bodies_.size(); ++i) index_[bodies_[i].e.bits()] = i;
@@ -906,7 +906,7 @@ void Physics3D::step(World& world, float dt) {
     }
     for (auto& [key, st] : touching_) {
         if (cur.count(key)) continue;
-        if (!world.alive(st.a) || !world.alive(st.b)) continue;
+        if (!live(world, st.a) || !live(world, st.b)) continue;
         CollisionEvent ev;
         ev.phase = CollisionEvent::Phase::End;
         ev.a = st.a;
@@ -980,7 +980,7 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
     const Body* best = nullptr;
     Vec3 bestN;
     for (const Body& b : bodies_) {
-        if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers)) continue;
+        if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
         // A turned box is tested in its own frame (same distances); an unturned one in world space, exactly as before.
@@ -1067,7 +1067,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
     float bestT = 2.0f;
     const Body* best = nullptr;
     for (const Body& b : bodies_) {
-        if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !world.alive(b.e)) continue;
+        if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
         // At `from`, like the 2D cast: a collider penetrated deeper than the skin is skipped; one only touched (a body
@@ -1104,7 +1104,7 @@ bool Physics3D::is_touching(World& world, Entity e, Vec3 dir, float tolerance) {
     if (!a.enabled || !a.hasShape || a.trigger || length_sq(dir) < 1e-12f) return false;
     dir = normalize(dir);
     for (const Body& b : bodies_) {
-        if (&b == &a || !b.enabled || !b.hasShape || b.trigger || !world.alive(b.e)) continue;
+        if (&b == &a || !b.enabled || !b.hasShape || b.trigger || !live(world, b.e)) continue;
         if (!filters_pass(a, b)) continue;
         Contact c = collide(a, b, std::max(tolerance, 0.0f));
         if (c.hit && dot(c.normal, dir) > 0.7f) return true;
@@ -1121,7 +1121,7 @@ std::vector<Entity> Physics3D::overlap_sphere(World& world, Vec3 center, float r
     probe.center = center;
     const std::uint64_t qmask = mask_bits(mask);
     for (const Body& b : bodies_) {
-        if (!b.enabled || !b.hasShape || !world.alive(b.e)) continue;
+        if (!b.enabled || !b.hasShape || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         Contact c = collide(probe, b, 0.0f);
         if (c.hit && c.depth >= 0.0f) out.push_back(b.e);
@@ -1192,7 +1192,7 @@ void Physics3D::debug_state(const World& world, Json& out) const {
 
 void Physics3D::debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const {
     for (const Body& b : bodies_) {
-        if (!b.enabled || !b.hasShape || !world.alive(b.e)) continue;
+        if (!b.enabled || !b.hasShape || !live(world, b.e)) continue;
         if (b.box) {
             const Vec3 rot = b.rotated ? euler_of(b.ax) : Vec3{};
             out.push_back({Physics::DebugShape::Box, b.center, b.half * 2.0f, rot.z, b.trigger, rot});

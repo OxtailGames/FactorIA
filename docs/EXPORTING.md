@@ -18,10 +18,24 @@ The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
 export. `--json` prints the report: `outputDir`, `files`, `nextSteps`, `warnings`.
 
+## From an AI: `project.export`
+
+The same export is the command `project.export` (MCP tool `project_export`, also `factoria call project.export`, the
+editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
+Gradle project without a shell. Arguments are all optional: `platform` (default: this machine), `out` (parent folder,
+relative to the project and inside it like the `fs.*` commands, default `build/export`) and `release`. It returns the report
+(`outputDir`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
+`--player` and `--engine-root` are CLI-only: the command uses the `factoria_player` next to the running binary and
+`$FACTORIA_ENGINE_DIR`.
+
+```
+project_export {"platform":"windows","release":true}
+```
+
 ## What is shipped (and what is not)
 
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
-(`.git`, `.mcp.json`, `.gitignore`), `tests/`, `tools/`, `types/`,
+(`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
 `AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
 project is never modified; the feedback file stays in the repository.

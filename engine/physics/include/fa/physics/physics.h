@@ -19,6 +19,8 @@
 //     the body and every body touching it, so a body that fell asleep falls again from its new place, and bodies
 //     asleep on a platform that was moved away do not hover; isGrounded() reflects the new place after one step.
 //     Inactive entities (active_in_hierarchy == false) have their body disabled.
+//   * An entity marked by World::destroy() (pending_destroy) is gone for physics at once, although the world erases it
+//     only at flush(): its body is removed at the next sync/step and queries, contacts and events already ignore it.
 //   * Collider2D.layer is the category bit (1 << layer), mask the accepted categories (-1 = all). Triggers
 //     (isTrigger) are sensors: they never collide, and are invisible to raycasts; overlap_* queries DO report
 //     them. Sensors only detect non-sensor shapes (two triggers never report each other).

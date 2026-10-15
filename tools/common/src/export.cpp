@@ -9,6 +9,8 @@
 #include <set>
 
 #include "fa/core/json.h"
+#include "fa/core/strings.h"
+#include "fa/tooling/project_fs.h"
 #include "util.h"
 
 #if defined(_WIN32)
@@ -178,8 +180,8 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
 // ---- game file collection ----------------------------------------------------------------------
 
 bool excluded_top_level(const std::string& name, const std::string& feedbackFile) {
-    static const std::set<std::string> names = {"tests", "tools", "types", "node_modules", "AGENTS.md", "CLAUDE.md",
-                                                "jsconfig.json", "ENGINE_FEEDBACK.json"};
+    static const std::set<std::string> names = {"build", "tests", "tools", "types", "node_modules", "AGENTS.md",
+                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json"};
     return names.count(name) > 0 || name == feedbackFile;
 }
 
@@ -546,6 +548,48 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     report.outputDir = generic(outRoot);
     report.files = list_files(outRoot);
     return report;
+}
+
+void register_export_commands(CommandRegistry& registry, const std::string& projectDir) {
+    CommandInfo info;
+    info.name = "project.export";
+    info.category = "project";
+    info.readOnly = false;
+    info.summary = "Package the game for a platform: a desktop bundle, or an Android/iOS project.";
+    info.description =
+        "Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh "
+        "<out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). "
+        "linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so "
+        "exporting for another OS than this machine's fails with a hint. android: a complete Gradle project (needs the "
+        "engine source checkout, $FACTORIA_ENGINE_DIR). ios: the game plus build_ios.sh. Returns {outputDir, files[], "
+        "nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the Gradle build command). Nothing is built or "
+        "signed here. Details: docs_read {\"name\":\"exporting\"}. Example: {\"platform\":\"windows\",\"release\":true}.";
+    info.inputSchema = Json::parse(R"({
+      "type":"object",
+      "properties":{
+        "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
+        "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
+        "release":{"type":"boolean","description":"Release build: only changes the build commands in nextSteps (and the iOS script).","default":false}
+      }})");
+    registry.add(info, [projectDir](const Json& args) {
+        ExportOptions o;
+        o.projectDir = projectDir;
+        o.platform = tooling_detail::arg_string(args, "platform", false);
+        if (!o.platform.empty() && normalize_export_platform(o.platform).empty()) {
+            const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios"};
+            throw CommandError("invalid_argument", "Unknown platform '" + o.platform + "'.", did_you_mean(o.platform, platforms));
+        }
+        // Inside the project only, like fs.*: the export folder is deleted and rewritten on every call.
+        if (std::string out = tooling_detail::arg_string(args, "out", false); !out.empty()) {
+            auto dir = resolve_project_path(projectDir, out);
+            if (!dir) throw CommandError("invalid_argument", dir.error().message, dir.error().hint);
+            o.outDir = dir->string();
+        }
+        o.release = tooling_detail::arg_bool(args, "release", false);
+        auto r = export_project(o);
+        if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+        return r->to_json();
+    });
 }
 
 }  // namespace fa

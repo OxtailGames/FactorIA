@@ -20,10 +20,12 @@
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
+#include <string_view>
 
 #include "editor_internal.h"
 #include "fa/ai/commands.h"
 #include "fa/mcp/server.h"
+#include "imgui_internal.h"
 #include "sokol_app.h"
 #include "ui_backend.h"
 
@@ -70,6 +72,39 @@ ImVec4 bar_color(double used) {
     if (used >= 0.9) return ImVec4(0.85f, 0.32f, 0.28f, 1);
     if (used >= 0.7) return ImVec4(0.88f, 0.68f, 0.22f, 1);
     return ImVec4(0.30f, 0.62f, 0.42f, 1);
+}
+
+// Right-click menu of a text box: Cut, Copy, Paste, Select all (ImGui has none). Opening the menu takes the focus from the
+// box, so Cut, Paste and Select all activate it again (ActivateItemByID) and text_menu_callback applies them on the next
+// frame inside ImGui's own buffer: cursor, wrapping and Ctrl+Z stay right. Copy reads the selection directly.
+enum class TextAction { None, Cut, Paste, SelectAll };
+struct PendingTextAction {
+    ImGuiID id = 0;
+    TextAction action = TextAction::None;
+    bool atEnd = false;  // the box has no cursor of its own (another box was used last): paste at the end
+};
+PendingTextAction pendingTextAction;  // one menu is open at a time
+
+int text_menu_callback(ImGuiInputTextCallbackData* d) {
+    PendingTextAction& p = pendingTextAction;
+    if (p.id != d->ID || p.action == TextAction::None) return 0;
+    if (p.atEnd) d->CursorPos = d->SelectionStart = d->SelectionEnd = d->BufTextLen;
+    int a = std::clamp(std::min(d->SelectionStart, d->SelectionEnd), 0, d->BufTextLen);
+    int b = std::clamp(std::max(d->SelectionStart, d->SelectionEnd), 0, d->BufTextLen);
+    if (a == b) a = b = std::clamp(d->CursorPos, 0, d->BufTextLen);
+    if (p.action == TextAction::Cut) {
+        ImGui::SetClipboardText(std::string(d->Buf + a, d->Buf + b).c_str());
+        d->DeleteChars(a, b - a);
+    } else if (p.action == TextAction::Paste) {
+        if (const char* clip = ImGui::GetClipboardText(); clip && *clip) {
+            d->DeleteChars(a, b - a);
+            d->InsertChars(a, clip);
+        }
+    } else {
+        d->SelectAll();
+    }
+    p = {};
+    return 0;
 }
 
 // A picture of the project (project-relative path) fitted in a size x size box; a grey button when the engine cannot
@@ -194,6 +229,62 @@ std::string model_tip(const ai::ModelInfo& m) {
 
 // ---------------------------------------------------------------------------------------------------------------------
 
+// The menu of the InputText just submitted on `text` (which must pass text_menu_callback with CallbackAlways).
+void Editor::text_menu(const std::string& text, bool readOnly) {
+    const ImGuiID id = ImGui::GetItemID();
+    if (!ImGui::BeginPopupContextItem()) return;
+    const ImGuiInputTextState* s = ImGui::GetInputTextState(id);
+    // ImGui keeps a box's cursor only while its text is unchanged (an editable box) and no other box was used since.
+    const bool fresh = !s || (!readOnly && std::string_view(s->TextA.Data ? s->TextA.Data : "", size_t(s->TextLen)) != text);
+    size_t a = 0, b = 0;
+    if (!fresh && s->HasSelection()) {
+        a = std::min<size_t>(std::min(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
+        b = std::min<size_t>(std::max(s->GetSelectionStart(), s->GetSelectionEnd()), text.size());
+    }
+    auto later = [&](TextAction action) {
+        pendingTextAction = {id, action, fresh};
+        ImGui::ActivateItemByID(id);
+    };
+    auto item = [&](const char* label, const char* keys, bool enabled) {
+        const bool chosen = ImGui::MenuItem(label, keys, false, enabled);
+        at_track(std::string("textmenu:") + label);
+        return chosen;
+    };
+    if (!readOnly && item("Cut", "Ctrl+X", a < b)) later(TextAction::Cut);
+    if (item("Copy", "Ctrl+C", a < b)) ImGui::SetClipboardText(text.substr(a, b - a).c_str());
+    if (!readOnly) {
+        const char* clip = ImGui::GetClipboardText();
+        if (item("Paste", "Ctrl+V", clip && *clip)) later(TextAction::Paste);
+    }
+    ImGui::Separator();
+    if (item("Select all", "Ctrl+A", !text.empty())) later(TextAction::SelectAll);
+    ImGui::EndPopup();
+}
+
+// A transcript message as a read-only, word-wrapped text box sized to its text: drag to select, Ctrl+C or the right-click
+// menu to copy. It looks like plain text and scrolls with the transcript.
+void Editor::message_text(const char* id, std::string& text, const ImVec4* color) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const float wrap = std::max(1.0f, w - st.FramePadding.x * 2 - st.ScrollbarSize);  // what ImGuiInputTextFlags_WordWrap uses
+    // Its line count as InputTextLineIndexBuild counts it, so the box never needs a scrollbar of its own.
+    const char* end = text.data() + text.size();
+    int lines = 0;
+    for (const char* p = text.data(); p < end; p = *p == '\n' ? p + 1 : p) {
+        ++lines;
+        p = ImFontCalcWordWrapPositionEx(ImGui::GetFont(), ImGui::GetFontSize(), p, end, wrap, ImDrawTextFlags_WrapKeepBlanks);
+    }
+    lines = std::max(lines, 1) + (!text.empty() && text.back() == '\n' ? 1 : 0);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    if (color) ImGui::PushStyleColor(ImGuiCol_Text, *color);
+    ImGui::InputTextMultiline(id, &text, ImVec2(w, static_cast<float>(lines) * ImGui::GetFontSize() + st.FramePadding.y * 2),
+                              ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
+                              text_menu_callback);
+    at_track("ai:message");
+    ImGui::PopStyleColor(color ? 2 : 1);
+    text_menu(text, true);
+}
+
 void Editor::ai_refresh_providers() {
     if (aiDetecting_.load()) return;
     if (aiDetectThread_.joinable()) aiDetectThread_.join();
@@ -265,10 +356,6 @@ std::shared_ptr<CommandRegistry> Editor::make_proxy_registry() {
 // agent first, which saved its chat), load the new project's tabs. Called by everything that touches chat_, so boot()
 // needs no knowledge of the chats.
 void Editor::ai_sync_chats() {
-    if (!aiLimitsLoaded_) {
-        aiLimitsLoaded_ = true;
-        if (!autotest_) aiLimits_ = load_limits(limits_path(home_dir()));  // the autotest must not depend on this machine's plan
-    }
     const std::string want =
         projectDir_.empty() ? std::string() : utf8_string(utf8_path(projectDir_) / ".factoria" / "ai" / "chats");
     if (chat_.dir == want) return;
@@ -434,7 +521,6 @@ void Editor::ai_drain_events() {
     AiChat* found = chat_.find(aiRunChat_);
     AiChat& c = found ? *found : orphan;
     std::vector<ChatItem>& items = c.items;
-    bool limitsChanged = false;
     using T = ai::AgentEvent::Type;
     auto note = [&](ChatItem::Kind kind, const std::string& text, int depth) {
         ChatItem it;
@@ -498,7 +584,6 @@ void Editor::ai_drain_events() {
                         ProviderLimits& pl = aiLimits_[aiRunProvider_];
                         ai::merge_limit_windows(pl.windows, ev.limits);
                         pl.updated = now_epoch();
-                        limitsChanged = true;
                     }
                 }
                 break;
@@ -538,7 +623,6 @@ void Editor::ai_drain_events() {
         aiRunChat_.clear();
         aiRunProvider_.clear();
     }
-    if (limitsChanged && !autotest_) save_limits(limits_path(home_dir()), aiLimits_);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -874,13 +958,13 @@ void Editor::draw_ai_panel() {
         ImGui::TextDisabled("To show it a picture: drop image files on this window, press Ctrl+V with a picture copied, or use Attach image.");
     }
     int idx = 0;
-    for (const ChatItem& c : chat.items) {
+    for (ChatItem& c : chat.items) {
         ImGui::PushID(idx++);
         if (c.depth > 0) ImGui::Indent(12.0f * float(c.depth));
         switch (c.kind) {
             case ChatItem::Kind::User:
                 ImGui::TextColored(ImVec4(0.55f, 0.78f, 1.0f, 1), "You");
-                ImGui::TextUnformatted(c.text.c_str());
+                message_text("##text", c.text);
                 if (!c.images.empty()) {
                     Flow flow;
                     for (std::size_t j = 0; j < c.images.size(); ++j) {
@@ -893,7 +977,7 @@ void Editor::draw_ai_panel() {
                 break;
             case ChatItem::Kind::Assistant:
                 ImGui::TextColored(ImVec4(0.6f, 0.9f, 0.6f, 1), "Assistant%s", c.role.empty() ? "" : (" (" + c.role + ")").c_str());
-                ImGui::TextUnformatted(c.text.c_str());
+                message_text("##text", c.text);
                 break;
             case ChatItem::Kind::Thinking:
                 if (ImGui::TreeNodeEx("thinking", ImGuiTreeNodeFlags_SpanAvailWidth)) {
@@ -921,9 +1005,11 @@ void Editor::draw_ai_panel() {
             case ChatItem::Kind::Info:
                 ImGui::TextDisabled("%s", c.text.c_str());
                 break;
-            case ChatItem::Kind::Error:
-                ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", c.text.c_str());
+            case ChatItem::Kind::Error: {
+                const ImVec4 red(1, 0.45f, 0.4f, 1);
+                message_text("##text", c.text, &red);
                 break;
+            }
         }
         if (c.depth > 0) ImGui::Unindent(12.0f * float(c.depth));
         ImGui::Spacing();
@@ -963,9 +1049,12 @@ void Editor::draw_ai_panel() {
     // Input.
     ImGui::BeginDisabled(isRunTab);
     bool submit = ImGui::InputTextMultiline("##ai_input", &chat.input, ImVec2(-FLT_MIN, inputH),
-                                            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
+                                            ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine |
+                                                ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackAlways,
+                                            text_menu_callback);
     const bool inputActive = ImGui::IsItemActive();
     at_track("ai:input");
+    text_menu(chat.input, false);
     ImGui::EndDisabled();
     const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
     if (!isRunTab && chat.input.empty()) {
