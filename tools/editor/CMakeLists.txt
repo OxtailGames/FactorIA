@@ -2,6 +2,12 @@
 # fa::run_editor() in <fa/editor/editor.h>, called by `factoria editor`.
 add_library(fa_editor STATIC)
 file(GLOB_RECURSE editor_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+if(APPLE)
+    # *_apple.mm: Metal window read-back for the autotest screenshots.
+    file(GLOB_RECURSE editor_objc_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*_apple.mm)
+    set_source_files_properties(${editor_objc_srcs} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    list(APPEND editor_srcs ${editor_objc_srcs})
+endif()
 target_sources(fa_editor PRIVATE ${editor_srcs})
 target_include_directories(fa_editor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(fa_editor PUBLIC fa_tooling PRIVATE fa_warnings)
@@ -35,20 +41,30 @@ if(FA_BUILD_TESTS)
     endif()
     # Windowed end-to-end test: opens a temp project in the real editor window,
     # exercises select/edit commands/undo/play/stop/AI marshaling and writes screenshots.
+    # Window screenshots read the back buffer (ui::read_backbuffer): GL on Linux, under xvfb-run, and Metal on macOS,
+    # in a real window (the user's session). Windows (D3D11) has no read-back yet.
     file(GLOB editor_autotest CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/gpu/*.cpp)
     find_program(FA_XVFB_RUN_EDITOR xvfb-run)
     if(editor_autotest)
         add_executable(fa_editor_autotest ${editor_autotest})
         target_link_libraries(fa_editor_autotest PRIVATE fa_editor fa_warnings)
+        set(editor_autotest_launcher "")
+        set(editor_autotest_runs OFF)
         if(FA_XVFB_RUN_EDITOR AND FA_PLATFORM STREQUAL "linux")
+            set(editor_autotest_launcher ${FA_XVFB_RUN_EDITOR} -a -s "-screen 0 1600x900x24")
+            set(editor_autotest_runs ON)
+        elseif(FA_PLATFORM STREQUAL "macos")
+            set(editor_autotest_runs ON)
+        endif()
+        if(editor_autotest_runs)
             add_test(NAME editor_autotest
-                COMMAND ${FA_XVFB_RUN_EDITOR} -a -s "-screen 0 1600x900x24" $<TARGET_FILE:fa_editor_autotest>
+                COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
                 WORKING_DIRECTORY ${FA_ROOT})
             set_tests_properties(editor_autotest PROPERTIES LABELS "gpu" RUN_SERIAL TRUE TIMEOUT 180
                 ENVIRONMENT "FA_EDITOR_AUTOTEST=1")
             # No-project start: welcome dialog, then Open/New switches to a real project (graphics teardown/rebuild).
             add_test(NAME editor_autotest_welcome
-                COMMAND ${FA_XVFB_RUN_EDITOR} -a -s "-screen 0 1600x900x24" $<TARGET_FILE:fa_editor_autotest>
+                COMMAND ${editor_autotest_launcher} $<TARGET_FILE:fa_editor_autotest>
                 WORKING_DIRECTORY ${FA_ROOT})
             set_tests_properties(editor_autotest_welcome PROPERTIES LABELS "gpu" RUN_SERIAL TRUE TIMEOUT 120
                 ENVIRONMENT "FA_EDITOR_AUTOTEST=welcome")

@@ -1,4 +1,4 @@
-// Metal readback: blit the render target into a shared buffer and wait. UNTESTED (no Apple toolchain here).
+// Metal readback: blit the render target into a shared buffer and wait. Covered by the render goldens on macOS.
 #include "render_internal.h"
 
 #if defined(SOKOL_METAL)

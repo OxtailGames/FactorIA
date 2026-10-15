@@ -192,21 +192,22 @@ int Editor::run() {
     d.init = [this] { on_init(); };
     d.frame = [this](double dt) { on_frame(dt); };
     d.cleanup = [this] { on_cleanup(); };
+    d.exit_code = [this] { return atFailures_.empty() ? 0 : 1; };  // the autotest fails the process (ctest)
     sapp_desc s = to_sapp_desc(d);
     s.event_cb = [](const sapp_event* e) { if (g_editor) g_editor->on_event(e); };
     // Copy and paste: sokol_imgui pastes on sokol_app's CLIPBOARD_PASTED event (it swallows the Ctrl+V key), and both
     // need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
     s.enable_clipboard = true;
     s.clipboard_size = 1 << 20;
-    sapp_run(&s);
-    int code = atFailures_.empty() ? 0 : 1;
-    return code;
+    sapp_run(&s);  // macOS: does not return, the platform layer exits with d.exit_code()
+    return d.exit_code();
 }
 
 void Editor::on_init() {
     set_log_level(LogLevel::Debug);
     std::string dir = options_.projectDir;
     if (autotest_) {
+        ui::prepare_backbuffer_readback();  // window screenshots
         namespace stdfs = std::filesystem;
         const char* out = std::getenv("FA_EDITOR_AUTOTEST_OUT");
         stdfs::path base = out && *out ? stdfs::path(out) : stdfs::temp_directory_path() / "fa_editor_autotest_out";
@@ -668,14 +669,16 @@ void Editor::on_frame(double dt) {
     pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
     pass.action.colors[0].clear_value = {0.08f, 0.085f, 0.095f, 1.0f};
     pass.swapchain = sglue_swapchain();
+    ui::note_window_swapchain(pass.swapchain);
     sg_begin_pass(&pass);
     ui::draw();
     sg_end_pass();
-
-    bool wantShot = false;
-    if (autotest_) autotest_post_frame(wantShot);
     sg_commit();
     if (engine_ && engine_->renderer()) engine_->renderer()->note_commit();
+
+    // After the commit, before this callback returns: window screenshots read the frame just drawn (ui::read_backbuffer).
+    bool wantShot = false;
+    if (autotest_) autotest_post_frame(wantShot);
 }
 
 // ------------------------------------------------------------------------------------------
