@@ -338,7 +338,7 @@ Result<void> export_desktop(const ExportOptions& o, const Project& p, const std:
 //              templates come from this binary (platforms/ is embedded like docs/ and templates/).
 //   source   : the engine is compiled from a source checkout, with that checkout's templates (engine developers).
 
-constexpr const char* kAndroidAbis[] = {"arm64-v8a", "x86_64"};  // what the release workflow builds
+constexpr const char* kAndroidAbis[] = {"arm64-v8a", "x86_64"};  // what the release workflow builds (= abiFilters in the template)
 constexpr const char* kIosSlices[] = {"iphoneos", "iphonesimulator"};
 constexpr const char* kIosMarkerLib = "libfactoria_player_main.a";  // the player's own archive, next to the engine ones
 
@@ -346,20 +346,13 @@ struct MobileSetup {
     bool prebuilt = false;
     stdfs::path engine;  // source: the engine checkout
     stdfs::path libs;    // prebuilt: <mobile dir>/<android|ios>
-    const char* mode() const { return prebuilt ? "prebuilt" : "source"; }
 };
 
-// ABI folders of <libs>/jniLibs that hold libfactoria_player.so (sorted).
-std::vector<std::string> android_abis(const stdfs::path& libs) {
-    std::vector<std::string> abis;
+bool android_libs_present(const stdfs::path& libs) {
     std::error_code ec;
-    for (stdfs::directory_iterator it(libs / "jniLibs", ec), end; !ec && it != end; it.increment(ec)) {
-        std::error_code ec2;
-        if (it->is_directory(ec2) && stdfs::is_regular_file(it->path() / "libfactoria_player.so", ec2))
-            abis.push_back(it->path().filename().string());
-    }
-    std::sort(abis.begin(), abis.end());
-    return abis;
+    for (const char* abi : kAndroidAbis)
+        if (!stdfs::is_regular_file(libs / "jniLibs" / abi / "libfactoria_player.so", ec)) return false;
+    return true;
 }
 
 bool ios_libs_present(const stdfs::path& libs) {
@@ -403,7 +396,7 @@ Result<MobileSetup> resolve_mobile(const ExportOptions& o, const std::string& pl
         s.engine = *engine;
         return s;
     }
-    if (android ? !android_abis(libs).empty() : ios_libs_present(libs)) {
+    if (android ? android_libs_present(libs) : ios_libs_present(libs)) {
         s.prebuilt = true;
         s.libs = libs;
         return s;
@@ -457,28 +450,25 @@ Result<std::vector<TemplateFile>> load_templates(const MobileSetup& m, const std
     return out;
 }
 
-// Template sections: a line that is only "{{#source}}" or "{{#prebuilt}}" starts a block that is kept in that mode
-// and dropped in the other, "{{/source}}" / "{{/prebuilt}}" ends it. The marker lines themselves are never written.
-Result<std::string> select_sections(const std::string& text, const std::string& mode, const std::string& where) {
-    std::string out, open;
-    std::size_t pos = 0;
-    while (pos < text.size()) {
-        const std::size_t end = text.find('\n', pos) == std::string::npos ? text.size() : text.find('\n', pos) + 1;
+// Template sections: the lines between one that is only "{{#source}}" and one that is only "{{/source}}" are kept in
+// source mode and dropped in prebuilt mode. The marker lines themselves are never written.
+Result<std::string> select_sections(const std::string& text, bool source, const std::string& where) {
+    std::string out;
+    bool inSource = false, bad = false;
+    for (std::size_t pos = 0; pos < text.size();) {
+        const std::size_t nl = text.find('\n', pos);
+        const std::size_t end = nl == std::string::npos ? text.size() : nl + 1;
         const std::string line = text.substr(pos, end - pos);
         pos = end;
         const std::string_view t = trim(line);
-        if (t == "{{#source}}" || t == "{{#prebuilt}}") {
-            if (!open.empty()) return err("export: nested section " + std::string(t) + " in template " + where, "this is an engine bug; report it");
-            open = std::string(t.substr(3, t.size() - 5));
-        } else if (t == "{{/source}}" || t == "{{/prebuilt}}") {
-            if (open != t.substr(3, t.size() - 5))
-                return err("export: unbalanced section " + std::string(t) + " in template " + where, "this is an engine bug; report it");
-            open.clear();
-        } else if (open.empty() || open == mode) {
+        if (t == "{{#source}}" || t == "{{/source}}") {
+            bad = bad || inSource != (t == "{{/source}}");  // nested, or closed without being open
+            inSource = !inSource;
+        } else if (!inSource || source) {
             out += line;
         }
     }
-    if (!open.empty()) return err("export: section '" + open + "' is never closed in template " + where, "this is an engine bug; report it");
+    if (bad || inSource) return err("export: bad section markers in template " + where, "this is an engine bug; report it");
     return out;
 }
 
@@ -509,25 +499,8 @@ bool is_text_template(const stdfs::path& p) {
     return e == ".gradle" || e == ".properties" || e == ".xml" || e == ".kts" || e == ".txt" || e == ".md";
 }
 
-Result<void> export_android(const ExportOptions& o, const Project& p, const stdfs::path& outRoot,
+Result<void> export_android(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, ExportReport& report) {
-    auto setup = resolve_mobile(o, "android");
-    if (!setup.ok()) return setup.error();
-    const bool prebuilt = setup->prebuilt;
-    report.mode = setup->mode();
-
-    std::vector<std::string> abis(std::begin(kAndroidAbis), std::end(kAndroidAbis));
-    if (prebuilt) {
-        abis = android_abis(setup->libs);
-        for (const char* expected : kAndroidAbis)
-            if (std::find(abis.begin(), abis.end(), expected) == abis.end())
-                report.warnings.push_back(std::string("the prebuilt Android player has no ") + expected + " library, so the APK will not run on " +
-                                          (std::string(expected) == "x86_64" ? "x86_64 emulators" : "arm64 phones and tablets") +
-                                          "; use the FactorIA download for the complete set");
-    }
-    std::string abiFilters;
-    for (const std::string& abi : abis) abiFilters += (abiFilters.empty() ? "'" : ", '") + abi + "'";
-
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string orient = p.orientation == "portrait" ? "sensorPortrait" : p.orientation == "any" ? "fullSensor" : "sensorLandscape";
     const std::vector<std::pair<std::string, std::string>> vars = {
@@ -537,15 +510,14 @@ Result<void> export_android(const ExportOptions& o, const Project& p, const stdf
         {"VERSION_NAME", safe_version_name(p.version)},
         {"VERSION_CODE", version_code(p.version)},
         {"SCREEN_ORIENTATION", orient},
-        {"ENGINE_ROOT", prebuilt ? std::string() : generic(setup->engine)},
-        {"ABI_FILTERS", abiFilters},
+        {"ENGINE_ROOT", setup.prebuilt ? std::string() : generic(setup.engine)},
     };
-    auto templates = load_templates(*setup, "android");
+    auto templates = load_templates(setup, "android");
     if (!templates.ok()) return templates.error();
     for (const TemplateFile& t : *templates) {
         const stdfs::path to = outRoot / t.rel;
         if (is_text_template(t.rel)) {
-            auto text = select_sections(t.data, setup->mode(), t.rel);
+            auto text = select_sections(t.data, !setup.prebuilt, t.rel);
             if (!text.ok()) return text.error();
             for (auto& [k, v] : vars) *text = replace_all(*text, "{{" + k + "}}", v);
             if (text->find("{{") != std::string::npos)
@@ -556,12 +528,12 @@ Result<void> export_android(const ExportOptions& o, const Project& p, const stdf
         }
     }
     std::error_code ec;
-    if (prebuilt)
-        for (const std::string& abi : abis) {
+    if (setup.prebuilt)
+        for (const char* abi : kAndroidAbis) {
             const stdfs::path to = outRoot / "app" / "src" / "main" / "jniLibs" / abi / "libfactoria_player.so";
             stdfs::create_directories(to.parent_path(), ec);
-            stdfs::copy_file(setup->libs / "jniLibs" / abi / "libfactoria_player.so", to, stdfs::copy_options::overwrite_existing, ec);
-            if (ec) return err("export: cannot copy the prebuilt " + abi + " player to " + generic(to) + ": " + ec.message());
+            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", to, stdfs::copy_options::overwrite_existing, ec);
+            if (ec) return err(std::string("export: cannot copy the prebuilt ") + abi + " player to " + generic(to) + ": " + ec.message());
         }
     stdfs::path assets = outRoot / "app" / "src" / "main" / "assets";
     if (auto r = copy_game(p, files, assets); !r.ok()) return r;
@@ -572,26 +544,21 @@ Result<void> export_android(const ExportOptions& o, const Project& p, const stdf
     const std::string task = o.release ? "assembleRelease" : "assembleDebug";
     const std::string apk = o.release ? "app/build/outputs/apk/release/app-release-unsigned.apk" : "app/build/outputs/apk/debug/app-debug.apk";
     const std::string wrapper = "Create the Gradle wrapper once (needs Gradle 8.7+ installed; Android Studio does this itself): gradle wrapper --gradle-version 8.7";
-    if (prebuilt) {
-        report.nextSteps = {
-            "Install the prerequisites once: JDK 17 and the Android SDK (set ANDROID_SDK_ROOT) with platform 34: sdkmanager "
-            "\"platforms;android-34\" \"build-tools;34.0.0\". The engine is prebuilt (mode: prebuilt), so no NDK or CMake is needed",
-            "cd '" + generic(outRoot) + "'",
-            wrapper,
-            "./gradlew " + task + "   (nothing is compiled but the Java glue, so it is quick; the APK is " + apk + ")",
-            "adb install -r " + apk + "  (the engine is " + generic(setup->libs / "jniLibs") + " copied to app/src/main/jniLibs)",
-        };
-    } else {
-        report.nextSteps = {
-            "Install the prerequisites once: JDK 17, the Android SDK (set ANDROID_SDK_ROOT) with NDK r27+, CMake 3.31.6 and "
-            "platform 34: sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\" \"platforms;android-34\" \"build-tools;34.0.0\" "
-            "(mode: source, the engine is compiled from its checkout)",
-            "cd '" + generic(outRoot) + "'",
-            wrapper,
-            "./gradlew " + task + "   (first build compiles the whole engine; the APK is " + apk + ")",
-            "adb install -r " + apk + "  (the engine is located via factoria.engineDir in gradle.properties: " + generic(setup->engine) + ")",
-        };
-    }
+    report.nextSteps = {
+        setup.prebuilt ? "Install the prerequisites once: JDK 17 and the Android SDK (set ANDROID_SDK_ROOT) with platform 34: sdkmanager "
+                         "\"platforms;android-34\" \"build-tools;34.0.0\". The engine is prebuilt (mode: prebuilt), so no NDK or CMake is needed"
+                       : "Install the prerequisites once: JDK 17, the Android SDK (set ANDROID_SDK_ROOT) with NDK r27+, CMake 3.31.6 and "
+                         "platform 34: sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\" \"platforms;android-34\" \"build-tools;34.0.0\" "
+                         "(mode: source, the engine is compiled from its checkout)",
+        "cd '" + generic(outRoot) + "'",
+        wrapper,
+        "./gradlew " + task +
+            (setup.prebuilt ? "   (nothing is compiled but the Java glue, so it is quick; the APK is " : "   (first build compiles the whole engine; the APK is ") +
+            apk + ")",
+        "adb install -r " + apk +
+            (setup.prebuilt ? "  (the engine is " + generic(setup.libs / "jniLibs") + " copied to app/src/main/jniLibs)"
+                            : "  (the engine is located via factoria.engineDir in gradle.properties: " + generic(setup.engine) + ")"),
+    };
     if (o.release) report.nextSteps.push_back("Release builds must be signed: see docs/MOBILE.md (Signing) for the keystore setup, or use ./gradlew bundleRelease for Google Play");
     return {};
 }
@@ -624,20 +591,16 @@ Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::p
     return {};
 }
 
-Result<void> export_ios(const ExportOptions& o, const Project& p, const stdfs::path& outRoot,
+Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
                         const std::vector<std::string>& files, ExportReport& report) {
-    auto setup = resolve_mobile(o, "ios");
-    if (!setup.ok()) return setup.error();
-    const bool prebuilt = setup->prebuilt;
-    report.mode = setup->mode();
     if (auto r = copy_game(p, files, outRoot / "game"); !r.ok()) return r;
-    if (prebuilt)
-        if (auto r = write_ios_prebuilt_project(*setup, outRoot); !r.ok()) return r;
+    if (setup.prebuilt)
+        if (auto r = write_ios_prebuilt_project(setup, outRoot); !r.ok()) return r;
     const std::string config = o.release ? "Release" : "Debug";
     std::string s;
     s += "#!/usr/bin/env bash\n";
     s += "# Generated by `factoria export --platform ios` for \"" + replace_all(p.name, "\n", " ") + "\" (mode: " + report.mode + ").\n";
-    s += prebuilt ? "# Configures the Xcode project (CMakeLists.txt) with the game in ./game bundled; the engine is linked from the prebuilt\n"
+    s += setup.prebuilt ? "# Configures the Xcode project (CMakeLists.txt) with the game in ./game bundled; the engine is linked from the prebuilt\n"
                     "# libraries in ./lib, so no engine source is needed.\n"
                   : "# Configures the Xcode project (same settings as the `ios` CMake preset) with the game in ./game bundled.\n";
     s += "#   ./build_ios.sh              Xcode project for a device, then opens it\n";
@@ -647,16 +610,16 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const stdfs::p
     s += "# Needs macOS, Xcode (full app), CMake 3.24+.\n";
     s += "set -euo pipefail\n";
     s += "HERE=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
-    if (!prebuilt) s += "ENGINE_DIR=\"${FACTORIA_ENGINE_DIR:-" + generic(setup->engine) + "}\"\n";
+    if (!setup.prebuilt) s += "ENGINE_DIR=\"${FACTORIA_ENGINE_DIR:-" + generic(setup.engine) + "}\"\n";
     s += "SYSROOT=iphoneos\nBUILD=0\nXCODE_ARGS=\"\"\n";
     s += "while [ $# -gt 0 ]; do\n  case \"$1\" in\n    --simulator) SYSROOT=iphonesimulator ;;\n    --build) BUILD=1 ;;\n"
          "    --) shift; XCODE_ARGS=\"$*\"; break ;;\n"
          "    *) echo \"unknown option: $1\" >&2; exit 2 ;;\n  esac\n  shift\ndone\n";
-    if (!prebuilt)
+    if (!setup.prebuilt)
         s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
-    s += std::string("cmake -S ") + (prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
+    s += std::string("cmake -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
          "  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 -DCMAKE_OSX_SYSROOT=\"$SYSROOT\" \\\n" +
-         (prebuilt ? "" : "  -DFA_BUILD_TOOLS=OFF -DFA_BUILD_TESTS=OFF \\\n") +
+         (setup.prebuilt ? "" : "  -DFA_BUILD_TOOLS=OFF -DFA_BUILD_TESTS=OFF \\\n") +
          "  -DFA_GAME_PROJECT_DIR=\"$HERE/game\" \\\n"
          "  -DFA_GAME_BUNDLE_ID=" + sh_quote(p.id) + " \\\n"
          "  -DFA_GAME_NAME=" + sh_quote(p.name) + " \\\n"
@@ -673,8 +636,8 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const stdfs::p
         "./build_ios.sh --simulator   (or ./build_ios.sh for a device) creates build/FactorIA.xcodeproj and opens it",
         "In Xcode: select the 'factoria_player' scheme, set a Team under Signing & Capabilities (bundle id " + p.id +
             "), then Run. Or: FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --build",
-        std::string(prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " + generic(setup->libs) + " (no engine source needed). "
-                             : "Mode source: the engine is compiled from " + generic(setup->engine) + ". ") +
+        std::string(setup.prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " + generic(setup.libs) + " (no engine source needed). "
+                                   : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
             "Details and App Store notes: docs/MOBILE.md"};
     return {};
 }
@@ -746,9 +709,18 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     std::vector<std::string> files = collect_game_files(p, outParent == p.dir ? outRoot : outParent);
 
     Result<void> r;
-    if (platform == "android") r = export_android(options, p, outRoot, files, report);
-    else if (platform == "ios") r = export_ios(options, p, outRoot, files, report);
-    else r = export_desktop(options, p, platform, outRoot, files, report);
+    if (platform == "android" || platform == "ios") {
+        auto setup = resolve_mobile(options, platform);
+        if (!setup.ok()) {
+            stdfs::remove_all(outRoot, ec);
+            return setup.error();
+        }
+        report.mode = setup->prebuilt ? "prebuilt" : "source";
+        r = platform == "android" ? export_android(options, p, *setup, outRoot, files, report)
+                                  : export_ios(options, p, *setup, outRoot, files, report);
+    } else {
+        r = export_desktop(options, p, platform, outRoot, files, report);
+    }
     if (!r.ok()) {
         stdfs::remove_all(outRoot, ec);
         return r.error();
