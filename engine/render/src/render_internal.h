@@ -282,8 +282,10 @@ public:
     sg_buffer acquire_transient(std::size_t bytes);
     // The pool restarts only after an sg_commit(): sokol forbids writing a buffer once it was bound in the same
     // frame, and a second draw before the commit (editor screenshots, render_now) must not reuse a bound buffer.
-    // ponytail: the cap assumes a commit happened when a caller never reports one (editor); it just bounds the pool.
+    // Many draws without a commit (game.step and tests in the editor, which commits once per UI frame; FB-0005) end
+    // the sokol frame here, outside any pass, so the pool stays bounded without rewriting a bound buffer.
     void begin_frame() {
+        if (!committed_ && transientUsed_ >= 16) sg_commit();
         if (committed_ || transientUsed_ >= 16) transientUsed_ = 0;
         committed_ = false;
     }

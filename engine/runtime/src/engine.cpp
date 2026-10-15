@@ -463,8 +463,10 @@ bool Engine::screenshot(std::string_view path, std::string* error) {
         return fail("No renderer: the engine runs with graphics=false" +
                     std::string(I.startupProblems.empty() ? "" : " (" + I.startupProblems.front() + ")") +
                     ". Run with a GPU (headless EGL needs Mesa) to take screenshots.");
-    if (I.renderStale) I.draw(I.lastRenderDt);       // OnDemand: draw the state of the current frame
-    else if (I.frame == 0 && !I.inFrame) I.draw(0.0);  // nothing rendered yet: draw the initial state
+    if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
+    // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
+    // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
+    else if (!I.inFrame && (!I.windowed || I.cfg.editorMode || I.frame == 0)) I.draw(0.0);
     Image img;
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
