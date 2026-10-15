@@ -32,6 +32,7 @@
 #include "fa/editor/editor.h"
 #include "fa/mcp/http_server.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/play_session.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/tooling/tooling.h"
@@ -40,6 +41,7 @@
 #include "editor_tools.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include "play_recorder.h"
 
 struct sapp_event;
 
@@ -141,6 +143,16 @@ public:
     void step_once();
     void stop();
 
+    // ---------------------------------------------------------------- play sessions (play_session.cpp)
+    // Play .. Stop is recorded (input, frame times, warnings/errors, F9 marks) and written to .factoria/sessions/<name>/ at Stop.
+    void session_begin();
+    void session_end();
+    void session_frame(double dt, std::uint64_t frameBefore);  // after Engine::frame while Playing
+    void mark_problem();                                       // F9: pause, screenshot, ask for a note
+    void mark_finish(bool save);
+    void draw_mark_popup();
+    void ai_attach_last_session();                             // summary into the message + mark pictures
+
     // ---------------------------------------------------------------- selection & edits
     // The selection is what the user points at in the viewport for the AI; nothing edits it by hand.
     Entity selected();
@@ -223,6 +235,18 @@ public:
     bool uiUp_ = false;
     bool dirty_ = false;
     PlayState play_ = PlayState::Edit;
+    struct PlayRun {
+        bool active = false;
+        PlaySession session;
+        PlayRecorder rec;
+        std::vector<double> frameMs;
+        std::uint64_t startFrame = 0, logSeq = 0;
+        bool skipNext = true;  // the first frame after Play / Resume is not a frame time (scene restore, popup)
+    } run_;
+    bool markOpen_ = false, markFocus_ = false;
+    std::string markNote_;
+    PlayMark markPending_;
+    std::string playNotice_;  // offered in the AI panel after Stop when the session has marks or errors ("" = none)
     int stepPending_ = 0;
     Json playSnapshot_;
     std::string selectedId_;

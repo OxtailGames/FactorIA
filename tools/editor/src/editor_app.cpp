@@ -394,16 +394,21 @@ void Editor::on_event(const sapp_event* e) {
     switch (e->type) {
         case SAPP_EVENTTYPE_KEY_DOWN:
         case SAPP_EVENTTYPE_KEY_UP:
-            if (gameActive && vpFocused_ && !io.WantTextInput && !(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_repeat))
+            if (gameActive && vpFocused_ && !io.WantTextInput && !(e->type == SAPP_EVENTTYPE_KEY_DOWN && e->key_repeat) &&
+                e->key_code != SAPP_KEYCODE_F9) {  // F9 marks a problem (build_ui): the game does not see it
                 engine_->input().on_key(map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
+                run_.rec.key(engine_->frame_index(), map_key(e->key_code), e->type == SAPP_EVENTTYPE_KEY_DOWN);
+            }
             break;
         case SAPP_EVENTTYPE_CHAR:
             if (gameActive && vpFocused_ && !io.WantTextInput && e->char_code >= 32 && e->char_code != 127)
                 engine_->input().on_text(e->char_code);
             break;
         case SAPP_EVENTTYPE_MOUSE_MOVE:
-            if (gameActive && (vpHovered_ || vpMouseCaptured_[0] || vpMouseCaptured_[1] || vpMouseCaptured_[2]))
+            if (gameActive && (vpHovered_ || vpMouseCaptured_[0] || vpMouseCaptured_[1] || vpMouseCaptured_[2])) {
                 engine_->input().on_mouse_move(to_design(e->mouse_x, e->mouse_y));
+                run_.rec.mouse_position(engine_->frame_index(), to_design(e->mouse_x, e->mouse_y));
+            }
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
         case SAPP_EVENTTYPE_MOUSE_UP: {
@@ -414,10 +419,13 @@ void Editor::on_event(const sapp_event* e) {
                 if (gameActive && vpHovered_) {
                     engine_->input().on_mouse_move(to_design(e->mouse_x, e->mouse_y));
                     engine_->input().on_mouse_button(mb, true);
+                    run_.rec.mouse_position(engine_->frame_index(), to_design(e->mouse_x, e->mouse_y));
+                    run_.rec.mouse_button(engine_->frame_index(), mb, true);
                     vpMouseCaptured_[b] = true;
                 }
             } else if (vpMouseCaptured_[b]) {
                 engine_->input().on_mouse_button(mb, false);
+                run_.rec.mouse_button(engine_->frame_index(), mb, false);
                 vpMouseCaptured_[b] = false;
             }
             break;
@@ -428,6 +436,7 @@ void Editor::on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_UNFOCUSED:
         case SAPP_EVENTTYPE_ICONIFIED:
             engine_->input().release_all();
+            run_.rec.release_all(engine_->frame_index());
             break;
         case SAPP_EVENTTYPE_FILES_DROPPED:
             ai_on_files_dropped();  // pictures dropped on the window go to the AI Assistant's message (ai_panel.cpp)
@@ -474,7 +483,9 @@ void Editor::on_frame(double dt) {
             --stepPending_;
             engine_->step(1);
         } else {
+            const std::uint64_t frameBefore = engine_->frame_index();
             engine_->frame(dt);
+            if (play_ == PlayState::Playing) session_frame(dt, frameBefore);
         }
     }
 
@@ -607,7 +618,9 @@ void Editor::play() {
     if (play_ == PlayState::Edit) {
         playSnapshot_ = save_scene(world());
         restore_scene(playSnapshot_);  // fresh instantiate: scripts and physics start clean
+        session_begin();
     }
+    run_.skipNext = true;
     engine_->set_paused(false);
     play_ = PlayState::Playing;
 }
@@ -617,6 +630,7 @@ void Editor::pause() {
     engine_->set_paused(true);
     play_ = PlayState::Paused;
     engine_->input().release_all();
+    run_.rec.release_all(engine_->frame_index());
 }
 
 void Editor::step_once() {
@@ -626,6 +640,7 @@ void Editor::step_once() {
         playSnapshot_ = save_scene(world());
         restore_scene(playSnapshot_);
         play_ = PlayState::Paused;
+        session_begin();
     } else if (play_ == PlayState::Playing) {
         pause();
     }
@@ -635,6 +650,8 @@ void Editor::step_once() {
 
 void Editor::stop() {
     if (!engine_ || play_ == PlayState::Edit) return;
+    mark_finish(true);  // a note being typed is kept
+    session_end();
     engine_->set_paused(true);
     engine_->input().release_all();
     play_ = PlayState::Edit;
@@ -733,6 +750,7 @@ void Editor::build_ui() {
         if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) { if (play_ == PlayState::Edit) play(); else stop(); }
         if (ImGui::IsKeyPressed(ImGuiKey_F6, false)) { if (play_ == PlayState::Playing) pause(); else play(); }
         if (ImGui::IsKeyPressed(ImGuiKey_F10, false)) step_once();
+        if (ImGui::IsKeyPressed(ImGuiKey_F9, false)) mark_problem();
     }
 
     // Toolbar strip.
@@ -787,6 +805,7 @@ void Editor::build_ui() {
     draw_validation_window();
     draw_docs_window();
     draw_toasts();
+    draw_mark_popup();
 
     // Unsaved changes dialogs.
     if (showQuitDialog_) ImGui::OpenPopup("Unsaved changes##quit");
@@ -981,6 +1000,12 @@ void Editor::draw_toolbar() {
     ImVec4 col = play_ == PlayState::Edit ? ImVec4(0.6f, 0.65f, 0.75f, 1) : play_ == PlayState::Playing ? ImVec4(0.4f, 0.9f, 0.5f, 1) : ImVec4(1, 0.8f, 0.3f, 1);
     ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x - 20);
     ImGui::TextColored(col, "%s", label);
+    if (play_ == PlayState::Playing) {  // the hint lives in the toolbar, never over the game picture
+        const char* hint = "F9 marks a problem";
+        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x - ImGui::CalcTextSize(hint).x - 40);
+        ImGui::TextDisabled("%s", hint);
+        ImGui::SetItemTooltip("Pauses the game, takes a screenshot and asks for a one-line note.\nThe AI reads the notes of your last play session (AI panel: Attach last play session).");
+    }
 }
 
 void Editor::draw_status_bar() {

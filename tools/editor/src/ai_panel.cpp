@@ -789,7 +789,8 @@ void Editor::draw_ai_panel() {
 
     // Transcript.
     const float inputH = ImGui::GetTextLineHeight() * 3.4f + 8;
-    const float footer = stripH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;
+    const float noticeH = playNotice_.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing();
+    const float footer = stripH + noticeH + inputH + ImGui::GetFrameHeightWithSpacing() * 1.4f;
     ImGui::BeginChild("##chat", ImVec2(0, -footer), ImGuiChildFlags_Borders);
     ImGui::PushTextWrapPos(0.0f);
     if (chat.items.empty()) {
@@ -876,6 +877,13 @@ void Editor::draw_ai_panel() {
         if (removeAt >= 0) chat.pending.erase(chat.pending.begin() + removeAt);  // the copy in .factoria/ai/attachments stays
     }
 
+    // After Stop: the play session had marks or errors, offer to show them to the assistant.
+    if (!playNotice_.empty()) {
+        ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "%s", playNotice_.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Attach##playnotice")) ai_attach_last_session();
+    }
+
     // Input.
     ImGui::BeginDisabled(isRunTab);
     bool submit = ImGui::InputTextMultiline("##ai_input", &chat.input, ImVec2(-FLT_MIN, inputH),
@@ -921,6 +929,9 @@ void Editor::draw_ai_panel() {
         if (!file.empty()) ai_attach_path(file);
     }
     ImGui::SetItemTooltip("Add a picture to your next message (png, jpg, gif, webp).\nYou can also drop image files on the window, or press Ctrl+V in the message box with a picture copied.");
+    ImGui::SameLine();
+    if (ImGui::Button("Attach last play session")) ai_attach_last_session();
+    ImGui::SetItemTooltip("Adds a summary of your last Play .. Stop (frame times, errors, the problems you marked with F9) and the mark screenshots to your next message.");
     ImGui::SameLine();
     if (isRunTab) ImGui::TextColored(ImVec4(1, 0.85f, 0.4f, 1), "running...");
     else if (otherRunning) ImGui::TextDisabled("busy in another chat");
