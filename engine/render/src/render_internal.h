@@ -280,7 +280,14 @@ public:
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
     sg_buffer acquire_transient(std::size_t bytes);
-    void begin_frame() { transientUsed_ = 0; }
+    // The pool restarts only after an sg_commit(): sokol forbids writing a buffer once it was bound in the same
+    // frame, and a second draw before the commit (editor screenshots, render_now) must not reuse a bound buffer.
+    // ponytail: the cap assumes a commit happened when a caller never reports one (editor); it just bounds the pool.
+    void begin_frame() {
+        if (committed_ || transientUsed_ >= 16) transientUsed_ = 0;
+        committed_ = false;
+    }
+    void note_commit() { committed_ = true; }
 
     bool depth_zero_to_one() const { return zeroToOne_; }
     bool is_gl() const { return isGl_; }
@@ -302,6 +309,7 @@ private:
     struct Transient { sg_buffer buf{}; std::size_t capacity = 0; };
     std::vector<Transient> transient_;
     std::size_t transientUsed_ = 0;
+    bool committed_ = true;
 };
 
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
