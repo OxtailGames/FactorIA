@@ -313,7 +313,10 @@ void register_builtin_components(TypeRegistry& r) {
                        "and settles on a face; set lockRotation for a character or an upright crate. A sphere is an "
                        "arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never "
                        "turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins "
-                       "it, so it rolls down slopes and a glancing hit spins it.",
+                       "it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body "
+                       "that stays nearly still for half a second falls asleep together with the bodies it touches (no "
+                       "cost, no events) and wakes when touched by something moving, when gameplay writes its position, "
+                       "rotation or velocity, applies a force, or when what it rests on goes away.",
                        "Physics")
         .enum_field("type", &RigidBody3D::type, {"static", "dynamic", "kinematic"},
                     "static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by velocity/Transform.")
@@ -322,7 +325,9 @@ void register_builtin_components(TypeRegistry& r) {
         .field("linearDamping", &RigidBody3D::linearDamping, "Air resistance; 0 = none.").range(0, 1000)
         .field("velocity", &RigidBody3D::velocity, "Linear velocity [x, y, z] in meters per second. Read/write.")
         .field("angularVelocity", &RigidBody3D::angularVelocity,
-               "Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step.")
+               "Rotation speed in degrees/second around x, y, z; integrated into Transform.rotation each step. Read/write "
+               "(writing it wakes a sleeping body). A box spinning about a non-principal axis keeps its angular "
+               "momentum, so this vector wanders (precession) while it tumbles.")
         .field("rollWithMotion", &RigidBody3D::rollWithMotion,
                "Sphere colliders only. true (default, arcade ball): while it touches the ground the sphere is spun to "
                "match its rolling motion (sets angularVelocity from the horizontal velocity) and uses rolling "

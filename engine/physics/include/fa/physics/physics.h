@@ -70,11 +70,20 @@
 //     slope rolls without slipping (spin = speed / radius) while a glancing hit spins both spheres. Impulses are
 //     accumulated and clamped per point (Gauss-Seidel, 8 iterations per sub-step, alternating sweep order) and warm
 //     started from the previous sub-step's solution of the same contact points; positional correction is translation
-//     only. The orientation is a quaternion kept by the body and integrated every sub-step about the collider centre
-//     (angular velocity is constant between contacts: no gyroscopic term); it is written to Transform.rotation (local
+//     only. The orientation is a quaternion kept by the body and integrated every sub-step about the collider centre;
+//     a box turning about a non-principal axis precesses (gyroscopic term, Euler's equations in the body frame by the
+//     implicit midpoint rule: kinetic energy and |angular momentum| are kept, so a spin about the intermediate axis of
+//     a plank flips it over without blowing up). The orientation is written to Transform.rotation (local
 //     euler; the parent's rotation is taken into account) after the step, and a Transform.rotation that differs from
 //     what was written last (gameplay turned the body) re-reads the orientation from the Transform. angularDamping
-//     slows the spin. There is no sleeping: a settled stack just ends up with ~zero velocities.
+//     slows the spin; boxes have no rolling resistance (rollingFriction is for arcade spheres).
+//   * 3D SLEEPING: a dynamic body whose fastest point (spin included) stays under 5 cm/s for 0.5 s falls asleep with
+//     every body linked to it by contacts (islands sleep together: a stack sleeps as one). Asleep = no gravity, no
+//     solver work, no events, frozen pose. It wakes when an awake dynamic body or a moving kinematic body comes within
+//     2 cm, on gameplay writes of Transform position/rotation (a teleport also wakes the bodies touching the body) or
+//     RigidBody3D velocity/angularVelocity, on apply_force/apply_impulse/set_velocity, on a changed scene gravity,
+//     and when a body it touched is destroyed, disabled, resized or moved (its support is gone). A rider on a moving
+//     kinematic platform never sleeps. Like 2D, scripts have no sleep API; debug_state reports `awake` per body.
 //     lockRotation (and every rollWithMotion sphere, kinematic and static body) keeps the original single-point
 //     torque-free solver: contacts never turn it; angularVelocity written by gameplay still turns it (euler-added to the
 //     Transform each step). An arcade sphere (rollWithMotion, the default) is spun to match its motion instead and
@@ -93,9 +102,12 @@
 //     dynamic (two 60 m/s spheres flying at each other). The earliest time of impact among all pairs stops ALL bodies
 //     there (each moved by its own velocity * that fraction), the contacts are resolved (stop / bounce / slide: the
 //     normal solver, no positional correction since the overlap is ~0.1 mm) and the rest of the sub-step continues
-//     with the new velocities, repeating up to 6 impacts per sub-step. So a 60 m/s sphere does not pass a 0.2 m wall
+//     with the new velocities, repeating up to 32 impacts per sub-step (when they run out, the rest of the move waits
+//     for the next sub-step instead of being applied unswept). So a 60 m/s sphere does not pass a 0.2 m wall
 //     and keeps sliding along a ramp it hits instead of losing the rest of its move. Pairs that already overlap at
-//     the start of the (remaining) move are left to the solver. A box's own rotation during the sub-step is not swept.
+//     the start of the (remaining) move (deeper than 2 mm) are left to the solver; a pair left touching by the last
+//     impact is swept again. A rotating box is swept through its own turn within the sub-step (its far end counts as
+//     travel), so a fast spinning rod cannot swing through a thin wall.
 //   * 3D RIDERS: dynamic bodies resting on top of a kinematic body (gap <= 2 cm, contact normal up) inherit its
 //     displacement every sub-step (horizontal; and downward), so they ride moving platforms; friction then acts
 //     on the velocity RELATIVE to the platform. A static/kinematic body teleported by gameplay carries its riders
