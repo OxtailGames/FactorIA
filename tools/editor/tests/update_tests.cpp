@@ -76,9 +76,14 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     put(install / exe, "old factoria");
     put(install / "README.md", "old readme");
     put(install / "notes.txt", "mine");  // not in the package: left alone
+    // mobile/ (the prebuilt Android and iOS players) is swapped whole: the old x86_64 library must not survive next to
+    // the new arm64 one, since players of two versions must never mix.
+    put(install / "mobile" / "android" / "jniLibs" / "arm64-v8a" / "libfactoria_player.so", "old arm64");
+    put(install / "mobile" / "android" / "jniLibs" / "x86_64" / "libfactoria_player.so", "old x86_64");
     put(pkg / "FactorIA" / exe, "new factoria");
     put(pkg / "FactorIA" / "README.md", "new readme");
     put(pkg / "FactorIA" / "factoria_player", "new player");
+    put(pkg / "FactorIA" / "mobile" / "android" / "jniLibs" / "arm64-v8a" / "libfactoria_player.so", "new arm64");
 
     // The same archive tools the release workflow and install_update use.
     stdfs::path archive = root / update_package_name();
@@ -117,10 +122,15 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     CHECK(slurp(install / "factoria_player") == "new player");
     CHECK(slurp(install / "notes.txt") == "mine");
     CHECK(slurp(install / (exe + ".old")) == "old factoria");
+    CHECK(slurp(install / "mobile" / "android" / "jniLibs" / "arm64-v8a" / "libfactoria_player.so") == "new arm64");
+    CHECK_FALSE(stdfs::exists(install / "mobile" / "android" / "jniLibs" / "x86_64"));
+    CHECK(slurp(install / "mobile.old" / "android" / "jniLibs" / "x86_64" / "libfactoria_player.so") == "old x86_64");
     CHECK_FALSE(stdfs::exists(install / ".update"));
 
     remove_update_leftovers(install);
     CHECK_FALSE(stdfs::exists(install / (exe + ".old")));
+    CHECK_FALSE(stdfs::exists(install / "mobile.old"));
+    CHECK(stdfs::exists(install / "mobile"));
     CHECK_FALSE(stdfs::exists(install / "README.md.old"));
     CHECK(stdfs::exists(install / "notes.txt"));
 
