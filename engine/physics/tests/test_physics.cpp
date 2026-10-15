@@ -2398,3 +2398,59 @@ TEST_CASE("3d sleep: a changed scene gravity wakes sleeping bodies; sleeping is 
     CHECK(a == b);
     CHECK(pa == pb);
 }
+
+// ------------------------------------------------- 3D gyroscopic term ----
+
+namespace {
+// Angular momentum (world frame, kg m^2/s) and kinetic energy (J) of a free box from its public state.
+struct SpinState { Vec3 L; float energy; };
+SpinState spin_state(const World& w, Entity e, Vec3 inertia) {
+    const Quat q = Quat::from_euler_deg(w.get<Transform>(e)->rotation);
+    const Vec3 omega = w.get<RigidBody3D>(e)->angularVelocity * (kPi / 180.0f);
+    const Vec3 wb = q.conjugate().rotate(omega);
+    return {q.rotate(wb * inertia), 0.5f * dot(wb, wb * inertia)};
+}
+}  // namespace
+
+TEST_CASE("3d gyro: a box tumbling in zero gravity precesses and conserves energy and angular momentum") {
+    // A 2 x 1 x 0.5 box (moments of inertia 1.25 < 4.25 < 5 over 12, so y is the intermediate axis) spins for 600 steps.
+    // Without a gyroscopic term its angular velocity would stay constant and its angular momentum would turn with it.
+    const Vec3 inertia{(1 + 0.25f) / 12, (4 + 0.25f) / 12, (4 + 1) / 12.0f};
+    struct Drift { float maxL = 0, maxE = 0, minE = 1e9f, maxOmega = 0; bool flipped = false; };
+    auto run = [&](Vec3 spinDeg) {
+        Sim s;
+        no_gravity(s);
+        Entity e = add_box3(s.world, "tumbler", {0, 5, 0}, {2, 1, 0.5f}, BodyType::Dynamic, true);
+        s.world.get<RigidBody3D>(e)->angularVelocity = spinDeg;
+        const SpinState s0 = spin_state(s.world, e, inertia);
+        Drift d;
+        for (int i = 0; i < 600; ++i) {
+            s.run(1);
+            const SpinState st = spin_state(s.world, e, inertia);
+            d.maxL = std::max(d.maxL, length(st.L - s0.L) / length(s0.L));
+            d.maxE = std::max(d.maxE, st.energy / s0.energy);
+            d.minE = std::min(d.minE, st.energy / s0.energy);
+            d.maxOmega = std::max(d.maxOmega, length(s.world.get<RigidBody3D>(e)->angularVelocity - spinDeg));
+            const Quat q = Quat::from_euler_deg(s.world.get<Transform>(e)->rotation);
+            const Vec3 wb = q.conjugate().rotate(s.world.get<RigidBody3D>(e)->angularVelocity);
+            if (wb.y < 0.0f) d.flipped = true;  // the spin about the intermediate axis reversed
+        }
+        CHECK(pos_of(s.world, e).y == doctest::Approx(5.0f));  // no gravity, no contact: it stays where it is
+        return d;
+    };
+
+    // (a) a spin about a skew axis: the angular velocity wanders (precession), the momentum vector and energy do not
+    const Drift a = run({150, 250, 100});
+    CHECK(a.maxOmega > 50.0f);
+    CHECK(a.maxL < 0.02f);
+    CHECK(a.maxE < 1.005f);
+    CHECK(a.minE > 0.995f);
+
+    // (b) a fast spin about the intermediate axis with a small wobble is unstable: the box flips over, but an implicit
+    // integrator neither blows up nor loses energy doing it
+    const Drift b = run({4, 300, 4});
+    CHECK(b.flipped);
+    CHECK(b.maxL < 0.02f);
+    CHECK(b.maxE < 1.005f);
+    CHECK(b.minE > 0.995f);
+}

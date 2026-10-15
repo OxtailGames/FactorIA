@@ -101,6 +101,32 @@ Vec3 local_euler(const World& world, Entity e, const Vec3* ax) {
     return euler_of(lc);
 }
 
+// Gyroscopic torque of a body turning about a non-principal axis (Euler's equations I w' = -w x I w, body frame),
+// integrated with the implicit midpoint rule: I (w1 - w0) + h wm x (I wm) = 0 with wm = (w0 + w1) / 2, solved by Newton
+// iterations (the idea of Bullet's computeGyroscopicImpulseImplicit, with the second-order midpoint rule). It keeps the
+// two quadratic invariants of the free rotation, kinetic energy and |I w|, so a fast spin about the intermediate axis
+// neither blows up nor loses speed. w0 and the result are the body-frame angular velocity (rad/s), `inertia` the
+// principal moments.
+Vec3 gyroscopic_step(Vec3 w0, Vec3 inertia, float h) {
+    Vec3 w1 = w0;
+    for (int it = 0; it < 4; ++it) {
+        const Vec3 wm = (w0 + w1) * 0.5f, L = wm * inertia;
+        const Vec3 res = (w1 - w0) * inertia + cross(wm, L) * h;  // residual of the midpoint equation
+        // Jacobian rows: I + h/2 (skew(wm) I - skew(L))
+        const float k = 0.5f * h;
+        const Vec3 r0{inertia.x, k * (L.z - wm.z * inertia.y), k * (wm.y * inertia.z - L.y)};
+        const Vec3 r1{k * (wm.z * inertia.x - L.z), inertia.y, k * (L.x - wm.x * inertia.z)};
+        const Vec3 r2{k * (L.y - wm.y * inertia.x), k * (wm.x * inertia.y - L.x), inertia.z};
+        const Vec3 c0 = cross(r1, r2), c1 = cross(r2, r0), c2 = cross(r0, r1);  // columns of J^-1 times det
+        const float det = dot(r0, c0);
+        if (!(std::fabs(det) > 1e-6f * inertia.x * inertia.y * inertia.z)) break;
+        const Vec3 dw = (c0 * res.x + c1 * res.y + c2 * res.z) / det;
+        w1 -= dw;
+        if (length_sq(dw) < 1e-12f * (length_sq(w1) + 1e-12f)) break;
+    }
+    return w1;
+}
+
 // Axis-aligned bounds of a shape (for the sweep broad phase); an unturned box has the identity frame, so this is `half`.
 void bounds_of(const Vec3* ax, bool box, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
     const Vec3 e = !box ? Vec3{radius}
@@ -919,6 +945,11 @@ void Physics3D::step(World& world, float dt) {
             b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
             if (b.damping > 0.0f) b.vel *= 1.0f / (1.0f + h * b.damping);
             if (b.angDamping > 0.0f) b.angVel *= 1.0f / (1.0f + h * b.angDamping);
+            if (b.rotDyn && b.box && b.angVel != Vec3{}) {  // a box turning in the air precesses like a real one
+                const Vec3 w = world_to_frame(b.ax, b.angVel * kDegToRad);
+                const Vec3 turned = gyroscopic_step(w, {1.0f / b.invI.x, 1.0f / b.invI.y, 1.0f / b.invI.z}, h);
+                b.angVel = frame_to_world(b.ax, turned) * kRadToDeg;
+            }
         }
         // Motion with continuous collision. The bodies advance together up to the first impact (a time of impact), the
         // contacts are resolved there (the velocity of the hit bodies changes: stop, bounce, slide), and the rest of the
