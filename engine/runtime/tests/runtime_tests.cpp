@@ -1007,3 +1007,28 @@ TEST_CASE("engine: screenshot right after a scene load shows the new scene, HUD 
         e.shutdown();
     }
 }
+
+// A test (or script_eval) that changes the world without stepping and takes a second screenshot must see the change,
+// also when the first screenshot already drew the stepped frame (FB-0005: an opened level-up panel was missing).
+TEST_CASE("engine: screenshot after a change without stepping shows the change") {
+    for (RenderMode mode : {RenderMode::OnDemand, RenderMode::Always}) {
+        TempProject p("change_shot");
+        EngineConfig cfg = headless_cfg(p);
+        cfg.renderMode = mode;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+        e.step(3);
+        std::string a = (p.dir / "a.png").generic_string(), b = (p.dir / "b.png").generic_string();
+        REQUIRE_MESSAGE(e.screenshot(a, &err), err);
+        Shape2D* s = e.world().get<Shape2D>(e.world().find_by_id("ground"));
+        REQUIRE(s);
+        s->color = Color{1, 1, 1, 1};
+        REQUIRE_MESSAGE(e.screenshot(b, &err), err);  // no step in between
+        auto ia = load_image(a), ib = load_image(b);
+        REQUIRE(ia.ok());
+        REQUIRE(ib.ok());
+        CHECK(ia->rgba != ib->rgba);
+        e.shutdown();
+    }
+}

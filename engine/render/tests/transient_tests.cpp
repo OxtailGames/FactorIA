@@ -76,3 +76,20 @@ TEST_CASE("render: two draws before one commit write the vertex stream to differ
     for (const std::string& m : log.errors) MESSAGE("sokol: " << m);
     CHECK(log.errors.empty());
 }
+
+TEST_CASE("render: forty draws before one commit (game.step in the editor) keep the picture intact") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    build_busy_scene(w);
+    const Image ref = g.render(w);
+    SokolErrors log;
+    for (int i = 0; i < 40; ++i) {
+        g.renderer.begin_frame();
+        g.renderer.render_world(w, 0.0f);
+    }
+    const Image img = g.render(w);
+    for (const std::string& m : log.errors) MESSAGE("sokol: " << m);
+    CHECK(log.errors.empty());
+    CHECK(img.rgba == ref.rgba);
+}
