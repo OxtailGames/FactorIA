@@ -72,7 +72,7 @@ jobs:
           unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
           mkdir "$RUNNER_TEMP/ccache-cl"
           cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
-          { echo "CCACHE_DIR=$LOCALAPPDATA\ccache"; echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
 
       # The CI runs on main fill these caches (ci.yml); a release only reads them.
       - name: Restore ccache

@@ -82,12 +82,12 @@ jobs:
           unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
           mkdir "$RUNNER_TEMP/ccache-cl"
           cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
-          { echo "CCACHE_DIR=$LOCALAPPDATA\ccache"; echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
 
       - name: Restore ccache
         uses: actions/cache@v4
         with:
-          path: ~\AppData\Local\ccache
+          path: ~\AppData\Local\ccache  # ccache's default directory on Windows
           key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-windows-
 
@@ -162,6 +162,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The first boot of a simulator device takes 5-7 minutes on a hosted runner, a later one seconds: keep the devices
+      # after their first boot, once per runner image (the devices and runtimes come with the image).
+      - name: Runner image version
+        id: image
+        run: echo "version=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the booted simulator
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/CoreSimulator/Devices
+          key: ios-simulator-${{ steps.image.outputs.version }}
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -180,13 +192,6 @@ jobs:
           test ! -e "$app/game/ENGINE_FEEDBACK.json"
           plutil -lint "$app/Info.plist"
 
-      - name: TEMP diagnose the simulator boot
-        run: |
-          xcrun simctl runtime list -v || true
-          ls -la ~/Library/Developer/CoreSimulator/Caches/dyld /Library/Developer/CoreSimulator/Caches/dyld 2>&1 || true
-          time xcrun simctl runtime dyld_shared_cache update --all || true
-          du -sh ~/Library/Developer/CoreSimulator/Caches/dyld/* /Library/Developer/CoreSimulator/Caches/dyld/* 2>/dev/null || true
-
       # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
       # the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
       # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
@@ -194,6 +199,12 @@ jobs:
         run: |
           app=$(find "$PWD/build/ios-simulator" -name factoria_player.app -type d | head -n 1)
           ./scripts/ios-smoke.sh "$app" dev.factoria.ci 90 build/ios-smoke
+
+      - name: TEMP simulator device sizes
+        if: always()
+        run: |
+          du -sh ~/Library/Developer/CoreSimulator/Devices
+          du -sh ~/Library/Developer/CoreSimulator/Devices/*/data 2>/dev/null | sort -h | tail -n 3
 
       - name: Upload simulator logs, screenshot and crash reports
         if: always()
