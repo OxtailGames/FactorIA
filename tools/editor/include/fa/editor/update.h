@@ -26,9 +26,11 @@ struct UpdateInfo {
     bool available() const { return !latest.empty(); }
 };
 
-// GitHub "owner/repo" this build updates from; "" when updates are off (builds from source).
+// GitHub "owner/repo" this build updates from; "" when updates are off (builds from source, and the Linux AppImage,
+// which is a read-only mount).
 std::string update_repo();
-// Name of this OS's release package: FactorIA-windows-x64.zip, FactorIA-macos-arm64.tar.gz, FactorIA-linux-x64.tar.gz.
+// Name of this OS's release package: FactorIA-windows-x64.zip, FactorIA-macos-universal.tar.gz,
+// FactorIA-linux-x64.tar.gz.
 std::string update_package_name();
 // True when version `a` is newer than `b` ("1.10.0" > "1.9.2"; a leading "v" is ignored).
 bool version_newer(std::string_view a, std::string_view b);

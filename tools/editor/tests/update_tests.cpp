@@ -76,6 +76,8 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     put(install / exe, "old factoria");
     put(install / "README.md", "old readme");
     put(install / "notes.txt", "mine");  // not in the package: left alone
+    put(install / "unins000.exe", "uninstaller");  // the Windows installer's uninstaller and its log (FactorIA.iss)
+    put(install / "unins000.dat", "log");
     put(pkg / "FactorIA" / exe, "new factoria");
     put(pkg / "FactorIA" / "README.md", "new readme");
     put(pkg / "FactorIA" / "factoria_player", "new player");
@@ -116,6 +118,9 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     CHECK(slurp(install / "README.md") == "new readme");
     CHECK(slurp(install / "factoria_player") == "new player");
     CHECK(slurp(install / "notes.txt") == "mine");
+    CHECK(slurp(install / "unins000.exe") == "uninstaller");  // an update keeps the uninstaller working...
+    CHECK(slurp(install / "unins000.dat") == "log");
+    CHECK_FALSE(stdfs::exists(install / "unins000.exe.old"));
     CHECK(slurp(install / (exe + ".old")) == "old factoria");
     CHECK_FALSE(stdfs::exists(install / ".update"));
 

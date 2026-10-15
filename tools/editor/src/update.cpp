@@ -59,13 +59,21 @@ std::string tar_exe() {
 
 }  // namespace
 
-std::string update_repo() { return FA_UPDATE_REPO; }
+std::string update_repo() {
+    // Started from the AppImage: its files are a read-only mount that install_update cannot replace. Updating means
+    // downloading the newer AppImage (docs/GETTING_STARTED.md, "Updates"), so the editor does not offer it.
+    if (std::getenv("APPIMAGE")) return {};
+    return FA_UPDATE_REPO;
+}
 
 std::string update_package_name() {
 #if defined(_WIN32)
     return "FactorIA-windows-x64.zip";
 #elif defined(__APPLE__)
-    return "FactorIA-macos-arm64.tar.gz";
+    // A universal binary (arm64 + x86_64). Editors up to 0.1.2 look for FactorIA-macos-arm64.tar.gz, so
+    // .github/workflows/release.yml still uploads this very file under that name too: drop that copy once nobody
+    // runs those editors.
+    return "FactorIA-macos-universal.tar.gz";
 #else
     return "FactorIA-linux-x64.tar.gz";
 #endif
