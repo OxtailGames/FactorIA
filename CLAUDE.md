@@ -76,13 +76,18 @@ repository, not only the one where it was agreed:
 
 ## Finishing a task (every session on this project)
 
-A task is done only when its work is on `main` and nothing is left behind, so
-the next task starts from `main` with everything in it:
+Nobody waits for CI. A task is done when its PR is open with auto-merge on and
+nothing is left behind locally; GitHub merges it once the required `CI result`
+check passes and deletes its branch:
 
 - Start from the latest `origin/main` (`git fetch` first); merge `origin/main`
-  into the branch again before opening the PR.
-- Merge the PR once CI is green (no need to ask), then delete the branch, local
-  and on `origin`.
-- Remove the task's worktrees (agent worktrees included) and its
-  `build/agent-<name>` dirs.
+  into the branch again before opening the PR. If the task needs work whose PR
+  has not merged yet, branch from that PR's branch instead.
+- Open the PR and turn on auto-merge with a merge commit (no need to ask):
+  `gh pr merge <n> --auto --merge`. If CI fails, fix it on the same branch;
+  never merge red. A PR that changes `.github/workflows/release.yml` is the
+  exception: its Release run is not part of `CI result`, so merge it by hand once
+  that run is green too.
+- Delete the local branch, remove the task's worktrees (agent worktrees
+  included) and its `build/agent-<name>` dirs.
 - Leave the main checkout on `main`, up to date with `origin/main`, clean.
