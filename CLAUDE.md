@@ -56,6 +56,9 @@ ctest --test-dir build/dev --output-on-failure
   `docs/i18n/<lang>/<SAME_NAME>.md`, with a language selector at the top. Update
   the English text first; a translation that falls behind must say so at the
   top. Translations are not embedded in the binary (AIs read English).
+- Talk to the user in SPANISH, in every session on this project (replies,
+  questions, summaries, wrap-ups). What goes into the repository (code, commits,
+  PRs, docs) stays in English, as above.
 - Record engine gaps you notice while building examples in the example's
   `ENGINE_FEEDBACK.json` — the same loop we ask game-making AIs to follow.
 
