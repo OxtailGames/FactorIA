@@ -4,11 +4,41 @@
 
 > AI agents: read [AI_GUIDE.md](AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
 
-FactorIA is a 2D and 3D game engine in C++20 designed so that an AI can create games without depending on a graphical editor. Scenes are JSON, game logic is written in JavaScript, and each engine capability is a command the AI can invoke. This guide explains how to build the engine, create a game and connect an AI.
+FactorIA is a 2D and 3D game engine in C++20 designed so that an AI can create games without depending on a graphical editor. Scenes are JSON, game logic is written in JavaScript, and each engine capability is a command the AI can invoke. This guide explains how to install the engine (download it or build it), create a game and connect an AI.
 
 > **Project status.** It is in early development. On Linux the full workflow works: create a project, validate it, test it, simulate it without a window with screenshots, export it and connect an AI over MCP. CI builds and tests the engine on Windows (MSVC) and macOS (GPU tests excluded), and runs the iOS app on the iOS Simulator and an exported Android APK on an x86_64 emulator on every push; the mobile builds have not run on a real device yet (see `docs/MOBILE.md`). Section 8 summarizes what works and what is missing.
 
 ## 1. Requirements and installation
+
+### Download (no build tools)
+
+The [Releases page](https://github.com/OxtailGames/FactorIA/releases) has a package for each desktop system:
+`FactorIA-<version>-windows-x64.zip`, `FactorIA-<version>-macos-arm64.tar.gz` (Apple Silicon) and
+`FactorIA-<version>-linux-x64.tar.gz`. It contains `factoria` (CLI, editor, MCP server and AI), `factoria_player`
+(the runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`. The docs, templates
+and schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs nothing else.
+
+1. Unzip the package into a folder of your choice, for example `C:\FactorIA` or `~/FactorIA`.
+2. Open the editor:
+   - **Windows:** double-click `FactorIA-Editor.exe`. The exe is not signed, so Windows SmartScreen may show
+     "Windows protected your PC": click **More info**, then **Run anyway**.
+   - **macOS:** open Terminal in the folder and run `./factoria editor`. The app is not notarized, so Gatekeeper
+     blocks it the first time: in Finder, right-click `factoria` > **Open** and confirm. On macOS 15 and later, go to
+     System Settings > Privacy & Security and click **Open Anyway** instead. Or remove the download quarantine
+     from the whole folder: `xattr -dr com.apple.quarantine ~/FactorIA`.
+   - **Linux:** run `./factoria editor` in the folder. It needs X11 and OpenGL, which desktop distributions include.
+3. The AI assistant needs Claude Code (or Codex) installed and signed in, or an API key: see
+   [section 6](#6-connect-an-ai). Inside the editor nothing else is needed, because the editor serves the MCP tools
+   itself.
+4. To use Claude Code from a terminal outside the editor, add the folder to your PATH. The `.mcp.json` that
+   `factoria new` writes starts the bare `factoria` command, so the terminal has to find it. Then open a new terminal.
+   - Windows (PowerShell):
+     `[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\FactorIA', 'User')`
+   - macOS (zsh) or Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
+5. Desktop export (`factoria export`) works from the download. Android and iOS export still need the engine source
+   and the platform SDKs ([MOBILE.md](MOBILE.md)), so build from source for those.
+
+### Build from source
 
 You need CMake 3.24 or later and a C++20 compiler. On Linux and macOS the presets use Ninja. Third-party libraries are bundled in `external/`, so there are no separate dependencies to download, except the SDKs for each platform.
 

@@ -269,3 +269,14 @@ the first try failed three ways, each fixed and covered by a test:
   PATH for the agents it starts.
 - In `-p` mode Claude Code asked before every MCP tool, so the agent could not use the engine: the template now passes
   `--allowedTools mcp__factoria`.
+
+## Desktop download: next steps (*proactive*)
+
+`.github/workflows/release.yml` packages the desktop tools as a zip / tar.gz that runs without dev tools
+(docs/GETTING_STARTED.md, "Download"). Left out of that first package:
+- A Windows installer that adds a Start menu entry and puts `factoria` on PATH, so `.mcp.json` (bare `factoria`
+  command) works from any terminal without editing PATH by hand.
+- Code signing on Windows and signing plus notarization on macOS, so SmartScreen and Gatekeeper stop warning.
+- Prebuilt Android and iOS player libraries in the package, so `factoria export --platform android|ios` works from the
+  download (today it needs the engine source and the SDKs, docs/MOBILE.md).
+- A Linux AppImage (one file, no tar.gz) and a macOS x86_64 or universal build (the package is Apple Silicon only).

@@ -40,7 +40,25 @@ Android. iOS y Android todavía
 no se ejecutan en dispositivos ni emuladores en la CI. Carencias abiertas y
 próximos hitos: [feedback/ROADMAP.md](feedback/ROADMAP.md) (en inglés).
 
-## Inicio rápido
+## Descarga
+
+No hace falta compilador ni herramientas de desarrollo. Descarga el paquete de tu sistema en
+[Releases](https://github.com/OxtailGames/FactorIA/releases): `FactorIA-<versión>-windows-x64.zip`,
+`-macos-arm64.tar.gz` (Apple Silicon) o `-linux-x64.tar.gz`. Descomprímelo y abre el editor:
+
+- **Windows:** haz doble clic en `FactorIA-Editor.exe`. El exe no está firmado, así que SmartScreen puede frenarlo:
+  pulsa **Más información > Ejecutar de todas formas**.
+- **macOS:** ejecuta `./factoria editor` en Terminal desde la carpeta descomprimida. La app no está notarizada, así que
+  Gatekeeper la bloquea la primera vez: en Finder, clic derecho en `factoria` > **Abrir** (macOS 15 y posteriores:
+  Ajustes del Sistema > Privacidad y seguridad > **Abrir igualmente**).
+- **Linux:** ejecuta `./factoria editor` desde la carpeta descomprimida.
+
+El asistente de IA necesita [Claude Code](https://claude.com/claude-code) instalado y con la sesión iniciada, o una
+clave de API. Para usar Claude Code desde un terminal fuera del editor, añade la carpeta al PATH; y la exportación a
+Android e iOS sigue necesitando el código fuente del motor y los SDK de cada plataforma. Detalles:
+[Descarga en GETTING_STARTED](docs/i18n/es/GETTING_STARTED.md#descarga-sin-compilar-nada).
+
+## Inicio rápido (compilar desde el código fuente)
 
 Linux (Debian o Ubuntu) y macOS, desde la raíz del repositorio:
 

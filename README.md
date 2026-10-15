@@ -37,7 +37,24 @@ CI builds and tests every pull request and every push to `main` on Linux, Window
 devices or emulators in CI yet. Open gaps and next milestones:
 [feedback/ROADMAP.md](feedback/ROADMAP.md).
 
-## Quick start
+## Download
+
+No compiler or dev tools needed. Get the package for your system from
+[Releases](https://github.com/OxtailGames/FactorIA/releases): `FactorIA-<version>-windows-x64.zip`,
+`-macos-arm64.tar.gz` (Apple Silicon) or `-linux-x64.tar.gz`. Unzip it and open the editor:
+
+- **Windows:** double-click `FactorIA-Editor.exe`. The exe is not signed, so SmartScreen may stop it: click
+  **More info > Run anyway**.
+- **macOS:** run `./factoria editor` in Terminal from the unzipped folder. The app is not notarized, so Gatekeeper
+  blocks it the first time: right-click `factoria` in Finder > **Open** (macOS 15 and later: System Settings >
+  Privacy & Security > **Open Anyway**).
+- **Linux:** run `./factoria editor` from the unzipped folder.
+
+The AI assistant needs [Claude Code](https://claude.com/claude-code) installed and signed in, or an API key. To use
+Claude Code from a terminal outside the editor, add the folder to your PATH, and Android and iOS export still need
+the engine source and the platform SDKs. Details: [Download in GETTING_STARTED](docs/GETTING_STARTED.md#download-no-build-tools).
+
+## Quick start (build from source)
 
 Linux (Debian or Ubuntu) and macOS, from the repository root:
 

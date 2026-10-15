@@ -176,6 +176,10 @@ FactorIA renders into an offscreen target, so the tests can run without a window
 - **CI.** The workflow in `.github/workflows/ci.yml` runs the same presets on
   each platform. It uploads test output (`Testing` folders and `test-output/**/*.png`
   screenshots) when a job fails.
+- **Release packages.** `.github/workflows/release.yml` builds the release presets on Windows, macOS and Linux and
+  packages `factoria`, `factoria_player` and (Windows) `FactorIA-Editor.exe` as `FactorIA-<version>-<os>.zip`
+  (`.tar.gz` on macOS and Linux). Each package is smoke-tested from a temp folder outside the checkout (`version`,
+  `new`, `test`, `export`). A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as artifacts.
 
 ## Continuous integration (local, no GitHub minutes)
 
