@@ -24,6 +24,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # MSVC: link the C/C++ runtime statically (external/ included), so the exes run on a clean Windows without the
 # Visual C++ Redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# Visual Studio generator: compile a target's sources in parallel (MSBuild otherwise runs one cl per file in turn).
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    add_compile_options(/MP)
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(FactoriaPlatform)   # sets FA_PLATFORM, FA_SOKOL_BACKEND, FA_DESKTOP
