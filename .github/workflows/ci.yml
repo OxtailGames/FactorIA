@@ -77,7 +77,7 @@ jobs:
         run: cmake --preset windows-release
 
       - name: Build (windows-release)
-        run: cmake --build --preset windows-release
+        run: cmake --build --preset windows-release --parallel
 
       - name: Test (windows-release)
         run: ctest --preset windows-release
