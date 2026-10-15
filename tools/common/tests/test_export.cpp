@@ -376,25 +376,6 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:value=\"factoria_player\"") != std::string::npos);
 }
 
-TEST_CASE("export: android prebuilt mode builds abiFilters from the libraries that exist and warns about the others") {
-    testing::TempDir tmp;
-    std::string proj = make_project(tmp);
-    ExportOptions o;
-    o.projectDir = proj;
-    o.platform = "android";
-    o.outDir = tmp.sub("out");
-    o.mobileDir = make_fake_mobile(tmp, "download/mobile", {"arm64-v8a"});
-    auto r = export_project(o);
-    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(r->mode == "prebuilt");
-    std::string gradle = testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle");
-    CHECK(gradle.find("abiFilters 'arm64-v8a'") != std::string::npos);
-    CHECK(gradle.find("x86_64") == std::string::npos);
-    CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "app/src/main/jniLibs/x86_64"));
-    REQUIRE(r->warnings.size() == 1);
-    CHECK(r->warnings[0].find("x86_64") != std::string::npos);
-}
-
 TEST_CASE("export: android picks the mode by the documented rule") {
     testing::TempDir tmp;
     std::string proj = make_project(tmp);
@@ -468,6 +449,12 @@ TEST_CASE("export: android without prebuilt players or a checkout says what to d
         REQUIRE_FALSE(r.ok());
         CHECK(r.error().message.find("no prebuilt Android player") != std::string::npos);
         CHECK(r.error().hint.find("--mobile-dir") != std::string::npos);
+    }
+    SUBCASE("--mobile-dir with only one ABI") {
+        o.mobileDir = make_fake_mobile(tmp, "download/mobile", {"arm64-v8a"});
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("no prebuilt Android player") != std::string::npos);
     }
     SUBCASE("--engine-root that is not a checkout") {
         o.engineRoot = tmp.sub("not-an-engine");
