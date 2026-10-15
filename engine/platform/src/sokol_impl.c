@@ -15,7 +15,14 @@
 #define SOKOL_NO_ENTRY
 #endif
 
+// Android: sokol_app's NativeActivity entry point gets another name here and is wrapped at the end of this file.
+#if defined(__ANDROID__)
+#define ANativeActivity_onCreate fa_sokol_ANativeActivity_onCreate
+#endif
 #include "sokol_app.h"
+#if defined(__ANDROID__)
+#undef ANativeActivity_onCreate
+#endif
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "sokol_log.h"
@@ -27,5 +34,43 @@
 #define SOKOL_DUMMY_BACKEND
 #endif
 #include "sokol_audio.h"
+
+#if defined(__ANDROID__)
+// Ending the process when the activity is destroyed.
+//
+// sokol_app's onDestroy stops its loop thread and then calls exit(0), so that the next activity starts in a fresh
+// process. exit() runs the C++ static destructors while other threads still run: the engine, owned by static
+// AppDescs, shuts down on the main thread with no GL context ("call to OpenGL ES API with no current context"), the
+// logger's mutex is destroyed while the loop thread still logs "loop thread done", and bionic aborts the process
+// ("FORTIFY: pthread_mutex_lock called on a destroyed mutex", SIGABRT). Android destroys the activity when the game
+// is closed and on every relaunch the manifest cannot opt out of (an assets-path change: wallpaper colours or theme
+// on Android 12+, an overlay; see AndroidManifest.xml). So the entry point below wraps sokol_app's and turns that
+// exit(0) into _exit(0): the process ends at once, nothing is torn down under a running thread.
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+static void (*fa_sokol_on_destroy)(ANativeActivity* activity);
+
+static void fa_exit_now(void) {
+    fflush(NULL);  // what exit() would still do for stdio
+    _exit(0);
+}
+
+static void fa_on_destroy(ANativeActivity* activity) {
+    // Registered after every static object was constructed, so exit() calls it before any static destructor.
+    atexit(fa_exit_now);
+    fa_sokol_on_destroy(activity);  // sokol: stop the loop thread, close the pipe, exit(0)
+}
+
+// The symbol NativeActivity looks up (player/CMakeLists.txt keeps it with -u ANativeActivity_onCreate).
+JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved_state, size_t saved_state_size) {
+    fa_sokol_ANativeActivity_onCreate(activity, saved_state, saved_state_size);
+    if (activity->callbacks->onDestroy && activity->callbacks->onDestroy != fa_on_destroy) {  // unset if sokol failed
+        fa_sokol_on_destroy = activity->callbacks->onDestroy;
+        activity->callbacks->onDestroy = fa_on_destroy;
+    }
+}
+#endif  // __ANDROID__
 
 #endif  // !__APPLE__

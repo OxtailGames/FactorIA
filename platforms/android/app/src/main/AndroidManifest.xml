@@ -14,12 +14,18 @@
              it does not list, and a restarted NativeActivity ends the whole process (sokol_app calls exit(0) in
              onDestroy), so the game would just vanish: mcc|mnc when the SIM loads (the emulator does it a few seconds
              after boot), locale|layoutDirection when the system language changes, fontScale|fontWeightAdjustment when
-             the user changes the font size, colorMode with the display's colour gamut. -->
+             the user changes the font size, colorMode with the display's colour gamut.
+             stateNotNeeded: one restart cannot be declared: a change of the assets paths (wallpaper colours or theme on
+             Android 12+, an overlay; `am update-appinfo` does the same) relaunches every activity. The process ends in
+             the middle of that relaunch, and Android drops an activity whose process died without saved state ("app
+             died, no saved state"): the game vanished. With stateNotNeeded the system starts it again in a new
+             process, as it does for launchers. -->
         <activity
             android:name="android.app.NativeActivity"
             android:exported="true"
             android:screenOrientation="{{SCREEN_ORIENTATION}}"
             android:configChanges="mcc|mnc|locale|layoutDirection|fontScale|fontWeightAdjustment|colorMode|orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|density"
+            android:stateNotNeeded="true"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
             <meta-data android:name="android.app.lib_name" android:value="factoria_player" />

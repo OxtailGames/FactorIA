@@ -8,7 +8,8 @@
 #
 # What it checks, in this order (each step fails with its own message and the evidence in outDir):
 #   1. ready      the system finished booting (sys.boot_completed, boot animation, package manager, provisioning),
-#                 the keyguard is gone and the launcher has the window focus. No fixed sleep.
+#                 the keyguard is gone and the launcher has the window focus; after the install, the broadcast queues
+#                 are idle (`am wait-for-broadcast-idle`, API 30+). No fixed sleep.
 #   2. run        the process is alive, the player logged its run marker ("60 frames rendered", see
 #                 engine/runtime/src/runners.cpp), and is still the same process 5 s later.
 #   3. audio      the player opened an audio output device ("audio: output device open") and the platform pulled
@@ -21,9 +22,14 @@
 #                 the process (sokol_app exits in onDestroy), see configChanges in AndroidManifest.xml.
 #   7. no crash   no Java exception, native signal, ANR or engine error; the activity was never destroyed or
 #                 relaunched during the run; the display shows a picture (a black window passes none of this).
+#   8. relaunch   a change of the app's assets paths (`am update-appinfo`, what an overlay or a wallpaper-colour change
+#                 sends) relaunches the activity, which no configChanges value prevents: the old process ends cleanly
+#                 (no native signal) and the system starts the game again in a new process, which renders and has the
+#                 window focus.
 #
 # Output (outDir, default build/android-smoke): logcat.txt (whole log), logcat-app.txt (only the app process),
-# screen.png (what the display shows), summary.txt, state.txt on failure. Exit code 0 = the game runs.
+# logcat-app-relaunched.txt (the process after step 8), screen.png (what the display shows), summary.txt, state.txt on
+# failure. Exit code 0 = the game runs.
 set -uo pipefail
 
 USAGE="usage: android-smoke.sh <apk> <applicationId> [timeoutSeconds] [outDir]"
@@ -65,7 +71,7 @@ fail() {
     } >"$OUT/state.txt" 2>&1
     cat "$OUT/state.txt"
     echo "---- activity lifecycle (events buffer), configuration changes, crash and player lines of the log ----"
-    grep -E 'wm_[a-z_]*_activity|configuration_changed|am_(crash|proc_start|proc_died|kill)|factoria|Fatal signal|Abort message|FATAL EXCEPTION|AndroidRuntime|has died' \
+    grep -E 'wm_[a-z_]*_activity|configuration_changed|am_(crash|proc_start|proc_died|kill)|factoria|Fatal signal|FORTIFY|Abort message|FATAL EXCEPTION|AndroidRuntime|has died|Force removing|exited (cleanly|due to signal)' \
         "$OUT/logcat.txt" | grep -v 'CompatibilityChange' | tail -n 100
     exit 1
 }
@@ -84,14 +90,15 @@ wait_for_log() {
     done
 }
 
-# wait_until <seconds> <description> <function>   polls <function> every 2 s; 1 after <seconds>.
+# wait_until <seconds> <description> <function>   polls <function> every 2 s and notes "<description> (Ns)"; 1 after
+# <seconds>.
 wait_until() {
     local limit="$1" what="$2" check="$3" t0=$SECONDS
     until "$check"; do
         (( SECONDS - t0 < limit )) || return 1
         sleep 2
     done
-    note "ready: $what ($((SECONDS - t0))s)"
+    note "$what ($((SECONDS - t0))s)"
 }
 
 has_picture() {  # has_picture <png> <what>
@@ -110,10 +117,10 @@ boot_completed() { [ "$(prop sys.boot_completed)" = 1 ]; }
 boot_anim_done() { [ "$(prop init.svc.bootanim)" != running ]; }   # empty with -no-boot-anim
 package_manager_up() { [[ "$("$ADB" shell pm path android 2>/dev/null)" == package:* ]]; }
 provisioned() { [ "$(setting global device_provisioned)" != 0 ] && [ "$(setting secure user_setup_complete)" != 0 ]; }
-wait_until 240 "sys.boot_completed=1" boot_completed || fail "the device never finished booting (sys.boot_completed='$(prop sys.boot_completed)')"
-wait_until 90 "boot animation stopped" boot_anim_done || fail "the boot animation is still running (init.svc.bootanim='$(prop init.svc.bootanim)')"
-wait_until 120 "package manager answers" package_manager_up || fail "'pm path android' does not answer: the package manager is not up"
-wait_until 90 "device provisioned" provisioned || fail "device_provisioned='$(setting global device_provisioned)' user_setup_complete='$(setting secure user_setup_complete)': the setup wizard is still running"
+wait_until 240 "ready: sys.boot_completed=1" boot_completed || fail "the device never finished booting (sys.boot_completed='$(prop sys.boot_completed)')"
+wait_until 90 "ready: boot animation stopped" boot_anim_done || fail "the boot animation is still running (init.svc.bootanim='$(prop init.svc.bootanim)')"
+wait_until 120 "ready: package manager answers" package_manager_up || fail "'pm path android' does not answer: the package manager is not up"
+wait_until 90 "ready: device provisioned" provisioned || fail "device_provisioned='$(setting global device_provisioned)' user_setup_complete='$(setting secure user_setup_complete)': the setup wizard is still running"
 
 "$ADB" shell input keyevent KEYCODE_WAKEUP
 "$ADB" shell wm dismiss-keyguard
@@ -123,7 +130,7 @@ HOME_PKG="$("$ADB" shell cmd package resolve-activity --brief -a android.intent.
 launcher_focused() { focus_has "$HOME_PKG"; }
 if [[ "$HOME_PKG" =~ ^[A-Za-z0-9_.]+$ ]]; then
     # Best effort: a launcher that never shows (an ANR dialog on top of it, say) is reported, the run goes on.
-    wait_until 90 "launcher $HOME_PKG has the window focus" launcher_focused || note "WARNING: the launcher $HOME_PKG never got the window focus; focus is: $(focus_line)"
+    wait_until 90 "ready: launcher $HOME_PKG has the window focus" launcher_focused || note "WARNING: the launcher $HOME_PKG never got the window focus; focus is: $(focus_line)"
 else
     note "WARNING: could not find the home app ('$HOME_PKG'), not waiting for it"
 fi
@@ -132,6 +139,24 @@ note "configuration: $("$ADB" shell am get-config 2>/dev/null | tr -d '\r')"
 "$ADB" install -r -t "$APK" 2>&1 | tee -a "$SUMMARY"
 INSTALLED="$("$ADB" shell pm list packages "$PKG" | tr -d '\r')"
 grep -qxF "package:$PKG" <<<"$INSTALLED" || fail "$PKG is not installed after adb install"
+
+# ActivityManager still delivers BOOT_COMPLETED after sys.boot_completed=1, and the install sends its own broadcasts
+# (PACKAGE_ADDED, PACKAGE_CHANGED); both update the app's ApplicationInfo. An activity started in the middle of that was
+# relaunched for an assets-path change (wm_relaunch_resume_activity ... 80000000), which no configChanges value can
+# prevent, and the run failed with "no process right after am start". Start the game once every broadcast queue is idle.
+SDK_LEVEL="$(prop ro.build.version.sdk)"
+if (( ${SDK_LEVEL:-0} >= 30 )); then
+    "$ADB" shell am wait-for-broadcast-idle >"$OUT/broadcast-idle.txt" 2>&1 &
+    BROADCAST_WAIT=$!
+    broadcasts_idle() { ! kill -0 "$BROADCAST_WAIT" 2>/dev/null; }
+    if ! wait_until 120 "ready: broadcast queues idle after the install" broadcasts_idle; then
+        kill "$BROADCAST_WAIT" 2>/dev/null
+        fail "the broadcast queues were still busy 120s after the install ('am wait-for-broadcast-idle' did not return)"
+    fi
+    wait "$BROADCAST_WAIT" || fail "'am wait-for-broadcast-idle' failed: $(tr -d '\r' <"$OUT/broadcast-idle.txt")"
+else
+    note "WARNING: API ${SDK_LEVEL:-?} has no 'am wait-for-broadcast-idle' (API 30+); not waiting for the broadcast queues"
+fi
 
 # ---- 2. run ---------------------------------------------------------------------------------------------------------
 "$ADB" logcat -G 16M >/dev/null 2>&1   # the emulator's default buffer is small enough to lose early lines on a busy system
@@ -245,4 +270,57 @@ has_picture "$OUT/screen.png" "display"
 
 echo "---- run evidence (logcat, tag factoria) ----" | tee -a "$SUMMARY"
 grep -E 'factoria *: (engine: Graphics|scene: Loaded|audio: |input: |player: )' "$OUT/logcat-app.txt" | tee -a "$SUMMARY"
-note "OK: $PKG ran on the emulator (pid $PID): rendered, audio stream, touch, suspend/resume, configuration change, no crash."
+
+# ---- 8. relaunch ----------------------------------------------------------------------------------------------------
+# A change of the assets paths (wallpaper colours or theme on Android 12+, an overlay turned on or off) relaunches every
+# activity, and no configChanges value opts out of it. A destroyed NativeActivity ends a sokol_app process. That exit
+# used to run the C++ static destructors under running threads (SIGABRT, "pthread_mutex_lock called on a destroyed
+# mutex"), and Android then dropped the activity of the dead process, so the game vanished. The engine now ends the
+# process with _exit (engine/platform/src/sokol_impl.c), and the activity is stateNotNeeded (AndroidManifest.xml), so
+# the system starts the game again in a new process. `am update-appinfo` sends the app the ApplicationInfo update that
+# an overlay change sends, without changing the device.
+OLD_PID="$PID"
+relaunch_count() { snapshot_log; grep -cE "wm_relaunch[a-z_]*_activity.*$PKG" "$OUT/logcat.txt"; }
+RELAUNCH0="$(relaunch_count)"
+MARKER0="$(log_count "$MARKER")"
+USER_ID="$("$ADB" shell am get-current-user 2>/dev/null | tr -d '\r')"
+[[ "$USER_ID" =~ ^[0-9]+$ ]] || USER_ID=0
+"$ADB" shell am update-appinfo "$USER_ID" "$PKG" 2>&1 | tr -d '\r' | tee -a "$SUMMARY"
+relaunched() { (( $(relaunch_count) > RELAUNCH0 )); }
+wait_until 20 "relaunch: the system relaunched the activity" relaunched ||
+    fail "relaunch: 'am update-appinfo $USER_ID $PKG' did not relaunch the activity within 20s (no wm_relaunch_*_activity event)"
+rendered_again() { (( $(log_count "$MARKER") > MARKER0 )); }
+wait_until "$TIMEOUT" "relaunch: '$MARKER' again" rendered_again ||
+    fail "relaunch: no new '$MARKER' within ${TIMEOUT}s: the game did not come back after the relaunch (process now: '$(app_pid)')"
+PID="$(app_pid)"
+[ -n "$PID" ] || fail "relaunch: no process for $PKG after the relaunch"
+if [ "$PID" = "$OLD_PID" ]; then
+    note "relaunch: the process $PID handled the relaunch"
+else
+    note "relaunch: the process $OLD_PID ended, the system started the game again as pid $PID"
+fi
+sleep 3
+[ "$(app_pid)" = "$PID" ] || fail "relaunch: the app process $PID is gone 3s after it rendered (now: '$(app_pid)')"
+focus_has "$PKG" || fail "relaunch: the game does not have the window focus: $(focus_line)"
+
+snapshot_log
+"$ADB" logcat -d -b all -v threadtime --pid="$OLD_PID" >"$OUT/logcat-app.txt" 2>/dev/null   # now with its end
+"$ADB" logcat -d -b all -v threadtime --pid="$PID" >"$OUT/logcat-app-relaunched.txt" 2>/dev/null
+# The old process ended without a signal and without running the engine's teardown on a dead GL context (what the
+# static destructors did); neither process crashed, the new one logged no engine error.
+if grep -E "FATAL EXCEPTION|Fatal signal|FORTIFY|SIGSEGV|SIGABRT|tombstone|OpenGL ES API with no current context" \
+        "$OUT/logcat-app.txt" "$OUT/logcat-app-relaunched.txt" >"$OUT/crash.txt" ||
+   grep -E "ANR in $PKG|Process: $PKG,|am_crash: \[[0-9]+,[0-9]+,$PKG,|Process $OLD_PID exited due to signal" \
+        "$OUT/logcat.txt" >>"$OUT/crash.txt"; then
+    cat "$OUT/crash.txt"
+    fail "relaunch: crash markers in the log (lines above)"
+fi
+if grep -E ' E factoria *:' "$OUT/logcat-app-relaunched.txt" >"$OUT/errors.txt"; then
+    cat "$OUT/errors.txt"
+    fail "relaunch: the engine logged errors after the relaunch (lines above)"
+fi
+grep -m 1 -E "Process $OLD_PID exited cleanly" "$OUT/logcat.txt" | tee -a "$SUMMARY"
+"$ADB" exec-out screencap -p >"$OUT/screen-relaunched.png" 2>/dev/null
+has_picture "$OUT/screen-relaunched.png" "relaunch"
+
+note "OK: $PKG ran on the emulator (pid $OLD_PID, pid $PID after the relaunch): rendered, audio stream, touch, suspend/resume, configuration change, relaunch, no crash."
