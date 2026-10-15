@@ -1,9 +1,10 @@
 // Simple 3D physics: spheres + oriented boxes, semi-implicit Euler, impulse resolution, automatic continuous collision.
-// Boxes follow the entity's world rotation. A dynamic box without lockRotation is a rigid body: its contacts are
-// manifolds (clipped faces), the solver applies normal and friction impulses at the contact points and so turns the box
-// (inertia tensor from its size and mass, orientation kept as a quaternion). Everything else (spheres, locked boxes,
-// kinematic and static bodies) keeps the original torque-free single-point solver. An unrotated box keeps the exact
-// axis-aligned code paths.
+// Boxes follow the entity's world rotation. A dynamic box (or a sphere with rollWithMotion off) without lockRotation is
+// a rigid body: its contacts are manifolds (clipped faces), the solver applies normal and friction impulses at the
+// contact points and so turns it (inertia tensor from its size and mass, orientation kept as a quaternion). Everything
+// else (arcade rolling spheres, locked bodies, kinematic and static bodies) keeps the original torque-free single-point
+// solver. An unrotated box keeps the exact axis-aligned code paths. Calm dynamic bodies fall asleep in islands, a box
+// turning in the air precesses (gyroscopic_step), and the sub-step motion is swept for impacts, rotation included.
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
@@ -25,8 +26,12 @@ constexpr float kSweepTol = 1e-4f;    // swept contacts are bisected to this dis
 constexpr float kCastSkin = 0.01f;    // shape casts: penetration at `from` up to this is a resting touch, not an overlap
 constexpr float kManifoldGap = 0.003f;  // box-box manifold points this far above the reference face still count (m)
 constexpr int kRigidIterations = 8;     // velocity iterations of the rigid-body solver, per sub-step
-constexpr int kMaxToiEvents = 6;        // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
+constexpr int kMaxToiEvents = 32;       // time-of-impact stops (and rest-of-the-sub-step continuations) per sub-step
+constexpr float kTouchSkin = 0.002f;    // a swept pair this deep at the start of the move is touching, not overlapping (m)
+constexpr float kTouchGain = 0.0005f;   // ...and counts as hit again once it sinks this much deeper (m)
 constexpr float kWarmRadius = 0.05f;    // a contact point inherits the impulses of the previous sub-step's one this close (m)
+constexpr float kSleepSpeed = 0.05f;    // a body is calm below this speed (m/s; its fastest point counts, spin included)
+constexpr float kTimeToSleep = 0.5f;    // ...and falls asleep, with the bodies it touches, after this long (s)
 
 const char* type_name(BodyType t) {
     switch (t) {
@@ -99,6 +104,40 @@ Vec3 local_euler(const World& world, Entity e, const Vec3* ax) {
     return euler_of(lc);
 }
 
+// Gyroscopic torque of a body turning about a non-principal axis (Euler's equations I w' = -w x I w, body frame),
+// integrated with the implicit midpoint rule: I (w1 - w0) + h wm x (I wm) = 0 with wm = (w0 + w1) / 2, solved by Newton
+// iterations (the idea of Bullet's computeGyroscopicImpulseImplicit, with the second-order midpoint rule). It keeps the
+// two quadratic invariants of the free rotation, kinetic energy and |I w|, so a fast spin about the intermediate axis
+// neither blows up nor loses speed. w0 and the result are the body-frame angular velocity (rad/s), `inertia` the
+// principal moments.
+Vec3 gyroscopic_step(Vec3 w0, Vec3 inertia, float h) {
+    Vec3 w1 = w0;
+    for (int it = 0; it < 4; ++it) {
+        const Vec3 wm = (w0 + w1) * 0.5f, L = wm * inertia;
+        const Vec3 res = (w1 - w0) * inertia + cross(wm, L) * h;  // residual of the midpoint equation
+        // Jacobian rows: I + h/2 (skew(wm) I - skew(L))
+        const float k = 0.5f * h;
+        const Vec3 r0{inertia.x, k * (L.z - wm.z * inertia.y), k * (wm.y * inertia.z - L.y)};
+        const Vec3 r1{k * (wm.z * inertia.x - L.z), inertia.y, k * (L.x - wm.x * inertia.z)};
+        const Vec3 r2{k * (L.y - wm.y * inertia.x), k * (wm.x * inertia.y - L.x), inertia.z};
+        const Vec3 c0 = cross(r1, r2), c1 = cross(r2, r0), c2 = cross(r0, r1);  // columns of J^-1 times det
+        const float det = dot(r0, c0);
+        if (!(std::fabs(det) > 1e-6f * inertia.x * inertia.y * inertia.z)) break;
+        const Vec3 dw = (c0 * res.x + c1 * res.y + c2 * res.z) / det;
+        w1 -= dw;
+        if (length_sq(dw) < 1e-12f * (length_sq(w1) + 1e-12f)) break;
+    }
+    return w1;
+}
+
+// `q` turned by angular velocity `w` (rad/s, world axes) for `seconds`.
+Quat turned(Quat q, Vec3 w, float seconds) {
+    const float len = length(w);
+    if (!(len > 0.0f)) return q;
+    const float half = 0.5f * len * seconds, s = std::sin(half) / len;
+    return normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * q);
+}
+
 // Axis-aligned bounds of a shape (for the sweep broad phase); an unturned box has the identity frame, so this is `half`.
 void bounds_of(const Vec3* ax, bool box, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
     const Vec3 e = !box ? Vec3{radius}
@@ -117,6 +156,29 @@ void Physics3D::reset() {
     warm_.clear();
     lastWorld_ = nullptr;
     nextSeq_ = 1;
+    carry_ = 0.0f;
+    lastGravity_ = {1e30f, 1e30f, 1e30f};
+}
+
+void Physics3D::wake(Body& b) {
+    b.sleepTime = 0.0f;
+    if (!b.asleep) return;
+    const std::uint64_t group = b.sleepGroup;
+    for (Body& o : bodies_) {
+        if (o.asleep && o.sleepGroup == group) {
+            o.asleep = false;
+            o.sleepTime = 0.0f;
+        }
+    }
+}
+
+void Physics3D::wake_touching(std::uint64_t seq) {
+    for (const auto& [key, st] : touching_) {
+        if (key.first != seq && key.second != seq) continue;
+        const std::uint64_t other = key.first == seq ? key.second : key.first;
+        auto it = std::lower_bound(bodies_.begin(), bodies_.end(), other, [](const Body& b, std::uint64_t s) { return b.seq < s; });
+        if (it != bodies_.end() && it->seq == other) wake(*it);
+    }
 }
 
 bool Physics3D::filters_pass(const Body& a, const Body& b) {
@@ -325,35 +387,60 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
     return c;
 }
 
-// First fraction t in (0, 1] of `disp` at which `mover` (centre moved by t * disp) overlaps `target`, found by stepping
-// at most half the mover's smallest extent and bisecting the first overlapping step to kSweepTol (tHit overlaps, by
-// <= ~0.1 mm). False when it never does, or when it already overlaps at t = 0 (that contact is left to the caller).
-// The mover is restored before returning.
-bool Physics3D::sweep(Body& mover, Vec3 disp, const Body& target, float& tHit) {
+// First fraction t in (0, 1] of `disp` at which `mover` (centre moved by t * disp, turned by t * moverSpin) overlaps
+// `target` (turned in place by t * targetSpin), found by stepping at most half the mover's smallest extent and bisecting
+// the first overlapping step to kSweepTol (tHit overlaps, by <= ~0.1 mm). The spins are the rotations (rad, about world
+// axes) a box makes over the whole move; the far end of a turning box counts as travel, so a long thin box spinning
+// fast cannot swing through a wall between two steps. False when it never overlaps, or when it already overlaps at
+// t = 0 by more than kTouchSkin (that contact is left to the caller). Both bodies are restored before returning.
+bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit) {
     const float len = length(disp);
-    if (!(len > 0.0f) || !std::isfinite(len)) return false;
+    const float travel = len + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin);
+    if (!(travel > 0.0f) || !std::isfinite(travel)) return false;
     Vec3 mlo, mhi, tlo, thi;
     bounds_of(mover.ax, mover.box, mover.center, mover.half, mover.radius, mlo, mhi);
     bounds_of(target.ax, target.box, target.center, target.half, target.radius, tlo, thi);
+    if (moverSpin != Vec3{}) { mlo = mover.center - Vec3{length(mover.half)}; mhi = mover.center + Vec3{length(mover.half)}; }
+    if (targetSpin != Vec3{}) { tlo = target.center - Vec3{length(target.half)}; thi = target.center + Vec3{length(target.half)}; }
     const Vec3 slo = min(mlo, mlo + disp), shi = max(mhi, mhi + disp);  // broad phase: swept bounds vs target bounds
     if (slo.x > thi.x || shi.x < tlo.x || slo.y > thi.y || shi.y < tlo.y || slo.z > thi.z || shi.z < tlo.z)
         return false;
     const float extent = mover.box ? 2.0f * std::min({mover.half.x, mover.half.y, mover.half.z}) : 2.0f * mover.radius;
-    const float steps = std::min(std::ceil(len / (0.5f * extent)), 100000.0f);
+    const float steps = std::min(std::ceil(travel / (0.5f * extent)), 100000.0f);
     const int n = std::max(int(steps), 1);
     const Vec3 from = mover.center;
+    const Vec3 moverAx[3] = {mover.ax[0], mover.ax[1], mover.ax[2]}, targetAx[3] = {target.ax[0], target.ax[1], target.ax[2]};
+    const bool moverRotated = mover.rotated, targetRotated = target.rotated;
+    auto turn = [](Body& b, Vec3 spin, float t) {  // the collision frame of b after t of its spin
+        if (spin == Vec3{}) return;
+        axes_of(turned(b.orient, spin, t), b.ax);
+        b.rotated = true;
+    };
+    // A pair that touches at the start (the previous impact left it ~0.1 mm in) is swept too: it only counts as hit once it
+    // sinks kTouchGain deeper, so the rest of a sub-step after an impact still catches the next one (a box pivoting
+    // about the corner that hit swings its far end into the wall). Deeper than kTouchSkin = a real overlap: the solver's.
+    float limit = -1e30f;  // penetration depth beyond which the mover counts as overlapping
     auto overlaps = [&](float t) {
         mover.center = from + disp * t;
-        return collide(target, mover, 0.0f).hit;
+        turn(mover, moverSpin, t);
+        turn(target, targetSpin, t);
+        const Contact c = collide(target, mover, 0.0f);
+        return c.hit && c.depth > limit;
     };
     bool found = false;
-    if (!overlaps(0.0f)) {
+    bool overlapping = false;
+    {
+        const Contact c0 = collide(target, mover, 0.0f);
+        if (c0.hit && c0.depth > kTouchSkin) overlapping = true;
+        else if (c0.hit) limit = c0.depth + kTouchGain;
+    }
+    if (!overlapping) {
         float lo = 0.0f;
         for (int i = 1; i <= n && !found; ++i) {
             const float t = float(i) / float(n);
             if (!overlaps(t)) { lo = t; continue; }
             float hi = t;
-            for (int k = 0; k < 32 && (hi - lo) * len > kSweepTol; ++k) {
+            for (int k = 0; k < 32 && (hi - lo) * travel > kSweepTol; ++k) {
                 const float mid = 0.5f * (lo + hi);
                 if (overlaps(mid)) hi = mid;
                 else lo = mid;
@@ -363,6 +450,9 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, const Body& target, float& tHit) {
         }
     }
     mover.center = from;
+    for (int i = 0; i < 3; ++i) { mover.ax[i] = moverAx[i]; target.ax[i] = targetAx[i]; }
+    mover.rotated = moverRotated;
+    target.rotated = targetRotated;
     return found;
 }
 
@@ -375,7 +465,10 @@ void Physics3D::sync(World& world) {
         const std::uint64_t key = e.bits();
         WorldPose pose = world_pose(world, e);
         auto it = index_.find(key);
+        bool existed = it != index_.end();
         if (it != index_.end() && bodies_[it->second].id != world.id_of(e)) {
+            wake_touching(bodies_[it->second].seq);
+            existed = false;
             bodies_[it->second] = Body{};  // entity slot reused after World::clear(): start fresh
             bodies_[it->second].seq = nextSeq_++;
             bodies_[it->second].e = e;
@@ -397,6 +490,7 @@ void Physics3D::sync(World& world) {
             bodies_.back().center = pose.position;  // the collider offset is added below
         }
         Body& b = bodies_[it->second];
+        const Body::Sig before = b.sig();
         b.seen = stamp;
         b.type = rb ? rb->type : BodyType::Static;
         b.hasRigid = rb != nullptr;
@@ -419,7 +513,9 @@ void Physics3D::sync(World& world) {
             // non-uniformly scaled, rotated parent) has non-orthogonal columns, which are used as if orthonormal.
             const Vec3* r = pose.axis;
             Vec3 ownAx[3];
-            const bool wantRot = rb && rb->type == BodyType::Dynamic && b.box && !col->isTrigger && !rb->lockRotation;
+            // Boxes and spheres without rollWithMotion (the arcade rolling model) are rigid bodies turned by contacts.
+            const bool wantRot = rb && rb->type == BodyType::Dynamic && (b.box || !rb->rollWithMotion) && !col->isTrigger &&
+                                 !rb->lockRotation;
             if (wantRot) {
                 // A rotating box keeps its quaternion between steps; only a Transform.rotation that differs from what
                 // the solver wrote last (or a parent in the way) makes it re-read the orientation from the Transform.
@@ -433,7 +529,8 @@ void Physics3D::sync(World& world) {
                 axes_of(b.orient, ownAx);
                 r = ownAx;
                 const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
-                b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+                if (b.box) b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+                else b.invI = Vec3{2.5f / (m * b.radius * b.radius)};  // solid sphere: I = 2/5 m r^2
             }
             b.rotDyn = wantRot;
             const bool turned = is_turned(r);
@@ -460,28 +557,43 @@ void Physics3D::sync(World& world) {
             b.lastCenter += b.offset - oldOffset;
         }
         b.enabled = world.active_in_hierarchy(e);
+        // Sleeping bodies must follow everything gameplay does to them or to what they rest on: a changed body or collider
+        // (including enabling and disabling) and a teleport wake the body and the bodies touching it; a written velocity
+        // wakes the body's group.
+        if (existed && b.sig() != before) {
+            wake(b);
+            wake_touching(b.seq);
+        }
         if (!b.enabled) continue;
         // Gameplay moved the Transform since the last writeback -> teleport (keep velocity).
         Vec3 dp = pose.position - b.lastPos;
-        if (std::fabs(dp.x) > 1e-4f || std::fabs(dp.y) > 1e-4f || std::fabs(dp.z) > 1e-4f || b.type == BodyType::Static) {
+        const bool moved = std::fabs(dp.x) > 1e-4f || std::fabs(dp.y) > 1e-4f || std::fabs(dp.z) > 1e-4f;
+        if (moved || b.type == BodyType::Static) {
             const bool placed = b.lastPos.x < 1e8f;  // false right after slot reuse (forced initial placement)
             if (placed && b.type != BodyType::Dynamic) b.pendingCarry += pose.position - b.lastPos;
             b.center = pose.position + b.offset;
             b.lastPos = pose.position;
             b.lastCenter = b.center;
         }
+        if (moved) {
+            b.moved = true;
+            wake(b);
+            wake_touching(b.seq);
+        }
         if (rb && rb->angularVelocity != b.lastAngVel) {
             b.angVel = rb->angularVelocity;
             b.lastAngVel = rb->angularVelocity;
+            wake(b);
         }
         if (rb && rb->velocity != b.lastVel) {
             b.vel = rb->velocity;
             b.lastVel = rb->velocity;
+            wake(b);
         }
     }
-    // Sweep destroyed entities / removed components, keeping creation order.
+    // Sweep destroyed entities / removed components, keeping creation order. What rested on them is woken first.
     bool any = false;
-    for (const Body& b : bodies_) if (b.seen != stamp || !live(world, b.e)) { any = true; break; }
+    for (const Body& b : bodies_) if (b.seen != stamp || !live(world, b.e)) { any = true; wake_touching(b.seq); }
     if (any) {
         std::vector<Body> kept;
         kept.reserve(bodies_.size());
@@ -506,11 +618,8 @@ void Physics3D::refresh_frame(Body& b) {
 
 // Turns a rotating box by its angular velocity for `seconds` (about its centre, world axes).
 void Physics3D::integrate_orient(Body& b, float seconds) {
-    const Vec3 w = b.angVel * kDegToRad;
-    const float len = length(w);
-    if (!(len > 0.0f)) return;
-    const float half = 0.5f * len * seconds, s = std::sin(half) / len;
-    b.orient = normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * b.orient);
+    if (!(length_sq(b.angVel) > 0.0f)) return;
+    b.orient = turned(b.orient, b.angVel * kDegToRad, seconds);
     b.rotDirty = true;
     refresh_frame(b);
 }
@@ -669,6 +778,10 @@ void Physics3D::step(World& world, float dt) {
         return;
     }
     const Vec3 g = world.settings().gravity3D;
+    if (g != lastGravity_) {  // a body asleep on the old gravity would hover on the new one
+        lastGravity_ = g;
+        for (Body& b : bodies_) wake(b);
+    }
     const int subs = std::max(settings_.subSteps, 1);
     const float h = dt / float(subs);
     std::map<PairKey, float> impacts;
@@ -696,21 +809,46 @@ void Physics3D::step(World& world, float dt) {
         p.center -= dp;
         find_riders(k, riders);
         p.center += dp;
-        for (std::size_t i : riders) bodies_[i].center += dp;
+        for (std::size_t i : riders) {
+            wake(bodies_[i]);
+            bodies_[i].center += dp;
+        }
     }
 
     auto movable = [](const Body& b) { return b.type != BodyType::Static; };
     auto half_extent = [](const Body& b) { return b.box ? std::min({b.half.x, b.half.y, b.half.z}) : b.radius; };
+    auto live_dyn = [](const Body& b) { return b.type == BodyType::Dynamic && !b.asleep; };
     std::vector<std::size_t> riders;
     std::vector<Vec3> disp(n);
     std::vector<RigidContact> rigid;
+
+    // A sleeping body (with its whole group) wakes as soon as something that moves comes within kRiderGap of it: an awake
+    // dynamic body, a kinematic body with a velocity, or a body gameplay teleported this step (its new place may overlap).
+    auto wake_touched = [&]() {
+        if (std::none_of(bodies_.begin(), bodies_.end(), [](const Body& b) { return b.asleep; })) return;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Body& m = bodies_[i];
+            if (!m.enabled || !m.hasShape || m.trigger) continue;
+            const bool mover = live_dyn(m) || (m.type != BodyType::Dynamic && (m.moved || m.vel != Vec3{} || m.angVel != Vec3{}));
+            if (!mover) continue;
+            for (std::size_t k = 0; k < n; ++k) {
+                Body& s = bodies_[k];
+                if (!s.asleep || !s.enabled || !s.hasShape || s.trigger || !filters_pass(m, s)) continue;
+                if (collide(m, s, kRiderGap).hit) wake(s);
+            }
+        }
+    };
 
     // Time of the first impact (fraction of `disp`, 1 = none) among all pairs that close in on each other faster than
     // the smaller body's half extent per sub-step. The pair is swept in relative motion: the smaller body moves by
     // disp[mover] - disp[target] against the other one standing still at its start position, so two fast dynamic bodies
     // and a fast kinematic body against a dynamic one are caught as well as a dynamic body against a static wall.
-    // Pairs that already overlap at the start are left to the contact solver.
-    auto first_impact = [&]() {
+    // A rotating box also sweeps through the turn it makes within `span` (its far end can travel more than its centre).
+    // Pairs that already overlap at the start (deeper than a touch) are left to the contact solver.
+    auto first_impact = [&](float span) {
+        auto spin_over = [&](const Body& b) {
+            return b.box && b.rotDyn && live_dyn(b) ? b.angVel * (kDegToRad * span) : Vec3{};  // a sphere turns in place
+        };
         float tFirst = 1.0f;
         for (std::size_t i = 0; i < n; ++i) {
             Body& a = bodies_[i];
@@ -722,11 +860,14 @@ void Physics3D::step(World& world, float dt) {
                 if ((!dynA && !dynB) || !filters_pass(a, b)) continue;
                 const bool bMoves = !dynA || (dynB && half_extent(b) < half_extent(a));  // b is the mover
                 Body& mover = bMoves ? b : a;
-                const Body& target = bMoves ? a : b;
+                Body& target = bMoves ? a : b;
                 const Vec3 rel = bMoves ? disp[k] - disp[i] : disp[i] - disp[k];
+                const Vec3 moverSpin = spin_over(mover), targetSpin = spin_over(target);
                 const float he = half_extent(mover);
                 float t = 1.0f;
-                if (length_sq(rel) > he * he && sweep(mover, rel, target, t) && t < tFirst) tFirst = t;
+                if (length(rel) + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin) > he &&
+                    sweep(mover, rel, moverSpin, target, targetSpin, t) && t < tFirst)
+                    tFirst = t;
             }
         }
         return tFirst;
@@ -736,6 +877,7 @@ void Physics3D::step(World& world, float dt) {
     // (manifolds, impulses at the contact points, accumulated and clamped); every other pair keeps the original solver.
     // positional: also push overlapping bodies apart (not at a time-of-impact stop: the overlap there is ~0.1 mm).
     auto resolve = [&](bool positional) {
+        wake_touched();
         rigid.clear();
         for (std::size_t i = 0; i < n; ++i) {
             Body& a = bodies_[i];
@@ -744,7 +886,7 @@ void Physics3D::step(World& world, float dt) {
                 Body& b = bodies_[k];
                 if (!b.enabled || !b.hasShape || b.trigger) continue;
                 if (!a.rotDyn && !b.rotDyn) continue;
-                if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
+                if (!live_dyn(a) && !live_dyn(b)) continue;
                 if (!filters_pass(a, b)) continue;
                 Contact c = collide(a, b, 0.0f, true);
                 if (!c.hit || c.depth < 0.0f) continue;
@@ -793,7 +935,7 @@ void Physics3D::step(World& world, float dt) {
                     Body& b = bodies_[k];
                     if (!b.enabled || !b.hasShape || b.trigger) continue;
                     if (a.rotDyn || b.rotDyn) continue;
-                    if (a.type != BodyType::Dynamic && b.type != BodyType::Dynamic) continue;
+                    if (!live_dyn(a) && !live_dyn(b)) continue;
                     if (!filters_pass(a, b)) continue;
                     Contact c = collide(a, b, 0.0f);
                     if (!c.hit || c.depth < 0.0f) continue;
@@ -842,22 +984,32 @@ void Physics3D::step(World& world, float dt) {
             }
         }
         for (Body& b : bodies_) {
-            if (!b.enabled || b.type != BodyType::Dynamic) continue;
+            if (!b.enabled || !live_dyn(b)) continue;
             b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
             if (b.damping > 0.0f) b.vel *= 1.0f / (1.0f + h * b.damping);
             if (b.angDamping > 0.0f) b.angVel *= 1.0f / (1.0f + h * b.angDamping);
+            if (b.rotDyn && b.box && b.angVel != Vec3{}) {  // a box turning in the air precesses like a real one
+                const Vec3 w = world_to_frame(b.ax, b.angVel * kDegToRad);
+                const Vec3 turned = gyroscopic_step(w, {1.0f / b.invI.x, 1.0f / b.invI.y, 1.0f / b.invI.z}, h);
+                b.angVel = frame_to_world(b.ax, turned) * kRadToDeg;
+            }
         }
         // Motion with continuous collision. The bodies advance together up to the first impact (a time of impact), the
         // contacts are resolved there (the velocity of the hit bodies changes: stop, bounce, slide), and the rest of the
         // sub-step continues with the new velocities, so a fast body keeps sliding along the surface it hit.
-        float remaining = 1.0f;
+        float remaining = 1.0f + carry_;  // plus what the previous sub-step had no impacts left to move
+        carry_ = 0.0f;
         for (int event = 0;; ++event) {
+            if (event == kMaxToiEvents) {  // more impacts than this sub-step can resolve: the rest of the move waits
+                carry_ = std::min(remaining, 1.0f);
+                break;
+            }
             const float span = h * remaining;
             for (std::size_t i = 0; i < n; ++i) {
                 const Body& b = bodies_[i];
-                disp[i] = (b.enabled && movable(b)) ? b.vel * span : Vec3{};
+                disp[i] = (b.enabled && movable(b) && !b.asleep) ? b.vel * span : Vec3{};
             }
-            const float tHit = event < kMaxToiEvents ? first_impact() : 1.0f;
+            const float tHit = first_impact(span);
             for (std::size_t i = 0; i < n; ++i) {
                 Body& b = bodies_[i];
                 if (!b.enabled || !movable(b)) continue;
@@ -871,7 +1023,10 @@ void Physics3D::step(World& world, float dt) {
         }
         resolve(true);
     }
-    for (Body& b : bodies_) b.force = {};
+    for (Body& b : bodies_) {
+        b.force = {};
+        b.moved = false;
+    }
 
     // ---- events: track overlapping pairs across frames
     std::map<PairKey, PairState> cur;
@@ -879,17 +1034,24 @@ void Physics3D::step(World& world, float dt) {
     struct Begin { PairKey key; PairState st; Contact c; };
     std::vector<Begin> begins;
     std::vector<char> supported(n, 0);  // dynamic body has solid ground (normal up) under it
+    std::vector<std::pair<std::size_t, std::size_t>> links;  // touching awake dynamic bodies: they sleep together
+    std::vector<char> hold(n, 0);  // touches a moving kinematic body: must stay awake
+    auto driving = [](const Body& b) { return b.type == BodyType::Kinematic && (b.vel != Vec3{} || b.angVel != Vec3{}); };
     for (std::size_t i = 0; i < n; ++i) {
         const Body& a = bodies_[i];
         if (!a.enabled || !a.hasShape) continue;
         for (std::size_t k = i + 1; k < n; ++k) {
             const Body& b = bodies_[k];
             if (!b.enabled || !b.hasShape) continue;
-            if (!movable(a) && !movable(b)) continue;
+            PairKey key{a.seq, b.seq};
+            if ((a.asleep || !movable(a)) && (b.asleep || !movable(b))) {  // nothing moves: the pair keeps its state
+                auto old = touching_.find(key);
+                if (old != touching_.end()) cur.insert(*old);
+                continue;
+            }
             if (!filters_pass(a, b)) continue;
             const bool trig = a.trigger || b.trigger;
             if (trig && a.trigger && b.trigger) continue;
-            PairKey key{a.seq, b.seq};
             bool was = touching_.count(key) != 0;
             float margin = trig ? 0.0f : (was ? kEndMargin : kBeginMargin);
             Contact c = collide(a, b, margin);
@@ -898,6 +1060,9 @@ void Physics3D::step(World& world, float dt) {
             if (!trig) {
                 if (b.type == BodyType::Dynamic && c.normal.y > 0.7f) supported[k] = 1;
                 if (a.type == BodyType::Dynamic && c.normal.y < -0.7f) supported[i] = 1;
+                if (live_dyn(a) && live_dyn(b)) links.push_back({i, k});
+                if (live_dyn(a) && driving(b)) hold[i] = 1;
+                if (live_dyn(b) && driving(a)) hold[k] = 1;
             }
             PairState st{a.e, b.e, trig};
             cur[key] = st;
@@ -931,11 +1096,37 @@ void Physics3D::step(World& world, float dt) {
     // ---- rolling: spheres on the ground spin to match their horizontal motion
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
-        if (!b.enabled || b.type != BodyType::Dynamic || b.box || !b.hasShape || b.trigger) continue;
+        if (!b.enabled || !live_dyn(b) || b.box || !b.hasShape || b.trigger) continue;
         if (!b.rollWithMotion || !supported[i]) continue;
         // axis = up x v = (vz, 0, -vx); rate = |v| / r (rad/s) -> deg/s along that axis => components (vz, 0, -vx) / r
         const float k = degrees(1.0f) / b.radius;
         b.angVel = {b.vel.z * k, 0.0f, -b.vel.x * k};
+    }
+
+    // ---- sleeping: bodies linked by contacts form an island, and an island whose members were all calm for kTimeToSleep
+    // (and touch no moving kinematic body) falls asleep together: zero velocity, no solver work, no events, until woken.
+    std::vector<std::size_t> root(n);
+    for (std::size_t i = 0; i < n; ++i) root[i] = i;
+    auto find_root = [&](std::size_t x) {
+        while (root[x] != x) x = root[x] = root[root[x]];
+        return x;
+    };
+    for (const auto& [i, k] : links) root[find_root(i)] = find_root(k);
+    std::vector<char> ready(n, 1);
+    for (std::size_t i = 0; i < n; ++i) {
+        Body& b = bodies_[i];
+        if (!b.enabled || !live_dyn(b)) continue;
+        const float reach = !b.hasShape ? 0.0f : (b.box ? length(b.half) : b.radius);  // fastest point of the shape
+        const bool calm = std::max(length(b.vel), length(b.angVel) * kDegToRad * reach) < kSleepSpeed;
+        b.sleepTime = calm ? b.sleepTime + dt : 0.0f;
+        if (b.sleepTime < kTimeToSleep || hold[i]) ready[find_root(i)] = 0;
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        Body& b = bodies_[i];
+        if (!b.enabled || !live_dyn(b) || !ready[find_root(i)]) continue;
+        b.asleep = true;
+        b.sleepGroup = bodies_[find_root(i)].seq;  // the island is named after its root (seq is never reused)
+        b.vel = b.angVel = {};
     }
 
     // ---- write back
@@ -1066,7 +1257,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
     const std::uint64_t qmask = mask_bits(opt.mask);
     float bestT = 2.0f;
     const Body* best = nullptr;
-    for (const Body& b : bodies_) {
+    for (Body& b : bodies_) {  // (sweep restores what it touches)
         if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
@@ -1081,7 +1272,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
             continue;
         }
         float t = 0.0f;
-        if (sweep(probe, disp, b, t) && t < bestT) {
+        if (sweep(probe, disp, {}, b, {}, t) && t < bestT) {
             bestT = t;
             best = &b;
         }
@@ -1135,6 +1326,7 @@ void Physics3D::apply_impulse(World& world, Entity e, Vec3 impulse) {
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
     if (b.type != BodyType::Dynamic) return;
+    wake(b);
     b.vel += impulse * b.invMass;
     if (auto* rb = world.get<RigidBody3D>(e)) rb->velocity = b.vel;
     b.lastVel = b.vel;
@@ -1144,7 +1336,9 @@ void Physics3D::apply_force(World&, Entity e, Vec3 force) {
     auto it = index_.find(e.bits());
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
-    if (b.type == BodyType::Dynamic) b.force += force;
+    if (b.type != BodyType::Dynamic) return;
+    wake(b);
+    b.force += force;
 }
 
 void Physics3D::set_velocity(World& world, Entity e, Vec3 velocity) {
@@ -1152,6 +1346,7 @@ void Physics3D::set_velocity(World& world, Entity e, Vec3 velocity) {
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
     if (b.type == BodyType::Static) return;
+    wake(b);
     b.vel = velocity;
     if (auto* rb = world.get<RigidBody3D>(e)) rb->velocity = velocity;
     b.lastVel = velocity;
@@ -1169,6 +1364,7 @@ void Physics3D::debug_state(const World& world, Json& out) const {
         j["position"] = Json::array({p.x, p.y, p.z});
         j["velocity"] = Json::array({b.vel.x, b.vel.y, b.vel.z});
         j["enabled"] = b.enabled;
+        j["awake"] = b.enabled && b.type != BodyType::Static && !b.asleep;  // like Box2D: false for static bodies
         Json shapes = Json::array();
         if (b.hasShape) {
             Json s = Json::object();

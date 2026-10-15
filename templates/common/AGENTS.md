@@ -102,9 +102,11 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - **Failing a check:** `throw new ToolError(message, hint, data?)`. For a list of every problem, return it as a
   normal result with `ok: false`.
 - **3D:** `RigidBody3D.angularVelocity`, `rollWithMotion` and `rollingFriction` (a rolling ball slows by that, not by
-  sliding friction); box colliders follow `Transform.rotation` and fast bodies do not tunnel; dynamic boxes are
+  sliding friction; with `rollWithMotion` off a sphere is a rigid body that real friction rolls and spins);
+  box colliders follow `Transform.rotation` and fast bodies do not tunnel; dynamic boxes are
   rigid bodies (collisions turn them: they tip, tumble and settle), so give a box-shaped character or an upright
-  crate `"lockRotation": true`; kinematic platforms carry the bodies on them;
+  crate `"lockRotation": true`; calm bodies fall asleep and wake when touched or written to; kinematic platforms
+  carry the bodies on them;
   `Light.castShadows`; `settings.fogDensity` and `fogColor`.
 - **Vectors:** `vec2(...)`, `[x, y]` and `{x, y}` are accepted wherever a vector is expected.
 - **Replays:** `factoria run --headless --input replay.json` with `press`, `release`, `keys` and `mouse` entries.

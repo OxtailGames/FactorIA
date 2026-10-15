@@ -169,7 +169,7 @@ private:
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         bool rotated = false;
-        // Rotation dynamics: a dynamic box without lockRotation is turned by contacts. `orient` is then the authority
+        // Rotation dynamics: a dynamic box (or rigid sphere) without lockRotation is turned by contacts. `orient` is the authority
         // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
         // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
         bool rotDyn = false;
@@ -188,7 +188,27 @@ private:
         bool rollWithMotion = true;
         Vec3 pendingCarry;  // displacement of a teleported static/kinematic body, applied to its riders
         Vec3 lastPos, lastVel, lastCenter;  // gameplay-visible values last written / observed
+        // Sleeping: a dynamic body (and every body linked to it by contacts) whose speed stayed tiny for kTimeToSleep stops
+        // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
+        bool asleep = false;
+        bool moved = false;  // gameplay teleported this body since the last step: it wakes whatever it now touches
+        float sleepTime = 0.0f;
+        std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;
+        // What a sleeping body's neighbours depend on: when any of it changes (a platform resized, disabled, made dynamic...)
+        // the body and the bodies that touched it wake up.
+        struct Sig {
+            BodyType type;
+            bool enabled, hasShape, box, trigger, rotDyn;
+            float mass, gravityScale, radius;
+            Vec3 half, offset, ax[3];
+            std::int32_t layer, mask;
+            bool operator==(const Sig&) const = default;
+        };
+        Sig sig() const {
+            return {type, enabled, hasShape, box, trigger, rotDyn, mass, gravityScale, radius, half, offset,
+                    {ax[0], ax[1], ax[2]}, layer, mask};
+        }
     };
     struct Contact {
         bool hit = false;
@@ -225,7 +245,9 @@ private:
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
     static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
-    static bool sweep(Body& mover, Vec3 disp, const Body& target, float& tHit);
+    static bool sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit);
+    // How far the far end of a box travels when it turns by `spin` (rad, world axes): |spin| times its bounding radius.
+    static float turning_reach(const Body& b, Vec3 spin) { return b.box ? length(spin) * length(b.half) : 0.0f; }
     static bool filters_pass(const Body& a, const Body& b);
     static void refresh_frame(Body& b);
     static void integrate_orient(Body& b, float seconds);
@@ -236,11 +258,15 @@ private:
                                     float h, int carrier, float& impact, RigidContact& out);
     static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
     static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
+    void wake(Body& b);                      // b and everything that fell asleep with it
+    void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
 
     PhysicsSettings settings_;
     std::vector<Body> bodies_;  // sorted by seq (creation order)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
+    float carry_ = 0.0f;  // fraction of a sub-step's move left undone because of too many impacts; done in the next one
+    Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
     std::uint64_t stepCounter_ = 0;
     std::map<PairKey, PairState> touching_;  // pairs overlapping after the previous step
