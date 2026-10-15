@@ -178,8 +178,13 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   screenshots) when a job fails.
 - **Release packages.** `.github/workflows/release.yml` builds the release presets on Windows, macOS and Linux and
   packages `factoria`, `factoria_player` and (Windows) `FactorIA-Editor.exe` as `FactorIA-<os>.zip` (`.tar.gz` on
-  macOS and Linux), one `FactorIA/` folder inside. Each package is smoke-tested from a temp folder outside the checkout
-  (`version`, `new`, `test`, `export`). A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as
+  macOS and Linux), one `FactorIA/` folder inside. The jobs `mobile-android` (NDK, `arm64-v8a` and `x86_64`) and
+  `mobile-ios` (device, simulator `arm64;x86_64`) build the mobile runtime first; every package gets
+  `FactorIA/mobile/android/jniLibs/<abi>/libfactoria_player.so` and the macOS one also `FactorIA/mobile/ios/<sdk>/*.a`,
+  so `factoria export --platform android|ios` works from the download without engine source (docs/EXPORTING.md).
+  Each package is smoke-tested from a temp folder outside the checkout (`version`, `new`, `test`, `export`); Linux also
+  exports an Android game and builds its APK with Gradle (the NDK and CMake hidden from the SDK), macOS exports an iOS
+  game and builds it for the simulator. A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as
   artifacts. Bump `project(VERSION)` in `CMakeLists.txt` before tagging: the job fails when the tag and
   `factoria version` differ.
 - **Updates.** The packages are configured with `-DFA_UPDATE_REPO=<owner/repo>`, so their editor offers each newer

@@ -56,8 +56,8 @@ You do not download it again: when a new version is out, the editor shows its re
 whether to update. **Update** installs it in the same folder and reopens the editor; **Not now** keeps your version.
 
 The AI assistant needs [Claude Code](https://claude.com/claude-code) installed and signed in, or an API key. To use
-Claude Code from a terminal outside the editor, add the folder to your PATH, and Android and iOS export still need
-the engine source and the platform SDKs. Details: [Download in GETTING_STARTED](docs/GETTING_STARTED.md#download-no-build-tools).
+Claude Code from a terminal outside the editor, add the folder to your PATH. Desktop, Android (JDK and Android SDK only)
+and iOS (macOS package, Xcode) export all work from the download, with no engine source. Details: [Download in GETTING_STARTED](docs/GETTING_STARTED.md#download-no-build-tools).
 
 ## Quick start (build from source)
 
