@@ -169,7 +169,7 @@ private:
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         bool rotated = false;
-        // Rotation dynamics: a dynamic box without lockRotation is turned by contacts. `orient` is then the authority
+        // Rotation dynamics: a dynamic box (or rigid sphere) without lockRotation is turned by contacts. `orient` is the authority
         // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
         // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
         bool rotDyn = false;

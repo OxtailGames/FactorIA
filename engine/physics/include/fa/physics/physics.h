@@ -61,11 +61,13 @@
 //     Coulomb friction. Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a
 //     Collider3D alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger
 //     overlaps. Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
-//   * 3D ROTATION DYNAMICS: a dynamic BOX without RigidBody3D.lockRotation is a rigid body. Its inertia tensor is the
-//     solid box's (diagonal in the box frame from the scaled size and mass, rotated into the world through the
-//     orientation), contacts are manifolds (the touching face clipped to the other box's face: up to 8 points; edge-edge
-//     and sphere contacts have one) and the solver applies friction and normal impulses AT the contact points, so a box
-//     tips over a ledge, tumbles and settles on a face, and a sphere hitting it off-centre spins it. Impulses are
+//   * 3D ROTATION DYNAMICS: a dynamic BOX, or a dynamic SPHERE with RigidBody3D.rollWithMotion off, without
+//     RigidBody3D.lockRotation is a rigid body. Its inertia tensor is the solid box's (diagonal in the box frame from the
+//     scaled size and mass, rotated into the world through the orientation) or the solid sphere's (2/5 m r^2 about every
+//     axis), contacts are manifolds (the touching face clipped to the other box's face: up to 8 points; edge-edge and
+//     sphere contacts have one) and the solver applies friction and normal impulses AT the contact points, so a box
+//     tips over a ledge, tumbles and settles on a face, a sphere hitting it off-centre spins it, and a rigid sphere on a
+//     slope rolls without slipping (spin = speed / radius) while a glancing hit spins both spheres. Impulses are
 //     accumulated and clamped per point (Gauss-Seidel, 8 iterations per sub-step, alternating sweep order) and warm
 //     started from the previous sub-step's solution of the same contact points; positional correction is translation
 //     only. The orientation is a quaternion kept by the body and integrated every sub-step about the collider centre
@@ -73,9 +75,11 @@
 //     euler; the parent's rotation is taken into account) after the step, and a Transform.rotation that differs from
 //     what was written last (gameplay turned the body) re-reads the orientation from the Transform. angularDamping
 //     slows the spin. There is no sleeping: a settled stack just ends up with ~zero velocities.
-//     lockRotation (and every sphere, kinematic and static body) keeps the original single-point torque-free solver:
-//     contacts never turn it; angularVelocity written by gameplay still turns it (euler-added to the Transform each
-//     step). Spheres are never turned by contacts: friction on a sphere only slows it (rollWithMotion / rollingFriction).
+//     lockRotation (and every rollWithMotion sphere, kinematic and static body) keeps the original single-point
+//     torque-free solver: contacts never turn it; angularVelocity written by gameplay still turns it (euler-added to the
+//     Transform each step). An arcade sphere (rollWithMotion, the default) is spun to match its motion instead and
+//     friction only slows it (rollingFriction). A rigid sphere has no rolling resistance: on flat ground it keeps
+//     rolling until angularDamping / linearDamping or an obstacle stops it; lockRotation makes it slide instead.
 //   * 3D SHAPE CAST (shape_cast3d): the swept sphere / axis-aligned box is stepped along the path (at most half its
 //     smallest extent per step), the first step that overlaps a collider is bisected to ~0.1 mm, and normal/point come
 //     from the contact at that time. A collider cannot slip between two steps (the shape is at least two steps long),
@@ -96,14 +100,15 @@
 //     displacement every sub-step (horizontal; and downward), so they ride moving platforms; friction then acts
 //     on the velocity RELATIVE to the platform. A static/kinematic body teleported by gameplay carries its riders
 //     by the same displacement. Stacked riders (rider on a rider) are not carried.
-//   * 3D ANGULAR VELOCITY: RigidBody3D.angularVelocity (deg/s about world x,y,z) turns the entity: for rotating boxes
-//     (see ROTATION DYNAMICS) as a quaternion about the collider centre; for kinematic, lockRotation and sphere bodies it
-//     is added to Transform.rotation (euler degrees) each step. Box colliders turn with it. rollWithMotion: a dynamic sphere
-//     touching ground (contact normal up) gets angularVelocity = rolling rate: axis = up x velocity,
+//   * 3D ANGULAR VELOCITY: RigidBody3D.angularVelocity (deg/s about world x,y,z) turns the entity: for rotating bodies
+//     (see ROTATION DYNAMICS) as a quaternion about the collider centre; for kinematic, lockRotation and arcade sphere
+//     bodies it is added to Transform.rotation (euler degrees) each step. Box colliders turn with it. rollWithMotion: a
+//     dynamic sphere touching ground (contact normal up) gets angularVelocity = rolling rate: axis = up x velocity,
 //     rate = |horizontal v| / radius (deg/s). ROLLING RESISTANCE: such a sphere's contacts cap the tangential impulse
 //     at RigidBody3D.rollingFriction * normalImpulse (default 0.02) instead of sqrt(muA * muB) * normalImpulse, so on flat
-//     ground its speed decays by about rollingFriction * g per second; with rollWithMotion false the sliding friction
-//     of the colliders applies and a ball stops quickly.
+//     ground its speed decays by about rollingFriction * g per second. With rollWithMotion false (and no lockRotation)
+//     the sphere is a rigid body instead; with lockRotation too, the sliding friction of the colliders applies and the
+//     ball stops quickly.
 #pragma once
 
 #include <memory>
