@@ -7,6 +7,7 @@ branch's pull request, failures first, with durations and links to the logs of a
 /ci                      # the PR of the current branch (remote "origin")
 /ci 2                    # PR #2 of this repository
 /ci OxtailGames/FactorIA#2
+/ci prs                  # every open PR: CI counts and whether it can be merged now
 /ci off                  # stop watching
 ```
 
