@@ -60,6 +60,33 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
     return false;
 }
 
+void Engine::Impl::apply_project_settings() {
+    fixedDt = 1.0 / std::max(1.0, project.fixedHz);
+    input.set_gamepad_deadzone(float(project.inputDeadzone));
+    for (const std::string& problem : input.set_actions(project.inputActions)) {
+        FA_WARN("input", "{}", problem);
+        startupProblems.push_back(problem);
+    }
+}
+
+// Every scene load (scene.load, scene.reload, hot reload, project.test) starts from what is on disk now. ponytail: only
+// fixedHz, the input actions and the deadzone are re-applied from factoria.json; size, scale mode and the renderer need a restart.
+void Engine::Impl::refresh_from_disk() {
+    const std::int64_t t = fs::modified_time(kProjectFileName);
+    if (t != projectMtime) {
+        projectMtime = t;
+        auto proj = load_project(std::string());
+        if (proj.ok()) {
+            project = proj.value();
+            apply_project_settings();
+        } else {
+            FA_WARN("project", "{} changed but could not be reloaded; keeping the previous settings: {}", kProjectFileName,
+                    proj.error().to_string());
+        }
+    }
+    scripts.refresh_modules();
+}
+
 bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error) {
     std::string path = pathIn;
     if (!fs::is_absolute(path)) {
@@ -73,6 +100,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
         }
         path = n.value();
     }
+    refresh_from_disk();
     hasPendingScene = false;
     implicitStartScene = false;  // from now on the scene was chosen (scene.load, a script, --scene, reload)
     audio.stop_all();
@@ -258,6 +286,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     auto proj = load_project(dir);
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
+    I.projectMtime = fs::modified_time(kProjectFileName);
     I.fixedDt = 1.0 / std::max(1.0, I.project.fixedHz);
     I.paused = config.editorMode;
     I.windowed = gfx != nullptr && !config.headless;
