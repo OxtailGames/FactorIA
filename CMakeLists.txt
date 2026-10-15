@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(FactorIA
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
