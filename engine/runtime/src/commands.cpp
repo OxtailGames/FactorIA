@@ -519,9 +519,9 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           });
 
     I.commands.add({"game.screenshot", "Capture the game view as a PNG and show it.",
-           "Saves the last rendered frame (design resolution) and returns the path; clients display the image. Step the "
-           "game first so the picture shows what you expect. Default path .factoria/screenshots/frame_<n>.png. "
-           "Example: game.screenshot {\"path\":\"shots/start.png\"}",
+           "Draws the game view as it is now (design resolution), saves it and returns the path; clients display the "
+           "image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. "
+           "Default path .factoria/screenshots/frame_<n>.png. Example: game.screenshot {\"path\":\"shots/start.png\"}",
            parse_schema(R"({"type":"object","properties":{
                "path":{"type":"string","description":"Output PNG (project-relative or absolute)."}}})"),
            true, "game"},
