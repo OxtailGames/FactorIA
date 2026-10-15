@@ -25,8 +25,9 @@ version.
 | Linux | [FactorIA-linux-x64.AppImage](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.AppImage) | The same files in one executable file. |
 
 The package holds one folder, `FactorIA`, with `factoria` (CLI, editor, MCP server and AI), `factoria_player` (the
-runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`. The docs, templates and
-schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs nothing else.
+runtime that `factoria export` copies into your game), `mobile/` (the ready-made Android runtime in every package, the
+iOS libraries in the macOS one; see item 5) and, on Windows, `FactorIA-Editor.exe`. The docs, templates and schemas are
+built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs nothing else.
 
 1. Install it:
    - **Windows installer:** run `FactorIA-windows-x64-setup.exe`. It installs into
@@ -58,8 +59,11 @@ schemas are built into `factoria`, and on Windows the C++ runtime is too, so a f
    - macOS (zsh) or Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
    - AppImage: a link named `factoria` is the command itself:
      `ln -s ~/Downloads/FactorIA-linux-x64.AppImage ~/.local/bin/factoria`
-5. Desktop export (`factoria export`) works from the download. Android and iOS export still need the engine source
-   and the platform SDKs ([MOBILE.md](MOBILE.md)), so build from source for those.
+5. Export (`factoria export`) works from the download for desktop and mobile. Android needs the JDK 17 and the
+   Android SDK (no NDK, no CMake): the `mobile/` folder next to `factoria` holds the engine's Android runtime, so the
+   exported Gradle project only packages it. iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
+   package the same way. No engine source is involved; see [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source)
+   and [MOBILE.md](MOBILE.md). Build from source if you want to change the engine itself.
 
 #### Updates
 

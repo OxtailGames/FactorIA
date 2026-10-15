@@ -58,9 +58,9 @@ Name: "{autoprograms}\FactorIA Editor"; Filename: "{app}\FactorIA-Editor.exe"
 Filename: "{app}\FactorIA-Editor.exe"; Description: "Open the FactorIA editor"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Left by the editor's updater: the download folder of an update in progress and the replaced files.
+; Left by the editor's updater: the download folder of an update in progress and the replaced files and folders.
 Type: filesandordirs; Name: "{app}\.update"
-Type: files; Name: "{app}\*.old"
+Type: filesandordirs; Name: "{app}\*.old"
 
 [Code]
 // The install folder goes on the USER path (HKCU\Environment), so `factoria` runs from any new terminal and the
