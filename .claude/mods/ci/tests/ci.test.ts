@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { parse_args, parse_remote, report } from '../hooks/ci'
+import { merge_verdict, parse_args, parse_remote, report } from '../hooks/ci'
 
 const PR = {
   number: 2, title: 'Close the last gaps', state: 'open', merged: false, draft: false, mergeable_state: 'unstable',
@@ -99,4 +99,27 @@ test('/ci off, explicit numbers and errors', async ($, on) => {
   const missing = await $.command.run(ci('99'))
   expect(missing.text).toContain('/ci: gh api repos/OxtailGames/FactorIA/pulls/99: HTTP 404')
   expect((await $.command.run(ci('banana'))).text).toContain('/ci: cannot read "banana"')
+})
+
+test('/ci prs lists open PRs and says which can be merged', async ($, on) => {
+  const ready = { ...PR, number: 3, title: 'Green one', mergeable_state: 'clean', head: { sha: 'bbbbbbb1', ref: 'claude/y' }, base: { ref: 'main' } }
+  const green = [run('Linux', 'completed', 'success', 0, 2), run('Windows', 'completed', 'success', 0, 9)]
+  on('process.run', async (_$, e) => {
+    const cmd = e.argv.join(' ')
+    const ok = (v: unknown) => ({ value: { exitCode: 0, stdout: typeof v === 'string' ? v : JSON.stringify(v), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+    if (cmd === 'git remote get-url origin') return ok('https://github.com/OxtailGames/FactorIA')
+    if (cmd.includes('/pulls?state=open')) return ok([PR, ready])
+    if (cmd.endsWith('/pulls/2')) return ok(PR)
+    if (cmd.endsWith('/pulls/3')) return ok(ready)
+    if (cmd.includes('/commits/0a82433a35ea441b/check-runs')) return ok({ check_runs: DONE })
+    if (cmd.includes('/commits/bbbbbbb1/check-runs')) return ok({ check_runs: green })
+    return { value: { exitCode: 1, stdout: '', stderr: 'HTTP 404', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  const out = (await $.command.run(ci('prs'))).text
+  expect(out).toContain('#2 Close the last gaps')
+  expect(out).toContain('❌ CI failing (1)')
+  expect(out).toContain('#3 Green one (claude/y → main)')
+  expect(out).toContain('🟢 ready to merge · ✅2')
+  expect(merge_verdict({ ...PR, mergeable_state: 'dirty' }, green)).toContain('conflicts')
+  expect(merge_verdict({ ...PR, mergeable_state: 'clean' }, RUNNING)).toContain('CI running')
 })
