@@ -52,3 +52,64 @@ TEST_CASE("ai.providers and ai.run commands") {
     auto invalid = registry.call("ai.run", Json::object({{"role", "orchestrator"}}));
     CHECK_FALSE(invalid.ok);  // task is required
 }
+
+TEST_CASE("ai.models lists the models of every available provider; one failure stays in its own entry") {
+    AiConfig cfg;
+    cfg.providers["anthropic"] = default_config().providers["anthropic"];
+    cfg.providers["anthropic"].apiKey = "sk-ant-test-key-0000000000";
+    cfg.providers["ollama"] = default_config().providers["ollama"];
+    cfg.providers["lmstudio"] = default_config().providers["lmstudio"];  // a local server that is not running
+    cfg.providers["codex"] = default_config().providers["codex"];
+    cfg.providers["codex"].command = "definitely-not-an-installed-codex";  // not available: only listed when asked for
+
+    CommandRegistry registry;
+    AiCommandOptions opt;
+    opt.loadConfig = [&] { return Result<AiConfig>(cfg); };
+    opt.runtime.env = fake_env({});
+    opt.runtime.transport = [](const HttpRequest& req) {
+        HttpResponse r;
+        if (req.url.find("api.anthropic.com") != std::string::npos) {
+            r.status = 200;
+            r.body = R"({"data":[{"id":"claude-opus-5-5","display_name":"Claude Opus 5.5"}]})";
+        } else if (req.url.find("11434") != std::string::npos) {
+            r.status = 200;
+            r.body = R"({"data":[{"id":"llama3.2:latest"}]})";
+        } else {
+            r.error = "Could not connect to server";
+        }
+        return r;
+    };
+    register_ai_commands(registry, opt);
+    const CommandInfo* info = registry.info("ai.models");
+    REQUIRE(info);
+    CHECK(info->readOnly);
+    CHECK(info->category == "ai");
+    CHECK_FALSE(info->description.empty());
+    CHECK(info->inputSchema["properties"]["provider"]["description"].get<std::string>().size() > 10);
+
+    auto all = registry.call("ai.models", Json::object());
+    REQUIRE(all.ok);
+    const Json& providers = all.result["providers"];
+    REQUIRE(providers.size() == 3);  // anthropic, lmstudio, ollama (codex is not available)
+    CHECK(providers[0]["name"] == "anthropic");
+    CHECK(providers[0]["models"][0] == Json::parse(R"({"id":"claude-opus-5-5","name":"Claude Opus 5.5","description":"","resolved":""})"));
+    CHECK_FALSE(providers[0].contains("error"));
+    CHECK(providers[1]["name"] == "lmstudio");
+    CHECK(providers[1]["models"].empty());
+    CHECK(providers[1]["error"].get<std::string>().find("Could not connect") != std::string::npos);
+    CHECK(providers[1].contains("hint"));
+    CHECK(providers[2]["name"] == "ollama");
+    CHECK(providers[2]["models"][0]["id"] == "llama3.2:latest");
+
+    auto one = registry.call("ai.models", Json::object({{"provider", "codex"}}));
+    REQUIRE(one.ok);
+    REQUIRE(one.result["providers"].size() == 1);
+    CHECK(one.result["providers"][0]["name"] == "codex");
+    CHECK(one.result["providers"][0]["error"].get<std::string>().find("does not list its models") != std::string::npos);
+    CHECK(one.result["providers"][0]["hint"].get<std::string>().find("Type the model name") != std::string::npos);
+
+    auto unknown = registry.call("ai.models", Json::object({{"provider", "codx"}}));
+    REQUIRE_FALSE(unknown.ok);
+    CHECK(unknown.error["code"] == "unknown_provider");
+    CHECK(unknown.error["hint"].get<std::string>().find("codex") != std::string::npos);
+}

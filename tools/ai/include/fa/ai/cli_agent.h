@@ -70,6 +70,10 @@ Json make_mcp_config(const std::string& projectDir, const std::string& factoriaC
 // Install/login instructions per CLI.
 std::string cli_install_hint(const ProviderConfig& cfg);
 
+// The provider's CLI found in PATH, ready to run: argv = {its path}, plus the provider's env and unsetEnv. The caller adds
+// the arguments. An Error (with the install hint) when the provider has no command or it is not installed.
+Result<ProcessOptions> cli_process_options(const ProviderConfig& cfg);
+
 // Incremental parser for the CLI's line output -> AgentEvents.
 class CliStreamParser {
 public:

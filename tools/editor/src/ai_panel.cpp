@@ -180,6 +180,16 @@ void draw_usage_area(const AiChat& chat, const ProviderLimits* limits, const std
     }
 }
 
+// "Opus 5.5  (opus)", or just the id when the provider gives no name.
+std::string model_label(const ai::ModelInfo& m) { return m.name.empty() ? m.id : m.name + "  (" + m.id + ")"; }
+
+// What a model's tooltip says: its description, and the model an alias stands for.
+std::string model_tip(const ai::ModelInfo& m) {
+    std::string tip = m.description;
+    if (!m.resolved.empty()) tip += (tip.empty() ? "= " : "\n= ") + m.resolved;
+    return tip;
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -200,11 +210,24 @@ void Editor::ai_refresh_providers() {
         std::vector<ai::ProviderStatus> st = ai::detect_providers(cfg);
         {
             std::lock_guard<std::mutex> lock(aiMu_);
-            aiConfig_ = std::move(cfg);
-            aiStatus_ = std::move(st);
+            aiConfig_ = cfg;
+            aiStatus_ = st;
             aiConfigError_ = err;
         }
         aiDetected_ = true;
+        // The models each available provider offers (the Roles window's lists): asked of the providers themselves, so new
+        // releases show up. Claude Code starts its CLI for this, a local server may be down: hence after the detection.
+        std::map<std::string, ProviderModels> models;
+        for (const ai::ProviderStatus& s : st) {
+            if (!s.available) continue;
+            ProviderModels& pm = models[s.name];
+            if (auto listed = ai::list_models(cfg.providers.at(s.name))) pm.models = std::move(*listed);
+            else pm.error = listed.error().to_string();
+        }
+        {
+            std::lock_guard<std::mutex> lock(aiMu_);
+            aiModels_ = std::move(models);
+        }
         aiDetecting_ = false;
     });
 }
@@ -525,6 +548,7 @@ void Editor::ai_drain_events() {
 void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status) {
     if (aiRolesOpen_) {
         aiRolesEdit_.clear();
+        aiRolesTyping_.clear();
         for (const char* name : kRoleNames) aiRolesEdit_[name] = cfg.role(name);
         ImGui::OpenPopup("AI roles");
         aiRolesOpen_ = false;
@@ -533,6 +557,11 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
     if (!ImGui::BeginPopupModal("AI roles", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     ImGui::TextUnformatted(kRolesBlurb);
     ImGui::Spacing();
+    std::map<std::string, ProviderModels> models;  // a copy: the detection thread replaces them
+    {
+        std::lock_guard<std::mutex> lock(aiMu_);
+        models = aiModels_;
+    }
     if (ImGui::BeginTable("##roles", 5, ImGuiTableFlags_SizingFixedFit)) {
         ImGui::TableSetupColumn("Role");
         ImGui::TableSetupColumn("Provider");
@@ -556,16 +585,48 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
                     const std::string label = pname + (st && !st->available ? "  (not available)" : "");
                     if (ImGui::Selectable(label.c_str(), r.provider == pname) && r.provider != pname) {
                         r = {pname, "", "", r.maxTokens, r.maxContextTokens};  // another provider: its default model and effort
+                        aiRolesTyping_.erase(name);
                     }
                     if (st && ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n%s", st->detail.c_str(), st->available ? "" : st->hint.c_str());
                 }
                 ImGui::EndCombo();
             }
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(220);
-            ImGui::InputTextWithHint("##model", "default", &r.model);
-            ImGui::SetItemTooltip("Model name for this provider, e.g. opus / sonnet / haiku (Claude Code), claude-sonnet-5-5\n"
-                                  "(Anthropic API). Empty = the default: Anthropic's for the role, or the CLI's own.");
+            ImGui::SetNextItemWidth(260);
+            const auto listed = models.find(r.provider);
+            if (listed != models.end() && listed->second.error.empty() && !aiRolesTyping_.contains(name)) {
+                // The models the provider offers; "Other..." types one that is not in the list.
+                const std::vector<ai::ModelInfo>& list = listed->second.models;
+                const auto current = std::ranges::find(list, r.model, &ai::ModelInfo::id);
+                const std::string preview = r.model.empty() ? "default" : current != list.end() ? model_label(*current) : r.model;
+                if (ImGui::BeginCombo("##model", preview.c_str())) {
+                    const auto def = std::ranges::find(list, "default", &ai::ModelInfo::id);  // Claude Code lists its default
+                    if (ImGui::Selectable("default", r.model.empty())) r.model.clear();
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("The default of the role (Anthropic API) or of the CLI itself.%s%s", def == list.end() ? "" : "\n",
+                                          def == list.end() ? "" : model_tip(*def).c_str());
+                    }
+                    for (const ai::ModelInfo& m : list) {
+                        if (m.id == "default") continue;  // the item above is the same choice
+                        if (ImGui::Selectable(model_label(m).c_str(), r.model == m.id)) r.model = m.id;
+                        if (ImGui::IsItemHovered() && !model_tip(m).empty()) ImGui::SetTooltip("%s", model_tip(m).c_str());
+                    }
+                    if (ImGui::Selectable("Other...")) aiRolesTyping_.insert(name);
+                    ImGui::SetItemTooltip("Type a model name that is not in the list.");
+                    ImGui::EndCombo();
+                }
+            } else {
+                ImGui::InputTextWithHint("##model", "default", &r.model);
+                // Typed text that is empty or in the list sends the role back to the list.
+                if (ImGui::IsItemDeactivated() && listed != models.end() && listed->second.error.empty() &&
+                    (r.model.empty() || std::ranges::find(listed->second.models, r.model, &ai::ModelInfo::id) != listed->second.models.end())) {
+                    aiRolesTyping_.erase(name);
+                }
+                ImGui::SetItemTooltip("Model name for this provider, e.g. opus / sonnet / haiku (Claude Code), claude-sonnet-5-5\n"
+                                      "(Anthropic API). Empty = the default: Anthropic's for the role, or the CLI's own.%s%s",
+                                      listed != models.end() && !listed->second.error.empty() ? "\nIts models could not be listed: " : "",
+                                      listed != models.end() ? listed->second.error.c_str() : "");
+            }
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(90);
             if (ImGui::BeginCombo("##effort", r.effort.empty() ? "default" : r.effort.c_str())) {
@@ -593,6 +654,18 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
     }
     const std::string path = cfg.sourcePath.empty() ? ai::default_config_path() : cfg.sourcePath;
     ImGui::TextDisabled("Saved in %s", path.c_str());
+    ImGui::SameLine();
+    const bool checking = aiDetecting_.load();
+    ImGui::BeginDisabled(checking);
+    if (ImGui::SmallButton("Refresh models")) ai_refresh_providers();
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Ask each provider again which models it offers (newly released ones show up here)");
+    }
+    if (checking) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Checking models...");
+    }
     if (ImGui::Button("Save")) {
         if (auto saved = ai::save_roles(aiRolesEdit_, path); !saved) {
             notify(saved.error().to_string(), 2);
@@ -733,8 +806,11 @@ void Editor::draw_ai_panel() {
 
     // The roles. Every message goes to the orchestrator; it hands the work to the worker and fast roles itself.
     const std::string providerName = cfg.role(ai::kRoleOrchestrator).provider;
+    ImGui::BeginDisabled(!detected);  // before the first detection aiConfig_ is empty: Save would write roles without providers
     if (ImGui::SmallButton("Roles...")) aiRolesOpen_ = true;
-    ImGui::SetItemTooltip("Choose the provider and model of each role. Takes effect with the next message.");
+    ImGui::EndDisabled();
+    if (!detected && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Reading ai.json...");
+    else ImGui::SetItemTooltip("Choose the provider and model of each role. Takes effect with the next message.");
     std::string roles;
     for (const char* name : kRoleNames) {
         const ai::RoleConfig rc = cfg.role(name);

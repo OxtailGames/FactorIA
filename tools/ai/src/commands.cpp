@@ -4,6 +4,7 @@
 
 #include "fa/ai/detect.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 #include "util.h"
 
 namespace fa::ai {
@@ -59,6 +60,60 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
                                      {"warnings", cfg->warnings}});
             if (doctor) out["report"] = format_doctor_report(*cfg, status);
             return out;
+        });
+    }
+    {
+        CommandInfo info;
+        info.name = "ai.models";
+        info.category = "ai";
+        info.summary = "List the models each AI provider offers (the values for roles.<role>.model).";
+        info.description =
+            "Asks the providers themselves, so newly released models show up: Claude Code through its CLI (aliases such as "
+            "opus first, then full names; no model call, no usage), the Anthropic API and OpenAI-compatible APIs through "
+            "GET /models. Codex and generic CLIs cannot list their models: their entry has an error. Without `provider` "
+            "it lists every provider that ai.providers reports available; one provider's failure is in its own entry "
+            "(error, hint) and does not fail the call. Returns {providers:[{name, models:[{id, name, description, resolved}], "
+            "error?, hint?}]}: id is the value for roles.<role>.model, name the display name (empty when the provider gives "
+            "none), description one line, resolved the model an alias stands for (empty for a full name). "
+            "Example: {\"provider\":\"claude-code\"}";
+        info.inputSchema = Json::parse(R"({"type":"object","properties":{
+            "provider":{"type":"string","description":"Only this provider (a name from ai.providers). Omit for every available one."}},
+            "additionalProperties":false})");
+        info.readOnly = true;
+        registry.add(std::move(info), [load, opts](const Json& args) -> Json {
+            auto cfg = load();
+            if (!cfg) throw CommandError("invalid_config", cfg.error().message, cfg.error().hint);
+            std::vector<std::string> names;
+            if (const std::string only = str(args, "provider"); !only.empty()) {
+                if (!cfg->provider(only)) {
+                    std::vector<std::string> known;
+                    for (const auto& [name, _] : cfg->providers) known.push_back(name);
+                    throw CommandError("unknown_provider", "No provider named '" + only + "'", fa::did_you_mean(only, known));
+                }
+                names.push_back(only);
+            } else {
+                DetectOptions dopt;
+                dopt.probeVersions = false;
+                dopt.env = opts->runtime.env;
+                for (const auto& s : detect_providers(*cfg, dopt)) {
+                    if (s.available) names.push_back(s.name);
+                }
+            }
+            Json providers = Json::array();
+            for (const auto& name : names) {
+                Json entry = Json::object({{"name", name}, {"models", Json::array()}});
+                if (auto models = list_models(*cfg->provider(name), opts->runtime)) {
+                    for (const ModelInfo& m : *models) {
+                        entry["models"].push_back(Json::object(
+                            {{"id", m.id}, {"name", m.name}, {"description", m.description}, {"resolved", m.resolved}}));
+                    }
+                } else {
+                    entry["error"] = models.error().message;
+                    if (!models.error().hint.empty()) entry["hint"] = models.error().hint;
+                }
+                providers.push_back(std::move(entry));
+            }
+            return Json::object({{"providers", providers}});
         });
     }
     {

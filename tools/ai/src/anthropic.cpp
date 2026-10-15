@@ -309,6 +309,33 @@ void StreamAssembler::handle_event(const std::string& event, const std::string& 
 
 namespace {
 
+std::string fetch_ant_token() {
+    if (which("ant").empty()) return {};
+    ProcessOptions po;
+    po.argv = {"ant", "auth", "print-credentials", "--access-token"};
+    po.timeoutSeconds = 20;
+    auto r = run_process(po);
+    if (!r || r->exitCode != 0) return {};
+    return std::string(fa::trim(r->stdoutText));
+}
+
+}  // namespace
+
+Result<Auth> resolve_auth(const ProviderConfig& cfg, const ProviderRuntime& rt) {
+    Auth auth;
+    if (auto key = resolve_api_key(cfg, rt.env); key.found()) auth.apiKey = key.key;
+    else if (cfg.useAntCli) auth.bearerToken = rt.antToken ? rt.antToken() : fetch_ant_token();
+    if (auth.apiKey.empty() && auth.bearerToken.empty()) {
+        return make_error(
+            "No Anthropic credentials found",
+            "Set ANTHROPIC_API_KEY (or \"apiKeyEnv\"/\"apiKey\" in ~/.factoria/ai.json), or install the `ant` CLI "
+            "and run `ant auth login`. To use a Claude subscription instead, pick the claude-code provider.");
+    }
+    return auth;
+}
+
+namespace {
+
 class AnthropicProvider : public ChatProvider {
 public:
     AnthropicProvider(ProviderConfig cfg, ProviderRuntime rt) : cfg_(std::move(cfg)), rt_(std::move(rt)) {
@@ -316,31 +343,11 @@ public:
     }
     std::string name() const override { return cfg_.name.empty() ? "anthropic" : cfg_.name; }
 
-    static std::string fetch_ant_token() {
-        if (which("ant").empty()) return {};
-        ProcessOptions po;
-        po.argv = {"ant", "auth", "print-credentials", "--access-token"};
-        po.timeoutSeconds = 20;
-        auto r = run_process(po);
-        if (!r || r->exitCode != 0) return {};
-        return std::string(fa::trim(r->stdoutText));
-    }
-
     Result<ChatResponse> chat(const ChatRequest& req, const ChatHooks& hooks, const CancelFlag* cancel) override {
-        Auth auth;
-        auto key = resolve_api_key(cfg_, rt_.env);
-        bool usingToken = false;
-        if (key.found()) auth.apiKey = key.key;
-        else if (cfg_.useAntCli) {
-            auth.bearerToken = rt_.antToken();
-            usingToken = true;
-        }
-        if (auth.apiKey.empty() && auth.bearerToken.empty()) {
-            return make_error(
-                "No Anthropic credentials found",
-                "Set ANTHROPIC_API_KEY (or \"apiKeyEnv\"/\"apiKey\" in ~/.factoria/ai.json), or install the `ant` CLI "
-                "and run `ant auth login`. To use a Claude subscription instead, pick the claude-code provider.");
-        }
+        auto resolved = resolve_auth(cfg_, rt_);
+        if (!resolved) return resolved.error();
+        Auth auth = std::move(*resolved);
+        const bool usingToken = auth.apiKey.empty();
         std::string base = cfg_.baseUrl.empty() ? "https://api.anthropic.com" : cfg_.baseUrl;
         while (!base.empty() && base.back() == '/') base.pop_back();
 
