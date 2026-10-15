@@ -101,6 +101,9 @@ public:
     int target_height() const;
 
     void begin_frame();
+    // Call after an sg_commit() the renderer did not do itself (the editor commits once per UI frame): the next
+    // begin_frame() may then reuse the frame's transient vertex buffers. Without it extra draws get fresh buffers.
+    void note_commit();
 
     // --- Simulation / drawing split --------------------------------------------------------------
     // update() advances everything time-based that lives in the renderer: SpriteAnimator frames and

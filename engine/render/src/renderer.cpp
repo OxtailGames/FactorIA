@@ -380,6 +380,10 @@ void Renderer::begin_frame() {
     impl_->gpu.begin_frame();
 }
 
+void Renderer::note_commit() {
+    if (initialized()) impl_->gpu.note_commit();
+}
+
 DebugDraw& Renderer::debug() {
     static DebugDraw dummy;
     return impl_ ? impl_->debug : dummy;
@@ -829,7 +833,10 @@ void Renderer::Impl::render(World& world, float dt) {
 
 void Renderer::end_frame() {
     if (!initialized()) return;
-    if (impl_->desc.headless) sg_commit();
+    if (impl_->desc.headless) {
+        sg_commit();
+        impl_->gpu.note_commit();
+    }
     impl_->inFrame = false;
 }
 
@@ -859,6 +866,7 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     sg_draw(0, 3, 1);
     sg_end_pass();
     sg_commit();
+    im.gpu.note_commit();
     im.inFrame = false;
 }
 

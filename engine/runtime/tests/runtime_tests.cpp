@@ -959,3 +959,49 @@ TEST_CASE("engine: scene.reload re-imports edited scripts, clears script errors 
     CHECK(t.result["ok"].get<bool>());
     e.shutdown();
 }
+
+// A scene loaded between two screenshots (game.load then game.screenshot in a tests/*.test.js) must show the new
+// scene: screen-space Text (HUD) in its corner, and no leftovers of the previous picture.
+TEST_CASE("engine: screenshot right after a scene load shows the new scene, HUD text in screen space") {
+    const char* hudScene = R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "cam", "components": { "Camera": { "clearColor": "#000000", "bloom": true, "bloomScreenSpace": false } } },
+        { "id": "glow", "components": { "Transform": { "position": [0, 0, 0] },
+                          "Shape2D": { "shape": "rectangle", "size": [20, 20], "color": "#ff40c0", "blend": "additive" } } },
+        { "id": "hud", "components": { "Transform": { "position": [6, 6, 0] },
+                          "Text": { "text": "SCORE 99", "fontSize": 16, "pivot": [0, 1], "space": "screen" } } }
+      ]
+    })";
+    for (RenderMode mode : {RenderMode::OnDemand, RenderMode::Always}) {
+        TempProject p("load_shot", kProject, kScene);
+        p.write("scenes/hud.scene.json", hudScene);
+        EngineConfig cfg = headless_cfg(p);
+        cfg.renderMode = mode;
+        Engine e;
+        std::string err;
+        REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+        e.step(3);
+        std::string a = (p.dir / "a.png").generic_string(), b = (p.dir / "b.png").generic_string();
+        REQUIRE_MESSAGE(e.screenshot(a, &err), err);
+        REQUIRE_MESSAGE(e.load_scene("scenes/hud.scene.json", &err), err);
+        REQUIRE_MESSAGE(e.screenshot(b, &err), err);  // no step in between
+        auto ia = load_image(a), ib = load_image(b);
+        REQUIRE(ia.ok());
+        REQUIRE(ib.ok());
+        CHECK(ia->rgba != ib->rgba);
+        int w = ib->width, h = ib->height;
+        auto lit = [&](int x0, int y0, int x1, int y1) {
+            int n = 0;
+            for (int y = y0; y < y1; ++y)
+                for (int x = x0; x < x1; ++x) {
+                    Color c = ib->pixel(x, y);
+                    if (c.r > 0.5f && c.g > 0.5f && c.b > 0.5f) ++n;  // white text; the glow is magenta
+                }
+            return n;
+        };
+        CHECK(lit(0, 0, w / 2, h / 4) > 20);                              // text in the top-left corner
+        CHECK(lit(w / 2 - 12, h / 2 - 12, w / 2 + 12, h / 2 + 12) == 0);  // none drawn inside the world
+        e.shutdown();
+    }
+}

@@ -641,6 +641,7 @@ void Editor::on_frame(double dt) {
     bool wantShot = false;
     if (autotest_) autotest_post_frame(wantShot);
     sg_commit();
+    if (engine_ && engine_->renderer()) engine_->renderer()->note_commit();
 }
 
 // ------------------------------------------------------------------------------------------

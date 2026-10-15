@@ -124,6 +124,9 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     physics.sync(world);  // bodies exist (and can be queried) right after the load, before the first step
     scripts.on_scene_loaded();
     if (renderer) renderer->debug().clear();
+    // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
+    // no frame is stepped in between (game.load(...) then game.screenshot(...) in a test).
+    if (renderer) renderStale = true;
     if (!report.ok()) {
         if (error) *error = report.summary();
         return;
