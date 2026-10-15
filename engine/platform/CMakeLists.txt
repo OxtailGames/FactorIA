@@ -3,6 +3,12 @@
 fa_add_module(platform
     DEPS fa_core fa_ext_sokol)
 
+# SDL_GameControllerDB (Linux lines) is baked into the binary as text; gamepad_mapping.cpp indexes it on first use
+# (namespace fa::gamepad_db, header embedded_gamepad_db.h). Compiled on every OS so the tests cover it everywhere.
+fa_embed_files(fa_platform fa::gamepad_db embedded_gamepad_db
+    FILES ${FA_ROOT}/external/sdl_gamecontrollerdb/gamecontrollerdb_linux.txt
+    BASE ${FA_ROOT}/external/sdl_gamecontrollerdb)
+
 # sokol is third-party code: silence warnings in its implementation TU.
 if(MSVC)
     set_source_files_properties(src/sokol_impl.c PROPERTIES COMPILE_OPTIONS "/w")

@@ -205,9 +205,15 @@ The platform layer maps touches to the same `Input` object scripts use:
   mapping table; the face buttons are positional like everywhere (`GamepadA` is the bottom one). The engine takes
   these events through sokol_app's `sapp_desc.android.native_event_cb` hook (installed by `to_sapp_desc()`) and
   marks them handled, so pad buttons never act as Back or touches. System Back (the Back key or gesture) is not
-  taken: it still leaves the app. Pads fill slots 0..3 in the order they first send an event. Limits: the NDK
-  reports no device removal, so an unplugged pad keeps its slot until a fifth pad needs one (Android itself releases
-  its keys and recentres its axes, so nothing sticks); a pad with a non-standard axis layout (triggers on Z/RZ and the
-  right stick on RX/RY) is not told apart. This code has been compiled but never run on a device.
+  taken: it still leaves the app. Pads fill slots 0..3 in the order they first send an event.
+  The NDK has no device enumeration, so `gamepad_android.cpp` asks `android.view.InputDevice` through JNI when a pad is
+  new, about every 2 s, and when the app is back after a pause. `getDevice(id)` returning null means the pad was
+  unplugged: its slot is freed (the game sees it disconnect, the other pads keep their numbers, the next pad takes the
+  free slot). `getMotionRange(axis)` says which axes a pad has: `Z`+`RZ` without `RX`+`RY` means the right stick is
+  Z/RZ; with `RX`+`RY` too and no trigger axes (`LTRIGGER`/`RTRIGGER`/`BRAKE`/`GAS`) the right stick is RX/RY and Z/RZ
+  are the triggers (-1 released .. +1 pulled); a pad with both pairs AND trigger axes, or not asked yet, uses whichever
+  pair is further from rest. Limits: a pad with only Z/RZ and no trigger axes is taken to have its right stick there;
+  an unplugged pad is noticed within about 2 s; without JNI it keeps its slot until a fifth pad needs one. Never run
+  on a device: the decisions are unit tested on every OS, the JNI glue is only built by CI.
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
   report their real state again afterwards.

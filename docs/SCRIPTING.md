@@ -221,10 +221,19 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   survives the window losing focus (inputs are released meanwhile, and the pad reports its real state when focus is
   back). Face buttons are positional: `A` is the bottom one, `B` right, `X` left, `Y` top, whatever the pad prints on
   them (a Switch Pro's bottom button, printed B, is `A`). On Linux each pad is identified by its USB/Bluetooth ids and
-  translated through a mapping table: DualShock 4, DualSense and Switch Pro are built in, any other pad gets the
-  Xbox (xpad) layout. If a pad's buttons come out wrong, set the standard `SDL_GAMECONTROLLERCONFIG` environment
-  variable to one or more mapping lines (newline separated; copy them from SDL's GameControllerDB, the engine logs the
-  pad's GUID when it has no mapping); they win over the built-in ones.
+  translated through a mapping line in the SDL GameControllerDB format. Where the line comes from, first match wins:
+  (1) the standard `SDL_GAMECONTROLLERCONFIG` environment variable (newline separated lines); (2) a
+  `gamecontrollerdb.txt` next to `factoria.json` in the game folder (one line per pad, `#` comments, lines for other
+  platforms are skipped; read once, when the first pad is opened, so restart the game after editing it; a game author ships it for pads players reported, a player can drop one next to the game);
+  (3) the built-in database, the Linux lines of the community SDL GameControllerDB (about 740 entries, 200 KB embedded in
+  the binary and indexed on first use; generic HID "USB Gamepad" devices, PlayStation, Switch and many others), plus
+  hand-written lines for the DualShock 4, DualSense and Switch Pro kernel drivers; (4) the Xbox (xpad) layout for a
+  pad nothing lists. Inside one source an exact bus + version match beats a vendor + product match; a source beats the
+  ones below it even with the worse match (the user's word is final). The engine logs each pad's GUID and the mapping it chose, and warns about
+  lines it cannot read; a database line for a stick driven by buttons or a hat (N64 and Joy-Con entries) is not
+  supported and is skipped. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
+  `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
+  (`docs/MOBILE.md`). Neither has been tried with a real pad yet.
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
