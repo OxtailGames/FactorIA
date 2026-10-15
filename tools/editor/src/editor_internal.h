@@ -32,11 +32,13 @@
 #include "fa/core/image.h"
 #include "fa/core/log.h"
 #include "fa/editor/editor.h"
+#include "fa/editor/update.h"
 #include "fa/mcp/http_server.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/play_session.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
+#include "fa/tooling/export.h"  // executable_dir: where the update goes
 #include "fa/tooling/tooling.h"
 #include "ai_chat.h"
 #include "ai_usage.h"
@@ -208,6 +210,7 @@ public:
     void draw_validation_window();
     void draw_docs_window();
     void draw_toasts();
+    void draw_update_popup();  // dialogs.cpp
 
     // AI
     void ai_refresh_providers();
@@ -287,6 +290,15 @@ public:
     bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
+    // Engine update (fa/editor/update.h): checked once when the editor opens. While a newer release is offered the
+    // modal popup blocks the editor until Update or Not now; Update installs it, then the editor quits and reopens.
+    enum class UpdateStage { Idle, Offer, Installing, Failed, Installed };
+    std::atomic<UpdateStage> updateStage_{UpdateStage::Idle};
+    UpdateInfo update_;           // written by updateThread_ before it sets Offer
+    std::string updateError_;     // written before Failed
+    std::atomic<float> updateProgress_{0};
+    std::thread updateThread_;
+    bool restartAfterQuit_ = false;  // on_cleanup starts the updated editor
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
 
     // textures for ImGui (texture_for, viewport.cpp), and image sizes for the selection bounds

@@ -14,12 +14,17 @@ FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree jue
 
 ### Descarga (sin compilar nada)
 
-La [página de Releases](https://github.com/OxtailGames/FactorIA/releases) tiene un paquete para cada sistema de
-escritorio: `FactorIA-<versión>-windows-x64.zip`, `FactorIA-<versión>-macos-arm64.tar.gz` (Apple Silicon) y
-`FactorIA-<versión>-linux-x64.tar.gz`. Contiene `factoria` (CLI, editor, servidor MCP e IA), `factoria_player` (el
-runtime que `factoria export` copia en tu juego) y, en Windows, `FactorIA-Editor.exe`. La documentación, las plantillas
-y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que un PC recién formateado no
-necesita nada más.
+Descarga una sola vez el paquete de tu sistema de escritorio; el editor lo mantiene al día (ver
+[Actualizaciones](#actualizaciones)):
+[FactorIA-windows-x64.zip](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64.zip),
+[FactorIA-macos-arm64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-macos-arm64.tar.gz)
+(Apple Silicon) o
+[FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz).
+Estos enlaces siempre dan la última versión; la [página de Releases](https://github.com/OxtailGames/FactorIA/releases)
+tiene todas. El paquete contiene una carpeta, `FactorIA`, con `factoria` (CLI, editor, servidor MCP e IA),
+`factoria_player` (el runtime que `factoria export` copia en tu juego) y, en Windows, `FactorIA-Editor.exe`. La
+documentación, las plantillas y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que
+un PC recién formateado no necesita nada más.
 
 1. Descomprime el paquete en la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`.
 2. Abre el editor:
@@ -43,6 +48,20 @@ necesita nada más.
 5. La exportación de escritorio (`factoria export`) funciona desde la descarga. La exportación a Android e iOS sigue
    necesitando el código fuente del motor y los SDK de cada plataforma ([MOBILE.md](../../MOBILE.md), en inglés), así
    que para eso compila desde el código fuente.
+
+#### Actualizaciones
+
+Al abrirse, el editor pregunta a GitHub si hay una versión más nueva. Si la hay, una ventana muestra las notas de
+cada versión posterior a la tuya, y el editor espera a que respondas:
+
+- **Update** descarga el paquete de tu sistema, reemplaza los archivos de la carpeta FactorIA y vuelve a abrir el
+  editor con el proyecto que tenías abierto (si la escena tiene cambios sin guardar, primero pregunta). Los archivos
+  reemplazados quedan como `<nombre>.old` hasta el siguiente arranque, que los borra.
+- **Not now** mantiene tu versión. El editor vuelve a preguntar la próxima vez que se abra.
+
+Sin conexión, o si GitHub no responde, el editor se abre como siempre y la consola dice por qué. La carpeta FactorIA
+tiene que ser una en la que puedas escribir (no `C:\Program Files`). Para volver a una versión anterior, descárgala de
+la página de Releases. Las builds compiladas desde el código fuente nunca se actualizan: haz pull y vuelve a compilar.
 
 ### Compilar desde el código fuente
 

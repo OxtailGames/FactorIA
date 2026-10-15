@@ -177,9 +177,15 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   each platform. It uploads test output (`Testing` folders and `test-output/**/*.png`
   screenshots) when a job fails.
 - **Release packages.** `.github/workflows/release.yml` builds the release presets on Windows, macOS and Linux and
-  packages `factoria`, `factoria_player` and (Windows) `FactorIA-Editor.exe` as `FactorIA-<version>-<os>.zip`
-  (`.tar.gz` on macOS and Linux). Each package is smoke-tested from a temp folder outside the checkout (`version`,
-  `new`, `test`, `export`). A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as artifacts.
+  packages `factoria`, `factoria_player` and (Windows) `FactorIA-Editor.exe` as `FactorIA-<os>.zip` (`.tar.gz` on
+  macOS and Linux), one `FactorIA/` folder inside. Each package is smoke-tested from a temp folder outside the checkout
+  (`version`, `new`, `test`, `export`). A `v*` tag publishes a GitHub Release; "Run workflow" keeps the packages as
+  artifacts. Bump `project(VERSION)` in `CMakeLists.txt` before tagging: the job fails when the tag and
+  `factoria version` differ.
+- **Updates.** The packages are configured with `-DFA_UPDATE_REPO=<owner/repo>`, so their editor offers each newer
+  release (with its release notes, which you can edit on the release page) and installs it in place
+  (`tools/editor/src/update.cpp`, docs/GETTING_STARTED.md "Updates"). It is empty by default: builds from source
+  never update.
 
 ## Continuous integration (local, no GitHub minutes)
 

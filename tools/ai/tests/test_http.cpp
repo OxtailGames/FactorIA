@@ -156,6 +156,23 @@ void check_backend(Backend send, const char* name) {
         CHECK(resp.cancelled);
         CHECK(std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < 5);
     }
+    {  // redirects are followed (release downloads redirect to a CDN)
+        std::string body = "package bytes";
+        LoopbackServer target({"HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) +
+                               "\r\nConnection: close\r\n\r\n" + body});
+        LoopbackServer srv({"HTTP/1.1 302 Found\r\nLocation: " + target.url("/pkg") +
+                            "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"});
+        HttpRequest rq;
+        rq.method = "GET";
+        rq.url = srv.url("/latest");
+        rq.timeoutSeconds = 20;
+        std::string streamed;
+        rq.onData = [&](std::string_view c) { streamed += c; return true; };
+        auto resp = send(rq);
+        CHECK(resp.status == 200);
+        CHECK(streamed == body);
+        CHECK(target.request().rfind("GET /pkg HTTP/1.1", 0) == 0);
+    }
     {  // connection refused is a transport error with a message
         HttpRequest rq = post("http://127.0.0.1:1/x");
         rq.connectTimeoutSeconds = 2;
