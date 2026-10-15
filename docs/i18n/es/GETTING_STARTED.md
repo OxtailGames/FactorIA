@@ -6,11 +6,45 @@
 
 > AI agents: read [AI_GUIDE.md](../../AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
 
-FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree juegos sin depender de un editor gráfico. Las escenas son JSON, la lógica va en JavaScript y cada capacidad del motor es un comando que la IA puede invocar. Esta guía explica cómo compilar el motor, crear un juego y conectar una IA.
+FactorIA es un motor de juegos 2D y 3D en C++20 pensado para que una IA cree juegos sin depender de un editor gráfico. Las escenas son JSON, la lógica va en JavaScript y cada capacidad del motor es un comando que la IA puede invocar. Esta guía explica cómo instalar el motor (descargarlo o compilarlo), crear un juego y conectar una IA.
 
 > **Estado del proyecto.** Está en desarrollo temprano. En Linux funciona el flujo completo: crear un proyecto, validarlo, probarlo, simularlo sin ventana con capturas, exportarlo y conectar una IA por MCP. La CI compila y prueba el motor en Windows (MSVC) y macOS (sin las pruebas de GPU), y ejecuta la app de iOS en el simulador de iOS y un APK de Android exportado en un emulador x86_64 en cada push; las builds móviles aún no se han ejecutado en un dispositivo real (ver `docs/MOBILE.md`). La sección 8 resume lo que funciona y lo que falta.
 
 ## 1. Requisitos e instalación
+
+### Descarga (sin compilar nada)
+
+La [página de Releases](https://github.com/OxtailGames/FactorIA/releases) tiene un paquete para cada sistema de
+escritorio: `FactorIA-<versión>-windows-x64.zip`, `FactorIA-<versión>-macos-arm64.tar.gz` (Apple Silicon) y
+`FactorIA-<versión>-linux-x64.tar.gz`. Contiene `factoria` (CLI, editor, servidor MCP e IA), `factoria_player` (el
+runtime que `factoria export` copia en tu juego) y, en Windows, `FactorIA-Editor.exe`. La documentación, las plantillas
+y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que un PC recién formateado no
+necesita nada más.
+
+1. Descomprime el paquete en la carpeta que quieras, por ejemplo `C:\FactorIA` o `~/FactorIA`.
+2. Abre el editor:
+   - **Windows:** haz doble clic en `FactorIA-Editor.exe`. El exe no está firmado, así que Windows SmartScreen puede
+     mostrar "Windows protegió su PC": pulsa **Más información** y después **Ejecutar de todas formas**.
+   - **macOS:** abre Terminal en la carpeta y ejecuta `./factoria editor`. La app no está notarizada, así que
+     Gatekeeper la bloquea la primera vez: en Finder, clic derecho en `factoria` > **Abrir** y confirma. En macOS 15 y
+     posteriores, ve a Ajustes del Sistema > Privacidad y seguridad y pulsa **Abrir igualmente**. También puedes quitar
+     la cuarentena de descarga de toda la carpeta: `xattr -dr com.apple.quarantine ~/FactorIA`.
+   - **Linux:** ejecuta `./factoria editor` en la carpeta. Necesita X11 y OpenGL, que las distribuciones de escritorio
+     ya incluyen.
+3. El asistente de IA necesita Claude Code (o Codex) instalado y con la sesión iniciada, o una clave de API: ver la
+   [sección 6](#6-conectar-una-ia). Dentro del editor no hace falta nada más, porque el propio editor sirve las
+   herramientas MCP.
+4. Para usar Claude Code desde un terminal fuera del editor, añade la carpeta al PATH. El `.mcp.json` que escribe
+   `factoria new` arranca el comando `factoria` sin ruta, así que el terminal tiene que encontrarlo. Después abre un
+   terminal nuevo.
+   - Windows (PowerShell):
+     `[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\FactorIA', 'User')`
+   - macOS (zsh) o Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
+5. La exportación de escritorio (`factoria export`) funciona desde la descarga. La exportación a Android e iOS sigue
+   necesitando el código fuente del motor y los SDK de cada plataforma ([MOBILE.md](../../MOBILE.md), en inglés), así
+   que para eso compila desde el código fuente.
+
+### Compilar desde el código fuente
 
 Necesitas CMake 3.24 o superior y un compilador de C++20. En Linux y macOS los presets usan Ninja. Las librerías de terceros vienen incluidas en `external/`, así que no hay que descargar dependencias aparte, salvo los SDK de cada plataforma.
 
