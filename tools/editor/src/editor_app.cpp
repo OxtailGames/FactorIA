@@ -613,7 +613,7 @@ void Editor::on_frame(double dt) {
         sync_scene_path();
         ai_drain_events();
         const std::uint64_t frameBefore = engine_->frame_index(), stepBefore = engine_->fixed_step_index();
-        bool variable = false;  // this UI frame ran engine_->frame(dt) (else only step(1) calls, if any)
+        double frameDt = engine_->fixed_dt();  // dt of the last frame run here (step(1) runs one fixed dt)
         if (stepPending_ > 0) {
             --stepPending_;
             engine_->step(1);
@@ -621,12 +621,12 @@ void Editor::on_frame(double dt) {
             // a sliced game.step/project.test owns the simulation: extra frames would change its result
         } else {
             engine_->frame(dt);
-            variable = true;
+            frameDt = dt;
             if (play_ == PlayState::Playing) session_frame(dt, frameBefore);
         }
         if (run_.active && engine_->frame_index() > frameBefore) {
             const std::uint64_t ran = engine_->frame_index() - frameBefore, steps = engine_->fixed_step_index() - stepBefore;
-            run_.rec.timing(engine_->frame_index(), variable ? dt : engine_->fixed_dt(), int(steps - (ran - 1)), engine_->fixed_dt());
+            run_.rec.timing(engine_->frame_index(), frameDt, int(steps - (ran - 1)), engine_->fixed_dt());
         }
     }
 
