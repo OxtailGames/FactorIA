@@ -222,12 +222,12 @@ A newer push to the same pull request or branch cancels the older run.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
 
-The mobile jobs also RUN the app: `ios` boots an iPhone simulator (`scripts/ios-smoke.sh`) and `android-emulator`
-boots an API 34 `x86_64` emulator with KVM, installs the debug APK that `android-apk` built and starts it
-(`scripts/android-smoke.sh`). Both assert that the process stays alive, the player logged `player: 60 frames rendered`,
-nothing crashed and the screenshot shows a picture, and upload their logs, the screenshot and crash reports as the
-artifacts `ios-smoke` and `android-smoke` (look there when one of them fails). What they cover is in
-[MOBILE.md](MOBILE.md).
+The mobile jobs also RUN the app: `ios` boots an iPhone simulator while `ios-build` builds the app, then runs it
+(`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM, installs the debug APK
+that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process stays alive, the
+player logged `player: 60 frames rendered`, nothing crashed and the screenshot shows a picture, and upload their logs,
+the screenshot and crash reports as the artifacts `ios-smoke` and `android-smoke` (look there when one of them fails).
+What they cover is in [MOBILE.md](MOBILE.md).
 
 ## Troubleshooting
 
@@ -289,4 +289,7 @@ Limit the parallel jobs: `cmake --build --preset <name> -- -j 2` (or
 `cmake --build build/<dir> -j 2`).
 
 **Rebuilds are slow**
-Install `ccache`. CMake uses it automatically when it is on the path.
+Install `ccache`. CMake uses it automatically when it is on the path, except with the Visual Studio presets: there,
+copy `ccache.exe` (4.13 or newer, not a Chocolatey or Scoop shim) as `cl.exe` into an empty folder and set the
+environment variables `CLToolPath=<that folder>` and `UseMultiToolTask=true` before building, as the Windows CI job
+does.

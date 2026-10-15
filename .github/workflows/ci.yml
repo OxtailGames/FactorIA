@@ -73,6 +73,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Visual Studio ignores compiler launchers, so MSBuild runs ccache as cl.exe (CLToolPath), one source per call
+      # in parallel (UseMultiToolTask). MSBuild reads both from the environment. ccache supports MSVC since 4.13.
+      - name: Install ccache
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ccache.zip" https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-windows-x86_64.zip
+          unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/ccache-cl"
+          cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\ccache  # ccache's default directory on Windows
+          key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-windows-
+
       - name: Configure (windows-release)
         run: cmake --preset windows-release
 
@@ -131,11 +149,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # iOS: build the player for the simulator with Xcode, then run it on an iOS Simulator. Code signing is off for the
-  # build (the simulator does not need it; the smoke script signs ad hoc). No ccache here: launcher support with the
-  # Xcode generator is not reliable.
-  ios:
-    name: iOS Simulator (Xcode)
+  # iOS, in two jobs on two runners, because a simulator's first boot takes 5-7 minutes and slows a build on the same
+  # machine: `ios-build` builds the player for the simulator with Xcode while `ios` boots the simulator, then `ios` runs
+  # the app. Code signing is off for the build (the simulator does not need it; the smoke script signs ad hoc). No
+  # ccache here: launcher support with the Xcode generator is not reliable.
+  ios-build:
+    name: iOS Simulator build (Xcode)
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -151,21 +170,47 @@ jobs:
       - name: Build factoria_player (ios-simulator)
         run: cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO
 
-      - name: Check the app bundle contains the game and a valid Info.plist
+      # Packed with tar, which keeps the executable bit that artifacts drop.
+      - name: Check the app bundle contains the game and a valid Info.plist, pack it
         run: |
           app=$(find build/ios-simulator -name factoria_player.app -type d | head -n 1)
           test -n "$app"
           test -f "$app/game/factoria.json"
           test ! -e "$app/game/ENGINE_FEEDBACK.json"
           plutil -lint "$app/Info.plist"
+          tar -czf "$RUNNER_TEMP/ios-app.tgz" -C "$(dirname "$app")" factoria_player.app
 
-      # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
-      # the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
-      # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
-      - name: Run the app in the iOS Simulator (smoke test)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: ${{ runner.temp }}/ios-app.tgz
+          retention-days: 1
+
+  # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
+  # the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
+  # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
+  ios:
+    name: iOS Simulator (run the app)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read  # gh run download: the app of ios-build, from this same run
+    steps:
+      - uses: actions/checkout@v4
+
+      # Not `needs: ios-build`, which would only start the boot after the build. If ios-build fails, this step times out.
+      - name: Boot the simulator while ios-build builds the app, then download the app
+        timeout-minutes: 20
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          app=$(find "$PWD/build/ios-simulator" -name factoria_player.app -type d | head -n 1)
-          ./scripts/ios-smoke.sh "$app" dev.factoria.ci 90 build/ios-smoke
+          ./scripts/ios-smoke.sh --boot &
+          until gh run download "$GITHUB_RUN_ID" -n ios-app -D "$RUNNER_TEMP" 2>/dev/null; do sleep 10; done
+          tar -xzf "$RUNNER_TEMP/ios-app.tgz" -C "$RUNNER_TEMP"
+
+      - name: Run the app in the iOS Simulator (smoke test)
+        run: ./scripts/ios-smoke.sh "$RUNNER_TEMP/factoria_player.app" dev.factoria.ci 90 build/ios-smoke
 
       - name: Upload simulator logs, screenshot and crash reports
         if: always()
@@ -220,11 +265,22 @@ jobs:
     name: Android APK (factoria export + Gradle)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      CCACHE_COMPILERCHECK: content  # sdkmanager unpacks the NDK anew each run, so its compilers' mtime changes
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
+
+      # Also caches the engine's NDK build inside Gradle: CMakeLists.txt uses ccache whenever it finds it. The key must
+      # not start with another job's (ccache-Linux-android-), or restore-keys would pick that job's cache.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-apk-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-apk-
 
       - name: Build the factoria CLI (no editor, no tests)
         run: |

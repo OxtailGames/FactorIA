@@ -37,12 +37,18 @@ jobs:
             preset: windows-release
             cfg: /Release  # Visual Studio is a multi-config generator
             exe: .exe
+            ccache: ~\AppData\Local\ccache
+            ccache-key: windows
           - os: macos-arm64
             runner: macos-latest
             preset: macos-release
+            ccache: ~/Library/Caches/ccache
+            ccache-key: macos
           - os: linux-x64
             runner: ubuntu-24.04
             preset: linux-release
+            ccache: ~/.cache/ccache
+            ccache-key: linux
             wrap: xvfb-run -a  # headless tests on Mesa llvmpipe, as in ci.yml
     defaults:
       run:
@@ -54,9 +60,27 @@ jobs:
         if: runner.os == 'Linux'
         run: ./scripts/bootstrap-linux.sh
 
-      - name: Install Ninja (macOS)
+      - name: Install Ninja and ccache (macOS)
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: brew install ninja ccache
+
+      # As in ci.yml: MSBuild runs ccache as cl.exe (CLToolPath), one source per call in parallel (UseMultiToolTask).
+      - name: Install ccache (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/ccache.zip" https://github.com/ccache/ccache/releases/download/v4.14.1/ccache-4.14.1-windows-x86_64.zip
+          unzip -q "$RUNNER_TEMP/ccache.zip" -d "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/ccache-cl"
+          cp "$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" "$RUNNER_TEMP/ccache-cl/cl.exe"
+          { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
+
+      # The CI runs on main fill these caches (ci.yml); a release only reads them.
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ matrix.ccache }}
+          key: ccache-${{ runner.os }}-${{ matrix.ccache-key }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache-key }}-
 
       - name: Configure (${{ matrix.preset }}, no tests)
         run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }}
