@@ -450,7 +450,7 @@ const coin = world.spawn({
 }, { parent: "level" });   // optional: parent is an Entity or an id; position is local to it
 ```
 
-`props` in the spawn options is merged into the entity's `Script.props`. `destroy()` is deferred to the end of the frame. Destroy the entities you no longer need, so that spawners do not fill the scene.
+`props` in the spawn options is merged into the entity's `Script.props`. `destroy()` is deferred to the end of the frame, but the entity leaves physics at once (no collisions, no raycast or overlap hits), so you may destroy rigid bodies and spawn replacements at the same positions in the same frame. Destroy the entities you no longer need, so that spawners do not fill the scene.
 
 ### 9.4 HUD pinned to the screen corners
 
