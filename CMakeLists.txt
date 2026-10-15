@@ -34,6 +34,8 @@ option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
 option(FA_BUILD_TOOLS  "Build the factoria CLI, MCP server, AI hub, editor" ${FA_DESKTOP})
 option(FA_BUILD_EDITOR "Build the visual editor (requires FA_BUILD_TOOLS)"   ${FA_DESKTOP})
 option(FA_WARNINGS_AS_ERRORS "Treat engine warnings as errors"              OFF)
+# The release packages set it (.github/workflows/release.yml): their editor offers the updates published there.
+set(FA_UPDATE_REPO "" CACHE STRING "GitHub owner/repo whose Releases the editor updates from (empty: no updates)")
 
 set(FA_ENGINE_VERSION ${PROJECT_VERSION})
 set(FA_ROOT ${CMAKE_CURRENT_SOURCE_DIR})

@@ -124,6 +124,24 @@ void Editor::autotest_pre_frame() {
     const int f = atFrame_;
     if (atWelcome_) {
         namespace stdfs = std::filesystem;
+        // The update popup (a newer release with its notes): it opens over the dialog, Not now closes it.
+        if (f == 2) {
+            update_.current = "0.1.0";
+            update_.latest = "0.2.0";
+            update_.notes = "# FactorIA v0.2.0\n\n## What's Changed\n* The editor updates itself\n\n# FactorIA v0.1.1\n\nFixes.\n";
+            updateStage_ = UpdateStage::Offer;
+        } else if (f == 6) {
+            atPendingShots_.push_back(atOutDir_ + "/editor_update.png");
+        } else if (f == 7) {
+            atMouse_ = at_widget("update:notnow");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, atMouse_);
+        } else if (f == 8) {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, atMouse_);
+        } else if (f == 9) {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, atMouse_);
+        } else if (f == 11) {
+            at_check(updateStage_ == UpdateStage::Idle && !restartAfterQuit_, "Not now closes the update popup and keeps this version");
+        }
         if (f == 12) atPendingShots_.push_back(atOutDir_ + "/editor_welcome.png");
         if (f == 16) {
             at_check(showProjectDialog_ && !engine_, "welcome dialog is shown without a project");

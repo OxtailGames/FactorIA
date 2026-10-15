@@ -37,23 +37,6 @@ std::string host_platform() {
 #endif
 }
 
-stdfs::path executable_dir() {
-    std::error_code ec;
-#if defined(_WIN32)
-    wchar_t buf[MAX_PATH * 4];
-    DWORD n = GetModuleFileNameW(nullptr, buf, DWORD(sizeof(buf) / sizeof(buf[0])));
-    if (n > 0) return stdfs::path(std::wstring(buf, n)).parent_path();
-#elif defined(__APPLE__)
-    char buf[4096];
-    uint32_t size = sizeof(buf);
-    if (_NSGetExecutablePath(buf, &size) == 0) return stdfs::weakly_canonical(buf, ec).parent_path();
-#else
-    stdfs::path p = stdfs::read_symlink("/proc/self/exe", ec);
-    if (!ec) return p.parent_path();
-#endif
-    return stdfs::current_path(ec);
-}
-
 std::string replace_all(std::string text, const std::string& from, const std::string& to) {
     if (from.empty()) return text;
     std::size_t pos = 0;
@@ -488,6 +471,23 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const stdfs::p
 }
 
 }  // namespace
+
+stdfs::path executable_dir() {
+    std::error_code ec;
+#if defined(_WIN32)
+    wchar_t buf[MAX_PATH * 4];
+    DWORD n = GetModuleFileNameW(nullptr, buf, DWORD(sizeof(buf) / sizeof(buf[0])));
+    if (n > 0) return stdfs::path(std::wstring(buf, n)).parent_path();
+#elif defined(__APPLE__)
+    char buf[4096];
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) == 0) return stdfs::weakly_canonical(buf, ec).parent_path();
+#else
+    stdfs::path p = stdfs::read_symlink("/proc/self/exe", ec);
+    if (!ec) return p.parent_path();
+#endif
+    return stdfs::current_path(ec);
+}
 
 std::string normalize_export_platform(const std::string& name) {
     std::string n;
