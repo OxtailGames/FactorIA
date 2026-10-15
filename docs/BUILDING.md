@@ -302,8 +302,20 @@ are free for public repositories. It runs once per change:
 
 - **Pull requests**: every push to a branch with an open pull request.
 - **`main`**: every push (including merged pull requests).
+- **`v*` tags**: every job, whatever changed.
 - **Other branches**: no automatic run, so a PR branch is not built twice. Start
-  one by hand from the Actions tab ("Run workflow") or open a pull request.
+  one by hand from the Actions tab ("Run workflow"; every job) or open a pull request.
+
+A run only builds what the change can break (the `changes` job compares it with its
+base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds nothing,
+and the iOS and Android jobs run only when the change touches what they build or run
+(`engine/`, `player/`, `platforms/`, `external/`, `cmake/`, `templates/`,
+`tools/common/`, `tools/cli/`, `scripts/`, the top-level CMake files or `ci.yml`).
+The last job, `CI result`, fails if any job that ran failed. It is the only check that
+the branch protection of `main` requires, so a pull request with auto-merge on
+(`gh pr merge <n> --auto --merge`) merges itself when it passes, and GitHub then
+deletes its branch. `release.yml` is not part of `CI result`: a pull request that
+changes it is merged by hand once its Release run is green.
 
 A newer push to the same pull request or branch cancels the older run.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
