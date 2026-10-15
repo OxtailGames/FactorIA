@@ -2267,7 +2267,7 @@ TEST_CASE("3d sleep: a stack of 5 boxes falls asleep together, stays put and sen
         CHECK(s.world.get<RigidBody3D>(e)->velocity == Vec3{});
         CHECK(s.world.get<RigidBody3D>(e)->angularVelocity == Vec3{});
     }
-    CHECK(at[4].y == doctest::Approx(4.5f + 4 * 0.0f).epsilon(0.02));
+    CHECK(at[4].y == doctest::Approx(4.5f).epsilon(0.02));
     const std::size_t seen = s.events.size();
     s.run(300);
     CHECK(s.events.size() == seen);
@@ -2377,38 +2377,38 @@ TEST_CASE("3d sleep: a rider on a moving kinematic platform never sleeps; once t
 }
 
 TEST_CASE("3d sleep: a changed scene gravity wakes sleeping bodies; sleeping is deterministic") {
-    auto run = [](std::vector<int>* sleptAt) {
+    struct Result { int sleptAt = -1; std::vector<Vec3> pos; bool operator==(const Result&) const = default; };
+    auto run = []() {
         Sim s;
         add_box3(s.world, "ground", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
         Entity ball = add_sphere3(s.world, "ball", {0, 2, 0}, 0.5f);
         Entity crate = add_box3(s.world, "crate", {3, 3, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+        Result r;
         for (int i = 0; i < 400; ++i) {
             s.run(1);
-            if (!body_awake(s, "ball") && !body_awake(s, "crate") && sleptAt->empty()) sleptAt->push_back(i);
+            if (r.sleptAt < 0 && !body_awake(s, "ball") && !body_awake(s, "crate")) r.sleptAt = i;
         }
-        REQUIRE_FALSE(sleptAt->empty());
+        REQUIRE(r.sleptAt >= 0);
         s.world.settings().gravity3D = {0, 20, 0};  // up: anything still asleep would hover
         s.run(30);
         CHECK(body_awake(s, "ball"));
         CHECK(pos_of(s.world, ball).y > 1.0f);
-        return std::vector<Vec3>{pos_of(s.world, ball), pos_of(s.world, crate)};
+        r.pos = {pos_of(s.world, ball), pos_of(s.world, crate)};
+        return r;
     };
-    std::vector<int> a, b;
-    const auto pa = run(&a), pb = run(&b);
-    CHECK(a == b);
-    CHECK(pa == pb);
+    CHECK(run() == run());
 }
 
 // ------------------------------------------------- 3D gyroscopic term ----
 
 namespace {
-// Angular momentum (world frame, kg m^2/s) and kinetic energy (J) of a free box from its public state.
-struct SpinState { Vec3 L; float energy; };
+// Angular momentum (world frame, kg m^2/s), kinetic energy (J) and body-frame angular velocity (rad/s) of a free box from
+// its public state.
+struct SpinState { Vec3 L; float energy; Vec3 wb; };
 SpinState spin_state(const World& w, Entity e, Vec3 inertia) {
     const Quat q = Quat::from_euler_deg(w.get<Transform>(e)->rotation);
-    const Vec3 omega = w.get<RigidBody3D>(e)->angularVelocity * (kPi / 180.0f);
-    const Vec3 wb = q.conjugate().rotate(omega);
-    return {q.rotate(wb * inertia), 0.5f * dot(wb, wb * inertia)};
+    const Vec3 wb = q.conjugate().rotate(w.get<RigidBody3D>(e)->angularVelocity * (kPi / 180.0f));
+    return {q.rotate(wb * inertia), 0.5f * dot(wb, wb * inertia), wb};
 }
 }  // namespace
 
@@ -2416,7 +2416,7 @@ TEST_CASE("3d gyro: a box tumbling in zero gravity precesses and conserves energ
     // A 2 x 1 x 0.5 box (moments of inertia 1.25 < 4.25 < 5 over 12, so y is the intermediate axis) spins for 600 steps.
     // Without a gyroscopic term its angular velocity would stay constant and its angular momentum would turn with it.
     const Vec3 inertia{(1 + 0.25f) / 12, (4 + 0.25f) / 12, (4 + 1) / 12.0f};
-    struct Drift { float maxL = 0, maxE = 0, minE = 1e9f, maxOmega = 0; bool flipped = false; };
+    struct Drift { float maxL = 0, maxE = 0, maxOmega = 0; bool flipped = false; };
     auto run = [&](Vec3 spinDeg) {
         Sim s;
         no_gravity(s);
@@ -2428,12 +2428,9 @@ TEST_CASE("3d gyro: a box tumbling in zero gravity precesses and conserves energ
             s.run(1);
             const SpinState st = spin_state(s.world, e, inertia);
             d.maxL = std::max(d.maxL, length(st.L - s0.L) / length(s0.L));
-            d.maxE = std::max(d.maxE, st.energy / s0.energy);
-            d.minE = std::min(d.minE, st.energy / s0.energy);
+            d.maxE = std::max(d.maxE, std::fabs(st.energy / s0.energy - 1.0f));
             d.maxOmega = std::max(d.maxOmega, length(s.world.get<RigidBody3D>(e)->angularVelocity - spinDeg));
-            const Quat q = Quat::from_euler_deg(s.world.get<Transform>(e)->rotation);
-            const Vec3 wb = q.conjugate().rotate(s.world.get<RigidBody3D>(e)->angularVelocity);
-            if (wb.y < 0.0f) d.flipped = true;  // the spin about the intermediate axis reversed
+            if (st.wb.y < 0.0f) d.flipped = true;  // the spin about the intermediate axis reversed
         }
         CHECK(pos_of(s.world, e).y == doctest::Approx(5.0f));  // no gravity, no contact: it stays where it is
         return d;
@@ -2443,16 +2440,14 @@ TEST_CASE("3d gyro: a box tumbling in zero gravity precesses and conserves energ
     const Drift a = run({150, 250, 100});
     CHECK(a.maxOmega > 50.0f);
     CHECK(a.maxL < 0.02f);
-    CHECK(a.maxE < 1.005f);
-    CHECK(a.minE > 0.995f);
+    CHECK(a.maxE < 0.005f);
 
     // (b) a fast spin about the intermediate axis with a small wobble is unstable: the box flips over, but an implicit
     // integrator neither blows up nor loses energy doing it
     const Drift b = run({4, 300, 4});
     CHECK(b.flipped);
     CHECK(b.maxL < 0.02f);
-    CHECK(b.maxE < 1.005f);
-    CHECK(b.minE > 0.995f);
+    CHECK(b.maxE < 0.005f);
 }
 
 // ---------------------------------------------- 3D continuous collision ----
@@ -2518,4 +2513,51 @@ TEST_CASE("3d ccd: a sphere bouncing between close walls survives more impacts t
     CHECK(run(3000.0f, &z, &vx) < 0.055f);
     CHECK(z > 0.5f);
     CHECK(z <= 5.01f);
+}
+
+// ------------------------------------------- 3D rigid bodies: checked, not gaps ----
+
+TEST_CASE("3d rigid: a cube standing on one edge rests on a two-point contact line, so it topples about that edge only") {
+    // A 1 m cube turned 40 degrees about z stands on its lowest edge, which runs along z. Face clipping gives that edge
+    // two contact points (its ends), so the cube cannot pitch about x or yaw: it only rolls over the edge onto a face.
+    // A single contact point in the middle of the edge would let it pitch freely (33 degrees within these 40 steps).
+    for (float pitchSpin : {0.0f, 60.0f}) {
+        Sim s;
+        add_box3(s.world, "ground", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
+        const float tilt = 40.0f * kPi / 180.0f;
+        Entity cube = add_box3(s.world, "cube", {0, 0.5f * (std::cos(tilt) + std::sin(tilt)) + 0.0005f, 0}, {1, 1, 1},
+                               BodyType::Dynamic, true);
+        s.world.get<Transform>(cube)->rotation = {0, 0, 40};
+        s.world.get<RigidBody3D>(cube)->angularVelocity = {pitchSpin, 0, 0};
+        float maxPitch = 0.0f, maxYaw = 0.0f;
+        for (int i = 0; i < 40; ++i) {
+            s.run(1);
+            const Vec3 r = s.world.get<Transform>(cube)->rotation;
+            maxPitch = std::max(maxPitch, std::fabs(r.x));
+            maxYaw = std::max(maxYaw, std::fabs(r.y));
+        }
+        CHECK(maxPitch < 1.0f);
+        CHECK(maxYaw < 1.0f);
+        CHECK(s.world.get<Transform>(cube)->rotation.z < 35.0f);  // and it did roll over the edge
+    }
+}
+
+TEST_CASE("3d rigid: boxes have no rolling resistance of their own; angularDamping is the drag") {
+    // rollingFriction is for arcade spheres and is ignored by boxes. A spinning cube keeps its spin until angularDamping
+    // (rotation drag, e^-k per second here) slows it.
+    auto spin_after_a_second = [](float angularDamping, float rollingFriction) {
+        Sim s;
+        no_gravity(s);
+        Entity cube = add_box3(s.world, "cube", {0, 5, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+        RigidBody3D& rb = *s.world.get<RigidBody3D>(cube);
+        rb.angularVelocity = {100, 0, 0};
+        rb.angularDamping = angularDamping;
+        rb.rollingFriction = rollingFriction;
+        s.run(60);
+        return rb.angularVelocity.x;
+    };
+    CHECK(spin_after_a_second(0.0f, 0.0f) == doctest::Approx(100.0f).epsilon(0.001));
+    CHECK(spin_after_a_second(0.0f, 10.0f) == doctest::Approx(100.0f).epsilon(0.001));
+    CHECK(spin_after_a_second(1.0f, 0.0f) == doctest::Approx(100.0f * std::exp(-1.0f)).epsilon(0.02));
+    CHECK(spin_after_a_second(1.0f, 10.0f) == doctest::Approx(100.0f * std::exp(-1.0f)).epsilon(0.02));
 }
