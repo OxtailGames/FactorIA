@@ -101,6 +101,24 @@ clip loaded. While the game runs it asks only for plays newer than the last one 
 and **Clear** keep it readable; a clip that failed to load (`ok: false`) is highlighted in red, because a wrong path is silent in the
 game itself.
 
+## Play sessions
+
+Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switch on.
+
+- **While you play**: the editor records the input it feeds the game, the frame times, and the warnings and errors that are logged.
+- **F9 marks a problem** (the toolbar shows "F9 marks a problem" while the game runs). The game pauses on that frame, a screenshot is taken
+  and a small window asks for a one-line note. **Enter** saves the mark and the game continues; **Esc** discards it.
+- **On Stop** the session is written to `.factoria/sessions/<yyyymmdd-hhmmss>/`:
+  `session.json` (scene, duration, frames, frame time avg/p95/max and frames over 16.7 / 33 ms, the 10 slowest frames with entity count and
+  render stats, warnings/errors, marks), `input.json` (the input in the replay format of `factoria run --headless --input`) and
+  `mark-<n>.png`. Frame numbers are the same in all of them. Input is replayed per engine frame, so a session that ran below the fixed rate
+  (several fixed steps in one frame) replays close to, not exactly, what happened. Mouse wheel and typed text are not recorded.
+- **Tell the AI**: after Stop, if the session has marks or errors, the AI Assistant panel shows a line with an **Attach** button. The
+  **Attach last play session** button next to **Attach image...** does the same at any time: it adds a short summary (performance, errors, your
+  notes) to the message and the mark screenshots as pictures.
+- **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path.
+  The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
+
 ## Testing the editor
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed (`tools/editor/src/editor_tools.*`), picking geometry
