@@ -353,7 +353,7 @@ action "list" (default) shows providers and the role mapping from ~/.factoria/ai
 
 Run an AI agent on a task in the current project (blocks until it finishes).
 
-Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
+Uses the provider/model mapped to `role` in ~/.factoria/ai.json (default orchestrator). CLI providers (claude-code, codex) run their own loop with the FactorIA MCP server attached; API providers run the built-in tool loop. An orchestrator that is itself a CLI agent delegates with this tool: role "worker" or "fast" and a self-contained task; the result's finalText is the sub-agent's report. Example: {"task":"Add a pause menu","role":"orchestrator","maxCostUsd":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -594,7 +594,7 @@ Example: {"path":"scripts/enemy.js","content":"export default class ..."}. For b
 |---|---|---|---|
 | `path` | string | yes | Project-relative file path. |
 | `content` | string | yes | Full new file content (base64 text when encoding=base64). |
-| `encoding` | string | no | "utf8" writes content as text; "base64" decodes it and writes the bytes (images, audio). Default "utf8". |
+| `encoding` | string ["utf8","base64"] | no | "utf8" writes content as text; "base64" decodes it and writes the bytes (images, audio). Default "utf8". |
 | `overwrite` | boolean | no | Allow replacing an existing file. Default true. |
 
 ## game
@@ -709,6 +709,29 @@ Like physics.raycast, but the shape has size: use it to ask whether a character 
 | `mask` | integer | no | Collision layer mask: bit i = layer i; -1 hits every layer. Default -1. |
 | `ignore` | string | no | Entity id or name whose colliders (and its children's) are skipped, usually the caster. |
 | `ignoreTriggers` | boolean | no | Skip trigger colliders; false hits them too. Default true. |
+
+## play
+
+### `play.report`
+
+What happened while the user played: perf, spikes, warnings/errors, their problem marks and screenshots.
+
+Call it when the user says they played the game and saw problems (slow, ugly UI, bugs). Returns the session.json content (perf: avg/p95/max frame ms and frames over 16.7/33 ms; spikes: slowest frames with entity count and render stats; logs: warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`), `replay` (the input file, absolute path) and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1); call again with mark 2, 3... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {"mark":2}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `session` | string | no | Session folder name from play.sessions. Default: the latest. |
+| `mark` | integer | no | Which mark's screenshot to attach as the picture. Default 1. |
+
+### `play.sessions`
+
+List the recent play sessions recorded by the editor (Play .. Stop), newest first.
+
+Each session is a folder .factoria/sessions/<yyyymmdd-hhmmss>/ written when the user pressed Stop in the editor. Rows have a short summary: scene, duration, frame time p95/max, number of warnings/errors and the user's marks (notes). Call play.report {session} for the details and screenshots. Example: play.sessions {"max":5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `max` | integer | no | How many sessions to list. Default 10. |
 
 ## scene
 
@@ -911,16 +934,6 @@ List script errors (load/runtime) and scene load problems.
 
 Cleared by scene.load, scene.reload and script.reload. Example: script.errors {}
 
-### `script.reload` (modifies state)
-
-Re-import script modules edited on disk and restart the behaviours (the world is kept).
-
-scene.load and scene.reload already re-import every module whose file changed (by modification time) and clear the script errors; use this to do the same without reloading the scene (entity state is kept, onStart runs again), or with `force` to re-import every module even if no file changed. Example: script.reload {}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `force` | boolean | no | Re-import all modules, not only the changed ones. Default false. |
-
 ### `script.eval` (modifies state)
 
 Evaluate JavaScript in the running game context (REPL) and return the value.
@@ -930,6 +943,16 @@ The last expression is returned as JSON. Example: script.eval {"code":"world.fin
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `code` | string | yes | JavaScript source. |
+
+### `script.reload` (modifies state)
+
+Re-import script modules edited on disk and restart the behaviours (the world is kept).
+
+scene.load and scene.reload already re-import every module whose file changed (by modification time) and clear the script errors; use this to do the same without reloading the scene (entity state is kept, onStart runs again), or with `force` to re-import every module even if no file changed. Example: script.reload {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `force` | boolean | no | Re-import all modules, not only the changed ones. Default false. |
 
 
 ## Scripting API (TypeScript declarations)
