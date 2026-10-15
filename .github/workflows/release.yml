@@ -26,22 +26,14 @@ jobs:
           - os: windows-x64
             runner: windows-2022  # the preset uses the "Visual Studio 17 2022" generator
             preset: windows-release
-            bin: build/windows-release/tools/cli/Release
-            player: build/windows-release/player/Release
+            cfg: /Release  # Visual Studio is a multi-config generator
             exe: .exe
-            archive: zip
           - os: macos-arm64
             runner: macos-latest
             preset: macos-release
-            bin: build/macos-release/tools/cli
-            player: build/macos-release/player
-            archive: tar.gz
           - os: linux-x64
             runner: ubuntu-24.04
             preset: linux-release
-            bin: build/linux-release/tools/cli
-            player: build/linux-release/player
-            archive: tar.gz
             wrap: xvfb-run -a  # headless tests on Mesa llvmpipe, as in ci.yml
     defaults:
       run:
@@ -68,17 +60,19 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; else version="dev-${GITHUB_SHA::7}"; fi
           name="FactorIA-$version-${{ matrix.os }}"
+          bin="build/${{ matrix.preset }}/tools/cli${{ matrix.cfg }}"
           mkdir -p "dist/$name"
-          cp "${{ matrix.bin }}/factoria${{ matrix.exe }}" "${{ matrix.player }}/factoria_player${{ matrix.exe }}" README.md "dist/$name/"
-          if [[ "${{ runner.os }}" == Windows ]]; then cp "${{ matrix.bin }}/FactorIA-Editor.exe" "dist/$name/"; fi
+          cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md "dist/$name/"
           if [[ -f LICENSE ]]; then cp LICENSE "dist/$name/"; fi
           cd dist
-          if [[ "${{ matrix.archive }}" == zip ]]; then
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp "../$bin/FactorIA-Editor.exe" "$name/"
             cmake -E tar cf "$name.zip" --format=zip "$name"
+            echo "PACKAGE=$PWD/$name.zip" >> "$GITHUB_ENV"
           else
             cmake -E tar czf "$name.tar.gz" "$name"
+            echo "PACKAGE=$PWD/$name.tar.gz" >> "$GITHUB_ENV"
           fi
-          echo "PACKAGE=$PWD/$name.${{ matrix.archive }}" >> "$GITHUB_ENV"
           echo "PACKAGE_NAME=$name" >> "$GITHUB_ENV"
 
       # Unpack in a temp folder outside the checkout and use only what the package contains.
