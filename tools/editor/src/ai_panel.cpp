@@ -965,6 +965,7 @@ void Editor::draw_ai_panel() {
     bool submit = ImGui::InputTextMultiline("##ai_input", &chat.input, ImVec2(-FLT_MIN, inputH),
                                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
     const bool inputActive = ImGui::IsItemActive();
+    at_track("ai:input");
     ImGui::EndDisabled();
     const bool gameRuns = play_ != PlayState::Edit;  // the assistant edits in edit mode only (see ai_start)
     if (!isRunTab && chat.input.empty()) {

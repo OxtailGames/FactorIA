@@ -189,7 +189,11 @@ std::vector<std::uint8_t> clipboard_image_png() {
     return png;
 }
 
+bool clipboard_has_text() { return IsClipboardFormatAvailable(CF_UNICODETEXT); }
+
 #elif defined(__APPLE__)
+
+bool clipboard_has_text() { return true; }  // sokol_app empties its text for a pasteboard without a string
 
 std::vector<std::uint8_t> clipboard_image_png() {
     std::error_code ec;
@@ -222,6 +226,9 @@ std::vector<std::uint8_t> clipboard_image_png() {
     std::vector<std::uint8_t> png(r->stdoutText.begin(), r->stdoutText.end());
     return has_png_magic(png) ? png : std::vector<std::uint8_t>{};
 }
+
+// ponytail: X11 also hands back the last pasted text for a picture; ask the selection owner for TARGETS if it bites.
+bool clipboard_has_text() { return true; }
 
 #endif
 

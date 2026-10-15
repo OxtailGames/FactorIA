@@ -194,6 +194,10 @@ int Editor::run() {
     d.cleanup = [this] { on_cleanup(); };
     sapp_desc s = to_sapp_desc(d);
     s.event_cb = [](const sapp_event* e) { if (g_editor) g_editor->on_event(e); };
+    // Copy and paste: sokol_imgui pastes on sokol_app's CLIPBOARD_PASTED event (it swallows the Ctrl+V key), and both
+    // need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
+    s.enable_clipboard = true;
+    s.clipboard_size = 1 << 20;
     sapp_run(&s);
     int code = atFailures_.empty() ? 0 : 1;
     return code;
@@ -342,6 +346,11 @@ bool Editor::boot(const std::string& dirIn) {
         gfxUp_ = true;
     }
     ui::setup(iniPath_.empty() ? nullptr : iniPath_.c_str());
+    // sokol_app hands back the last pasted text when the clipboard holds no text (a picture): ImGui would paste that
+    // again, and the AI panel's Ctrl+V would never see an empty clipboard and attach the picture.
+    ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) {
+        return clipboard_has_text() ? sapp_get_clipboard_string() : "";
+    };
     uiUp_ = true;
     queue_.reopen();
 
