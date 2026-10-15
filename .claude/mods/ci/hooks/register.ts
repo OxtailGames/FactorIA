@@ -1,10 +1,10 @@
 // /ci: the CI checks of the current branch's GitHub pull request (or `/ci <number>`, `/ci owner/repo#<number>`).
 // Data comes from the GitHub REST API through `gh api` (the host's gh login or proxy). While checks are still
 // running, the mod re-checks every minute, keeps a status-line summary and raises a toast when they finish;
-// `/ci off` stops that.
+// `/ci off` stops that. `/ci prs` lists every open pull request and whether it can be merged now.
 import type { EngineInterface, Register } from 'claude-code'
 
-import { type CheckRun, type PullRequest, type Target, counts, parse_args, parse_remote, report, status_line, verdict } from './ci'
+import { type CheckRun, type PullRequest, type Target, counts, parse_args, parse_remote, prs_report, report, status_line, verdict } from './ci'
 
 const POLL_MS = 60_000
 
@@ -50,6 +50,25 @@ async function fetch_ci($: EngineInterface, t: Target): Promise<Fetched> {
   }
 }
 
+// Every open PR with its detail (the list endpoint lacks mergeable_state) and its head's checks.
+async function open_prs($: EngineInterface): Promise<string> {
+  const url = await git($, 'remote', 'get-url', 'origin')
+  const t = parse_args('', url ? parse_remote(url) : undefined)
+  if ('error' in t) return `/ci: ${t.error}`
+  const repo = `${t.owner}/${t.repo}`
+  try {
+    const list = await gh<PullRequest[]>($, `repos/${repo}/pulls?state=open&per_page=30`)
+    const prs = await Promise.all(list.map(async p => {
+      const got = await fetch_ci($, { ...t, number: p.number })
+      if ('error' in got) throw new Error(got.error)
+      return got
+    }))
+    return prs_report(repo, prs)
+  } catch (err) {
+    return `/ci: ${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
 // The pull request being watched (module state: a reload starts over, and the next /ci re-arms it).
 let watch: { key: string; cancel: () => void } | undefined
 
@@ -89,7 +108,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'ci',
       description: "Show the CI checks of this branch's GitHub pull request",
-      argumentHint: '[number | owner/repo#number | off]',
+      argumentHint: '[number | owner/repo#number | prs | off]',
       immediate: true,
     })
     return next(e)
@@ -102,6 +121,7 @@ export const register: Register = on => {
       stop($)
       return { text: was ? `Stopped watching CI of ${was}.` : 'Not watching any pull request.' }
     }
+    if (args === 'prs') return { text: await open_prs($) }
     let t: Target | { error: string }
     try {
       t = await resolve($, args)
