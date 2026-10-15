@@ -307,9 +307,6 @@ jobs:
           ./gradlew assembleDebug --no-daemon
           ls -la app/build/outputs/apk/debug/
 
-      - name: TEMP ccache statistics
-        run: ccache --show-stats
-
       # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md).
       - name: Check the APK contains the native library for both ABIs
         run: |
