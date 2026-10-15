@@ -56,8 +56,12 @@ public:
     // Called from worker threads. Blocks until the main thread ran the command, the queue was
     // closed, or `cancel` became true.
     CommandResult call(const std::string& name, const Json& args, const std::atomic<bool>* cancel);
-    // Main thread: runs every queued job (each through `run`). Returns how many ran.
-    int pump(const std::function<CommandResult(const std::string&, const Json&)>& run);
+    // Main thread: runs queued jobs (each through `run`) until `budgetMs` is used up (at least one job runs; the rest
+    // stay queued for the next frame so the UI keeps updating). Returns how many ran. `run` may call take_current() and
+    // return nullopt: it then owns the reply and must fulfil the promise later (sliced long commands).
+    int pump(const std::function<std::optional<CommandResult>(const std::string&, const Json&)>& run, double budgetMs = 1e9);
+    // Inside `run`: takes over the promise of the job being run.
+    std::shared_ptr<std::promise<CommandResult>> take_current() { return std::move(current_); }
     void close();   // fails pending and future calls (editor shutting down / project switch)
     void reopen();
 
@@ -69,6 +73,7 @@ private:
     };
     std::mutex mu_;
     std::deque<Job> jobs_;
+    std::shared_ptr<std::promise<CommandResult>> current_;
     bool closed_ = false;
 };
 
@@ -226,6 +231,9 @@ public:
     bool dirty_ = false;
     PlayState play_ = PlayState::Edit;
     int stepPending_ = 0;
+    // A long AI command (game.step with many frames, project.test) run one slice per UI frame; returns true when done.
+    std::function<bool()> slicedJob_;
+    std::optional<CommandResult> run_queued(const std::string& name, const Json& args);
     Json playSnapshot_;
     std::string selectedId_;
     std::vector<Json> undo_, redo_;
@@ -244,6 +252,7 @@ public:
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
     ImVec2 vpImageMin_{0, 0}, vpImageSize_{1, 1};
     bool vpHovered_ = false, vpFocused_ = false;
+    bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
     bool showOverlay_ = true;
