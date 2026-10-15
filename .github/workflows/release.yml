@@ -3,12 +3,15 @@
 # the C++ runtime is linked statically on Windows, so the package needs nothing from the repository.
 #
 # A `v*` tag publishes the packages as a GitHub Release; "Run workflow" (workflow_dispatch) keeps them as workflow
-# artifacts. Each package is smoke-tested from a folder outside the checkout before it is uploaded.
+# artifacts, and so does a pull request that changes this file. Each package is smoke-tested from a folder outside the
+# checkout before it is uploaded.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths: ['.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
