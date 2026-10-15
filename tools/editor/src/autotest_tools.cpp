@@ -108,7 +108,7 @@ void Editor::at_build_tools_script() {
         write_file(project_file(scenePath_), kFixtureScene);
         reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
         write_file(project_file("assets/blip.wav"), silence_wav());
-        focus_window("Viewport");
+        focus_window("###Viewport");
     });
 
     // ----------------------------------------------------------------------------------- A. Audio panel (View menu)

@@ -270,6 +270,13 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     r = c.call("game.step", Json::parse(R"({"frames":30})"));
     REQUIRE(r.ok);
     CHECK(r.result["frame"] == 30);
+    // The editor runs long game.step calls in slices (step(1) repeatedly, then game.step {frames:0} for the summary):
+    // that must land on the same frame as one big call, and {frames:0} must not advance anything.
+    for (int i = 0; i < 5; ++i) e.step(1);
+    r = c.call("game.step", Json::parse(R"({"frames":0})"));
+    REQUIRE(r.ok);
+    CHECK(r.result["frame"] == 35);
+    CHECK(c.call("game.step", Json::parse(R"({"frames":0})")).result == r.result);
 
     // state filters
     r = c.call("game.state", Json::parse(R"({"entities":["ball","nope"],"components":["Transform"]})"));
