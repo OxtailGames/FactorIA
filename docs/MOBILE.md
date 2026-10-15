@@ -133,9 +133,19 @@ The platform layer maps touches to the same `Input` object scripts use:
   mapping table; the face buttons are positional like everywhere (`GamepadA` is the bottom one). The engine takes
   these events through sokol_app's `sapp_desc.android.native_event_cb` hook (installed by `to_sapp_desc()`) and
   marks them handled, so pad buttons never act as Back or touches. System Back (the Back key or gesture) is not
-  taken: it still leaves the app. Pads fill slots 0..3 in the order they first send an event. Limits: the NDK
-  reports no device removal, so an unplugged pad keeps its slot until a fifth pad needs one (Android itself releases
-  its keys and recentres its axes, so nothing sticks); a pad with a non-standard axis layout (triggers on Z/RZ and the
-  right stick on RX/RY) is not told apart. This code has been compiled but never run on a device.
+  taken: it still leaves the app. Pads fill slots 0..3 in the order they first send an event.
+  The NDK has no device enumeration, so two things come from Java: `gamepad_android.cpp` asks `android.view.InputDevice`
+  through JNI (the activity's `JavaVM`, attached to the sokol_app loop thread; class and method ids looked up once, no
+  allocation per frame) when a pad is new, about every 2 s, and when the app is back after a pause.
+  `InputDevice.getDevice(id)` returning null means the pad was unplugged: its slot is freed (the game sees it
+  disconnect, the other pads keep their numbers, the next pad takes the free slot). `getMotionRange(axis)` says which
+  axes a pad has: with `Z`+`RZ` and no `RX`+`RY` the right stick is Z/RZ and the triggers are `LTRIGGER`/`RTRIGGER` or
+  `BRAKE`/`GAS`; with `RX`+`RY` as well and no trigger axes (the Xbox-like layout) the right stick is RX/RY and Z/RZ are
+  the triggers (read as -1 released .. +1 pulled); a pad with both pairs AND trigger axes, or that has not been asked
+  yet (or JNI failed), uses whichever pair is further from rest. Limits: a pad that has only Z/RZ and no trigger axes
+  is taken to have a right stick on them (it could have triggers instead); an unplugged pad is noticed within about
+  2 s, not at once, and if JNI is unavailable it keeps its slot until a fifth pad needs one (Android itself releases
+  its keys and recentres its axes, so nothing sticks). This code has been compiled but never run on a device; the
+  decisions (axes to layout, slot release) are unit tested on every OS, the JNI glue is only compiled by CI.
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
   report their real state again afterwards.

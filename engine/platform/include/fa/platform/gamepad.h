@@ -11,7 +11,8 @@
 //            lines of SDL_GameControllerDB, embedded in the binary), and the Xbox (xpad) layout for a pad none lists.
 //   macOS/iOS  the GameController framework (extended gamepads).
 //   Android  key and motion events of the NativeActivity input queue, taken through sokol_app's native event hook
-//            (android_gamepad_event below).
+//            (android_gamepad_event below). An unplugged pad is noticed, and Z/RZ told apart as stick or triggers,
+//            by asking android.view.InputDevice through JNI about every 2 s (see gamepad_android.cpp).
 //   web      none yet: poll_gamepads() does nothing.
 // Slots that have no pad are probed only every couple of seconds, so unplugged slots cost nothing. A pad that stays
 // plugged in survives the window losing focus: Input::release_all() disconnects it, and the next poll connects it
