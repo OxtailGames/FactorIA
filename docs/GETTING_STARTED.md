@@ -19,7 +19,8 @@ Download the package for your desktop system once; the editor keeps it up to dat
 [FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz).
 These links always give the newest release; the [Releases page](https://github.com/OxtailGames/FactorIA/releases)
 has every version. The package holds one folder, `FactorIA`, with `factoria` (CLI, editor, MCP server and AI),
-`factoria_player` (the runtime that `factoria export` copies into your game) and, on Windows, `FactorIA-Editor.exe`.
+`factoria_player` (the runtime that `factoria export` copies into your game), a `mobile/` folder (the ready-made
+Android runtime in every package, the iOS libraries in the macOS one; see item 5) and, on Windows, `FactorIA-Editor.exe`.
 The docs, templates and schemas are built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs
 nothing else.
 
@@ -40,8 +41,11 @@ nothing else.
    - Windows (PowerShell):
      `[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\FactorIA', 'User')`
    - macOS (zsh) or Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
-5. Desktop export (`factoria export`) works from the download. Android and iOS export still need the engine source
-   and the platform SDKs ([MOBILE.md](MOBILE.md)), so build from source for those.
+5. Export (`factoria export`) works from the download for desktop and mobile. Android needs the JDK 17 and the
+   Android SDK (no NDK, no CMake): the `mobile/` folder next to `factoria` holds the engine's Android runtime, so the
+   exported Gradle project only packages it. iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
+   package the same way. No engine source is involved; see [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source)
+   and [MOBILE.md](MOBILE.md). Build from source if you want to change the engine itself.
 
 #### Updates
 

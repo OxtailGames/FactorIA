@@ -22,7 +22,8 @@ Descarga una sola vez el paquete de tu sistema de escritorio; el editor lo manti
 [FactorIA-linux-x64.tar.gz](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-linux-x64.tar.gz).
 Estos enlaces siempre dan la última versión; la [página de Releases](https://github.com/OxtailGames/FactorIA/releases)
 tiene todas. El paquete contiene una carpeta, `FactorIA`, con `factoria` (CLI, editor, servidor MCP e IA),
-`factoria_player` (el runtime que `factoria export` copia en tu juego) y, en Windows, `FactorIA-Editor.exe`. La
+`factoria_player` (el runtime que `factoria export` copia en tu juego), una carpeta `mobile/` (el runtime de Android ya
+compilado en todos los paquetes, las librerías de iOS en el de macOS; ver el punto 5) y, en Windows, `FactorIA-Editor.exe`. La
 documentación, las plantillas y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que
 un PC recién formateado no necesita nada más.
 
@@ -45,9 +46,11 @@ un PC recién formateado no necesita nada más.
    - Windows (PowerShell):
      `[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ';C:\FactorIA', 'User')`
    - macOS (zsh) o Linux (bash): `echo 'export PATH="$HOME/FactorIA:$PATH"' >> ~/.zshrc` (Linux: `~/.bashrc`)
-5. La exportación de escritorio (`factoria export`) funciona desde la descarga. La exportación a Android e iOS sigue
-   necesitando el código fuente del motor y los SDK de cada plataforma ([MOBILE.md](../../MOBILE.md), en inglés), así
-   que para eso compila desde el código fuente.
+5. La exportación (`factoria export`) funciona desde la descarga para escritorio y móvil. Android necesita el JDK 17 y el
+   SDK de Android (sin NDK ni CMake): la carpeta `mobile/` junto a `factoria` trae el runtime de Android del motor, y el
+   proyecto Gradle exportado solo lo empaqueta. iOS (en un Mac, con Xcode y CMake) usa igual las librerías de iOS del
+   paquete de macOS. No hace falta el código fuente del motor ([EXPORTING.md](../../EXPORTING.md#mobile-exports-prebuilt-or-source)
+   y [MOBILE.md](../../MOBILE.md), en inglés). Compila desde el código fuente si quieres cambiar el motor.
 
 #### Actualizaciones
 

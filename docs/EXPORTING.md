@@ -5,6 +5,7 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`).
 
 ```bash
 factoria export [project] --platform <linux|windows|macos|android|ios> [--out DIR] [--release] [--player PATH]
+                [--engine-root DIR | --mobile-dir DIR]
 ```
 
 Before anything is written the project is validated: `factoria.json` must exist,
@@ -16,7 +17,8 @@ the fix.
 
 The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
-export. `--json` prints the report: `outputDir`, `files`, `nextSteps`, `warnings`.
+export. `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
+`files`, `nextSteps`, `warnings`.
 
 ## From an AI: `project.export`
 
@@ -24,9 +26,9 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 Gradle project without a shell. Arguments are all optional: `platform` (default: this machine), `out` (parent folder,
 relative to the project and inside it like the `fs.*` commands, default `build/export`) and `release`. It returns the report
-(`outputDir`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
-`--player` and `--engine-root` are CLI-only: the command uses the `factoria_player` next to the running binary and
-`$FACTORIA_ENGINE_DIR`.
+(`outputDir`, `mode`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
+`--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
+folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
 
 ```
 project_export {"platform":"windows","release":true}
@@ -71,26 +73,67 @@ then `xcrun notarytool submit` (needs an Apple developer account).
 Windows: the executable is not signed; SmartScreen may warn unless you sign it
 with `signtool`.
 
-## Android
+## Mobile exports: prebuilt or source
 
-`factoria export --platform android` writes a complete Gradle project built from
-`platforms/android` of the engine checkout:
+Android and iOS exports need the engine's runtime for the phone. It does not depend on the game (the game travels as
+files inside the APK / app), so the FactorIA download carries it ready-made, next to the `factoria` executable:
+
+```
+FactorIA/
+  factoria  factoria_player
+  mobile/
+    android/jniLibs/arm64-v8a/libfactoria_player.so     in every package (Windows, macOS, Linux)
+    android/jniLibs/x86_64/libfactoria_player.so
+    ios/iphoneos/*.a                                     in the macOS package only
+    ios/iphonesimulator/*.a                              arm64 + x86_64
+```
+
+The Android/iOS project templates are built into the `factoria` binary, like the docs and game templates. Every Android
+and iOS export therefore runs in one of two **modes**, reported as `mode` in the export report (`--json`, `project.export`)
+and in the CLI output (`Exported android build to ... (22 files, mode: prebuilt)`):
+
+| mode | The engine runtime is | Needs |
+|---|---|---|
+| `prebuilt` | the ready-made `mobile/` libraries of the download, copied into the project | Android: JDK 17 and the Android SDK only (no NDK, no CMake). iOS: Xcode and CMake 3.24+ (no engine source) |
+| `source` | compiled from an engine source checkout, with that checkout's templates | the checkout and, on Android, NDK r27+ and CMake 3.31 (engine developers) |
+
+**The rule**, in order (the first that applies wins):
+
+1. `--engine-root DIR` was given, or `$FACTORIA_ENGINE_DIR` is set (and no `--mobile-dir` was given): **source**, from that
+   checkout. A path that is not an engine checkout is an error, not a silent fallback.
+2. `--mobile-dir DIR` was given, or the `mobile/` folder next to the `factoria` executable holds the players (Android: a
+   `libfactoria_player.so`; iOS: `libfactoria_player_main.a` in both `iphoneos` and `iphonesimulator`): **prebuilt**.
+3. The source checkout this `factoria` was built from still exists (a development build): **source**.
+4. Otherwise the export fails and says what to do: use the FactorIA download, or set `FACTORIA_ENGINE_DIR`.
+
+So the download exports prebuilt unless you point it at a checkout; a `factoria` built from the repository has no
+`mobile/` folder and keeps exporting from source. The `nextSteps` of the report repeat which mode ran.
+
+### Android
+
+`factoria export --platform android` writes a complete Gradle project:
 
 ```
 my-game-android/
   settings.gradle  build.gradle  gradle.properties  gradle/wrapper/gradle-wrapper.properties
-  app/build.gradle                 applicationId, versionName/Code, abiFilters, CMake arguments
+  app/build.gradle                 applicationId, versionName/Code, abiFilters (prebuilt: no native build)
   app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation
   app/src/main/res/values/strings.xml   app name
   app/src/main/assets/             the game + assets_index.txt
+  app/src/main/jniLibs/<abi>/libfactoria_player.so   prebuilt mode only: the engine
 ```
 
 `assets_index.txt` lists every game file (one project-relative path per line).
 The engine needs it because Android cannot enumerate folders inside an APK.
 
-The engine itself is compiled by Gradle through CMake from the engine checkout
-(`factoria.engineDir` in `gradle.properties`, default: the checkout `factoria`
-was built from; override with `FACTORIA_ENGINE_DIR`). Build:
+**Prebuilt** (the download): `app/build.gradle` has no `externalNativeBuild`, `ndkVersion` or engine path; Gradle only
+packages `jniLibs` and the assets, so the build takes about a minute and needs the Android SDK alone. `abiFilters` lists
+the ABIs found in `mobile/android/jniLibs` (a missing `arm64-v8a` or `x86_64` is a warning in the report).
+
+**Source**: Gradle compiles the engine through CMake from the engine checkout (`factoria.engineDir` in `gradle.properties`,
+default: the checkout the export used; override with `FACTORIA_ENGINE_DIR`), which takes several minutes the first time.
+
+Build, in both modes:
 
 ```bash
 cd my-game-android
@@ -101,17 +144,30 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Prerequisites, signing and troubleshooting: [MOBILE.md](MOBILE.md).
 
-## iOS
+### iOS
 
-`factoria export --platform ios` (macOS with Xcode only for the next step)
-writes `my-game-ios/game/` and `build_ios.sh`. The script runs CMake with the
-Xcode generator and the same settings as the `ios` preset, adding
+`factoria export --platform ios` (macOS with Xcode only for the next step) writes the game and a `build_ios.sh`. The
+script runs CMake with the Xcode generator and the same settings as the `ios` preset, adding
 `-DFA_GAME_PROJECT_DIR=game -DFA_GAME_BUNDLE_ID=... -DFA_GAME_NAME=... -DFA_GAME_VERSION=... -DFA_GAME_ORIENTATION=...`:
 
 ```bash
 ./build_ios.sh --simulator     # or without flag for a device; opens build/FactorIA.xcodeproj
 FA_IOS_DEVELOPMENT_TEAM=ABCDE12345 ./build_ios.sh --build
+./build_ios.sh --simulator --build -- CODE_SIGNING_ALLOWED=NO   # everything after -- goes to xcodebuild
 ```
+
+```
+my-game-ios/                        prebuilt mode (the download for macOS)
+  build_ios.sh  game/
+  CMakeLists.txt  cmake/            a small project: Info.plist template, the game-copy script
+  lib/iphoneos/*.a  lib/iphonesimulator/*.a   the engine and player as static libraries
+```
+
+In **prebuilt** mode the script configures `CMakeLists.txt` of the folder itself and links the app from `lib/`: no engine
+source is needed. The libraries are static archives (not an XCFramework: the exported project picks the archives of the
+SDK it is configured for, device or simulator, like the `ios` presets do, and CMake 3.24 cannot link XCFrameworks). In
+**source** mode the folder holds only `game/` and `build_ios.sh`, and the script runs CMake on the engine checkout.
+The iOS libraries ship in the macOS download only, so export for iOS on a Mac.
 
 Details in [MOBILE.md](MOBILE.md).
 

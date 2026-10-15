@@ -35,21 +35,37 @@ its last mip level, so the renderer creates all images through `make_image` (`en
 sets `GL_TEXTURE_MAX_LEVEL`. Without it the emulator showed a black window while the log looked healthy; that is why
 the smoke tests also check the screenshot.
 
+## Prebuilt or source
+
+`factoria export --platform android|ios` runs in one of two modes (`mode` in the export report). The FactorIA download
+carries the engine's mobile runtime ready-made in `FactorIA/mobile/` (Android `.so` in every package, iOS static
+libraries in the macOS package), so exporting from the download is **prebuilt**: nothing of the engine is compiled on
+your machine. A `factoria` built from the repository, or one pointed at a checkout (`--engine-root`,
+`$FACTORIA_ENGINE_DIR`), exports from **source**. The rule and the folder layout are in [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source).
+
+The libraries are built by `.github/workflows/release.yml` (jobs `mobile-android`, `mobile-ios`) with the same CMake
+presets as CI, and its smoke tests build an APK and an iOS Simulator app from the unpacked package alone, with no engine
+checkout on the machine.
+
 ## Android
 
 Prerequisites:
 
 - JDK 17
-- Android SDK with: `platforms;android-34`, `build-tools;34.0.0`, an NDK r27+ (r26's libc++ has no std::format)
-  (`ndk;27.2.12479018`) and CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older).
-  Install with `sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
+- Android SDK with `platforms;android-34` and `build-tools;34.0.0`
+  (`sdkmanager "platforms;android-34" "build-tools;34.0.0"`). That is all in **prebuilt** mode: no NDK, no CMake.
+- Only in **source** mode (engine developers): an NDK r27+ (r26's libc++ has no std::format, `ndk;27.2.12479018`) and
+  CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older), so
+  `sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
 - `ANDROID_SDK_ROOT` set (or `sdk.dir=` in `local.properties`)
 - Gradle 8.7+ once, to create the wrapper (`gradle wrapper --gradle-version 8.7`); Android Studio can open the folder directly.
 
 Steps: `factoria export --platform android`, then in the output folder
 `./gradlew assembleDebug` and `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
-The first build compiles the whole engine for two ABIs (several minutes). To
-build for one ABI only, edit `abiFilters` in `app/build.gradle`.
+Prebuilt: Gradle only packages `app/src/main/jniLibs/<abi>/libfactoria_player.so` and the game, about a minute. Source:
+the first build compiles the whole engine for two ABIs (several minutes). To build for one ABI only, edit `abiFilters`
+in `app/build.gradle`. Gradle may print a warning that it could not strip debug symbols from the `.so` files without an
+NDK; the libraries of the download are already stripped, so it is harmless.
 
 Without Gradle (just the native library, as CI does): `export ANDROID_NDK_HOME=...; ./scripts/build-android.sh`
 produces `build/android-arm64/player/libfactoria_player.so`.
@@ -90,7 +106,18 @@ an Apple developer team for devices (a free Apple ID works for your own device).
 Steps: `factoria export --platform ios`, then on the Mac `./build_ios.sh --simulator`
 (or without flag for a device). Xcode opens `build/FactorIA.xcodeproj`; choose the
 `factoria_player` scheme, set Team under Signing & Capabilities and press Run.
-Command line build: `FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --build`.
+Command line build: `FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --build`
+(simulator without signing: `./build_ios.sh --simulator --build -- CODE_SIGNING_ALLOWED=NO`; everything after `--` goes
+to `xcodebuild`).
+
+**Prebuilt** (the macOS download): the export holds a small `CMakeLists.txt`, `cmake/` and `lib/<iphoneos|iphonesimulator>/*.a`
+next to `game/`, and `build_ios.sh` configures that folder. No engine source is needed, only Xcode and CMake. The libraries
+are the player and the whole engine as static archives (`libfactoria_player_main.a` is the player: `main` comes from
+`sokol_app` inside `libfa_platform.a`); the exported project links the archives of the SDK it is configured for, with the
+same frameworks as the engine presets. There is no XCFramework because the exported project is configured per SDK (device
+or simulator), like the `ios` presets, and CMake's Xcode generator (3.24) cannot link one. The simulator archives hold
+`arm64` and `x86_64`. The iOS libraries are not in the Windows and Linux packages (iOS cannot be built there), so export
+for iOS on a Mac. **Source**: the export holds only `game/` and `build_ios.sh`, which runs CMake on the engine checkout.
 
 Direct use of the engine checkout (no export):
 
