@@ -102,7 +102,7 @@ suggestion; `factoria validate` reports the same through
 | `add(name, fields?)` | adds (or returns) a component, applies `fields` |
 | `set(name, fields)` | patches fields (adds if missing) |
 | `has(name)`, `remove(name)` | |
-| `destroy()` | deferred to end of frame (children too) |
+| `destroy()` | deferred to end of frame (children too); leaves physics at once (see below) |
 | `parent`, `children`, `setParent(e, keepWorld?)` | hierarchy |
 | `hasTag(t)`, `addTag(t)`, `removeTag(t)` | tags |
 | `behaviour` | the script instance attached to it (or `null`) |
@@ -188,6 +188,9 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   merged over the prefab (`{ components: { Sprite: { color: ... } } }`).
 - Destroyed entities (`entity.destroy()`, deferred to frame end) stop being returned by `find`/`findAll`/`findByTag`
   immediately and their id can be reused right away (`world.spawn({ id: "gem_1" })` right after destroying `gem_1`).
+  They also leave physics immediately: from the call on, a destroyed entity has no collisions, no contact events and no
+  `raycast`/`shape_cast`/overlap hits, even though it is only erased at the end of the frame. So it is safe to destroy a
+  stack of rigid bodies and spawn a replacement at the same positions in the same frame: the old bodies do not push the new ones.
 - `emit(name, data)` · `on(name, fn)` → unsubscribe function
 - `settings` — SceneSettings view (gravity2D, ambientLight, ...)
 - `time`, `frame`

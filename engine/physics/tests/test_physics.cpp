@@ -324,6 +324,34 @@ TEST_CASE("2d: destroyed entities and removed components free their bodies") {
     CHECK(s.physics.debug_shapes(s.world).empty());
 }
 
+TEST_CASE("2d: an entity pending destroy leaves physics at once: no push on a replacement, no query hits") {
+    Sim s;
+    add_ground(s.world);
+    Entity old = add_box(s.world, "old", {0, -180.0f + 16.0f}, {32, 32}, BodyType::Dynamic);
+    Entity lone = add_box(s.world, "lone", {300, -150}, {40, 40}, BodyType::Static, false);
+    s.run(60);
+    const Vec3 rest = pos_of(s.world, old);
+    REQUIRE(s.physics.raycast2d(s.world, {300, 100}, {300, -300}).has_value());
+
+    s.world.destroy(old);  // deferred: no flush before the physics steps, like a script's fixed update
+    s.world.destroy(lone);
+    Entity fresh = add_box(s.world, "fresh", {rest.x, rest.y}, {32, 32}, BodyType::Dynamic);
+    // queries ignore the entity right away, even before the next sync
+    auto before = s.physics.raycast2d(s.world, {300, 100}, {300, -300});
+    REQUIRE(before.has_value());
+    CHECK(before->entity != lone);
+    for (int i = 0; i < 3; ++i) s.physics.step(s.world, kDt);  // several fixed steps of the same frame
+    CHECK(pos_of(s.world, fresh).x == doctest::Approx(rest.x).epsilon(0.01));
+    CHECK(pos_of(s.world, fresh).y == doctest::Approx(rest.y).epsilon(0.01));
+    CHECK(std::fabs(s.world.get<RigidBody2D>(fresh)->velocity.y) < 1.0f);
+    CHECK(s.physics.debug_state(s.world).size() == 2);  // ground + fresh; old and lone have no body
+    auto after = s.physics.raycast2d(s.world, {300, 100}, {300, -300});
+    REQUIRE(after.has_value());
+    CHECK(after->entity != lone);
+    s.world.flush();
+    CHECK(s.physics.debug_state(s.world).size() == 2);
+}
+
 TEST_CASE("2d: collider changes rebuild the body") {
     Sim s;
     s.world.settings().gravity2D = {0, 0};
@@ -450,6 +478,38 @@ TEST_CASE("3d: box vs box stacking and kinematic push") {
     s.run(240);
     CHECK(pos_of(s.world, b1).y == doctest::Approx(0.5f).epsilon(0.05));
     CHECK(pos_of(s.world, b2).y == doctest::Approx(1.5f).epsilon(0.05));
+}
+
+TEST_CASE("3d: an entity pending destroy leaves physics at once: no push on a replacement, no query hits") {
+    Sim s;
+    Entity ground = add_box3(s.world, "ground", {0, -0.5f, 0}, {20, 1, 20}, BodyType::Static, false);
+    Entity old = add_box3(s.world, "old", {0, 0.5f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+    Entity lone = add_box3(s.world, "lone", {5, 0.5f, 0}, {1, 1, 1}, BodyType::Static, false);
+    s.run(60);
+    const Vec3 rest = pos_of(s.world, old);
+    auto lonely = s.physics.raycast3d(s.world, {5, 10, 0}, {0, -1, 0}, 100.0f);
+    REQUIRE(lonely.has_value());
+    REQUIRE(lonely->entity == lone);
+
+    s.world.destroy(old);  // deferred: no flush before the physics steps, like a script's fixed update
+    s.world.destroy(lone);
+    Entity fresh = add_box3(s.world, "fresh", rest, {1, 1, 1}, BodyType::Dynamic, true);
+    // queries ignore the entity right away, even before the next sync
+    auto before = s.physics.raycast3d(s.world, {5, 10, 0}, {0, -1, 0}, 100.0f);
+    REQUIRE(before.has_value());
+    CHECK(before->entity == ground);
+    for (int i = 0; i < 3; ++i) s.physics.step(s.world, kDt);  // several fixed steps of the same frame
+    const Vec3 p = pos_of(s.world, fresh);
+    CHECK(p.x == doctest::Approx(rest.x).epsilon(0.01));
+    CHECK(p.y == doctest::Approx(rest.y).epsilon(0.01));
+    CHECK(p.z == doctest::Approx(rest.z).epsilon(0.01));
+    CHECK(std::fabs(s.world.get<RigidBody3D>(fresh)->velocity.y) < 0.5f);
+    CHECK(s.physics.debug_state(s.world).size() == 2);  // ground + fresh; old and lone have no body
+    auto after = s.physics.raycast3d(s.world, {5, 10, 0}, {0, -1, 0}, 100.0f);
+    REQUIRE(after.has_value());
+    CHECK(after->entity == ground);
+    s.world.flush();
+    CHECK(s.physics.debug_state(s.world).size() == 2);
 }
 
 TEST_CASE("3d: determinism") {
