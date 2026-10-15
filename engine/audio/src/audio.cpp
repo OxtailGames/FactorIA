@@ -6,6 +6,7 @@
 #include "fa/audio/audio.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -117,6 +118,7 @@ struct Audio::Impl {
     bool autoAdvance = false;  // device requested but unavailable -> run as null device driven by update()
     int deviceRate = kRate;
     int deviceChannels = 2;
+    std::atomic<bool> streamLogged{false};  // the first stream callback is logged once
 
     std::map<std::string, std::shared_ptr<const Clip>> clips;
     std::set<std::string> failedLogged;
@@ -376,6 +378,8 @@ struct Audio::Impl {
 
     // sokol_audio stream callback (audio thread).
     void render(float* buffer, int frames, int channels) {
+        // Once per device start: proof that the platform really pulls samples (the mobile smoke tests wait for it).
+        if (!streamLogged.exchange(true)) FA_INFO("audio", "stream running: first callback of {} frames, {} channels", frames, channels);
         std::lock_guard<std::mutex> lk(mu);
         if (channels == 2) {
             mix_locked(buffer, frames);
@@ -425,6 +429,7 @@ bool Audio::init(bool device, std::string* error) {
     impl_->deviceChannels = 2;
     impl_->device = false;
     impl_->autoAdvance = false;
+    impl_->streamLogged = false;
     if (device) {
         saudio_desc desc{};
         desc.sample_rate = kRate;
@@ -436,6 +441,7 @@ bool Audio::init(bool device, std::string* error) {
             impl_->device = true;
             impl_->deviceRate = std::max(saudio_sample_rate(), 8000);
             impl_->deviceChannels = std::max(saudio_channels(), 1);
+            FA_INFO("audio", "output device open: {} Hz, {} channels", impl_->deviceRate, impl_->deviceChannels);
         } else {
             saudio_shutdown();
             FA_WARN("audio", "no audio output device available; running with a silent null device "
