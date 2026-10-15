@@ -1132,7 +1132,9 @@ Inside `script.eval`, the globals are the `"factoria"` names: `world`, `input`, 
 }
 ```
 
-The same format works with `factoria call --input` and `factoria session --input`, which apply it while stepping.
+Optional `"timing": [[dt, fixedSteps], ...]` (one pair per frame, from frame 0) makes `factoria run --headless` run frame N with that frame time and that many fixed steps instead of one fixed step. Editor play sessions record it so their replay is exact; frames past its end step normally.
+
+The same format works with `factoria call --input` and `factoria session --input`, which apply it while stepping (they ignore `timing`).
 
 ### 11.3 Other checks
 

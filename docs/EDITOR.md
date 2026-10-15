@@ -111,8 +111,9 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 - **On Stop** the session is written to `.factoria/sessions/<yyyymmdd-hhmmss>/`:
   `session.json` (scene, duration, frames, frame time avg/p95/max and frames over 16.7 / 33 ms, the 10 slowest frames with entity count and
   render stats, warnings/errors, marks), `input.json` (the input in the replay format of `factoria run --headless --input`) and
-  `mark-<n>.png`. Frame numbers are the same in all of them. Input is replayed per engine frame, so a session that ran below the fixed rate
-  (several fixed steps in one frame) replays close to, not exactly, what happened. Mouse wheel and typed text are not recorded.
+  `mark-<n>.png`. Frame numbers are the same in all of them. `input.json` also keeps each frame's time and fixed-step count (`timing`), so the
+  headless replay runs the very same frames: it is exact even when the editor ran slower or faster than the fixed rate. Mouse wheel and typed
+  text are not recorded.
 - **Tell the AI**: after Stop, if the session has marks or errors, the AI Assistant panel shows a line with an **Attach** button. The
   **Attach last play session** button next to **Attach image...** does the same at any time: it adds a short summary (performance, errors, your
   notes) to the message and the mark screenshots as pictures.

@@ -89,6 +89,7 @@ public:
     bool paused() const;
     void set_paused(bool paused);
     std::uint64_t frame_index() const;
+    std::uint64_t fixed_step_index() const;  // fixed simulation steps run so far (frame(dt) runs 0..5 of them)
     bool quit_requested() const;
 
     // Applies one input-replay entry ({"press":[..],"release":[..],"keys":{..},"mouse":{..}}, format in
@@ -152,7 +153,9 @@ int run_windowed(const EngineConfig& config);
 //               "release": [],
 //               "keys":  { "Space": true },    // raw key down/up
 //               "mouse": { "position": [640, 360], "left": true, "right": false, "middle": false } },
-//       "30": { "release": ["jump"] } } }
+//       "30": { "release": ["jump"] } },
+//     "timing": [[0.0167, 1], [0.05, 3]] }     // optional: frame N runs with that dt and that many fixed steps
+//                                              // (editor play sessions record it); frames past its end step(1)
 // "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).
 //
 // Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],
