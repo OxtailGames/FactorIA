@@ -29,14 +29,24 @@ TEST_CASE("windowed smoke: Engine runs inside run_app, renders, presents and qui
     CHECK(d.title == "Windowed");
     static int frames = 0;
     auto frame = d.frame;
-    d.frame = [frame](double dt) {
+    auto event = d.event;
+    d.frame = [frame, event](double dt) {
         frame(dt);
-        if (++frames == 65) app_request_quit();
+        // What sokol_app sends when a mobile app goes to the background and comes back.
+        if (frames == 10) event(AppEvent{AppEvent::Type::Suspended});
+        if (frames == 11) event(AppEvent{AppEvent::Type::Resumed});
+        if (++frames == 80) app_request_quit();
     };
     CHECK(run_app(d) == 0);
-    CHECK(frames >= 65);
-    // The run marker the iOS/Android device smoke tests look for.
+    CHECK(frames >= 80);
+    // The markers the iOS/Android device smoke tests look for (docs/MOBILE.md).
     auto logs = recent_logs(4096);
-    CHECK(std::any_of(logs.begin(), logs.end(),
-                      [](const LogEntry& e) { return e.category == "player" && e.message == "60 frames rendered"; }));
+    auto logged = [&](const char* message) {
+        return std::any_of(logs.begin(), logs.end(),
+                           [&](const LogEntry& e) { return e.category == "player" && e.message == message; });
+    };
+    CHECK(logged("60 frames rendered"));
+    CHECK(logged("suspended"));
+    CHECK(logged("resumed"));
+    CHECK(logged("60 frames rendered after resume"));
 }

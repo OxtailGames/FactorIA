@@ -187,8 +187,10 @@ jobs:
           retention-days: 1
 
   # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
-  # the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
+  # the process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, the app survives
+  # going to the background (Settings on top) and back and renders again, nothing crashed and the display shows
   # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
+  # Touch is not covered: simctl cannot inject it (docs/MOBILE.md).
   ios:
     name: iOS Simulator (run the app)
     runs-on: macos-latest
@@ -323,9 +325,12 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  # Android on a real (virtual) device: boot an x86_64 emulator, install the APK of the job above, start it and assert
-  # that the process stays alive, the player logged "player: 60 frames rendered", nothing crashed and the display shows
-  # a picture (scripts/android-smoke.sh). Needs KVM, which GitHub's Linux runners offer once the udev rule below is set.
+  # Android on a virtual device: boot an x86_64 emulator, install the APK of the job above, start it and assert that the
+  # process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, a tap reaches the player,
+  # the app survives HOME and coming back and a font-size change, nothing crashed and the display shows a picture
+  # (scripts/android-smoke.sh; it waits for the system to be ready, no fixed sleep). Needs KVM, which GitHub's Linux
+  # runners offer once the udev rule below is set. There is no arm64 emulator job: no hosted runner can run one
+  # (docs/MOBILE.md).
   android-emulator:
     name: Android emulator (API 34 x86_64, run the APK)
     needs: android-apk

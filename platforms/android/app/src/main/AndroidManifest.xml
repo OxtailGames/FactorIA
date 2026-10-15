@@ -9,12 +9,17 @@
         android:allowBackup="false"
         android:supportsRtl="true">
 
-        <!-- sokol_app implements ANativeActivity_onCreate in libfactoria_player.so -->
+        <!-- sokol_app implements ANativeActivity_onCreate in libfactoria_player.so.
+             configChanges: every configuration change the player can ignore. Android restarts an activity for any change
+             it does not list, and a restarted NativeActivity ends the whole process (sokol_app calls exit(0) in
+             onDestroy), so the game would just vanish: mcc|mnc when the SIM loads (the emulator does it a few seconds
+             after boot), locale|layoutDirection when the system language changes, fontScale|fontWeightAdjustment when
+             the user changes the font size, colorMode with the display's colour gamut. -->
         <activity
             android:name="android.app.NativeActivity"
             android:exported="true"
             android:screenOrientation="{{SCREEN_ORIENTATION}}"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|density"
+            android:configChanges="mcc|mnc|locale|layoutDirection|fontScale|fontWeightAdjustment|colorMode|orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|smallestScreenSize|uiMode|density"
             android:launchMode="singleTask"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
             <meta-data android:name="android.app.lib_name" android:value="factoria_player" />
