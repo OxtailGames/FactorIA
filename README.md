@@ -33,8 +33,8 @@ MCP server, the AI hub and the editor work, and four example games built by AI
 agents through the public interface are part of the test suite.
 
 CI builds and tests every pull request and every push to `main` on Linux, Windows
-(MSVC) and macOS, and builds the iOS Simulator app and the Android library and APK. iOS and Android are not run on
-devices or emulators in CI yet. Open gaps and next milestones:
+(MSVC) and macOS, builds the iOS Simulator app and the Android library and APK, and runs them on the iOS Simulator and
+an Android emulator (not on real devices; see [docs/MOBILE.md](docs/MOBILE.md)). Open gaps and next milestones:
 [feedback/ROADMAP.md](feedback/ROADMAP.md).
 
 ## Download
