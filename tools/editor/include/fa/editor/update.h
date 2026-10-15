@@ -40,13 +40,13 @@ Result<UpdateInfo> parse_releases(const Json& releases, std::string_view current
 // Asks GitHub for the releases of update_repo(). Up to date (or updates off) => !available().
 Result<UpdateInfo> check_for_update(const ai::HttpTransport& http = ai::http_request);
 
-// Downloads the package and replaces the files of `installDir` with the ones in it. A replaced file is kept as
-// <name>.old, since Windows cannot overwrite a running exe (it can rename it); a failure puts the old files back.
-// `progress` gets 0..1 while downloading.
+// Downloads the package and replaces the files and folders (mobile/, the prebuilt Android and iOS players) of
+// `installDir` with the ones in it. A replaced file or folder is kept as <name>.old, since Windows cannot overwrite a
+// running exe (it can rename it); a failure puts the old ones back. `progress` gets 0..1 while downloading.
 Result<void> install_update(const UpdateInfo& info, const std::filesystem::path& installDir,
                             const std::function<void(double)>& progress = {},
                             const ai::HttpTransport& http = ai::http_request);
-// Deletes the <name>.old files and the download folder a previous install_update left in `installDir`.
+// Deletes the <name>.old files and folders and the download folder a previous install_update left in `installDir`.
 void remove_update_leftovers(const std::filesystem::path& installDir);
 
 // Starts `factoria editor [projectDir]` from executable_dir() as a new process (the restart after an update).

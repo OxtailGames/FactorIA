@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 
 #if !defined(_WIN32)
 #include <sys/wait.h>
@@ -37,6 +38,55 @@ std::string make_project(const testing::TempDir& tmp, const std::string& name = 
     testing::write_all(stdfs::path(dir) / ".factoria" / "cache.bin", "x");
     return dir;
 }
+
+// Sets (or, with nullptr, clears) an environment variable for the life of the object.
+struct ScopedEnv {
+    std::string name;
+    std::optional<std::string> old;
+    ScopedEnv(const char* n, const char* value) : name(n) {
+        if (const char* cur = std::getenv(n)) old = cur;
+        set(value);
+    }
+    ~ScopedEnv() { set(old ? old->c_str() : nullptr); }
+    void set(const char* value) const {
+#if defined(_WIN32)
+        _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
+#else
+        if (value) setenv(name.c_str(), value, 1);
+        else unsetenv(name.c_str());
+#endif
+    }
+};
+
+// A fake FactorIA download: <tmp>/<dir>/{android/jniLibs/<abi>/libfactoria_player.so, ios/<sdk>/*.a}. Returns its path.
+std::string make_fake_mobile(const testing::TempDir& tmp, const std::string& dir = "download/mobile",
+                             std::vector<std::string> abis = {"arm64-v8a", "x86_64"},
+                             std::vector<std::string> slices = {"iphoneos", "iphonesimulator"}) {
+    const stdfs::path root = stdfs::path(tmp.sub(dir));
+    for (const auto& abi : abis) testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", "fake " + abi);
+    for (const auto& sdk : slices) {
+        testing::write_all(root / "ios" / sdk / "libfactoria_player_main.a", "fake player " + sdk);
+        testing::write_all(root / "ios" / sdk / "libfa_core.a", "fake core " + sdk);
+    }
+    return root.string();
+}
+
+// The fake download placed where factoria looks by default: next to the running executable. Removed again afterwards;
+// `active` is false (and nothing is touched) when a mobile/ folder is already there.
+struct MobileNextToExe {
+    stdfs::path dir = executable_dir() / "mobile";
+    bool active = false;
+    MobileNextToExe() {
+        std::error_code ec;
+        if (stdfs::exists(dir, ec)) return;
+        active = true;
+        for (const char* abi : {"arm64-v8a", "x86_64"}) testing::write_all(dir / "android" / "jniLibs" / abi / "libfactoria_player.so", abi);
+    }
+    ~MobileNextToExe() {
+        std::error_code ec;
+        if (active) stdfs::remove_all(dir, ec);
+    }
+};
 
 }  // namespace
 
@@ -130,16 +180,19 @@ TEST_CASE("export: validation errors are clear") {
     }
 }
 
-TEST_CASE("export: android produces a Gradle project") {
+TEST_CASE("export: android source mode produces a Gradle project that compiles the engine") {
     testing::TempDir tmp;
     std::string proj = make_project(tmp, "Space Dodge's \"Run\"");
     ExportOptions o;
     o.projectDir = proj;
     o.platform = "android";
     o.outDir = tmp.sub("out");
+    o.engineRoot = FA_REPO_ROOT;  // asking for a checkout is what selects source mode
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const auto& rep = r.value();
+    CHECK(rep.mode == "source");
+    CHECK(rep.to_json()["mode"] == "source");
     stdfs::path root = rep.outputDir;
     for (const char* f : {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
                           "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
@@ -156,6 +209,9 @@ TEST_CASE("export: android produces a Gradle project") {
     CHECK(gradle.find("-DFA_BUILD_TOOLS=OFF") != std::string::npos);
     CHECK(gradle.find("'arm64-v8a', 'x86_64'") != std::string::npos);
     CHECK(gradle.find("targets 'factoria_player'") != std::string::npos);
+    CHECK(gradle.find("externalNativeBuild") != std::string::npos);
+    CHECK(gradle.find("ndkVersion") != std::string::npos);
+    CHECK(gradle.find("{{") == std::string::npos);
     CHECK(gradle.find("versionName '0.1.0'") != std::string::npos);
     CHECK(gradle.find("versionCode 100") != std::string::npos);
     std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
@@ -166,6 +222,7 @@ TEST_CASE("export: android produces a Gradle project") {
     CHECK(strings.find("Space Dodge\\'s") != std::string::npos);
     CHECK(strings.find("&quot;") != std::string::npos);
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.engineDir=") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "app/src/main/jniLibs"));
     for (auto& f : rep.files) CHECK(testing::read_all(root / f).find("{{") == std::string::npos);
 
     // assets_index.txt: every shipped file, project-relative, one per line, nothing else.
@@ -209,6 +266,7 @@ TEST_CASE("export: android orientation and keyword ids") {
     o.projectDir = proj;
     o.platform = "android";
     o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("sensorPortrait") != std::string::npos);
@@ -222,7 +280,7 @@ TEST_CASE("export: android orientation and keyword ids") {
     CHECK(bad.error().message.find("Java keyword") != std::string::npos);
 }
 
-TEST_CASE("export: ios produces a script and the game folder") {
+TEST_CASE("export: ios source mode produces a script and the game folder") {
     testing::TempDir tmp;
     std::string proj = make_project(tmp);
     ExportOptions o;
@@ -230,8 +288,10 @@ TEST_CASE("export: ios produces a script and the game folder") {
     o.platform = "ios";
     o.outDir = tmp.sub("out");
     o.release = true;
+    o.engineRoot = FA_REPO_ROOT;
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r->mode == "source");
     stdfs::path root = r->outputDir;
     CHECK(stdfs::exists(root / "game/factoria.json"));
     CHECK_FALSE(stdfs::exists(root / "game/ENGINE_FEEDBACK.json"));
@@ -243,12 +303,253 @@ TEST_CASE("export: ios produces a script and the game folder") {
     CHECK(script.find("-DFA_GAME_BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
     CHECK(script.find("-DFA_GAME_NAME='Space Dodge'") != std::string::npos);
     CHECK(script.find("--config Release") != std::string::npos);
+    CHECK(script.find("cmake -S \"$ENGINE_DIR\"") != std::string::npos);
+    CHECK(script.find("-DFA_BUILD_TOOLS=OFF") != std::string::npos);
+    CHECK(script.find("XCODE_ARGS") != std::string::npos);  // everything after `--` goes to xcodebuild
+    CHECK_FALSE(stdfs::exists(root / "CMakeLists.txt"));
+    CHECK_FALSE(stdfs::exists(root / "lib"));
 #ifndef _WIN32
     CHECK((stdfs::status(root / "build_ios.sh").permissions() & stdfs::perms::owner_exec) != stdfs::perms::none);
 #endif
     bool mentionsScript = false;
     for (auto& s : r->nextSteps) mentionsScript |= s.find("build_ios.sh") != std::string::npos;
     CHECK(mentionsScript);
+}
+
+TEST_CASE("export: android prebuilt mode packages the downloaded libraries and needs no engine") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "android";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
+    o.buildSourceRoot = tmp.sub("no-checkout-here");  // factoria "was built" from a folder that does not exist
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const auto& rep = r.value();
+    CHECK(rep.mode == "prebuilt");
+    CHECK(rep.to_json()["mode"] == "prebuilt");
+    stdfs::path root = rep.outputDir;
+
+    // The prebuilt players are copied where Gradle packages them as they are.
+    CHECK(testing::read_all(root / "app/src/main/jniLibs/arm64-v8a/libfactoria_player.so") == "fake arm64-v8a");
+    CHECK(testing::read_all(root / "app/src/main/jniLibs/x86_64/libfactoria_player.so") == "fake x86_64");
+    for (const char* f : {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
+                          "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
+                          "app/src/main/assets/factoria.json", "app/src/main/assets/assets_index.txt"})
+        CHECK_MESSAGE(stdfs::exists(root / f), f);
+
+    // Nothing in the project compiles native code or points at an engine checkout.
+    std::string gradle = testing::read_all(root / "app/build.gradle");
+    CHECK(gradle.find("applicationId 'com.example.spacedodge'") != std::string::npos);
+    CHECK(gradle.find("abiFilters 'arm64-v8a', 'x86_64'") != std::string::npos);
+    CHECK(gradle.find("externalNativeBuild") == std::string::npos);
+    CHECK(gradle.find("ndkVersion") == std::string::npos);
+    CHECK(gradle.find("cmake") == std::string::npos);
+    CHECK(gradle.find("engineDir") == std::string::npos);
+    CHECK(testing::read_all(root / "gradle.properties").find("engineDir=") == std::string::npos);
+    CHECK(testing::read_all(root / "gradle.properties").find("cmakeVersion") == std::string::npos);
+    const std::string nowhere = stdfs::path(tmp.sub("no-checkout-here")).generic_string();
+    for (auto& f : rep.files) {
+        std::string text = testing::read_all(root / f);
+        CHECK_MESSAGE(text.find("{{") == std::string::npos, f);
+        CHECK_MESSAGE(text.find(nowhere) == std::string::npos, f);
+    }
+    CHECK(rep.warnings.empty());
+
+    std::string steps;
+    for (auto& s : rep.nextSteps) steps += s + "\n";
+    CHECK(steps.find("./gradlew assembleDebug") != std::string::npos);
+    CHECK(steps.find("no NDK or CMake") != std::string::npos);
+    CHECK(steps.find("ndk;") == std::string::npos);
+
+    // The same manifest as source mode: the template is shared, only the native build differs.
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:value=\"factoria_player\"") != std::string::npos);
+}
+
+TEST_CASE("export: android prebuilt mode builds abiFilters from the libraries that exist and warns about the others") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "android";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp, "download/mobile", {"arm64-v8a"});
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r->mode == "prebuilt");
+    std::string gradle = testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle");
+    CHECK(gradle.find("abiFilters 'arm64-v8a'") != std::string::npos);
+    CHECK(gradle.find("x86_64") == std::string::npos);
+    CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "app/src/main/jniLibs/x86_64"));
+    REQUIRE(r->warnings.size() == 1);
+    CHECK(r->warnings[0].find("x86_64") != std::string::npos);
+}
+
+TEST_CASE("export: android picks the mode by the documented rule") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ExportOptions base;
+    base.projectDir = proj;
+    base.platform = "android";
+    base.outDir = tmp.sub("out");
+    auto mode = [&](const ExportOptions& o) {
+        auto r = export_project(o);
+        return r.ok() ? r->mode : "error: " + r.error().message;
+    };
+
+    SUBCASE("libraries next to the executable, no engine asked for: prebuilt") {
+        MobileNextToExe fake;
+        if (!fake.active) return;  // a real mobile/ folder is there: do not touch it
+        ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+        CHECK(mode(base) == "prebuilt");
+    }
+    SUBCASE("$FACTORIA_ENGINE_DIR asks for source, even with libraries next to the executable") {
+        MobileNextToExe fake;
+        if (!fake.active) return;
+        ScopedEnv engine("FACTORIA_ENGINE_DIR", FA_REPO_ROOT);
+        CHECK(mode(base) == "source");
+    }
+    SUBCASE("--engine-root asks for source and beats --mobile-dir") {
+        ExportOptions o = base;
+        o.engineRoot = FA_REPO_ROOT;
+        o.mobileDir = make_fake_mobile(tmp);
+        CHECK(mode(o) == "source");
+    }
+    SUBCASE("--mobile-dir asks for prebuilt and beats $FACTORIA_ENGINE_DIR") {
+        ScopedEnv engine("FACTORIA_ENGINE_DIR", FA_REPO_ROOT);
+        ExportOptions o = base;
+        o.mobileDir = make_fake_mobile(tmp);
+        CHECK(mode(o) == "prebuilt");
+    }
+    SUBCASE("nothing asked for and no libraries: the checkout factoria was built from, as before") {
+        if (stdfs::exists(executable_dir() / "mobile")) return;
+        ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+        ExportOptions o = base;
+        o.buildSourceRoot = FA_REPO_ROOT;
+        CHECK(mode(o) == "source");
+    }
+}
+
+TEST_CASE("export: android without prebuilt players or a checkout says what to do") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "android";
+    o.outDir = tmp.sub("out");
+
+    SUBCASE("neither available") {
+        if (stdfs::exists(executable_dir() / "mobile")) return;
+        o.buildSourceRoot = tmp.sub("no-checkout-here");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("no prebuilt player") != std::string::npos);
+        CHECK(r.error().message.find("no engine source checkout") != std::string::npos);
+        CHECK(r.error().message.find("libfactoria_player.so") != std::string::npos);
+        CHECK(r.error().hint.find("mobile/") != std::string::npos);
+        CHECK(r.error().hint.find("FACTORIA_ENGINE_DIR") != std::string::npos);
+        CHECK(r.error().hint.find("releases") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-android")));  // nothing half-written is left
+    }
+    SUBCASE("--mobile-dir without players") {
+        o.mobileDir = tmp.sub("empty-download");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("no prebuilt Android player") != std::string::npos);
+        CHECK(r.error().hint.find("--mobile-dir") != std::string::npos);
+    }
+    SUBCASE("--engine-root that is not a checkout") {
+        o.engineRoot = tmp.sub("not-an-engine");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("engine checkout not found") != std::string::npos);
+        CHECK(r.error().message.find("--engine-root") != std::string::npos);
+        CHECK(r.error().hint.find("prebuilt") != std::string::npos);
+    }
+    SUBCASE("$FACTORIA_ENGINE_DIR that is not a checkout") {
+        const std::string bogus = tmp.sub("not-an-engine");
+        ScopedEnv engine("FACTORIA_ENGINE_DIR", bogus.c_str());
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("$FACTORIA_ENGINE_DIR") != std::string::npos);
+    }
+}
+
+TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded libraries") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "ios";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
+    o.buildSourceRoot = tmp.sub("no-checkout-here");
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r->mode == "prebuilt");
+    CHECK(r->to_json()["mode"] == "prebuilt");
+    stdfs::path root = r->outputDir;
+
+    for (const char* f : {"CMakeLists.txt", "cmake/plist.cmake", "cmake/Info.plist.in", "cmake/copy_game.cmake", "build_ios.sh",
+                          "game/factoria.json", "lib/iphoneos/libfactoria_player_main.a", "lib/iphoneos/libfa_core.a",
+                          "lib/iphonesimulator/libfactoria_player_main.a", "lib/iphonesimulator/libfa_core.a"})
+        CHECK_MESSAGE(stdfs::exists(root / f), f);
+    CHECK(testing::read_all(root / "lib/iphonesimulator/libfa_core.a") == "fake core iphonesimulator");
+    CHECK_FALSE(stdfs::exists(root / "game/ENGINE_FEEDBACK.json"));
+
+    // The project is self-contained: its CMake file only includes files that were written next to it.
+    std::string cmake = testing::read_all(root / "CMakeLists.txt");
+    CHECK(cmake.find("cmake/plist.cmake") != std::string::npos);
+    CHECK(cmake.find("cmake/copy_game.cmake") != std::string::npos);
+    CHECK(cmake.find("lib/${FA_IOS_SLICE}") != std::string::npos);
+    CHECK(cmake.find("FA_ROOT") == std::string::npos);  // would be the engine checkout
+    CHECK(testing::read_all(root / "cmake/Info.plist.in").find("@FA_GAME_BUNDLE_ID@") != std::string::npos);
+
+    std::string script = testing::read_all(root / "build_ios.sh");
+    CHECK(script.find("mode: prebuilt") != std::string::npos);
+    CHECK(script.find("cmake -S \"$HERE\" -B \"$HERE/build\" -G Xcode") != std::string::npos);
+    CHECK(script.find("-DCMAKE_SYSTEM_NAME=iOS") != std::string::npos);
+    CHECK(script.find("-DFA_GAME_BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
+    CHECK(script.find("-DFA_GAME_PROJECT_DIR=\"$HERE/game\"") != std::string::npos);
+    CHECK(script.find("ENGINE_DIR") == std::string::npos);
+    CHECK(script.find("FA_BUILD_TOOLS") == std::string::npos);
+    CHECK(script.find("-sdk \"$SYSROOT\"") != std::string::npos);
+    CHECK(script.find("--) shift; XCODE_ARGS") != std::string::npos);
+    std::string steps;
+    for (auto& s : r->nextSteps) steps += s + "\n";
+    CHECK(steps.find("no engine source needed") != std::string::npos);
+}
+
+TEST_CASE("export: ios needs both prebuilt slices, or says what to do") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "ios";
+    o.outDir = tmp.sub("out");
+
+    SUBCASE("only the simulator libraries") {
+        o.mobileDir = make_fake_mobile(tmp, "download/mobile", {"arm64-v8a"}, {"iphonesimulator"});
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("no prebuilt iOS player") != std::string::npos);
+        CHECK(r.error().message.find("libfactoria_player_main.a") != std::string::npos);
+    }
+    SUBCASE("neither available") {
+        if (stdfs::exists(executable_dir() / "mobile")) return;
+        o.buildSourceRoot = tmp.sub("no-checkout-here");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("no engine source checkout") != std::string::npos);
+        CHECK(r.error().hint.find("macOS") != std::string::npos);  // the iOS libraries ship in the macOS package
+        CHECK(r.error().hint.find("FACTORIA_ENGINE_DIR") != std::string::npos);
+    }
 }
 
 TEST_CASE("export: command project.export (MCP tool project_export)") {
