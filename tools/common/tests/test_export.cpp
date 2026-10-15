@@ -163,9 +163,10 @@ TEST_CASE("export: android produces a Gradle project") {
     CHECK(manifest.find("android:value=\"factoria_player\"") != std::string::npos);
     CHECK(manifest.find("sensorLandscape") != std::string::npos);
     // A configuration change the activity does not list restarts it, which ends a sokol NativeActivity process.
-    const std::size_t cc = manifest.find("android:configChanges=\"");
-    REQUIRE(cc != std::string::npos);
-    const std::string changes = "|" + manifest.substr(cc + 23, manifest.find('"', cc + 23) - cc - 23) + "|";
+    const std::string attr = "android:configChanges=\"";
+    REQUIRE(manifest.find(attr) != std::string::npos);
+    const std::size_t from = manifest.find(attr) + attr.size();
+    const std::string changes = "|" + manifest.substr(from, manifest.find('"', from) - from) + "|";
     for (const char* change : {"mcc", "mnc", "locale", "fontScale", "layoutDirection", "orientation", "uiMode"})
         CHECK(changes.find(std::string("|") + change + "|") != std::string::npos);
     std::string strings = testing::read_all(root / "app/src/main/res/values/strings.xml");
