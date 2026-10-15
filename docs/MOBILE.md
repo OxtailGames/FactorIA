@@ -13,21 +13,66 @@ The shipping player (`player/`) is one code base for all platforms. On mobile,
 | Save games | `internalDataPath` | `Documents/` |
 | Min OS | Android 8.0 (API 26), arm64-v8a + x86_64 | iOS 16.3 |
 
-STATUS: CI (`.github/workflows/ci.yml`) builds the mobile players and RUNS them with a demo game:
+STATUS: CI (`.github/workflows/ci.yml`) builds the mobile players and RUNS them with a demo game
+(`templates/2d-platformer`, bundled by `ios-build` through `FA_GAME_PROJECT_DIR` and by `android-apk` through `factoria export`):
 
 - `ios` job: boots an iPhone on the newest iOS Simulator runtime of the `macos-latest` runner (iOS 26.5, iPhone 17 Pro,
   Xcode 26.6 when this was written; the app renders with the real Metal driver), installs the `.app` and launches it with its console captured.
 - `android-emulator` job: boots an API 34 `x86_64` emulator (default image, KVM, software GPU: OpenGL ES 3.0 only),
   installs the debug APK that `android-apk` built (it carries `arm64-v8a` and `x86_64`) and starts it.
 
-Both assert that the process stays alive, the player logged its run marker `player: 60 frames rendered`
-(`engine/runtime/src/runners.cpp`; logcat shows `I factoria: player: 60 frames rendered`), the engine logged no error,
-nothing crashed and a screenshot shows a picture. Logs, the screenshot and crash reports are uploaded as artifacts
-(`ios-smoke`, `android-smoke`) on every run. Locally: `scripts/ios-smoke.sh <app> <bundleId>` (Mac) and
-`scripts/android-smoke.sh <apk> <applicationId>` (adb device or emulator).
+Both run one script (`scripts/ios-smoke.sh <app> <bundleId>` on a Mac, `scripts/android-smoke.sh <apk> <applicationId>`
+on an adb device or emulator) that walks through the steps below on the same booted simulator/emulator. Every step has
+its own failure message, and the logs, screenshots and crash reports are uploaded as artifacts (`ios-smoke`,
+`android-smoke`) on every run.
 
-Not covered by CI: real devices and GPUs, running arm64 Android code (the emulator is `x86_64`), touch, audio and
-suspend/resume. A failing run is therefore a real bug; a green one is not a device certification.
+| Step | Android emulator | iOS Simulator |
+|---|---|---|
+| Ready | no fixed sleep: `sys.boot_completed`, boot animation stopped, package manager answers, device provisioned, keyguard dismissed, launcher has the window focus | `simctl bootstatus -b` |
+| Run | process alive, `player: 60 frames rendered`, same process 5 s later | same |
+| Audio | `audio: output device open` and `audio: stream running` (the platform pulled samples); the warning `no audio output device available` fails | same (the failure prints the host's audio devices) |
+| Touch | `input touchscreen tap` in the middle of the screen reaches the player (`input: first touch`) | not covered: `simctl` cannot inject touches |
+| Suspend / resume | HOME key, then `am start`: `player: suspended`, the process survives, `player: resumed`, `player: 60 frames rendered after resume`, the game has the window focus, a new native window was created (debug sokol_app), the screen shows a picture | launch Settings on top, then launch the app again: same checks, same process |
+| Configuration change | the font scale is changed twice: the process and activity survive | not applicable |
+| No crash | no Java exception, native signal or ANR, no `E factoria` line, the activity was never destroyed or relaunched, the screenshot shows a picture | no `ERROR` line, no crash report, the screenshot shows a picture |
+
+The lines the scripts wait for are part of the player: `player: 60 frames rendered` (`engine/runtime/src/runners.cpp`),
+`player: suspended`, `player: resumed`, `player: 60 frames rendered after resume` (same file), `audio: output device open`
+and `audio: stream running` (`engine/audio/src/audio.cpp`), `input: first touch` (`engine/platform/src/app.cpp`).
+Each is logged once per start or per suspend/resume at info level; do not reword them without changing the scripts. In
+logcat they look like `I factoria: player: 60 frames rendered`.
+
+Android waits for readiness instead of sleeping because an activity started right after boot used to be destroyed about a
+second later. The likely cause: Android restarts an activity for every configuration change the manifest does not list,
+a restarted `NativeActivity` ends the whole process (sokol_app calls `exit(0)` in `onDestroy`), and the emulator's
+virtual SIM loads some seconds after `sys.boot_completed`, which changes `mcc`/`mnc`. The manifest now lists every change
+the player can ignore (`mcc`, `mnc`, `locale`, `layoutDirection`, `fontScale`, `fontWeightAdjustment`, `colorMode` next
+to the ones that were there), which also keeps a real phone from killing the game when the user changes the language or
+the font size; the font-scale step keeps that fixed. If a run still loses the process, `android-smoke.sh` prints the
+activity lifecycle events (`wm_*_activity`), `configuration_changed` events, the window focus and the SIM state.
+
+Not covered by CI, so a green run is not a device certification:
+
+- **Real devices and real GPUs** (Adreno, Mali, PowerVR, Apple GPUs on hardware): a device farm (Firebase Test Lab, AWS
+  Device Farm, BrowserStack) needs an account and costs money; the repository has none, so there is no such job.
+- **arm64 Android code** runs on no GitHub-hosted runner as an emulator. The `android` job compiles it and checks its
+  entry points, and the APK carries the `arm64-v8a` library, but nothing executes it. Why: the emulator accelerates only
+  guests of the host's architecture ([Android docs](https://developer.android.com/studio/run/emulator-acceleration):
+  ARM images on Intel/AMD hosts "can't use the VM acceleration", and the Linux requirements list only Intel and AMD CPUs;
+  [android-emulator-runner](https://github.com/ReactiveCircus/android-emulator-runner): "the old ARM-based emulators were
+  slow and are no longer supported by Google"). An arm64 host would be needed, and neither arm64 hosted runner offers
+  nested virtualization: `ubuntu-24.04-arm` has no `/dev/kvm` ([actions/runner-images#14062](https://github.com/actions/runner-images/issues/14062),
+  closed as not planned in August 2026) and the macOS runners say "Nested-virtualization is not supported due to the
+  limitation of Apple's Virtualization Framework" ([GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
+  Not tried: the ARM translation of Google APIs `x86_64` images (`adb install --abi arm64-v8a`), which would run the
+  arm64 library through a translator, not on an ARM CPU.
+- **iOS touch** (see the table), **audio you can hear** (only that the stream is pulled), the Android Back button,
+  orientation changes, low memory, phone calls and other interruptions, process death and state restore, gamepads,
+  release (optimised) builds (CI runs the debug APK and the Debug simulator build), other API levels than 34, iPad and
+  older iOS versions.
+
+A failing run is therefore a real bug; a green one says the player starts, draws, plays an audio stream, takes a tap
+(Android), survives going to the background and back and does not crash on the emulator or simulator.
 
 Found by the first device runs (all fixed): the emulator has no OpenGL ES 3.1, so the player asks for a 3.0 context
 (`to_sapp_desc`); and its software GLES treats every texture larger than 1x1 as incomplete unless the texture states

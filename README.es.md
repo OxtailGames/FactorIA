@@ -36,8 +36,8 @@ los tests.
 
 La CI compila y prueba cada pull request y cada push a `main` en Linux, Windows
 (MSVC) y macOS, y compila la app de iOS para el simulador y la librería y el APK de
-Android. iOS y Android todavía
-no se ejecutan en dispositivos ni emuladores en la CI. Carencias abiertas y
+Android, y los ejecuta en el simulador de iOS y en un emulador de Android (no en
+dispositivos reales; véase [docs/MOBILE.md](docs/MOBILE.md), en inglés). Carencias abiertas y
 próximos hitos: [feedback/ROADMAP.md](feedback/ROADMAP.md) (en inglés).
 
 ## Descarga
