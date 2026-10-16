@@ -56,6 +56,10 @@ TEST_CASE("notices: game scope leaves out the editor-only parts, all scope has e
     CHECK(game.find("SIL OPEN FONT LICENSE") != std::string::npos);  // the OFL asks for its text with the font
     CHECK(game.find("Dear ImGui") == std::string::npos);
     CHECK(all.find("\nDear ImGui (") != std::string::npos);
+    // The Gradle wrapper factoria writes into Android exports is Apache-2.0 code that is not part of the game.
+    CHECK(game.find("Gradle wrapper") == std::string::npos);
+    CHECK(all.find("\nGradle wrapper (") != std::string::npos);
+    CHECK(all.find("Apache License") != std::string::npos);
     CHECK(game.find("license text missing") == std::string::npos);
     CHECK(all.find("license text missing") == std::string::npos);
 }
