@@ -1,0 +1,30 @@
+// The Android side of the {{NAME}} native plugin: a Gradle library module. `factoria export --platform android` copies it
+// to plugins/{{NAME}} of the exported project and adds it to the app (docs/MOBILE.md, "Native plugins on Android").
+//   src/main/jniLibs/<abi>/lib{{NAME}}.so   the native library, built by ../CMakeLists.txt (not by Gradle)
+//   src/main/java/factoria/plugin/{{NAME}}/  the Java (or Kotlin: src/main/kotlin) that the C code calls through JNI
+plugins {
+    id 'com.android.library'
+}
+
+// The SDK levels of the game: the export writes them to gradle.properties of the project (the fallbacks are for a
+// module opened on its own).
+def compileSdkLevel = (findProperty('factoria.compileSdk') ?: 36) as int
+def minSdkLevel     = (findProperty('factoria.minSdk') ?: 26) as int
+
+android {
+    namespace 'factoria.plugin.{{NAME}}'
+    compileSdk compileSdkLevel
+
+    defaultConfig {
+        minSdk minSdkLevel
+        // Keeps the classes the C code finds by name when the app is minified.
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// The libraries of the plugin's SDK go here: dependencies { implementation 'group:artifact:1.0' }
