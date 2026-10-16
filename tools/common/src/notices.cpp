@@ -15,6 +15,13 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"stb", "https://github.com/nothings/stb", "MIT OR Unlicense", "external/stb/LICENSE",
          "image decoding and encoding, TrueType fonts, rectangle packing, Ogg Vorbis", true},
         {"cgltf", "https://github.com/jkuhlmann/cgltf", "MIT", "external/cgltf/LICENSE", "glTF 2.0 models", true},
+        {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
+         "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
+        // Parts of the Basis Universal encoder, which only the developer tools contain.
+        {"tinyexr (in the Basis Universal encoder)", "https://github.com/syoyo/tinyexr", "BSD-3-Clause",
+         "external/basis_universal/LICENSES/BSD-3-clause.txt", "OpenEXR images in the texture encoder", false},
+        {"qoi (in the Basis Universal encoder)", "https://github.com/phoboslab/qoi", "MIT",
+         "external/basis_universal/LICENSES/MIT.txt", "QOI images in the texture encoder", false},
         {"dr_libs", "https://github.com/mackron/dr_libs", "MIT-0 OR Unlicense", "external/dr_libs/LICENSE",
          "WAV and MP3 decoding", true},
         {"nlohmann/json", "https://github.com/nlohmann/json", "MIT", "external/nlohmann_json/LICENSE.MIT", "JSON", true},
@@ -48,6 +55,8 @@ std::string third_party_notices(NoticeScope scope) {
                ")\n" + c.url + "\nLicense: " + c.license + "\n\n";
         std::string text = bundled_read(c.licenseFile).value_or("");
         if (text.empty()) text = "[license text missing from this build: " + c.licenseFile + " in the FactorIA repository]";
+        // Apache-2.0 section 4(d): a library that keeps a NOTICE file beside its LICENSE has that text reproduced too.
+        if (auto notice = bundled_read(c.licenseFile.substr(0, c.licenseFile.rfind('/') + 1) + "NOTICE")) text += "\n\n" + *notice;
         while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
         out += text + "\n";
     }
