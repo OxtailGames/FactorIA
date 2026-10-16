@@ -44,9 +44,11 @@ necesita nada más.
    - **Windows:** menú Inicio > **FactorIA Editor** (instalador), o doble clic en `FactorIA-Editor.exe`. Windows
      SmartScreen puede mostrar "Windows protegió su PC": siempre lo hace con una versión sin firmar, y con una firmada
      hasta que la han descargado suficientes personas. Pulsa **Más información** y después **Ejecutar de todas formas**.
-   - **macOS:** abre Terminal en la carpeta y ejecuta `./factoria editor`. Una versión que no está notarizada queda en
-     cuarentena al descargarla con el navegador (descomprimirla en Finder o con `tar` mantiene la cuarentena), así que
-     Gatekeeper frena cada uno de sus programas la primera vez. Lo más rápido: quita la cuarentena de toda la carpeta
+   - **macOS:** abre Terminal en la carpeta y ejecuta `./factoria editor`. Las versiones posteriores a la 0.1.3 están
+     firmadas y notarizadas por Apple y se abren sin avisos (la primera ejecución necesita internet: Gatekeeper consulta
+     la notarización). La 0.1.3 y anteriores no están notarizadas: el navegador pone la descarga en cuarentena
+     (descomprimirla en Finder o con `tar` la mantiene), así que Gatekeeper frena cada uno de sus programas la primera
+     vez. Lo más rápido: quita la cuarentena de toda la carpeta
      una vez, antes de abrirla: `xattr -dr com.apple.quarantine ~/FactorIA`. O permite solo `factoria`: cuando macOS
      diga que no pudo verificarlo, pulsa **Hecho**, abre Ajustes del Sistema > Privacidad y seguridad, pulsa **Abrir
      igualmente** junto al mensaje sobre `factoria`, vuelve a ejecutarlo y confirma **Abrir igualmente** (macOS 14 y

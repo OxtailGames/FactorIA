@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -289,6 +290,30 @@ std::string fs_safe_name(const std::string& s) {
     return o.empty() ? "Game" : o;
 }
 
+// Seals an exported .app with an ad hoc signature; returns "" or what went wrong. The executable inside is a copy of
+// factoria_player, which a release download carries signed with FactorIA's Developer ID. That signature covers the
+// executable alone, so the finished bundle (its Info.plist, the game files) would fail `codesign --verify` ("code has
+// no resources but signature indicates they must be present"), and a Mac that downloads such an app calls it damaged
+// instead of offering Open Anyway. Signed as a whole, ad hoc, the bundle is valid and runs on this Mac; to share the
+// game, its developer signs it with their own Developer ID (nextSteps, docs/EXPORTING.md).
+std::string sign_app_ad_hoc(const stdfs::path& app) {
+#if defined(__APPLE__)
+    const std::string cmd = "/usr/bin/codesign --force --sign - --timestamp=none " + sh_quote(app.string()) + " 2>&1";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return "could not run /usr/bin/codesign";
+    std::string out;
+    char buf[512];
+    while (std::fgets(buf, sizeof buf, pipe)) out += buf;
+    const int status = pclose(pipe);
+    if (status == 0) return {};
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+    return out.empty() ? "codesign failed" : out;
+#else
+    (void)app;
+    return "codesign runs only on macOS";
+#endif
+}
+
 Result<void> export_desktop(const ExportOptions& o, const Project& p, const std::string& platform, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, ExportReport& report) {
     auto player = find_player(o, platform);
@@ -317,8 +342,9 @@ Result<void> export_desktop(const ExportOptions& o, const Project& p, const std:
         stdfs::path app = stdfs::path(fs_safe_name(p.name) + ".app");
         report.nextSteps = {
             "Run it: open '" + generic(outRoot / app) + "'",
-            "To distribute outside your machine, sign and notarize the app: codesign --deep --options runtime --sign "
-            "\"Developer ID Application: <you>\" '" + app.string() + "' (see docs/EXPORTING.md)",
+            "To distribute outside your machine, sign and notarize the app: codesign --force --deep --options runtime "
+            "--timestamp --sign \"Developer ID Application: <you>\" '" + app.string() + "', then xcrun notarytool "
+            "submit and xcrun stapler staple (see docs/EXPORTING.md)",
             "Zip it for sharing: ditto -c -k --keepParent '" + app.string() + "' " + slug + "-macos.zip"};
     } else if (platform == "windows") {
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
@@ -817,6 +843,14 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     if (!r.ok()) {
         stdfs::remove_all(outRoot, ec);
         return r.error();
+    }
+    if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too
+        const std::string app = fs_safe_name(p.name) + ".app";
+        if (std::string why = sign_app_ad_hoc(outRoot / app); !why.empty()) {
+            report.warnings.push_back("The app bundle is not signed as a whole (" + why + "), so macOS will call it "
+                                      "damaged once it is downloaded. On a Mac: codesign --force --sign - '" + app +
+                                      "', or sign it with your Developer ID (next steps)");
+        }
     }
     report.outputDir = generic(outRoot);
     report.files = list_files(outRoot);

@@ -91,10 +91,23 @@ my-game [projectDir] [--scene scenes/level2.scene.json] [--fullscreen]
 Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 `%APPDATA%\<id>`, `~/Library/Application Support/<id>`).
 
-macOS distribution outside your own machine needs signing and notarization:
-`codesign --force --deep --options runtime --sign "Developer ID Application: ..." "My Game.app"`
-(`--force`: the player may already carry FactorIA's signature),
-then `xcrun notarytool submit` (needs an Apple developer account). The player of the macOS download is universal
+On macOS the export signs the finished `.app` ad hoc (`codesign --force --sign -`), last, so the signature covers its
+`Info.plist` and the game files. The player of a signed release carries FactorIA's Developer ID signature, which covers
+the executable alone: copied into a bundle unchanged it fails `codesign --verify` ("code has no resources but signature
+indicates they must be present"), and a Mac that downloads such an app calls it damaged. The ad hoc app runs on your
+Mac; a copy someone else downloads is stopped by Gatekeeper like any app that is not notarized (with Open Anyway).
+Exporting for macOS on Windows or Linux cannot sign: the report warns, and `codesign --force --sign -` on a Mac fixes
+it. To distribute the game, sign it with your own Developer ID and notarize it (Apple Developer Program):
+
+```
+codesign --force --deep --options runtime --timestamp --sign "Developer ID Application: ..." "My Game.app"
+ditto -c -k --keepParent "My Game.app" my-game.zip
+xcrun notarytool submit my-game.zip --keychain-profile <profile> --wait
+xcrun stapler staple "My Game.app"
+```
+
+`--force` replaces the ad hoc signature; `xcrun notarytool store-credentials <profile>` saves your Apple ID, team ID and
+app-specific password once. Zip the stapled app again to share it. The player of the macOS download is universal
 (Apple Silicon and Intel).
 Windows: the exported exe is a copy of `factoria_player.exe`. From a release download it carries FactorIA's signature
 once the release is signed ([BUILDING.md](BUILDING.md), "Releasing"), and from a build from source it is not signed.
