@@ -14,7 +14,7 @@ The shipping player (`player/`) is one code base for all platforms. On mobile,
 | Min OS | Android 8.0 (API 26), arm64-v8a + x86_64 | iOS 16.3 |
 
 STATUS: CI (`.github/workflows/ci.yml`) builds the mobile players and RUNS them with a demo game
-(`templates/2d-platformer`, bundled by `ios-build` through `FA_GAME_PROJECT_DIR` and by `android-apk` through `factoria export`):
+(`templates/2d-platformer`, bundled by `ios-build` through `FA_GAME_PROJECT_DIR`, as a copy that calls the example native plugin, and by `android-apk` through `factoria export`):
 
 - `ios` job: boots an iPhone on the newest iOS Simulator runtime of the `macos-latest` runner (iOS 26.5, iPhone 17 Pro,
   Xcode 26.6 when this was written; the app renders with the real Metal driver), installs the `.app` and launches it with its console captured.
@@ -276,6 +276,34 @@ iPhone and iPad, launch screen via `UILaunchScreen`) and the Xcode target (the c
 into the bundle after linking with the same exclude rules as `factoria export`
 (`platforms/common/copy_game.cmake`). Without `FA_GAME_PROJECT_DIR` the app
 starts with a red screen and logs why.
+
+### Native plugins (iOS)
+
+A game's native plugins ([EXTENDING.md](EXTENDING.md), section G) are static libraries on iOS, linked into the app. The
+plugin's folder holds one per SDK: `ios/iphoneos/lib<name>.a` (arm64) and `ios/iphonesimulator/lib<name>.a` (arm64 and
+x86_64, like the player's simulator libraries). The template's `CMakeLists.txt` builds them with CMake's Xcode generator,
+one SDK at a time (the commands are in its `README.md`), and defines `FA_PLUGIN_STATIC`, so that `FA_PLUGIN_INIT(<name>)`
+defines `fa_plugin_init_<name>` instead of the exported `fa_plugin_init`: several plugins live in one executable.
+
+`factoria export --platform ios` needs both libraries of every plugin declared for iOS (it names the missing file) and
+copies the plugin's `ios/` folder to `plugins/<name>/` next to `build_ios.sh`, which passes `-DFA_GAME_PLUGINS=<name;name>`
+and `-DFA_GAME_PLUGIN_DIR=<export>/plugins` to CMake. In both modes (`platforms/ios/plugins.cmake`, used by
+`player/CMakeLists.txt` and by the exported `CMakeLists.txt`) the app links the libraries of the SDK it is configured for
+and gets a generated source that calls `fa_register_static_plugin("<name>", fa_plugin_init_<name>)` from a static
+constructor, before `main`. The source belongs to the app itself, not to an archive, so the linker cannot drop it. When
+the game starts, the engine finds the registered entry point instead of loading a library. A plugin declared for iOS that
+the app was built without (no `FA_GAME_PLUGINS`) logs the warning "it is not linked into the app", and a script that uses
+it gets that reason as an error, as for any plugin that does not load.
+
+Direct use of the engine checkout: add `-DFA_GAME_PLUGINS=example -DFA_GAME_PLUGIN_DIR=/path/to/plugins` to the
+`cmake --preset ios-simulator` command above, with `/path/to/plugins/example/iphonesimulator/libexample.a` in place (the
+device build needs `iphoneos/`). CI does this with the example plugin and a copy of the demo game that calls it
+(`tools/cli/tests/plugin_probe.js`): the `ios` job checks the app's console for `probe add=3` and
+`probe info={"plugin":"example",...}` (`FA_IOS_PLUGIN_PROBE=1` for `scripts/ios-smoke.sh`).
+
+Not supported yet: Swift packages and XCFrameworks as plugins, and linking more than the plugin's own static library. The
+app links the frameworks listed in `platforms/ios/prebuilt/CMakeLists.txt` and nothing else, so a plugin that needs
+another framework or library cannot be linked yet.
 
 App Store: archive from Xcode (Product > Archive) with a distribution
 certificate and provisioning profile. The icon comes from the game's `icon` (without one the app has the default
