@@ -15,32 +15,13 @@ namespace fa {
 
 namespace {
 
-bool is_audio_file(std::string_view path) {
-    const std::string ext = fs::extension(path);
-    return ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa";
-}
-
 // Every string of `j` that names a sound.
 void collect_audio_strings(const Json& j, std::set<std::string>& out) {
     if (j.is_string()) {
-        if (is_audio_file(j.get<std::string>())) out.insert(fs::normalize(j.get<std::string>()));
+        if (tooling_detail::is_audio_file(j.get<std::string>())) out.insert(fs::normalize(j.get<std::string>()));
     } else if (j.is_array() || j.is_object()) {
         for (const Json& v : j) collect_audio_strings(v, out);
     }
-}
-
-// Import settings are user-edited JSON: a wrong type reads as the fallback (project.validate reports it).
-bool bool_setting(const Json& s, const char* key) {
-    auto it = s.find(key);
-    return it != s.end() && it->is_boolean() && it->get<bool>();
-}
-double number_setting(const Json& s, const char* key, double fallback) {
-    auto it = s.find(key);
-    return it != s.end() && it->is_number() ? it->get<double>() : fallback;
-}
-std::string string_setting(const Json& s, const char* key, const char* fallback) {
-    auto it = s.find(key);
-    return it != s.end() && it->is_string() ? it->get<std::string>() : fallback;
 }
 
 }  // namespace
@@ -49,7 +30,7 @@ std::vector<std::string> project_audio_files(const std::string& projectDir) {
     tooling_detail::ProjectRootScope root(projectDir);
     std::set<std::string> found;
     for (const std::string& f : fs::list("assets", true))
-        if (is_audio_file(f)) found.insert(f);
+        if (tooling_detail::is_audio_file(f)) found.insert(f);
     for (const std::string& scene : project_scene_files()) {
         auto text = fs::read_text(scene);
         auto parsed = text ? parse_json(*text, scene) : Result<Json>(text.error());
@@ -105,8 +86,8 @@ std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir)
             continue;
         }
         const Loudness& l = a->loudness;
-        const bool normalize = bool_setting(a->settings, "normalize");
-        const double gain = normalize ? normalization_gain_db(l, number_setting(a->settings, "targetLufs", -16.0)) : 0.0;
+        const bool normalize = tooling_detail::bool_setting(a->settings, "normalize");
+        const double gain = normalize ? normalization_gain_db(l, tooling_detail::number_setting(a->settings, "targetLufs", -16.0)) : 0.0;
         if (l.peakDb > kClippedDb)
             out.push_back({path, "", "Peaks at " + num(l.peakDb) + " dBFS: the waveform reaches full scale and is probably clipped.",
                            "Export the sound again at a lower level (the engine has no limiter), or set import \"normalize\": true "
@@ -159,7 +140,7 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
         if (asked.empty()) {
             paths = project_audio_files(projectDir);
         } else {
-            if (!is_audio_file(asked))
+            if (!tooling_detail::is_audio_file(asked))
                 throw CommandError("invalid_argument", "'" + asked + "' is not a sound file.", "Sounds are .wav, .ogg, .mp3 or .qoa files.");
             paths.push_back(asked);
         }
@@ -180,24 +161,23 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
                 ++measured;
                 tooling_detail::ProjectRootScope root(projectDir);
                 auto written = assets::update_entry(a->path, [&](Json& entry) {
-                    Json& analysis = entry["analysis"];
-                    if (!analysis.is_object()) analysis = Json::object();
-                    for (auto it = a->record.begin(); it != a->record.end(); ++it) analysis[it.key()] = *it;
+                    if (!entry["analysis"].is_object()) entry["analysis"] = Json::object();
+                    entry["analysis"].update(a->record);  // other kinds of measurement stay
                 });
                 if (!written) throw CommandError("failed", written.error().message, written.error().hint);
                 stored = true;
             }
-            const bool normalize = bool_setting(a->settings, "normalize");
+            const bool normalize = tooling_detail::bool_setting(a->settings, "normalize");
             Json item = Json::object({{"path", a->path},
                                       {"loudnessLufs", a->record["loudnessLufs"]},
                                       {"peakDb", a->record["peakDb"]},
                                       {"seconds", a->record["seconds"]},
-                                      {"streams", clip_streams(string_setting(a->settings, "stream", "auto"), a->loudness.seconds)},
+                                      {"streams", clip_streams(tooling_detail::string_setting(a->settings, "stream", "auto"), a->loudness.seconds)},
                                       {"normalize", normalize},
                                       {"cached", a->cached},
                                       {"stored", stored}});
             if (normalize)
-                item["gainDb"] = std::round(normalization_gain_db(a->loudness, number_setting(a->settings, "targetLufs", -16.0)) * 100.0) / 100.0;
+                item["gainDb"] = std::round(normalization_gain_db(a->loudness, tooling_detail::number_setting(a->settings, "targetLufs", -16.0)) * 100.0) / 100.0;
             files.push_back(std::move(item));
         }
         Json result = Json::object({{"files", files}, {"measured", measured}, {"cached", cached}, {"failed", failed}});

@@ -19,7 +19,6 @@ namespace audio_test {
 
 using namespace fa;
 
-
 // A 16-bit PCM WAV of interleaved float samples (own writer, independent from the engine's).
 inline std::vector<std::uint8_t> wav_bytes(const std::vector<float>& interleaved, int channels, int rate) {
     const std::size_t n = interleaved.size();
