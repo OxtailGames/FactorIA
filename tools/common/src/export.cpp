@@ -292,8 +292,10 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
 // ---- game file collection ----------------------------------------------------------------------
 
 bool excluded_top_level(const std::string& name, const std::string& feedbackFile) {
+    // steam_appid.txt makes a game run as the app it names, whoever starts it (the Steam plugin reads it in development):
+    // a shipped game gets its app id from the Steam client.
     static const std::set<std::string> names = {"build", "tests", "tools", "types", "node_modules", "AGENTS.md",
-                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json"};
+                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "steam_appid.txt"};
     return names.count(name) > 0 || name == feedbackFile;
 }
 
