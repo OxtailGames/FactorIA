@@ -232,10 +232,11 @@ jobs:
           retention-days: 1
 
   # Run the app: boot an iPhone simulator, install and launch the .app with its console captured, and assert that
-  # the process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, the app survives
-  # going to the background (Settings on top) and back and renders again, nothing crashed and the display shows
-  # a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64 simulator slice runs natively).
-  # Touch is not covered: simctl cannot inject it (docs/MOBILE.md).
+  # the process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, a tap in the middle
+  # of the screen (a UI test, platforms/ios/touch-test: simctl cannot inject touches) reaches the player at the middle
+  # of the design, the app survives going to the background (Settings on top) and back and renders again, nothing
+  # crashed and the display shows a picture (scripts/ios-smoke.sh; macOS runners are Apple Silicon, so the arm64
+  # simulator slice runs natively).
   ios:
     name: iOS Simulator (run the app)
     needs: changes

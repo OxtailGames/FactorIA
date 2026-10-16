@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M8) is done and M9 (run on Apple hardware) is in progress; M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8, "Left open".
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open".
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -295,7 +295,7 @@ Left open, not fixable in this repository alone:
 - The AppImage does not update itself (AppImageUpdate/zsync would), and after an in-place update the Windows "Apps" list
   still shows the installed version.
 
-## M9. Run on Apple hardware (M, *proactive*) — in progress
+## M9. Run on Apple hardware (M, *proactive*) — DONE (PR #33 and the `m9-apple-hardware` PR)
 
 CI builds macOS and iOS but had never run the GPU tests on Metal, the editor on macOS, an Apple gamepad or an iOS device.
 The first full run on a Mac (Apple M5, macOS 26, Xcode 27) passed every registered test, GPU ones included: render goldens
@@ -307,12 +307,16 @@ The first full run on a Mac (Apple M5, macOS 26, Xcode 27) passed every register
    readable in autotest mode, the frame's drawable is blitted after `sg_commit()`); `AppDesc.exit_code`, which `run_app`
    passes to `exit()` on macOS, so a windowed `factoria run` and the editor return their real code there too; both editor
    autotests registered in ctest on macOS; the macOS CI job runs the whole suite (no `-LE gpu`).
-2. Gamepads: the GameController backend (`engine/platform/src/gamepad_apple.mm`) has never seen a real pad. Needs a pad
-   (DualSense, Xbox, Switch Pro) paired with the Mac.
-3. iOS: touch on the Simulator (not covered in CI: `simctl` cannot tap) can be driven by hand from Xcode's Simulator; a
-   real iPhone (a free Apple ID is enough for one's own device) would be the first run on a device and an Apple GPU.
-4. The unsigned macOS download: Gatekeeper and the editor's updater on a clean Mac. Signing needs the Apple Developer
-   Program (M8, "Left open").
+2. Gamepads — DONE. An Xbox Wireless Controller over Bluetooth on macOS 26.6: every button by position (A bottom, B
+   right, X left, Y top), LB/RB, L3/R3, Menu = `Start`, View = `Back`, both sticks with +Y up and +X right, triggers
+   0..1, and power off/on gives the same slot back. `gamepad_apple.mm` used to number pads by their index in
+   `[GCController controllers]`, so unplugging one renumbered the others; a pad now keeps its slot while connected (like
+   Linux and Android) and the backend logs `gamepad: pad 0 connected: Controller (Xbox One)`.
+3. iOS — DONE. The first runs on the iOS 27 Simulator and on an iPhone 16 (A18, iOS 27): Block Push, Neon Swarm and Gem
+   Roller render (2D, 3D, bloom), play audible sound, take taps, survive Home and back and a turn to the other landscape
+   side. CI now taps too (see below).
+4. The unsigned macOS download — DONE. Gatekeeper on macOS 26.6 and the editor's updater (0.1.2 to 0.1.3 with the Update
+   button) behave as below; docs/GETTING_STARTED.md describes the steps that were checked.
 
 Found and fixed while implementing M9 (Android, the `android-emulator` job of CI run 38821970366 on `main`):
 - The job failed with "no process for dev.factoria.cigame right after am start": the activity, started right after the
@@ -331,10 +335,45 @@ Found and fixed while implementing M9 (Android, the `android-emulator` job of CI
   signal; with the old player it fails ("the game did not come back after the relaunch"). Checked on an arm64 API 35
   emulator: `am update-appinfo`, the display-cutout overlay on and off, and Back (the game ends, no restart).
 
+Found and fixed while implementing M9 (Apple hardware):
+- Every touch on iOS landed 3x too far from the finger, and mouse clicks 2x on a Retina Mac (and on a Windows display
+  scaled to 200%): `to_design()` in `engine/platform/src/app.cpp` scaled sokol_app's event positions by
+  `sapp_dpi_scale()`, but sokol_app already reports them in framebuffer pixels on every platform. Only Android (scale 1)
+  and 100% desktop displays worked. The editor's game view had its own, correct conversion.
+- iOS touch was not covered in CI (`simctl` cannot tap). `scripts/ios-smoke.sh` now builds a UI test
+  (`platforms/ios/touch-test`, XCUITest, generated with CMake) that taps the middle of the running app's screen, and
+  checks that `input: first touch` lands at the middle of the design; with the old `to_design()` it fails ("landed at
+  design (2205, 1080), expected about (640, 360)").
+- From the iOS 27 runtime (Xcode 27) on, `simctl launch --stdout/--stderr` opens the paths inside the simulator's own file
+  system, so the smoke test saw an empty console and failed on a healthy app. It captures the console with
+  `--console-pty` now (and asks the simulator's launchd for the pid), which works with older Xcodes too.
+- `build_ios.sh --build` (export) could not build for a device the first time: `cmake --build` builds a target, and
+  `xcodebuild -target` ignores `-destination`, so Xcode could not register the connected iPhone with the team ("Your team
+  has no devices from which to generate a provisioning profile"). Device builds are scheme builds now, with the
+  connected device as destination and `-allowProvisioningDeviceRegistration`; simulator builds need no team; and
+  `--run` installs the app and starts it with its console in the terminal (`simctl` or `devicectl`), so an AI can run a
+  game on an iPhone without Xcode's UI.
+- On a Retina screen the editor autotest saved 2x screenshots (2940x1782 on a MacBook Air), about a second each to encode
+  in a Debug build. They are saved at the window's logical size now (the pixel checks still read full resolution): the
+  autotest went from 17 s to 12 s.
+- Gatekeeper, checked on macOS 26.6 with the 0.1.3 package: a browser download is quarantined, and unpacking keeps the
+  quarantine with Archive Utility (Finder) and with `tar` in Terminal alike. Each quarantined executable is blocked on
+  its first run ("Apple could not verify..."; Done ends it with exit 137); System Settings > Privacy & Security > Open
+  Anyway, then Open Anyway again on the next run, approves that one executable (`factoria_player` stays blocked).
+  Files written by an approved `factoria` are quarantined too but run without asking (an exported game did).
+  `xattr -dr com.apple.quarantine <folder>` clears it all. The docs now say this instead of right-click > Open.
+- The updater on macOS: the 0.1.2 editor updated itself to 0.1.3 and reopened. It did not bring `mobile/`, because 0.1.2's
+  updater swapped files only (folders came in 0.1.3); the next update fills it in. `FA_UPDATE_LIVE=1 fa_test_editor`
+  runs the current `install_update` against the newest real release (download, unpack, `mobile/`, the new `factoria`
+  runs); it passes on macOS.
+
+Left open after M9:
+- An Apple pad on iOS: same code as macOS, built and run, but not with a real pad. The iOS Simulator shows a virtual
+  `Gamepad (MFi)` in slot 0.
+- Signing and notarization still need the Apple Developer Program (M8, "Left open").
+
 Found while implementing M9, not fixed:
 - Windows has no window read-back for the editor (D3D11), so the editor autotests are not registered there.
-- On a Retina screen the autotest screenshots are 2x (2940x1782 on a MacBook Air) and each takes about a second to encode
-  in a Debug build.
 - Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
