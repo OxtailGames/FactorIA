@@ -46,7 +46,29 @@
         "sheet": { "$ref": "#/$defs/sheet" },
         "analysis": {
           "type": "object",
-          "description": "Measurements the tools cache (loudness of a sound, image facts). Written by the tools; do not edit."
+          "description": "Measurements the tools cache (loudness of a sound, image facts). Written by `assets.analyze_audio` and by exports; do not edit. A record only counts while `bytes` and `sha256` still describe the file, so editing the file never leaves a stale value in use.",
+          "properties": {
+            "loudnessLufs": {
+              "type": "number",
+              "description": "Sounds: integrated loudness in LUFS (ITU-R BS.1770-4 / EBU R128) of the sound as it plays (a mono sound counts on both sides). -70 means nothing audible."
+            },
+            "peakDb": {
+              "type": "number",
+              "description": "Sounds: sample peak in dBFS (0 is full scale)."
+            },
+            "seconds": {
+              "type": "number",
+              "description": "Sounds: duration in seconds."
+            },
+            "bytes": {
+              "type": "integer",
+              "description": "Size in bytes of the file the measurement describes (for a sound shipped as a QOA twin, the twin)."
+            },
+            "sha256": {
+              "type": "string",
+              "description": "SHA-256 of that file in lowercase hex."
+            }
+          }
         }
       }
     },
@@ -79,7 +101,7 @@
         "normalize": {
           "type": "boolean",
           "default": false,
-          "description": "Play the sound at targetLufs integrated loudness (ITU-R BS.1770), so tracks and effects from different sources sound equally loud. Needs the measured loudness, which `assets.import` and `factoria validate` cache in `analysis`."
+          "description": "Play the sound at targetLufs integrated loudness (ITU-R BS.1770), so tracks and effects from different sources sound equally loud. The loudness comes from the entry's `analysis`, which `assets.analyze_audio` and `factoria export` store; without a fresh one the desktop engine measures the sound when it loads it (mobile builds play it unchanged). The gain is at most 24 dB and never takes the sample peak past -1 dBFS."
         },
         "targetLufs": {
           "type": "number",

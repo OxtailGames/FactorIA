@@ -13,6 +13,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
 #include "fa/physics/physics.h"
@@ -20,6 +21,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
+#include "fa/ui/ui.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -312,6 +314,7 @@ NATIVE(timeInfo) {
     JS_SetPropertyUint32(ctx, a, 2, JS_NewFloat64(ctx, W.time()));
     JS_SetPropertyUint32(ctx, a, 3, JS_NewFloat64(ctx, static_cast<double>(W.frame())));
     JS_SetPropertyUint32(ctx, a, 4, JS_NewFloat64(ctx, I->timeScale));
+    JS_SetPropertyUint32(ctx, a, 5, JS_NewFloat64(ctx, I->lastDt));
     return a;
 }
 
@@ -610,6 +613,37 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
     Vec2 m = measure_text_size(I, arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 16)),
                                arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0)), "ui.measureText");
     return array_of(ctx, {m.x, m.y});
+}
+
+// ---- ui ---------------------------------------------------------------------------------------------------------------------
+NATIVE(uiState) {  // () -> [focused, hovered]: entity handles, null for none (or when the host has no UI)
+    SETUP;
+    UiSystem* U = I->host->ui();
+    auto live = [&](Entity e) { return W.alive(e) ? ent_val(ctx, e) : JS_NULL; };
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, live(U ? U->focused() : kNullEntity));
+    JS_SetPropertyUint32(ctx, a, 1, live(U ? U->hovered() : kNullEntity));
+    return a;
+}
+
+NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot take focus
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.focus: this run has no UI system");
+    Entity e;
+    if (argc > 0 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0])) {
+        JSValue exc = JS_UNDEFINED;
+        if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
+    }
+    if (U->set_focus(W, e)) return JS_UNDEFINED;
+    const UiKind kind = ui_kind(W, e);
+    std::string why;
+    if (!ui_is_control(kind))
+        why = kind == UiKind::None ? "it has no Button, Toggle, Slider or TextField component"
+                                   : std::string("a ") + ui_kind_name(kind) + " is a container and cannot be focused; focus a Button, Toggle, Slider or TextField";
+    else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
+    else why = "its interactable is false; set interactable = true first";
+    return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);
 }
 
 // ---- entity.bounds() ----------------------------------------------------------------------------------------------
@@ -1206,6 +1240,145 @@ NATIVE(inWheel) {
     return JS_UNDEFINED;
 }
 
+// ---- input settings: rebinding, last input, button names, text, cursor, keyboard ------------------------------------
+NATIVE(inText) {
+    SETUP;
+    return JS_NewString(ctx, I->host->input().text_utf8().c_str());
+}
+
+NATIVE(inActions) {
+    SETUP;
+    return I->from_json(Json(I->host->input().action_names()));
+}
+
+NATIVE(inBindings) {
+    SETUP;
+    std::string a = arg_str(ctx, argc, argv, 0);
+    JSValue exc = JS_UNDEFINED;
+    if (!check_action(I, ctx, a, exc)) return exc;
+    return I->from_json(Json(I->host->input().bindings(a)));
+}
+
+NATIVE(inRebind) {  // (action, bindings[])
+    SETUP;
+    std::string a = arg_str(ctx, argc, argv, 0);
+    JSValue exc = JS_UNDEFINED;
+    if (!check_action(I, ctx, a, exc)) return exc;
+    Json list = argc > 1 ? I->to_json(argv[1]) : Json(nullptr);
+    std::vector<std::string> names;
+    bool ok = list.is_array();
+    if (ok)
+        for (const Json& item : list) {
+            if (item.is_string()) names.push_back(item.get<std::string>());
+            else ok = false;
+        }
+    if (!ok)
+        return throw_err(ctx, "input.rebind(action, bindings) expects an array of binding names, e.g. "
+                              "input.rebind(\"" + a + "\", [\"Space\", \"GamepadA\"]); got " + (list.is_null() ? "nothing" : describe_json_value(list)));
+    std::vector<std::string> problems = I->host->input().rebind(a, names);
+    if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
+    return JS_UNDEFINED;
+}
+
+NATIVE(inResetBindings) {  // (action?)
+    SETUP;
+    std::string a = argc > 0 && !JS_IsUndefined(argv[0]) ? arg_str(ctx, argc, argv, 0) : "";
+    JSValue exc = JS_UNDEFINED;
+    if (!a.empty() && !check_action(I, ctx, a, exc)) return exc;
+    I->host->input().reset_bindings(a);
+    return JS_UNDEFINED;
+}
+
+NATIVE(inLastPressed) {
+    SETUP;
+    std::string s = I->host->input().last_pressed();
+    return s.empty() ? JS_NULL : JS_NewString(ctx, s.c_str());
+}
+
+NATIVE(inLastDevice) {
+    SETUP;
+    return JS_NewString(ctx, input_device_name(I->host->input().last_device()));
+}
+
+NATIVE(inPadType) {  // (index)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    return JS_NewString(ctx, gamepad_type_name(I->host->input().gamepad_type(i)));
+}
+
+NATIVE(inButtonName) {  // (bindingOrAction, pad)
+    SETUP;
+    std::string n = arg_str(ctx, argc, argv, 0);
+    int pad = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 1, pad, exc)) return exc;
+    Input& in = I->host->input();
+    if (!in.has_action(n) && !Input::is_binding_name(n)) {
+        std::vector<std::string> names = in.action_names();
+        for (const std::string& b : Input::binding_names()) names.push_back(b);
+        return throw_err(ctx, "input.buttonName: unknown action or binding '" + n + "'. " + did_you_mean(n, names));
+    }
+    return JS_NewString(ctx, in.button_name(n, pad).c_str());
+}
+
+NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown, value?): sets when given; returns the state
+    SETUP;
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    Input& in = I->host->input();
+    if (argc > 1 && !JS_IsUndefined(argv[1])) {
+        bool v = arg_bool(ctx, argc, argv, 1);
+        if (kind == 0) in.set_mouse_visible(v);
+        else if (kind == 1) in.set_mouse_locked(v);
+        else in.set_keyboard_shown(v);
+    }
+    return JS_NewBool(ctx, kind == 0 ? in.mouse_visible() : kind == 1 ? in.mouse_locked() : in.keyboard_shown());
+}
+
+// ---- window -----------------------------------------------------------------------------------------------------------
+NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the window, any other run answers from factoria.json
+    SETUP;
+    WindowControl* win = I->host->window();
+    Json p = I->host->project_settings();
+    const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+    int w = display.value("width", 1280), h = display.value("height", 720);
+    bool fullscreen = display.value("fullscreen", false), vsync = display.value("vsync", true);
+    int dw = w, dh = h, cap = 0;
+    if (win) {
+        fullscreen = win->fullscreen();
+        win->size(w, h);
+        win->display_size(dw, dh);
+        vsync = win->vsync();
+        cap = win->frame_cap();
+    }
+    JSValue o = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, o, "available", JS_NewBool(ctx, win != nullptr));
+    JS_SetPropertyStr(ctx, o, "fullscreen", JS_NewBool(ctx, fullscreen));
+    JS_SetPropertyStr(ctx, o, "width", JS_NewInt32(ctx, w));
+    JS_SetPropertyStr(ctx, o, "height", JS_NewInt32(ctx, h));
+    JS_SetPropertyStr(ctx, o, "displayWidth", JS_NewInt32(ctx, dw));
+    JS_SetPropertyStr(ctx, o, "displayHeight", JS_NewInt32(ctx, dh));
+    JS_SetPropertyStr(ctx, o, "vsync", JS_NewBool(ctx, vsync));
+    JS_SetPropertyStr(ctx, o, "frameCap", JS_NewInt32(ctx, cap));
+    return o;
+}
+
+NATIVE(windowSet) {  // (kind 0 fullscreen|1 size|2 vsync|3 frame cap, a, b) -> "" or the reason it did not happen
+    SETUP;
+    WindowControl* win = I->host->window();
+    if (!win)
+        return JS_NewString(ctx, "this run has no window (headless run / test). Full screen, size, vsync and the frame cap only "
+                                 "apply to a windowed run (factoria run, an exported game); check window.available first.");
+    int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
+    std::string err;
+    if (kind == 0) err = win->set_fullscreen(arg_bool(ctx, argc, argv, 1));
+    else if (kind == 1) err = win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
+    else if (kind == 2) err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
+    else err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
+    return JS_NewString(ctx, err.c_str());
+}
+
 // ---- audio --------------------------------------------------------------------------------------------------------
 NATIVE(audioPlay) {
     SETUP;
@@ -1475,6 +1648,15 @@ NATIVE(screenSize) {
     return array_of(ctx, {s.x, s.y});
 }
 
+// game.notices(): the third-party parts of the runtime inside every game (what FACTORIA_NOTICES.txt holds), for credits.
+NATIVE(notices) {
+    SETUP;
+    Json out = Json::array();
+    for (const ThirdPartyComponent& c : third_party_components())
+        if (c.inGames) out.push_back({{"name", c.name}, {"url", c.url}, {"license", c.license}, {"usedFor", c.usedFor}});
+    return I->from_json(out);
+}
+
 NATIVE(storageGet) {
     SETUP;
     I->load_storage();
@@ -1565,7 +1747,7 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     return JS_UNDEFINED;
 }
 
-NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect, index, name, value)
+NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type, index, name, value)
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     int i = 0;
@@ -1582,9 +1764,21 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect, ind
         if (!pad_axis_name(ctx, name, a, exc)) return exc;
         if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
         in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
+    } else if (kind == 5) {
+        GamepadType t{};
+        if (!gamepad_type_from_name(name, t))
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
+        in.on_gamepad_connected(i, true);  // a type only means something for a pad that is there
+        in.set_gamepad_type(i, t);
     } else {
         in.on_gamepad_connected(i, kind == 3);
     }
+    return JS_UNDEFINED;
+}
+
+NATIVE(testText) {  // (codePoint): one typed character, as the keyboard would send it
+    SETUP;
+    I->host->input().on_text(static_cast<std::uint32_t>(arg_num(ctx, argc, argv, 0)));
     return JS_UNDEFINED;
 }
 
@@ -1630,6 +1824,7 @@ NATIVE(resetInput) {
         if (it != ps["input"].end() && it->is_number()) dz = it->get<double>();
     }
     in.set_gamepad_deadzone(static_cast<float>(dz));
+    in.reset_options();  // a test that rebound an action, hid the cursor or showed the keyboard starts the next one clean
     return JS_UNDEFINED;
 }
 
@@ -1658,11 +1853,14 @@ const Reg kRegs[] = {
     R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inAxis, 2), R(inVector, 4),
     R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
+    R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
+    R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
+    R(testText, 1),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };

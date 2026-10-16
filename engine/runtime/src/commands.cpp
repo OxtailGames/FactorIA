@@ -571,6 +571,17 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                    {"logs", list}});
           });
 
+    I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList) and which has focus.",
+           "Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
+           "value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy "
+           "are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {\"mouse\": "
+           "{\"position\": [x, y], \"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and "
+           "ui_submit actions (game.input {\"press\": [\"ui_down\"]}). `visible` is false when a ScrollList clips the widget away "
+           "entirely. `value` is a Toggle's boolean or a Slider's number; `text` is a Button's text, a Toggle's or Slider's label "
+           "or a TextField's contents. Example: ui.state {}",
+           parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
+          [&I](const Json&) { return I.ui.state(I.world, I.design_size()); });
+
     I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
            "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "
            "music (`music: true`), with `ok: false` when the clip failed to load. `frame`/`time` are the scene clock "
@@ -789,7 +800,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   std::string ext = fs::extension(f);
                   const char* type = "other";
                   if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") type = "texture";
-                  else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") type = "audio";
+                  else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa") type = "audio";
                   else if (ext == ".ttf" || ext == ".otf") type = "font";
                   else if (ext == ".obj" || ext == ".gltf" || ext == ".glb") type = "mesh";
                   else if (ext == ".js") type = "script";

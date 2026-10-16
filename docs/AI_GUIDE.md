@@ -136,10 +136,11 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `script_reload` | `script.reload` | Re-import scripts edited on disk without reloading the scene (`scene_load`/`scene_reload` already do it, and re-read the input actions of `factoria.json`). `{"force":true}` re-imports every module. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Takes the options of the script API and of `physics_shape_cast`: `mask`, `ignore` (id of an entity whose colliders, and its children's, are skipped: the caster) and `ignoreTriggers` (default `true`; `false` hits trigger colliders too): `{"from":[0,300],"to":[0,-300],"ignore":"player","ignoreTriggers":false}`. |
 | `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
-| `assets_generate_image`, `assets_generate_sprite_sheet`, `assets_generate_sound`, `assets_generate_music`, `assets_generate_voice`, `assets_generate_model` | `assets.generate_*` | Generate art, sounds, music, speech and 3D models with the asset providers of `ai.json`, write them under `assets/` and record their provenance. `assets_generate_image` returns the picture. Section 9.22. |
-| `assets_provenance`, `assets_set_provenance`, `assets_disclosure` | `assets.provenance`, `assets.set_provenance`, `assets.disclosure` | Where each asset came from (and the files with no record), recording it for files you did not generate, and the AI-content text for store forms. Section 9.22. |
+| `assets_generate_image`, `assets_generate_sprite_sheet`, `assets_generate_sound`, `assets_generate_music`, `assets_generate_voice`, `assets_generate_model` | `assets.generate_*` | Generate art, sounds, music, speech and 3D models with the asset providers of `ai.json`, write them under `assets/` and record their provenance. `assets_generate_image` returns the picture. Section 9.23. |
+| `assets_provenance`, `assets_set_provenance`, `assets_disclosure` | `assets.provenance`, `assets.set_provenance`, `assets.disclosure` | Where each asset came from (and the files with no record), recording it for files you did not generate, and the AI-content text for store forms. Section 9.23. |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
+| `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
@@ -312,6 +313,17 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `lockRotation`, `angularDamping`, `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. A dynamic **box** is a rigid body: collisions and friction turn it (it tips over a ledge, tumbles, settles on a face), so put `"lockRotation": true` on a character or a crate that must stay upright. A sphere is an arcade rolling ball by default (`rollWithMotion`, contacts never turn it); with `"rollWithMotion": false` it is a rigid body too and real friction rolls and spins it. Box colliders follow `Transform.rotation`. Fast bodies are swept against every solid collider, so they do not tunnel. |
 | `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. |
 
+**UI (menus and settings screens; screen space only, section 9.22)**
+
+| Component | Key fields | Typical use |
+|---|---|---|
+| `Panel` | `size`, `pivot`, `anchor`, `layer` (default 200), `color`, `texture` + `slice` (9-slice), `layout` (none, row, column, grid), `spacing`, `padding` [l,t,r,b], `columns`, `align`, `justify`, `fit` | A background that places its children in a column, row or grid. |
+| `Button` | `text`, `size`, `autoFocus`, `interactable`, `font`, `fontSize`, `textColor`, `accentColor` + the style fields of Panel | Sends `ui.click`. |
+| `Toggle` | `label`, `value` | Sends `ui.change` `{value: bool}`. |
+| `Slider` | `label`, `value`, `min`, `max`, `step`, `showValue` | Sends `ui.change` `{value: number}`; left / right change it by `step`. |
+| `TextField` | `text`, `placeholder`, `maxLength` | Sends `ui.change` while typing and `ui.submit` on Enter. |
+| `ScrollList` | `spacing`, `padding`, `scrollSpeed`, `scroll` | A column that scrolls with the wheel and clips its children. |
+
 **Audio and scripts**
 
 | Component | Key fields | Typical use |
@@ -327,7 +339,7 @@ A behaviour is an ES module whose default export extends `Behaviour`. All method
 | Method | When it runs |
 |---|---|
 | `onStart()` | Once, before the first update. `props` are already applied. |
-| `onUpdate(dt)` | Every frame. `dt` is in seconds, scaled by `time.scale`. |
+| `onUpdate(dt)` | Every frame. `dt` is in seconds, scaled by `time.scale`. While `time.scale` is 0 (`game.paused`) only behaviours with the class field `runWhilePaused = true` get it, with the real `dt` (pause menus). |
 | `onFixedUpdate(dt)` | Every fixed step, before physics. Use it for movement that physics must see. |
 | `onLateUpdate(dt)` | After all updates. Use it for cameras that follow targets. |
 | `onDestroy()` | Before the entity is removed. |
@@ -353,11 +365,12 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | Import | Members |
 |---|---|
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, props})`, `spawnPrefab(path, {position, rotation, scale, parent, props, overrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
-| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`) |
+| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
+| `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
-| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 pauses gameplay); `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
-| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused`, `game.project`, `game.screenSize`; `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
+| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
+| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
@@ -585,6 +598,8 @@ export default class Jumper extends Behaviour {
 ```
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
+
+Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
 
@@ -1033,7 +1048,63 @@ export default class Dash extends Behaviour {
 - From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
 - A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
 
-### 9.22 Art, sounds and models: generate, import, ship
+### 9.22 A menu: buttons, sliders, focus and the gamepad
+
+Widgets (section 7, UI) are entities in screen space. A `Panel` with `layout: "column"` stacks its children; the first
+item has `autoFocus` so the keyboard and the gamepad work from the first frame. A scene (`scenes/menu.scene.json`) with a
+title, two buttons and a volume slider:
+
+```json
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "menu", "name": "Main menu",
+      "components": {
+        "Transform": { "position": [0, 0, 0] },
+        "Panel": { "anchor": [0.5, 0.5], "size": [360, 300], "layout": "column", "spacing": 12, "padding": [20, 20, 20, 20] } },
+      "children": [
+        { "id": "title", "components": { "Text": { "text": "My Game", "fontSize": 36, "space": "screen", "pivot": [0.5, 1] } } },
+        { "id": "play_button", "components": { "Button": { "text": "Play", "size": [260, 56], "autoFocus": true } } },
+        { "id": "volume", "components": { "Slider": { "label": "Volume", "value": 0.8, "size": [320, 44] } } },
+        { "id": "quit_button", "components": { "Button": { "text": "Quit", "size": [260, 56] } } }
+      ] }
+  ]
+}
+```
+
+```js
+// scripts/menu.js, on the "menu" entity
+import { Behaviour, ui, scene, game, audio } from "factoria";
+
+export default class Menu extends Behaviour {
+  onStart() {
+    this.on("ui.click", (data) => {
+      if (data.id === "play_button") scene.load("scenes/level1.scene.json");
+      if (data.id === "quit_button") game.quit();
+    });
+    this.on("ui.change", (data) => { if (data.id === "volume") audio.setVolume("master", data.value); });
+  }
+}
+```
+
+- **Navigation is automatic.** Up / down / left / right (keys, d-pad, left stick) move the focus to the nearest widget,
+  `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. Nothing is
+  focused until an `autoFocus` widget or `ui.focus(entity)` takes the focus, which keeps Space / A (jump) from clicking HUD
+  buttons during play. Rebind the six `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
+- **Looks.** A plain widget is a translucent dark rectangle with a label; give `texture` + `slice` (9-slice borders in
+  texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
+  `size`, `padding` and `spacing` do not change with the window size; use `anchor` and `pivot` to pin a panel to a corner
+  or the centre.
+- **Pause menu.** The UI keeps working while `time.scale` is 0: set `time.scale = 0` and show the panel (`entity.active = true`;
+  call `ui.focus("resume_button")` when it opens, the focus of an inactive panel is lost).
+- **Find and click things from outside.** `ui.state` lists every widget with its `rect` (so `game.input` can click its
+  centre), `focused` and `value`. To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,
+  `.tap("A")`, then assert on `ui.focused`, widget values or `ui.on` events (see `SCRIPTING.md`, UI).
+- **Long lists** go in a `ScrollList`: the wheel scrolls it, moving the focus to an item scrolls it into view, and
+  everything inside is clipped to its rectangle.
+
+### 9.23 Art, sounds and models: generate, import, ship
 
 Never hand-draw placeholder art pixel by pixel through `fs.write`: generate it, import it, and let the export compress
 it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
@@ -1064,9 +1135,31 @@ speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_mo
   writes it as `AI_CONTENT_DISCLOSURE.md`. Fix the "Assets without provenance" list first.
 - **Tests.** A test project uses the `fake` provider, so the check is offline and deterministic.
 
-<!-- Importing: filled by the importers work. -->
+**Importing.** A file made elsewhere (downloaded, from an artist, exported from a tool) comes in with `assets.import`
+(MCP tool `assets_import`). It copies or converts the file into `assets/` and records the provenance in `assets.json`:
 
-<!-- Shipping (compression, atlases, streamed music, loudness): filled by the texture and audio work. -->
+```
+assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
+```
+
+- **Say where it came from.** Pass `license` and `author` for anything you did not make (the credits and the store
+  disclosures read them), `ai: true` for what an AI made, and `sourceUrl` for the page you downloaded it from. A URL is
+  not read: download the file first. `path` picks the destination (a path under `assets/`, or a folder ending in `/`).
+- **Formats.** Aseprite becomes a PNG sheet with its tags as clips, PSD a PNG, OBJ (with its MTL and textures) a `.gltf`,
+  FBX a `.glb` (through FBX2glTF or Blender; the error says where to get one). Images, sounds, fonts, GLB and glTF are
+  copied. Not read: `.blend`, WebP, GIF, SVG, video. The full list is in `docs_read {"name":"assets"}`.
+- **Read `nextSteps` and `warnings`.** They hold the `Sprite` and `SpriteAnimator` fields to use for a sheet (columns,
+  rows, first and last frame, fps), the size of a model, and what could not be carried over (ping-pong tags, blend
+  modes, a missing texture).
+- **A sheet that is not a clean grid** (frames of different sizes, a solid background, as generated and downloaded
+  sheets often are): `assets_slice_sheet {"path":"assets/walk_raw.png","auto":true,"frames":8,"align":"bottom","background":"auto"}`
+  finds the sprites, repacks them into a uniform grid, writes `walk_raw_sheet.png` and returns the SpriteAnimator
+  fields. A regular grid you know: `{"path":"assets/walk.png","columns":4,"rows":2}` checks it against the image and
+  records it.
+
+<!-- Shipping (compression, atlases): filled by the texture work. -->
+
+Audio ships with three import settings (`assets.json`, `docs_read {"name":"assets"}` "Import settings > Audio"): `stream` (`auto` streams sounds over 10 seconds; `always`/`never` force it), `normalize` with `targetLufs` (play every sound at the same loudness, default -16 LUFS) and `convert: "qoa"` (the export ships WAV files as `<path>.qoa`, about 5 times smaller; scenes and scripts keep the `.wav` name). Run `assets.analyze_audio` once after adding sounds: it measures their loudness and keeps the result in `assets.json` (needed on mobile, where the engine never measures), and `project_validate` warns about clipped, very loud, very quiet and unevenly loud sounds.
 
 ## 10. Tests
 

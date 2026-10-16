@@ -7,10 +7,11 @@
 # checkout before it is uploaded.
 #
 # Updates: the packages are built with FA_UPDATE_REPO set to this repository, so their editor offers each newer
-# release when it opens, with the release notes (edit them on the release page), and installs it in place
+# release when it opens, with the release notes (the version's section of CHANGELOG.md), and installs it in place
 # (tools/editor/src/update.cpp). It looks for these exact names: FactorIA-<os>.zip / .tar.gz with one FactorIA/
 # folder inside. The names carry no version, so releases/latest/download/FactorIA-<os>.zip always is the newest.
-# Bump project(VERSION) in CMakeLists.txt before tagging: the tag must match `factoria version`.
+# Bump project(VERSION) in CMakeLists.txt before tagging: the tag must match `factoria version`. Write the version's
+# section in CHANGELOG.md in the same pull request: the release fails without it.
 #
 # A release holds (docs/GETTING_STARTED.md, "Download"):
 #   FactorIA-windows-x64.zip          the Windows package; the editor's updater uses it, also for an installed copy
@@ -508,7 +509,21 @@ jobs:
       - name: Keep the old macOS package name for older editors
         run: cp dist/FactorIA-macos-universal.tar.gz dist/FactorIA-macos-arm64.tar.gz
 
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
+      # The notes are what people who make games read in the editor's update dialog: the version's section of
+      # CHANGELOG.md, not the list of pull requests.
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "FactorIA $GITHUB_REF_NAME" --generate-notes
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '/^## /{p = ($2 == v); next} p' src/CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no '## ${GITHUB_REF_NAME#v}' section: write what changed for people who make games, merge it, then tag again"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "FactorIA $GITHUB_REF_NAME" --notes-file notes.md

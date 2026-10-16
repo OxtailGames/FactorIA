@@ -223,7 +223,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
                              "scene.destroy", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
                              "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
-                             "game.pause", "game.resume", "audio.log", "script.eval", "script.errors", "script.reload", "project.test", "physics.raycast", "physics.shape_cast",
+                             "game.pause", "game.resume", "audio.log", "ui.state", "script.eval", "script.errors", "script.reload", "project.test", "physics.raycast", "physics.shape_cast",
                              "api.components", "api.commands", "api.scripting", "assets.list"}) {
         INFO(name);
         const CommandInfo* info = c.info(name);
@@ -1138,4 +1138,72 @@ TEST_CASE("engine: screenshot after a change without stepping shows the change")
         CHECK(ia->rgba != ib->rgba);
         e.shutdown();
     }
+}
+
+TEST_CASE("engine: game.paused freezes physics, animators and onUpdate; runWhilePaused behaviours keep the real dt") {
+    const char* scene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "ball", "components": { "Transform": { "position": [0, 60, 0] },
+                                    "Shape2D": { "shape": "circle", "size": [20, 20] },
+                                    "RigidBody2D": {}, "Collider2D": { "shape": "circle", "radius": 10 } } },
+    { "id": "flip", "components": { "Sprite": { "size": [8, 8] },
+                                    "SpriteAnimator": { "columns": 4, "lastFrame": 3, "fps": 10 } } },
+    { "id": "game", "components": { "Script": { "path": "scripts/game.js" } } },
+    { "id": "menu", "components": { "Script": { "path": "scripts/menu.js" } } }
+  ]
+})";
+    TempProject p("pause", kProject, scene);
+    p.write("scripts/game.js", "import { Behaviour } from 'factoria';\n"
+                               "export default class Game extends Behaviour { updates = 0; onUpdate() { this.updates++; } }\n");
+    p.write("scripts/menu.js", "import { Behaviour, time } from 'factoria';\n"
+                               "export default class Menu extends Behaviour {\n"
+                               "  runWhilePaused = true; updates = 0; lastDt = 0; timeDt = -1; unscaled = 0;\n"
+                               "  onUpdate(dt) { this.updates++; this.lastDt = dt; this.timeDt = time.dt; this.unscaled = time.unscaledDt; }\n"
+                               "}\n");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto num = [&](const char* code) { return e.scripts().eval(code).value().get<double>(); };
+    e.step(10);
+    CHECK(num("world.find('game').behaviour.updates") == 10);
+    CHECK(num("world.find('menu').behaviour.updates") == 10);
+    const double y0 = entity_y(e.state(), "ball");
+    const double anim0 = num("world.find('flip').get('SpriteAnimator').time");
+    REQUIRE(e.scripts().eval("game.paused = true").ok());
+    e.step(30);
+    CHECK(entity_y(e.state(), "ball") == y0);                                     // physics frozen
+    CHECK(num("world.find('flip').get('SpriteAnimator').time") == anim0);         // animators frozen
+    CHECK(num("world.find('game').behaviour.updates") == 10);                     // gameplay onUpdate stopped
+    CHECK(num("world.find('menu').behaviour.updates") == 40);                     // runWhilePaused keeps going
+    CHECK(num("world.find('menu').behaviour.lastDt") == doctest::Approx(1.0 / 60.0));  // with the real dt
+    CHECK(num("world.find('menu').behaviour.timeDt") == 0);
+    CHECK(num("world.find('menu').behaviour.unscaled") == doctest::Approx(1.0 / 60.0));
+    REQUIRE(e.scripts().eval("game.paused = false").ok());
+    e.step(10);
+    CHECK(entity_y(e.state(), "ball") < y0);
+    CHECK(num("world.find('game').behaviour.updates") == 20);
+    CHECK(e.state()["scriptErrors"].empty());
+    e.shutdown();
+}
+
+TEST_CASE("engine: game.notices() lists the runtime's third-party parts for a credits screen") {
+    TempProject p("notices");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    Json n = e.scripts().eval("game.notices()").value();
+    REQUIRE(n.is_array());
+    REQUIRE(n.size() > 5);
+    CHECK(n[0]["name"] == "FactorIA");
+    CHECK(n[0]["license"] == "MIT");
+    bool tools = false;
+    for (const Json& c : n) {
+        CHECK(c["url"].get<std::string>().rfind("https://", 0) == 0);
+        CHECK_FALSE(c["usedFor"].get<std::string>().empty());
+        if (c["name"] == "Dear ImGui") tools = true;  // editor only: not in games
+    }
+    CHECK_FALSE(tools);
+    e.shutdown();
 }
