@@ -143,13 +143,9 @@ project and which is not part of the game).
 
 Stores ask whether a game contains AI-generated content (Steam's content survey, and similar forms elsewhere). When any
 asset in `assets.json` has `provenance.ai: true`, the export writes `AI_CONTENT_DISCLOSURE.md` at the top of
-`<out>/<game-slug>-<platform>/`, next to the game and not inside it, and adds a line to `nextSteps`. It lists the
-pre-generated AI assets by category (art, sound effects, music, voice, 3D models) with the providers and models that made
-them, states that nothing is generated at run time, repeats the terms recorded for each provider, and names the art, sound
-and model files that have no provenance record yet, which the text cannot answer for. It is for you to read and paste
-into the store form; leave it out of what you ship if you like. `assets.disclosure` returns the same text at any time.
-No AI assets, no file. Records come from the `assets.generate_*` commands and `assets.set_provenance`
-([ASSETS.md](ASSETS.md#provenance-and-store-disclosure)).
+`<out>/<game-slug>-<platform>/`, next to the game and not inside it, and adds a line to `nextSteps`. It is for you to read
+and paste into the store form; leave it out of what you ship if you like. No AI assets, no file. What it says, where the
+records come from and `assets.disclosure` are in [ASSETS.md](ASSETS.md#provenance-and-store-disclosure).
 
 ## Setting up this computer
 
