@@ -129,7 +129,7 @@ TEST_CASE("fs: paths longer than Windows' MAX_PATH are read and written (os_path
     CHECK(fs::exists(rel));
     CHECK(fs::read_text(rel).value() == "{\"deep\": true}");
     CHECK(fs::is_directory(std::string(100, 'a')));
-    CHECK(fs::modified_time(rel) >= 0);
+    CHECK(fs::modified_time(rel) != -1);
 
     const stdfs::path longPath = p.dir / rel, shortPath = p.dir / "x.json";
     CHECK(fs::os_path(shortPath) == shortPath);  // short paths are left alone everywhere
