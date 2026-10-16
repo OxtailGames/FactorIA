@@ -255,6 +255,9 @@ or simulator), like the `ios` presets, and CMake's Xcode generator (3.24) cannot
 `arm64` and `x86_64`. The iOS libraries are not in the Windows and Linux packages (iOS cannot be built there), so export
 for iOS on a Mac. **Source**: the export holds only `game/` and `build_ios.sh`, which runs CMake on the engine checkout.
 
+`build_ios.sh` runs the CMake named by `FACTORIA_CMAKE` when it is set, else the CMake 3.24+ the export found
+(`factoria setup cmake` installs one when there is none), else `cmake` from `PATH`.
+
 Direct use of the engine checkout (no export):
 
 ```bash
