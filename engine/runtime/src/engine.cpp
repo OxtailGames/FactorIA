@@ -178,6 +178,7 @@ void Engine::Impl::draw(double dt) {
 
 void Engine::Impl::render(double dt) {
     if (!renderer) return;
+    dt *= scripts.time_scale();  // particles and sprite animators follow time.scale: frozen while paused
     update_visuals(*renderer, world, float(dt));
     if (cfg.renderMode == RenderMode::OnDemand && !windowed) {
         renderStale = true;
@@ -220,7 +221,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
             }
         } else if (has_ext(p, {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})) {
             if (renderer) renderer->reload_asset(p);
-        } else if (has_ext(p, {".wav", ".ogg", ".mp3"})) {
+        } else if (has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) {
             audio.reload_clip(p);
         }
     }
@@ -236,7 +237,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     for (int i = 0; i < fixedSteps; ++i) {
         physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
         scripts.fixed_update(fdt);
-        physics.step(world, fdt);
+        // time.scale (game.paused = 0) slows or freezes the simulation, not only the scripts.
+        const double scale = scripts.time_scale();
+        if (scale > 0.0) physics.step(world, float(fixedDt * scale));
         scripts.dispatch_events();
         world.advance_clock(fixedDt);
         ++fixedStep;

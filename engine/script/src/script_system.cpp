@@ -721,7 +721,9 @@ void ScriptSystem::update(float dt) {
     float scaled = static_cast<float>(dt * impl_->timeScale);
     if (impl_->timeScale > 0.0) {
         impl_->call_method("timers", "", impl_->hooks.get(), "tick", {JS_NewFloat64(impl_->ctx, scaled)});
-        impl_->run_callbacks("onUpdate", scaled, true);
+        impl_->run_callbacks("onUpdate", scaled, false);
+    } else {
+        impl_->run_callbacks("onUpdate", dt, true);  // paused: only runWhilePaused behaviours, with the real dt
     }
     impl_->run_jobs();
 }
@@ -729,13 +731,14 @@ void ScriptSystem::update(float dt) {
 void ScriptSystem::fixed_update(float dt) {
     if (!impl_->initialized) return;
     impl_->sync();
-    if (impl_->timeScale > 0.0) impl_->run_callbacks("onFixedUpdate", static_cast<float>(dt * impl_->timeScale), true);
+    if (impl_->timeScale > 0.0) impl_->run_callbacks("onFixedUpdate", static_cast<float>(dt * impl_->timeScale), false);
     impl_->run_jobs();
 }
 
 void ScriptSystem::late_update(float dt) {
     if (!impl_->initialized) return;
-    if (impl_->timeScale > 0.0) impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * impl_->timeScale), true);
+    if (impl_->timeScale > 0.0) impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * impl_->timeScale), false);
+    else impl_->run_callbacks("onLateUpdate", dt, true);
     impl_->run_jobs();
 }
 
@@ -804,6 +807,8 @@ std::vector<std::string> ScriptSystem::check_hooks(std::string_view modulePath) 
 
 Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
 std::string ScriptSystem::typescript_declarations() const { return impl_->typescript_declarations(); }
+
+double ScriptSystem::time_scale() const { return impl_->timeScale; }
 
 Json ScriptSystem::stats() const {
     const auto& I = *impl_;

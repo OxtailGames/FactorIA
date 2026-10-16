@@ -1,0 +1,147 @@
+// Export: audio conversion to QOA and the loudness baked into the shipped assets.json (tools/common/src/export_audio.cpp).
+#include <doctest.h>
+
+#include <cmath>
+#include <filesystem>
+
+#include "fa/audio/audio.h"
+#include "fa/core/fs.h"
+#include "fa/core/hash.h"
+#include "fa/core/json.h"
+#include "fa/core/log.h"
+#include "fa/tooling/export.h"
+#include "fa/tooling/scaffold.h"
+#include "audio_test_wav.h"
+#include "test_helpers.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+using testing::sine_wav;
+
+namespace {
+
+struct ExportFixture {
+    testing::TempDir tmp;
+    std::string proj = tmp.sub("proj");
+    std::string player = tmp.sub("fake_player/factoria_player");
+    ExportFixture() {
+        auto r = create_project(proj, "2d-platformer");
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        testing::write_all(player, "#!/bin/sh\nexit 0\n");
+    }
+    stdfs::path game() { return tmp.path / "out/proj-linux/game"; }
+    Result<ExportReport> export_linux() {
+        ExportOptions o;
+        o.projectDir = proj;
+        o.platform = "linux";
+        o.outDir = tmp.sub("out");
+        o.playerBinary = player;
+        return export_project(o);
+    }
+    void write(const std::string& rel, const std::string& data) { testing::write_all(stdfs::path(proj) / rel, data); }
+    Json shipped_assets() { return *parse_json(testing::read_all(game() / "assets.json")); }
+};
+
+bool mentions(const ExportReport& r, const std::string& text) {
+    for (const std::string& w : r.warnings)
+        if (w.find(text) != std::string::npos) return true;
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("export: convert qoa ships WAV files as <path>.qoa and bakes the loudness of what ships") {
+    ExportFixture f;
+    const std::string wav = sine_wav(3.0, -20.0);
+    f.write("assets/hit.wav", wav);
+    f.write("assets/keep.wav", sine_wav(1.0, -20.0));
+    f.write("assets/many.wav", sine_wav(1.0, -20.0, 9));  // QOA holds 8 channels at most
+    f.write("assets.json", R"({"format": "factoria.assets/1", "assets": {
+        "assets/hit.wav": {"import": {"convert": "qoa", "normalize": true, "targetLufs": -16}},
+        "assets/many.wav": {"import": {"convert": "qoa"}}}})");
+
+    auto r = f.export_linux();
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK_FALSE(stdfs::exists(f.game() / "assets/hit.wav"));
+    REQUIRE(stdfs::exists(f.game() / "assets/hit.wav.qoa"));
+    const std::string qoa = testing::read_all(f.game() / "assets/hit.wav.qoa");
+    CHECK(qoa.size() < wav.size() / 4);
+    CHECK(stdfs::exists(f.game() / "assets/keep.wav"));  // not asked for
+    CHECK(stdfs::exists(f.game() / "assets/many.wav"));  // could not be converted: ships as it is, and says so
+    CHECK(mentions(*r, "assets/many.wav"));
+
+    const Json shipped = f.shipped_assets();
+    const Json& analysis = shipped["assets"]["assets/hit.wav"]["analysis"];  // keyed by the original path, stamped with the twin
+    CHECK(analysis["sha256"] == sha256_hex(qoa));
+    CHECK(analysis["bytes"] == qoa.size());
+    CHECK(analysis["loudnessLufs"].get<double>() == doctest::Approx(-20.0).epsilon(0.5 / 20.0));
+    CHECK_FALSE(shipped["assets"].contains("assets/keep.wav"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(f.proj) / "assets/hit.wav.qoa"));  // the project is not touched
+    CHECK(testing::read_all(stdfs::path(f.proj) / "assets/hit.wav") == wav);
+
+    // the conversion is cached by content: a second export reads it instead of encoding again
+    const stdfs::path cached = stdfs::path(f.proj) / ".factoria/export-cache/linux/audio" / (sha256_hex(wav) + ".qoa");
+    REQUIRE(stdfs::exists(cached));
+    const auto stamp = stdfs::last_write_time(cached);
+    auto again = f.export_linux();
+    REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
+    CHECK(stdfs::last_write_time(cached) == stamp);
+    CHECK(testing::read_all(f.game() / "assets/hit.wav.qoa") == qoa);
+}
+
+TEST_CASE("export: the shipped game plays the twin, normalized from the baked loudness without measuring") {
+    ExportFixture f;
+    f.write("assets/hit.wav", sine_wav(3.0, -20.0));
+    f.write("assets.json", R"({"format": "factoria.assets/1", "assets": {"assets/hit.wav": {"import": {
+        "convert": "qoa", "normalize": true, "targetLufs": -16, "stream": "always"}}}})");
+    auto r = f.export_linux();
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+
+    const stdfs::path saved = fs::project_root();
+    fs::set_project_root(f.game());
+    clear_recent_logs();
+    Audio audio;
+    std::string err;
+    REQUIRE(audio.init(false, &err));
+    REQUIRE(audio.load("assets/hit.wav"));  // the file is not there: its twin is
+    audio.start_recording();
+    CHECK(audio.play("assets/hit.wav") != 0);
+    for (int i = 0; i < 60; ++i) audio.advance_null_device(1.0 / 60.0);
+    REQUIRE(audio.stop_recording(f.tmp.sub("rec.wav"), &err));
+    audio.shutdown();
+    bool measured = false;
+    for (const LogEntry& line : recent_logs(50, LogLevel::Info)) measured |= line.message.find("measured") != std::string::npos;
+    fs::set_project_root(saved);
+
+    const std::string wav = testing::read_all(f.tmp.sub("rec.wav"));
+    REQUIRE(wav.size() > 44);
+    float peak = 0;  // 16-bit stereo after the header
+    for (std::size_t i = 44; i + 1 < wav.size(); i += 2)
+        peak = std::max(peak, std::fabs(float(std::int16_t(std::uint8_t(wav[i]) | (std::uint8_t(wav[i + 1]) << 8))) / 32768.0f));
+    CHECK(peak == doctest::Approx(0.1f * 1.585f).epsilon(0.08));  // -20 dBFS peak, +4 dB to reach -16 LUFS
+    CHECK_FALSE(measured);
+}
+
+TEST_CASE("export: normalize bakes the loudness of lossy and unconverted sounds too, and says what it cannot measure") {
+    ExportFixture f;
+    const std::string mp3 = testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine/audio/tests/fixtures/tone_12s.mp3");
+    REQUIRE(!mp3.empty());
+    f.write("assets/tone.mp3", mp3);
+    f.write("assets/plain.wav", sine_wav(1.0, -20.0));
+    f.write("assets/broken.ogg", "not an ogg");
+    f.write("assets.json", R"({"format": "factoria.assets/1", "defaults": {"audio": {"convert": "qoa"}}, "assets": {
+        "assets/tone.mp3": {"import": {"normalize": true, "convert": "qoa"}},
+        "assets/plain.wav": {"import": {"normalize": true}},
+        "assets/broken.ogg": {"import": {"normalize": true}}}})");
+    auto r = f.export_linux();
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const Json shipped = f.shipped_assets();
+    CHECK(stdfs::exists(f.game() / "assets/tone.mp3"));  // lossy files are never converted
+    CHECK(shipped["assets"]["assets/tone.mp3"]["analysis"]["sha256"] == sha256_hex(mp3));
+    CHECK(mentions(*r, "assets/tone.mp3"));               // it asked for convert, and the export says it was not done
+    CHECK(shipped["assets"]["assets/plain.wav"]["analysis"]["loudnessLufs"].get<double>() ==
+          doctest::Approx(-20.0).epsilon(0.5 / 20.0));
+    CHECK(stdfs::exists(f.game() / "assets/plain.wav.qoa"));  // defaults.audio.convert applies to every WAV
+    CHECK_FALSE(shipped["assets"]["assets/broken.ogg"].contains("analysis"));
+    CHECK(mentions(*r, "assets/broken.ogg"));
+}

@@ -138,6 +138,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
+| `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.22). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
@@ -325,7 +326,7 @@ A behaviour is an ES module whose default export extends `Behaviour`. All method
 | Method | When it runs |
 |---|---|
 | `onStart()` | Once, before the first update. `props` are already applied. |
-| `onUpdate(dt)` | Every frame. `dt` is in seconds, scaled by `time.scale`. |
+| `onUpdate(dt)` | Every frame. `dt` is in seconds, scaled by `time.scale`. While `time.scale` is 0 (`game.paused`) only behaviours with the class field `runWhilePaused = true` get it, with the real `dt` (pause menus). |
 | `onFixedUpdate(dt)` | Every fixed step, before physics. Use it for movement that physics must see. |
 | `onLateUpdate(dt)` | After all updates. Use it for cameras that follow targets. |
 | `onDestroy()` | Before the entity is removed. |
@@ -354,8 +355,8 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`) |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
-| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 pauses gameplay); `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
-| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused`, `game.project`, `game.screenSize`; `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
+| `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
+| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
@@ -583,6 +584,8 @@ export default class Jumper extends Behaviour {
 ```
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
+
+Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.22).
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
 
@@ -1038,15 +1041,40 @@ it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
 
 <!-- Generating: filled by the asset-providers work. -->
 
-<!-- Importing: filled by the importers work. -->
+**Importing.** A file made elsewhere (downloaded, from an artist, exported from a tool) comes in with `assets.import`
+(MCP tool `assets_import`). It copies or converts the file into `assets/` and records the provenance in `assets.json`:
 
-Shipping textures: a mobile `factoria export` compresses every texture to a KTX2 twin (`assets/hero.png.ktx2` replaces
+```
+assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
+```
+
+- **Say where it came from.** Pass `license` and `author` for anything you did not make (the credits and the store
+  disclosures read them), `ai: true` for what an AI made, and `sourceUrl` for the page you downloaded it from. A URL is
+  not read: download the file first. `path` picks the destination (a path under `assets/`, or a folder ending in `/`).
+- **Formats.** Aseprite becomes a PNG sheet with its tags as clips, PSD a PNG, OBJ (with its MTL and textures) a `.gltf`,
+  FBX a `.glb` (through FBX2glTF or Blender; the error says where to get one). Images, sounds, fonts, GLB and glTF are
+  copied. Not read: `.blend`, WebP, GIF, SVG, video. The full list is in `docs_read {"name":"assets"}`.
+- **Read `nextSteps` and `warnings`.** They hold the `Sprite` and `SpriteAnimator` fields to use for a sheet (columns,
+  rows, first and last frame, fps), the size of a model, and what could not be carried over (ping-pong tags, blend
+  modes, a missing texture).
+- **A sheet that is not a clean grid** (frames of different sizes, a solid background, as generated and downloaded
+  sheets often are): `assets_slice_sheet {"path":"assets/walk_raw.png","auto":true,"frames":8,"align":"bottom","background":"auto"}`
+  finds the sprites, repacks them into a uniform grid, writes `walk_raw_sheet.png` and returns the SpriteAnimator
+  fields. A regular grid you know: `{"path":"assets/walk.png","columns":4,"rows":2}` checks it against the image and
+  records it.
+
+**Shipping textures.** A mobile `factoria export` compresses every texture to a KTX2 twin (`assets/hero.png.ktx2` replaces
 `assets/hero.png`; names in scenes and scripts do not change; import setting `compression`). Set `"atlas": "ui"` in a
 texture's import settings (`assets.json`) to have the export pack that group into one atlas image, for sprites and
 particles only (not tilesets or mesh textures; validate warns). `factoria run` keeps using your PNGs. Details:
 `docs/ASSETS.md` > Textures.
 
-<!-- Shipping audio (streamed music, loudness): filled by the audio work. -->
+**Shipping audio.** Audio ships with three import settings (`assets.json`, `docs_read {"name":"assets"}` "Import
+settings > Audio"): `stream` (`auto` streams sounds over 10 seconds; `always`/`never` force it), `normalize` with
+`targetLufs` (play every sound at the same loudness, default -16 LUFS) and `convert: "qoa"` (the export ships WAV files
+as `<path>.qoa`, about 5 times smaller; scenes and scripts keep the `.wav` name). Run `assets.analyze_audio` once after
+adding sounds: it measures their loudness and keeps the result in `assets.json` (needed on mobile, where the engine
+never measures), and `project_validate` warns about clipped, very loud, very quiet and unevenly loud sounds.
 
 ## 10. Tests
 
