@@ -342,6 +342,7 @@ void Impl::reset_for_test_file() {
     reset_modules();
     storage = Json::object();
     storageLoaded = true;
+    if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
     call_method("reset session", "", hooks.get(), "resetSession", {});
     if (fs::exists(scene)) {
         std::string err = host->load_scene_now(scene);

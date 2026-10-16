@@ -194,9 +194,11 @@ public:
 
     void set_catalog(PlatformCatalog catalog);
     const PlatformCatalog& catalog() const;
-    // Replaces the backend (the default is "none"): requests still pending on the old one are dropped.
-    void set_backend(std::unique_ptr<PlatformBackend> backend);
+    // Replaces the backend (the default is "none"): requests still pending on the old one are dropped. `why` says in a
+    // sentence why this backend runs (the `platform.*` commands quote it when they refuse to act on a real store).
+    void set_backend(std::unique_ptr<PlatformBackend> backend, std::string why = {});
     PlatformBackend& backend() const;
+    const std::string& backend_why() const { return why_; }
     FakeBackend* fake() const;  // the backend when it is the fake, else nullptr
     bool has_service(const std::string& service) const;
 
@@ -231,6 +233,7 @@ public:
 private:
     std::shared_ptr<PlatformSink::State> state_;
     std::unique_ptr<PlatformBackend> backend_;
+    std::string why_;
 };
 
 }  // namespace fa

@@ -371,7 +371,10 @@ struct PlatformSink::State {
                 pid = it->get<std::string>();
                 break;
             }
-        if (!pid.empty()) o["productId"] = product_id_from(pid);
+        if (pid.empty()) return;
+        o["productId"] = product_id_from(pid);
+        o.erase("id");  // the store's name for the product: the game gets the catalog's, as productId
+        o.erase("storeId");
     }
 
     void remember(const Json& o) {
@@ -525,7 +528,7 @@ void PlatformServices::set_catalog(PlatformCatalog catalog) {
 
 const PlatformCatalog& PlatformServices::catalog() const { return state_->catalog; }
 
-void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend) {
+void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend, std::string why) {
     if (!backend) backend = make_none_backend();
     {
         std::lock_guard<std::mutex> lock(state_->mutex);
@@ -537,6 +540,7 @@ void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend) {
         state_->services = backend->services();
     }
     backend_ = std::move(backend);
+    why_ = std::move(why);
     backend_->attach(sink());
 }
 

@@ -1752,6 +1752,38 @@ NATIVE(pluginCall) {  // (plugin, function, args array) -> {ok, result} | {ok: f
     return o;  // unreachable: the prelude only calls the functions pluginList returned
 }
 
+// ---- platform services (fa/services/platform.h; the `platform` object of the prelude) ------------------------------
+NATIVE(platformStart) {  // (method, args) -> {id, answer?} | {mistake: {message, hint}}
+    SETUP;
+    const std::string method = arg_str(ctx, argc, argv, 0);
+    Json args = argc > 1 ? I->to_json(argv[1]) : Json::object();
+    if (args.is_null()) args = Json::object();
+    PlatformServices* services = I->host->platform_services();
+    JSValue o = JS_NewObject(ctx);
+    if (!services) {
+        JS_SetPropertyStr(ctx, o, "mistake", I->from_json(Json::object({{"message", "this run has no platform services"}, {"hint", ""}})));
+        return o;
+    }
+    auto started = services->start(method, args);
+    if (!started.ok()) {
+        JS_SetPropertyStr(ctx, o, "mistake", I->from_json(Json::object({{"message", started.error().message}, {"hint", started.error().hint}})));
+        return o;
+    }
+    JS_SetPropertyStr(ctx, o, "id", JS_NewFloat64(ctx, static_cast<double>(started->id)));
+    if (started->answer) JS_SetPropertyStr(ctx, o, "answer", I->from_json(platform_answer_json(*started->answer)));
+    return o;
+}
+
+NATIVE(platformInfo) {  // {backend, services, player: {id, name, signedIn}, pending}
+    SETUP;
+    PlatformServices* services = I->host->platform_services();
+    if (services) return I->from_json(services->info());
+    return I->from_json(Json::object({{"backend", "none"},
+                                      {"services", Json::array()},
+                                      {"player", Json::object({{"id", ""}, {"name", ""}, {"signedIn", false}})},
+                                      {"pending", 0}}));
+}
+
 // ---- test helpers -------------------------------------------------------------------------------------------------
 NATIVE(testLoad) {
     SETUP;
@@ -1899,7 +1931,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
+    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R
