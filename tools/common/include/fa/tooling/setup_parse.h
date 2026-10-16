@@ -39,14 +39,26 @@ struct SdkArchive {
 };
 
 struct SdkRepositoryInfo {
-    std::string cmdlineToolsRevision;  // "23.0"
-    SdkArchive cmdlineTools;           // the archive of `cmdline-tools;latest` for the host
+    std::string cmdlineToolsPackage;   // "cmdline-tools;22.0" (kSetupAndroidCmdlineTools) or "cmdline-tools;latest" (the fallback)
+    std::string cmdlineToolsRevision;  // "22.0"
+    bool cmdlineToolsPinned = false;   // the archive is kSetupAndroidCmdlineTools: the classic, Java-based sdkmanager
+    SdkArchive cmdlineTools;           // the archive of that package for the host
     SetupLicense license;              // the android-sdk-license text
+    std::vector<std::string> warnings; // what the user should know, e.g. that the pinned package was gone and `latest` is used
 };
 
-// `hostOs` is "macos" | "windows" | "linux", `hostArch` "aarch64" | "x64". The Error says what the listing lacks (a new
-// layout of the XML, or no archive for this OS and CPU).
+// `hostOs` is "macos" | "windows" | "linux", `hostArch` "aarch64" | "x64". Prefers the package kSetupAndroidCmdlineTools; only
+// when the listing has no such package (or it is obsolete, or has no archive for this OS and CPU) the package
+// kSetupAndroidCmdlineToolsFallback is used instead, and `warnings` says why. The Error says what the listing lacks (a new
+// layout of the XML, or no archive for this OS and CPU). Checksum (SHA-1) and download address are checked the same way
+// for either package.
 Result<SdkRepositoryInfo> parse_sdk_repository(std::string_view xml, const std::string& hostOs, const std::string& hostArch);
+
+// What the Android SDK tools write into <sdk>/licenses/<id> once a license is accepted: the SHA-1 (hex) of the license text
+// as the tools read it from the repository XML (whitespace of the XML layout normalised the way their TrimStringAdapter does:
+// indentation dropped, a lone line break becomes a space, runs of spaces become one, ends trimmed). The file holds one such
+// line per accepted text ("\n<hash>" appended). Pass SetupLicense::text.
+std::string sdk_license_hash(std::string_view text);
 
 // Replaces &amp; &lt; &gt; &quot; &apos; and numeric references.
 std::string decode_xml_entities(std::string_view text);
