@@ -3,7 +3,7 @@
 One script API, `platform`, for what a store gives a game: **achievements**, **stats**, **leaderboards**, **cloud
 saves**, **in-app purchases**, the store **overlay** and **rich presence**. A game is written once against it; a backend
 decides what answers: the **fake** store (development and every test), **none** (an exported game that has no store
-plugin), or a store SDK that a native plugin wraps (Steam, Apple: later M12 packages).
+plugin), or a store SDK that a native plugin wraps (Steam: [below](#steam-steamworks); Apple: a later M12 package).
 
 ```js
 import { platform } from "factoria";
@@ -195,7 +195,7 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 |---|---|
 | `fake` | Done. Development and tests. |
 | `none` | Done. Exported games without a store plugin. |
-| Steam (Steamworks) | Coming in the next M12 packages. |
+| Steam (Steamworks) | Done: the `steam` plugin, [below](#steam-steamworks). |
 | Apple (StoreKit 2 and Game Center) | Coming in the next M12 packages. |
 
 ### Store backends: one command sets them up
@@ -206,6 +206,174 @@ factoria.json already declares it, builds it for this computer with CMake (the C
 none), and adds what that store needs. Running it again keeps what is there. Its result lists what it did (`done`) and
 what only a person can do (`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which
 arguments it reads.
+
+### Steam (Steamworks)
+
+The `steam` plugin (`platforms/plugins/steam` in the engine, the `"steam"` template of `project.new_plugin`) answers the
+game's `platform.*` calls with Valve's Steamworks API: achievements, stats, leaderboards, Steam Cloud, DLC purchases, the
+overlay and rich presence. It holds **no Valve code or header**: it loads Valve's redistributable library at run time and
+calls its flat C API.
+
+**Set it up** with one call, then `factoria run`:
+
+```bash
+factoria call platform.add_backend '{"backend": "steam", "sdk": "~/Downloads/steamworks_sdk_162.zip"}'
+```
+
+It writes `plugins/steam/` from the template and declares it for Windows, macOS and Linux, builds it with CMake for this
+computer, copies Valve's three libraries from the SDK next to it, and writes `steam_appid.txt` (see below). Running it
+again keeps what is there. The Steamworks SDK is a download from Valve (partner.steamgames.com/downloads/list, a free
+Steamworks account); its license does not let FactorIA ship its files, so you supply them.
+
+| Argument | Meaning |
+|---|---|
+| `sdk` | The SDK as a folder or its `steamworks_sdk_*.zip` (relative paths start in the project folder, `~/` works). Without it the build is made and the libraries are a `nextSteps` item. |
+| `appId` | Your game's Steam app id for `steam_appid.txt`. Without it an existing file is kept, else it gets **480**, Valve's test app. |
+
+By hand (what `plugins/steam/README.md` describes): `project.new_plugin {"name": "steam", "template": "steam"}`, build the plugin,
+copy the library of each platform next to the plugin's, write `steam_appid.txt`.
+
+| Platform | Plugin (built for it) | Valve's library, in the same folder |
+|---|---|---|
+| Windows | `windows/steam.dll` | `steam_api64.dll` (SDK: `redistributable_bin/win64/`) |
+| macOS | `macos/libsteam.dylib` | `libsteam_api.dylib` (`redistributable_bin/osx/`) |
+| Linux | `linux/libsteam.so` | `libsteam_api.so` (`redistributable_bin/linux64/`) |
+
+The plugin was written against the flat API of **Steamworks SDK 1.58 to 1.64** and finds the interfaces by their versioned
+names; a library from an SDK it does not know is refused with a message that says so. Only the 64-bit libraries are used.
+The export copies the plugin's whole folder for the platform, so Valve's library ships next to it.
+
+**steam_appid.txt.** In development Steam learns which game this is from a `steam_appid.txt` (a number) in the project
+folder. `add_backend` writes **480** (Spacewar, Valve's test app: any Steam account can run it, and it has achievements,
+stats and a leaderboard to try). For your own game put its app id there and sign in to an account that owns it. The
+plugin hands the number to Steam; **`factoria export` never copies `steam_appid.txt`**, because a game started from the
+Steam client gets its app id from Steam, and a shipped file would make it run as the wrong game. (A shipped game that is
+started outside Steam cannot start Steam and runs without platform services.)
+
+**Starting.** When the plugin loads it opens the library, starts Steam (`SteamAPI_InitFlat`, `SteamAPI_Init` on an older
+library), and takes over Steam's callbacks (manual dispatch: it calls Steam once per engine frame itself, never
+`SteamAPI_RunCallbacks`). `SteamAPI_Shutdown` runs when the process ends (not on Windows, where the DLL's exit handlers run
+after Steam's own DLL is gone; Steam notices the process ending, and stats are stored every frame anyway). When Steam
+cannot start (it is not running, there is no app id, the library is missing or from another SDK) the plugin **logs why, with
+what to do**, and the game falls back: the fake backend in a development run, **none** in an exported game.
+`factoria call platform.state` shows the backend and `why`; `factoria call steam.status` shows what the plugin found (app id and
+where it came from, player, library and interface versions, overlay, Cloud).
+
+Every engine that loads the plugin starts Steam, because a plugin cannot know which backend the engine will pick: that includes
+`factoria test`, `factoria call` and the MCP server on a game that declares it. They still answer `platform.*` with the fake
+store and never touch Steam's data, but a running Steam client shows you as playing the game, and a computer without Steam
+(CI) logs the warning above (only a log line: the run goes on with the fake store).
+
+**Catalog ids** (`ids.steam` of each entry in `factoria.json`, section 1):
+
+| Catalog | `ids.steam` is | Without it |
+|---|---|---|
+| achievements | the achievement's **API Name** (Steamworks partner site, App Admin > Stats & Achievements), e.g. `ACH_WIN_ONE_GAME` | the catalog `id` |
+| stats | the stat's **API Name**; its type there (int or float) must be the catalog's `type` | the catalog `id` |
+| leaderboards | the leaderboard's name; created on first use with the catalog's `order` when it does not exist | the catalog `id` |
+| products | the **app id of the DLC** (the number in its store page's URL) | not a DLC: the product is left out and a warning says how to fix it |
+
+**What each call does on Steam**
+
+| Call | On Steam |
+|---|---|
+| `signIn()` | `{ id: SteamID, name: persona name, signedIn: whether Steam is online }`. |
+| `achievements.unlock(id)` | `SetAchievement` then `StoreStats`; `newly` is false when Steam had it. |
+| `achievements.progress(id, f)` | At `1` unlocks. Below it shows Steam's "n of 100" notice (`IndicateAchievementProgress`); Steam keeps real progress in the stat behind the achievement, so set that stat too. |
+| `achievements.list()` | `GetAchievement` for each catalog entry (one Steam does not have shows locked, with a warning). `progress` is 0 or 1. |
+| `achievements.reset()` | `ResetAllStats` including achievements: development only. |
+| `stats.get / set` | Int and float stats. A set is stored by the next frame (several sets in a frame are one `StoreStats`; Steam limits how often it may be called). Int stats are 32-bit. |
+| `leaderboards.submit(id, score)` | Uploads keeping the player's best; `best` is what Steam kept. Scores are 32-bit. |
+| `leaderboards.entries(id, {range, count})` | `top`: ranks 1 to `count`. `around`: the player in the middle. `friends`: the player and friends (Steam gives them all; at most `count` are returned). Names are Steam persona names. |
+| `cloud.save / load / list / remove` | Steam Cloud files named `<key>.json`. Needs Cloud enabled for the app (partner site, App Admin > Cloud) and for the account; otherwise `unavailable`, saying which. A file is up to 100 MB; the app's quota applies. |
+| `purchases.products(ids?)` | Steam's DLC list for the app, by the products' `ids.steam`: `title` is the DLC's name; `price` is `""` (Steam gives a DLC's price on its store page, not here), `priceValue` null. |
+| `purchases.buy(id)` | Owned already: `purchased` with the transaction `dlc-<appid>`. Not owned: the overlay opens the DLC in a cart and the answer is `pending`; when the player owns it, a `purchase` event follows. A consumable or a subscription is `unavailable` (below). |
+| `purchases.restore()` | The non-consumable products whose DLC the player owns. |
+| `purchases.finish(txn)` | Nothing to do on Steam: resolves. |
+| `overlay.open(page, id?)` | `achievements` and `friends`: that overlay page. `store`: the DLC's store page for a product, else the game's own. `leaderboards`: the game's leaderboards page on Steam Community (Steam has no overlay page for them). `unavailable` when Steam says the overlay is off. |
+| `presence.set(text, data?)` | Rich presence: `text` is the key `status`, each `data` key is sent as it is (`connect`, `steam_display`...), and what was shown before is replaced. Steam allows 30 keys of 64 bytes with values of 256. |
+
+**Events**: `overlay` (`{open}`, Steam's `GameOverlayActivated`), `purchase` (a DLC the player got, from the overlay or another
+computer: Steam's `DlcInstalled`), `player` (Steam went online or offline).
+
+**DLC, not microtransactions.** Steam sells a game's extras as **DLC**, which is what `nonConsumable` products map to. Steam's
+other mechanism, microtransactions (`ISteamMicroTxn`), needs your own server calling Valve's web API and cannot start
+from the client, so **consumables and subscriptions are `unavailable` on Steam**, with a message that says so. Sell a
+consumable as a DLC that grants it once, or keep the shop on the stores that have it. (Steam Inventory, Steam's service for
+items, is not wrapped either.)
+
+**Limits worth knowing.** Stat and achievement changes reach Steam when stored (every frame that set one, and at exit on macOS and
+Linux); an offline player's are kept by Steam and sent later. There is no `achievements.onUnlocked` event. A Steam Cloud
+file holds the JSON text of one key. Steam Input, workshop, networking, and inventory are not wrapped.
+
+**Steam Deck.** The Deck is a Linux machine with the controller as a gamepad (the engine names its buttons like an Xbox pad).
+Today the release `factoria_player` for Linux needs glibc 2.38 and does not start in the Steam Linux Runtime "sniper" (glibc
+2.31; M13 in feedback/ROADMAP.md), so a Deck release waits for that, or ships the Windows build through Proton. **The Deck's
+on-screen keyboard for a `TextField` is not wired:** Steam's `ShowGamepadTextInput` and `ShowFloatingGamepadTextInput` would
+have to be called when a text field takes focus, and the plugin API has no hook for that (M12 "Left open" in
+feedback/ROADMAP.md). Until then players type with the keyboard Steam opens by itself (Steam button + X).
+
+**Troubleshooting.** The plugin's messages say what to do; the usual ones:
+
+| The log says | Do |
+|---|---|
+| `The Steamworks library ... was not found` | Copy Valve's library next to the plugin (`add_backend` with `sdk` does it). |
+| `Steam is not running, or the game has no app id` | Start the Steam client and sign in; check `steam_appid.txt` is in the project folder and holds a number. |
+| `The Steam client is older than the Steamworks library` | Update Steam (Steam menu > Check for Steam Client Updates), or use an older SDK's library. |
+| `has none of the interface accessors this plugin knows` | The library is from an SDK newer or older than 1.58 to 1.64: use one of those. |
+| `The Steamworks library ... cannot be loaded` | It is not the 64-bit library of this OS (or it is damaged). On macOS a library that came through a browser may be quarantined: `xattr -d com.apple.quarantine <file>`. |
+| `Steam Cloud is not enabled for app N` | Enable it in the partner site (App Admin > Cloud) and publish; for 480 it may simply be off. |
+| `The Steam overlay is not available` | In Steam: Settings > In Game > Enable the Steam Overlay. It loads a few seconds after start and needs the game to draw with a graphics API Steam hooks. |
+
+**Manual check with Valve's test app 480.** The tests of the plugin run against a mock of Steam's library (`ctest`:
+`steam_plugin_*`); this is the check against the real Steam, which needs a Steam client and a free account. Do it on each
+desktop OS you ship.
+
+1. Install Steam, sign in, leave it running. (The Deck: switch to Desktop Mode, or run it from a terminal with Steam open.)
+2. `factoria new steamcheck && cd steamcheck`, then download the Steamworks SDK zip and run
+   `factoria call platform.add_backend '{"backend": "steam", "sdk": "<the zip>"}'`. `steam_appid.txt` now holds `480`.
+3. In `factoria.json` add the catalog (Spacewar's names):
+   ```json
+   "platform": {
+     "achievements": [{ "id": "first_win", "name": "First win", "ids": { "steam": "ACH_WIN_ONE_GAME" } }],
+     "stats": [{ "id": "wins", "type": "int", "ids": { "steam": "NumWins" } }, { "id": "feet", "type": "float", "ids": { "steam": "FeetTraveled" } }],
+     "leaderboards": [{ "id": "feet_board", "name": "Feet", "ids": { "steam": "Feet Traveled" } }],
+     "backend": "steam"
+   }
+   ```
+4. `factoria call steam.status`: it prints `"appId": 480`, `"appIdFrom": "steam_appid.txt in ..."`, your Steam name, and
+   `"statsLoaded": true`. (If it fails, the log says why, see Troubleshooting.)
+5. Add `scripts/check.js` and an entity with `"Script": { "path": "scripts/check.js" }` to `scenes/main.scene.json`:
+   ```js
+   import { Behaviour, platform } from "factoria";
+   export default class Check extends Behaviour {
+     async onStart() {
+       console.log("backend", platform.backend);                                       // steam
+       console.log("player", JSON.stringify(await platform.signIn()));
+       console.log("unlock", JSON.stringify(await platform.achievements.unlock("first_win")));
+       console.log("wins", await platform.stats.add("wins", 1));
+       console.log("board", JSON.stringify(await platform.leaderboards.submit("feet_board", 1000)));
+       console.log("top", JSON.stringify(await platform.leaderboards.entries("feet_board", { count: 3 })));
+       console.log("save", JSON.stringify(await platform.cloud.save("check", { n: 1 })));
+       await platform.presence.set("Checking Steam", { score: "1" });
+     }
+   }
+   ```
+6. `factoria run`. In the log: `steam: Steam is ready: app 480`, `backend steam`, your player, `unlock {"id":"first_win","unlocked":true,"newly":true}`
+   (`newly` is false on a second run: reset it with `platform.achievements.reset()`), `wins` one higher each run, your score in
+   `board`. A `cloud.save` may answer `unavailable` for app 480 if Valve has Cloud off for it; that message is the correct answer.
+7. Open Steam's overlay in the game window (Shift+Tab): with the window focused it must open, and the game receives the
+   `overlay` event. Call `platform.overlay.open("achievements")` from the script: it opens the overlay's achievements page.
+   (The engine draws with Direct3D 11 on Windows, Metal on macOS and OpenGL on Linux: note in ENGINE_FEEDBACK.json on which of
+   them the overlay does not appear.)
+8. In Steam, your friends list shows "Checking Steam" under your name while the game runs.
+9. In Steam's own page for the achievement (Library > Spacewar > Achievements, or `steamcommunity.com/stats/480/achievements`),
+   "Win a game" shows unlocked.
+10. Export: `factoria export --platform <this OS>`; the exported folder holds the plugin and Valve's library, **no**
+    `steam_appid.txt`. Start the exported game from a terminal with Steam running: without an app id Steam refuses to start
+    it, the log says so, and the game runs with no platform services (`platform.backend` is `none`). For the final check, a
+    game started by the Steam client gets its app id from Steam: upload a build to your own app with SteamPipe (app 480 takes no
+    uploads) and start it from the Steam library.
 
 ## 5. Writing a backend plugin
 

@@ -559,8 +559,49 @@ Done so far (package A, branch `m12/platform-api`): the API, the fake backend an
   delayed answer shows "waiting", restore returns the non-consumable, an achievement unlocks during play and the
   overlay event pauses the game (the first acceptance criterion).
 
-Left open (the next M12 packages): the Steamworks plugin and Valve's AppID 480 check, StoreKit 2 and Game Center, Play
-Billing and Play Games, then the rest of the list above. `PlatformServices` keeps no receipts or entitlement cache: a
+Done so far (package B, branch `m12/steam`): the Steamworks backend.
+- **`platforms/plugins/steam`** (the `"steam"` template of `project.new_plugin`, a C++17 plugin with no Valve file in the
+  repository): it loads Valve's redistributable at run time (`steam_api64.dll`, `libsteam_api.dylib`, `libsteam_api.so`,
+  next to the plugin first), declares the part of the flat API it uses itself and finds the versioned interfaces by name
+  (SDK 1.58 to 1.64; another library is refused with a message naming that range). Steam starts in `fa_plugin_init`
+  (`SteamAPI_InitFlat`, `SteamAPI_Init` on old libraries), callbacks run by manual dispatch in the plugin's `frame`, and
+  the dev app id comes from `steam_appid.txt` (project folder or working folder; 480 is Valve's test app). Every failure to
+  start is a teaching log line and the engine falls back (fake in development, none in an exported game).
+  Achievements (unlock, progress, list, reset), stats, leaderboards (created on first use, keep-best uploads, top, around
+  and friends), Steam Cloud (`<key>.json`), DLC purchases (`pending` through the overlay cart, a `purchase` event when the
+  DLC arrives), overlay, rich presence, and the events `overlay`, `purchase`, `player`. Consumables and subscriptions are
+  `unavailable` (Steam's microtransactions need the game's own server). The command `steam.status` shows what the plugin found.
+- **Tests**: a mock of the Steamworks library (`platforms/plugins/steam/tests/mock_steam_api.cpp`, built as a shared library
+  with the redistributable's file name, in a current, an older (SDK 1.58 to 1.60) and a newer-than-supported variant) and ctest `steam_plugin_*`
+  (Linux, Windows, macOS): the real plugin in an Engine with `platformBackend="steam"` covers every method and event, stats that
+  load late, Steam failing to deliver or to start, a late answer after the engine ended, a stray call result, a missing
+  library, Steam not running, no app id, a newer SDK, and the exit on Linux and macOS (stats stored, `SteamAPI_Shutdown`). `tooling` tests build
+  the plugin through `platform.add_backend` with an SDK folder and a .zip.
+- **`platform.add_backend {"backend": "steam"}`**: writes and builds the plugin, copies the three libraries from the SDK folder or
+  .zip, writes `steam_appid.txt` (default 480), and `factoria export` never ships that file. Docs: the Steam section of
+  `docs/PLATFORM.md` with the numbered manual check against app 480, and `plugins/steam/README.md`.
+
+Left open (Steam):
+- **The manual check with app 480 has not run**: it needs a Steam client and account, which the machine that built this did
+  not have (`docs/PLATFORM.md`, "Manual check with Valve's test app 480"). Everything above is tested against the mock only,
+  so struct layouts, callback ids and interface versions rest on the public Steamworks headers (SDK 1.58a to 1.64). Whether
+  Steam's overlay appears over the engine's Metal (macOS), OpenGL (Linux) and Direct3D 11 (Windows) windows is unchecked.
+- **The Steam Deck on-screen keyboard for `TextField` is not wired.** The plugin API has no hook for it: it needs (1) a
+  notification to the plugin when a text field takes or loses focus (with the field's rectangle, its text and whether it
+  is multi-line; `Input::keyboard_shown()` is today applied by the windowed runtime to the phone soft keyboard only) so the
+  Steam plugin can call `ISteamUtils::ShowFloatingGamepadTextInput` / `ShowGamepadTextInput`, and (2) a call for the plugin
+  to hand text back to the focused field (`FloatingGamepadTextInputDismissed_t` / `GamepadTextInputDismissed_t` and
+  `GetEnteredGamepadTextInput`). Players on the Deck can use Steam's own keyboard (Steam + X).
+- Steam Inventory, microtransactions (`ISteamMicroTxn`), Steam Input and the workshop are not wrapped; there is no `SteamAPI_RestartAppIfNecessary`
+  (a shipped game started outside Steam runs without platform services); prices of DLC are not shown (Steam gives them on its store page).
+- On Windows the plugin does not call `SteamAPI_Shutdown` at exit (a DLL's exit handlers run after Steam's own DLL is gone);
+  stats are stored every frame, so only the last frame's changes could be lost.
+- Every engine that loads the plugin starts Steam, `factoria test` and MCP sessions included; the plugin API cannot tell a plugin
+  which backend the engine chose, so the fake-store runs show up as "playing" in Steam. A lazy start needs an API call for
+  "the engine uses your backend".
+
+Left open (the next M12 packages): StoreKit 2 and Game Center, Play Billing and Play Games, then the rest of the list
+above. `PlatformServices` keeps no receipts or entitlement cache: a
 backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
 Cloud saves take JSON values only (no binary blobs, no conflict resolution beyond "last write wins" in the fake).
