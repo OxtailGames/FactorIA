@@ -3,7 +3,6 @@
   "entities": [
     {
       "id": "camera",
-      "name": "Camera",
       "components": {
         "Transform": {
           "position": [640, 360, 0]
@@ -15,7 +14,6 @@
     },
     {
       "id": "loading",
-      "name": "Loading",
       "components": {
         "Transform": {
           "position": [-48, -48, 0]

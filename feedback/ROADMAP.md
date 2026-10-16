@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and the complete-game template) is done, the rest is not started.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus) is done, the rest is not started.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -423,7 +423,7 @@ Found while implementing M9, not fixed:
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
 
-## M10. Game UI and a complete-game template (L, blocker for every store) — DONE (PRs #47, #50, #51, #53)
+## M10. Game UI and menus (L, blocker for every store) — DONE (PRs #47, #50, #51, #53)
 
 Closes F-01, F-12, U-01..U-04, U-07, U-09 and the script half of F-08. Today the scripting API has `ui.measureText` and no
 widget component, so no game can have a main menu, options or an in-game shop; the window cannot go full screen from a
@@ -434,12 +434,17 @@ script; and text entry, the cursor and input remapping exist only in C++ (`Input
   require it); `ui` events in JS.
 - Settings an options menu needs, in JS: full screen, resolution, vsync and a frame cap (`window.*`); rebinding actions
   and per-pad button names (`input.rebind`, `input.buttonName`); text entry and cursor show/lock.
-- Menus in the templates: main menu, pause (on `game.paused`), options (video, audio volume per bus with
-  `audio.setVolume`, controls, a language slot for M14), credits that list `FACTORIA_NOTICES.txt`, a loading screen.
+- Menus as a recipe plus a test fixture: the AI guide's recipe builds a main menu, pause (on `game.paused`), options
+  (video, audio volume per bus with `audio.setVolume`, controls, a language slot for M14), credits that list
+  `FACTORIA_NOTICES.txt` and a loading screen in a few steps; a fixture project under the tests is that recipe, run by
+  ctest.
+
+Decision (2026-10-16): templates stay minimal (the empty ones are a camera and nothing else); a game's AI builds menus
+from the recipe when its game needs them.
 
 Acceptance criteria:
-- A headless test drives the template from the main menu to options, changes the music volume and comes back using only
-  gamepad presses, then checks the saved setting.
+- A headless test drives the menus fixture (`tools/cli/tests/fixtures/menus`) from the main menu to options, changes the
+  music volume and comes back using only gamepad presses, then checks the saved setting.
 - A 9-slice panel drawn at three sizes keeps its corners unscaled (golden image).
 - `window.setFullscreen(true)` toggles a windowed run; headless runs return a teaching error instead of doing nothing.
 - Every widget field and command has a doc string; COMPONENTS.md and the typings are regenerated.
@@ -458,13 +463,15 @@ What was built:
 - **Pause that pauses** (#47): `game.paused` freezes physics, particles, animators, timers and `onUpdate`;
   `runWhilePaused` behaviours keep running with the real `dt`; `game.notices()` for credits; `audio.getVolume(bus)`,
   `game.platform`.
-- **The 2d-platformer template** is a complete game shell: main menu (Quit hidden on phones), loading screen, pause
-  overlay, options (video, audio per bus, controls rebinding, an empty language tab for M14) saved in `storage` and
-  applied at start, credits from `game.notices()`. `tests/menus.test.js` drives it with gamepad presses only (main menu
-  -> options -> music volume -> back -> saved setting; rebinding; pause; credits; loading). AI_GUIDE recipes 9.22-9.24.
+- **Menus recipe and fixture** (#53): `docs/MENUS.md` (`factoria docs read menus`) gives every file of a main menu
+  (Quit hidden on phones), a loading screen, a pause menu, options (video, audio per bus, controls rebinding, a language
+  slot for M14) saved in `storage` and applied at start, and credits from `game.notices()`; AI_GUIDE 9.22 (widgets) and
+  9.23 (the steps) lead to it. `tools/cli/tests/fixtures/menus` is the same files as a project (`fixture_menus_validate`,
+  `fixture_menus_test`): `tests/menus.test.js` drives it with gamepad presses only (main menu -> options -> music volume
+  -> back -> saved setting; rebinding; pause; credits; loading), and a `cli` test fails when a file in the doc differs
+  from the fixture's.
 
 Left open:
-- The empty templates (`2d-empty`, `3d-empty`) stay empty on purpose; the menus live in `2d-platformer`.
 - `TextField`: the caret stays at the end (no caret movement, selection or IME composition). The Steam Deck floating
   keyboard is M12; mobile on-screen keyboard polish is M16.
 - Layout and hit-tests ignore the rotation and scale of UI entities; a `Sprite` inside a container needs an explicit
@@ -508,7 +515,7 @@ table. Needs M11.
 - Later: the purchase SDKs of Android stores outside Play (Amazon Appstore, Samsung Galaxy Store, Huawei AppGallery).
 
 Acceptance criteria:
-- The M10 template's achievements and a purchase flow pass with the fake backend in a test.
+- Achievements and a purchase flow pass with the fake backend in a test (on the M10 menus fixture).
 - With the Steamworks plugin and Valve's test AppID 480, an exported desktop game unlocks an achievement (manual check,
   steps in the docs).
 
@@ -691,7 +698,7 @@ Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14).
   has them.
 
 Acceptance criteria: a CI job fails when an example's frame time or memory regresses past its budget; the consent screen
-and subtitles are in the M10 template, with tests.
+and subtitles are in the M10 menu recipe and its fixture, with tests.
 
 ## M23. Closed stores and consoles (L each, later)
 

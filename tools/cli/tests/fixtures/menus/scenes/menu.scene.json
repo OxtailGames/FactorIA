@@ -3,7 +3,6 @@
   "entities": [
     {
       "id": "camera",
-      "name": "Camera",
       "components": {
         "Transform": {
           "position": [640, 360, 0]
@@ -15,7 +14,6 @@
     },
     {
       "id": "main_menu",
-      "name": "Main Menu",
       "components": {
         "Transform": {
           "position": [0, 20, 0]
@@ -34,10 +32,9 @@
       "children": [
         {
           "id": "title",
-          "name": "Title",
           "components": {
             "Text": {
-              "text": "{{PROJECT_NAME}}",
+              "text": "My Game",
               "fontSize": 64,
               "space": "screen"
             }
@@ -85,7 +82,6 @@
     },
     {
       "id": "credits",
-      "name": "Credits",
       "active": false,
       "components": {
         "Panel": {

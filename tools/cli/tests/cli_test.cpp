@@ -288,3 +288,44 @@ TEST_CASE("templates: every template's tests pass on the engine that factoria te
     }
     fa::fs::set_project_root(oldRoot);
 }
+
+// docs/MENUS.md gives every file of the menu kit, and tools/cli/tests/fixtures/menus is that kit, run by ctest
+// (fixture_menus_validate, fixture_menus_test). A code block whose info string names a file ("```js scripts/settings.js")
+// must be the fixture's file: the same text for scripts, the same JSON for scenes and prefabs (the fixture keeps the
+// canonical layout, the doc a shorter one).
+TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
+    const stdfs::path repo = FA_REPO_ROOT;
+    const auto read = [](const stdfs::path& p) {
+        std::ifstream f(p, std::ios::binary);
+        std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        std::erase(s, '\r');
+        return s;
+    };
+    std::istringstream doc(read(repo / "docs/MENUS.md"));
+    std::string line, lang, path, body;
+    bool inBlock = false;
+    int files = 0;
+    while (std::getline(doc, line)) {
+        if (line.rfind("```", 0) != 0) {
+            if (inBlock) body += line + "\n";
+            continue;
+        }
+        if (!inBlock) {
+            const size_t sp = line.find(' ');
+            lang = line.substr(3, sp == std::string::npos ? std::string::npos : sp - 3);
+            path = sp == std::string::npos ? "" : line.substr(sp + 1);
+            body.clear();
+        } else if (!path.empty()) {
+            CAPTURE(path);
+            const std::string file = read(repo / "tools/cli/tests/fixtures/menus" / path);
+            REQUIRE_MESSAGE(!file.empty(), "the fixture has no " << path);
+            if (lang == "json")
+                CHECK(fa::Json::parse(body, nullptr, false) == fa::Json::parse(file, nullptr, false));
+            else
+                CHECK(body == file);
+            ++files;
+        }
+        inBlock = !inBlock;
+    }
+    CHECK(files == 12);
+}

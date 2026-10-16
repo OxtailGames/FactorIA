@@ -263,18 +263,6 @@
                 "interactable": false
               }
             }
-          },
-          {
-            "name": "Language note",
-            "components": {
-              "Text": {
-                "text": "More languages come with localization (FactorIA roadmap M14).",
-                "fontSize": 18,
-                "color": [0.75, 0.8, 0.9, 1],
-                "space": "screen",
-                "layer": 302
-              }
-            }
           }
         ]
       },

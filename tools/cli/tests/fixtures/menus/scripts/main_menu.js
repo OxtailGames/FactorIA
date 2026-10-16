@@ -7,7 +7,7 @@ import { MenuStack } from "./ui/menu_stack.js";
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
-  firstScene = "scenes/main.scene.json";
+  firstScene = "scenes/level.scene.json";
 
   onStart() {
     applyOnce();
