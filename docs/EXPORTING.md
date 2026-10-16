@@ -5,9 +5,11 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 `project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
 
 ```bash
-factoria export [project] --platform <linux|windows|macos|android|ios> [--out DIR] [--release] [--player PATH]
-                [--engine-root DIR | --mobile-dir DIR]
+factoria export [project] --platform <linux|windows|macos|android|ios> [--format apk|aab|gradle] [--out DIR] [--release]
+                [--player PATH] [--engine-root DIR | --mobile-dir DIR]
 ```
+
+`--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android).
 
 Before anything is written the project is validated: `factoria.json` must exist,
 `name` must be set, `mainScene` must exist and `id` must be a reverse-DNS
@@ -19,18 +21,23 @@ the fix.
 The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
 export. `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
+`format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built),
 `notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`.
 
 ## From an AI: `project.export`
 
 The same export is the command `project.export` (MCP tool `project_export`, also `factoria call project.export`, the
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
-Gradle project without a shell. Arguments are all optional: `platform` (default: this machine), `out` (parent folder,
-relative to the project and inside it like the `fs.*` commands, default `build/export`) and `release`. It returns the report
-(`outputDir`, `mode`, `notices`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
+APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
+`gradle`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
+`release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `files`, `nextSteps`, `warnings`); an
+unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
+seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
-export would replace), `mode` (Android, iOS), `player` (desktop) and `warnings`, or the error the export would give
-(`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
+export would replace), `mode` (Android, iOS), `format` and `artifact` (Android), `toolchain` (Android with `apk` or `aab`:
+`jdk`, `jdkFrom`, `jdkMajor`, `sdk` and `sdkFrom`, the JDK and SDK the build would use and where they were found), `player`
+(desktop) and `warnings`, or the error the export would give, including a missing JDK or SDK, a missing keystore or
+password for `--release` (`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
 folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
 
 ```
@@ -68,7 +75,9 @@ Everything in the project except: `.factoria/`, every dot-file or dot-folder
 `AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
 project is never modified; the feedback file stays in the repository.
 
-The export adds one file of its own, `FACTORIA_NOTICES.txt` (next section).
+The export adds one file of its own, `FACTORIA_NOTICES.txt` (next section). An Android export also leaves out the keystore
+named by `export.android.signing` when it lives inside the project (a warning says to keep it outside the repository):
+a signing key must never end up in the assets of an APK.
 
 ## License notices
 
@@ -89,7 +98,8 @@ so every export writes `FACTORIA_NOTICES.txt` with all of them where it ships wi
 
 Keep it in what you distribute (zip, installer, store build). You may also show it on a credits or licenses screen;
 nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
-contain (Dear ImGui, in the editor).
+contain (Dear ImGui, in the editor, and the Gradle wrapper, Apache-2.0, which an Android export writes into its Gradle
+project and which is not part of the game).
 
 ## Platform settings
 
@@ -288,14 +298,18 @@ So the download exports prebuilt unless you point it at a checkout; a `factoria`
 
 ### Android
 
-`factoria export --platform android` writes a complete Gradle project:
+`factoria export --platform android` writes a complete Gradle project, then builds the app with it:
 
 ```
 my-game-android/
-  settings.gradle  build.gradle  gradle.properties  gradle/wrapper/gradle-wrapper.properties
-  app/build.gradle                 applicationId, versionName/Code, abiFilters (prebuilt: no native build)
-  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation
+  my-game-debug.apk                the result (my-game.apk for --release, .aab with --format aab)
+  build.log                        everything Gradle printed
+  gradlew  gradlew.bat  gradle/wrapper/{gradle-wrapper.jar,gradle-wrapper.properties}   the Gradle wrapper (Gradle 8.14.3)
+  settings.gradle  build.gradle  gradle.properties  local.properties (sdk.dir of this computer: do not commit)
+  app/build.gradle                 applicationId, versionName/Code, minSdk/targetSdk, abiFilters, signing (prebuilt: no native build)
+  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation, icon, permissions
   app/src/main/res/values/strings.xml   app name
+  app/src/main/res/mipmap-*/       launcher icons made from the project's icon (and the adaptive icon)
   app/src/main/assets/             the game + assets_index.txt
   app/src/main/jniLibs/<abi>/libfactoria_player.so   prebuilt mode only: the engine
 ```
@@ -303,20 +317,60 @@ my-game-android/
 `assets_index.txt` lists every game file (one project-relative path per line).
 The engine needs it because Android cannot enumerate folders inside an APK.
 
+**Formats** (`--format`, or `export.android.format` in `factoria.json`; the flag wins):
+
+| format | Runs | Result |
+|---|---|---|
+| `apk` (default) | `./gradlew assembleDebug` (`assembleRelease` with `--release`) | `<slug>-debug.apk` (`<slug>.apk`): an app you install with `adb install -r` |
+| `aab` | `./gradlew bundleDebug` (`bundleRelease`) | `<slug>-debug.aab` (`<slug>.aab`): the Android App Bundle Google Play takes |
+| `gradle` | nothing | only the project; no JDK or SDK is needed. Build it yourself (`./gradlew assembleDebug`) or open it in Android Studio |
+
+**What the build needs**: a JDK 17+ and the Android SDK (found as in [Finding the Android toolchain](#finding-the-android-toolchain);
+`plan_export` / `dryRun` reports them as `toolchain` and fails early, with what to install, when one is missing).
+Gradle itself is not needed: the export writes the project's own wrapper, and the first build downloads Gradle 8.14.3, the
+Android Gradle plugin and the SDK platform (needs the internet and accepted SDK licenses: `sdkmanager --licenses`, once). The
+wrapper is checked against a fixed SHA-256, so every machine builds with the same Gradle. The export gives Gradle the JDK
+and SDK it found (`JAVA_HOME`, `ANDROID_HOME`; `ANDROID_SDK_ROOT` is unset so the two cannot disagree) and writes the SDK
+path to `local.properties`.
+
+**Progress and logs**: the CLI prints Gradle's output on stderr as it runs (not with `--json`; C++ callers get the lines through
+`ExportOptions::progress`). Everything is also in `build.log` of the export folder. Times, on an M-series Mac with the prebuilt engine, a warm
+machine: a few seconds to a minute; the very first build adds the Gradle and plugin downloads. **Source** mode compiles the
+whole engine for two ABIs the first time (minutes, less with ccache).
+
+**When the build fails** the error says what Gradle said ("What went wrong") and the export folder stays, so you can open the
+project in Android Studio or run `./gradlew` there. The most common causes get a specific fix in the error's hint: SDK licenses
+not accepted, a JDK that is too old or new, a wrong SDK folder, no internet for the first download. A cancelled build
+(`ExportOptions::cancel`) also leaves the folder; export again to continue where Gradle stopped.
+
 **Prebuilt** (the download): `app/build.gradle` has no `externalNativeBuild`, `ndkVersion` or engine path; Gradle only
-packages `jniLibs` (`arm64-v8a` and `x86_64`, both required) and the assets, so the build takes about a minute and
-needs the Android SDK alone.
+packages `jniLibs` (`arm64-v8a` and `x86_64`, both required) and the assets, so the build needs the Android SDK alone.
 
 **Source**: Gradle compiles the engine through CMake from the engine checkout (`factoria.engineDir` in `gradle.properties`,
-default: the checkout the export used; override with `FACTORIA_ENGINE_DIR`), which takes several minutes the first time.
+default: the checkout the export used; override with `FACTORIA_ENGINE_DIR`), which takes several minutes the first time and
+needs NDK r27+ and CMake 3.31 in the SDK (`sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`).
 
-Build, in both modes:
+The engine's libraries are linked for 16 KB memory pages (Google Play requires it for apps that target Android 15+), and the
+APK is zip-aligned for them.
+
+**Platform settings** that change the project: `minSdk` / `targetSdk` (`compileSdk` follows `targetSdk`), `versionCode`,
+`permissions` (extra `<uses-permission>` lines), the `icon` (launcher icons and adaptive icon, in the manifest as `icon` and
+`roundIcon`; without one the platform default and a warning) and `signing`. See [Platform settings](#platform-settings).
+
+**Signing**. A debug build is signed with the debug key of the machine (fine for trying the app). `--release` signs with the
+keystore of `export.android.signing` (`keystore`, `alias`; a project-relative path is resolved against the project and the
+file is never copied into the app). The passwords are never written to a project, a file of the export or a command line:
+they come from `FACTORIA_ANDROID_KEYSTORE_PASSWORD` and `FACTORIA_ANDROID_KEY_PASSWORD` (or `android.keystorePassword` /
+`keyPassword` of `~/.factoria/export.json`; the key password defaults to the keystore password) and are given to the Gradle
+process as environment variables only. `plan_export` and `--release` check that the keystore exists and that the passwords
+are set before Gradle starts. A release build with no keystore configured uses the debug key and says so in a warning; Google
+Play does not accept that. To make a key: `keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`
+(keep the file and its passwords safe). A release build you run by hand in the exported project (`./gradlew assembleRelease`)
+reads the same environment variables.
 
 ```bash
-cd my-game-android
-gradle wrapper --gradle-version 8.7      # once, needs Gradle installed (Android Studio does it for you)
-./gradlew assembleDebug                  # app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+factoria export --platform android --format aab --release
+adb install -r my-game/build/export/my-game-android/my-game-debug.apk   # the apk format
 ```
 
 Prerequisites, signing and troubleshooting: [MOBILE.md](MOBILE.md).
