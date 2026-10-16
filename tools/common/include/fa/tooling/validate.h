@@ -5,7 +5,7 @@
 // the project loads (messages from fa::load_scene_file are forwarded), asset
 // paths referenced by reflected Asset fields exist, scenes and prefabs are in the canonical layout (warning), the
 // `icon` / `export` settings of factoria.json (fa/tooling/export_settings.h) and the icon files they name, scripts
-// (via an optional syntax-check hook installed by the CLI once the script module exists).
+// (via optional hooks installed by the CLI once the script module exists: syntax, Script.props, misspelled hooks).
 #pragma once
 
 #include <functional>
@@ -44,8 +44,13 @@ using ScriptCheckHook = std::function<std::vector<ValidationIssue>(const std::st
 // not exist on the behaviour (empty = fine). Reported as warnings (ScriptSystem::check_props).
 using ScriptPropsCheckHook = std::function<std::vector<std::string>(const std::string& modulePath, const Json& props)>;
 
+// Checks one script (project-relative path): returns one message per method of its behaviour class that looks like a
+// misspelled lifecycle hook (`update()` for onUpdate). Reported as warnings (ScriptSystem::check_hooks).
+using ScriptHooksCheckHook = std::function<std::vector<std::string>(const std::string& modulePath)>;
+
 struct ValidateOptions {
     ScriptPropsCheckHook propsCheck;  // empty: Script.props are not checked
+    ScriptHooksCheckHook hooksCheck;  // empty: behaviour method names are not checked
     ScriptCheckHook scriptCheck;      // empty: scripts are counted, not compiled
     bool checkScenes = true;      // load scenes into a temporary World
 };

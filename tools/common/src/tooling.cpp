@@ -40,6 +40,7 @@ ValidateOptions engine_validate_options(Engine& engine) {
         return issues;
     };
     vo.propsCheck = [e](const std::string& modulePath, const Json& props) { return e->scripts().check_props(modulePath, props); };
+    vo.hooksCheck = [e](const std::string& modulePath) { return e->scripts().check_hooks(modulePath); };
     return vo;
 }
 
@@ -50,7 +51,9 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         // project.validate bound to this engine: script syntax and Script.props go through its script system.
         if (const CommandInfo* ci = registry.info("project.validate")) {
             CommandInfo info = *ci;
-            info.description += " Warns about Script.props keys that do not exist on the behaviour.";
+            info.description += " Warns about Script.props keys that do not exist on the behaviour, and about behaviour "
+                                "methods that look like misspelled lifecycle hooks (update() or onupdate() instead of "
+                                "onUpdate()).";
             Engine* e = &engine;
             registry.add(info, [e, projectDir](const Json&) { return validate_project(projectDir, engine_validate_options(*e)).to_json(); });
         }

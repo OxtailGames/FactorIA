@@ -83,6 +83,14 @@ suggestion; `factoria validate` reports the same through
 | `onTriggerEnter(other)` / `onTriggerExit(other)` | overlaps with trigger colliders |
 | `onEvent(name, data, source)` | any `world.emit` event (also `world.on(name, fn)`) |
 
+The engine calls these by their exact names. A method that looks like a hook but
+is not one (`start()`, `update()`, `fixedUpdate()` without the `on`, or a
+near-miss such as `onupdate()` or `onStrat()`) is never called: the first
+behaviour of the class created logs ONE warning per such method with a "did you
+mean", and `factoria validate` reports the same for every behaviour script (under
+`scripts/` or named by a `Script.path`). Helpers with other names (`loadLevel()`)
+are not affected.
+
 ### Behaviour members
 - `this.entity` — the owning `Entity`; `this.world` — the world.
 - `this.after(seconds, fn)` / `this.every(seconds, fn)` — timers, cancelled

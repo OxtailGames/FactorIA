@@ -184,6 +184,7 @@ struct ScriptSystem::Impl {
     void construct_for(const std::vector<Entity>& entities);
     void construct_all();
     std::vector<std::string> check_props(const std::string& modulePath, const Json& props);
+    std::vector<std::string> check_hooks(const std::string& modulePath);
     void destroy_behaviour(Behaviour& b, bool callOnDestroy);
     void compact();
     void drop_all_behaviours();

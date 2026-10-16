@@ -390,6 +390,12 @@ Found and fixed while implementing M9 (Apple hardware):
   `input.mouse.position` land on the design point under the cursor, to within a pixel, in `factoria run` (also with the
   window resized to bars on the sides and on top and bottom), in the exported game and in the editor's game view
   (Play). Nothing needed changing.
+- The probe behaviour of that check, written with `start()`/`update()` instead of `onStart()`/`onUpdate()`, ran
+  nothing, and nothing said why: `factoria validate` passed and `run` logged nothing, even at `--log-level debug`. A
+  behaviour method that is a hook without its `on` (`update`, `fixedUpdate`) or a near-miss of a hook name starting
+  with `on` (`onupdate`, `onStrat`) now logs one warning per class and method when the first behaviour of the class is
+  created ("did you mean 'onUpdate()'?"), and `factoria validate` reports it for every behaviour script
+  (`ScriptSystem::check_hooks`). Helpers such as `loadLevel()` stay silent.
 
 Left open after M9:
 - An Apple pad on iOS: same code as macOS, built and run, but not with a real pad. The iOS Simulator shows a virtual
@@ -400,8 +406,6 @@ Found while implementing M9, not fixed:
 - Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
-- A behaviour whose hooks are named `start()`/`update()` instead of `onStart()`/`onUpdate()` runs nothing, and nothing
-  says why: `factoria validate` passes and `run` logs nothing, even at `--log-level debug` (no "did you mean").
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
