@@ -778,6 +778,7 @@
     get project() { return Object.freeze(N.project()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
+    get platform() { return N.platform(); },
   };
 
   const storage = {
