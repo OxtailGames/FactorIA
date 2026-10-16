@@ -94,6 +94,12 @@ Everything in the project except: `.factoria/`, every dot-file or dot-folder
 `AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
 project is never modified; the feedback file stays in the repository.
 
+Audio import settings (`assets.json`, [ASSETS.md](ASSETS.md)) act at export time: a WAV with `convert: "qoa"` ships as
+`<path>.qoa` (the engine plays that twin when the original is missing; the converted file is cached in
+`.factoria/export-cache/<platform>/audio/`, so only changed sounds are encoded again), and the shipped `assets.json`
+carries the measured loudness (`analysis`) of every sound with `normalize` on, so the game never measures at run time.
+A conversion that cannot be done (more than 8 channels) leaves the file as it is and adds a warning to the report.
+
 The export adds two files of its own: `.factoria-export` at the top of the export folder (next section) and
 `FACTORIA_NOTICES.txt` ([License notices](#license-notices)). An Android export also leaves out the keystore named by
 `export.android.signing` when it lives inside the project (a warning says to keep it outside the repository): a signing
@@ -123,7 +129,7 @@ Your game is yours. FactorIA is open source under the MIT License, and the files
 (the templates) are MIT-0: use, change and sell them with no notice at all.
 
 What an exported game does carry is the FactorIA runtime (`factoria_player`), which is FactorIA's MIT-licensed code
-plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, dr_libs, nlohmann/json,
+plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, dr_libs, QOA, nlohmann/json,
 SDL_GameControllerDB, DejaVu Sans, Press Start 2P). Their licenses only ask that their notices travel with every copy,
 so every export writes `FACTORIA_NOTICES.txt` with all of them where it ships with the game:
 

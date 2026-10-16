@@ -296,7 +296,7 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
         std::string name = full.filename().string();
         bool skip = !name.empty() && name[0] == '.';
         if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
-        if (!skip && it->is_directory(ec)) {
+        if (!skip && !outDirAbs.empty() && it->is_directory(ec)) {
             std::error_code ec2;
             if (is_inside(stdfs::weakly_canonical(full, ec2), outDirAbs)) skip = true;  // never copy the export into itself
         }
@@ -546,6 +546,17 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
 }
 
 }  // namespace
+
+namespace export_detail {
+
+std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile) {
+    Project p;
+    p.dir = dir;
+    p.feedbackFile = feedbackFile;
+    return collect_game_files(p, {});
+}
+
+}  // namespace export_detail
 
 stdfs::path executable_dir() {
     std::error_code ec;

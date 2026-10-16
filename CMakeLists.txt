@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(FactorIA
-    VERSION 0.1.4
+    VERSION 0.1.5
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
@@ -59,6 +59,7 @@ add_subdirectory(engine/platform)   # fa_platform  window/app loop, headless GPU
 add_subdirectory(engine/render)     # fa_render    2D + 3D renderer, text, particles, capture
 add_subdirectory(engine/physics)    # fa_physics   Box2D 2D physics + simple 3D physics
 add_subdirectory(engine/audio)      # fa_audio     mixer, wav/ogg/mp3
+add_subdirectory(engine/ui)         # fa_ui        game UI: layout, focus and navigation, widget events
 add_subdirectory(engine/script)     # fa_script    QuickJS gameplay scripting + test runner
 add_subdirectory(engine/runtime)    # fa_runtime   Engine: ties everything, game loop, commands
 add_subdirectory(player)            # factoria_player: minimal shipping runtime for games

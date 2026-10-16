@@ -6,7 +6,7 @@ add_library(fa_tooling STATIC)
 file(GLOB_RECURSE tooling_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings)
+target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_stb)
 
 # Bake docs, templates and schemas into the binary (offline AI access), plus the Android/iOS project templates of
 # platforms/ so that `factoria export --platform android|ios` works without the engine source (prebuilt mode).
@@ -30,7 +30,7 @@ if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(tooling_tests)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
-        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings)
+        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings fa_ext_cgltf)
         target_compile_definitions(fa_test_tooling PRIVATE FA_REPO_ROOT="${FA_ROOT}")
         add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders

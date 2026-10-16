@@ -3,8 +3,10 @@
 // One frame (Engine::frame):
 //   input.begin_frame (events were fed by the platform/injection)
 //   N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events
+//   ui.update (layout, focus, widget events) -> scripts.dispatch_events
 //   scripts.update(dt) -> animators/particles -> audio.update -> scripts.late_update
-//   renderer: begin_frame -> render_world -> end_frame
+//   physics.step and animators/particles are scaled by scripts.time_scale() (game.paused: frozen)
+//   renderer: ui.layout -> begin_frame -> render_world -> end_frame
 //   world.flush() (deferred destroys), pending scene change, hot-reload poll
 //
 // Headless + deterministic (Engine::step): every frame advances exactly
@@ -15,7 +17,7 @@
 //   engine.info, project.info, scene.list_entities, scene.get_entity,
 //   scene.spawn, scene.destroy, scene.set_component, scene.remove_component,
 //   scene.load, scene.save, scene.reload, game.step, game.input, game.screenshot,
-//   game.state, game.logs, game.pause, game.resume, audio.log, script.eval, script.errors,
+//   game.state, game.logs, game.pause, game.resume, audio.log, ui.state, script.eval, script.errors,
 //   physics.raycast, api.components, api.commands, api.scripting, assets.list
 #pragma once
 
@@ -116,9 +118,11 @@ public:
     Audio& audio() override;
     Physics& physics() override;
     Renderer* renderer() override;
+    UiSystem* ui() override;
     CommandRegistry& commands() override;
     Json project_settings() const override;
     double fixed_dt() const override;
+    WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;

@@ -6,6 +6,72 @@
 
 namespace fa {
 
+namespace {
+
+// The fields every UI widget shares (UiBox), registered once for each kind so their documentation exists in one place.
+template <class T>
+TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
+    return b
+        .field("size", static_cast<Vec2 T::*>(&UiBox::size),
+               "Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.")
+        .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
+               "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
+               "[1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] "
+               "is still the visual top-left. Layout does not care about the pivot of its children.")
+        .field("anchor", static_cast<Vec2 T::*>(&UiBox::anchor),
+               "Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] "
+               "top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. "
+               "The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] "
+               "and are placed by the Panel's layout.")
+        .field("layer", static_cast<std::int32_t T::*>(&UiBox::layer),
+               "Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at "
+               "layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, "
+               "then the latest entity, under the pointer is the hovered widget.")
+        .field("color", static_cast<Color T::*>(&UiBox::color),
+               "Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones "
+               "darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], \"#rrggbb\" or a name.")
+        .asset_field("texture", static_cast<std::string T::*>(&UiBox::texture), "texture",
+                     "Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour "
+                     "sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`.")
+        .field("slice", static_cast<Vec4 T::*>(&UiBox::slice),
+               "9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture "
+               "pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives "
+               "panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than "
+               "left + right (or top + bottom) the borders shrink proportionally.");
+}
+
+// UiControl fields: the label font, colours and interaction state of Button, Toggle, Slider and TextField.
+template <class T>
+TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
+    ui_box_fields(b);
+    return b
+        .asset_field("font", static_cast<std::string T::*>(&UiControl::font), "font",
+                     "Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font).")
+        .field("fontSize", static_cast<float T::*>(&UiControl::fontSize), "Label glyph height in design pixels.").range(1, 4096)
+        .field("textColor", static_cast<Color T::*>(&UiControl::textColor), "Label colour.")
+        .field("accentColor", static_cast<Color T::*>(&UiControl::accentColor),
+               "Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.")
+        .field("interactable", static_cast<bool T::*>(&UiControl::interactable),
+               "false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. "
+               "A focused widget that becomes non-interactable loses focus.")
+        .field("autoFocus", static_cast<bool T::*>(&UiControl::autoFocus),
+               "Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first "
+               "widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; "
+               "HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget "
+               "disappears (inactive, destroyed, not interactable) autoFocus applies again.")
+        .field("focused", static_cast<bool T::*>(&UiControl::focused),
+               "Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with "
+               "ui.focus(entity).").runtime_only().read_only()
+        .field("hovered", static_cast<bool T::*>(&UiControl::hovered),
+               "Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one.")
+        .runtime_only().read_only()
+        .field("pressed", static_cast<bool T::*>(&UiControl::pressed),
+               "Runtime: the pointer is held down on this widget.").runtime_only().read_only();
+}
+
+}  // namespace
+
 void register_builtin_components(TypeRegistry& r) {
     // ------------------------------------------------------------- Core ---
     r.add<EntityInfo>("EntityInfo",
@@ -377,7 +443,7 @@ void register_builtin_components(TypeRegistry& r) {
                        "Plays a sound clip from the entity. Set playOnStart to start automatically, or set `playing` "
                        "from a script to trigger it.",
                        "Audio")
-        .asset_field("clip", &AudioSource::clip, "audio", "Project-relative path of the sound (.wav, .ogg or .mp3).")
+        .asset_field("clip", &AudioSource::clip, "audio", "Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa).")
         .field("volume", &AudioSource::volume, "Loudness multiplier, 0 (silent) to 1 (full).").range(0, 1)
         .field("pitch", &AudioSource::pitch, "Playback speed multiplier; 2 = one octave higher and twice as fast.").range(0.05f, 8)
         .field("loop", &AudioSource::loop, "Restart the clip when it ends.")
@@ -390,6 +456,103 @@ void register_builtin_components(TypeRegistry& r) {
                          "The 'ears' for spatial audio, usually on the camera or player. If no listener exists, the primary camera is used.",
                          "Audio")
         .field("volume", &AudioListener::volume, "Master volume multiplier for everything this listener hears.").range(0, 4);
+
+    // --------------------------------------------------------------- UI ---
+    {
+        auto panel = r.add<Panel>("Panel",
+                  "Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a "
+                  "grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other "
+                  "Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` "
+                  "field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above "
+                  "the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.",
+                  "UI");
+        ui_box_fields(panel)
+            .enum_field("layout", &Panel::layout, {"none", "row", "column", "grid"},
+                        "How children are placed, every frame: none = they keep their own positions; row / column = one after "
+                        "the other along that axis; grid = `columns` per row, every cell as large as the largest child. "
+                        "Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in "
+                        "screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout "
+                        "moves its Transform.position so it lands in its slot.")
+            .field("spacing", &Panel::spacing, "Gap in design pixels between children (a grid uses it on both axes).").range(0, 10000)
+            .field("padding", &Panel::padding, "Space [left, top, right, bottom] between the panel's edge and its children.")
+            .field("columns", &Panel::columns, "Grid only: number of columns.").range(1, 64)
+            .enum_field("align", &Panel::align, {"start", "center", "end"},
+                        "Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = "
+                        "left / top, end = right / bottom.")
+            .enum_field("justify", &Panel::justify, {"start", "center", "end"},
+                        "Main-axis placement of the whole run of children inside the padded box: start = packed at the "
+                        "left / top, center, end = packed at the right / bottom. A grid is placed as one block on both axes.")
+            .field("fit", &Panel::fit,
+                   "true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); "
+                   "the pivot then decides which point of the fitted box stays on the position.");
+    }
+    {
+        auto button = r.add<Button>("Button",
+                  "Clickable button with a text label. Activated by the mouse / a touch, or by ui_submit (Enter, Space, "
+                  "gamepad A) while it has focus; the event is ui.click {id}. Focus rules and the other widgets: see Panel.",
+                  "UI");
+        ui_control_fields(button)
+            .field("text", &Button::text, "Label, centred on the button.");
+    }
+    {
+        auto toggle = r.add<Toggle>("Toggle",
+                  "Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the "
+                  "label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.",
+                  "UI");
+        ui_control_fields(toggle)
+            .field("label", &Toggle::label, "Text to the right of the box.")
+            .field("value", &Toggle::value, "true = checked. Scripts may write it; no event is sent for a write.");
+    }
+    {
+        auto slider = r.add<Slider>("Slider",
+                  "Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a "
+                  "label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, "
+                  "d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: "
+                  "ui.change {id, value: number}.",
+                  "UI");
+        ui_control_fields(slider)
+            .field("label", &Slider::label, "Text at the left; empty gives the track the extra room.")
+            .field("value", &Slider::value,
+                   "Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
+                   "sent for a write.")
+            .field("min", &Slider::min, "Smallest value.")
+            .field("max", &Slider::max, "Largest value.")
+            .field("step", &Slider::step,
+                   "Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: "
+                   "keys move (max - min) / 20 per press and dragging is not snapped.").range(0, 1000000)
+            .field("showValue", &Slider::showValue,
+                   "Draw the value at the right: \"60%\" when min is 0 and max is 1, else the number with up to 2 decimals.");
+    }
+    {
+        auto field = r.add<TextField>("TextField",
+                  "Single-line text input. While focused it appends the typed characters (Input text), Backspace removes "
+                  "the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at "
+                  "the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. "
+                  "Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).",
+                  "UI");
+        ui_control_fields(field)
+            .field("text", &TextField::text, "The text, UTF-8. Scripts may write it; no event is sent for a write.")
+            .field("placeholder", &TextField::placeholder, "Hint drawn at half alpha while `text` is empty.")
+            .field("maxLength", &TextField::maxLength, "Longest text, in characters (code points). 0 = unlimited.").range(0, 1000000)
+            .field("caret", &TextField::caret,
+                   "Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it "
+                   "restarts visible on every edit). Drawn only while focused.").runtime_only().read_only();
+    }
+    {
+        auto list = r.add<ScrollList>("ScrollList",
+                  "Scrolling container: its children are stacked in a column (aligned left, packed at the top) at "
+                  "-scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED "
+                  "to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), "
+                  "and focusing a widget inside scrolls just enough to show it.",
+                  "UI");
+        ui_box_fields(list)
+            .field("spacing", &ScrollList::spacing, "Gap in design pixels between children.").range(0, 10000)
+            .field("padding", &ScrollList::padding, "Space [left, top, right, bottom] between the list's edge and its children.")
+            .field("scroll", &ScrollList::scroll,
+                   "Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner "
+                   "height] every frame.").runtime_only()
+            .field("scrollSpeed", &ScrollList::scrollSpeed, "Pixels scrolled per mouse-wheel notch.").range(0, 10000);
+    }
 
     // -------------------------------------------------------- Scripting ---
     r.add<Script>("Script",
