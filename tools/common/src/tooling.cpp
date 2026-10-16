@@ -13,6 +13,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_fs_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
     register_export_commands(registry, projectDir);
+    register_setup_commands(registry);
 }
 
 ValidateOptions engine_validate_options(Engine& engine) {
@@ -56,6 +57,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
     } else {
         register_docs_commands(registry);
         register_api_export_commands(registry);
+        register_setup_commands(registry);
     }
     {
         CommandInfo info;
