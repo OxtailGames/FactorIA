@@ -67,6 +67,14 @@
           "path": "scripts/pause_menu.js"
         }
       }
+    },
+    {
+      "id": "store_events",
+      "components": {
+        "Script": {
+          "path": "scripts/store_events.js"
+        }
+      }
     }
   ]
 }
