@@ -108,7 +108,7 @@
         "palette": {
           "description": "Palette lock: generated images are reduced to these colours. Either a list of colours (\"#rrggbb\" or a colour name) or the path of an image whose pixels are the palette.",
           "oneOf": [
-            { "type": "array", "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }, "minItems": 2 },
+            { "type": "array", "items": { "type": "string" }, "minItems": 2 },
             { "type": "string" }
           ]
         },

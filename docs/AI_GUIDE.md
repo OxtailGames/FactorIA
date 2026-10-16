@@ -136,6 +136,8 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `script_reload` | `script.reload` | Re-import scripts edited on disk without reloading the scene (`scene_load`/`scene_reload` already do it, and re-read the input actions of `factoria.json`). `{"force":true}` re-imports every module. |
 | `physics_raycast` | `physics.raycast` | First hit of a ray: `{"from":[0,300],"to":[0,-300]}` in 2D. In 3D pass `"dimension":"3d"`, `origin`, `direction`, `maxDistance`. Takes the options of the script API and of `physics_shape_cast`: `mask`, `ignore` (id of an entity whose colliders, and its children's, are skipped: the caster) and `ignoreTriggers` (default `true`; `false` hits trigger colliders too): `{"from":[0,300],"to":[0,-300],"ignore":"player","ignoreTriggers":false}`. |
 | `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
+| `assets_generate_image`, `assets_generate_sprite_sheet`, `assets_generate_sound`, `assets_generate_music`, `assets_generate_voice`, `assets_generate_model` | `assets.generate_*` | Generate art, sounds, music, speech and 3D models with the asset providers of `ai.json`, write them under `assets/` and record their provenance. `assets_generate_image` returns the picture. Section 9.22. |
+| `assets_provenance`, `assets_set_provenance`, `assets_disclosure` | `assets.provenance`, `assets.set_provenance`, `assets.disclosure` | Where each asset came from (and the files with no record), recording it for files you did not generate, and the AI-content text for store forms. Section 9.22. |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
@@ -1036,7 +1038,31 @@ export default class Dash extends Behaviour {
 Never hand-draw placeholder art pixel by pixel through `fs.write`: generate it, import it, and let the export compress
 it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
 
-<!-- Generating: filled by the asset-providers work. -->
+**Generate.** `assets.generate_image` writes a PNG at the size you ask for, records where it came from, and shows you the
+picture: look at it, and ask again (`overwrite: true`) with a better prompt. The house style in `assets.json` (`style`:
+`prompt`, `references`, `palette`) is applied to every image, so the art stays consistent; `style: false` skips it.
+
+```json
+{"prompt": "a knight, side view, idle", "path": "assets/knight.png", "width": 64, "height": 64, "transparent": true}
+```
+
+A character that moves is a sprite sheet: `assets.generate_sprite_sheet {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10}`
+normalizes the grid and records it, and its result gives the components to use: `Sprite {texture}` and `SpriteAnimator
+{columns, rows, firstFrame, lastFrame, fps}` on one entity. Sounds and music: `assets.generate_sound` and
+`assets.generate_music` (`prompt`, `path`, `seconds`; the extension is the one the provider makes, the error names it),
+speech: `assets.generate_voice {text, path, voice}`, models: `assets.generate_model {prompt, path}`; use them as the
+`clip` of an `AudioSource` and the `mesh` of a `MeshRenderer`.
+
+- **Providers.** They are configured by the user in `ai.json` (`assets` section). If a kind has none, the error shows what to
+  add; do not edit `ai.json` yourself, tell the user. `provider: "fake"` works offline and makes small placeholders: use it
+  to build and test the flow, then ask the user which real provider to use. Generation costs money: one call, look, then
+  decide; never loop over variations.
+- **Provenance.** Every generate command records `origin`, `ai`, provider, model, prompt and license in `assets.json`. Files
+  you did not generate get a record with `assets.set_provenance {path, origin: "original" | "imported", ai, license, source}`
+  (`ai: true` for something made with AI elsewhere). `assets.provenance {}` lists the records and the files that have none.
+- **Store disclosure.** Before a release, `assets.disclosure` returns the AI-content text for Steam's survey; `factoria export`
+  writes it as `AI_CONTENT_DISCLOSURE.md`. Fix the "Assets without provenance" list first.
+- **Tests.** A test project uses the `fake` provider, so the check is offline and deterministic.
 
 <!-- Importing: filled by the importers work. -->
 

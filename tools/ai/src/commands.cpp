@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "asset_commands.h"
 #include "fa/ai/detect.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -29,7 +30,8 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
         info.summary = "List configured AI providers and roles, or diagnose which ones are usable (doctor).";
         info.description =
             "action \"list\" (default) shows providers and the role mapping from ~/.factoria/ai.json. action \"doctor\" "
-            "also checks for CLIs (claude, codex, ant) and API keys (never printed). Example: "
+            "also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset "
+            "(image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: "
             "{\"action\":\"doctor\"}";
         info.inputSchema = Json::parse(R"({"type":"object","properties":{
             "action":{"type":"string","enum":["list","doctor"],"default":"list","description":"list or doctor."}},
@@ -53,10 +55,15 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
                 roles[name] = Json::object({{"provider", r.provider}, {"model", r.model}, {"effort", r.effort}});
                 if (r.maxContextTokens > 0) roles[name]["maxContextTokens"] = r.maxContextTokens;
             }
+            Json assets = Json::object();
+            for (const auto& [kind, r] : cfg->assets) {
+                assets[kind] = Json::object({{"provider", r.provider}, {"model", r.model}, {"voice", r.voice}});
+            }
             Json out = Json::object({{"configPath", cfg->sourcePath.empty() ? default_config_path() : cfg->sourcePath},
                                      {"configFound", !cfg->sourcePath.empty()},
                                      {"providers", providers},
                                      {"roles", roles},
+                                     {"assets", assets},
                                      {"warnings", cfg->warnings}});
             if (doctor) out["report"] = format_doctor_report(*cfg, status);
             return out;
@@ -96,7 +103,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
                 dopt.probeVersions = false;
                 dopt.env = opts->runtime.env;
                 for (const auto& s : detect_providers(*cfg, dopt)) {
-                    if (s.available) names.push_back(s.name);
+                    if (s.available && !is_asset_only_kind(cfg->provider(s.name)->kind)) names.push_back(s.name);
                 }
             }
             Json providers = Json::array();
@@ -164,6 +171,7 @@ void register_ai_commands(CommandRegistry& registry, AiCommandOptions options) {
             return out;
         });
     }
+    register_asset_commands(registry, load, project_dir, opts->runtime, opts->cancel);
 }
 
 }  // namespace fa::ai
