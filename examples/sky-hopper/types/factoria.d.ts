@@ -41,6 +41,16 @@ declare module "factoria" {
   export type GamepadAxis = "LeftX" | "LeftY" | "RightX" | "RightY" | "LeftTrigger" | "RightTrigger";
 
   /**
+   * The family of a gamepad, found from its vendor id and name (Microsoft, Sony, Nintendo, Valve). It decides the button names input.buttonName() gives: the same bottom button is "A" on Xbox and Steam Deck, "Cross" on PlayStation and "B" on Nintendo. "generic" (any other pad) uses the Xbox names.
+   */
+  export type GamepadType = "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck";
+
+  /**
+   * The kind of device that produced input last (input.lastDevice): choose keyboard or gamepad button prompts with it.
+   */
+  export type InputDevice = "keyboard" | "mouse" | "gamepad" | "touch";
+
+  /**
    * Plain JSON data (objects, arrays, numbers, strings, booleans, null).
    */
   export type Json = any;
@@ -466,6 +476,14 @@ declare module "factoria" {
     down(button?: "left" | "right" | "middle"): boolean;
     pressed(button?: "left" | "right" | "middle"): boolean;
     released(button?: "left" | "right" | "middle"): boolean;
+    /**
+     * Whether the mouse cursor is drawn over the window (default true). Set false for a game that draws its own cursor or plays with a pad. Independent of `locked`. A headless run or test only records the value.
+     */
+    visible: boolean;
+    /**
+     * Mouse lock for mouse-look cameras: the cursor is hidden and held in the window, `position` stays frozen and `delta` reports raw movement (not design pixels). The window system may unlock it when the window loses focus; the engine locks it again when focus comes back. A headless run or test only records the value.
+     */
+    locked: boolean;
   }
 
   export interface TouchInfo {
@@ -483,6 +501,10 @@ declare module "factoria" {
      * A pad is plugged in at this index.
      */
     readonly connected: boolean;
+    /**
+     * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
+     */
+    readonly type: GamepadType;
     /**
      * Button held. Unknown names throw with a suggestion.
      */
@@ -538,6 +560,46 @@ declare module "factoria" {
      * Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu.
      */
     deadzone: number;
+    /**
+     * The characters typed this frame, as UTF-8 text ("" when none): from the keyboard or the on-screen keyboard, already composed (shift, dead keys, IME), control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed().
+     */
+    readonly text: string;
+    /**
+     * Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown).
+     */
+    showKeyboard(on?: boolean): void;
+    /**
+     * The last value given to showKeyboard() (false at start).
+     */
+    readonly keyboardShown: boolean;
+    /**
+     * The names of all input actions (from factoria.json input.actions and the engine's own), sorted.
+     */
+    actions(): string[];
+    /**
+     * The bindings of an action in order, as names input.rebind() accepts: ["Space", "W", "GamepadA"]. An unknown action throws with a suggestion.
+     */
+    bindings(action: string): string[];
+    /**
+     * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
+     */
+    rebind(action: string, bindings: string[]): void;
+    /**
+     * Puts one action (or every action when no name is given) back to what factoria.json and the engine's defaults say, undoing input.rebind().
+     */
+    resetBindings(action?: string): void;
+    /**
+     * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
+     */
+    lastPressed(): string | null;
+    /**
+     * The device that produced input last: "keyboard" (a key going down), "mouse" (moved, clicked, wheel), "gamepad" (a button pressed or a stick pushed past the deadzone) or "touch". "keyboard" at the start. Show gamepad prompts when it is "gamepad".
+     */
+    readonly lastDevice: InputDevice;
+    /**
+     * The label a player sees, for button prompts: a key gives its name ("Space", "W"), the mouse "Left Click", and a pad button the name on THAT pad (pad 0 by default): Xbox/Steam Deck "A" "B" "X" "Y" "LB" "RB" "LT" "RT" "View" "Menu", PlayStation "Cross" "Circle" "Square" "Triangle" "L1" "R1" "L2" "R2" "Create" "Options", Nintendo "B" "A" "Y" "X" "L" "R" "ZL" "ZR" "-" "+" (our A, the bottom button, is Nintendo's B). An action gives the label of its first binding for input.lastDevice (a pad binding after pad input, else a key or mouse binding), or "" if it has no binding. Unknown names throw with a suggestion.
+     */
+    buttonName(bindingOrAction: string, pad?: number): string;
     /**
      * Raw key by name ("Space", "A", "Escape"...).
      */
@@ -718,6 +780,60 @@ declare module "factoria" {
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
+  }
+
+  /**
+   * A window size in logical pixels, from window.resolutions().
+   */
+  export interface Resolution {
+    width: number;
+    height: number;
+  }
+
+  /**
+   * The game window, for an options menu: full screen, size, vsync and frame cap. The getters work in every run (a run without a window answers from factoria.json display settings). Every setter throws an Error that explains why when this run has no window (headless runs, tests, the MCP server, the editor's game view), so check `window.available` first. The engine saves nothing: keep the player's choice with storage.set() and apply it at start (docs/SCRIPTING.md has the recipe). Sizes are logical pixels: the window system's points, so a 1280 x 720 window on a 200% display has a 2560 x 1440 framebuffer. Phones and tablets always run full screen.
+   */
+  export interface WindowAPI {
+    /**
+     * True when the game owns a real window: `factoria run`, an exported game, the mobile players. False in headless runs, tests and inside the editor.
+     */
+    readonly available: boolean;
+    /**
+     * Whether the window is full screen (the project's display.fullscreen when there is no window; always true on phones and tablets).
+     */
+    readonly fullscreen: boolean;
+    /**
+     * Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     */
+    setFullscreen(on: boolean): void;
+    /**
+     * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
+     */
+    readonly size: Vec2;
+    /**
+     * The size in logical pixels of the monitor the window is on (the whole screen on Linux with several monitors); the window size when the platform cannot tell.
+     */
+    readonly displaySize: Vec2;
+    /**
+     * Resizes the window's client area, in whole logical pixels from 160 to 16384; the window keeps its position. Desktop windows only, and not in full screen: call setFullscreen(false) first, or the call throws and says so. The game keeps its design resolution and letterboxes (or expands, see display.scaleMode) to the new size.
+     */
+    setSize(width: number, height: number): void;
+    /**
+     * Window sizes for a resolution picker: common 16:9 and 16:10 sizes (640x360 up to 3840x2160) plus the game's design size, keeping those that fit the monitor, smallest first. Pass an entry to setSize().
+     */
+    resolutions(): Resolution[];
+    /**
+     * Whether presents wait for the display (the project's display.vsync at start, then setVsync()).
+     */
+    readonly vsync: boolean;
+    /**
+     * Turns vsync on or off while the game runs (Windows, Linux; macOS only stops waiting for the display). Throws and names the platform where it cannot (phones and tablets, a Linux driver without swap control) or when there is no window.
+     */
+    setVsync(on: boolean): void;
+    /**
+     * Frames per second the window may draw at: 0 = unlimited (default), else a whole number from 15 to 1000. The game loop waits so frames do not start faster than that; the simulation still runs at the fixed step, so gameplay results do not change. Useful with vsync off, or to save battery on a laptop. Setting it throws without a window and on phones and tablets (the display sets the pace).
+     */
+    frameCap: number;
   }
 
   /**
@@ -962,6 +1078,11 @@ declare module "factoria" {
    * Game control.
    */
   export const game: GameAPI;
+
+  /**
+   * The game window: full screen, size, vsync, frame cap.
+   */
+  export const window: WindowAPI;
 
   /**
    * Save data.
@@ -2544,6 +2665,10 @@ declare module "factoria:test" {
      * Unplugs the pad; what it held is released.
      */
     disconnect(): void;
+    /**
+     * Plugs the pad in as that family, so input.gamepad(i).type and input.buttonName() answer for it (tests start with "generic" pads, which use the Xbox names). An unknown family throws with a suggestion.
+     */
+    setType(type: "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck"): void;
   }
 
   /**
@@ -2569,6 +2694,10 @@ declare module "factoria:test" {
     tap(action: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
+    /**
+     * Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap().
+     */
+    typeText(text: string): void;
     /**
      * Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad.
      */

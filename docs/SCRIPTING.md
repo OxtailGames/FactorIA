@@ -183,7 +183,7 @@ forms. Rects (`physics.overlapBox`, `debug.rect`) take `{x, y, w, h}` or
 Everything is imported from `"factoria"`:
 
 ```js
-import { Behaviour, world, input, audio, physics, time, camera, debug, scene, game,
+import { Behaviour, world, input, window, audio, physics, time, camera, debug, scene, game,
          storage, rng, fa, vec2, vec3, color, Vec2, Vec3, Color, math,
          session, particles, ui, assets, ToolError } from "factoria";
 ```
@@ -243,6 +243,78 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   frees it. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
   `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
   (`docs/MOBILE.md`). Real pads tried so far: an Xbox Wireless Controller on macOS; Linux and Android not yet.
+- Options menus (rebinding, "press any key", button labels):
+  - `actions()` lists the action names; `bindings(action)` the names bound to one (`["Space", "GamepadA"]`).
+    `rebind(action, bindings)` replaces ALL of an action's bindings at once (`input.rebind("jump", ["Enter",
+    "GamepadX"])`); an empty array unbinds it. Names are case-insensitive and stored in their canonical spelling. An
+    unknown action or binding name throws a "did you mean" error and changes nothing (all or nothing).
+    `resetBindings(action?)` goes back to the `factoria.json` bindings, of one action or of all (an action a script
+    created with `rebind` and the project does not list is removed). The change is live at once: `input.down` and
+    friends follow the new binding. It is NOT saved: persist it yourself (recipe below).
+  - `lastPressed()` is the binding that went down this frame (`"Space"`, `"MouseLeft"`, `"GamepadA"`, `"GamepadLeftStickLeft"`
+    when a stick crosses halfway) or `null`. Poll it from a "press the new key" screen and pass the result to `rebind`;
+    keys come first when several go down in the same frame. Mouse movement, a held key and a connected pad do not count.
+  - `lastDevice` is `"keyboard" | "mouse" | "touch" | "gamepad"`, whichever produced the last real input (a pad that merely
+    sits plugged in never takes it), so a game can switch its on-screen hints between key caps and pad buttons.
+  - `buttonName(bindingOrAction, pad = 0)` is the label a player sees: `"Space"`, `"Left Click"`, `"A"` (Xbox),
+    `"Cross"` (PlayStation), `"ZL"` (Nintendo). Give it an action and it names that action's first binding for the last
+    device used (the keyboard key unless the player last touched a pad). Pad families come from the pad's USB/Bluetooth
+    ids and name (`input.gamepad(i).type`: `"xbox" | "playstation" | "nintendo" | "steamdeck" | "generic"`); a pad that is
+    not connected, or one nothing recognizes, is `"generic"` (Xbox-style names). Android reports `"generic"` for now.
+  - `text` is what the player typed this frame as UTF-8 (printable characters, emoji and accents included, no control
+    keys: read Backspace/Enter/Escape with `keyPressed`). Empty most frames. `showKeyboard(on = true)` raises the on-screen
+    keyboard on phones and tablets (a no-op on desktop, where the physical keyboard already types); `keyboardShown` is what
+    was asked for.
+  - `mouse.visible` (default true) and `mouse.locked` (default false) hide the cursor and lock it to the window for mouse
+    look; while locked, `mouse.delta` is the raw movement. The window follows the request every frame and re-locks after
+    the game regains focus. A headless run and tests only record the values (and reset them between tests).
+  ```js
+  // "Press a key" rebinding screen, saved between runs
+  import { Behaviour, input, storage } from "factoria";
+  for (const [action, list] of Object.entries(storage.get("bindings", {}))) {   // at startup
+    try { input.rebind(action, list); } catch (e) { console.warn(`ignoring saved bindings of '${action}': ${e.message}`); }
+  }
+  export default class Rebind extends Behaviour {
+    waiting = "jump";
+    onUpdate() {
+      const b = input.lastPressed();
+      if (!this.waiting || !b || b === "Escape") return;
+      input.rebind(this.waiting, [b]);
+      storage.set("bindings", Object.fromEntries(input.actions().map((a) => [a, input.bindings(a)])));
+      console.log(`${this.waiting} is now ${input.buttonName(b)}`);
+      this.waiting = null;
+    }
+  }
+  ```
+
+### window
+Settings an options menu needs. The getters work everywhere (a headless run or a test answers from `factoria.json`);
+every setter throws an Error that says what to do when the run has no window (`factoria run --headless`, tests, the
+editor's game view), so check `window.available` first or offer the option only in `factoria run` and exported games.
+- `available` is true when a real window exists. `fullscreen` (read only) and `setFullscreen(on)`: `window.setFullscreen(true)`
+  toggles at once (it takes `true` or `false`, nothing else).
+- `size` (Vec2, window pixels without the title bar) and `setSize(width, height)` (whole numbers, 160 to 16384). Setting
+  the size while full screen throws: leave full screen first. `displaySize` is the monitor's size.
+  `resolutions()` lists `[{ width, height }]`, smallest first: 16:9 and 16:10 sizes that fit the monitor plus the game's
+  design size, ready for a dropdown. The game letterboxes per `display.scaleMode`, so any size works.
+- `vsync` and `setVsync(on)`; `display.vsync: false` in `factoria.json` now really turns it off (it was ignored before).
+  Where it cannot be changed live (phones and tablets, a Linux driver without swap control, Windows before 10) the setter
+  throws and says to set `display.vsync` instead. On macOS, vsync off lets the picture tear; the frame rate stays at the display's.
+- `frameCap`: 0 (unlimited, the default) or 15 to 1000 frames per second, read and written (`window.frameCap = 60`). It
+  waits at the start of each frame and does not touch the simulation (the fixed step still runs per game time), so it
+  only saves power and heat; with vsync on the display rate wins when it is lower.
+- Phones and tablets are always full screen, with the display's frame rate: `setFullscreen(true)` is a no-op, and
+  `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation.
+```js
+import { window, storage } from "factoria";
+const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
+if (window.available) {
+  window.setFullscreen(s.fullscreen);
+  window.setVsync(s.vsync);
+  window.frameCap = s.cap;
+}
+// A resolution dropdown: window.resolutions().map((r) => `${r.width} x ${r.height}`); on pick: window.setSize(r.width, r.height).
+```
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
@@ -540,6 +612,11 @@ test("the stick moves the player", () => {
 ```
 
 Bad button or axis names and indices outside 0..3 throw with a "did you mean".
+
+Options-menu tests: `game.typeText("héllo")` types characters (what `input.text` returns for the next step; control
+characters are skipped) and `game.gamepad(i).setType("playstation")` plugs the pad in as that family, so
+`input.buttonName("jump")` answers "Cross" instead of "A". `rebind`, the cursor and the keyboard request are reset
+between tests. `window.*` setters throw in tests (no window): test the logic around them, not the toggle itself.
 
 Each test FILE starts from fresh module instances (module-level state is
 re-created, tools are re-evaluated against them), an empty in-memory `storage`
