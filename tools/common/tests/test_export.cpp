@@ -11,6 +11,7 @@
 #endif
 
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/scaffold.h"
 #include "test_helpers.h"
@@ -44,7 +45,11 @@ std::string make_project(const testing::TempDir& tmp, const std::string& name = 
     so.id = "com.example.spacedodge";
     auto r = create_project(dir, tpl, so);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    testing::write_all(stdfs::path(dir) / "assets" / "sprites" / "hero.png", "png");
+    Image hero;  // a real picture: a mobile export decodes every PNG (to compress it), and warns about one it cannot read
+    hero.width = hero.height = 1;
+    hero.rgba = {255, 255, 255, 255};
+    const auto png = encode_png(hero);
+    testing::write_all(stdfs::path(dir) / "assets" / "sprites" / "hero.png", std::string(png.begin(), png.end()));
     testing::write_all(stdfs::path(dir) / ".factoria" / "cache.bin", "x");
     return dir;
 }

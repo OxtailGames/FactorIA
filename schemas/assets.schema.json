@@ -47,6 +47,22 @@
         "analysis": {
           "type": "object",
           "description": "Measurements the tools cache (loudness of a sound, image facts). Written by the tools; do not edit."
+        },
+        "packed": {
+          "type": "object",
+          "description": "Where `factoria export` packed this texture into an atlas (import setting `atlas`): the engine draws the texture from that rectangle of the atlas image. Written to the assets.json that ships in an export, never to the project's own file; do not edit.",
+          "required": ["atlas", "rect"],
+          "additionalProperties": false,
+          "properties": {
+            "atlas": { "type": "string", "description": "Project-relative path of the atlas image (\"assets/atlases/ui.png\")." },
+            "rect": {
+              "type": "array",
+              "description": "Pixel rectangle of the texture in the atlas, without the padding around it: [x, y, width, height], origin at the top-left.",
+              "items": { "type": "integer", "minimum": 0 },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          }
         }
       }
     },
@@ -62,7 +78,7 @@
         },
         "atlas": {
           "type": "string",
-          "description": "Name of an atlas group. `factoria export` packs every texture of the same group into one texture (fewer draw calls); sprites keep referencing the original path. Only for Sprite and ParticleEmitter textures. Empty (default): not packed."
+          "description": "Name of an atlas group. `factoria export` packs every texture of the same group into one image, assets/atlases/<group>.png (fewer draw calls, and sprites of one group batch together); sprites keep referencing the original path. The atlas image is compressed like any texture, by its own entry in this file (the compression of the packed textures is not used). Only for textures drawn by Sprite (and so SpriteAnimator) and ParticleEmitter: a Tilemap tileset or a mesh texture must not be in a group (`factoria validate` warns). Empty (default): not packed."
         }
       }
     },
