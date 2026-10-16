@@ -22,7 +22,8 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
     info.description =
         "Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts "
         "for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), "
-        "CMakeLists.txt and README.md, and adds \"plugins\": {\"<name>\": {\"path\", \"platforms\"}} to factoria.json "
+        "CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "
+        "\"plugins\": {\"<name>\": {\"path\", \"platforms\"}} to factoria.json "
         "(`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and "
         "the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. The name: lower-case "
         "letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already "

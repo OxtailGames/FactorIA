@@ -1419,6 +1419,14 @@ NATIVE(audioVolume) {
     return JS_UNDEFINED;
 }
 
+NATIVE(audioGetVolume) {
+    SETUP;
+    const std::string bus = to_lower(arg_str(ctx, argc, argv, 0));
+    const float v = I->host->audio().bus_volume(bus);
+    if (v < 0) return throw_err(ctx, "unknown audio bus '" + bus + "'; use \"master\", \"sfx\", \"music\" or \"ui\"");
+    return JS_NewFloat64(ctx, v);
+}
+
 NATIVE(audioLog) {  // (clear) -> play log entries, oldest first
     SETUP;
     Json list = Json::array();
@@ -1654,6 +1662,10 @@ NATIVE(notices) {
     return I->from_json(out);
 }
 
+NATIVE(platform) {
+    return JS_NewString(ctx, FA_PLATFORM_NAME);
+}
+
 NATIVE(storageGet) {
     SETUP;
     I->load_storage();
@@ -1883,10 +1895,10 @@ const Reg kRegs[] = {
     R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
     R(testText, 1),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
-    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
+    R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };

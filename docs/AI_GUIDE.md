@@ -366,10 +366,10 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, props})`, `spawnPrefab(path, {position, rotation, scale, parent, props, overrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
 | `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
-| `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)` |
+| `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
-| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
+| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.platform` (`"windows"`, `"android"`...), `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
@@ -1095,8 +1095,7 @@ export default class Menu extends Behaviour {
   texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
   `size`, `padding` and `spacing` do not change with the window size; use `anchor` and `pivot` to pin a panel to a corner
   or the centre.
-- **Pause menu.** The UI keeps working while `time.scale` is 0: set `time.scale = 0` and show the panel (`entity.active = true`;
-  call `ui.focus("resume_button")` when it opens, the focus of an inactive panel is lost).
+- **Pause menu.** The UI keeps working while `game.paused` (`time.scale` 0); section 9.24 has the pause menu.
 - **Find and click things from outside.** `ui.state` lists every widget with its `rect` (so `game.input` can click its
   centre), `focused` and `value`. To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,
   `.tap("A")`, then assert on `ui.focused`, widget values or `ui.on` events (see `SCRIPTING.md`, UI).
@@ -1144,6 +1143,36 @@ settings > Audio"): `stream` (`auto` streams sounds over 10 seconds; `always`/`n
 as `<path>.qoa`, about 5 times smaller; scenes and scripts keep the `.wav` name). Run `assets.analyze_audio` once after
 adding sounds: it measures their loudness and keeps the result in `assets.json` (needed on mobile, where the engine
 never measures), and `project_validate` warns about clipped, very loud, very quiet and unevenly loud sounds.
+
+### 9.24 Game menus: main menu, options, credits, loading screen, pause
+
+New projects have no menus. `factoria docs read menus` (MCP `docs_read {"name":"menus"}`) has a complete set to copy,
+which FactorIA's own tests drive with a gamepad only: a main menu, options (video, audio per bus, controls, a language
+slot), credits listing the software in `FACTORIA_NOTICES.txt`, a loading screen and a pause menu, with the settings
+saved between runs. In short:
+
+1. `factoria.json`: `"mainScene": "scenes/menu.scene.json"` and a `"pause": ["Escape", "P", "GamepadStart"]` action.
+2. `scripts/settings.js` (settings in `storage`, applied once per run) and `scripts/ui/menu_stack.js` (panels over
+   panels, back with B / Escape).
+3. The main menu and credits: `scenes/menu.scene.json`, `scripts/main_menu.js`, `scripts/ui/credits.js`.
+4. Options: `prefabs/ui/options.prefab.json`, `scripts/ui/options.js`.
+5. The loading screen: `scenes/loading.scene.json`, `scripts/loading.js`.
+6. Pause: `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one `pause_menu` entity in each level.
+
+When you write menus of your own, the same rules apply:
+
+- **Panels over panels.** Show one panel and hide the one below with `active`: a focused widget that becomes inactive
+  loses the focus and the new panel's `autoFocus` widget takes it. Remember `ui.focused` before, and `ui.focus(...)` it
+  after closing, so the player lands where they were.
+- **Pause.** `game.paused = true` freezes physics, animations and every behaviour without `runWhilePaused = true`; the
+  UI keeps working. Unpause in the pause behaviour's next `onUpdate`, not in the "Resume" click handler, or the A /
+  Space press that clicked it also jumps. `time.scale` outlives scene loads: set `game.paused = false` before
+  `scene.load`.
+- **Settings.** Keep them in `storage` and apply them when the game starts (`session` remembers that it was done).
+  `window.*` setters throw when there is no window (headless runs, tests): check `window.available`.
+- **Controls.** Rebind with `input.rebind(action, list)` from the next `input.lastPressed()`, and name buttons with
+  `input.buttonName(action)` (Cross on a PlayStation pad, A on an Xbox pad).
+- **Quit** has no place on phones and tablets: hide it when `game.platform` is `"ios"` or `"android"`.
 
 ## 10. Tests
 
@@ -1301,4 +1330,6 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
 - `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
+- `factoria docs read menus` (MCP `docs_read {"name":"menus"}`): a main menu, options, credits, a loading screen
+  and a pause menu to copy into a game.
 - The project's `AGENTS.md`: short rules for this game.

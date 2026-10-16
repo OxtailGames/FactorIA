@@ -26,6 +26,9 @@
 #                 sends) relaunches the activity, which no configChanges value prevents: the old process ends cleanly
 #                 (no native signal) and the system starts the game again in a new process, which renders and has the
 #                 window focus.
+#   9. expect     optional, only when the environment variable FA_SMOKE_EXPECT is set: one extended regular expression
+#                 per line, and each must match a line of the log. CI uses it for what the game's own script logs when
+#                 it calls its native plugin (the Java class of the plugin answered through JNI).
 #
 # Output (outDir, default build/android-smoke): logcat.txt (whole log), logcat-app.txt (only the app process),
 # logcat-app-relaunched.txt (the process after step 8), screen.png (what the display shows), summary.txt, state.txt on
@@ -322,5 +325,16 @@ fi
 grep -m 1 -E "Process $OLD_PID exited cleanly" "$OUT/logcat.txt" | tee -a "$SUMMARY"
 "$ADB" exec-out screencap -p >"$OUT/screen-relaunched.png" 2>/dev/null
 has_picture "$OUT/screen-relaunched.png" "relaunch"
+
+# ---- 9. expect ------------------------------------------------------------------------------------------------------
+# What the game itself has to have logged (FA_SMOKE_EXPECT, one pattern per line), checked against the whole log.
+if [ -n "${FA_SMOKE_EXPECT:-}" ]; then
+    snapshot_log
+    while IFS= read -r pattern; do
+        [ -n "$pattern" ] || continue
+        grep -m 1 -E -- "$pattern" "$OUT/logcat.txt" | tee -a "$SUMMARY" ||
+            fail "expect: no line of the log matches '$pattern' (FA_SMOKE_EXPECT): the game did not log what it should have"
+    done <<<"$FA_SMOKE_EXPECT"
+fi
 
 note "OK: $PKG ran on the emulator (pid $OLD_PID, pid $PID after the relaunch): rendered, audio stream, touch, suspend/resume, configuration change, relaunch, no crash."
