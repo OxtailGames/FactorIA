@@ -613,7 +613,7 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 
 ### Rules from `CLAUDE.md`
 
-- Module order is in `docs/ARCHITECTURE.md`: core, scene, platform, then render, physics and audio, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
+- Module order is in `docs/ARCHITECTURE.md`: core, scene, platform, then render, physics, audio and ui, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
 - No exceptions cross module boundaries, except `CommandError` inside command handlers. Return `fa::Result<T>` with a message and a hint.
 - No `rand()`. No wall clock in simulation.
 - Do not edit `external/`. Wrap third-party code from engine code.

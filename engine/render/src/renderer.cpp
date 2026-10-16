@@ -517,6 +517,7 @@ void Renderer::Impl::render(World& world, float dt) {
     flush_particle_bursts(world);
     update_animators(world, fr, false);
     gather_2d(world, fr);
+    gather_ui(world, fr);
     gather_particles(world, fr);
     gather_debug(*debug.impl(), fr);
     fonts->sync();
@@ -752,7 +753,17 @@ void Renderer::Impl::render(World& world, float dt) {
         if (batches.empty()) return;
         quad_vs_params_t u{};
         copy_mat(u.view_proj, vp);
+        Rect scissor;  // the clip applied now (w <= 0: the whole target); a ScrollList's content is cut at its rectangle
+        auto apply_clip = [&](const Rect& c) {
+            if (c == scissor) return;
+            scissor = c;
+            Rect r = c.w > 0 ? c : Rect{0, 0, float(targetW), float(targetH)};
+            const int x0 = std::clamp(int(std::lround(r.x)), 0, targetW), y0 = std::clamp(int(std::lround(r.y)), 0, targetH);
+            const int x1 = std::clamp(int(std::lround(r.x + r.w)), x0, targetW), y1 = std::clamp(int(std::lround(r.y + r.h)), y0, targetH);
+            sg_apply_scissor_rect(x0, y0, x1 - x0, y1 - y0, true);
+        };
         for (const QuadBatch& qb : batches) {
+            apply_clip(qb.clip);
             sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend));
             apply_uniforms(UB_quad_vs_params, u);
             std::uint32_t done = 0;
@@ -770,6 +781,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 done += n;
             }
         }
+        apply_clip(Rect{});
     };
     draw_group(gWorld.batches, fr.cam.viewProj, fr.cam.perspective);
     draw_group(gDebugWorld.batches, fr.cam.viewProj, false);
