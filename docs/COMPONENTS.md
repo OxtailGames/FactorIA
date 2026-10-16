@@ -489,7 +489,7 @@ Asks the providers themselves, so newly released models show up: Claude Code thr
 
 List configured AI providers and roles, or diagnose which ones are usable (doctor).
 
-action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). Example: {"action":"doctor"}
+action "list" (default) shows providers and the role mapping from ~/.factoria/ai.json. action "doctor" also checks for CLIs (claude, codex, ant) and API keys (never printed). `assets` maps each kind of asset (image, sound, music, voice, model3d) to the provider that generates it (assets.generate_* commands). Example: {"action":"doctor"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -543,6 +543,124 @@ Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak 
 |---|---|---|---|
 | `path` | string | no | Project-relative sound file, e.g. assets/sfx/jump.wav. Omit to analyze every sound of the project. |
 
+### `assets.disclosure`
+
+Write the AI-generated content disclosure for store forms (Steam) from the provenance records.
+
+Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as AI_CONTENT_DISCLOSURE.md. Example: {}
+
+### `assets.generate_image` (modifies state)
+
+Generate a PNG image with the image asset provider and record where it came from.
+
+Calls the provider that ai.json assigns to "image" (assets.image; there is no default, so add one, or pass `provider` such as "fake" for an offline placeholder), writes a PNG of exactly width x height at `path` and records provenance (origin generated, ai true, provider, model, the full prompt, references, date, license note) in assets.json. The house style of assets.json is applied unless style is false: its `prompt` is appended to yours, its `references` are sent along with `references`, and its `palette` reduces the result to those colours. Returns the path, size, provenance and the image itself. Generation costs money with paid providers: check the first result before generating more. Example: {"prompt":"a red potion bottle, side view","path":"assets/items/potion.png","width":64,"height":64,"transparent":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
+| `prompt` | string | yes | What to draw. Describe the subject and the view; the house style is added for you. |
+| `width` | integer | no | Width of the PNG in pixels. The provider's picture is resized to it. Default 512. |
+| `height` | integer | no | Height of the PNG in pixels. Default 512. |
+| `transparent` | boolean | no | Ask for a transparent background (sprites, items, icons). Default false. |
+| `references` | array | no | Project-relative images the result should follow (a character to keep consistent, a style). Sent to providers that accept reference images, in addition to style.references of assets.json. |
+| `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references, style.palette). false skips all of it for this call. Default true. |
+| `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
+| `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
+| `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
+| `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
+### `assets.generate_model` (modifies state)
+
+Generate a 3D model with the model3d asset provider and record where it came from.
+
+Calls the provider that ai.json assigns to "model3d" (assets.model3d) and writes the glTF binary at `path` (.glb; the fake provider makes a small .gltf cube). Generating models takes minutes with real providers. The model is not textured or rigged; check it in the scene before building on it. Records provenance in assets.json. Example: {"prompt":"a low-poly wooden crate","path":"assets/models/crate.glb"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
+| `prompt` | string | yes | The object to make: shape, material, style. |
+| `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
+| `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
+| `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
+| `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
+### `assets.generate_music` (modifies state)
+
+Generate a music track with the music asset provider and record where it came from.
+
+Calls the provider that ai.json assigns to "music" (assets.music) and writes the audio file at `path` (extension as for assets.generate_sound). Tracks are instrumental. Records provenance in assets.json. Tracks are not looped for you: ask for a loopable piece in the prompt and set `loop` on the AudioSource. Example: {"prompt":"calm forest theme, soft flute and strings","path":"assets/music/forest.mp3","seconds":60}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
+| `prompt` | string | yes | The music to make: mood, instruments, tempo. |
+| `seconds` | number | no | Length in seconds. Default: the provider chooses. |
+| `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
+| `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
+| `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
+| `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
+### `assets.generate_sound` (modifies state)
+
+Generate a sound effect with the sound asset provider and record where it came from.
+
+Calls the provider that ai.json assigns to "sound" (assets.sound) and writes the audio file at `path`, whose extension must be the one the provider makes (.mp3 for elevenlabs, .wav for fake and asset-command). Records provenance in assets.json. Example: {"prompt":"short coin pickup chime","path":"assets/sfx/coin.mp3","seconds":1}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
+| `prompt` | string | yes | The sound to make, for example "heavy wooden door slam". |
+| `seconds` | number | no | Length in seconds. Default: the provider chooses. |
+| `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
+| `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
+| `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
+| `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
+### `assets.generate_sprite_sheet` (modifies state)
+
+Generate a sprite sheet (a grid of animation frames) and record its layout for SpriteAnimator.
+
+Like assets.generate_image, but the picture is a grid of `frames` animation frames of frameWidth x frameHeight, normalized to exactly columns * frameWidth by rows * frameHeight pixels (each side at most 4096). The layout is written to assets.json as the `sheet` of the file with one clip "default" (all frames, at `fps`), and the result shows the Sprite and SpriteAnimator components to use. Providers draw grids unevenly: look at the result and regenerate when frames wander. Example: {"prompt":"a knight walking right","path":"assets/knight_walk.png","frames":6,"columns":3,"frameWidth":64,"frameHeight":64,"fps":10}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
+| `prompt` | string | yes | What the animation shows: the subject and what it does over the frames. |
+| `frames` | integer | yes | Number of animation frames. |
+| `columns` | integer | no | Frames per row. Default: the square root of frames, rounded up. |
+| `frameWidth` | integer | yes | Width of one frame in pixels. |
+| `frameHeight` | integer | yes | Height of one frame in pixels. |
+| `fps` | number | no | Frames per second of the "default" clip. Default 8. |
+| `transparent` | boolean | no | Ask for a transparent background (the usual choice for sprites). Default true. |
+| `references` | array | no | Project-relative images the result should follow (a character to keep consistent, a style). Sent to providers that accept reference images, in addition to style.references of assets.json. |
+| `style` | boolean | no | Apply the house style of assets.json (style.prompt, style.references, style.palette). false skips all of it for this call. Default true. |
+| `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
+| `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
+| `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
+| `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
+### `assets.generate_voice` (modifies state)
+
+Generate spoken audio from text with the voice asset provider and record where it came from.
+
+Calls the provider that ai.json assigns to "voice" (assets.voice) to speak `text` with `voice` (default: the voice in ai.json) and writes the audio file at `path`. Records provenance in assets.json (the text is the prompt). Example: {"text":"Welcome, traveller.","path":"assets/voice/welcome.mp3"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Where to write the file, project-relative, under assets/ (for example "assets/sfx/jump.wav"). The extension must match what the provider makes. |
+| `text` | string | yes | The words to speak. |
+| `voice` | string | no | The provider's voice name or id (openai: alloy, verse...; elevenlabs: a voice id). Default: assets.voice.voice in ai.json. |
+| `provider` | string | no | Asset provider to use instead of the one ai.json assigns to this kind of asset (a name from ai.providers, for example "fake" to try the flow offline). |
+| `model` | string | no | Model to use instead of the one in ai.json. Empty: the provider's default. |
+| `seed` | integer | no | Seed, for providers that take one (fake, asset-command with {seed}). Others ignore it with a warning. |
+| `overwrite` | boolean | no | Replace the file when it already exists. The old file is not kept. Default false. |
+| `author` | string | no | Who gets the credit in the provenance record. Default: "factoria". |
+
 ### `assets.import` (modifies state)
 
 Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from.
@@ -577,6 +695,39 @@ Example: assets.list {"folder":"assets","extension":".png"}
 |---|---|---|---|
 | `folder` | string | no | Project-relative folder. Default "assets". |
 | `extension` | string | no | Only files with this extension, e.g. .png |
+
+### `assets.provenance`
+
+Show where assets came from: the provenance record of one file, or all of them.
+
+With `path`, the provenance record of that file (null when it has none). Without, every record in assets.json, how many are AI-made, and the art, sound and model files under assets/ that have no record yet. Example: {"path":"assets/hero.png"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative path under assets/. Omit to list every record. |
+
+### `assets.set_provenance` (modifies state)
+
+Record where an asset came from (hand-made, imported, or made with AI elsewhere).
+
+Replaces the provenance record of an existing file in assets.json. The generate commands write it for you; use this for files they did not make, so the AI disclosure is complete. `ai` says whether AI made the content (it defaults to true for origin generated, false otherwise). Example: {"path":"assets/music/theme.ogg","origin":"imported","ai":false,"license":"CC0","source":"https://example.com/theme","author":"A. Composer"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative path of an existing file under assets/. |
+| `origin` | string ["generated","imported","original"] | yes | generated: made by an asset provider. imported: brought in from a file made elsewhere. original: made by hand for this game. |
+| `ai` | boolean | no | Whether AI made the content. Default: true for origin generated, false otherwise. |
+| `kind` | string ["image","sound","music","voice","model3d"] | no | What the asset is, so the disclosure can tell sound effects, music and voice apart. |
+| `provider` | string | no | Tool or provider that made it ("openai", "suno", "Aseprite"...). |
+| `model` | string | no | Model that made it, for AI-made assets. |
+| `prompt` | string | no | The prompt it was made from, for AI-made assets. |
+| `references` | array | no | Reference images used. |
+| `seed` | integer | no | Seed, when there was one. |
+| `license` | string | no | License or terms ("CC0", "Purchased, standard license"...). |
+| `author` | string | no | Person, studio or agent that made or chose the asset. |
+| `source` | string | no | Where an imported asset came from: a URL or the original file. |
+| `date` | string | no | YYYY-MM-DD. Default: today. |
+| `notes` | string | no | Anything else, such as edits made by hand. |
 
 ### `assets.slice_sheet` (modifies state)
 
