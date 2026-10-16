@@ -123,6 +123,12 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
             exe = root + "/Space Dodge.app/Contents/MacOS/space-dodge";
             notices = "Space Dodge.app/Contents/Resources/FACTORIA_NOTICES.txt";
             CHECK(testing::read_all(root + "/Space Dodge.app/Contents/Info.plist").find("com.example.spacedodge") != std::string::npos);
+#if !defined(__APPLE__)
+            // codesign runs only on macOS: the report says how to seal the bundle on a Mac (macOS: next test case).
+            bool warned = false;
+            for (const auto& w : rep.warnings) warned = warned || w.find("codesign --force --sign -") != std::string::npos;
+            CHECK(warned);
+#endif
         }
         CHECK(stdfs::exists(exe));
         CHECK(stdfs::exists(game + "/factoria.json"));
@@ -144,6 +150,34 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
     // The project itself is untouched.
     CHECK(stdfs::exists(stdfs::path(proj) / "ENGINE_FEEDBACK.json"));
 }
+
+#if defined(__APPLE__)
+TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify accepts it") {
+    // A real executable signed on its own, as factoria_player is in a signed release download. Copied into the bundle
+    // unchanged, its signature does not cover the Info.plist and the game files: `codesign --verify` rejects the app
+    // ("code has no resources but signature indicates they must be present") and a Mac that downloads it calls it damaged.
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    std::string player = tmp.sub("signed_player/factoria_player");
+    stdfs::create_directories(stdfs::path(player).parent_path());
+    stdfs::copy_file("/usr/bin/true", player);
+    REQUIRE(std::system(("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
+
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "macos";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = player;
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r.value().warnings.empty());
+    const std::string app = tmp.sub("out/space-dodge-macos/Space Dodge.app");
+    CHECK(std::system(("/usr/bin/codesign --verify --strict '" + app + "' 2>/dev/null").c_str()) == 0);
+    bool forceInSteps = false;
+    for (const auto& s : r.value().nextSteps) forceInSteps = forceInSteps || s.find("codesign --force") != std::string::npos;
+    CHECK(forceInSteps);  // re-signing a signed app needs --force
+}
+#endif
 
 TEST_CASE("export: validation errors are clear") {
     testing::TempDir tmp;
