@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 
+#include "fa/core/hash.h"
 #include "fa/core/strings.h"
 
 namespace fa {
@@ -101,6 +102,69 @@ const char* sdk_os_name(const std::string& hostOs) {
     return hostOs == "windows" ? "windows" : "linux";
 }
 
+constexpr const char* kCommandLineToolsByHand =
+    "Google changed the repository layout; update FactorIA, or install the Android command-line tools by hand "
+    "(https://developer.android.com/studio#command-line-tools-only).";
+
+// One <remotePackage path="..."> of the listing, as far as the install needs it.
+struct CmdlinePackage {
+    bool listed = false;    // a package with this path that is not obsolete
+    bool obsolete = false;  // packages with this path exist, but all are marked obsolete
+    std::string revision;   // "22.0"
+    SdkArchive archive;     // the one for this OS and CPU; url is empty when the package has none
+    std::string osesSeen;   // every OS/CPU the package lists, for the error that none fits
+};
+
+// Reads the package `path`. The Error is only for a damaged listing: an archive for this host without <url> or <checksum>.
+Result<CmdlinePackage> read_cmdline_package(std::string_view xml, const std::string& path, const std::string& hostOs,
+                                            const std::string& hostArch) {
+    CmdlinePackage out;
+    const std::string wantOs = sdk_os_name(hostOs);
+    int bestScore = 0;
+    for (std::size_t pos = 0;;) {
+        Element pkg;
+        if (!find_element(xml, "remotePackage", pos, pkg)) break;
+        pos = pkg.end;
+        if (attribute(pkg.openTag, "path") != path) continue;
+        if (attribute(pkg.openTag, "obsolete") == "true") {
+            out.obsolete = true;
+            continue;
+        }
+        out.listed = true;
+        out.obsolete = false;
+        Element rev;
+        if (find_element(pkg.body, "revision", 0, rev))
+            out.revision = text_of(rev.body, "major") + "." + (text_of(rev.body, "minor").empty() ? "0" : text_of(rev.body, "minor"));
+        for (std::size_t apos = 0;;) {
+            Element archive;
+            if (!find_element(pkg.body, "archive", apos, archive)) break;
+            apos = archive.end;
+            SdkArchive a;
+            a.hostOs = text_of(archive.body, "host-os");
+            a.hostArch = text_of(archive.body, "host-arch");
+            const std::string rel = text_of(archive.body, "url");
+            Element sum;
+            if (find_element(archive.body, "checksum", 0, sum)) {
+                a.checksumType = attribute(sum.openTag, "type");
+                a.checksum = lower(std::string(trim(sum.body)));
+            }
+            a.size = std::strtoull(text_of(archive.body, "size").c_str(), nullptr, 10);
+            if (!out.osesSeen.empty()) out.osesSeen += ", ";
+            out.osesSeen += a.hostOs + (a.hostArch.empty() ? "" : "/" + a.hostArch);
+            if (a.hostOs != wantOs) continue;
+            const int score = a.hostArch == hostArch ? 2 : (a.hostArch.empty() ? 1 : 0);
+            if (score == 0 || score <= bestScore) continue;
+            if (rel.empty() || a.checksum.empty())
+                return make_error(std::string(kSdkRepositoryUrl) + ": the " + path + " entry for " + a.hostOs + " has no <url> or <checksum>.", kCommandLineToolsByHand);
+            a.url = rel.find("://") != std::string::npos ? rel : std::string(kSdkDownloadBase) + rel;
+            bestScore = score;
+            out.archive = a;
+        }
+        break;
+    }
+    return out;
+}
+
 }  // namespace
 
 std::string decode_xml_entities(std::string_view text) {
@@ -153,56 +217,39 @@ Result<SdkRepositoryInfo> parse_sdk_repository(std::string_view xml, const std::
     const std::string where = std::string(kSdkRepositoryUrl);
     SdkRepositoryInfo info;
 
-    // ---- cmdline-tools;latest
-    bool packageFound = false;
-    std::string wantOs = sdk_os_name(hostOs);
-    int bestScore = 0;
-    std::string osesSeen;
-    for (std::size_t pos = 0;;) {
-        Element pkg;
-        if (!find_element(xml, "remotePackage", pos, pkg)) break;
-        pos = pkg.end;
-        if (attribute(pkg.openTag, "path") != "cmdline-tools;latest" || attribute(pkg.openTag, "obsolete") == "true") continue;
-        packageFound = true;
-        Element rev;
-        if (find_element(pkg.body, "revision", 0, rev))
-            info.cmdlineToolsRevision = text_of(rev.body, "major") + "." + (text_of(rev.body, "minor").empty() ? "0" : text_of(rev.body, "minor"));
-        for (std::size_t apos = 0;;) {
-            Element archive;
-            if (!find_element(pkg.body, "archive", apos, archive)) break;
-            apos = archive.end;
-            SdkArchive a;
-            a.hostOs = text_of(archive.body, "host-os");
-            a.hostArch = text_of(archive.body, "host-arch");
-            const std::string rel = text_of(archive.body, "url");
-            Element sum;
-            if (find_element(archive.body, "checksum", 0, sum)) {
-                a.checksumType = attribute(sum.openTag, "type");
-                a.checksum = lower(std::string(trim(sum.body)));
-            }
-            a.size = std::strtoull(text_of(archive.body, "size").c_str(), nullptr, 10);
-            if (!osesSeen.empty()) osesSeen += ", ";
-            osesSeen += a.hostOs + (a.hostArch.empty() ? "" : "/" + a.hostArch);
-            if (a.hostOs != wantOs) continue;
-            const int score = a.hostArch == hostArch ? 2 : (a.hostArch.empty() ? 1 : 0);
-            if (score == 0 || score <= bestScore) continue;
-            if (rel.empty() || a.checksum.empty())
-                return make_error(where + ": the cmdline-tools entry for " + a.hostOs + " has no <url> or <checksum>.",
-                                  "Google changed the repository layout; update FactorIA, or install the Android command-line tools by hand "
-                                  "(https://developer.android.com/studio#command-line-tools-only).");
-            a.url = rel.find("://") != std::string::npos ? rel : std::string(kSdkDownloadBase) + rel;
-            bestScore = score;
-            info.cmdlineTools = a;
-        }
-        break;
+    // ---- the command-line tools: the pinned classic revision, else `latest` (the Android CLI front) with a warning
+    const std::string pinnedPath = kSetupAndroidCmdlineTools, fallbackPath = kSetupAndroidCmdlineToolsFallback;
+    auto pinned = read_cmdline_package(xml, pinnedPath, hostOs, hostArch);
+    if (!pinned.ok()) return pinned.error();
+    CmdlinePackage chosen;
+    std::string why;  // why the pinned package is not used
+    if (!pinned->listed) why = pinned->obsolete ? "it is marked obsolete in Google's package list" : "Google's package list does not have it";
+    else if (pinned->archive.url.empty()) why = "it has no download for " + hostOs + "/" + hostArch + " (it lists: " + pinned->osesSeen + ")";
+    if (why.empty()) {
+        chosen = *pinned;
+        info.cmdlineToolsPackage = pinnedPath;
+        info.cmdlineToolsPinned = true;
+    } else {
+        auto fallback = read_cmdline_package(xml, fallbackPath, hostOs, hostArch);
+        if (!fallback.ok()) return fallback.error();
+        if (!fallback->listed && pinned->listed)  // only the pinned package exists, and not for this computer
+            return make_error("The Android command-line tools have no download for " + hostOs + "/" + hostArch + " (the repository lists: " + pinned->osesSeen + ").",
+                              "Install the command-line tools by hand (https://developer.android.com/studio#command-line-tools-only) or Android Studio.");
+        if (!fallback->listed)
+            return make_error(where + " has neither the package '" + pinnedPath + "' nor '" + fallbackPath + "'.", kCommandLineToolsByHand);
+        chosen = *fallback;
+        info.cmdlineToolsPackage = fallbackPath;
+        if (chosen.archive.url.empty())
+            return make_error("The Android command-line tools have no download for " + hostOs + "/" + hostArch + " (the repository lists: " + chosen.osesSeen + ").",
+                              "Install the command-line tools by hand (https://developer.android.com/studio#command-line-tools-only) or Android Studio.");
+        info.warnings.push_back(
+            "FactorIA pins the Android command-line tools '" + pinnedPath + "' (the classic, Java-based sdkmanager), but " + why + ", so '" +
+            fallbackPath + "' (revision " + chosen.revision + ") is installed instead. Those tools are Google's \"Android CLI\": it unpacks a copy of itself of about "
+            "250 MB into the Android user folder on first use, shows Google's terms and sends Google usage statistics, and sdkmanager has no switch to turn that off. "
+            "Update FactorIA to get a build that knows a newer classic revision, or install Android Studio.");
     }
-    if (!packageFound)
-        return make_error(where + " has no package 'cmdline-tools;latest'.",
-                          "Google changed the repository layout; update FactorIA, or install the Android command-line tools by hand "
-                          "(https://developer.android.com/studio#command-line-tools-only).");
-    if (info.cmdlineTools.url.empty())
-        return make_error("The Android command-line tools have no download for " + hostOs + "/" + hostArch + " (the repository lists: " + osesSeen + ").",
-                          "Install the command-line tools by hand (https://developer.android.com/studio#command-line-tools-only) or Android Studio.");
+    info.cmdlineToolsRevision = chosen.revision;
+    info.cmdlineTools = chosen.archive;
     if (info.cmdlineTools.checksumType != "sha1" || !is_hex(info.cmdlineTools.checksum, 40))
         return make_error(where + ": the cmdline-tools checksum is not a SHA-1 ('" + info.cmdlineTools.checksumType + "': '" +
                               info.cmdlineTools.checksum + "').",
@@ -231,6 +278,37 @@ Result<SdkRepositoryInfo> parse_sdk_repository(std::string_view xml, const std::
         return make_error(where + " has no <license id=\"" + std::string(kSetupAndroidLicenseId) + "\"> text.",
                           "Google changed the repository layout; update FactorIA. The license is at https://developer.android.com/studio/terms.");
     return info;
+}
+
+std::string sdk_license_hash(std::string_view text) {
+    // The Android SDK tools hash the text the way their XML reader hands it over (com.android.repository.impl.meta.TrimStringAdapter,
+    // then Hashing.sha1() over the UTF-8 bytes):
+    //   1. a space or tab right after any whitespace character is dropped (the indentation of the XML layout),
+    //   2. a line break with no other line break next to it becomes one space (paragraphs are reflowed, blank lines stay),
+    //   3. a run of spaces becomes one space,
+    //   4. the ends are trimmed (String.trim: every character up to U+0020).
+    auto is_white = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r'; };
+    std::string a;
+    a.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if ((c == ' ' || c == '\t') && i > 0 && is_white(text[i - 1])) continue;
+        a += c;
+    }
+    std::string b;
+    b.reserve(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const bool lone = a[i] == '\n' && (i == 0 || a[i - 1] != '\n') && (i + 1 >= a.size() || a[i + 1] != '\n');
+        b += lone ? ' ' : a[i];
+    }
+    std::string c;
+    c.reserve(b.size());
+    for (char ch : b)
+        if (!(ch == ' ' && !c.empty() && c.back() == ' ')) c += ch;
+    std::size_t begin = 0, end = c.size();
+    while (begin < end && static_cast<unsigned char>(c[begin]) <= ' ') ++begin;
+    while (end > begin && static_cast<unsigned char>(c[end - 1]) <= ' ') --end;
+    return sha1_hex(std::string_view(c).substr(begin, end - begin));
 }
 
 // ---- Adoptium -----------------------------------------------------------------------------------------------

@@ -1,8 +1,10 @@
 // `setup android`: a JDK and the Android SDK, ready for `factoria export --platform android`.
 //
 //   JDK 21      Eclipse Temurin from the Adoptium API  -> <home>/android/jdk
-//   SDK         command-line tools from Google's repository -> <sdk>/cmdline-tools/latest, then through its sdkmanager:
-//               the licenses (only after the user agreed), platform-tools, platforms;android-36, build-tools;35.0.0
+//   SDK         command-line tools from Google's repository -> <sdk>/cmdline-tools/<revision>: the pinned classic Java
+//               sdkmanager (kSetupAndroidCmdlineTools), `latest` only when Google's list no longer has it. The license
+//               agreement is recorded by us (only the one the user agreed to, only after they agreed), then sdkmanager installs
+//               platform-tools, platforms;android-36, build-tools;35.0.0
 // The SDK is the one the toolchain search already finds (Android Studio's, ANDROID_HOME...) except Unity Hub's, which
 // belongs to Unity; otherwise <home>/android/sdk. What was installed is saved in the machine config so that
 // find_android_toolchain uses it.
@@ -91,8 +93,9 @@ Result<ProcessResult> run_sdkmanager(const SetupContext& ctx, const stdfs::path&
     po.argv = {sdkmanager.string(), "--sdk_root=" + sdk.string()};
     po.argv.insert(po.argv.end(), args.begin(), args.end());
     po.env["JAVA_HOME"] = jdk;
-    // The command-line tools of 2026 (revision 23+) are a shell script around Google's "Android CLI": it unpacks a ~250 MB copy of
-    // itself into $ANDROID_USER_HOME (default ~/.android). Keep that inside the FactorIA folder, like everything else we install.
+    // The pinned classic tools keep little in $ANDROID_USER_HOME (default ~/.android), but the Android CLI that revision 23+ and an
+    // SDK found on the computer may have unpacks a ~250 MB copy of itself there. Keep it inside the FactorIA folder either way,
+    // like everything else we install.
     po.env["ANDROID_USER_HOME"] = (stdfs::path(ctx.home_dir()) / "android" / "user").string();
     po.stdinText = stdinText;
     po.timeoutSeconds = 3600;
@@ -128,6 +131,12 @@ std::string license_required_hint() {
            "(CLI: factoria setup android --accept-licenses). An AI must ask the user first.";
 }
 
+// The folder of cmdline-tools/ a package goes to: the part of its path after ';' ("cmdline-tools;22.0" -> "22.0", "...;latest" -> "latest").
+std::string package_folder(const std::string& package) {
+    const std::size_t semi = package.find(';');
+    return semi == std::string::npos ? package : package.substr(semi + 1);
+}
+
 std::string describe_jdk_source(const AndroidToolchain& tc) {
     return "JDK " + std::to_string(tc.jdkMajor) + " (" + (tc.jdkFrom == "config" ? std::string("export.json") : tc.jdkFrom) + ") at " + tc.jdk;
 }
@@ -157,6 +166,8 @@ stdfs::path find_sdkmanager(const stdfs::path& sdk) {
         return {};
     };
     const stdfs::path base = sdk / "cmdline-tools";
+    // The revision FactorIA pins first (what `setup android` installs), then `latest`, then the newest of the others.
+    if (auto pinned = in_dir(base / package_folder(kSetupAndroidCmdlineTools) / "bin"); !pinned.empty()) return pinned;
     if (auto latest = in_dir(base / "latest" / "bin"); !latest.empty()) return latest;
     std::vector<std::string> versions;
     std::error_code ec;
@@ -239,7 +250,7 @@ SetupComponent android_status(const SetupContext& ctx, bool fetchLicenses) {
 
     int mb = 0;
     if (!p.jdkOk) mb += 200;
-    if (p.sdkmanager.empty()) mb += 260;  // the tools (~150 MB) and the Android CLI they fetch on first use (~100 MB)
+    if (p.sdkmanager.empty()) mb += 160;  // the pinned command-line tools (150 to 180 MB); nothing else is fetched on first use
     if (!p.missingPackages.empty()) mb += 140;
     c.installSizeMb = mb;
 
@@ -330,7 +341,19 @@ SetupResult android_install(const SetupContext& ctx, const SetupInstallOptions& 
     }
 
     // ---- 2. the command-line tools ---------------------------------------------------------------------------------
+    // The repository listing is needed for the tools and, when they are there already but the license is not, for the license text.
+    SdkRepositoryInfo repo;
+    bool haveRepo = false;
+    auto ensure_repo = [&]() -> std::optional<Fail> {
+        if (haveRepo) return std::nullopt;
+        ctx.say("Looking up Google's Android SDK package list...");
+        if (auto f = fetch_sdk_repository(ctx, in.staging(), repo)) return f;
+        haveRepo = true;
+        for (const std::string& w : repo.warnings) in.report.warnings.push_back(w);
+        return std::nullopt;
+    };
     stdfs::path sdkmanager = plan.sdkmanager;
+    bool classicTools = false;  // the tools were installed from the pinned package in this run: sdkmanager --licenses is not needed
     if (!needCmdline) {
         SetupStep s;
         s.id = "cmdline-tools";
@@ -341,9 +364,7 @@ SetupResult android_install(const SetupContext& ctx, const SetupInstallOptions& 
         in.add_step(s);
     } else {
         StepTimer timer;
-        SdkRepositoryInfo repo;
-        ctx.say("Looking up the Android command-line tools...");
-        if (auto f = fetch_sdk_repository(ctx, in.staging(), repo)) return in.fail(*f);
+        if (auto f = ensure_repo()) return in.fail(*f);
         const std::string fileName = repo.cmdlineTools.url.substr(repo.cmdlineTools.url.rfind('/') + 1);
         const stdfs::path archive = in.staging() / fileName;
         std::uint64_t bytes = 0;
@@ -359,63 +380,57 @@ SetupResult android_install(const SetupContext& ctx, const SetupInstallOptions& 
         if (!is_dir(top / "bin"))
             return in.fail("failed", make_error("The Android command-line tools archive " + fileName + " has no cmdline-tools/bin inside.",
                                                 "Google may have changed the archive; update FactorIA, or install Android Studio."));
-        const stdfs::path latest = plan.sdkDir / "cmdline-tools" / "latest";
-        if (auto f = replace_dir(top, latest)) return in.fail(*f);
-        make_tree_executable(latest / "bin");
+        // The folder is named like the package (cmdline-tools/22.0, or latest for the fallback), as the SDK Manager lays it out.
+        const stdfs::path dest = plan.sdkDir / "cmdline-tools" / package_folder(repo.cmdlineToolsPackage);
+        if (auto f = replace_dir(top, dest)) return in.fail(*f);
+        make_tree_executable(dest / "bin");
         sdkmanager = find_sdkmanager(plan.sdkDir);
         if (sdkmanager.empty())
-            return in.fail("failed", make_error("The command-line tools were unpacked into " + latest.string() + " but there is no bin/sdkmanager in them.", "Update FactorIA."));
+            return in.fail("failed", make_error("The command-line tools were unpacked into " + dest.string() + " but there is no bin/sdkmanager in them.", "Update FactorIA."));
+        classicTools = repo.cmdlineToolsPinned;
         SetupStep s;
         s.id = "cmdline-tools";
         s.title = "Android command-line tools";
         s.outcome = "installed";
-        s.detail = "revision " + repo.cmdlineToolsRevision;
-        s.path = latest.string();
+        s.detail = "revision " + repo.cmdlineToolsRevision +
+                   (repo.cmdlineToolsPinned ? " (the classic Java sdkmanager FactorIA pins)" : " (" + repo.cmdlineToolsPackage + ", Google's Android CLI: see the warning)");
+        s.path = dest.string();
         s.downloadedBytes = bytes;
         s.seconds = timer.seconds();
         in.add_step(s);
     }
 
-    // ---- 3. the licenses ------------------------------------------------------------------------------------------
-    // Older command-line tools record the agreement with `sdkmanager --licenses`. Revision 23 and newer say the option is "no
-    // longer needed" and record it when they install the first package instead: the user's agreement is already given at this
-    // point (acceptLicenses), so the packages step below does the recording and checks that it happened.
-    bool licenseViaPackages = false;
+    // ---- 3. the license ------------------------------------------------------------------------------------------
+    // The user agreed to one license, the text of which we showed (acceptLicenses). We record that one and nothing else: a line
+    // with the hash of its text in licenses/android-sdk-license, which is what sdkmanager and Gradle look for. `sdkmanager
+    // --licenses` would answer y to every license Google lists (previews, Google TV, GDK, MIPS system images...).
     if (plan.licensesAccepted) {
         SetupStep s;
         s.id = "licenses";
-        s.title = "Android SDK licenses";
+        s.title = "Android SDK license";
         s.outcome = "skipped";
         s.detail = "already accepted";
         s.path = (plan.sdkDir / "licenses").string();
         in.add_step(s);
     } else {
         StepTimer timer;
-        ctx.say("Accepting the Android SDK licenses (the user agreed)...");
-        auto r = run_sdkmanager(ctx, sdkmanager, plan.sdkDir, jdkDir, {"--licenses"}, yes_lines(100), false);
-        if (!r.ok()) return in.fail("failed", r.error());
-        if (r->cancelled || is_cancelled(ctx.cancel)) return in.fail("cancelled", make_error("The setup was cancelled."));
-        const std::string output = r->stdoutText + "\n" + r->stderrText;
+        if (auto f = ensure_repo()) return in.fail(*f);
+        ctx.say("Recording the Android SDK license agreement (the user agreed)...");
+        const std::string hash = sdk_license_hash(repo.license.text);
+        const stdfs::path file = plan.sdkDir / "licenses" / kSetupAndroidLicenseId;
+        // The file is empty or missing here (otherwise it counts as accepted). Google's tools write a line break, then the hash.
+        if (!tooling_detail::write_file(file, "\n" + hash))
+            return in.fail("failed", make_error("Cannot write " + file.string() + ".", "Check the free disk space and that the folder is writable."));
         SetupStep s;
         s.id = "licenses";
-        s.title = "Android SDK licenses";
-        s.path = (plan.sdkDir / "licenses").string();
-        if (r->exitCode == 0 && !sdk_license_accepted(plan.sdkDir) && to_lower(output).find("no longer needed") != std::string::npos) {
-            licenseViaPackages = true;
-            s.outcome = "skipped";
-            s.detail = "these command-line tools record the agreement while they install the packages (next step)";
-        } else {
-            if (r->exitCode != 0 || !sdk_license_accepted(plan.sdkDir))
-                return in.fail("failed", make_error("sdkmanager --licenses failed (exit code " + std::to_string(r->exitCode) + ")" +
-                                                        (tail_lines(output, 4).empty() ? "" : ": " + tail_lines(output, 4)),
-                                                    "Check the internet connection and that the JDK at " + jdkDir + " runs (java -version)."));
-            s.outcome = "installed";
-            s.detail = "accepted with sdkmanager --licenses";
-            s.seconds = timer.seconds();
-        }
+        s.title = "Android SDK license";
+        s.outcome = "installed";
+        s.detail = "recorded the agreement to \"" + repo.license.title + "\" (" + repo.license.id + ") and no other license";
+        s.path = file.string();
+        s.seconds = timer.seconds();
         in.add_step(s);
     }
-    const bool installPackages = needPackages || licenseViaPackages;
+    const bool installPackages = needPackages;
 
     // ---- 4. the packages -----------------------------------------------------------------------------------------
     if (!installPackages) {
@@ -434,16 +449,24 @@ SetupResult android_install(const SetupContext& ctx, const SetupInstallOptions& 
         if (!tooling_detail::write_file(packageFile, list))
             return in.fail("failed", make_error("Cannot write " + packageFile.string() + ".", "Check the free disk space."));
         ctx.say(std::string("Installing ") + kSetupAndroidPlatformTools + ", " + kSetupAndroidPlatform + " and " + kSetupAndroidBuildTools + " (sdkmanager)...");
-        // The license text is shown by the user's agreement already; `y` answers any further license prompt only then.
+        // The license of these packages is recorded (step 3). The pinned classic tools are given no answers: a prompt for any other
+        // license ends without accepting what the user never saw. Other tools (an SDK that was found, the Android CLI of the
+        // fallback) get `y` after the user's agreement, as they may still ask in their own way.
+        const bool answerYes = opt.acceptLicenses && !classicTools;
         auto r = run_sdkmanager(ctx, sdkmanager, plan.sdkDir, jdkDir, {"--package_file=" + packageFile.string()},
-                                opt.acceptLicenses ? yes_lines(50) : std::string(), true);
+                                answerYes ? yes_lines(50) : std::string(), true);
         if (!r.ok()) return in.fail("failed", r.error());
         if (r->cancelled || is_cancelled(ctx.cancel)) return in.fail("cancelled", make_error("The setup was cancelled."));
         const std::string output = r->stdoutText + "\n" + r->stderrText;
         if (r->exitCode != 0) {
             const std::string lower = to_lower(output);
-            if (lower.find("license") != std::string::npos && lower.find("not accepted") != std::string::npos)
-                return in.fail("license_required", make_error(license_required_message(), license_required_hint()));
+            if (lower.find("license") != std::string::npos && lower.find("not accepted") != std::string::npos) {
+                if (!opt.acceptLicenses) return in.fail("license_required", make_error(license_required_message(), license_required_hint()));
+                // The user did agree and the agreement was recorded, yet sdkmanager asks for a license: it does not know our line.
+                return in.fail("failed", make_error("sdkmanager does not accept the license agreement FactorIA recorded in " +
+                                                        (plan.sdkDir / "licenses" / kSetupAndroidLicenseId).string() + ":\n" + tail_lines(output, 4),
+                                                    "Run `" + sdkmanager.string() + " --licenses` yourself and answer y, or open Android Studio's SDK Manager."));
+            }
             return in.fail("failed", make_error("sdkmanager failed to install the SDK packages (exit code " + std::to_string(r->exitCode) + ")" +
                                                     (tail_lines(output, 6).empty() ? "" : ":\n" + tail_lines(output, 6)),
                                                 "Check the internet connection and the free disk space, then run it again."));
@@ -454,15 +477,11 @@ SetupResult android_install(const SetupContext& ctx, const SetupInstallOptions& 
         if (!missing.empty())
             return in.fail("failed", make_error("sdkmanager finished but " + missing + " is not in " + plan.sdkDir.string() + ".",
                                                 "Run it again, or run `" + sdkmanager.string() + " --list_installed` to see what is installed."));
-        if (!sdk_license_accepted(plan.sdkDir))
-            return in.fail("failed", make_error("sdkmanager installed the packages but did not record the license agreement in " + (plan.sdkDir / "licenses" / kSetupAndroidLicenseId).string() + ".",
-                                                "Run `" + sdkmanager.string() + " --licenses` yourself and answer y, or open Android Studio's SDK Manager."));
         SetupStep s;
         s.id = "packages";
         s.title = "Android SDK packages";
         s.outcome = "installed";
-        s.detail = std::string(kSetupAndroidPlatformTools) + ", " + kSetupAndroidPlatform + ", " + kSetupAndroidBuildTools +
-                   (licenseViaPackages ? " (the license agreement is recorded too)" : "");
+        s.detail = std::string(kSetupAndroidPlatformTools) + ", " + kSetupAndroidPlatform + ", " + kSetupAndroidBuildTools;
         s.path = plan.sdkDir.string();
         s.seconds = timer.seconds();
         in.add_step(s);

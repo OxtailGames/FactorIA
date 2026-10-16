@@ -71,11 +71,24 @@ void make_sdk(const stdfs::path& dir, bool license, bool cmdline, bool packages)
 
 // ---- the fake listings --------------------------------------------------------------------------------------------
 
-std::string repo_xml(const std::string& archiveName, const std::string& content) {
-    return "<sdk:sdk-repository>\n<license id=\"android-sdk-license\" type=\"text\">" + std::string(kLicenseText) +
-           "</license>\n<remotePackage path=\"cmdline-tools;latest\"><revision><major>23</major><minor>0</minor></revision><archives><archive><complete>"
+// One cmdline-tools package of the listing (a Mac archive only: the tests run as a Mac with an M chip).
+std::string tools_package(const std::string& path, int major, const std::string& archiveName, const std::string& content) {
+    return "<remotePackage path=\"" + path + "\"><revision><major>" + std::to_string(major) + "</major><minor>0</minor></revision><archives><archive><complete>"
            "<size>" + std::to_string(content.size()) + "</size><checksum type=\"sha1\">" + sha1_hex(content) + "</checksum><url>" + archiveName +
-           "</url></complete><host-os>macosx</host-os><host-arch>aarch64</host-arch></archive></archives></remotePackage></sdk:sdk-repository>";
+           "</url></complete><host-os>macosx</host-os><host-arch>aarch64</host-arch></archive></archives></remotePackage>\n";
+}
+
+// Google's listing: the pinned classic tools (the archive that is served) and `latest`, revision 23, an archive nobody serves: a
+// test that downloads it fails. With `pinnedListed` false the pinned package is gone and the served archive is `latest`.
+std::string repo_xml(const std::string& archiveName, const std::string& content, bool pinnedListed = true) {
+    std::string xml = "<sdk:sdk-repository>\n<license id=\"android-sdk-license\" type=\"text\">" + std::string(kLicenseText) + "</license>\n";
+    if (pinnedListed) {
+        xml += tools_package("cmdline-tools;22.0", 22, archiveName, content);
+        xml += tools_package("cmdline-tools;latest", 23, "commandlinetools-mac_arm64-23_latest.zip", "the Android CLI front");
+    } else {
+        xml += tools_package("cmdline-tools;latest", 23, archiveName, content);
+    }
+    return xml + "</sdk:sdk-repository>";
 }
 
 std::string adoptium_json(const std::string& name, const std::string& content, const std::string& sha = {}) {
@@ -133,8 +146,7 @@ struct World {
     int sdkmanagerExit = 0;                          // the exit code of the package install
     std::string sdkmanagerOutput;                    // its stderr when it fails
     bool jdkBundle = true;                           // the JDK archive has Contents/Home (macOS) inside
-    bool newTools = false;                           // cmdline-tools 23+: --licenses is a no-op, installing a package records the license
-    bool recordsNothing = false;                     // ... and a tool that does not even record it then
+    bool pinnedListed = true;                        // Google's listing still has cmdline-tools;22.0 (false: only `latest`)
     std::string jdkContent = std::string(400, 'J');
     std::string toolsContent = std::string(500, 'T');
 
@@ -162,7 +174,7 @@ struct World {
     void serve_android() {
         served[adoptium_url()] = adoptium_json(jdk_name(), jdkContent);
         served[jdk_link()] = jdkContent;
-        served[kSdkRepositoryUrl] = repo_xml(tools_name(), toolsContent);
+        served[kSdkRepositoryUrl] = repo_xml(tools_name(), toolsContent, pinnedListed);
         served[tools_url()] = toolsContent;
     }
 
@@ -298,7 +310,7 @@ struct World {
         } else if (starts_with(name, "commandlinetools")) {
             put(d / "cmdline-tools" / "bin" / "sdkmanager", "#!/bin/sh\n");
             put(d / "cmdline-tools" / "lib" / "sdklib.jar");
-            put(d / "cmdline-tools" / "source.properties", "Pkg.Revision=23.0\n");
+            put(d / "cmdline-tools" / "source.properties", "Pkg.Revision=22.0\n");
         } else if (starts_with(name, "FactorIA-")) {
             const bool windows = name.find("windows") != std::string::npos;
             put(d / "FactorIA" / (windows ? "factoria_player.exe" : "factoria_player"), "player of " + name);
@@ -317,24 +329,16 @@ struct World {
         return r;
     }
 
+    // sdkmanager as far as `setup android` talks to it: it never gets --licenses (the install records the license itself), and
+    // installing packages needs a recorded license, or a "y" on stdin that makes it record one (what the real tools do).
     Result<ProcessResult> sdkmanager(const ProcessOptions& o) {
         std::string root, packageFile;
-        bool licenses = false;
         for (const std::string& a : o.argv) {
             if (starts_with(a, "--sdk_root=")) root = a.substr(11);
-            else if (a == "--licenses") licenses = true;
             else if (starts_with(a, "--package_file=")) packageFile = a.substr(15);
         }
         ProcessResult r;
         r.exitCode = 0;
-        if (licenses) {
-            if (newTools) {
-                r.stderrText = "WARNING: The SDK Manager CLI tool (sdkmanager) is deprecated.\nWarning: The --licenses option is no longer needed.\n";
-                return r;
-            }
-            put(stdfs::path(root) / "licenses" / "android-sdk-license", "24333f8a63b6825ea9c5514f83c2829b004d1fee\n");
-            return r;
-        }
         if (packageFile.empty()) {
             r.exitCode = 2;
             return r;
@@ -348,7 +352,15 @@ struct World {
             r.stderrText = sdkmanagerOutput;
             return r;
         }
-        if (newTools && !recordsNothing) put(stdfs::path(root) / "licenses" / "android-sdk-license", "24333f8a63b6825ea9c5514f83c2829b004d1fee\n");
+        const stdfs::path licenseFile = stdfs::path(root) / "licenses" / "android-sdk-license";
+        if (trim(is_there(licenseFile) ? testing::read_all(licenseFile.string()) : std::string()).empty()) {
+            if (!starts_with(o.stdinText, "y\n")) {
+                r.exitCode = 1;
+                r.stderrText = "License android-sdk-license: Accept? (y/N): Skipping following packages as the license is not accepted: platform-tools\n";
+                return r;
+            }
+            put(licenseFile, "\n24333f8a63b6825ea9c5514f83c2829b004d1fee");
+        }
         for (const std::string& line : split(testing::read_all(packageFile), '\n')) {
             const std::string pkg(trim(line));
             if (pkg == "platform-tools") put(stdfs::path(root) / "platform-tools" / "adb");
@@ -413,7 +425,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     CHECK(all.home == w.home);
     CHECK(all.components[0].state == "missing");
     CHECK(all.components[0].canInstall);
-    CHECK(all.components[0].installSizeMb > 0);
+    CHECK(all.components[0].installSizeMb == 500);  // JDK 200 + the pinned command-line tools 160 + the packages 140: no Android CLI on top
     CHECK(all.components[0].licenses.empty());  // fetchLicenses off: no request
     CHECK(all.components[1].state == "missing");
     CHECK(all.components[1].installSizeMb > 0);
@@ -490,7 +502,7 @@ TEST_CASE("setup android: the license is asked for before anything is downloaded
     CHECK_FALSE(is_there(w.home));
 }
 
-TEST_CASE("setup android: installs the JDK, the tools, the licenses and the packages, then skips them") {
+TEST_CASE("setup android: installs the JDK, the pinned tools, the license and the packages, then skips them") {
     World w;
     w.serve_android();
     SetupContext c = w.ctx();
@@ -501,39 +513,51 @@ TEST_CASE("setup android: installs the JDK, the tools, the licenses and the pack
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(steps_of(r.report) == "jdk=installed cmdline-tools=installed licenses=installed packages=installed config=installed");
     CHECK(r.report.changed);
+    CHECK(r.report.warnings.empty());  // the pinned package was there: nothing to warn about
 
     const stdfs::path jdk = w.h() / "android" / "jdk", sdk = w.h() / "android" / "sdk";
-    CHECK(w.requested == std::vector<std::string>{World::adoptium_url(), w.jdk_link(), kSdkRepositoryUrl, w.tools_url()});
+    const stdfs::path tools = sdk / "cmdline-tools" / "22.0";  // the folder is named like the package cmdline-tools;22.0
+    CHECK(w.requested == std::vector<std::string>{World::adoptium_url(), w.jdk_link(), kSdkRepositoryUrl, w.tools_url()});  // not the `latest` archive
     CHECK(is_there(jdk / "bin" / "java"));  // Contents/Home of the macOS bundle is the JDK folder
     CHECK(is_there(jdk / "release"));
     CHECK_FALSE(is_there(jdk / "Contents"));
-    CHECK(is_there(sdk / "cmdline-tools" / "latest" / "bin" / "sdkmanager"));
-    CHECK(is_there(sdk / "cmdline-tools" / "latest" / "lib" / "sdklib.jar"));
-    CHECK(is_there(sdk / "licenses" / "android-sdk-license"));
+    CHECK(is_there(tools / "bin" / "sdkmanager"));
+    CHECK(is_there(tools / "lib" / "sdklib.jar"));
+    CHECK(testing::read_all((tools / "source.properties").string()) == "Pkg.Revision=22.0\n");
+    CHECK_FALSE(is_there(sdk / "cmdline-tools" / "latest"));
     CHECK(is_there(sdk / "platform-tools"));
     CHECK(is_there(sdk / "platforms" / "android-36"));
     CHECK(is_there(sdk / "build-tools" / "35.0.0"));
     CHECK_FALSE(is_there(w.h() / "staging"));  // nothing left behind
 #ifndef _WIN32
     struct stat st {};
-    REQUIRE(stat((sdk / "cmdline-tools" / "latest" / "bin" / "sdkmanager").string().c_str(), &st) == 0);
+    REQUIRE(stat((tools / "bin" / "sdkmanager").string().c_str(), &st) == 0);
     CHECK((st.st_mode & S_IXUSR) != 0);
 #endif
+    CHECK(r.report.steps[1].detail.find("22.0") != std::string::npos);
+    CHECK(r.report.steps[1].path == tools.string());
 
-    // sdkmanager: the licenses with "y" answers, then the packages, both with JAVA_HOME and the SDK folder.
-    REQUIRE(w.sdkmanager_calls() == 2);
+    // The license: only the one the user agreed to, as the line Google's tools write (a line break, the hash of the text).
+    CHECK(testing::read_all((sdk / "licenses" / "android-sdk-license").string()) == "\n" + sdk_license_hash(kLicenseText));
+    CHECK(listing(sdk / "licenses") == std::vector<std::string>{"android-sdk-license"});
+    CHECK(r.report.steps[2].detail.find("no other license") != std::string::npos);
+
+    // sdkmanager runs once, for the packages (no `--licenses`: that would accept every license Google lists), with JAVA_HOME and the
+    // SDK folder, and no "y" answers: the license is recorded already.
+    REQUIRE(w.sdkmanager_calls() == 1);
     std::vector<const ProcessCall*> mgr;
-    for (const ProcessCall& call : w.calls)
+    for (const ProcessCall& call : w.calls) {
         if (stdfs::path(call.argv[0]).filename() == "sdkmanager") mgr.push_back(&call);
-    REQUIRE(mgr.size() == 2);
+        for (const std::string& a : call.argv) CHECK(a != "--licenses");
+    }
+    REQUIRE(mgr.size() == 1);
+    CHECK(mgr[0]->argv[0] == (tools / "bin" / "sdkmanager").string());
     CHECK(mgr[0]->argv[1] == "--sdk_root=" + sdk.string());
-    CHECK(mgr[0]->argv[2] == "--licenses");
+    CHECK(starts_with(mgr[0]->argv[2], "--package_file="));
     CHECK(mgr[0]->env.at("JAVA_HOME") == jdk.string());
     CHECK(mgr[0]->env.at("ANDROID_USER_HOME") == (w.h() / "android" / "user").string());  // Google's tools keep their files in FactorIA's folder
-    CHECK(mgr[1]->env.at("ANDROID_USER_HOME") == (w.h() / "android" / "user").string());
-    CHECK(mgr[0]->stdinText.rfind("y\ny\n", 0) == 0);
-    CHECK(mgr[1]->packageFile == "platform-tools\nplatforms;android-36\nbuild-tools;35.0.0\n");
-    CHECK(mgr[1]->env.at("JAVA_HOME") == jdk.string());
+    CHECK(mgr[0]->packageFile == "platform-tools\nplatforms;android-36\nbuild-tools;35.0.0\n");
+    CHECK(mgr[0]->stdinText.empty());
 
     // The machine settings learned both folders, so `factoria export` finds them.
     auto saved = load_machine_export_config(w.config());
@@ -556,10 +580,13 @@ TEST_CASE("setup android: installs the JDK, the tools, the licenses and the pack
     CHECK(unpacking);
     CHECK(installing);
 
-    // The status agrees, and a second run changes nothing.
+    // The status agrees (and finds the pinned sdkmanager), and a second run changes nothing.
     const SetupComponent status = setup_status(c, "android", true).components[0];
     CHECK(status.state == "installed");
     CHECK(status.licenses.empty());
+    bool pathOfTools = false;
+    for (const auto& [name, path] : status.paths) pathOfTools |= name == "sdkmanager" && path == (tools / "bin" / "sdkmanager").string();
+    CHECK(pathOfTools);
     const std::size_t requested = w.requested.size(), called = w.calls.size();
     SetupInstallOptions again;
     again.component = "android";  // no acceptLicenses: nothing needs one anymore
@@ -579,9 +606,9 @@ TEST_CASE("setup android: installs the JDK, the tools, the licenses and the pack
     CHECK(j.at("paths").at("sdk").get<std::string>() == sdk.string());
 }
 
-TEST_CASE("setup android: the newest command-line tools record the license while they install the packages") {
+TEST_CASE("setup android: when Google's list no longer has the pinned tools, `latest` is installed with a warning") {
     World w;
-    w.newTools = true;
+    w.pinnedListed = false;
     w.serve_android();
     SetupContext c = w.ctx();
     SetupInstallOptions o;
@@ -589,36 +616,99 @@ TEST_CASE("setup android: the newest command-line tools record the license while
     o.acceptLicenses = true;
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
-    CHECK(steps_of(r.report) == "jdk=installed cmdline-tools=installed licenses=skipped packages=installed config=installed");
-    CHECK(r.report.steps[2].detail.find("next step") != std::string::npos);
-    CHECK(r.report.steps[3].detail.find("license agreement is recorded too") != std::string::npos);
-    CHECK(is_there(w.h() / "android" / "sdk" / "licenses" / "android-sdk-license"));
+    CHECK(steps_of(r.report) == "jdk=installed cmdline-tools=installed licenses=installed packages=installed config=installed");
+    REQUIRE(r.report.warnings.size() == 1);
+    CHECK(r.report.warnings[0].find("cmdline-tools;22.0") != std::string::npos);
+    CHECK(r.report.warnings[0].find("cmdline-tools;latest") != std::string::npos);
+    CHECK(r.report.warnings[0].find("Android CLI") != std::string::npos);
+    CHECK(r.report.warnings[0].find("usage statistics") != std::string::npos);
+    CHECK(r.report.to_json().at("warnings").size() == 1);
+
+    const stdfs::path sdk = w.h() / "android" / "sdk";
+    CHECK(is_there(sdk / "cmdline-tools" / "latest" / "bin" / "sdkmanager"));
+    CHECK_FALSE(is_there(sdk / "cmdline-tools" / "22.0"));
+    CHECK(r.report.steps[1].detail.find("Android CLI") != std::string::npos);
+    CHECK(r.report.steps[1].path == (sdk / "cmdline-tools" / "latest").string());
+    CHECK(is_there(sdk / "licenses" / "android-sdk-license"));
+    CHECK(is_there(sdk / "platforms" / "android-36"));
+
+    // The Android CLI keeps its ~250 MB in FactorIA's folder, never in ~/.android; it is not known to accept our license line, so
+    // it still gets the "y" answers the user's agreement allows. Nothing asks for `--licenses`.
+    REQUIRE(w.sdkmanager_calls() == 1);
+    for (const ProcessCall& call : w.calls) {
+        if (stdfs::path(call.argv[0]).filename() != "sdkmanager") continue;
+        CHECK(call.env.at("ANDROID_USER_HOME") == (w.h() / "android" / "user").string());
+        CHECK(call.stdinText.rfind("y\ny\n", 0) == 0);
+        for (const std::string& a : call.argv) CHECK(a != "--licenses");
+    }
     CHECK(setup_status(c, "android", false).components[0].state == "installed");
+}
 
-    // Nothing recorded the agreement: the install says so instead of reporting a success.
-    World bad;
-    bad.newTools = true;
-    bad.recordsNothing = true;
-    bad.serve_android();
-    SetupContext cb = bad.ctx();
-    const SetupResult failed = setup_install(o, cb);
-    REQUIRE_FALSE(failed.ok);
-    CHECK(failed.code == "failed");
-    CHECK(failed.error.message.find("did not record the license agreement") != std::string::npos);
-    CHECK(failed.error.hint.find("--licenses") != std::string::npos);
-
-    // An SDK that has everything but the license still gets a package install: that is what records it.
+TEST_CASE("setup android: the license is recorded by the install, only for the user's agreement") {
+    // An SDK that has everything but the license: recording it needs no sdkmanager and no package install.
     World lone;
-    lone.newTools = true;
     make_jdk(lone.tmp.path / "jdk", 17);
     lone.env["JAVA_HOME"] = (lone.tmp.path / "jdk").string();
     make_sdk(lone.h() / "android" / "sdk", false, true, true);
     stdfs::create_directories(lone.h() / "android" / "sdk" / "licenses");  // an SDK folder that looks like one, without the license file
+    lone.serve_android();
     SetupContext cl = lone.ctx();
+    SetupInstallOptions o;
+    o.component = "android";
+    const SetupResult refused = setup_install(o, cl);  // no agreement: nothing is written
+    REQUIRE_FALSE(refused.ok);
+    CHECK(refused.code == "license_required");
+    CHECK(lone.requested.empty());
+    CHECK(listing(lone.h() / "android" / "sdk" / "licenses").empty());
+
+    o.acceptLicenses = true;
     const SetupResult done = setup_install(o, cl);
     REQUIRE_MESSAGE(done.ok, done.error.message);
-    CHECK(steps_of(done.report) == "jdk=skipped cmdline-tools=skipped licenses=skipped packages=installed");
-    CHECK(is_there(lone.h() / "android" / "sdk" / "licenses" / "android-sdk-license"));
+    CHECK(steps_of(done.report) == "jdk=skipped cmdline-tools=skipped licenses=installed packages=skipped");
+    CHECK(lone.requested == std::vector<std::string>{kSdkRepositoryUrl});  // the license text is all it fetches
+    CHECK(lone.sdkmanager_calls() == 0);
+    CHECK(testing::read_all((lone.h() / "android" / "sdk" / "licenses" / "android-sdk-license").string()) == "\n" + sdk_license_hash(kLicenseText));
+    CHECK(setup_status(cl, "android", false).components[0].state == "installed");
+
+    // Tools that were there before (an SDK that was found) are not known to be the classic ones: they get the "y" answers as before.
+    World found;
+    make_jdk(found.tmp.path / "jdk", 17);
+    found.env["JAVA_HOME"] = (found.tmp.path / "jdk").string();
+    make_sdk(found.h() / "android" / "sdk", false, true, false);
+    found.serve_android();
+    SetupContext cf = found.ctx();
+    const SetupResult packages = setup_install(o, cf);
+    REQUIRE_MESSAGE(packages.ok, packages.error.message);
+    CHECK(steps_of(packages.report) == "jdk=skipped cmdline-tools=skipped licenses=installed packages=installed");
+    REQUIRE(found.sdkmanager_calls() == 1);
+    for (const ProcessCall& call : found.calls)
+        if (stdfs::path(call.argv[0]).filename() == "sdkmanager") CHECK(call.stdinText.rfind("y\ny\n", 0) == 0);
+
+    // The listing cannot be fetched: the license cannot be recorded, and nothing is written.
+    World offline;
+    make_jdk(offline.tmp.path / "jdk", 17);
+    offline.env["JAVA_HOME"] = (offline.tmp.path / "jdk").string();
+    make_sdk(offline.h() / "android" / "sdk", false, true, true);
+    stdfs::create_directories(offline.h() / "android" / "sdk" / "licenses");
+    SetupContext co = offline.ctx();
+    const SetupResult failed = setup_install(o, co);
+    REQUIRE_FALSE(failed.ok);
+    CHECK(failed.code == "network");
+    CHECK(listing(offline.h() / "android" / "sdk" / "licenses").empty());
+}
+
+TEST_CASE("setup android: the pinned tools win over a `latest` folder in the same SDK") {
+    World w;
+    make_jdk(w.h() / "android" / "jdk", 21);
+    make_sdk(w.h() / "android" / "sdk", true, true, true);  // cmdline-tools/latest
+    const stdfs::path pinned = w.h() / "android" / "sdk" / "cmdline-tools" / "22.0" / "bin" / "sdkmanager";
+    put(pinned, "#!/bin/sh\n");
+    SetupContext c = w.ctx();
+    const SetupComponent a = setup_status(c, "android", false).components[0];
+    std::string found;
+    for (const auto& [name, path] : a.paths)
+        if (name == "sdkmanager") found = path;
+    CHECK(found == pinned.string());
 }
 
 TEST_CASE("setup android: a damaged download installs nothing") {
@@ -734,7 +824,7 @@ TEST_CASE("setup android: Unity Hub's SDK is never installed into") {
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(listing(unity) == before);
-    CHECK(is_there(w.h() / "android" / "sdk" / "cmdline-tools" / "latest" / "bin" / "sdkmanager"));
+    CHECK(is_there(w.h() / "android" / "sdk" / "cmdline-tools" / "22.0" / "bin" / "sdkmanager"));
     for (const ProcessCall& call : w.calls)
         if (stdfs::path(call.argv[0]).filename() == "sdkmanager") CHECK(call.argv[1] == "--sdk_root=" + (w.h() / "android" / "sdk").string());
 }
@@ -754,7 +844,8 @@ TEST_CASE("setup android: sdkmanager failing says what it printed") {
     CHECK(r.error.message.find("Connection refused") != std::string::npos);
     CHECK(steps_of(r.report) == "jdk=installed cmdline-tools=installed licenses=installed");
 
-    // sdkmanager saying the license is not accepted maps to the license error.
+    // sdkmanager still asking for the license after the user agreed and it was recorded: its tools do not know our line. Not a
+    // `license_required` (asking again would change nothing): it names the file and the way out.
     World w2;
     w2.serve_android();
     w2.sdkmanagerExit = 1;
@@ -762,7 +853,25 @@ TEST_CASE("setup android: sdkmanager failing says what it printed") {
     SetupContext c2 = w2.ctx();
     const SetupResult r2 = setup_install(o, c2);
     REQUIRE_FALSE(r2.ok);
-    CHECK(r2.code == "license_required");
+    CHECK(r2.code == "failed");
+    CHECK(r2.error.message.find("does not accept the license agreement FactorIA recorded") != std::string::npos);
+    CHECK(r2.error.message.find((w2.h() / "android" / "sdk" / "licenses" / "android-sdk-license").string()) != std::string::npos);
+    CHECK(r2.error.hint.find("--licenses") != std::string::npos);
+
+    // Without the user's agreement in this run (an SDK whose license file is stale), it maps to the license error.
+    World w3;
+    w3.serve_android();
+    make_jdk(w3.tmp.path / "jdk", 17);
+    w3.env["JAVA_HOME"] = (w3.tmp.path / "jdk").string();
+    make_sdk(w3.h() / "android" / "sdk", true, true, false);
+    w3.sdkmanagerExit = 1;
+    w3.sdkmanagerOutput = "Failed: the license for platforms;android-36 is not accepted.\n";
+    SetupContext c3 = w3.ctx();
+    SetupInstallOptions plain;
+    plain.component = "android";
+    const SetupResult r3 = setup_install(plain, c3);
+    REQUIRE_FALSE(r3.ok);
+    CHECK(r3.code == "license_required");
 }
 
 TEST_CASE("setup android: a JDK archive laid out flat (Linux, Windows) is installed too") {
@@ -1521,6 +1630,30 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
         const std::string why = a.problems.empty() ? std::string("no problem listed") : a.problems.back();
         REQUIRE_MESSAGE(a.licenses.size() == 1, why);
         CHECK(a.licenses[0].text.size() > 5000);
+    }
+
+    // Google again, the listing itself: the pinned classic tools are still offered (not obsolete) for every host, so the install
+    // does not fall back to `latest`; and the license text hashes to the line every SDK holds in licenses/android-sdk-license (the
+    // text of January 16, 2019: a new text would change it: check with `sdkmanager --licenses` of a classic revision, then update).
+    {
+        const stdfs::path dir = tmp.path / "google";
+        stdfs::create_directories(dir);
+        DownloadRequest rq;
+        rq.url = kSdkRepositoryUrl;
+        rq.destination = (dir / "repository2-3.xml").string();
+        rq.what = "the Android SDK package list";
+        const DownloadResult d = curl_downloader()(rq);
+        REQUIRE_MESSAGE(d.ok, d.error.message);
+        const std::string xml = testing::read_all(rq.destination);
+        for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
+            INFO(os << "/" << arch);
+            auto repo = parse_sdk_repository(xml, os, arch);
+            REQUIRE_MESSAGE(repo.ok(), repo.error().message);
+            CHECK_MESSAGE(repo->cmdlineToolsPinned, (repo->warnings.empty() ? std::string("not pinned") : repo->warnings[0]));
+            CHECK(repo->cmdlineToolsPackage == kSetupAndroidCmdlineTools);
+            CHECK(repo->warnings.empty());
+            CHECK(sdk_license_hash(repo->license.text) == "24333f8a63b6825ea9c5514f83c2829b004d1fee");
+        }
     }
 
     // Adoptium: a JDK 21 archive for every host.
