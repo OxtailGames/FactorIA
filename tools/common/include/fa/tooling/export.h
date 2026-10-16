@@ -21,6 +21,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -43,11 +44,21 @@ struct ExportOptions {
                                 // With neither: $FACTORIA_ENGINE_DIR set = source; else <factoria dir>/mobile when it
                                 // holds the players = prebuilt; else the build-time source root = source (docs/EXPORTING.md)
     std::string buildSourceRoot;  // the checkout factoria was built from ("" = FA_SOURCE_ROOT); only tests change it
+    std::string format;         // the kind of file a platform exports ("" = the project's setting, else the platform's
+                                // default). android: "apk" | "aab" | "gradle" (the Gradle project only, nothing built);
+                                // the other platforms have one format and ignore it. Not used yet: the Android export
+                                // still always writes the Gradle project
+    std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
+                                // of a long step, such as the Gradle build of an Android export (may be empty). Not
+                                // used yet
 };
 
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); empty for desktop exports
+    std::string format;                    // the format that was exported (see ExportOptions::format); empty when none
+    std::string artifact;                  // absolute path of the file that was built (the .apk or .aab of an Android
+                                           // export); empty otherwise
     std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
     std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted)
     std::vector<std::string> nextSteps;    // what the user does next, in order
@@ -64,6 +75,8 @@ struct ExportPlan {
     std::string platform;               // normalized: linux | windows | macos | android | ios
     std::string outputDir;              // absolute folder the export replaces: <out>/<game-slug>-<platform>
     std::string mode;                   // android/ios: "prebuilt" or "source"; empty for desktop exports
+    std::string format;                 // the format the export would produce (see ExportOptions::format); empty when none
+    std::string artifact;               // absolute path of the file the export would build (.apk / .aab); else empty
     std::string player;                 // desktop: the factoria_player that is copied into the export
     std::vector<std::string> warnings;  // non-fatal problems found so far (the export's report repeats them)
     Json to_json() const;

@@ -459,6 +459,8 @@ Json ExportReport::to_json() const {
     Json j = Json::object();
     j["outputDir"] = outputDir;
     if (!mode.empty()) j["mode"] = mode;
+    if (!format.empty()) j["format"] = format;
+    if (!artifact.empty()) j["artifact"] = artifact;
     j["notices"] = notices;
     j["files"] = files;
     j["nextSteps"] = nextSteps;
@@ -471,6 +473,8 @@ Json ExportPlan::to_json() const {
     j["platform"] = platform;
     j["outputDir"] = outputDir;
     if (!mode.empty()) j["mode"] = mode;
+    if (!format.empty()) j["format"] = format;
+    if (!artifact.empty()) j["artifact"] = artifact;
     if (!player.empty()) j["player"] = player;
     j["warnings"] = warnings;
     return j;
