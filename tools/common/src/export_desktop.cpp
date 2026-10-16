@@ -164,7 +164,8 @@ std::string fs_safe_name(const std::string& s) {
 // game, its developer signs it with their own Developer ID (nextSteps, docs/EXPORTING.md).
 std::string sign_app_ad_hoc(const stdfs::path& app) {
 #if defined(__APPLE__)
-    const std::string cmd = "/usr/bin/codesign --force --sign - --timestamp=none " + sh_quote(app.string()) + " 2>&1";
+    // --deep: the native plugins in Contents/Frameworks are signed too.
+    const std::string cmd = "/usr/bin/codesign --force --deep --sign - --timestamp=none " + sh_quote(app.string()) + " 2>&1";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return "could not run /usr/bin/codesign";
     std::string out;
@@ -203,6 +204,16 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
     stdfs::permissions(os_path(exeDest), stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                        stdfs::perm_options::add, ec);
     if (auto r = copy_game(p, files, gameDest); !r.ok()) return r;
+    // Native plugins: their build folder (the library and the ones it needs) next to the executable, where the player
+    // looks for them; inside a macOS app that is Contents/Frameworks.
+    const stdfs::path libDest = platform == "macos" ? exeDest.parent_path().parent_path() / "Frameworks" : exeDest.parent_path();
+    for (const Project::Plugin& plugin : p.plugins) {
+        stdfs::create_directories(os_path(libDest), ec);
+        stdfs::copy(os_path(plugin.build), os_path(libDest),
+                    stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing | stdfs::copy_options::copy_symlinks, ec);
+        if (ec) return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " +
+                           generic(libDest) + ": " + ec.message());
+    }
 
     if (platform == "macos") {
         stdfs::path app = stdfs::path(fs_safe_name(p.name) + ".app");

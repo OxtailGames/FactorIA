@@ -15,6 +15,7 @@ my-game/
   prefabs/*.prefab.json   reusable entities (optional)
   scripts/*.js            behaviours: game logic as JavaScript classes
   tools/*.js              project tools: commands you (and other AIs) can call
+  plugins/<name>/         native plugins: C/C++ code for this game, plugins.<name>.<fn>() in scripts (optional; docs: extending, G)
   tests/*.test.js         headless tests
   data/*.json             level or balance data, imported from scripts (optional)
   assets/                 images, sounds, fonts, models (only when you need them)
@@ -597,7 +598,7 @@ export default class Jumper extends Behaviour {
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
 
-Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.22).
+Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.23).
 
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
 
@@ -1298,6 +1299,6 @@ The same format works with `factoria call --input` and `factoria session --input
 
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
-- `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools and engine commands.
+- `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
 - The project's `AGENTS.md`: short rules for this game.
