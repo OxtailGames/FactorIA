@@ -318,7 +318,8 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
 
 ### scene / game / storage
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
-- `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize`
+- `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize` ·
+  `game.platform` (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"` or `"web"`: e.g. no Quit button on phones)
 - `game.notices()` → `[{ name, url, license, usedFor }]`: the third-party software inside the runtime every game ships
   (FactorIA first), the parts whose license texts `factoria export` writes to `FACTORIA_NOTICES.txt`. For a credits
   screen.

@@ -1,13 +1,23 @@
 import { test, expect, game } from "factoria:test";
-import { ui, input, storage, audio, scene } from "factoria";
+import { ui, input, storage, audio, scene, session } from "factoria";
 
 // The menus are driven the way a player with only a gamepad would: D-pad to move the focus, A to press, B to go back.
 const pad = game.gamepad(0);
 const focused = () => (ui.focused ? ui.focused.id : null);
 const shown = (id) => game.find(id).activeInHierarchy;
 
-function mainMenu() {
-  game.load("scenes/menu.scene.json");
+// Storage and session last for the whole test file: each test starts with no saved settings (or `saved`), the
+// project's controls, and settings that scripts/settings.js has not applied yet.
+function load(path, saved) {
+  storage.clear();
+  if (saved) storage.set("settings", saved);
+  delete session.settingsApplied;
+  input.resetBindings();
+  game.load(path);
+}
+
+function mainMenu(saved) {
+  load("scenes/menu.scene.json", saved);
   game.step(2);
   expect(focused()).toBe("play"); // the first button has autoFocus
 }
@@ -39,8 +49,7 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
 });
 
 test("saved settings are applied when the game starts", () => {
-  storage.set("settings", { volume: { music: 0.3 }, bindings: { jump: ["K"] } });
-  mainMenu();
+  mainMenu({ volume: { music: 0.3 }, bindings: { jump: ["K"] } });
   expect(audio.getVolume("music")).toBeCloseTo(0.3);
   expect(audio.getVolume("sfx")).toBeCloseTo(1);
   expect(input.bindings("jump")).toEqual(["K"]);
@@ -89,7 +98,7 @@ test("Play goes through the loading screen to the level", () => {
 });
 
 test("pause freezes the level, and Resume does not make the player jump", () => {
-  game.load("scenes/main.scene.json");
+  load("scenes/main.scene.json");
   game.step(60);
   const player = game.find("player");
   const p0 = player.position.clone();
@@ -108,7 +117,7 @@ test("pause freezes the level, and Resume does not make the player jump", () => 
 });
 
 test("pause -> options -> the pause key goes back one panel at a time", () => {
-  game.load("scenes/main.scene.json");
+  load("scenes/main.scene.json");
   game.step(2);
   game.tap("pause");
   pad.tap("DpadDown");
