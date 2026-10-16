@@ -118,21 +118,27 @@ void register_plugin_commands(CommandRegistry& registry, const std::string& proj
             return *text;
         };
         const std::string prefix = templateName == "basic" ? "platforms/plugin/" : "platforms/plugins/" + templateName + "/";
-        for (const std::string& path : bundled_list(prefix))
-            write(replace_all(path.substr(prefix.size()), "{{NAME}}", name), replace_all(bundled(path), "{{NAME}}", name));
+        for (const std::string& path : bundled_list(prefix)) {
+            const std::string rel = path.substr(prefix.size());
+            if (rel.rfind("tests/", 0) == 0) continue;  // a template's tests (its mock SDK) belong to the engine's CI, not to a game
+            write(replace_all(rel, "{{NAME}}", name), replace_all(bundled(path), "{{NAME}}", name));
+        }
         write("include/fa_plugin.h", bundled("engine/runtime/include/fa/runtime/fa_plugin.h"));
 
         const std::string f = folder.value();
-        return Json::object(
-            {{"folder", f},
-             {"files", files},
-             {"plugin", entry},
-             {"nextSteps", Json::array({"Build it: cmake -S \"" + f + "\" -B \"" + f + "/build\" -DCMAKE_BUILD_TYPE=Release && cmake --build \"" +
-                                            f + "/build\" --config Release (it copies the library into " + f + "/" +
-                                            runtime_platform() + "/)",
-                                        "Run the game: `factoria run` loads it; scripts call plugins." + name +
-                                            ".add(1, 2), and `factoria call " + name + ".info` runs its command",
-                                        "Edit src/plugin.c: include/fa_plugin.h documents the API (docs/EXTENDING.md, \"Native plugins\")"})}});
+        const std::string build = "Build it: cmake -S \"" + f + "\" -B \"" + f + "/build\" -DCMAKE_BUILD_TYPE=Release && cmake --build \"" +
+                                  f + "/build\" --config Release (it copies the library into " + f + "/" + runtime_platform() + "/)";
+        Json nextSteps = Json::array({build});
+        if (templateName == "basic") {
+            nextSteps.push_back("Run the game: `factoria run` loads it; scripts call plugins." + name + ".add(1, 2), and `factoria call " +
+                                name + ".info` runs its command");
+            nextSteps.push_back("Edit src/plugin.c: include/fa_plugin.h documents the API (docs/EXTENDING.md, \"Native plugins\")");
+        } else {
+            nextSteps.push_back("Read " + f + "/README.md: this plugin is a platform backend, so `factoria run` makes the game's platform.* calls "
+                                "go to the store (docs/PLATFORM.md). `factoria call platform.add_backend` does this whole setup, SDK files "
+                                "included, in one step.");
+        }
+        return Json::object({{"folder", f}, {"files", files}, {"plugin", entry}, {"nextSteps", nextSteps}});
     });
 }
 
