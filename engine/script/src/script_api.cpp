@@ -286,6 +286,18 @@ std::string ScriptSystem::Impl::typescript_declarations() const {
     return out;
 }
 
+Json ScriptSystem::Impl::plugins_json() const {
+    Json out = Json::array();
+    for (const ScriptPlugin& p : plugins) {
+        Json fns = Json::array();
+        for (const ScriptPlugin::Function& f : p.functions) fns.push_back(Json::object({{"name", f.name}, {"doc", f.doc}}));
+        Json pj = Json::object({{"name", p.name}, {"functions", fns}});
+        if (!p.error.empty()) pj["error"] = p.error;
+        out.push_back(pj);
+    }
+    return out;
+}
+
 Json ScriptSystem::Impl::api_manifest() const {
     const Json& data = api_data();
     Json out = Json::object();
@@ -340,15 +352,7 @@ Json ScriptSystem::Impl::api_manifest() const {
     }
     out["modules"] = mods;
     out["components"] = TypeRegistry::global().describe_all();
-    Json pluginList = Json::array();
-    for (const ScriptPlugin& p : plugins) {
-        Json fns = Json::array();
-        for (const ScriptPlugin::Function& f : p.functions) fns.push_back(Json::object({{"name", f.name}, {"doc", f.doc}}));
-        Json pj = Json::object({{"name", p.name}, {"functions", fns}});
-        if (!p.error.empty()) pj["error"] = p.error;
-        pluginList.push_back(pj);
-    }
-    out["plugins"] = pluginList;  // plugins.<name>.<function>(...args)
+    out["plugins"] = plugins_json();  // plugins.<name>.<function>(...args)
     out["lifecycle"] = Json::array({"onStart()", "onUpdate(dt)", "onFixedUpdate(dt)", "onLateUpdate(dt)", "onDestroy()",
                                     "onCollisionEnter(other, info)", "onCollisionExit(other)", "onTriggerEnter(other)",
                                     "onTriggerExit(other)", "onEvent(name, data, source)"});
