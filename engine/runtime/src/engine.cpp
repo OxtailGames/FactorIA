@@ -310,17 +310,12 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     if (!proj.ok()) return fail(proj.error().to_string());
     I.project = proj.value();
     I.projectMtime = fs::modified_time(kProjectFileName);
-    I.fixedDt = 1.0 / std::max(1.0, I.project.fixedHz);
     I.paused = config.editorMode;
     I.windowed = gfx != nullptr && !config.headless;
 
     // World + input.
     I.world.rng().reseed(config.seed);
-    I.input.set_gamepad_deadzone(float(I.project.inputDeadzone));
-    for (const std::string& problem : I.input.set_actions(ui_with_default_actions(I.project.inputActions))) {
-        FA_WARN("input", "{}", problem);
-        I.startupProblems.push_back(problem);
-    }
+    I.apply_project_settings();
 
     // Graphics.
     if (config.graphics) {
