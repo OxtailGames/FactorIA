@@ -36,6 +36,7 @@ its own failure message, and the logs, screenshots and crash reports are uploade
 | Configuration change | the font scale is changed twice: the process and activity survive | not applicable |
 | No crash | no Java exception, native signal or ANR, no `E factoria` line, the activity was never destroyed or relaunched, the screenshot shows a picture | no `ERROR` line, no crash report, the screenshot shows a picture |
 | Relaunch | `am update-appinfo` (the update an overlay or a wallpaper-colour change sends) relaunches the activity: the old process ends with no native signal and no GL call without a context, the system starts the game again in a new process, which renders 60 frames, has the window focus and shows a picture, and logs no `E factoria` line | not applicable |
+| Native plugin | the game has a native plugin with a Java class ([below](#native-plugins-on-android)): its script logged `probe add=3` (the sum came from the Java class through JNI) and `probe info=` with `"plugin":"example"` (`FA_SMOKE_EXPECT`) | the app links the plugin's static library ([below](#native-plugins-ios)): the same two lines in the console (`FA_IOS_PLUGIN_PROBE=1`) |
 
 The lines the scripts wait for are part of the player: `player: 60 frames rendered` (`engine/runtime/src/runners.cpp`),
 `player: suspended`, `player: resumed`, `player: 60 frames rendered after resume` (same file), `audio: output device open`
@@ -208,6 +209,70 @@ project's `scaleMode`.
 - When the process ends this way it ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`): the engine is not
   shut down and no script callback runs. Save progress while the game runs: `storage` writes go to `storage.json` in the
   app's internal folder immediately.
+
+### Native plugins on Android
+
+A native plugin ([EXTENDING.md](EXTENDING.md), section G) has an `android/` folder in its own folder, next to its
+`src/`. `factoria call project.new_plugin` writes all of it; add `"android"` to the plugin's `"platforms"` in `factoria.json`
+once the library is built:
+
+```
+plugins/example/
+  CMakeLists.txt  src/plugin.c  include/fa_plugin.h     the C code, built with the NDK (below)
+  android/
+    build.gradle                                        a Gradle library module (namespace factoria.plugin.example)
+    consumer-rules.pro                                  keeps factoria.plugin.** when the app is minified
+    src/main/AndroidManifest.xml                        the SDK's permissions and components, merged into the app's
+    src/main/java/factoria/plugin/example/Plugin.java   the Java the C code calls through JNI (src/main/kotlin works too)
+    src/main/jniLibs/<abi>/libexample.so                the library: built by CMake, not by Gradle
+```
+
+**Build the library once per ABI the engine ships**, `arm64-v8a` (phones) and `x86_64` (the emulator); `CMakeLists.txt`
+copies each build to `android/src/main/jniLibs/<abi>/`:
+
+```bash
+for abi in arm64-v8a x86_64; do
+  cmake -S plugins/example -B plugins/example/build/$abi -DCMAKE_BUILD_TYPE=Release -DANDROID_ABI=$abi \
+        -DANDROID_PLATFORM=android-26 -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake
+  cmake --build plugins/example/build/$abi
+done
+```
+
+Any recent NDK works (CI uses `sdkmanager "ndk;27.2.12479018"`); `ANDROID_PLATFORM` is the game's `minSdk` (26 by default). The
+template links with 16 KB pages, like the player ([16 KB memory pages](#16-kb-memory-pages)). A library missing for an
+ABI is not an export error (the module may build it itself): on a device of that ABI the plugin does not load, the log
+says `cannot load libexample.so` and scripts that use it get that error.
+
+**The export** (prebuilt and source mode alike) copies the module to `plugins/<name>` of the Gradle project, without
+`build/`, `.gradle/` and `.cxx/`; adds `include ':plugin_<name>'` to `settings.gradle` and
+`implementation project(':plugin_<name>')` to `app/build.gradle`; declares the Android Gradle plugin for libraries in the
+root `build.gradle` (the same version as the application plugin); and writes the game's SDK levels to `gradle.properties`
+(`factoria.compileSdk`, `factoria.minSdk`), which the template's `build.gradle` reads. A plugin that is only `.aar` /
+`.jar` files (no `build.gradle` in `android/`) has them copied to `app/libs/<name>` and added as
+`implementation fileTree(dir: 'libs/<name>', include: ['*.aar', '*.jar'])`. The module's folder inside the project is
+never part of the game's assets. The export fails, naming the folder (`factoria validate` warns), when `android/` has
+neither a `build.gradle(.kts)` nor an `.aar` / `.jar`.
+
+**Java code and `hasCode`.** The manifest has `android:hasCode="false"` (the engine is all native), which tells Android not
+to load any code of the APK. The export sets it to `true` as soon as a plugin brings code: its module has
+`src/main/java` or `src/main/kotlin`, or it ships `.aar` / `.jar` files. A module that only lists Maven `dependencies`
+and has no source folder of its own must get one (a Java file with its JNI glue) to turn it on. The exported project
+allows Google and Maven Central as repositories, and Gradle refuses repositories declared in a module
+(`FAIL_ON_PROJECT_REPOS`): an SDK from another repository ships as `.aar` files.
+
+**Calling Java from C.** `api->native_handle("android.activity")` is the game's `ANativeActivity*`: `->vm` is the
+`JavaVM*` for JNI and `->clazz` the activity object. The game's thread is not attached to the VM, so attach it for the
+call (`GetEnv`, then `AttachCurrentThread` and `DetachCurrentThread` when it was detached). `FindClass` on a native thread
+only sees the system's classes: load the plugin's own classes through the activity's class loader
+(`getClassLoader().loadClass("factoria.plugin.example.Plugin")`), then call the static method. Check for a pending Java
+exception after each call that can throw and clear it (`ExceptionDescribe` logs it and clears it): JNI calls with an
+exception pending are undefined, and the checked JNI of debug builds and emulators aborts the process. `src/plugin.c` of the template does all of this for `add(a, b)`: copy `java_add` and `add_in_java` for your own
+calls.
+
+CI covers it: the `android-apk` job scaffolds this plugin outside the game (`${FA_CI_PLUGINS}/example`), builds
+`libexample.so` for both ABIs, exports, and checks that the APK carries both libraries and `factoria/plugin/example/Plugin`
+in its dex; `android-emulator` then checks that the game's script got `add(1, 2) = 3` from the Java class and the output
+of `example.info` (`FA_SMOKE_EXPECT` of `scripts/android-smoke.sh`).
 
 ## iOS
 
