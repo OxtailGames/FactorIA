@@ -727,9 +727,8 @@
       const w = N.windowInfo(), d = N.project().display || {};
       const all = [[640, 360], [960, 540], [1280, 720], [1600, 900], [1920, 1080], [2560, 1440], [3840, 2160],
                    [1280, 800], [1440, 900], [1680, 1050], [1920, 1200], [2560, 1600]];
-      if (d.width > 0 && d.height > 0) all.push([d.width, d.height]);
-      const seen = new Set();
-      return all.filter(([x, y]) => x <= w.displayWidth && y <= w.displayHeight && !seen.has(x + "x" + y) && seen.add(x + "x" + y))
+      if (d.width > 0 && d.height > 0 && !all.some(([x, y]) => x === d.width && y === d.height)) all.push([d.width, d.height]);
+      return all.filter(([x, y]) => x <= w.displayWidth && y <= w.displayHeight)
         .sort((a, b) => a[0] * a[1] - b[0] * b[1] || a[0] - b[0]).map(([width, height]) => ({ width, height }));
     },
     get vsync() { return N.windowInfo().vsync; },

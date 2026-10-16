@@ -110,9 +110,8 @@ bool app_vsync();
 // rate stays at the display's.
 bool app_set_vsync(bool on);
 // Mouse lock: the pointer is hidden and held in the window, and Input::mouse_delta() reports raw movement. The window
-// system may unlock it by itself (focus lost); app_mouse_locked() tells.
+// system may unlock it by itself (focus lost), so the caller asks again when the window regains focus.
 void app_lock_mouse(bool lock);
-bool app_mouse_locked();
 // The on-screen keyboard (phones and tablets; a no-op on desktop).
 void app_show_keyboard(bool show);
 

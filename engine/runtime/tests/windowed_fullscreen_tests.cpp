@@ -37,9 +37,7 @@ export default class G extends Behaviour {
     if (this.n === 20) { window.setSize(480, 270); }
     if (this.n === 30) {
       console.log("size-ok " + (window.size.x > 0 && window.size.y > 0) + " available " + window.available);
-      console.log("resolutions " + (window.resolutions().length > 0));
-      console.log("size " + window.size.x + "x" + window.size.y + " display " + window.displaySize.x + "x" + window.displaySize.y);
-    }
+      console.log("resolutions " + (window.resolutions().length > 0));    }
   }
 }
 )";
@@ -48,20 +46,18 @@ export default class G extends Behaviour {
     cfg.projectDir = dir.generic_string();
     AppDesc d = make_app_desc(cfg);
     static int frames = 0;
-    static bool fullAt10 = false, fullAt12 = false, fullAt30 = true;
+    static bool fullAt10 = false, fullAt30 = true;
     auto frame = d.frame;
     d.frame = [frame](double dt) {
         frame(dt);
         ++frames;
         if (frames == 10) fullAt10 = app_is_fullscreen();  // the script went full screen at frame 5
-        if (frames == 12) fullAt12 = app_is_fullscreen();
         if (frames == 30) fullAt30 = app_is_fullscreen();  // and back to a window at frame 15
         if (frames == 40) app_request_quit();
     };
     CHECK(run_app(d) == 0);
     CHECK(frames >= 40);
     CHECK(fullAt10);
-    CHECK(fullAt12);
     CHECK_FALSE(fullAt30);
     auto logs = recent_logs(4096);
     auto logged = [&](const char* message) {

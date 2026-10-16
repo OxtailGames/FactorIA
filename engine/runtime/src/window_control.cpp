@@ -92,7 +92,7 @@ std::string AppWindowControl::set_frame_cap(int fps) {
     if (app_is_mobile())
         return std::string("the frame rate of phones and tablets follows the display, so a frame cap is not available on ") +
                platform_label() + ". Offer window.frameCap only on desktop.";
-    cap_ = std::max(fps, 0);
+    cap_ = fps;  // the script layer already checked: 0 or 15..1000
     return {};
 }
 
