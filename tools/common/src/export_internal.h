@@ -63,6 +63,10 @@ std::string host_platform();  // linux | windows | macos: the machine running fa
 std::string xml_escape(const std::string& s, bool androidString = false);
 std::string sh_quote(const std::string& s);
 
+// (export.cpp) The project-relative files (forward slashes, sorted) an export ships from the project at `dir`: everything but
+// the hidden files and folders, build/, tests/, tools/, types/... project.validate weighs them.
+std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile);
+
 // Copies the project files `files` (project-relative) into `dest`, keeping their paths. A file in p.staged is copied from
 // there instead.
 Result<void> copy_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& dest);
