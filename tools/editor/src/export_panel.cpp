@@ -130,6 +130,9 @@ void Editor::draw_export_window() {
     ImGui::EndDisabled();
     if (!parentExists) ImGui::SetItemTooltip("The first export creates it");
     ImGui::TextDisabled("Each export replaces the folder <output folder>/<game>-<platform> it writes, and nothing else.");
+    ImGui::SetItemTooltip("Only a folder an earlier export wrote (it holds %s) or an empty one is replaced: if a folder of "
+                          "that name with other files is there, the rows say so and nothing is deleted.",
+                          kExportMarkerFile);
     ImGui::Checkbox("Release", &exportSettings_.release);
     ImGui::SetItemTooltip("Release build commands in the next steps (and in the iOS build script). The packaged game is the same.");
     ImGui::Separator();
