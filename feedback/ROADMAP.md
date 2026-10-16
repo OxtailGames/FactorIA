@@ -385,20 +385,23 @@ Found and fixed while implementing M9 (Apple hardware):
   "code has no resources but signature indicates they must be present"), so a downloaded copy would be called damaged,
   with no Open Anyway. The export now signs the finished bundle ad hoc, after every file is written (the notices too),
   and its next steps add `--force` to the Developer ID command (a signed app is not re-signed without it).
+- Windows with the display scaled above 100%, checked after the `to_design()` fix on Windows 11 at 125% (120 dpi, a
+  1600x900 px window for the 1280x720 design): real clicks (`SendInput`) on a probe game that logs
+  `input.mouse.position` land on the design point under the cursor, to within a pixel, in `factoria run` (also with the
+  window resized to bars on the sides and on top and bottom), in the exported game and in the editor's game view
+  (Play). Nothing needed changing.
 
 Left open after M9:
 - An Apple pad on iOS: same code as macOS, built and run, but not with a real pad. The iOS Simulator shows a virtual
   `Gamepad (MFi)` in slot 0.
-- Windows with the display scaled above 100% (Settings > System > Display > Scale): the `to_design()` fix above also
-  applies there (sokol_app's mouse positions are framebuffer pixels on Win32 too) but was not tried on Windows. Check
-  that a click in a running game (`factoria run`, an exported game) lands under the cursor (examples/block-push:
-  clicking a cell next to the player moves it there), and that the editor's game view still does.
 
 Found while implementing M9, not fixed:
 - Windows has no window read-back for the editor (D3D11), so the editor autotests are not registered there.
 - Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
+- A behaviour whose hooks are named `start()`/`update()` instead of `onStart()`/`onUpdate()` runs nothing, and nothing
+  says why: `factoria validate` passes and `run` logs nothing, even at `--log-level debug` (no "did you mean").
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
