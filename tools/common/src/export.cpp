@@ -267,6 +267,17 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
     auto settings = load_export_settings(generic(p.dir), &warnings);
     if (!settings.ok()) return settings.error();
     p.settings = std::move(settings.value());
+    // Native plugins: the export needs each one's build for this platform (docs/EXTENDING.md, "Native plugins").
+    auto project = j.contains("plugins") ? load_project(generic(p.dir)) : Result<ProjectSettings>(ProjectSettings{});
+    if (!project.ok()) return project.error();
+    for (const PluginSettings& plugin : project->plugins) {
+        if (auto folder = plugin_folder(generic(p.dir), plugin); folder.ok()) p.pluginFolders.push_back(folder.value());
+        const std::vector<std::string> platforms = project->plugin_platforms(plugin);
+        if (std::find(platforms.begin(), platforms.end(), platform) == platforms.end()) continue;
+        auto build = plugin_build(generic(p.dir), plugin, platform);
+        if (!build.ok()) return build.error();
+        p.plugins.push_back({plugin.name, build.value()});
+    }
     if (p.settings.icon_for(platform).empty())
         warnings.push_back("No icon is set for " + platform + ", so the app gets the platform's default icon. Set \"icon\" in "
                            "factoria.json (a square PNG or JPG, 1024x1024 recommended), or \"export." + platform +
@@ -294,7 +305,10 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
         if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
         if (!skip && it->is_directory(ec)) {
             std::error_code ec2;
-            if (is_inside(stdfs::weakly_canonical(full, ec2), outDirAbs)) skip = true;  // never copy the export into itself
+            const stdfs::path dir = stdfs::weakly_canonical(full, ec2);
+            if (is_inside(dir, outDirAbs)) skip = true;  // never copy the export into itself
+            // A native plugin's folder: its build is copied or linked for the platform, its sources do not ship.
+            for (const stdfs::path& f : p.pluginFolders) skip = skip || dir == stdfs::weakly_canonical(f, ec2);
         }
         if (skip) {
             if (it->is_directory(ec)) it.disable_recursion_pending();

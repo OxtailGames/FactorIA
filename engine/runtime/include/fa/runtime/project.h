@@ -15,6 +15,7 @@
 //   "platforms": ["windows", "macos", "linux", "ios", "android"],
 //   "feedbackFile": "ENGINE_FEEDBACK.json",
 //   "icon": "assets/icon.png",                // the game icon; export.<platform>.icon replaces it for one platform
+//   "plugins": { "example": { "path": "plugins/example", "platforms": ["windows"] } },   // native plugins: fa/runtime/plugins.h
 //   "export": { ... }                         // per-platform export settings: fa/tooling/export_settings.h, docs/EXPORTING.md
 // }
 #pragma once
@@ -31,6 +32,13 @@ namespace fa {
 
 inline constexpr const char* kProjectFileName = "factoria.json";
 inline constexpr const char* kFeedbackFileName = "ENGINE_FEEDBACK.json";
+
+// One native plugin of "plugins" (fa/runtime/plugins.h, docs/EXTENDING.md "Native plugins").
+struct PluginSettings {
+    std::string name;                    // the key: [a-z][a-z0-9_]*, the plugins.<name> of scripts and the prefix of its commands
+    std::string path;                    // its folder as written: project-relative or absolute, ${VAR} = an environment variable
+    std::vector<std::string> platforms;  // the platforms it is built for; empty = the project's `platforms` (all five without)
+};
 
 struct ProjectSettings {
     std::string name = "Untitled";
@@ -52,12 +60,15 @@ struct ProjectSettings {
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;
     std::string icon;  // "icon": project-relative path of the game icon (a square PNG/JPG); "" = none
+    std::vector<PluginSettings> plugins;  // "plugins", sorted by name
     Json raw;  // the whole file, for fields the engine does not model yet
 
     // The icon file the window of THIS platform shows: `export.<platform>.icon` of the file (windows | macos | linux |
     // android | ios, the platform the engine was built for), else `icon`. "" = none. Lenient: a value of the wrong type
     // counts as unset (`factoria validate` reports it).
     std::string window_icon() const;
+    // The platforms `plugin` is built for: its own `platforms`, else the project's, else all five.
+    std::vector<std::string> plugin_platforms(const PluginSettings& plugin) const;
 
     Json to_json() const;
 };
@@ -68,6 +79,11 @@ Result<void> save_project(std::string_view projectDir, const ProjectSettings& se
 // Walks up from `startDir` looking for factoria.json ("" if none).
 std::string find_project_root(std::string_view startDir);
 Json project_json_schema();
+
+// The platform this engine was built for: "windows", "macos", "linux", "android" or "ios".
+const char* runtime_platform();
+// The five platform names, in that order.
+const std::vector<std::string>& platform_names();
 
 // scaleMode spellings: "fit" | "stretch" | "expand" | "pixel-perfect" (parsing is case-insensitive and also
 // accepts "pixelPerfect" / "pixel_perfect"). scale_mode_name returns the canonical spelling.

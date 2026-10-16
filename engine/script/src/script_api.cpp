@@ -250,6 +250,20 @@ std::string emit_components() {
     return out;
 }
 
+// PluginsAPI: one member per native plugin of the project, with its functions and their doc strings.
+std::string emit_plugins(const std::vector<ScriptPlugin>& plugins) {
+    std::string out = jsdoc("The native plugins of this game (factoria.json \"plugins\"): plugins.<plugin>.<function>(...args).", "  ");
+    out += "  export interface PluginsAPI {\n";
+    for (const ScriptPlugin& p : plugins) {
+        out += jsdoc(p.error.empty() ? "Native plugin '" + p.name + "'." : "Native plugin '" + p.name + "' (not loaded: " + p.error + ").", "    ");
+        out += "    readonly " + p.name + ": {\n";
+        for (const ScriptPlugin::Function& f : p.functions) out += jsdoc(f.doc, "      ") + "      " + f.name + "(...args: any[]): any;\n";
+        out += "    };\n";
+    }
+    out += "    readonly [plugin: string]: Record<string, (...args: any[]) => any> | undefined;\n  }\n";
+    return out;
+}
+
 }  // namespace
 
 std::string ScriptSystem::Impl::typescript_declarations() const {
@@ -266,8 +280,20 @@ std::string ScriptSystem::Impl::typescript_declarations() const {
             out += "  import type { Entity, WorldAPI, TimeAPI, Json, Vec2Like, GamepadButton, GamepadAxis } from \"factoria\";\n";
         }
         for (const Json& it : mod["items"]) out += emit_item(it, "  ", true) + "\n";
-        if (name == "factoria") out += emit_components();
+        if (name == "factoria") out += emit_components() + emit_plugins(plugins);
         out += "}\n\n";
+    }
+    return out;
+}
+
+Json ScriptSystem::Impl::plugins_json() const {
+    Json out = Json::array();
+    for (const ScriptPlugin& p : plugins) {
+        Json fns = Json::array();
+        for (const ScriptPlugin::Function& f : p.functions) fns.push_back(Json::object({{"name", f.name}, {"doc", f.doc}}));
+        Json pj = Json::object({{"name", p.name}, {"functions", fns}});
+        if (!p.error.empty()) pj["error"] = p.error;
+        out.push_back(pj);
     }
     return out;
 }
@@ -326,6 +352,7 @@ Json ScriptSystem::Impl::api_manifest() const {
     }
     out["modules"] = mods;
     out["components"] = TypeRegistry::global().describe_all();
+    out["plugins"] = plugins_json();  // plugins.<name>.<function>(...args)
     out["lifecycle"] = Json::array({"onStart()", "onUpdate(dt)", "onFixedUpdate(dt)", "onLateUpdate(dt)", "onDestroy()",
                                     "onCollisionEnter(other, info)", "onCollisionExit(other)", "onTriggerEnter(other)",
                                     "onTriggerExit(other)", "onEvent(name, data, source)"});

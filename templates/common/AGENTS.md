@@ -35,6 +35,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 | `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab` |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
+| `plugins/<name>/` | native plugins (C/C++: SDKs, platform services), `plugins.<name>.<fn>()` in scripts (optional: `project.new_plugin`, docs: extending, section G) |
 | `tests/*.test.js` | headless tests run by `factoria test` |
 | `levels/*.json` | ASCII level maps, the arguments of `scene.import_ascii`; the source of truth of a tile level (optional, see Tile levels below) |
 | `data/*.json` | tuning data, imported with `import levels from "../data/levels.json";` (optional) |
