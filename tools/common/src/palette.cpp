@@ -1,7 +1,7 @@
 #include "fa/tooling/palette.h"
 
 #include <algorithm>
-#include <cctype>
+#include <cmath>
 #include <format>
 #include <set>
 #include <unordered_map>
@@ -15,13 +15,13 @@ namespace {
 std::uint32_t pack(std::uint8_t r, std::uint8_t g, std::uint8_t b) { return (std::uint32_t(r) << 16) | (std::uint32_t(g) << 8) | b; }
 
 Result<std::array<std::uint8_t, 3>> parse_colour(const std::string& text, std::size_t index) {
-    const bool shaped = text.size() == 7 && text[0] == '#' && std::all_of(text.begin() + 1, text.end(), [](unsigned char c) { return std::isxdigit(c); });
-    if (!shaped) {
+    Color c;
+    if (!parse_color(text, c)) {
         return make_error(std::format("palette colour {} is '{}', not a colour like \"#1a1c2c\"", index, text),
-                          "Write each colour as '#' and six hex digits, or give the path of an image that holds the colours.");
+                          "Write each colour as \"#rrggbb\" or a colour name, or give the path of an image that holds the colours.");
     }
-    const unsigned long v = std::stoul(text.substr(1), nullptr, 16);
-    return std::array<std::uint8_t, 3>{std::uint8_t(v >> 16), std::uint8_t((v >> 8) & 0xFF), std::uint8_t(v & 0xFF)};
+    const auto byte = [](float v) { return std::uint8_t(std::lround(v * 255)); };
+    return std::array<std::uint8_t, 3>{byte(c.r), byte(c.g), byte(c.b)};
 }
 
 }  // namespace
