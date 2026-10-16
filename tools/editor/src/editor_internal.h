@@ -49,6 +49,7 @@
 #include "imgui_stdlib.h"
 #include "platform_settings.h"
 #include "play_recorder.h"
+#include "setup_job.h"
 
 struct sapp_event;
 
@@ -242,6 +243,21 @@ public:
     // changes; nullptr when it cannot be read.
     const TextureEntry* icon_preview(const std::string& relPath);
 
+    // Set Up This Computer window (setup_panel.cpp; File > Set Up This Computer..., the "Set up" buttons of the Export and
+    // Platform settings windows): the four components fa::setup_status looks at and fa::setup_install on a worker thread
+    // (setup_job.h has the logic). Nothing is installed without a click; the Android SDK license is shown first.
+    void open_setup_window();
+    void draw_setup_window();
+    void draw_setup_license_dialog();   // the modal that shows the Android SDK license before its install
+    void poll_setup();                  // every frame: takes a finished install, status and license text in; keeps the status fresh
+    // Runs `action` (the Android SDK license dialog first when the license is not accepted yet) and shows the Set Up window.
+    void request_setup(const SetupAction& action);
+    // The "Set up" buttons of `platform`'s row (Export window, Platform settings tabs); idPrefix names them for the autotest.
+    // `explain`: say why the row is not ready above them (the tabs do not show the row's own error).
+    void draw_setup_buttons(const std::string& platform, const char* idPrefix, bool explain = false);
+    SetupContext make_setup_context();  // the real downloader and process runner, the editor's shared Android listing cache
+    void start_setup_install(const SetupAction& action, bool acceptLicenses);
+
     // AI
     void ai_refresh_providers();
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
@@ -364,6 +380,19 @@ public:
     KeystoreRequest keystoreRunning_;                 // what the job in flight creates
     KeystoreForm keystoreRunningForm_;
 
+    // Set Up This Computer window
+    bool showSetup_ = false, setupFocus_ = false;
+    int setupScroll_ = 0;  // frames left to scroll the Set up window to its report
+    SetupJob setupJob_;                              // the install that runs (one at a time)
+    SetupStatusCache setupStatus_;                   // what each component says now; refreshed on a worker, never downloads
+    bool setupRefreshAgain_ = false;                 // an install finished: look again when the refresh in flight is done
+    std::shared_ptr<SetupCache> setupCache_ = std::make_shared<SetupCache>();  // one Android listing for the license and the install
+    std::optional<SetupOutcome> setupLast_;          // the last install's report (or error), shown in the window
+    SetupLicenseLoad setupLicense_;                  // the Android SDK license text, loaded when the dialog opens
+    bool setupLicenseOpen_ = false, setupLicenseRequest_ = false, setupLicenseTick_ = false;  // the dialog; the "I accept" checkbox
+    SetupAction setupPending_;                       // what the license dialog installs when it is accepted
+    std::optional<SetupContext> setupTestContext_;   // tests: a fake downloader and process runner instead of the real ones
+
     // textures for ImGui (texture_for, viewport.cpp), and image sizes for the selection bounds
     std::unordered_map<std::string, TextureEntry> textures_;
     struct ImageSizeEntry { Vec2 size{32, 32}; std::int64_t mtime = 0; };
@@ -466,9 +495,13 @@ public:
     // at_track() right after a widget is submitted, only when the autotest runs.
     std::map<std::string, Vec2> atWidgets_;
     std::map<std::string, std::uint64_t> atWidgetFrame_;   // uiFrame_ when the widget was last submitted
-    void at_track(const std::string& name);
+    std::map<std::string, bool> atWidgetEnabled_;           // false when the widget was submitted disabled (at_track's `enabled`)
+    std::map<std::string, bool> atWidgetShown_;             // false when the widget was submitted but is scrolled out of its window
+    void at_track(const std::string& name, bool enabled = true);
     Vec2 at_widget(const std::string& name);               // centre of a widget drawn in the last frames (fails the test otherwise)
     bool at_visible(const std::string& name) const;        // was the widget submitted in the last frame?
+    bool at_enabled(const std::string& name) const;        // ... and not disabled (a button that cannot be pressed yet)?
+    bool at_shown(const std::string& name) const;          // ... and not scrolled out of its window (a click would land elsewhere)?
     // Second half of the autotest (autotest_tools.cpp): a script of steps, one per frame, each followed by a wait.
     struct AtStep {
         int wait = 1;
@@ -491,6 +524,12 @@ public:
     std::vector<ai::ProviderStatus> atSavedStatus_;
     std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
     int atWaitCount_ = 0;
+    // A frame that never ends (a GPU read-back that waits for ever) would leave the window frozen on the user's screen: the
+    // watchdog thread ends the process when the editor draws no frame for a minute (on_init starts it, only in the autotest).
+    std::atomic<std::uint64_t> atHeartbeat_{0};
+    std::atomic<bool> atWatchdogStop_{false};
+    std::thread atWatchdog_;
+    int atFrameBudget_ = 3000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
 };
