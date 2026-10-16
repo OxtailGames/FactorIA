@@ -160,6 +160,9 @@ public:
     Json api_manifest() const;               // machine-readable API (modules, classes, functions, docs)
     std::string typescript_declarations() const;  // contents of types/factoria.d.ts
     Json stats() const;                      // behaviours alive, modules loaded, memory
+    // time.scale as scripts set it (game.paused sets 0): the engine scales physics steps, particles and sprite
+    // animators by it, so 0 freezes gameplay while the UI and runWhilePaused behaviours keep running.
+    double time_scale() const;
 
     struct Impl;
 
