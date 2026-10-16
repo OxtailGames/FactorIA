@@ -90,8 +90,9 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
-`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
-project is never modified; the feedback file stays in the repository.
+`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the folder of a native plugin that lives inside the project (its build is
+shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
+repository.
 
 The export adds two files of its own: `.factoria-export` at the top of the export folder (next section) and
 `FACTORIA_NOTICES.txt` ([License notices](#license-notices)). An Android export also leaves out the keystore named by
@@ -379,6 +380,13 @@ The player starts the game found in `game/` next to the executable (inside the
 my-game [projectDir] [--scene scenes/level2.scene.json] [--fullscreen]
 ```
 
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). The export copies the build of every plugin declared for
+the platform next to the executable: the contents of the plugin's `windows/` or `linux/` folder (its library and the
+ones it needs), or of `macos/` into `Contents/Frameworks` (the ad hoc signature below covers them, with `--deep`). The
+player loads them from there. An export for a platform the plugin is declared for but not built for fails and says
+which file is missing; `factoria validate` lists those problems for every platform (a warning for each platform other
+than this computer's).
+
 Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 `%APPDATA%\<id>`, `~/Library/Application Support/<id>`).
 
@@ -393,8 +401,8 @@ double-clicked exe shows the error in a message box.
 form of a path that long, so it works whether or not long paths are enabled on the machine. Explorer, zip tools and
 some other programs still cannot open such files: export into a short folder (`--out C:\exports`) when you can.
 
-On macOS the export signs the finished `.app` ad hoc (`codesign --force --sign -`), last, so the signature covers its
-`Info.plist` and the game files. The player of a signed release carries FactorIA's Developer ID signature, which covers
+On macOS the export signs the finished `.app` ad hoc (`codesign --force --deep --sign -`), last, so the signature
+covers its `Info.plist`, the game files and the native plugins in `Contents/Frameworks`. The player of a signed release carries FactorIA's Developer ID signature, which covers
 the executable alone: copied into a bundle unchanged it fails `codesign --verify` ("code has no resources but signature
 indicates they must be present"), and a Mac that downloads such an app calls it damaged. The ad hoc app runs on your
 Mac; a copy someone else downloads is stopped by Gatekeeper like any app that is not notarized (with Open Anyway).
@@ -493,11 +501,13 @@ my-game-android/
   gradlew  gradlew.bat  gradle/wrapper/{gradle-wrapper.jar,gradle-wrapper.properties}   the Gradle wrapper (Gradle 8.14.3)
   settings.gradle  build.gradle  gradle.properties  local.properties (sdk.dir of this computer: do not commit)
   app/build.gradle                 applicationId, versionName/Code, minSdk/targetSdk, abiFilters, signing (prebuilt: no native build)
-  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation, icon, permissions
+  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation, icon, permissions, hasCode
   app/src/main/res/values/strings.xml   app name
   app/src/main/res/mipmap-*/       launcher icons made from the project's icon (and the adaptive icon)
   app/src/main/assets/             the game + assets_index.txt
   app/src/main/jniLibs/<abi>/libfactoria_player.so   prebuilt mode only: the engine
+  plugins/<name>/                  native plugins: the Gradle module of each plugin's android/ folder
+  app/libs/<name>/                 native plugins: the .aar / .jar files of a plugin that has no module
 ```
 
 `assets_index.txt` lists every game file (one project-relative path per line).
@@ -539,6 +549,16 @@ needs NDK r27+ and CMake 3.31 in the SDK (`sdkmanager "ndk;27.2.12479018" "cmake
 The engine's libraries are linked for 16 KB memory pages (Google Play requires it for apps that target Android 15+), and the
 APK is zip-aligned for them.
 
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). A plugin declared for `android` needs an `android/` folder in
+its own folder: a Gradle library module (`build.gradle` or `build.gradle.kts`, with the plugin's `lib<name>.so` for
+`arm64-v8a` and `x86_64` in `src/main/jniLibs/<abi>/` and any Java or Kotlin code) or `.aar` / `.jar` files. The export
+copies a module to `plugins/<name>` (without its `build/`, `.gradle/` and `.cxx/`) and adds it to `settings.gradle` and
+to the app's dependencies; `.aar` / `.jar` files go to `app/libs/<name>`. The module reads `factoria.compileSdk` and
+`factoria.minSdk` from `gradle.properties`, which the export writes from `targetSdk` and `minSdk`. `android:hasCode` is
+`false` unless a plugin brings code (Java / Kotlin sources or archives). A plugin folder inside the project never ships
+as game files. A plugin without an Android build fails the export and says what to put in `android/`. Building the
+library, calling Java from C, `hasCode` and the details: [MOBILE.md](MOBILE.md#native-plugins-on-android).
+
 **Platform settings** that change the project: `minSdk` / `targetSdk` (`compileSdk` follows `targetSdk`), `versionCode`,
 `permissions` (extra `<uses-permission>` lines), the `icon` (launcher icons and adaptive icon, in the manifest as `icon` and
 `roundIcon`; without one the platform default and a warning) and `signing`. See [Platform settings](#platform-settings).
@@ -566,7 +586,8 @@ Prerequisites, signing and troubleshooting: [MOBILE.md](MOBILE.md).
 `factoria export --platform ios` (macOS with Xcode only for the next step) writes the game and a `build_ios.sh`. The
 script runs CMake with the Xcode generator and the same settings as the `ios` preset, adding
 `-DFA_GAME_PROJECT_DIR=game -DFA_GAME_BUNDLE_ID=... -DFA_GAME_NAME=... -DFA_GAME_VERSION=... -DFA_GAME_BUILD=...
--DFA_GAME_ORIENTATION=... -DFA_GAME_ASSET_CATALOG=Assets.xcassets -DFA_IOS_DEVELOPMENT_TEAM=...`:
+-DFA_GAME_ORIENTATION=... -DFA_GAME_ASSET_CATALOG=Assets.xcassets -DFA_IOS_DEVELOPMENT_TEAM=...` (and, for a game with
+native plugins, `-DFA_GAME_PLUGINS=... -DFA_GAME_PLUGIN_DIR=plugins`):
 
 ```bash
 ./build_ios.sh --simulator --run                         # build, start in the iOS Simulator, console in the terminal
@@ -588,11 +609,16 @@ From the project's [platform settings](#platform-settings) the export takes:
   device without the variable. Setting `FA_IOS_DEVELOPMENT_TEAM` yourself still wins.
 - **`buildNumber`** becomes `CFBundleVersion` (`FA_GAME_BUILD`); when absent, the `version` is used as before.
 
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). Each plugin declared for iOS needs `ios/iphoneos/lib<name>.a` and
+`ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it
+([MOBILE.md](MOBILE.md#native-plugins-ios)).
+
 ```
 my-game-ios/                        prebuilt mode (the download for macOS)
   build_ios.sh  game/
   CMakeLists.txt  cmake/            a small project: Info.plist template, the game-copy script
   lib/iphoneos/*.a  lib/iphonesimulator/*.a   the engine and player as static libraries
+  plugins/<name>/iphoneos/lib<name>.a  plugins/<name>/iphonesimulator/lib<name>.a   the native plugins of the game (if any)
 ```
 
 In **prebuilt** mode the script configures `CMakeLists.txt` of the folder itself and links the app from `lib/`: no engine

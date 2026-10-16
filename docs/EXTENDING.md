@@ -1,6 +1,6 @@
 # Creating tools and extending the engine
 
-This guide has two readers. Game-making AIs read sections A and E to add a repeatable tool to a game project. Engine developers read sections B to F to add commands, components, systems and feedback processing to FactorIA itself.
+This guide has two readers. Game-making AIs read sections A and E to add a repeatable tool to a game project, and section G to add native code (C/C++) to a game without changing the engine. Engine developers read sections B to F to add commands, components, systems and feedback processing to FactorIA itself.
 
 The examples use the APIs of this build and were checked against it. The reference for the JavaScript side is `docs/SCRIPTING.md`. The reference for the frame and the built-in commands is `engine/runtime/include/fa/runtime/engine.h`.
 
@@ -9,6 +9,7 @@ The examples use the APIs of this build and were checked against it. The referen
 | You want to add | Put it in | It becomes |
 |---|---|---|
 | A tool for one game | `tools/<name>.js` in the game project | command `project.<name>`, MCP tool `project_<name>` |
+| Native code for one game (an SDK, a platform service) | a native plugin: `factoria call project.new_plugin` (section G) | `plugins.<name>.<function>()` in scripts, commands `<name>.<verb>` |
 | A command for the running game | C++ `CommandRegistry::add`, in `engine/runtime/src/` | MCP tool, `factoria call`, editor command, `fa.call` |
 | A command for project tooling | C++ `CommandRegistry::add`, in `tools/common/src/` | the same surfaces |
 | A new component | a struct in `engine/scene/include/fa/scene/components.h`, registered in `components.cpp` | scene JSON, script views, typings, docs, MCP |
@@ -651,3 +652,114 @@ Notes:
 - `feedback.update` changes only the `ENGINE_FEEDBACK.json` of the project it runs in. Entries in other projects are changed by editing their files.
 - Wording matters for grouping. Reuse the same title for the same gap, and write titles as noun phrases ("No one-way platforms").
 - A duplicate report is merged automatically into an open entry in the same category, so repeated reports raise `occurrences` and the score.
+
+## G. Native plugins (C/C++ for one game)
+
+A native plugin is C code (or C++, Rust, anything that exports a C function) that one game ships with: a store or
+platform SDK, a library with no JavaScript version, code that must be native. It adds script functions
+(`plugins.<name>.<function>(...args)`) and commands (`<name>.<verb>`: MCP tools, `factoria call`, `fa.call`) to that
+game only, without changing or rebuilding the engine. Its whole interface is one C header,
+`engine/runtime/include/fa/runtime/fa_plugin.h`, which every new plugin gets a copy of.
+
+### G.1 Create, build, run
+
+```bash
+factoria call project.new_plugin '{"name": "example"}'
+cmake -S plugins/example -B plugins/example/build -DCMAKE_BUILD_TYPE=Release
+cmake --build plugins/example/build --config Release
+factoria run
+```
+
+`project.new_plugin` writes `plugins/example/` (`src/plugin.c`, `include/fa_plugin.h`, `CMakeLists.txt`, `README.md`,
+and `android/`, the Gradle module of the Android build) and declares the plugin in `factoria.json`. Its `CMakeLists.txt`
+copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
+`linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
+is complete:
+
+```js
+plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
+fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 1}
+```
+
+### G.2 The declaration
+
+```json
+"plugins": {
+  "example": { "path": "plugins/example", "platforms": ["windows", "macos", "linux"] },
+  "steam":   { "path": "${STEAMWORKS_PLUGIN}", "platforms": ["windows"] }
+}
+```
+
+- **Name.** Lower-case letters, digits and underscores, starting with a letter. Not an engine area (`scene`, `game`,
+  `project`, ...): the plugin's commands are `<name>.<verb>`.
+- **`path`.** The plugin's folder: relative to the project, absolute, or with `${VARIABLE}` parts read from the
+  environment. A variable keeps a private SDK outside the repository: each developer sets it to their own copy.
+- **`platforms`.** The platforms it is built for. Without it, the game's `platforms`, or all five. On a platform it is
+  not built for, `plugins.<name>` is `undefined`, so scripts can test for it.
+
+The folder holds one build per platform:
+
+| Platform | Build | The export |
+|---|---|---|
+| Windows | `windows/<name>.dll` | copies `windows/` next to the `.exe` |
+| macOS | `macos/lib<name>.dylib` | copies `macos/` into `Contents/Frameworks` (the app is signed with `--deep`) |
+| Linux | `linux/lib<name>.so` | copies `linux/` next to the executable |
+| iOS | `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` | copies `ios/` to `plugins/<name>/` next to `build_ios.sh`, which links the library of the SDK into the app ([MOBILE.md](MOBILE.md#native-plugins-ios)) |
+| Android | `android/`: a Gradle library module (`build.gradle`) with `src/main/jniLibs/<abi>/lib<name>.so` and the Java it calls, or `.aar` / `.jar` files | adds the module to the Gradle project (`plugins/<name>`), or the archives to the app; the APK carries `lib<name>.so` for `arm64-v8a` and `x86_64` |
+
+Libraries the plugin needs go next to it, in the same folder: the template's `CMakeLists.txt` sets the run path to
+the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's folder. The Android build (the module,
+the NDK build of the library, Java code) and the iOS build (two static libraries) are described in
+[MOBILE.md](MOBILE.md#native-plugins-on-android).
+
+### G.3 Checks and failures
+
+- `factoria validate` checks every plugin: a missing build for this computer is an error, one for another platform a
+  warning (only that export fails). Errors name the file that is missing and the variable that is not set.
+- `factoria export` fails when the build for the platform it exports is missing. A plugin's folder inside the project
+  is left out of `game/`: its sources do not ship.
+- A plugin that does not load (a missing build, an entry point that fails, a missing dependency) does not stop the
+  game: it is a warning in the log, and a script that uses it gets an error with the reason. A collaborator without a
+  private SDK can still run the game.
+- A library is loaded once per process and never unloaded: after rebuilding a plugin, restart `factoria run` (or the
+  editor).
+
+### G.4 The API
+
+```c
+#include "fa_plugin.h"
+
+static const FaPluginApi* g_api;
+
+static void add(FaCall* call, const char* args_json, void* user) {   // args_json: "[1,2]"
+    double a = 0, b = 0;
+    if (sscanf(args_json, " [ %lf , %lf ]", &a, &b) != 2) {
+        g_api->fail(call, "add(a, b) takes two numbers", "plugins.example.add(1, 2)");
+        return;
+    }
+    char out[64];
+    snprintf(out, sizeof out, "%.17g", a + b);
+    g_api->reply(call, out);                                          // the result, as JSON text
+}
+
+FA_PLUGIN_INIT(example) {
+    g_api = api;
+    FaFunctionDesc fn = {"add", "add(a, b): the sum of two numbers.", add, NULL};
+    return api->add_function(api, &fn);                               // 0 = loaded
+}
+```
+
+- **Entry point.** `FA_PLUGIN_INIT(<name>)` defines the exported `fa_plugin_init`. The engine calls it once, before the
+  game starts. It registers everything and returns 0; another value is a failure (the plugin is not loaded).
+- **`add_function(api, &FaFunctionDesc)`.** `name` is a JavaScript identifier; `doc` is required and goes into
+  `types/factoria.d.ts`. The handler gets the arguments as a JSON array.
+- **`add_command(api, &FaCommandDesc)`.** `name` is `<plugin>.<verb>` in snake_case; `summary` is required;
+  `input_schema` is JSON Schema text (defaults are filled in before the call). The handler gets the arguments as a
+  JSON object. The command's category is the plugin's name.
+- **Answers.** `reply(call, json)` or `fail(call, message, hint)`, once, before the handler returns; scripts get
+  `fail` as an exception (`plugins.example.add failed: message (hint: ...)`), commands as a `failed` error.
+- **Also.** `log(api, level, message)` (0 debug, 1 info, 2 warning, 3 error; the category is the plugin's name),
+  `api->plugin` and `api->platform`, `native_handle(name)` for platform objects (Android: `"android.activity"`, the
+  `ANativeActivity*`). `api->version` is `FA_PLUGIN_API_VERSION`; the struct only grows at its end.
+- **Threads and memory.** Handlers run on the game's thread. Strings passed to the engine are copied. Never let a C++
+  exception leave a handler.

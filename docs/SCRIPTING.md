@@ -528,6 +528,18 @@ r.seed(42);                            // start over; same as rng.create(42)
 - `math`: `clamp lerp inverseLerp remap damp moveTowards approach sign degToRad radToDeg wrapAngle`
 - `console.log/warn/error` go to the engine log (category `script`).
 
+### plugins (native code)
+`plugins.<name>.<function>(...args)` calls a function of a native plugin the game declares in `factoria.json`
+(`"plugins"`; [EXTENDING.md](EXTENDING.md), section G): `plugins.example.add(1, 2)`. Arguments and the result travel as
+JSON. A plugin's functions and their doc strings are in `types/factoria.d.ts` (`PluginsAPI`) once the plugin is loaded.
+
+- On a platform the plugin is not declared for, `plugins.<name>` is `undefined`: `if (plugins.steam) ...`.
+- A plugin that did not load (no build for this platform, its entry point failed) is still there, and any use throws
+  with the reason: `plugins.steam.unlock: the native plugin 'steam' is not loaded: ...`.
+- A function that fails throws `plugins.<name>.<function> failed: <message> (hint: <hint>)`; a name the plugin does not
+  have throws with a did-you-mean and the names it has.
+- A plugin's commands are ordinary commands: `fa.call("example.info", {})`.
+
 ### fa (commands)
 `fa.call(name, args)` runs any command (same as MCP tools) and returns its result · `fa.commands()` lists them.
 On failure `fa.call` throws an `Error` whose message is `<name> failed: <message> (hint: <hint>)` and which also

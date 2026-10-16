@@ -190,6 +190,50 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
     CHECK(stdfs::exists(stdfs::path(proj) / "ENGINE_FEEDBACK.json"));
 }
 
+TEST_CASE("export: a native plugin's build ships next to the executable, its folder does not") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    const stdfs::path plugin = stdfs::path(proj) / "plugins" / "example";
+    testing::write_all(plugin / "src" / "plugin.c", "/* source */");
+    testing::write_all(plugin / "windows" / "example.dll", "dll");
+    testing::write_all(plugin / "linux" / "libexample.so", "so");
+    testing::write_all(plugin / "linux" / "libdependency.so", "so");  // a library the plugin needs goes with it
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["plugins"] = Json::parse(R"({"example": {"path": "plugins/example", "platforms": ["windows", "linux", "macos"]}})");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+
+    for (const char* platform : {"linux", "windows"}) {
+        CAPTURE(platform);
+        ExportOptions o;
+        o.projectDir = proj;
+        o.platform = platform;
+        o.outDir = tmp.sub("out");
+        o.playerBinary = make_fake_player(tmp);
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string root = tmp.sub("out/space-dodge-") + platform;
+        if (std::string(platform) == "windows") {
+            CHECK(testing::read_all(root + "/example.dll") == "dll");
+        } else {
+            CHECK(testing::read_all(root + "/libexample.so") == "so");
+            CHECK(stdfs::exists(root + "/libdependency.so"));
+        }
+        CHECK_FALSE(stdfs::exists(root + "/game/plugins"));
+        CHECK(stdfs::exists(root + "/game/scenes/main.scene.json"));
+    }
+
+    // Declared for macOS but not built for it: the export says which file is missing.
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "macos";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = make_fake_player(tmp);
+    auto r = export_project(o);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("factoria.json#/plugins/example: the macos build is missing: macos/libexample.dylib") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-macos")));
+}
+
 // A macOS app nests four folders, so on Windows its files easily pass MAX_PATH (260 characters): the export reaches them
 // through fs::os_path whether or not long paths are enabled on the machine.
 TEST_CASE("export: an output folder deeper than Windows' MAX_PATH works") {
@@ -794,6 +838,68 @@ TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded 
     std::string steps;
     for (auto& s : r->nextSteps) steps += s + "\n";
     CHECK(steps.find("no engine source needed") != std::string::npos);
+
+    // A game without native plugins: nothing about them in the script, no plugins/ folder.
+    CHECK(script.find("FA_GAME_PLUGIN") == std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "plugins"));
+    CHECK(cmake.find("cmake/plugins.cmake") != std::string::npos);  // the project can link them, when given
+}
+
+TEST_CASE("export: a native plugin's static libraries are linked into the iOS app") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    const stdfs::path plugins = stdfs::path(proj) / "plugins";
+    for (const char* name : {"example", "alpha"})
+        for (const char* sdk : {"iphoneos", "iphonesimulator"})
+            testing::write_all(plugins / name / "ios" / sdk / (std::string("lib") + name + ".a"), std::string(name) + " " + sdk);
+    testing::write_all(plugins / "example" / "src" / "plugin.c", "/* source */");
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["plugins"] = Json::parse(R"({"example": {"path": "plugins/example", "platforms": ["ios"]},
+                                         "alpha": {"path": "plugins/alpha", "platforms": ["ios", "android"]},
+                                         "droid": {"path": "plugins/droid", "platforms": ["android"]}})");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "ios";
+    o.outDir = tmp.sub("out");
+
+    SUBCASE("prebuilt mode") {
+        o.mobileDir = make_fake_mobile(tmp);
+        o.buildSourceRoot = tmp.sub("no-checkout-here");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const stdfs::path root = r->outputDir;
+        // The project that links the app is written with the code that registers the plugins.
+        CHECK(testing::read_all(root / "CMakeLists.txt").find("fa_ios_link_plugins(factoria_player)") != std::string::npos);
+        CHECK(testing::read_all(root / "cmake/plugins.cmake").find("fa_register_static_plugin") != std::string::npos);
+    }
+    SUBCASE("source mode") {
+        o.engineRoot = FA_REPO_ROOT;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "cmake"));  // the engine's player/CMakeLists.txt does it
+    }
+    SUBCASE("a plugin built for one SDK only") {
+        o.mobileDir = make_fake_mobile(tmp);
+        o.buildSourceRoot = tmp.sub("no-checkout-here");
+        stdfs::remove(plugins / "example" / "ios" / "iphonesimulator" / "libexample.a");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("factoria.json#/plugins/example: the ios build is missing: ios/iphonesimulator/libexample.a") !=
+              std::string::npos);
+        return;
+    }
+
+    // Both modes: the libraries of every plugin declared for iOS (sorted by name) next to build_ios.sh, which passes them on.
+    const stdfs::path root = stdfs::path(tmp.sub("out")) / "space-dodge-ios";
+    CHECK(testing::read_all(root / "plugins/example/iphoneos/libexample.a") == "example iphoneos");
+    CHECK(testing::read_all(root / "plugins/alpha/iphonesimulator/libalpha.a") == "alpha iphonesimulator");
+    CHECK_FALSE(stdfs::exists(root / "plugins/droid"));  // not declared for iOS
+    CHECK_FALSE(stdfs::exists(root / "plugins/example/src"));
+    CHECK_FALSE(stdfs::exists(root / "game/plugins"));
+    const std::string script = testing::read_all(root / "build_ios.sh");
+    CHECK(script.find("-DFA_GAME_PLUGINS='alpha;example' -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\"") != std::string::npos);
 }
 
 TEST_CASE("export: ios needs both prebuilt slices, or says what to do") {
