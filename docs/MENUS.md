@@ -64,6 +64,8 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 
 ## The files
 
+### `scripts/settings.js`
+
 ```js scripts/settings.js
 // @ts-check
 // The player's settings (volumes, video, controls), kept in storage under "settings" and applied once per run.
@@ -124,6 +126,8 @@ export function applyOnce() {
 }
 ```
 
+### `scripts/ui/menu_stack.js`
+
 ```js scripts/ui/menu_stack.js
 // @ts-check
 // A stack of menu panels. show(id) hides the current panel and shows another one over it; back() returns to the
@@ -177,6 +181,8 @@ export class MenuStack {
 }
 ```
 
+### `scenes/menu.scene.json`
+
 ```json scenes/menu.scene.json
 {
   "format": "factoria.scene/1",
@@ -207,6 +213,8 @@ export class MenuStack {
 }
 ```
 
+### `scripts/main_menu.js`
+
 ```js scripts/main_menu.js
 // @ts-check
 // The title screen (scenes/menu.scene.json): Play, Options, Credits, Quit. Panels open over each other with MenuStack;
@@ -235,6 +243,8 @@ export default class MainMenu extends Behaviour {
   }
 }
 ```
+
+### `scripts/ui/credits.js`
 
 ```js scripts/ui/credits.js
 // @ts-check
@@ -265,6 +275,8 @@ export default class Credits extends Behaviour {
   }
 }
 ```
+
+### `prefabs/ui/options.prefab.json`
 
 ```json prefabs/ui/options.prefab.json
 {
@@ -319,6 +331,8 @@ export default class Credits extends Behaviour {
   }
 }
 ```
+
+### `scripts/ui/options.js`
 
 ```js scripts/ui/options.js
 // @ts-check
@@ -469,6 +483,8 @@ export default class Options extends Behaviour {
 }
 ```
 
+### `scenes/loading.scene.json`
+
 ```json scenes/loading.scene.json
 {
   "format": "factoria.scene/1",
@@ -482,6 +498,8 @@ export default class Options extends Behaviour {
   ]
 }
 ```
+
+### `scripts/loading.js`
 
 ```js scripts/loading.js
 // @ts-check
@@ -497,6 +515,8 @@ export default class Loading extends Behaviour {
   }
 }
 ```
+
+### `prefabs/ui/pause.prefab.json`
 
 ```json prefabs/ui/pause.prefab.json
 {
@@ -519,6 +539,8 @@ export default class Loading extends Behaviour {
   }
 }
 ```
+
+### `scripts/pause_menu.js`
 
 ```js scripts/pause_menu.js
 // @ts-check
@@ -580,6 +602,8 @@ export default class PauseMenu extends Behaviour {
   }
 }
 ```
+
+### `tests/recipe.test.js`
 
 ```js tests/recipe.test.js
 import { test, expect, game } from "factoria:test";
