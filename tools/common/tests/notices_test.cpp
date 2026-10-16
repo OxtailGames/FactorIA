@@ -38,7 +38,7 @@ TEST_CASE("notices: every library in external/ is listed (or never ships)") {
         const std::string dir = e.path().filename().string();
         CAPTURE(dir);
         CHECK_MESSAGE((listed.count(dir) || notShipped.count(dir)),
-                      "external/" << dir << " is not in third_party_components() (tools/common/src/notices.cpp)");
+                      "external/" << dir << " is not in third_party_components() (engine/core/src/notices.cpp)");
     }
 }
 

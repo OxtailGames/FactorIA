@@ -533,6 +533,7 @@
       if (!binding) throw new Error("Behaviour instances are created by the engine from a Script component; do not call `new` on them");
       Object.defineProperty(this, "entity", { value: binding, writable: false, enumerable: false, configurable: true });
       this.enabled = true;
+      this.runWhilePaused = false;  // true: onUpdate/onLateUpdate keep running (with the real dt) while time.scale is 0
     }
     get world() { return world; }
     after(seconds, fn) { return timers.add(this.entity.$h, seconds, fn, false); }
@@ -806,6 +807,7 @@
     get frame() { return N.timeInfo()[3]; },
     get scale() { return N.timeInfo()[4]; },
     set scale(v) { N.setTimeScale(v); },
+    get unscaledDt() { return N.timeInfo()[5]; },
   };
 
   const camera = {
@@ -840,6 +842,7 @@
     set paused(v) { N.setTimeScale(v ? 0 : 1); },
     get project() { return Object.freeze(N.project()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
+    notices() { return N.notices(); },
   };
 
   const storage = {
