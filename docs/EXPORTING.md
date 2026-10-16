@@ -153,7 +153,7 @@ factoria setup xcode                               # macOS: checks Xcode, opens 
 
 | Component | What it installs | Download | The export that needs it |
 |---|---|---|---|
-| `android` | Eclipse Temurin JDK 21, the Android command-line tools, `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the SDK licenses | about 600 MB (1.1 GB on disk) | `--platform android` (APK/AAB through Gradle) |
+| `android` | Eclipse Temurin JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmanager`), `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the Android SDK license | about 500 MB (0.9 GB on disk) | `--platform android` (APK/AAB through Gradle) |
 | `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (Android libraries; also iOS on a Mac), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
@@ -163,8 +163,8 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
 ```
 ~/.factoria/
   android/jdk/          Eclipse Temurin 21
-  android/sdk/          cmdline-tools/latest, platform-tools, platforms/android-36, build-tools/35.0.0, licenses/
-  android/user/         what Google's command-line tools keep for themselves ($ANDROID_USER_HOME, about 250 MB)
+  android/sdk/          cmdline-tools/22.0, platform-tools, platforms/android-36, build-tools/35.0.0, licenses/
+  android/user/         what Google's tools keep for themselves ($ANDROID_USER_HOME): about 4 MB (sdkmanager's package-list cache) with the pinned tools, about 250 MB if the fallback below applies
   players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/
   tools/cmake/          CMake (CMake.app on macOS)
   export.json           machine settings: learns where the JDK and the SDK are (below)
@@ -177,10 +177,22 @@ belongs to Unity and is never touched (FactorIA sets up its own next to it). Onl
 
 **The Android SDK license** is a legal agreement between you and Google. In a terminal `factoria setup android` prints the
 text and asks `[y/N]`; without a terminal it refuses (code `license_required`) until `--accept-licenses` says you have read
-it (`factoria setup --json` prints the text). The refusal comes before anything is downloaded. The newest command-line tools
-(revision 23) are a front for Google's "Android CLI": it records the agreement while it installs the first package,
-unpacks itself into `android/user` (about 250 MB), shows Google's terms and sends Google usage statistics under Google's
-privacy policy. `sdkmanager` has no switch for that (the `android` program next to it has `--no-metrics`).
+it (`factoria setup --json` prints the text). The refusal comes before anything is downloaded. After you agree, the install
+records exactly that license (`android/sdk/licenses/android-sdk-license`, the line Google's tools write for it) and nothing
+else: it does not run `sdkmanager --licenses`, which would also accept every other license Google lists (previews, Google TV,
+system images...).
+
+**Which command-line tools.** The install pins revision 22.0 (`kSetupAndroidCmdlineTools` in `fa/tooling/setup.h`), the
+newest whose `sdkmanager` is still the classic Java program: `bin/sdkmanager` starts `SdkManagerCli` from `lib/*.jar`, it
+fetches only the packages it is asked for and keeps nothing but its package-list cache (about 4 MB) in `android/user`. The
+newest revision (23, which Google's list calls `cmdline-tools;latest`) turned `sdkmanager` into a shell script in front of
+Google's "Android CLI": it unpacks itself into `android/user` (about 250 MB) on first use, shows Google's terms and sends
+Google usage statistics under Google's privacy policy, and `sdkmanager` has no switch for that (the `android` program next to
+it has `--no-metrics`). Only when Google's list no longer offers the pinned revision (missing or marked obsolete) does the
+install fall back to `cmdline-tools;latest`; it then says so in the `warnings` of its report, and that note, the 250 MB and
+the statistics apply. Update FactorIA to get a build that pins a revision that still exists. An SDK you already have (Android
+Studio's, `ANDROID_HOME`) keeps the tools it has (`--force` adds the pinned revision next to them, and that one is used);
+Google's tools always run with `ANDROID_USER_HOME` inside the FactorIA folder.
 
 **What is trusted.** Downloads come only from `api.adoptium.net` and `github.com/adoptium` (JDK), `dl.google.com` (SDK),
 `api.github.com` and `github.com/OxtailGames/FactorIA/releases` (players) and `github.com/Kitware/CMake` (CMake); a listing
@@ -211,7 +223,7 @@ license text and said yes, never on your own. C++: `fa/tooling/setup.h` (`fa::se
 editor's Export window builds its buttons on it.
 
 Tests: `FACTORIA_SETUP_ONLINE_TESTS=1 ctest -R tooling` also reads the real Google, Adoptium and GitHub listings (a few
-hundred KB, nothing is installed) to catch a changed format.
+hundred KB, nothing is installed) to catch a changed format, or Google dropping the pinned command-line tools revision.
 
 ## Platform settings
 

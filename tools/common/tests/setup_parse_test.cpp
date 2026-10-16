@@ -22,27 +22,56 @@ std::string with_replaced(std::string text, const std::string& from, const std::
     return text;
 }
 
-// A small repository2-3.xml: an obsolete cmdline-tools;latest first (must be skipped), another package, the real one with
-// the four hosts (the two Mac archives told apart by <host-arch>), and two licenses.
-const char* kRepoXml = R"(<?xml version='1.0' encoding='utf-8'?>
-<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03">
-  <license id="android-sdk-license" type="text">Terms and Conditions
-
-This is the Android Software Development Kit License Agreement &amp; its "terms" (&lt;1&gt;) &#169; 2019
-
-1. Introduction
-
-January 16, 2019
-</license>
-  <license id="android-sdk-preview-license" type="text">Preview terms only.</license>
-  <remotePackage obsolete="true" path="cmdline-tools;latest">
-    <revision><major>1</major></revision>
-    <archives><archive><complete><size>1</size><checksum type="sha1">1111111111111111111111111111111111111111</checksum><url>old.zip</url></complete><host-os>linux</host-os></archive></archives>
+// The two packages of Google's listing that matter, with the real archives of their four hosts (the two Mac archives told
+// apart by <host-arch>; Linux and Windows are Java/any CPU). 22.0 is what we pin, "latest" is revision 23.
+const char* kPkg22 = R"(  <remotePackage path="cmdline-tools;22.0">
+    <type-details xsi:type="generic:genericDetailsType"/>
+    <revision>
+      <major>22</major>
+      <minor>0</minor>
+    </revision>
+    <display-name>Android SDK Command-line Tools</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>181833628</size>
+          <checksum type="sha1">040d3996a65543d22ec4bf73e4c37aa37a8d4af4</checksum>
+          <url>commandlinetools-linux-15859902_latest.zip</url>
+        </complete>
+        <host-os>linux</host-os>
+      </archive>
+      <archive>
+        <complete>
+          <size>156281494</size>
+          <checksum type="sha1">1a79e61677b99cb0ce622792713cbea7ff2dc5de</checksum>
+          <url>commandlinetools-mac_x86_64-15859902_latest.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-arch>x64</host-arch>
+      </archive>
+      <archive>
+        <complete>
+          <size>156083281</size>
+          <checksum type="sha1">C4E0DBC53F1A4CE04FC2B11D4E2C4675001A95AF</checksum>
+          <url>commandlinetools-mac_arm64-15859902_latest.zip</url>
+        </complete>
+        <host-os>macosx</host-os>
+        <host-arch>aarch64</host-arch>
+      </archive>
+      <archive>
+        <complete>
+          <size>155655386</size>
+          <checksum type="sha1">b9862337a13e2809a5159dc3a08d058091bd59f6</checksum>
+          <url>commandlinetools-win-15859902_latest.zip</url>
+        </complete>
+        <host-os>windows</host-os>
+      </archive>
+    </archives>
   </remotePackage>
-  <remotePackage path="platforms;android-36">
-    <archives><archive><complete><size>65878410</size><checksum type="sha1">2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576</checksum><url>platform-36_r02.zip</url></complete></archive></archives>
-  </remotePackage>
-  <remotePackage path="cmdline-tools;latest">
+)";
+
+const char* kPkgLatest = R"(  <remotePackage path="cmdline-tools;latest">
     <type-details xsi:type="generic:genericDetailsType"/>
     <revision>
       <major>23</major>
@@ -71,7 +100,7 @@ January 16, 2019
       <archive>
         <complete>
           <size>155384151</size>
-          <checksum type="sha1">AD03DC49BFACFD52C110B14104EA548B8A07E830</checksum>
+          <checksum type="sha1">ad03dc49bfacfd52c110b14104ea548b8a07e830</checksum>
           <url>commandlinetools-mac_arm64-16111833_latest.zip</url>
         </complete>
         <host-os>macosx</host-os>
@@ -87,14 +116,41 @@ January 16, 2019
       </archive>
     </archives>
   </remotePackage>
-</sdk:sdk-repository>
 )";
+
+// A small repository2-3.xml around the packages: an obsolete cmdline-tools;latest first (must be skipped), another package,
+// two licenses.
+std::string repo_xml(const std::string& packages) {
+    return std::string(R"(<?xml version='1.0' encoding='utf-8'?>
+<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03">
+  <license id="android-sdk-license" type="text">Terms and Conditions
+
+This is the Android Software Development Kit License Agreement &amp; its "terms" (&lt;1&gt;) &#169; 2019
+
+1. Introduction
+
+January 16, 2019
+</license>
+  <license id="android-sdk-preview-license" type="text">Preview terms only.</license>
+  <remotePackage obsolete="true" path="cmdline-tools;latest">
+    <revision><major>1</major></revision>
+    <archives><archive><complete><size>1</size><checksum type="sha1">1111111111111111111111111111111111111111</checksum><url>old.zip</url></complete><host-os>linux</host-os></archive></archives>
+  </remotePackage>
+  <remotePackage path="platforms;android-36">
+    <archives><archive><complete><size>65878410</size><checksum type="sha1">2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576</checksum><url>platform-36_r02.zip</url></complete></archive></archives>
+  </remotePackage>
+)") + packages + "</sdk:sdk-repository>\n";
+}
+
+const std::string kRepoXml = repo_xml(std::string(kPkg22) + kPkgLatest);  // what Google lists today: both
+const std::string kLatestOnlyXml = repo_xml(kPkgLatest);                  // the pinned package is gone
+const std::string kPinnedOnlyXml = repo_xml(kPkg22);
 
 // Only a Mac archive.
 const char* kMacOnlyXml = R"(<sdk:sdk-repository>
   <license id="android-sdk-license" type="text">Terms.</license>
-  <remotePackage path="cmdline-tools;latest">
-    <revision><major>23</major></revision>
+  <remotePackage path="cmdline-tools;22.0">
+    <revision><major>22</major></revision>
     <archives>
       <archive>
         <complete><size>5</size><checksum type="sha1">ad03dc49bfacfd52c110b14104ea548b8a07e830</checksum><url>mac.zip</url></complete>
@@ -106,14 +162,18 @@ const char* kMacOnlyXml = R"(<sdk:sdk-repository>
 
 }  // namespace
 
-TEST_CASE("setup parse: the cmdline-tools archive of each host and the license text") {
+TEST_CASE("setup parse: the pinned classic cmdline-tools archive of each host and the license text") {
     auto arm = parse_sdk_repository(kRepoXml, "macos", "aarch64");
     REQUIRE(arm.ok());
-    CHECK(arm->cmdlineToolsRevision == "23.0");
-    CHECK(arm->cmdlineTools.url == "https://dl.google.com/android/repository/commandlinetools-mac_arm64-16111833_latest.zip");
+    CHECK(arm->cmdlineToolsPackage == "cmdline-tools;22.0");  // not the newer `latest`
+    CHECK(arm->cmdlineToolsPackage == kSetupAndroidCmdlineTools);
+    CHECK(arm->cmdlineToolsPinned);
+    CHECK(arm->cmdlineToolsRevision == "22.0");
+    CHECK(arm->warnings.empty());
+    CHECK(arm->cmdlineTools.url == "https://dl.google.com/android/repository/commandlinetools-mac_arm64-15859902_latest.zip");
     CHECK(arm->cmdlineTools.checksumType == "sha1");
-    CHECK(arm->cmdlineTools.checksum == "ad03dc49bfacfd52c110b14104ea548b8a07e830");  // lowercased
-    CHECK(arm->cmdlineTools.size == 155384151);
+    CHECK(arm->cmdlineTools.checksum == "c4e0dbc53f1a4ce04fc2b11d4e2c4675001a95af");  // lowercased
+    CHECK(arm->cmdlineTools.size == 156083281);
     CHECK(arm->license.id == "android-sdk-license");
     CHECK(arm->license.title == "Android Software Development Kit License Agreement");
     CHECK(starts_with(arm->license.text, "Terms and Conditions"));
@@ -123,21 +183,84 @@ TEST_CASE("setup parse: the cmdline-tools archive of each host and the license t
 
     auto intel = parse_sdk_repository(kRepoXml, "macos", "x64");
     REQUIRE(intel.ok());
-    CHECK(intel->cmdlineTools.url.find("mac_x86_64") != std::string::npos);
+    CHECK(intel->cmdlineTools.url.find("mac_x86_64-15859902") != std::string::npos);
+    CHECK(intel->cmdlineToolsPinned);
     auto win = parse_sdk_repository(kRepoXml, "windows", "x64");
     REQUIRE(win.ok());
-    CHECK(win->cmdlineTools.url.find("commandlinetools-win-") != std::string::npos);
+    CHECK(win->cmdlineTools.url.find("commandlinetools-win-15859902") != std::string::npos);
     CHECK(win->cmdlineTools.hostArch.empty());
+    CHECK(win->cmdlineToolsPinned);
     auto linuxArm = parse_sdk_repository(kRepoXml, "linux", "aarch64");  // the Linux archive is Java: any CPU
     REQUIRE(linuxArm.ok());
-    CHECK(linuxArm->cmdlineTools.url.find("commandlinetools-linux-") != std::string::npos);
+    CHECK(linuxArm->cmdlineTools.url.find("commandlinetools-linux-15859902") != std::string::npos);
+    CHECK(linuxArm->cmdlineToolsPinned);
+
+    // A listing that only has the pinned package works the same.
+    auto only = parse_sdk_repository(kPinnedOnlyXml, "macos", "aarch64");
+    REQUIRE(only.ok());
+    CHECK(only->cmdlineToolsPinned);
+    CHECK(only->warnings.empty());
+}
+
+TEST_CASE("setup parse: the pinned package missing falls back to latest, with a warning") {
+    for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
+        INFO(os << "/" << arch);
+        auto r = parse_sdk_repository(kLatestOnlyXml, os, arch);
+        REQUIRE(r.ok());
+        CHECK(r->cmdlineToolsPackage == "cmdline-tools;latest");
+        CHECK_FALSE(r->cmdlineToolsPinned);
+        CHECK(r->cmdlineToolsRevision == "23.0");
+        CHECK(r->cmdlineTools.url.find("16111833") != std::string::npos);
+        CHECK(r->license.text.size() > 20);  // the license is read all the same
+        REQUIRE(r->warnings.size() == 1);
+        const std::string& w = r->warnings[0];
+        CHECK(w.find("cmdline-tools;22.0") != std::string::npos);
+        CHECK(w.find("does not have it") != std::string::npos);
+        CHECK(w.find("cmdline-tools;latest") != std::string::npos);
+        CHECK(w.find("revision 23.0") != std::string::npos);
+        CHECK(w.find("Android CLI") != std::string::npos);
+        CHECK(w.find("usage statistics") != std::string::npos);
+    }
+    // The host selection is as strict as ever on the fallback: the Mac archive of the other CPU is no match.
+    auto latestMac = parse_sdk_repository(with_replaced(kMacOnlyXml, "cmdline-tools;22.0", "cmdline-tools;latest"), "macos", "x64");
+    REQUIRE_FALSE(latestMac.ok());
+    CHECK(latestMac.error().message.find("macos/x64") != std::string::npos);
+}
+
+TEST_CASE("setup parse: an obsolete pinned package is not used either") {
+    auto r = parse_sdk_repository(with_replaced(kRepoXml, "<remotePackage path=\"cmdline-tools;22.0\">", "<remotePackage obsolete=\"true\" path=\"cmdline-tools;22.0\">"),
+                                  "macos", "aarch64");
+    REQUIRE(r.ok());
+    CHECK(r->cmdlineToolsPackage == "cmdline-tools;latest");
+    CHECK_FALSE(r->cmdlineToolsPinned);
+    CHECK(r->cmdlineTools.url.find("mac_arm64-16111833") != std::string::npos);
+    REQUIRE(r->warnings.size() == 1);
+    CHECK(r->warnings[0].find("obsolete") != std::string::npos);
+    CHECK(r->warnings[0].find("cmdline-tools;22.0") != std::string::npos);
+
+    // A pinned package without a download for this host: the same fallback, and the warning says what the package lists.
+    const std::string noWindows = with_replaced(kRepoXml, "<host-os>windows</host-os>\n      </archive>\n    </archives>\n  </remotePackage>\n  <remotePackage path=\"cmdline-tools;latest\">",
+                                                "<host-os>solaris</host-os>\n      </archive>\n    </archives>\n  </remotePackage>\n  <remotePackage path=\"cmdline-tools;latest\">");
+    auto w = parse_sdk_repository(noWindows, "windows", "x64");
+    REQUIRE(w.ok());
+    CHECK_FALSE(w->cmdlineToolsPinned);
+    REQUIRE(w->warnings.size() == 1);
+    CHECK(w->warnings[0].find("no download for windows/x64") != std::string::npos);
+    CHECK(w->warnings[0].find("solaris") != std::string::npos);
+    CHECK(parse_sdk_repository(noWindows, "linux", "x64")->cmdlineToolsPinned);  // other hosts still use the pinned one
 }
 
 TEST_CASE("setup parse: a repository that lacks what we need says so") {
     auto none = parse_sdk_repository("<sdk:sdk-repository></sdk:sdk-repository>", "linux", "x64");
     REQUIRE_FALSE(none.ok());
+    CHECK(none.error().message.find("cmdline-tools;22.0") != std::string::npos);
     CHECK(none.error().message.find("cmdline-tools;latest") != std::string::npos);
     CHECK_FALSE(none.error().hint.empty());
+
+    // Neither package, `latest` only as an obsolete entry (the fixture's first one is).
+    auto obsoleteOnly = parse_sdk_repository(repo_xml(""), "linux", "x64");
+    REQUIRE_FALSE(obsoleteOnly.ok());
+    CHECK(obsoleteOnly.error().message.find("neither") != std::string::npos);
 
     // No archive for this host: the error lists what the repository has.
     auto noWin = parse_sdk_repository(kMacOnlyXml, "windows", "x64");
@@ -147,19 +270,52 @@ TEST_CASE("setup parse: a repository that lacks what we need says so") {
     // A Mac archive for the other CPU is no match either.
     CHECK_FALSE(parse_sdk_repository(kMacOnlyXml, "macos", "x64").ok());
     CHECK(parse_sdk_repository(kMacOnlyXml, "macos", "aarch64").ok());
+    CHECK(parse_sdk_repository(kMacOnlyXml, "macos", "aarch64")->cmdlineToolsPinned);
 
-    // An address outside Google's download server is refused, not followed.
-    auto refused = parse_sdk_repository(with_replaced(kRepoXml, "commandlinetools-linux-16111833_latest.zip", "https://evil.example/tools.zip"), "linux", "x64");
+    // An address outside Google's download server is refused, not followed: for the pinned package it is an error, not a reason to
+    // fall back to `latest`.
+    auto refused = parse_sdk_repository(with_replaced(kRepoXml, "commandlinetools-linux-15859902_latest.zip", "https://evil.example/tools.zip"), "linux", "x64");
     REQUIRE_FALSE(refused.ok());
     CHECK(refused.error().message.find("evil.example") != std::string::npos);
+    // ... and the same for the fallback.
+    auto refusedLatest = parse_sdk_repository(with_replaced(kLatestOnlyXml, "commandlinetools-linux-16111833_latest.zip", "https://evil.example/tools.zip"), "linux", "x64");
+    REQUIRE_FALSE(refusedLatest.ok());
+    CHECK(refusedLatest.error().message.find("evil.example") != std::string::npos);
 
-    // A checksum that is not a SHA-1 is refused.
-    CHECK_FALSE(parse_sdk_repository(with_replaced(kRepoXml, "e025545c62a8e64c7559119566a569fb1dec5f60", "not-a-checksum"), "linux", "x64").ok());
+    // A checksum that is not a SHA-1 is refused (pinned and fallback).
+    CHECK_FALSE(parse_sdk_repository(with_replaced(kRepoXml, "040d3996a65543d22ec4bf73e4c37aa37a8d4af4", "not-a-checksum"), "linux", "x64").ok());
+    CHECK_FALSE(parse_sdk_repository(with_replaced(kLatestOnlyXml, "e025545c62a8e64c7559119566a569fb1dec5f60", "not-a-checksum"), "linux", "x64").ok());
+    // An archive of this host without its checksum or its address is a damaged listing, not a missing package.
+    auto noSum = parse_sdk_repository(with_replaced(kRepoXml, "<checksum type=\"sha1\">040d3996a65543d22ec4bf73e4c37aa37a8d4af4</checksum>", ""), "linux", "x64");
+    REQUIRE_FALSE(noSum.ok());
+    CHECK(noSum.error().message.find("cmdline-tools;22.0") != std::string::npos);
 
     // A listing without the license text is refused too: the user could not be shown what they agree to.
     auto missing = parse_sdk_repository(with_replaced(kRepoXml, "<license id=\"android-sdk-license\"", "<license id=\"other-license\""), "linux", "x64");
     REQUIRE_FALSE(missing.ok());
     CHECK(missing.error().message.find("android-sdk-license") != std::string::npos);
+}
+
+TEST_CASE("setup parse: the hash that records a license agreement") {
+    // How the Android SDK tools read the license from the XML (TrimStringAdapter), then SHA-1 of the UTF-8 bytes. The expected
+    // values were computed with a second implementation of those rules; the real license text of Google's listing (January
+    // 16, 2019) hashes to 24333f8a63b6825ea9c5514f83c2829b004d1fee, the line every SDK holds in licenses/android-sdk-license.
+    CHECK(sdk_license_hash("Terms and Conditions") == "894031ed8d341b5ecab5e23002585055f0b7ee4d");
+    // Indentation dropped, a lone line break is a space, blank lines stay, runs of spaces are one, ends trimmed.
+    CHECK(sdk_license_hash("  Terms and Conditions\n\n   This is the first paragraph,\n   wrapped over two lines.\n\n\n1.\tIntroduction  with  spaces\n  \n") ==
+          "c0d12db53cbd172135fb28953eee965ffada9d84");
+    CHECK(sdk_license_hash("a\nb") == sdk_license_hash("a b"));
+    CHECK(sdk_license_hash("a\nb") == "7dbde93504122a707f849f2c12bdd9de71b41929");
+    CHECK(sdk_license_hash("a\n\nb") == "8036271ac3d78f16afba17a52f59f4b92ddea14d");
+    CHECK(sdk_license_hash("a\n\nb") != sdk_license_hash("a b"));
+    CHECK(sdk_license_hash("\n a   b \n") == sdk_license_hash("a b"));
+
+    // The license of the fixture, as parse_sdk_repository returns it (entities decoded, ends trimmed), and as the XML holds it
+    // (a final line break): the same hash, since the tools trim too.
+    auto parsed = parse_sdk_repository(kRepoXml, "linux", "x64");
+    REQUIRE(parsed.ok());
+    CHECK(sdk_license_hash(parsed->license.text) == "b1e0268a9a8e4a9460d5b787c3f2d88163c63d2e");
+    CHECK(sdk_license_hash(parsed->license.text + "\n") == sdk_license_hash(parsed->license.text));
 }
 
 TEST_CASE("setup parse: XML entities") {

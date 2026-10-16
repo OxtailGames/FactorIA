@@ -1,8 +1,9 @@
 // One-click setup of everything an export needs: `factoria setup`, commands "setup.status" and "setup.install".
 //
 // FactorIA never only tells the user what to install when it can install it. Four components:
-//   android   JDK 21 (Eclipse Temurin) + the Android SDK (command-line tools, platform-tools, platform 36, build-tools
-//             35.0.0) with its licenses accepted: what `factoria export --platform android` builds an APK/AAB with.
+//   android   JDK 21 (Eclipse Temurin) + the Android SDK (the command-line tools revision pinned below, platform-tools,
+//             platform 36, build-tools 35.0.0) with its license accepted: what `factoria export --platform android` builds an
+//             APK/AAB with.
 //   players   the factoria_player of the other desktop OSes and the prebuilt mobile libraries, from the GitHub release of
 //             this factoria's version: what `factoria export --platform windows|linux|macos` (for another OS) and the
 //             prebuilt Android/iOS exports copy into the game.
@@ -14,7 +15,8 @@
 // moved into place, so a half-finished install never looks installed. docs/EXPORTING.md ("Setting up this computer").
 //
 // The Android SDK license must be accepted by a human: the install refuses (code "license_required") until
-// `acceptLicenses` is set, and the text to show is in the status of the component.
+// `acceptLicenses` is set, and the text to show is in the status of the component. Once it is set, the install records
+// exactly that one license (the line `sdkmanager --licenses` would write for it, see sdk_license_hash), nothing more.
 //
 // Downloads and child processes go through SetupContext::download and ::run, so tests (and embedders) replace them;
 // the defaults are the `curl` executable and fa::run_process.
@@ -44,6 +46,14 @@ inline constexpr const char* kSetupAndroidPlatformTools = "platform-tools";
 inline constexpr const char* kSetupAndroidPlatform = "platforms;android-36";    // = the default targetSdk
 inline constexpr const char* kSetupAndroidBuildTools = "build-tools;35.0.0";    // the Android Gradle plugin's default
 inline constexpr const char* kSetupAndroidLicenseId = "android-sdk-license";
+// The Android command-line tools: a PINNED revision of the classic, Java-based sdkmanager, not `cmdline-tools;latest`. Revision 23
+// (2026) turned sdkmanager into a shell script in front of Google's "Android CLI": it unpacks a ~250 MB copy of itself into
+// $ANDROID_USER_HOME on first use, shows Google's terms and sends Google usage statistics, and has no switch to turn that off.
+// 22.0 is the newest revision whose bin/sdkmanager still launches com.android.sdklib.tool.sdkmanager.SdkManagerCli from lib/*.jar
+// (its bin/android is never called by it). Raising this means checking that again, and the text of docs/EXPORTING.md.
+inline constexpr const char* kSetupAndroidCmdlineTools = "cmdline-tools;22.0";
+// What is installed instead when Google's listing no longer offers the pinned package (missing or obsolete): the Android CLI front.
+inline constexpr const char* kSetupAndroidCmdlineToolsFallback = "cmdline-tools;latest";
 inline constexpr const char* kSetupCmakeVersion = "3.31.6";
 inline constexpr const char* kSetupCmakeMinimum = "3.24";                  // what the engine and build_ios.sh need
 
