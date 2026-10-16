@@ -33,12 +33,9 @@ Json manifest();
 // The entry of `path` (normalized), or an empty object.
 Json entry(std::string_view path);
 
-// Built-in import settings of a kind: texture {compression "auto", atlas ""}; audio {stream "auto", normalize false,
-// targetLufs -16, convert "none"}; {} for the other kinds.
-Json builtin_import_defaults(AssetKind kind);
-
-// Effective import settings of `path`: the built-in defaults of its kind, then manifest "defaults.<kind>", then the
-// entry's "import" (each later one overrides keys of the earlier).
+// Effective import settings of `path`: the built-in defaults of its kind (texture {compression "auto", atlas ""}; audio
+// {stream "auto", normalize false, targetLufs -16, convert "none"}; {} for the other kinds), then manifest
+// "defaults.<kind>", then the entry's "import" (each later one overrides keys of the earlier).
 Json import_settings(std::string_view path);
 
 // Edits (tools; the manifest must be writable, so desktop only). Loads the file from disk (a missing one starts as
