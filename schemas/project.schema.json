@@ -212,7 +212,7 @@
                 "aab",
                 "gradle"
               ],
-              "description": "What the Android export produces: \"apk\" (default; runs the Gradle build and copies <game>.apk next to the project; debug builds are <game>-debug.apk), \"aab\" (an Android App Bundle for Google Play) or \"gradle\" (only the Gradle project, to open in Android Studio; nothing is built). apk and aab need a JDK 17+ and the Android SDK, which FactorIA looks for by itself (docs/EXPORTING.md), and the first build downloads Gradle and the Android Gradle plugin."
+              "description": "What the Android export produces: \"apk\" (default; runs the Gradle build and copies <game>.apk next to the project; debug builds are <game>-debug.apk), \"aab\" (an Android App Bundle for Google Play) or \"gradle\" (only the Gradle project, to open in Android Studio)."
             },
             "adaptiveIcon": {
               "type": "object",

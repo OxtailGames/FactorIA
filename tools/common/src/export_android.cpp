@@ -351,6 +351,13 @@ std::string gradle_failure_hint(const std::deque<std::string>& tail, const std::
                " does not suit this Gradle build: Android builds are tested with JDK 17 and 21 (too old and too new both fail). Choose "
                "another JDK in Platform settings > Android (This computer), \"android\": {\"jdk\": \"<folder>\"} in ~/.factoria/export.json, "
                "or JAVA_HOME.";
+    // Source mode compiles the engine with the SDK's NDK and CMake; AGP does not always install them itself.
+    if (mentions(text, {"[cxx1300]", "[cxx1101]", "[cxx1104]", "cmake '3.31.6' was not found", "ndk is not installed", "did not have a source.properties"}) ||
+        (text.find("cmake") != std::string::npos && text.find("was not found in sdk") != std::string::npos))
+        return "This export compiles the engine from source (mode: source), which needs NDK r27+ and CMake 3.31.6 in the Android SDK" +
+               (a.toolchain.sdk.empty() ? std::string() : " '" + a.toolchain.sdk + "'") + ". Install them once: " + sdkTool +
+               " \"ndk;27.2.12479018\" \"cmake;3.31.6\" (Android Studio > SDK Manager > SDK Tools > NDK (Side by side) and CMake), then export "
+               "again. The FactorIA download exports with prebuilt players instead and needs neither.";
     if (mentions(text, {"sdk location not found", "no sdk directory", "android sdk is missing"}))
         return "Gradle could not use the Android SDK" + (a.toolchain.sdk.empty() ? std::string() : " '" + a.toolchain.sdk + "'") +
                ": check that the folder is a full SDK (platform-tools, platforms, licenses) in Platform settings > Android (This computer), "

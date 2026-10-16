@@ -482,6 +482,9 @@ EOT
   jdk)
     printf 'FAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task :app:x.\n> java.lang.UnsupportedClassVersionError: Unsupported class file major version 69\n\n* Try:\n> x\n' >&2
     exit 1 ;;
+  cmake)
+    printf 'FAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task :app:configureCMakeDebug[arm64-v8a].\n> [CXX1300] CMake 3.31.6 was not found in SDK, PATH, or by cmake.dir property.\n\n* Try:\n> x\n' >&2
+    exit 1 ;;
   crash)
     echo "line 1"; echo "the last line before the crash" >&2
     exit 3 ;;
@@ -690,6 +693,15 @@ TEST_CASE("android export: a failed build says what went wrong, where the log is
         CHECK(r.error().hint.find(tc.jdk) != std::string::npos);
         CHECK(r.error().hint.find("Java 17") != std::string::npos);
         CHECK(r.error().hint.find("JAVA_HOME") != std::string::npos);
+    }
+    SUBCASE("source mode without the NDK or CMake in the SDK") {
+        ScopedEnv mode("FAKE_GRADLE", "cmake");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("CMake 3.31.6 was not found in SDK") != std::string::npos);
+        CHECK(r.error().hint.find("ndk;27.2.12479018") != std::string::npos);
+        CHECK(r.error().hint.find("cmake;3.31.6") != std::string::npos);
+        CHECK(r.error().hint.find(tc.sdk) != std::string::npos);
     }
     SUBCASE("an unknown failure quotes the last lines and points at the log") {
         ScopedEnv mode("FAKE_GRADLE", "crash");
