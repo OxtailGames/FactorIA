@@ -70,6 +70,16 @@ elseif(FA_PLATFORM STREQUAL "ios")
     endif()
 else()
     add_executable(factoria_player ${player_srcs})
+    if(WIN32)
+        # The placeholder icon of the exe (player/windows/factoria_player.rc): 32-bit BMP images of fixed sizes that
+        # `factoria export --platform windows` overwrites in place with the game's icon (tools/common/src/pe_icon.cpp).
+        # CMake enables the RC language by itself with C/C++ on Windows (rc.exe with MSVC, windres with MinGW); the include
+        # directory is where both look for the .ico named in the .rc.
+        target_sources(factoria_player PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.rc)
+        target_include_directories(factoria_player PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/windows)
+        set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.rc PROPERTIES
+            OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.ico)
+    endif()
 endif()
 
 target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)
