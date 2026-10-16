@@ -377,7 +377,7 @@ void register_builtin_components(TypeRegistry& r) {
                        "Plays a sound clip from the entity. Set playOnStart to start automatically, or set `playing` "
                        "from a script to trigger it.",
                        "Audio")
-        .asset_field("clip", &AudioSource::clip, "audio", "Project-relative path of the sound (.wav, .ogg or .mp3).")
+        .asset_field("clip", &AudioSource::clip, "audio", "Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa).")
         .field("volume", &AudioSource::volume, "Loudness multiplier, 0 (silent) to 1 (full).").range(0, 1)
         .field("pitch", &AudioSource::pitch, "Playback speed multiplier; 2 = one octave higher and twice as fast.").range(0.05f, 8)
         .field("loop", &AudioSource::loop, "Restart the clip when it ends.")
