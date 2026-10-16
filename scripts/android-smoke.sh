@@ -4,7 +4,7 @@
 # really runs. CI runs it inside reactivecircus/android-emulator-runner (job `android-emulator`); it also works against
 # any adb device.
 #
-#   ./scripts/android-smoke.sh <app-debug.apk> <applicationId> [timeoutSeconds] [outDir]
+#   ./scripts/android-smoke.sh <apk> <applicationId> [timeoutSeconds] [outDir]
 #
 # What it checks, in this order (each step fails with its own message and the evidence in outDir):
 #   1. ready      the system finished booting (sys.boot_completed, boot animation, package manager, provisioning),
