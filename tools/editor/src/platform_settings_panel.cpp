@@ -777,7 +777,7 @@ void Editor::draw_platform_settings_window() {
         return;
     }
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowSize(ImVec2(860, 740), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(fit_work_area(ImVec2(860, 740)), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (platformFocus_) {
