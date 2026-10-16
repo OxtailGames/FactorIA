@@ -90,6 +90,32 @@ void app_set_title(const std::string& title);
 void app_show_mouse(bool show);
 bool app_is_mobile();
 
+// Window settings. Valid inside run_app callbacks, on the thread that runs them. Sizes are LOGICAL pixels (the window
+// system's points: a 200% display shows a 1280 x 720 window with 2560 x 1440 framebuffer pixels). Phones and tablets
+// always run full screen: they report true, ignore app_set_fullscreen and cannot be resized.
+bool app_is_fullscreen();
+// Enters or leaves full screen when the state differs (desktop). app_is_fullscreen() follows the request at once, even
+// where the window manager (X11) takes a moment to resize the window. Does nothing on mobile.
+void app_set_fullscreen(bool on);
+// The client size of the window now.
+void app_window_size(int& width, int& height);
+// The size of the monitor the window is on. false: unknown on this platform (width and height are left alone).
+bool app_display_size(int& width, int& height);
+// Resizes a windowed (not full screen) desktop window; its position stays. false: the platform cannot (mobile, web).
+bool app_set_window_size(int width, int height);
+// Vsync as the game asked for it (AppDesc::vsync at start, app_set_vsync afterwards). Mobile displays always sync.
+bool app_vsync();
+// Turns vsync on or off while the game runs. false (nothing changed): the platform or the graphics driver cannot (Android,
+// iOS, a Linux driver without GLX_EXT_swap_control). macOS only stops presents from waiting for the display: the frame
+// rate stays at the display's.
+bool app_set_vsync(bool on);
+// Mouse lock: the pointer is hidden and held in the window, and Input::mouse_delta() reports raw movement. The window
+// system may unlock it by itself (focus lost); app_mouse_locked() tells.
+void app_lock_mouse(bool lock);
+bool app_mouse_locked();
+// The on-screen keyboard (phones and tablets; a no-op on desktop).
+void app_show_keyboard(bool show);
+
 // Window-less GPU context.
 class HeadlessGpu {
 public:

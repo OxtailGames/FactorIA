@@ -16,3 +16,44 @@
 #include "sokol_log.h"
 #include "sokol_time.h"
 #include "sokol_audio.h"
+
+// ---- window operations sokol_app has no API for (sokol_window.h; see sokol_impl.c) -----------------------------------
+// UNTESTED: written without a Mac at hand. Cocoa works in points, which are the logical pixels.
+#include "sokol_window.h"
+
+void fa_sapp_window_size(int* w, int* h) {
+    *w = _sapp.window_width;
+    *h = _sapp.window_height;
+}
+
+bool fa_sapp_display_size(int* w, int* h) {
+#if !TARGET_OS_IPHONE
+    NSScreen* screen = _sapp.macos.window.screen ? _sapp.macos.window.screen : NSScreen.mainScreen;
+    if (screen == nil) return false;
+    *w = (int)(screen.frame.size.width + 0.5);
+    *h = (int)(screen.frame.size.height + 0.5);
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool fa_sapp_set_window_size(int w, int h) {
+#if !TARGET_OS_IPHONE
+    [_sapp.macos.window setContentSize:NSMakeSize(w, h)];
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool fa_sapp_set_vsync(bool on) {
+#if !TARGET_OS_IPHONE && defined(SOKOL_METAL)
+    // CAMetalLayer.displaySyncEnabled: presents no longer wait for the display. sokol_app still paces its frames with a
+    // display link, so this lets the picture tear instead of raising the frame rate beyond the display's.
+    _sapp.mtl.layer.displaySyncEnabled = on;
+    return true;
+#else
+    return false;
+#endif
+}
