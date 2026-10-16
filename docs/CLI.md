@@ -77,10 +77,11 @@ are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
-JDK 21, the Android command-line tools, platform-tools, platform 36 and build-tools 35.0.0, and saves their folders in
-`~/.factoria/export.json`; it shows the Android SDK license and asks `[y/N]` in a terminal, and without one refuses until
-`--accept-licenses` says you have read and accepted it. `players` downloads the `factoria_player` of the other desktop OSes and
-the Android/iOS libraries from the GitHub release of this version (`--platforms windows,linux,macos,mobile` narrows it).
+JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmanager`), platform-tools, platform 36 and
+build-tools 35.0.0, and saves their folders in `~/.factoria/export.json`; it shows the Android SDK license and asks `[y/N]`
+in a terminal, and without one refuses until `--accept-licenses` says you have read and accepted it. `players` downloads the
+`factoria_player` of the other desktop OSes and the Android/iOS libraries from the GitHub release of this version
+(`--platforms windows,linux,macos,mobile` narrows it).
 `cmake` installs CMake 3.31 for the iOS export unless a 3.24+ is found. `xcode` (macOS) checks Xcode, opens its App Store page
 when missing and lists what you do next (it never runs `sudo`). `--force` installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
