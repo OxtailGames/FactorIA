@@ -112,23 +112,38 @@ checkout on the machine.
 
 ## Android
 
-Prerequisites:
+`factoria export --platform android` writes the Gradle project **and builds the app with it** (`--format aab` builds the
+Google Play bundle, `--format gradle` only writes the project). Details of the export: [EXPORTING.md](EXPORTING.md#android).
 
-- JDK 17
-- Android SDK with `platforms;android-34` and `build-tools;34.0.0`
-  (`sdkmanager "platforms;android-34" "build-tools;34.0.0"`). That is all in **prebuilt** mode: no NDK, no CMake.
+Prerequisites (the export checks them first and says what is missing and how to set it up):
+
+- A JDK 17 or newer (Android builds are tested with 17 and 21). The export finds `JAVA_HOME`, Android Studio's bundled JDK
+  and Unity Hub's; or set `android.jdk` in `~/.factoria/export.json`.
+- The Android SDK (Android Studio installs it; or the command-line tools): `ANDROID_HOME`, the usual folder of your OS, or
+  `android.sdk` in `~/.factoria/export.json`. Accept its licenses once: `sdkmanager --licenses`. Gradle then downloads the
+  platform (`platforms;android-36`, the default `targetSdk`) and build tools it needs by itself. That is all in **prebuilt**
+  mode: no NDK, no CMake.
 - Only in **source** mode (engine developers): an NDK r27+ (r26's libc++ has no std::format, `ndk;27.2.12479018`) and
   CMake 3.31 (`cmake;3.31.6`; the engine needs 3.24+, the SDK default is older), so
-  `sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
-- `ANDROID_SDK_ROOT` set (or `sdk.dir=` in `local.properties`)
-- Gradle 8.7+ once, to create the wrapper (`gradle wrapper --gradle-version 8.7`); Android Studio can open the folder directly.
+  `sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.31.6"`.
+- No Gradle install: the export writes the project's own Gradle wrapper, and the first build downloads Gradle, the Android
+  Gradle plugin and the SDK platform (internet needed once; everything is cached after it).
 
-Steps: `factoria export --platform android`, then in the output folder
-`./gradlew assembleDebug` and `adb install -r app/build/outputs/apk/debug/app-debug.apk`.
-Prebuilt: Gradle only packages `app/src/main/jniLibs/<abi>/libfactoria_player.so` and the game, about a minute. Source:
-the first build compiles the whole engine for two ABIs (several minutes). To build for one ABI only, edit `abiFilters`
-in `app/build.gradle`. Gradle may print a warning that it could not strip debug symbols from the `.so` files without an
-NDK; the libraries of the download are already stripped, so it is harmless.
+Steps: `factoria export --platform android`; the app is `<out>/<game>-android/<game>-debug.apk`, then
+`adb install -r <game>-debug.apk` and `adb logcat -s factoria`. The report's `nextSteps` print the exact commands.
+Prebuilt: Gradle only packages `app/src/main/jniLibs/<abi>/libfactoria_player.so` and the game, which takes seconds once
+Gradle and the plugin are cached. Source: the first build compiles the whole engine for two ABIs (several minutes). To build
+for one ABI only, edit `abiFilters` in `app/build.gradle` of the exported project. The libraries of the download are
+already stripped, so Gradle prints no strip warning for them. The project also opens directly in Android Studio.
+
+If the build fails the export folder stays (with `build.log`) and the error names the cause when it knows it:
+
+| Gradle says | What to do |
+|---|---|
+| licenses not accepted | `sdkmanager --licenses` of the SDK the error names (or Android Studio > SDK Manager > SDK Tools), then export again |
+| unsupported class file version / Java version | use a JDK 17 or 21: `android.jdk` in `~/.factoria/export.json` or `JAVA_HOME` |
+| SDK location not found | `ANDROID_HOME`, or `android.sdk`; the folder needs `platform-tools` and `platforms` |
+| could not resolve / download / timed out | the first build needs the internet (services.gradle.org, Google Maven, dl.google.com); check the proxy, then export again |
 
 Without Gradle (just the native library, as CI does): `export ANDROID_NDK_HOME=...; ./scripts/build-android.sh`
 produces `build/android-arm64/player/libfactoria_player.so`.
@@ -137,19 +152,32 @@ Logs: `adb logcat -s factoria` (tag `factoria`: the engine log and the sokol mes
 
 ### Signing and release
 
-Debug APKs are signed with the debug key automatically. For release:
+Debug builds are signed with the debug key of your machine automatically; that is fine for trying the app on a phone or an
+emulator, and Google Play refuses it. For release:
 
-1. Create a keystore once: `keytool -genkey -v -keystore release.jks -alias game -keyalg RSA -keysize 2048 -validity 10000`.
-2. Add to `app/build.gradle`:
-   ```groovy
-   signingConfigs { release {
-       storeFile file(System.getenv('FA_KEYSTORE') ?: 'release.jks')
-       storePassword System.getenv('FA_KEYSTORE_PASSWORD')
-       keyAlias 'game'
-       keyPassword System.getenv('FA_KEY_PASSWORD') } }
-   buildTypes { release { signingConfig signingConfigs.release } }
-   ```
-3. `./gradlew assembleRelease` (APK) or `./gradlew bundleRelease` (AAB for Google Play).
+1. Create a keystore once, outside the project folder and outside git:
+   `keytool -genkeypair -v -keystore ~/keys/upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`.
+2. In `factoria.json`: `"export": {"android": {"signing": {"keystore": "/Users/me/keys/upload.jks", "alias": "upload"}}}` (the
+   Platform settings window of the editor writes the same keys). The keystore is not copied into the app: a keystore inside
+   the project is left out of the export, with a warning.
+3. Give the passwords to the export, never to a file of the project: the environment variables
+   `FACTORIA_ANDROID_KEYSTORE_PASSWORD` and `FACTORIA_ANDROID_KEY_PASSWORD` (the second defaults to the first), or
+   `android.keystorePassword` / `android.keyPassword` in `~/.factoria/export.json` (this computer only, owner-readable).
+4. `factoria export --platform android --release` builds `<game>.apk` (signed; check it with
+   `apksigner verify --print-certs`), and `--format aab --release` builds `<game>.aab`, the bundle **Google Play takes**
+   (upload it in the Play Console; with Play App Signing the key above is your upload key).
+
+The passwords reach Gradle only as environment variables of its process: they are not in `gradle.properties`, `build.gradle`,
+`build.log` or any file of the export, nor on a command line. A release export without a keystore uses the debug key and
+warns; a keystore that does not exist, or missing passwords, are reported by the plan (`project.export` with `dryRun`)
+before Gradle starts. To build by hand inside the exported project, set the same variables and run `./gradlew assembleRelease`
+(APK) or `./gradlew bundleRelease` (AAB).
+
+### 16 KB memory pages
+
+Android 15 devices may use 16 KB memory pages and Google Play requires apps that target Android 15+ to support them. The
+player links with `-Wl,-z,max-page-size=16384` (the NDK r27 default is 4 KB), and Gradle aligns the native libraries inside
+the APK to 16 KB; check an APK with `zipalign -c -P 16 -v 4 <apk>` (from the SDK's `build-tools`).
 
 Never commit the keystore or passwords.
 

@@ -25,6 +25,10 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"Press Start 2P", "https://github.com/codeman38/PressStart2P", "OFL-1.1",
          "engine/render/assets/fonts/PressStart2P-OFL.txt", "built-in pixel font", true},
         {"Dear ImGui", "https://github.com/ocornut/imgui", "MIT", "external/imgui/LICENSE.txt", "the editor's UI", false},
+        // gradlew, gradlew.bat and gradle-wrapper.jar are embedded in factoria and written into every Android export, so
+        // that the project builds itself (platforms/android). They end up in the Gradle project, not in the game.
+        {"Gradle wrapper", "https://github.com/gradle/gradle", "Apache-2.0", "platforms/licenses/gradle-wrapper-LICENSE.txt",
+         "the Gradle wrapper that Android exports write into the Gradle project; not part of the game", false},
     };
     return list;
 }

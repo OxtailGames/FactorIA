@@ -20,6 +20,14 @@ namespace {
 
 bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
 
+// The warnings of a report without the one every project without an icon gets.
+std::vector<std::string> warnings_without_icon_note(const std::vector<std::string>& warnings) {
+    std::vector<std::string> out;
+    for (const auto& w : warnings)
+        if (w.find("No icon is set") == std::string::npos) out.push_back(w);
+    return out;
+}
+
 // Fake "player" so layout tests do not depend on a built factoria_player.
 std::string make_fake_player(const testing::TempDir& tmp) {
     std::string p = tmp.sub("fake_player/factoria_player");
@@ -192,7 +200,7 @@ TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify acce
     o.playerBinary = player;
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(r.value().warnings.empty());
+    CHECK(warnings_without_icon_note(r.value().warnings).empty());
     const std::string app = tmp.sub("out/space-dodge-macos/Space Dodge.app");
     CHECK(std::system(("/usr/bin/codesign --verify --strict '" + app + "' 2>/dev/null").c_str()) == 0);
     bool forceInSteps = false;
@@ -239,6 +247,7 @@ TEST_CASE("export: plan_export checks what export_project would, and writes noth
     m.platform = "android";
     m.outDir = tmp.sub("out");
     m.mobileDir = make_fake_mobile(tmp);
+    m.format = "gradle";  // an apk would need a JDK and the Android SDK (the plan checks them: see the android tests)
     auto mobile = plan_export(m);
     REQUIRE_MESSAGE(mobile.ok(), (mobile.ok() ? "" : mobile.error().to_string()));
     CHECK(mobile->mode == "prebuilt");
@@ -397,6 +406,7 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     o.platform = "android";
     o.outDir = tmp.sub("out");
     o.engineRoot = FA_REPO_ROOT;  // asking for a checkout is what selects source mode
+    o.format = "gradle";          // the project only: this test never runs Gradle
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const auto& rep = r.value();
@@ -441,7 +451,8 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     CHECK(strings.find("&quot;") != std::string::npos);
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.engineDir=") != std::string::npos);
     CHECK_FALSE(stdfs::exists(root / "app/src/main/jniLibs"));
-    for (auto& f : rep.files) CHECK(testing::read_all(root / f).find("{{") == std::string::npos);
+    for (auto& f : rep.files)
+        if (stdfs::path(f).extension() != ".jar") CHECK(testing::read_all(root / f).find("{{") == std::string::npos);
 
     // assets_index.txt: every shipped file, project-relative, one per line, nothing else.
     std::string index = testing::read_all(root / "app/src/main/assets/assets_index.txt");
@@ -485,6 +496,7 @@ TEST_CASE("export: android orientation and keyword ids") {
     o.platform = "android";
     o.outDir = tmp.sub("out");
     o.mobileDir = make_fake_mobile(tmp);
+    o.format = "gradle";
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("sensorPortrait") != std::string::npos);
@@ -553,6 +565,7 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     o.outDir = tmp.sub("out");
     o.mobileDir = make_fake_mobile(tmp);
     o.buildSourceRoot = tmp.sub("no-checkout-here");  // factoria "was built" from a folder that does not exist
+    o.format = "gradle";
     ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -581,11 +594,13 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     CHECK(testing::read_all(root / "gradle.properties").find("cmakeVersion") == std::string::npos);
     const std::string nowhere = stdfs::path(tmp.sub("no-checkout-here")).generic_string();
     for (auto& f : rep.files) {
+        const std::string ext = stdfs::path(f).extension().string();
+        if (ext == ".jar" || ext == ".png" || ext == ".so") continue;  // binary files
         std::string text = testing::read_all(root / f);
         CHECK_MESSAGE(text.find("{{") == std::string::npos, f);
         CHECK_MESSAGE(text.find(nowhere) == std::string::npos, f);
     }
-    CHECK(rep.warnings.empty());
+    CHECK(warnings_without_icon_note(rep.warnings).empty());
 
     std::string steps;
     for (auto& s : rep.nextSteps) steps += s + "\n";
@@ -604,6 +619,7 @@ TEST_CASE("export: android picks the mode by the documented rule") {
     base.projectDir = proj;
     base.platform = "android";
     base.outDir = tmp.sub("out");
+    base.format = "gradle";  // only the mode matters here, and an apk would run Gradle
     auto mode = [&](const ExportOptions& o) {
         auto r = export_project(o);
         return r.ok() ? r->mode : "error: " + r.error().message;
