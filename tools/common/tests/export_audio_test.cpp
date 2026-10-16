@@ -3,8 +3,6 @@
 
 #include <cmath>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 
 #include "fa/audio/audio.h"
 #include "fa/core/fs.h"
@@ -126,9 +124,8 @@ TEST_CASE("export: the shipped game plays the twin, normalized from the baked lo
 
 TEST_CASE("export: normalize bakes the loudness of lossy and unconverted sounds too, and says what it cannot measure") {
     ExportFixture f;
-    std::ifstream in(stdfs::path(FA_REPO_ROOT) / "engine/audio/tests/fixtures/tone_12s.mp3", std::ios::binary);
-    REQUIRE(in.good());
-    const std::string mp3((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string mp3 = testing::read_all(stdfs::path(FA_REPO_ROOT) / "engine/audio/tests/fixtures/tone_12s.mp3");
+    REQUIRE(!mp3.empty());
     f.write("assets/tone.mp3", mp3);
     f.write("assets/plain.wav", sine_wav(1.0, -20.0));
     f.write("assets/broken.ogg", "not an ogg");
