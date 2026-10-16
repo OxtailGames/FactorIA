@@ -201,6 +201,23 @@ std::vector<std::string> Impl::check_props(const std::string& modulePath, const 
     return out;
 }
 
+std::vector<std::string> Impl::check_hooks(const std::string& modulePath) {
+    auto norm = fs::normalize_checked(modulePath);
+    if (!norm) return {};
+    auto ns = import_module(*norm, nullptr);
+    if (!ns) return {};  // syntax errors are check_syntax's to report, load errors the game's
+    JsVal nsv(ctx, *ns);
+    JsVal cls(ctx, JS_GetPropertyStr(ctx, nsv.get(), "default"));
+    JsVal fn(ctx, JS_GetPropertyStr(ctx, hooks.get(), "checkHooks"));
+    bool failed = false;
+    JsVal res(ctx, call("checking hooks of " + *norm, "", fn.get(), hooks.get(), {cls.get()}, &failed));
+    std::vector<std::string> out;
+    if (!failed)
+        for (const Json& m : to_json(res.get()))
+            if (m.is_string()) out.push_back(m.get<std::string>());
+    return out;
+}
+
 void Impl::sync() {
     if (inSync || !ctx) return;
     inSync = true;

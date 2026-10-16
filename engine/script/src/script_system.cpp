@@ -797,6 +797,10 @@ std::vector<std::string> ScriptSystem::check_props(std::string_view modulePath, 
     if (!impl_->initialized) return {"script system is not initialized"};
     return impl_->check_props(std::string(modulePath), props);
 }
+std::vector<std::string> ScriptSystem::check_hooks(std::string_view modulePath) {
+    if (!impl_->initialized) return {};
+    return impl_->check_hooks(std::string(modulePath));
+}
 
 Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
 std::string ScriptSystem::typescript_declarations() const { return impl_->typescript_declarations(); }

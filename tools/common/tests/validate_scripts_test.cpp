@@ -112,3 +112,25 @@ TEST_CASE("validate: a scene or prefab that is not in the canonical layout is on
     }
     CHECK(count_mentioning(validate_project(dir).warnings, "canonical layout") == 0);
 }
+
+TEST_CASE("validate: a behaviour method that looks like a misspelled hook is a warning with a hint; helpers are not") {
+    testing::TempDir tmp;
+    const std::string dir = tmp.sub("game");
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    // Not attached to any entity: validate checks every behaviour under scripts/.
+    testing::write_all(stdfs::path(dir) / "scripts/probe.js",
+                       "import { Behaviour } from \"factoria\";\nexport default class Probe extends Behaviour {\n"
+                       "  update(dt) {}\n  onStart() {}\n  loadLevel(n) {}\n}\n");
+
+    ValidationReport r = validate_with_engine(dir);
+    for (const ValidationIssue& i : r.warnings) MESSAGE("warning: " << i.to_string());
+    CHECK(r.ok);  // a warning, not an error
+    CHECK(count_mentioning(r.warnings, "scripts/probe.js") == 1);
+    for (const ValidationIssue& w : r.warnings)
+        if (w.file == "scripts/probe.js") {
+            CHECK(w.message.find("class Probe: method 'update()'") != std::string::npos);
+            CHECK(w.message.find("did you mean 'onUpdate()'?") != std::string::npos);
+            CHECK(w.hint.find("Lifecycle") != std::string::npos);
+        }
+    CHECK(count_mentioning(r.warnings, "loadLevel") == 0);
+}
