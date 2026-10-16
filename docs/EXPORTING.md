@@ -91,6 +91,116 @@ Keep it in what you distribute (zip, installer, store build). You may also show 
 nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
 contain (Dear ImGui, in the editor).
 
+## Platform settings
+
+What an export needs besides the game itself (an icon, the Android version code, a Mac app category, a signing key...)
+is set in two places:
+
+- **`factoria.json`** (committed with the game): a top-level `icon` and an `export` object with one object per
+  platform. Everything is optional and every field has a default; the file is documented field by field in
+  `schemas/project.schema.json` (`factoria api --schema project` prints it; its descriptions are the reference for AIs).
+  The editor's Platform settings window edits exactly these keys.
+- **`~/.factoria/export.json`** (this computer only, never in a project): where the Android SDK and JDK are, and the
+  keystore passwords.
+
+Until a platform's export reads a field, setting it changes nothing in that export; `factoria validate` already checks all of
+them and the C++ API (`fa/tooling/export_settings.h`, `fa/tooling/icons.h`) reads, writes and applies them.
+
+### Icon
+
+One square image, `"icon": "assets/icon.png"` (project-relative path, forward slashes, inside the project; PNG or JPG;
+1024x1024 recommended, at least 512x512). Each platform's export generates what that platform needs from it: the `.icns`
+of a macOS app (16 to 1024 px and the @2x sizes), the icon resource of the Windows exe (16 to 256 px), the launcher icons
+of Android (mipmaps from 48 to 192 px, a round variant and the adaptive icon), the App Store icon of iOS (1024x1024 with
+no transparency) and the PNG of a Linux build. `export.<platform>.icon` replaces it for one platform. No icon at all
+means the platform's default icon (and a warning from the export).
+
+A smaller or non-square image is accepted with a warning (`factoria validate` shows it); a non-square one is centered on a
+transparent square of its longer side. Scaling averages the pixels (premultiplied by alpha, so transparent edges do not
+darken) when it shrinks the image, and is bilinear when it enlarges it.
+
+### `export.<platform>`
+
+```json
+{
+  "icon": "assets/icon.png",
+  "export": {
+    "macos":   { "category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 My Studio" },
+    "linux":   { "categories": ["Game", "ArcadeGame"] },
+    "android": { "format": "aab", "minSdk": 26, "targetSdk": 36, "versionCode": 10203,
+                 "adaptiveIcon": { "foreground": "assets/icon_fg.png", "background": "#202020" },
+                 "permissions": ["android.permission.VIBRATE"],
+                 "signing": { "keystore": "keys/upload.keystore", "alias": "upload" } },
+    "ios":     { "iconBackground": "#FFFFFF", "teamId": "ABCDE12345", "buildNumber": "7" }
+  }
+}
+```
+
+| Platform | Field | Default | Meaning |
+|---|---|---|---|
+| all | `icon` | the project's `icon` | Icon of this platform only. |
+| macOS | `category` | `public.app-category.games` | `LSApplicationCategoryType` of `Info.plist`. |
+| macOS | `minimumSystemVersion` | `11.0` | `LSMinimumSystemVersion`; `major.minor`, 11.0 or newer (the player needs it). |
+| macOS | `copyright` | none | `NSHumanReadableCopyright`. |
+| Linux | `categories` | `["Game"]` | `Categories=` of the `.desktop` file (the entries are joined with `;`). |
+| Android | `format` | `apk` | `apk`, `aab` (Google Play bundle) or `gradle` (only the Gradle project). |
+| Android | `adaptiveIcon.foreground` | the icon scaled into the safe zone | A 108dp layer (432x432 px recommended): only the inner 66dp circle always stays visible. The default shrinks the icon to 66/108 of the layer over transparency. |
+| Android | `adaptiveIcon.background` | `#FFFFFF` | `"#RRGGBB"`, or the path of an image that fills the layer. |
+| Android | `adaptiveIcon.monochrome` | none | Single-colour PNG with transparency; Android 13 tints it for themed icons. |
+| Android | `versionCode` | from `version`: `1.2.3` is `10203` | Whole number that grows with every Google Play upload. |
+| Android | `minSdk` / `targetSdk` | `26` / `36` | API levels; `26 <= minSdk <= targetSdk`. |
+| Android | `permissions` | none | Extra `<uses-permission>` names such as `android.permission.VIBRATE`. |
+| Android | `signing.keystore` / `signing.alias` | none | Release signing key: the keystore file (project-relative or absolute; keystores are better kept outside the repository) and the key's alias. The passwords are never in the project (below). |
+| iOS | `iconBackground` | `#FFFFFF` | The App Store icon cannot be transparent: transparent pixels take this colour, and the PNG is written without an alpha channel. |
+| iOS | `teamId` | none (`FA_IOS_DEVELOPMENT_TEAM`) | 10-character Apple Team ID for device builds. |
+| iOS | `buildNumber` | the project's `version` | `CFBundleVersion`: up to three whole numbers separated by dots. |
+
+`windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
+(`factoria.json#/export/android/minSdk: minSdk (34) is higher than targetSdk (30) ...`). An unknown key inside
+`export` or a platform object is only a warning, with a "did you mean" (`categroy` -> `category`), because a newer engine
+may know keys an older one does not. `fa::save_export_settings` patches the text of `icon` and `export` in
+`factoria.json` and nothing else: every other key, the key order, the indentation, the array style and the line
+endings stay as they are, fields equal to their default are removed, and a save with no change does not touch the file.
+
+### Machine settings: `~/.factoria/export.json`
+
+`%USERPROFILE%\.factoria\export.json` on Windows; `FACTORIA_EXPORT_CONFIG` names another file. Keys this version does not
+know are kept when the file is saved.
+
+```json
+{
+  "format": "factoria.export-config/1",
+  "android": { "sdk": "/Users/me/Library/Android/sdk", "jdk": "/path/to/jdk", "keystorePassword": "...", "keyPassword": "..." }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `android.sdk` | Folder of the Android SDK. Empty = look for it (below). `~/` is the home folder. |
+| `android.jdk` | Folder of a JDK 17 or newer (the one that contains `bin/java` and `release`). Empty = look for it. |
+| `android.keystorePassword` | Password of the keystore. `FACTORIA_ANDROID_KEYSTORE_PASSWORD` wins over it. |
+| `android.keyPassword` | Password of the signing key. `FACTORIA_ANDROID_KEY_PASSWORD` wins over it; when neither is set the keystore password is used. |
+
+The file is written with owner-only permissions on macOS and Linux because it can hold passwords (loading it warns when
+other users can read it). Passwords never go in `factoria.json` or in the files of an export.
+
+### Finding the Android toolchain
+
+`fa::find_android_toolchain` (it only looks at folders; it starts no process) picks, in order, the first folder that
+qualifies:
+
+| | Order | A folder qualifies when |
+|---|---|---|
+| JDK | `android.jdk`, `JAVA_HOME`, Android Studio's bundled JDK (macOS `/Applications/Android Studio.app/Contents/jbr/Contents/Home`, Windows `%ProgramFiles%\Android\Android Studio\jbr`, Linux `/opt/android-studio/jbr`, `~/android-studio/jbr`), then Unity Hub's Android JDK (`.../Unity/Hub/Editor/<newest version first>/.../AndroidPlayer/OpenJDK`) | it has `bin/java` and `bin/javac`, and its `release` file says Java 17 or newer (`JAVA_VERSION="17.0.9"`) |
+| SDK | `android.sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the usual folder (macOS `~/Library/Android/sdk`, Windows `%LOCALAPPDATA%\Android\Sdk`, Linux `~/Android/Sdk`), then Unity Hub's `AndroidPlayer/SDK` | it has `platform-tools/`, `platforms/` or `licenses/` |
+
+A folder you named (in the file or an environment variable) that does not qualify is skipped with a warning when a later
+one does, and is reported as the problem when none does. A missing JDK or SDK is a *problem* that says what to install
+(Android Studio, or a JDK 17+ from adoptium.net, or the command-line tools) and where to set the folder (Platform settings >
+Android in the editor, `~/.factoria/export.json`, or the environment variable). An SDK without accepted licenses
+(`licenses/android-sdk-license`) only gets a warning: Gradle cannot download a missing SDK platform until you run
+`sdkmanager --licenses`.
+
 ## Desktop (Linux, Windows, macOS)
 
 The `factoria_player` binary is copied next to the game. By default it is taken

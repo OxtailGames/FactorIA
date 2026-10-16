@@ -46,7 +46,7 @@ engine/            runtime modules (ship inside every game)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
-  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export
+  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons)
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
