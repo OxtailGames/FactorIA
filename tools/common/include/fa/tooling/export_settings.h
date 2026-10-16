@@ -145,8 +145,8 @@ struct MachineExportConfig {
     std::vector<std::string> warnings;     // e.g. a file with passwords that other users can read
 };
 
-// $FACTORIA_EXPORT_CONFIG when set; else <HOME>/.factoria/export.json (%USERPROFILE%\.factoria\export.json on Windows);
-// else ".factoria/export.json".
+// $FACTORIA_EXPORT_CONFIG when set; else $FACTORIA_HOME/export.json when that is set; else <HOME>/.factoria/export.json
+// (%USERPROFILE%\.factoria\export.json on Windows); else ".factoria/export.json".
 std::string machine_export_config_path(const ExportEnvLookup& env = system_export_env());
 
 // A missing file is not an error (defaults come back). Unreadable JSON, a wrong "format" or a value of the wrong
@@ -173,10 +173,10 @@ AndroidSigningSecrets resolve_android_signing_secrets(const MachineExportConfig&
 
 struct AndroidToolchain {
     std::string jdk;       // folder that holds bin/java (JAVA_HOME style); "" when none was found
-    std::string jdkFrom;   // "config" | "JAVA_HOME" | "Android Studio" | "Unity Hub"
+    std::string jdkFrom;   // "config" | "JAVA_HOME" | "FactorIA" | "Android Studio" | "Unity Hub"
     int jdkMajor = 0;      // 17 for "17.0.9", read from <jdk>/release; 0 when unknown
     std::string sdk;       // folder of the Android SDK; "" when none was found
-    std::string sdkFrom;   // "config" | "ANDROID_HOME" | "ANDROID_SDK_ROOT" | "default location" | "Unity Hub"
+    std::string sdkFrom;   // "config" | "ANDROID_HOME" | "ANDROID_SDK_ROOT" | "FactorIA" | "default location" | "Unity Hub"
     std::vector<std::string> problems;  // what blocks a build, each saying what is missing and how to fix it
     std::vector<std::string> warnings;  // worth knowing (a configured folder that was skipped, licenses not accepted)
 
@@ -197,9 +197,10 @@ struct AndroidToolchainSearch {
     std::vector<AndroidToolchainCandidate> sdk;
 };
 
-// The usual places on this OS: Android Studio's bundled JDK and Unity Hub's Android JDK; the SDK folders of Android
-// Studio (~/Library/Android/sdk, %LOCALAPPDATA%\Android\Sdk, ~/Android/Sdk) and Unity Hub.
-AndroidToolchainSearch default_android_toolchain_search();
+// The usual places on this OS: what `factoria setup android` installs (<factoria home>/android/jdk and /sdk, `from`
+// "FactorIA", first), Android Studio's bundled JDK and Unity Hub's Android JDK; the SDK folders of Android Studio
+// (~/Library/Android/sdk, %LOCALAPPDATA%\Android\Sdk, ~/Android/Sdk) and Unity Hub.
+AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& env = system_export_env());
 
 // JDK: the folder of `config`, else JAVA_HOME, else the candidates. SDK: the folder of `config`, else ANDROID_HOME,
 // else ANDROID_SDK_ROOT, else the candidates. A JDK needs bin/java and bin/javac and Java 17 or newer (the major

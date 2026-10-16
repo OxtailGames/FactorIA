@@ -10,6 +10,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/setup.h"
 #include "util.h"
 
 namespace fa {
@@ -792,6 +793,7 @@ ExportEnvLookup system_export_env() {
 
 std::string machine_export_config_path(const ExportEnvLookup& env) {
     if (auto o = env("FACTORIA_EXPORT_CONFIG"); !o.empty()) return o;
+    if (auto h = env("FACTORIA_HOME"); !h.empty()) return (stdfs::path(h) / "export.json").string();
 #ifdef _WIN32
     if (auto h = env("USERPROFILE"); !h.empty()) return (stdfs::path(h) / ".factoria" / "export.json").string();
 #else
@@ -1100,12 +1102,17 @@ int jdk_major_version(const std::string& jdkDir) {
     return 0;
 }
 
-AndroidToolchainSearch default_android_toolchain_search() {
+AndroidToolchainSearch default_android_toolchain_search(const ExportEnvLookup& envLookup) {
     AndroidToolchainSearch s;
+    if (envLookup) s.env = envLookup;
     const ExportEnvLookup& env = s.env;
     std::string home = env("HOME");
     if (home.empty()) home = env("USERPROFILE");
     auto under = [&](const char* rel) { return home.empty() ? std::string() : (stdfs::path(home) / rel).string(); };
+    // What `factoria setup android` installs (fa/tooling/setup.h) comes first: the user asked FactorIA to provide it.
+    const stdfs::path factoriaHome = factoria_home(env);
+    s.jdk.push_back({(factoriaHome / "android" / "jdk").string(), "FactorIA"});
+    s.sdk.push_back({(factoriaHome / "android" / "sdk").string(), "FactorIA"});
 #if defined(__APPLE__)
     s.jdk.push_back({"/Applications/Android Studio.app/Contents/jbr/Contents/Home", "Android Studio"});
     if (!home.empty()) s.jdk.push_back({under("Applications/Android Studio.app/Contents/jbr/Contents/Home"), "Android Studio"});
@@ -1161,7 +1168,8 @@ AndroidToolchain find_android_toolchain(const MachineExportConfig& config, const
                     tc.problems.push_back("The JDK found at '" + pick.unusable->path + "' (" + pick.unusable->from + ") is not usable: " + pick.unusableIssue);
             }
             tc.problems.push_back(
-                "No JDK " + std::to_string(kMinJdk) + " or newer found. Install Android Studio (it bundles a JDK) or a JDK " +
+                "No JDK " + std::to_string(kMinJdk) + " or newer found. Quickest: run `factoria setup android` (the command `setup.install` does the same), "
+                "which downloads a JDK and the Android SDK for you. Or install Android Studio (it bundles a JDK) or a JDK " +
                 std::to_string(kMinJdk) + "+ (https://adoptium.net), then point FactorIA at it: " + editor + ", \"android\": {\"jdk\": \"<folder>\"} in " +
                 configFile + ", or the JAVA_HOME environment variable. The folder is the one that contains bin/java and release.");
         }
@@ -1196,7 +1204,8 @@ AndroidToolchain find_android_toolchain(const MachineExportConfig& config, const
                     tc.problems.push_back("The folder found at '" + pick.unusable->path + "' (" + pick.unusable->from + ") is not usable: " + pick.unusableIssue);
             }
             tc.problems.push_back(
-                "No Android SDK found. Install Android Studio (its SDK Manager downloads the SDK) or the command-line tools "
+                "No Android SDK found. Quickest: run `factoria setup android` (the command `setup.install` does the same), which downloads the SDK "
+                "and a JDK for you. Or install Android Studio (its SDK Manager downloads the SDK) or the command-line tools "
                 "(https://developer.android.com/studio#command-line-tools-only, then `sdkmanager \"platform-tools\"`), then point FactorIA at the "
                 "SDK folder: " + editor + ", \"android\": {\"sdk\": \"<folder>\"} in " + configFile + ", or the ANDROID_HOME environment variable.");
         }

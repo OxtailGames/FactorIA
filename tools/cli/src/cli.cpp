@@ -54,6 +54,7 @@ std::vector<Command> build_commands() {
     v.push_back(make_docs_command());
     v.push_back(make_editor_command());
     v.push_back(make_export_command());
+    v.push_back(make_setup_command());
     v.push_back(make_version_command());
     return v;
 }
