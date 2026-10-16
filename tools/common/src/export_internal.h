@@ -13,8 +13,11 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/image.h"
 #include "fa/core/types.h"
 #include "fa/tooling/export.h"
+#include "fa/tooling/export_settings.h"
+#include "fa/tooling/icons.h"
 #include "util.h"
 
 namespace fa::export_detail {
@@ -36,9 +39,14 @@ struct Project {
     std::string mainScene = "scenes/main.scene.json";
     std::vector<std::string> platforms;
     bool hasPlatformsField = false;
+    ProjectExportSettings settings;  // `icon` and `export` of factoria.json (fa/tooling/export_settings.h)
 };
 
 // ---- helpers (export.cpp) -----------------------------------------------------------------------------
+
+// The values of ExportOptions::format / export.android.format: "apk", "aab", "gradle" (lower case).
+const std::vector<std::string>& export_formats();
+bool is_export_format(const std::string& format);
 
 std::string host_platform();  // linux | windows | macos: the machine running factoria
 std::string replace_all(std::string text, const std::string& from, const std::string& to);
@@ -93,8 +101,37 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
 
 // ---- android (export_android.cpp) -------------------------------------------------------------------
 
-Result<void> export_android(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
+// Everything the Android export decides before it writes anything (so plan_export can report it and fail early).
+struct AndroidPlan {
+    std::string format;                  // "apk" | "aab" | "gradle"
+    bool release = false;
+    AndroidToolchain toolchain;          // JDK + SDK (found for every format: the SDK also goes to local.properties)
+    stdfs::path artifact;                // <outRoot>/<slug>[-debug].apk|aab; empty for "gradle"
+    // Release signing (apk/aab only): the keystore of export.android.signing resolved against the project folder, its
+    // alias, and the passwords (environment variables win over ~/.factoria/export.json). Empty keystore = signed with
+    // the debug key, with a warning.
+    std::string keystore, alias;
+    AndroidSigningSecrets secrets;
+    // The icons, decoded once by the plan (empty/none = no icon set).
+    bool hasIcon = false;
+    Image icon;
+    AdaptiveIcon adaptive;
+};
+
+// Resolves and checks everything an Android export needs: the format, the icons, the toolchain (apk/aab), the release
+// signing. Appends non-fatal findings to `warnings`.
+Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const stdfs::path& outRoot,
+                                 std::vector<std::string>& warnings);
+
+// Writes the Gradle project into outRoot (templates, icons, game, prebuilt players). Sets report.format.
+Result<void> export_android(const Project& p, const MobileSetup& setup, const AndroidPlan& a, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, ExportReport& report);
+
+// After FACTORIA_NOTICES.txt is in the project: runs Gradle unless the format is "gradle", copies the APK/AAB next to the
+// project and writes the next steps (before the ones already in the report). `keepOutput` is set when a failed export must
+// leave outRoot in place (the Gradle project of a failed or cancelled build).
+Result<void> build_android(const ExportOptions& o, const Project& p, const MobileSetup& setup, const AndroidPlan& a,
+                           const stdfs::path& outRoot, ExportReport& report, bool& keepOutput);
 
 // ---- ios (export_ios.cpp) ---------------------------------------------------------------------------
 
