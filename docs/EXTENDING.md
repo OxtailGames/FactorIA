@@ -670,12 +670,14 @@ cmake --build plugins/example/build --config Release
 factoria run
 ```
 
-`project.new_plugin` writes `plugins/example/` (`src/plugin.c`, `include/fa_plugin.h`, `CMakeLists.txt`, `README.md`)
-and declares the plugin in `factoria.json`. Its `CMakeLists.txt` copies the library into the plugin's folder for this
-computer: `windows/example.dll`, `macos/libexample.dylib` or `linux/libexample.so`. The plugin it writes is complete:
+`project.new_plugin` writes `plugins/example/` (`src/plugin.c`, `include/fa_plugin.h`, `CMakeLists.txt`, `README.md`,
+and `android/`, the Gradle module of the Android build) and declares the plugin in `factoria.json`. Its `CMakeLists.txt`
+copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
+`linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
+is complete:
 
 ```js
-plugins.example.add(1, 2)       // 3, computed in C
+plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
 fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 1}
 ```
 
@@ -703,10 +705,12 @@ The folder holds one build per platform:
 | macOS | `macos/lib<name>.dylib` | copies `macos/` into `Contents/Frameworks` (the app is signed with `--deep`) |
 | Linux | `linux/lib<name>.so` | copies `linux/` next to the executable |
 | iOS | `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` | copies `ios/` to `plugins/<name>/` next to `build_ios.sh`, which links the library of the SDK into the app ([MOBILE.md](MOBILE.md#native-plugins-ios)) |
+| Android | `android/`: a Gradle library module (`build.gradle`) with `src/main/jniLibs/<abi>/lib<name>.so` and the Java it calls, or `.aar` / `.jar` files | adds the module to the Gradle project (`plugins/<name>`), or the archives to the app; the APK carries `lib<name>.so` for `arm64-v8a` and `x86_64` |
 
 Libraries the plugin needs go next to it, in the same folder: the template's `CMakeLists.txt` sets the run path to
-the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's folder. Android and iOS builds are
-described in [MOBILE.md](MOBILE.md) once they ship (roadmap M11).
+the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's folder. The Android build (the module,
+the NDK build of the library, Java code) and the iOS build (two static libraries) are described in
+[MOBILE.md](MOBILE.md#native-plugins-on-android).
 
 ### G.3 Checks and failures
 

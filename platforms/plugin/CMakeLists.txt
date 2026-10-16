@@ -6,6 +6,13 @@
 # The build is copied into this folder, where `factoria run` and `factoria export` find it: windows/{{NAME}}.dll,
 # macos/lib{{NAME}}.dylib or linux/lib{{NAME}}.so. Libraries the plugin needs go next to it, in the same folder.
 #
+# Android: build it once per ABI the engine ships (arm64-v8a, x86_64) with the NDK's toolchain file. The build is copied
+# to android/src/main/jniLibs/<abi>/lib{{NAME}}.so, which the Gradle module in android/ packages into the APK:
+#
+#   cmake -S . -B build/android-arm64-v8a -DCMAKE_BUILD_TYPE=Release -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+#         -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake
+#   cmake --build build/android-arm64-v8a
+#
 # For iOS the plugin is a static library, one per SDK, built with the Xcode generator and copied to
 # ios/iphoneos/lib{{NAME}}.a and ios/iphonesimulator/lib{{NAME}}.a (README.md has the commands).
 cmake_minimum_required(VERSION 3.20)
@@ -31,6 +38,10 @@ if(IOS)
         set(platform ios/iphoneos)
         set_target_properties({{NAME}} PROPERTIES OSX_ARCHITECTURES arm64)
     endif()
+elseif(ANDROID)
+    set(platform android/src/main/jniLibs/${ANDROID_ABI})
+    # Google Play wants 16 KB pages for apps that target Android 15+; the NDK still links for 4 KB.
+    target_link_options({{NAME}} PRIVATE -Wl,-z,max-page-size=16384 $<$<CONFIG:Release>:-Wl,--strip-all>)
 elseif(WIN32)
     set(platform windows)
     set_target_properties({{NAME}} PROPERTIES PREFIX "")  # {{NAME}}.dll, also with MinGW
