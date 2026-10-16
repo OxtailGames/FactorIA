@@ -19,6 +19,9 @@
 #                 launched again: same process, "player: resumed" and "player: 60 frames rendered after resume"
 #                 (the Metal view draws again), the screen shows a picture.
 #   5. no crash   no engine error, no crash report; the display shows a picture (a black window passes none of this).
+#   (1b. plugin   only with FA_IOS_PLUGIN_PROBE=1: the game declares the native plugin "example" (platforms/plugin) and runs
+#                 tools/cli/tests/plugin_probe.js, which calls it when the game starts: the console must show "probe add=3"
+#                 and a "probe info=" line naming the plugin, so the static library is linked into the app and registered.)
 #
 # The app must be built for the simulator (`cmake --build --preset ios-simulator ... -sdk iphonesimulator`). The
 # first simulator boot takes 5-7 minutes on a hosted runner and slows a build on the same machine, so CI runs
@@ -145,6 +148,18 @@ echo "marker after $((SECONDS - STARTED_AT))s" | tee -a "$OUT/summary.txt"
 sleep 5
 alive || fail "the app process $PID is gone 5s after the marker"
 
+# ---- 1b. plugin -----------------------------------------------------------------------------------------------------
+if [ -n "${FA_IOS_PLUGIN_PROBE:-}" ]; then
+    wait_for_log "probe add=3" 10 ||
+        fail "plugin: no 'probe add=3' in the console: plugins.example.add(1, 2) was not answered by the native plugin (is it linked into the app and registered before main? a 'plugin' warning above says why it did not load)"
+    first_line 'probe add=3' | tee -a "$OUT/summary.txt"
+    PROBE_INFO="$(first_line 'probe info=')"
+    case "$PROBE_INFO" in
+        *'"plugin":"example"'*) echo "$PROBE_INFO" | tee -a "$OUT/summary.txt" ;;
+        *) fail "plugin: the 'probe info=' line is missing or does not name the plugin \"example\": '$PROBE_INFO'" ;;
+    esac
+fi
+
 # ---- 2. audio -------------------------------------------------------------------------------------------------------
 NO_AUDIO="$(first_line 'no audio output device available')"
 if [ -n "$NO_AUDIO" ]; then
@@ -230,5 +245,5 @@ if ls ~/Library/Logs/DiagnosticReports/factoria_player* >/dev/null 2>&1; then fa
 has_picture "$OUT/screen.png" "display"
 
 echo "---- run evidence (player console) ----" | tee -a "$OUT/summary.txt"
-grep -E '(engine: Graphics|scene: Loaded|audio: |player: |input: )' "$OUT/console.log" | tr -d '\r' | tee -a "$OUT/summary.txt"
+grep -E '(engine: Graphics|scene: Loaded|audio: |player: |input: |plugin|probe )' "$OUT/console.log" | tr -d '\r' | tee -a "$OUT/summary.txt"
 echo "OK: $BUNDLE_ID ran on the simulator (pid $PID): rendered, audio stream, touch, suspend/resume, no crash." | tee -a "$OUT/summary.txt"
