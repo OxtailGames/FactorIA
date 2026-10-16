@@ -23,7 +23,8 @@ The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 export, but only when it is empty or an export wrote it: a folder of yours that happens to have that name is never
 deleted ([Replacing an earlier export](#replacing-an-earlier-export)). `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
 `format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built),
-`notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`.
+`notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`. A game with AI-made assets also
+gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](#ai-content-disclosure)).
 
 ## From an AI: `project.export`
 
@@ -137,6 +138,18 @@ Keep it in what you distribute (zip, installer, store build). You may also show 
 nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
 contain (Dear ImGui, in the editor, and the Gradle wrapper, Apache-2.0, which an Android export writes into its Gradle
 project and which is not part of the game).
+
+## AI content disclosure
+
+Stores ask whether a game contains AI-generated content (Steam's content survey, and similar forms elsewhere). When any
+asset in `assets.json` has `provenance.ai: true`, the export writes `AI_CONTENT_DISCLOSURE.md` at the top of
+`<out>/<game-slug>-<platform>/`, next to the game and not inside it, and adds a line to `nextSteps`. It lists the
+pre-generated AI assets by category (art, sound effects, music, voice, 3D models) with the providers and models that made
+them, states that nothing is generated at run time, repeats the terms recorded for each provider, and names the art, sound
+and model files that have no provenance record yet, which the text cannot answer for. It is for you to read and paste
+into the store form; leave it out of what you ship if you like. `assets.disclosure` returns the same text at any time.
+No AI assets, no file. Records come from the `assets.generate_*` commands and `assets.set_provenance`
+([ASSETS.md](ASSETS.md#provenance-and-store-disclosure)).
 
 ## Setting up this computer
 
@@ -367,6 +380,7 @@ linux/windows:  my-game-linux/
                   my-game            (my-game.exe on Windows)
                   my-game.png  my-game.desktop      (Linux only: the icon and the application-menu entry)
                   FACTORIA_NOTICES.txt
+                  AI_CONTENT_DISCLOSURE.md           (only when assets are made with AI)
                   game/              factoria.json, scenes/, scripts/, assets/ ...
 macOS:          my-game-macos/My Game.app/Contents/
                   Info.plist  MacOS/my-game  Resources/AppIcon.icns  Resources/game/...  Resources/FACTORIA_NOTICES.txt
