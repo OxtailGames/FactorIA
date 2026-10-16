@@ -1194,7 +1194,8 @@ AndroidToolchain find_android_toolchain(const MachineExportConfig& config, const
             if (!is_file(stdfs::path(pick.chosen->path) / "licenses" / "android-sdk-license"))
                 tc.warnings.push_back(
                     "The Android SDK at '" + pick.chosen->path + "' has no accepted license (licenses/android-sdk-license): Gradle cannot download a "
-                    "missing SDK platform until you accept the licenses. Run `sdkmanager --licenses` (cmdline-tools/latest/bin) or open Android Studio's SDK Manager.");
+                    "missing SDK platform until you accept the licenses. Run `factoria setup android` (it shows the license and records it once you "
+                    "agree), `sdkmanager --licenses` (cmdline-tools/<revision>/bin) or open Android Studio's SDK Manager.");
         } else {
             tc.problems.insert(tc.problems.end(), pick.explicitIssues.begin(), pick.explicitIssues.end());
             if (pick.unusable) {
