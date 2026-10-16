@@ -111,11 +111,23 @@ void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
     on_event(&ev);
 }
 
-void Editor::at_track(const std::string& name) {
+void Editor::at_track(const std::string& name, bool enabled) {
     if (!autotest_) return;
     const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
     atWidgets_[name] = Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
     atWidgetFrame_[name] = uiFrame_;
+    atWidgetEnabled_[name] = enabled;
+    atWidgetShown_[name] = ImGui::IsItemVisible();  // false when a scrolling area (or a collapsed section) hides it
+}
+
+bool Editor::at_enabled(const std::string& name) const {
+    auto it = atWidgetEnabled_.find(name);
+    return at_visible(name) && it != atWidgetEnabled_.end() && it->second;
+}
+
+bool Editor::at_shown(const std::string& name) const {
+    auto it = atWidgetShown_.find(name);
+    return at_visible(name) && it != atWidgetShown_.end() && it->second;
 }
 
 bool Editor::at_visible(const std::string& name) const {
@@ -124,10 +136,17 @@ bool Editor::at_visible(const std::string& name) const {
 }
 
 Vec2 Editor::at_widget(const std::string& name) {
+    // A widget that was submitted but is scrolled out of its window still has a centre, and that centre is over whatever is
+    // there instead (a toolbar button...): such a click is refused, and aimed at nothing.
+    const Vec2 kNowhere{-100, -100};
     auto it = atWidgets_.find(name);
     if (it == atWidgets_.end() || !at_visible(name)) {
         at_check(false, "widget '" + name + "' is on screen (so the autotest can click it)");
-        return it == atWidgets_.end() ? Vec2{0, 0} : it->second;
+        return kNowhere;
+    }
+    if (!at_shown(name)) {
+        at_check(false, "widget '" + name + "' is inside the visible part of its window (scroll it into view first)");
+        return kNowhere;
     }
     return it->second;
 }
@@ -409,7 +428,7 @@ void Editor::autotest_pre_frame() {
         // report and quits when its last step has run.
         at_build_tools_script();
         atStepAt_ = f + 2;
-    } else if (f > 3000) {
+    } else if (f > atFrameBudget_) {
         at_check(false, "autotest finished within the frame budget");
         sapp_request_quit();
     }

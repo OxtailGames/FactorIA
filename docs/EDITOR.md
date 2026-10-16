@@ -98,6 +98,10 @@ how to finish them.
 
 - **Platform settings...** at the top of the window, and a small **Settings...** button on each platform's row, open the
   Platform settings window (below) on that platform's tab.
+- **Set up buttons**: a row that cannot run because this computer lacks something FactorIA can install shows the button
+  that installs it: **Install Android build tools**, **Download Windows player** (or macOS / Linux: the other OS's
+  player), **Download mobile libraries**, **Install CMake**, **Open App Store (Xcode)**. Details:
+  [Setting up this computer](#setting-up-this-computer).
 - **Android format**: the Android row has a **Format** menu (APK, Android App Bundle, Gradle project only). It saves
   `export.android.format` in `factoria.json` right away, like the AI would, and leaves any other unsaved edit of the
   Platform settings window alone.
@@ -109,6 +113,39 @@ how to finish them.
   with the keystore of the Android tab).
 
 Details: [EXPORTING.md, From the editor](EXPORTING.md#from-the-editor).
+
+## Setting up this computer
+
+An export needs things that are not part of FactorIA: a JDK and the Android SDK, the players of the other operating
+systems, CMake, Xcode. You never install them by hand: File > Set Up This Computer... opens the **Set up this computer**
+window, the editor's front for `factoria setup` ([EXPORTING.md, Setting up this computer](EXPORTING.md#setting-up-this-computer)).
+It runs the very same code (`fa::setup_install`), so what a button installs is what `factoria setup` and the `setup.install`
+command install.
+
+- **The window** lists the four components, each with its state (**Installed**, **Partly installed**, **Not installed**,
+  **Not needed here**), what was found, the paths, what is missing and how big the download is, and one button:
+  **Install** (or **Reinstall** when it is installed already), or **Open App Store** for Xcode, which a program cannot
+  install. **Show in Finder** opens the folder everything is installed into (`~/.factoria`, or `$FACTORIA_HOME`); **Check
+  again** looks at the computer again (it never downloads anything). Nothing is downloaded until you press a button, and
+  nothing needs an administrator password, `PATH` or the registry.
+- **While it runs** (on its own thread; the editor keeps working) the window shows what it is doing, a progress bar with the
+  percentage of the download, **Cancel** (it stops the download and installs nothing half-way) and a collapsible **Log**.
+  When it finishes you get a toast, and the window shows the report: what was installed, warnings, the numbered next steps
+  (**Copy report** copies it), or the error and how to fix it. The Export window's rows and this window read the computer
+  again by themselves.
+- **Set up buttons where the problem shows up**: the Export window's rows and the Platform settings tabs offer the setup
+  that fixes what the row says is missing, in plain words: **Install Android build tools** (no JDK 17+ or Android SDK),
+  **Download Windows / macOS / Linux player** (another OS's player), **Download mobile libraries** (prebuilt Android/iOS
+  without the engine source), **Install CMake** and **Open App Store (Xcode)** (the iOS row, also when it is ready: the
+  Xcode project it writes needs both). A row that is ready, or not ready for a reason a setup cannot fix (a missing `id`,
+  a folder in the way), shows none. Platform settings > General has **Set Up This Computer...**.
+- **The Android SDK license** is a legal agreement between you and Google, so **Install Android build tools** (here and in
+  the window) first opens a dialog with the full license text in a scrollable box. **I accept** stays disabled until you
+  tick **I have read the license above and I accept it**; **Decline** closes the dialog and installs nothing. Only
+  **I accept** starts the install (with the license accepted); FactorIA never accepts it for you, and nothing is
+  downloaded before. If the text cannot be loaded (no network) the dialog says so and offers **Try again**.
+- **The home folder is also yours to inspect**: `~/.factoria/android`, `players/<version>`, `tools/cmake`; remove a
+  folder to uninstall it.
 
 ## Platform settings
 
@@ -146,7 +183,7 @@ the AI can write in the file and the reverse.
   **Save** to keep them). Back up the file and its password: Google Play needs the same key for every update of the app.
 - **This computer** (Android tab; saved in `~/.factoria/export.json`, never in the project): the JDK and Android SDK
   folders (empty = look for them), what was found or what is missing and how to install it (**Check again** after
-  installing), and **Remember them on this computer** for the signing passwords. Without it the passwords are not kept
+  installing; or **Install Android build tools**, which installs them for you), and **Remember them on this computer** for the signing passwords. Without it the passwords are not kept
   anywhere: set the environment variables when you build a release.
 
 ## Selecting things
@@ -202,17 +239,30 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed (`tools/editor/src/editor_tools.*`), picking geometry
   (`pick.cpp`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
   (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
-  progress lines and cancelling) and the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
-  Revert, validation, icons, the Android toolchain, the keystore command and creation).
+  progress lines and cancelling), the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
+  Revert, validation, icons, the Android toolchain, the keystore command and creation) and the Set Up This Computer window's
+  logic (`setup_job.*`: which setup fixes which Export row, an install on its worker thread with its progress, cancelling,
+  the license loader and the cached status), all with an injected `fa::SetupContext` (a fake downloader and process runner and
+  a temporary home): no test touches the network or your `~/.factoria`.
 - `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS; not
   registered on Windows, which has no window read-back for the screenshots yet): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
   files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
   tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
   (it exports the game for the machine it runs on and checks the report) and the Platform settings window (tabs, edits,
-  Save / Revert, closing with unsaved changes, the Create keystore window). The autotest keeps this computer's settings in
-  `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`), never in your `~/.factoria/export.json`. It checks the window title and the result after
-  every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`).
+  Save / Revert, closing with unsaved changes, the Create keystore window) and the Set Up This Computer window (it lists
+  the four components, the Export rows show the right Set up button, a setup that cannot download shows its report, "I accept" of
+  the Android license waits for its checkbox). The autotest keeps this computer's settings in
+  `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`) and its `FACTORIA_HOME` in
+  `<FA_EDITOR_AUTOTEST_OUT>/factoria_home`, never in your `~/.factoria`. **It never installs anything**: its setup context
+  can neither download nor run a program, and no step presses "I accept". It checks the window title and the result after
+  every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`). A click only lands on a widget that is shown in its
+  window (a widget scrolled out of view fails the check instead of hitting what is under it), and a watchdog thread ends the
+  process with exit code 86 when the editor draws no frame for 60 seconds, so a stuck GPU or UI call can never freeze the
+  window for good.
+  A manual end-to-end check of the CMake button: `FA_EDITOR_AUTOTEST_REAL_CMAKE=1` makes the autotest run one script only: it
+  presses **Install** of the CMake component and lets it download and unpack the real CMake (about 50 MB from Kitware) into
+  the autotest's own `factoria_home`; ctest never sets it.
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
   (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; `FA_EDITOR_AUTOTEST=welcome` for the other).
   The process exits with 1 if any check failed (`autotest_result.json` lists them).

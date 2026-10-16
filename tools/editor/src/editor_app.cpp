@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <thread>
 #include <filesystem>
 
 #include "editor_internal.h"
@@ -181,6 +183,8 @@ Editor::~Editor() {
     ai_stop();
     if (aiDetectThread_.joinable()) aiDetectThread_.join();
     if (atThread_.joinable()) atThread_.join();
+    atWatchdogStop_ = true;
+    if (atWatchdog_.joinable()) atWatchdog_.join();
     if (updateThread_.joinable()) updateThread_.join();
 }
 
@@ -216,6 +220,22 @@ void Editor::on_init() {
     if (autotest_) {
         ui::prepare_backbuffer_readback();  // window screenshots
         namespace stdfs = std::filesystem;
+        atWatchdog_ = std::thread([this] {
+            std::uint64_t last = atHeartbeat_.load();
+            auto changed = std::chrono::steady_clock::now();
+            while (!atWatchdogStop_.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                const std::uint64_t now = atHeartbeat_.load();
+                if (now != last) {
+                    last = now;
+                    changed = std::chrono::steady_clock::now();
+                } else if (std::chrono::steady_clock::now() - changed > std::chrono::seconds(60)) {
+                    std::fprintf(stderr, "autotest watchdog: the editor drew no frame for 60 s (a UI or GPU call is stuck): ending the process "
+                                         "so the window does not stay frozen\n");
+                    std::_Exit(86);
+                }
+            }
+        });
         const char* out = std::getenv("FA_EDITOR_AUTOTEST_OUT");
         stdfs::path base = out && *out ? stdfs::path(out) : stdfs::temp_directory_path() / "fa_editor_autotest_out";
         std::error_code ec;
@@ -230,6 +250,40 @@ void Editor::on_init() {
 #else
             setenv("FACTORIA_EXPORT_CONFIG", machineConfig.c_str(), 1);
 #endif
+        }
+        // Set Up This Computer installs into FACTORIA_HOME: a folder of the autotest's own, never the user's ~/.factoria. And the
+        // editor's setup context cannot download or run anything, so no click of the autotest can install a thing (the one
+        // exception is FA_EDITOR_AUTOTEST_REAL_CMAKE=1, a manual end-to-end check of the CMake button; ctest never sets it).
+        {
+            const stdfs::path home = base / "factoria_home";
+            stdfs::remove_all(home, ec);
+#ifdef _WIN32
+            _putenv_s("FACTORIA_HOME", home.string().c_str());
+#else
+            setenv("FACTORIA_HOME", home.string().c_str(), 1);
+#endif
+            const char* real = std::getenv("FA_EDITOR_AUTOTEST_REAL_CMAKE");
+            if (!(real && *real && std::string(real) != "0")) {
+                SetupContext world;
+                world.download = [](const DownloadRequest& rq) {
+                    DownloadResult r;
+                    r.ok = false;
+                    r.error = make_error("The editor autotest never downloads anything (" + rq.url + ").");
+                    return r;
+                };
+                world.run = [](const ProcessOptions& o) -> Result<ProcessResult> {
+                    return make_error("The editor autotest never runs programs (" + (o.argv.empty() ? std::string() : o.argv[0]) + ").");
+                };
+                // What the checks see does not depend on the computer they run on: no JDK, SDK, mobile libraries or Xcode of its own.
+                world.executableDir = (base / "no-exe").string();
+                world.applicationsDir = (base / "no-apps").string();
+                AndroidToolchainSearch search;
+                search.env = [](const std::string&) { return std::string(); };
+                search.jdk.push_back({(home / "android" / "jdk").string(), "FactorIA"});
+                search.sdk.push_back({(home / "android" / "sdk").string(), "FactorIA"});
+                world.toolchainSearch = search;
+                setupTestContext_ = world;
+            }
         }
         // Unique per run (an unseeded std::rand() always gave the same name, and two autotests running at once, from two
         // checkouts, deleted each other's project).
@@ -276,6 +330,8 @@ void Editor::on_init() {
 }
 
 void Editor::on_cleanup() {
+    atWatchdogStop_ = true;
+    if (atWatchdog_.joinable()) atWatchdog_.join();
     ai_stop();
     queue_.close();
     if (uiUp_) {
@@ -638,6 +694,7 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 }
 
 void Editor::on_frame(double dt) {
+    atHeartbeat_.fetch_add(1, std::memory_order_relaxed);  // the autotest's watchdog sees the editor alive
     time_ += dt;
     if (dt > 0) fps_ = fps_ * 0.9 + (1.0 / dt) * 0.1;
     if (!pendingOpen_.empty()) {
@@ -656,7 +713,6 @@ void Editor::on_frame(double dt) {
     }
     dpi_ = sapp_dpi_scale();
     if (autotest_) autotest_pre_frame();
-
     if (engine_) {
         // The Win32 message loop only runs between frames: a long AI command inside this frame makes Windows treat the
         // window as hung. So queued commands share a ~10 ms budget per frame, and the two known long ones are sliced.
@@ -943,6 +999,7 @@ void Editor::build_ui() {
     ImGuiViewport* vp = ImGui::GetMainViewport();
     poll_export();
     poll_platform_settings();
+    poll_setup();
     draw_main_menu();
 
     const float statusH = ImGui::GetFrameHeight() + 6;
@@ -1014,6 +1071,7 @@ void Editor::build_ui() {
     draw_validation_window();
     draw_export_window();
     draw_platform_settings_window();
+    draw_setup_window();
     draw_docs_window();
     draw_toasts();
     draw_mark_popup();
@@ -1095,6 +1153,9 @@ void Editor::draw_main_menu() {
         if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
         at_track("menu:platform-settings");
         ImGui::SetItemTooltip("The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team...");
+        if (ImGui::MenuItem("Set Up This Computer...")) open_setup_window();
+        at_track("menu:setup");
+        ImGui::SetItemTooltip("Install what an export needs: the Android build tools, the players of other platforms, CMake, Xcode");
         ImGui::Separator();
         if (ImGui::MenuItem("Quit")) sapp_request_quit();
         ImGui::EndMenu();
@@ -1202,6 +1263,7 @@ void Editor::draw_toolbar() {
         if (engine_->screenshot(path, &err)) notify("Screenshot saved: " + path);
         else notify("Screenshot failed: " + err, 2);
     }
+    at_track("toolbar:screenshot");
     ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots");
     ImGui::SameLine();
     if (ImGui::Button("Export")) open_export_window();
