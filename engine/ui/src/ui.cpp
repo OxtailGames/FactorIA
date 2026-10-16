@@ -8,6 +8,7 @@
 namespace fa {
 
 using ui_detail::control_of;
+using ui_detail::depth_of;
 
 namespace {
 
@@ -100,7 +101,7 @@ void reading_order(std::vector<Item>& items) {
 }  // namespace
 
 // --------------------------------------------------------------------------------------------------------- actions --
-Json ui_default_actions() {
+static Json ui_default_actions() {
     return Json::parse(R"({
         "ui_up": ["Up", "GamepadDpadUp", "GamepadLeftStickUp"],
         "ui_down": ["Down", "GamepadDpadDown", "GamepadLeftStickDown"],
@@ -306,8 +307,7 @@ void UiSystem::update(World& w, const Input& in, Vec2 design, float dt, const Vi
             if (!w.active_in_hierarchy(e) || !ui_rect(w, e, design)->contains(mouse)) return;
             const std::optional<Rect> clip = ui_clip_rect(w, e, design);
             if (clip && !clip->contains(mouse)) return;
-            int depth = 0;
-            for (Entity p = w.parent(e); p; p = w.parent(p)) ++depth;
+            const int depth = depth_of(w, e);
             if (depth >= targetDepth) {
                 target = &s;
                 targetDepth = depth;

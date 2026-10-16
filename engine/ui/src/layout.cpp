@@ -8,6 +8,7 @@ namespace fa {
 
 namespace {
 
+using ui_detail::depth_of;
 using ui_detail::screen_rect;
 
 struct Child {
@@ -134,12 +135,6 @@ void layout_scroll(World& w, Entity e, ScrollList& s, Entity focus, Vec2 design,
     s.scroll = std::clamp(s.scroll, 0.0f, std::max(0.0f, content.y - inner.h));
     std::vector<Vec2> slots = place(UiLayout::Column, ch, inner, s.spacing, 1, UiAlign::Start, UiAlign::Start);
     for (std::size_t i = 0; i < ch.size(); ++i) move_to(w, ch[i], {slots[i].x, slots[i].y - s.scroll});
-}
-
-int depth_of(const World& w, Entity e) {
-    int d = 0;
-    for (Entity p = w.parent(e); p; p = w.parent(p)) ++d;
-    return d;
 }
 
 }  // namespace

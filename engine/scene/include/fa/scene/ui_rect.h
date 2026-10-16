@@ -21,6 +21,8 @@ UiKind ui_kind(const World& w, Entity e);
 const UiBox* ui_box(const World& w, Entity e);
 // Button, Toggle, Slider and TextField can be focused, hovered and clicked; Panel and ScrollList cannot.
 inline bool ui_is_control(UiKind k) { return k == UiKind::Button || k == UiKind::Toggle || k == UiKind::Slider || k == UiKind::TextField; }
+// The interactive part (font, colours, focused / hovered / pressed) of such a widget; nullptr for any other entity.
+const UiControl* ui_control(const World& w, Entity e);
 
 // The widget's rectangle: x, y = top-left, +Y down, from the world translation T of the entity:
 //   {T.x + anchor.x * W - pivot.x * size.x,  T.y + anchor.y * H - (1 - pivot.y) * size.y,  size.x, size.y}
