@@ -91,7 +91,9 @@ folder fails the launch), so the files on the Mac stay empty. `ios-smoke.sh` and
 `simctl launch --console-pty` instead, which works on every Xcode.
 
 Found by the first device runs (all fixed): the emulator has no OpenGL ES 3.1, so the player asks for a 3.0 context
-(`to_sapp_desc`); and its software GLES treats every texture larger than 1x1 as incomplete unless the texture states
+(`to_sapp_desc`), and sokol_gfx is told that version even when the driver reports a newer one (the arm64 emulator with
+`-gpu swiftshader_indirect` reports 3.1 for a 3.0 context and rejects 3.1 queries, which aborted a Debug build in
+`sg_setup`; see `engine/platform/src/sokol_impl.c`). The engine uses no ES 3.1 feature. And the emulator's software GLES treats every texture larger than 1x1 as incomplete unless the texture states
 its last mip level, so the renderer creates all images through `make_image` (`engine/render/src/image_gl.cpp`), which
 sets `GL_TEXTURE_MAX_LEVEL`. Without it the emulator showed a black window while the log looked healthy; that is why
 the smoke tests also check the screenshot.
