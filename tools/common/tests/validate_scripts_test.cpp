@@ -130,7 +130,7 @@ TEST_CASE("validate: a behaviour method that looks like a misspelled hook is a w
         if (w.file == "scripts/probe.js") {
             CHECK(w.message.find("class Probe: method 'update()'") != std::string::npos);
             CHECK(w.message.find("did you mean 'onUpdate()'?") != std::string::npos);
-            CHECK(w.hint.find("onFixedUpdate") != std::string::npos);
+            CHECK(w.hint.find("Lifecycle") != std::string::npos);
         }
     CHECK(count_mentioning(r.warnings, "loadLevel") == 0);
 }
