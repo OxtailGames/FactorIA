@@ -1480,18 +1480,10 @@ NATIVE(screenSize) {
 // game.notices(): the third-party parts of the runtime inside every game (what FACTORIA_NOTICES.txt holds), for credits.
 NATIVE(notices) {
     SETUP;
-    JSValue arr = JS_NewArray(ctx);
-    std::uint32_t i = 0;
-    for (const ThirdPartyComponent& c : third_party_components()) {
-        if (!c.inGames) continue;
-        JSValue o = JS_NewObject(ctx);
-        JS_SetPropertyStr(ctx, o, "name", JS_NewString(ctx, c.name.c_str()));
-        JS_SetPropertyStr(ctx, o, "url", JS_NewString(ctx, c.url.c_str()));
-        JS_SetPropertyStr(ctx, o, "license", JS_NewString(ctx, c.license.c_str()));
-        JS_SetPropertyStr(ctx, o, "usedFor", JS_NewString(ctx, c.usedFor.c_str()));
-        JS_SetPropertyUint32(ctx, arr, i++, o);
-    }
-    return arr;
+    Json out = Json::array();
+    for (const ThirdPartyComponent& c : third_party_components())
+        if (c.inGames) out.push_back({{"name", c.name}, {"url", c.url}, {"license", c.license}, {"usedFor", c.usedFor}});
+    return I->from_json(out);
 }
 
 NATIVE(storageGet) {
