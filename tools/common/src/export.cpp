@@ -15,6 +15,8 @@
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/bundle.h"
+#include "fa/tooling/export_settings.h"
+#include "fa/tooling/icons.h"
 #include "fa/tooling/notices.h"
 #include "fa/tooling/project_fs.h"
 #include "util.h"
@@ -98,6 +100,17 @@ std::string safe_version_name(const std::string& v) {
     std::string o;
     for (char c : v) if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == '+') o += c;
     return o.empty() ? "0.1.0" : o;
+}
+
+Result<Image> load_platform_icon(const Project& p, const std::string& platform, std::vector<std::string>& warnings) {
+    const std::string rel = p.settings.icon_for(platform);
+    if (rel.empty()) return Image{};
+    const std::string pointer = rel == p.settings.icon ? "/icon" : "/export/" + platform + "/icon";
+    std::vector<ExportSettingsIssue> issues;
+    auto icon = load_icon_image(generic(p.dir), rel, pointer, &issues);
+    if (!icon.ok()) return icon.error();
+    for (const ExportSettingsIssue& i : issues) warnings.push_back(i.to_string());
+    return std::move(icon.value());
 }
 
 // ---- mobile: templates shared by the Android and iOS exports ----------------------------------------
@@ -250,6 +263,9 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
     if (!stdfs::exists(p.dir / p.mainScene, ec))
         return err(generic(file) + "#/mainScene: '" + p.mainScene + "' does not exist in the project",
                    "create the scene or fix the path (project-relative, forward slashes)");
+    auto settings = load_export_settings(o.projectDir, &warnings);  // `icon` and `export`: errors fail, unknown keys warn
+    if (!settings.ok()) return settings.error();
+    p.settings = std::move(settings.value());
     return p;
 }
 
@@ -391,10 +407,13 @@ struct Plan {
     stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export
     stdfs::path player;              // desktop
     MobileSetup mobile;              // android/ios
+    Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
     std::vector<std::string> warnings;
 };
 
-Result<Plan> make_plan(const ExportOptions& options) {
+// With `forExport` the icon of a desktop or iOS export is decoded (it is used right away); a plan alone only checks
+// that its file exists (plan_export runs every few seconds in the editor), with the same error the export would give.
+Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
     Plan plan;
     plan.platform = normalize_export_platform(options.platform);
     if (plan.platform.empty())
@@ -420,6 +439,15 @@ Result<Plan> make_plan(const ExportOptions& options) {
         auto player = find_player(options, plan.platform);
         if (!player.ok()) return player.error();
         plan.player = std::move(player.value());
+    }
+    if (plan.platform != "android") {  // the Android export loads its own icons (they are a set of layers)
+        const std::string rel = p.settings.icon_for(plan.platform);
+        std::error_code iconEc;
+        if (forExport || (!rel.empty() && !stdfs::is_regular_file(p.dir / rel, iconEc))) {
+            auto icon = load_platform_icon(p, plan.platform, plan.warnings);
+            if (!icon.ok()) return icon.error();
+            plan.icon = std::move(icon.value());
+        }
     }
     return plan;
 }
@@ -494,7 +522,7 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
 }
 
 Result<ExportReport> export_project(const ExportOptions& options) {
-    auto planned = make_plan(options);  // every check first: a failed one leaves the previous export in place
+    auto planned = make_plan(options, true);  // every check first: a failed one leaves the previous export in place
     if (!planned.ok()) return planned.error();
     const Plan& plan = planned.value();
     const Project& p = plan.project;
@@ -516,9 +544,9 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     if (platform == "android" || platform == "ios") {
         report.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
         r = platform == "android" ? export_android(options, p, plan.mobile, outRoot, files, report)
-                                  : export_ios(options, p, plan.mobile, outRoot, files, report);
+                                  : export_ios(options, p, plan.mobile, outRoot, files, plan.icon, report);
     } else {
-        r = export_desktop(p, platform, plan.player, outRoot, files, report);
+        r = export_desktop(p, platform, plan.player, outRoot, files, plan.icon, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);
     if (!r.ok()) {

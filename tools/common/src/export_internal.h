@@ -13,8 +13,10 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/image.h"
 #include "fa/core/types.h"
 #include "fa/tooling/export.h"
+#include "fa/tooling/export_settings.h"
 #include "util.h"
 
 namespace fa::export_detail {
@@ -36,6 +38,7 @@ struct Project {
     std::string mainScene = "scenes/main.scene.json";
     std::vector<std::string> platforms;
     bool hasPlatformsField = false;
+    ProjectExportSettings settings;  // `icon` and `export` of factoria.json (load_export_settings), defaults filled in
 };
 
 // ---- helpers (export.cpp) -----------------------------------------------------------------------------
@@ -51,6 +54,11 @@ Result<void> copy_game(const Project& p, const std::vector<std::string>& files, 
 Result<void> write_text(const stdfs::path& path, const std::string& text, bool executable = false);
 // A version name that is safe in a Gradle / Xcode setting.
 std::string safe_version_name(const std::string& v);
+
+// (export.cpp) The icon of `platform` (settings.icon_for) decoded as a square image; an empty Image when no icon is set.
+// A missing or undecodable file is an Error (it names factoria.json and the JSON pointer); what load_icon_image warns
+// about (not square, smaller than 512 px) is appended to `warnings`.
+Result<Image> load_platform_icon(const Project& p, const std::string& platform, std::vector<std::string>& warnings);
 
 // ---- mobile: prebuilt players or the engine source ------------------------------------------------
 //
@@ -88,8 +96,11 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
 std::string fs_safe_name(const std::string& s);
 // Seals an exported .app with an ad hoc signature; returns "" or what went wrong.
 std::string sign_app_ad_hoc(const stdfs::path& app);
+// `icon` is the platform's icon (load_platform_icon), empty when none is set: the .icns of a macOS app, the icon of the
+// Windows exe, the PNG and .desktop file of a Linux build.
 Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player,
-                            const stdfs::path& outRoot, const std::vector<std::string>& files, ExportReport& report);
+                            const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon,
+                            ExportReport& report);
 
 // ---- android (export_android.cpp) -------------------------------------------------------------------
 
@@ -98,7 +109,8 @@ Result<void> export_android(const ExportOptions& o, const Project& p, const Mobi
 
 // ---- ios (export_ios.cpp) ---------------------------------------------------------------------------
 
+// `icon` is the iOS icon (load_platform_icon), empty when none is set: it becomes Assets.xcassets next to build_ios.sh.
 Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
-                        const std::vector<std::string>& files, ExportReport& report);
+                        const std::vector<std::string>& files, const Image& icon, ExportReport& report);
 
 }  // namespace fa::export_detail
