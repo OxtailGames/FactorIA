@@ -2,7 +2,10 @@
 
 #include <array>
 #include <cmath>
+#include <filesystem>
 
+#include "fa/core/asset_manifest.h"
+#include "fa/core/fs.h"
 #include "fa/core/image.h"
 
 using namespace fa;
@@ -170,4 +173,96 @@ TEST_CASE("encode_png_rgb: no alpha channel in the file, same pixels when decode
     CHECK(back->width == 3);
     CHECK(px(*back, 2, 1) == std::array<int, 4>{200, 100, 50, 255});
     CHECK(encode_png_rgb(Image{}).empty());
+}
+
+TEST_CASE("mip_chain: halves down to 1x1, averaging 2x2 pixels and repeating the edge of an odd size") {
+    const std::vector<Image> one = mip_chain(solid(1, 1, 9, 8, 7, 6));
+    REQUIRE(one.size() == 1);
+    CHECK(px(one[0], 0, 0) == std::array<int, 4>{9, 8, 7, 6});
+
+    Image quad = solid(2, 2, 0, 0, 0, 255);
+    put(quad, 0, 0, 100, 0, 0, 255);
+    put(quad, 1, 1, 100, 0, 0, 255);
+    const std::vector<Image> two = mip_chain(quad);
+    REQUIRE(two.size() == 2);
+    CHECK(px(two[1], 0, 0) == std::array<int, 4>{50, 0, 0, 255});
+
+    // 5x3 -> 2x1 -> 1x1; the odd last column and row are not dropped, they pair with themselves.
+    Image odd = solid(5, 3, 40, 40, 40, 255);
+    put(odd, 4, 2, 200, 40, 40, 255);
+    const std::vector<Image> chain = mip_chain(odd);
+    REQUIRE(chain.size() == 3);
+    CHECK(chain[1].width == 2);
+    CHECK(chain[1].height == 1);
+    CHECK(chain[2].width == 1);
+    CHECK(chain[2].height == 1);
+    CHECK(chain[1].rgba.size() == 2 * 1 * 4);
+
+    // A 1-pixel-wide strip keeps halving the other side.
+    const std::vector<Image> strip = mip_chain(solid(1, 8, 1, 2, 3, 4));
+    REQUIRE(strip.size() == 4);
+    CHECK(strip.back().height == 1);
+}
+
+namespace {
+// The first bytes of a KTX2 file: identifier, vkFormat, typeSize, pixelWidth, pixelHeight.
+std::string ktx2_header(std::uint32_t w, std::uint32_t h) {
+    std::string s("\xAB" "KTX 20" "\xBB\r\n\x1A\n", 12);
+    for (std::uint32_t v : {0u, 1u, w, h})
+        for (int i = 0; i < 4; ++i) s.push_back(char((v >> (8 * i)) & 255));
+    return s;
+}
+}  // namespace
+
+TEST_CASE("ktx2_size: reads the first level from the header, rejects anything else") {
+    const std::string ok = ktx2_header(300, 17);
+    auto size = ktx2_size(reinterpret_cast<const std::uint8_t*>(ok.data()), ok.size());
+    REQUIRE(size.ok());
+    CHECK(size->width == 300);
+    CHECK(size->height == 17);
+
+    CHECK_FALSE(ktx2_size(reinterpret_cast<const std::uint8_t*>(ok.data()), 20).ok());  // truncated
+    std::string wrong = ok;
+    wrong[1] = 'X';
+    CHECK_FALSE(ktx2_size(reinterpret_cast<const std::uint8_t*>(wrong.data()), wrong.size()).ok());
+    const std::string zero = ktx2_header(0, 4);
+    CHECK_FALSE(ktx2_size(reinterpret_cast<const std::uint8_t*>(zero.data()), zero.size()).ok());
+}
+
+TEST_CASE("texture_size: the file, else the packed rectangle, else the header of the .ktx2 twin") {
+    namespace stdfs = std::filesystem;
+    const stdfs::path oldRoot = fs::project_root();
+    const stdfs::path dir = fs::make_temp_dir("fa_test_texture_size");
+    fs::set_project_root(dir);
+    const auto write = [&](const char* rel, const std::string& data) {
+        REQUIRE(fs::write_bytes(rel, data.data(), data.size()).ok());
+    };
+
+    REQUIRE(save_png(solid(6, 4, 1, 2, 3, 255), "assets/plain.png").ok());
+    write("assets/twin.png.ktx2", ktx2_header(64, 32));
+    write("assets.json",
+          R"({"format": "factoria.assets/1", "assets": {"assets/packed.png": {"packed": {"atlas": "assets/atlases/a.png", "rect": [2, 2, 20, 10]}}}})");
+
+    auto plain = texture_size("assets/plain.png");
+    REQUIRE(plain.ok());
+    CHECK(plain->width == 6);
+    CHECK(plain->height == 4);
+    auto twin = texture_size("assets/twin.png");  // only the twin exists: the export replaced the PNG
+    REQUIRE(twin.ok());
+    CHECK(twin->width == 64);
+    CHECK(twin->height == 32);
+    auto packed = texture_size("assets/packed.png");  // no file at all: it lives in an atlas
+    REQUIRE(packed.ok());
+    CHECK(packed->width == 20);
+    CHECK(packed->height == 10);
+    CHECK_FALSE(texture_size("assets/missing.png").ok());
+
+    const assets::PackedTexture p = assets::packed_texture("assets/packed.png");
+    CHECK(p.atlas == "assets/atlases/a.png");
+    CHECK((p.x == 2 && p.y == 2 && p.w == 20 && p.h == 10));
+    CHECK(assets::packed_texture("assets/plain.png").atlas.empty());
+
+    fs::set_project_root(oldRoot);
+    std::error_code ec;
+    stdfs::remove_all(dir, ec);
 }
