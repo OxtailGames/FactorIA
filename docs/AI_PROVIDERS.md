@@ -143,11 +143,14 @@ Provider fields: `type`, `preset`, `baseUrl`, `apiKeyEnv`, `apiKey`, `headers`,
 `defaultModel`, `useAntCli`, `sendReasoningEffort`, `command`, `argv` (full
 template: **every CLI argument can be overridden**, CLI flags change over time),
 `env`, `unsetEnv`, `factoriaCommand` (default `factoria`), `pricing`
-(`inputPerMTok`, `outputPerMTok`, ...), `maxRetries`, `timeoutSeconds`.
+(`inputPerMTok`, `outputPerMTok`, ...), `maxRetries`, `timeoutSeconds`, `license`
+(asset providers, see [Asset providers](#asset-providers)).
 
 Built-in providers exist without being listed: `anthropic`, `openai`,
 `openrouter`, `gemini`, `groq`, `deepseek`, `ollama`, `lmstudio`, `claude-code`,
-`codex`. Listing one overrides only the fields you give.
+`codex`, and the asset providers `elevenlabs`, `meshy` and `fake`. Listing one overrides only the fields you give.
+A top-level `"assets"` section assigns asset providers to the kinds of asset
+(see [Asset providers](#asset-providers)); roles cannot use asset-only providers.
 
 ## Roles
 
@@ -283,6 +286,103 @@ The AI panel shows what the provider reports, never a guess:
 * **Tokens** (in / out / cache) and **Cost** of the chat. Cost is an estimate (`est.`): the CLI's own number for subscription
   plans, which are not billed per token.
 
+## Asset providers
+
+The `assets.generate_*` commands ([ASSETS.md](ASSETS.md)) make images, sprite sheets, sounds, music, voices and 3D models
+through **asset providers**. They are configured here, in `ai.json`, next to the LLM providers, but they are not roles:
+the `assets` section maps each kind of asset (`image`, `sound`, `music`, `voice`, `model3d`) to the provider, and
+optionally the model and voice, that makes it.
+
+```json
+{
+  "assets": {
+    "image":   { "provider": "openai", "model": "gpt-image-1" },
+    "sound":   { "provider": "elevenlabs" },
+    "music":   { "provider": "elevenlabs" },
+    "voice":   { "provider": "elevenlabs", "voice": "21m00Tcm4TlvDq8ikWAM" },
+    "model3d": { "provider": "meshy" }
+  }
+}
+```
+
+There is **no default provider**. Generation costs money, so a kind that is not listed is an error that shows the JSON to add
+(and mentions the `fake` provider). Every command also takes `provider` and `model` for one call. Keys come from the
+environment, like the LLM keys.
+
+| Provider | Makes | Key (env var) | Endpoints (official docs) |
+|---|---|---|---|
+| `openai` (and servers that copy its API) | image, voice | `OPENAI_API_KEY` | `POST {baseUrl}/images/generations`, `POST {baseUrl}/images/edits` (when reference images are sent), `POST {baseUrl}/audio/speech` ([images](https://developers.openai.com/api/docs/guides/image-generation), [speech](https://developers.openai.com/api/docs/guides/text-to-speech)) |
+| `elevenlabs` | sound, music, voice | `ELEVENLABS_API_KEY` | `POST https://api.elevenlabs.io/v1/sound-generation`, `/v1/music`, `/v1/text-to-speech/{voice_id}` ([docs](https://elevenlabs.io/docs/api-reference)) |
+| `meshy` | model3d | `MESHY_API_KEY` | `POST https://api.meshy.ai/openapi/v2/text-to-3d`, then `GET .../{id}` until it succeeds ([docs](https://docs.meshy.ai/en/api/text-to-3d)) |
+| `fake` | all | none | none: offline placeholders, see below |
+| `asset-command` | all | none | a program of yours, see below |
+
+Details that matter:
+
+- **OpenAI.** Images default to model `gpt-image-1`: it draws 1024x1024, 1536x1024 or 1024x1536 (whichever is closest to the
+  aspect you asked for) and FactorIA resizes to your size. `transparent` asks for a transparent background. Reference images
+  (from the call and from `style.references`) go to the image-edit endpoint as PNG, JPEG or WebP. Speech defaults to
+  `gpt-4o-mini-tts`, voice `alloy`, and is returned as MP3. Any other `baseUrl` that copies the API works.
+- **ElevenLabs.** Everything arrives as MP3, so the path ends in `.mp3`. Sound effects last 0.5 to 30 seconds, music 3 to 600
+  and is instrumental. Speech needs a voice id (your voice library on elevenlabs.io): set it as `assets.voice.voice` or
+  pass `voice`.
+- **Meshy.** Text-to-3D in `preview` mode: an untextured mesh as `.glb`. The call creates a task and polls it every 5 seconds
+  until it succeeds, fails, or `timeoutSeconds` (default 600) has passed; the task keeps running on Meshy's side.
+- **`fake`.** Needs no key and no network. A PNG (a gradient with stripes and a shape, transparent when asked, a different
+  shape in every frame of a sheet), a WAV (a falling tone for a sound, an arpeggio for music, a buzz for a voice) or a small
+  glTF cube, all deterministic: the same request gives the same bytes. Use it to try the flow, in tests and CI, and in
+  games' own test projects. Its files are marked `ai: true` in the provenance so that placeholders never ship unrecorded;
+  its license note says to replace them.
+- **`asset-command`.** A local program (ComfyUI or Stable Diffusion through a script, a Blender script, a CLI) makes the file.
+  `command` and `argv` are a template, like a CLI agent's; the program writes the result to `{output}`.
+
+  ```json
+  {
+    "providers": {
+      "comfy": {
+        "type": "asset-command",
+        "command": "python",
+        "argv": ["/home/me/tools/txt2img.py", "--prompt", "{prompt}", "--size", "{width}x{height}", "--seed", "{seed}", "--out", "{output}"],
+        "env": { "COMFY_URL": "http://127.0.0.1:8188" },
+        "license": "Output of my local SDXL checkpoint (CreativeML Open RAIL++-M)",
+        "timeoutSeconds": 300
+      }
+    },
+    "assets": { "image": { "provider": "comfy" } }
+  }
+  ```
+
+  | Placeholder | Value |
+  |---|---|
+  | `{prompt}` | the prompt, on one line |
+  | `{output}` | the file to write (PNG for images, WAV for sound, music and voice, GLB for models) |
+  | `{width}` `{height}` | the size asked for (images; the result is resized to it) |
+  | `{seconds}` | the length asked for (0 = the program chooses) |
+  | `{kind}` | `image`, `sound`, `music`, `voice` or `model3d` |
+  | `{model}` | `assets.<kind>.model` or the `model` of the call |
+  | `{seed}` | the `seed` of the call, else a number derived from the prompt; the seed is recorded only when `argv` has `{seed}` |
+
+  The program is run with `env`/`unsetEnv` of the provider and stopped after `timeoutSeconds`. A non-zero exit, a timeout
+  and a missing `{output}` file are errors that say what happened. On Windows a `.cmd`/`.bat` program cannot receive
+  `% & | < > ^` or line breaks in an argument: use an `.exe` or a Python wrapper if prompts need them. It cannot take
+  reference images or voices (the result says so); use `style.prompt` for the look.
+
+Provider fields used by asset providers: `type` (`openai-compatible` for OpenAI, `elevenlabs`, `meshy`, `fake`,
+`asset-command`), `baseUrl`, `apiKeyEnv`, `apiKey`, `headers`, `command`, `argv`, `env`, `unsetEnv`, `maxRetries` (at most
+2 are used: a retry is a second payment), `timeoutSeconds` and `license`: the note recorded in the provenance of what the
+provider makes (default: where its terms are).
+
+**Keys and privacy.** The same rules as for the LLM keys: environment variables or the user-level `ai.json`, never the
+game project; keys go only to the provider's `baseUrl`, in headers, and are not written to assets.json, results or logs. What
+is sent to an asset provider is the prompt (with the house style), the reference images and, for voice, the text.
+
+**Cost.** Asset providers bill for every call, and FactorIA does not know their prices (`limits.maxCostUsd` covers LLM runs
+only). Look at the first result before generating a batch, prefer `fake` while the flow is being built, and check the
+provider's pricing page.
+
+`factoria ai doctor` lists the asset providers (`[makes image, voice]`, whether a key was found) and which provider each kind
+of asset is assigned to.
+
 ## Costs
 
 Estimated from reported token usage (input, output, cache read/write):
@@ -334,3 +434,7 @@ when they provide it. Set `limits.maxCostUsd` to cap a run.
 | Tool-call errors with a local model | The model needs tool-calling support; try a larger/instruct model. |
 | Corporate proxy / TLS | Set `HTTPS_PROXY`; for a custom CA set `SSL_CERT_FILE` / `CURL_CA_BUNDLE`. |
 | Invalid `ai.json` | The error lists the JSON pointer (e.g. `/roles/worker/effort`) and allowed values. |
+| `No provider is configured for image generation` | Add `"assets": {"image": {"provider": "openai"}}` to `ai.json` (or another kind/provider, see [Asset providers](#asset-providers)), or pass `provider` to the command. `fake` works offline. |
+| `'assets/a.wav' ends in '.wav', but the provider 'elevenlabs' makes sound as .mp3 files` | Use the extension the error names; it is checked before anything is paid for. |
+| `Meshy task ... was still IN_PROGRESS after N seconds` | Raise `timeoutSeconds` of the `meshy` provider; the task keeps running on Meshy's side. |
+| `... exited without writing asset.png` | The `asset-command` program must write to the path `{output}` stands for: put `{output}` in its `argv`. |

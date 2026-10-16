@@ -1,0 +1,10 @@
+{
+  "id": "0190a3c1-task-text-to-3d",
+  "mode": "preview",
+  "status": "FAILED",
+  "progress": 0,
+  "model_urls": {},
+  "task_error": {
+    "message": "The prompt was rejected by the content filter."
+  }
+}

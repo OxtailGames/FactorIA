@@ -310,7 +310,7 @@ void Editor::ai_refresh_providers() {
         // releases show up. Claude Code starts its CLI for this, a local server may be down: hence after the detection.
         std::map<std::string, ProviderModels> models;
         for (const ai::ProviderStatus& s : st) {
-            if (!s.available) continue;
+            if (!s.available || ai::is_asset_only_kind(cfg.providers.at(s.name).kind)) continue;
             ProviderModels& pm = models[s.name];
             if (auto listed = ai::list_models(cfg.providers.at(s.name))) pm.models = std::move(*listed);
             else pm.error = listed.error().to_string();
@@ -664,6 +664,7 @@ void Editor::draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::
             ImGui::SetNextItemWidth(170);
             if (ImGui::BeginCombo("##provider", r.provider.c_str())) {
                 for (const auto& [pname, pc] : cfg.providers) {
+                    if (ai::is_asset_only_kind(pc.kind)) continue;  // they generate assets, they cannot play a role
                     const auto found = std::ranges::find(status, pname, &ai::ProviderStatus::name);
                     const ai::ProviderStatus* st = found == status.end() ? nullptr : &*found;
                     const std::string label = pname + (st && !st->available ? "  (not available)" : "");

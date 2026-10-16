@@ -9,7 +9,8 @@ namespace fa::ai {
 
 Json ProviderStatus::to_json() const {
     return Json::object({{"name", name}, {"kind", kind}, {"cli", isCli}, {"available", available}, {"detail", detail},
-                         {"version", version}, {"path", path}, {"keySource", keySource}, {"hint", hint}});
+                         {"version", version}, {"path", path}, {"keySource", keySource}, {"hint", hint},
+                         {"makes", makes}});
 }
 
 static std::string probe_version(const std::string& exe) {
@@ -46,6 +47,14 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
                 s.detail = "'" + command + "' not found in PATH";
                 s.hint = cli_install_hint(p);
             }
+        } else if (p.kind == ProviderKind::Fake) {
+            s.available = true;
+            s.detail = "offline placeholders for tests and for trying the asset pipeline (costs nothing)";
+        } else if (p.kind == ProviderKind::AssetCommand) {
+            s.path = which_fn(p.command);
+            s.available = !s.path.empty();
+            s.detail = s.available ? "'" + p.command + "' found at " + s.path : "'" + p.command + "' not found in PATH";
+            if (!s.available) s.hint = cli_install_hint(p);
         } else {
             auto key = resolve_api_key(p, opt.env);
             s.keySource = key.source;
@@ -69,6 +78,11 @@ std::vector<ProviderStatus> detect_providers(const AiConfig& cfg, const DetectOp
                          (p.kind == ProviderKind::Anthropic ? "; or install the `ant` CLI and run `ant auth login`." : ".");
             }
         }
+        if (is_asset_only_kind(p.kind) || p.preset == "openai") {
+            for (MediaKind k : kMediaKinds) {
+                if (provider_makes(p.kind, k)) s.makes.push_back(media_kind_name(k));
+            }
+        }
         out.push_back(std::move(s));
     }
     return out;
@@ -78,7 +92,8 @@ std::string format_doctor_report(const AiConfig& cfg, const std::vector<Provider
     std::string out = "FactorIA AI providers";
     out += cfg.sourcePath.empty() ? " (no config file: built-in defaults)\n" : " (config: " + cfg.sourcePath + ")\n";
     for (const auto& s : status) {
-        out += std::string(s.available ? "  [ok]   " : "  [--]   ") + s.name + " (" + s.kind + "): " + s.detail + "\n";
+        out += std::string(s.available ? "  [ok]   " : "  [--]   ") + s.name + " (" + s.kind + "): " + s.detail +
+               (s.makes.empty() ? "" : " [makes " + fa::join(s.makes, ", ") + "]") + "\n";
         if (!s.available && !s.hint.empty()) out += "         -> " + s.hint + "\n";
         else if (!s.hint.empty()) out += "         note: " + s.hint + "\n";
     }
@@ -86,6 +101,14 @@ std::string format_doctor_report(const AiConfig& cfg, const std::vector<Provider
     for (const auto& [role, r] : cfg.roles) {
         out += "  " + role + ": " + r.provider + " / " + r.model + (r.effort.empty() ? "" : " (effort " + r.effort + ")") + "\n";
     }
+    out += "Asset providers:\n";
+    for (MediaKind k : kMediaKinds) {
+        const auto r = cfg.assets.find(media_kind_name(k));
+        if (r == cfg.assets.end()) continue;
+        out += std::string("  ") + media_kind_name(k) + ": " + r->second.provider +
+               (r->second.model.empty() ? "" : " / " + r->second.model) + "\n";
+    }
+    if (cfg.assets.empty()) out += "  none configured: add \"assets\" to ai.json (docs/AI_PROVIDERS.md, Asset providers)\n";
     for (const auto& w : cfg.warnings) out += "WARNING: " + w + "\n";
     return out;
 }

@@ -348,8 +348,7 @@ public:
         if (!resolved) return resolved.error();
         Auth auth = std::move(*resolved);
         const bool usingToken = auth.apiKey.empty();
-        std::string base = cfg_.baseUrl.empty() ? "https://api.anthropic.com" : cfg_.baseUrl;
-        while (!base.empty() && base.back() == '/') base.pop_back();
+        const std::string base = trim_slashes(cfg_.baseUrl.empty() ? "https://api.anthropic.com" : cfg_.baseUrl);
 
         for (int authAttempt = 0; authAttempt < 2; ++authAttempt) {
             HttpRequest hr;

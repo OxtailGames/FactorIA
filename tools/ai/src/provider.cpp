@@ -75,6 +75,13 @@ std::string describe_http_error(std::string_view provider, const HttpResponse& r
                 if (!m.empty()) return msg + ": " + m;
             }
         }
+        // ElevenLabs: {"detail": {"status": ..., "message": ...}} or {"detail": [{"loc": ..., "msg": ...}]}; Meshy: {"message": ...}
+        if (const Json* d = util::child(j, "detail")) {
+            const Json* first = d->is_array() && !d->empty() ? &(*d)[0] : d;
+            std::string m = d->is_string() ? d->get<std::string>() : util::str(*first, "message", util::str(*first, "msg"));
+            if (!m.empty()) return msg + ": " + m;
+        }
+        if (std::string m = util::str(j, "message"); !m.empty()) return msg + ": " + m;
     }
     std::string body = resp.body.substr(0, 300);
     if (!body.empty()) msg += ": " + body;
@@ -97,6 +104,13 @@ Result<std::shared_ptr<ChatProvider>> make_chat_provider(const ProviderConfig& c
     switch (cfg.kind) {
         case ProviderKind::Anthropic: return anthropic::make_provider(cfg, std::move(rt));
         case ProviderKind::OpenAICompatible: return openai::make_provider(cfg, std::move(rt));
+        case ProviderKind::ElevenLabs:
+        case ProviderKind::Meshy:
+        case ProviderKind::Fake:
+        case ProviderKind::AssetCommand:
+            return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) + ") only generates assets",
+                              "A role needs a chat provider (anthropic, claude-code, openai...). Asset providers go under "
+                              "\"assets\" in ai.json.");
         default:
             return make_error("Provider '" + cfg.name + "' is a CLI agent (" + provider_kind_name(cfg.kind) +
                                   "), not a chat API provider",
