@@ -1,6 +1,7 @@
 import { test, expect, game } from "factoria:test";
 import { ui, input, storage, audio, scene, session, game as running } from "factoria";
 
+// tests/recipe.test.js is the acceptance test (main menu -> options -> saved volume); these cover the rest.
 // The menus are driven the way a player with only a gamepad would: D-pad to move the focus, A to press, B to go back.
 // `game` is the test driver (steps, presses); `running` is the game's own object (paused, notices()).
 const pad = game.gamepad(0);
@@ -22,32 +23,6 @@ function mainMenu(saved) {
   game.step(2);
   expect(focused()).toBe("play"); // the first button has autoFocus
 }
-
-test("gamepad only: main menu -> options -> music volume -> back, and the volume is saved", () => {
-  mainMenu();
-  pad.tap("DpadDown");
-  expect(focused()).toBe("options_button");
-  pad.tap("A");
-  expect(shown("options")).toBe(true);
-  expect(shown("main_menu")).toBe(false);
-  expect(focused()).toBe("tab_video");
-  pad.tap("DpadRight");
-  pad.tap("A");
-  expect(shown("audio_section")).toBe(true);
-  pad.tap("DpadDown");
-  expect(focused()).toBe("master_volume");
-  pad.tap("DpadDown");
-  expect(focused()).toBe("music_volume");
-  expect(game.find("music_volume").get("Slider").value).toBeCloseTo(0.6); // the default
-  pad.tap("DpadRight");
-  pad.tap("DpadRight");
-  expect(game.find("music_volume").get("Slider").value).toBeCloseTo(0.8);
-  expect(audio.getVolume("music")).toBeCloseTo(0.8);
-  pad.tap("B");
-  expect(shown("options")).toBe(false);
-  expect(focused()).toBe("options_button"); // back where the player left the main menu
-  expect(storage.get("settings").volume.music).toBeCloseTo(0.8);
-});
 
 test("saved settings are applied when the game starts", () => {
   mainMenu({ volume: { music: 0.3 }, bindings: { jump: ["K"] } });

@@ -60,13 +60,9 @@ if(FA_BUILD_TESTS)
             set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT 300)
         endif()
     endforeach()
-    # Fixture projects (tests/fixtures/*) check engine features that need a whole game, the same way: menus is the
-    # AI guide's menu recipe (section 9.23), driven with a gamepad only.
-    file(GLOB FA_FIXTURE_PROJECTS LIST_DIRECTORIES true ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/*)
-    foreach(fx ${FA_FIXTURE_PROJECTS})
-        get_filename_component(fx_name ${fx} NAME)
-        add_test(NAME fixture_${fx_name}_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
-        add_test(NAME fixture_${fx_name}_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
-        set_tests_properties(fixture_${fx_name}_test PROPERTIES LABELS "gpu" TIMEOUT 300)
-    endforeach()
+    # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
+    set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/menus)
+    add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME fixture_menus_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(fixture_menus_test PROPERTIES LABELS "gpu" TIMEOUT 300)
 endif()
