@@ -3,6 +3,7 @@
 // marshaling, then saves screenshots of the WHOLE window (swapchain read-back) and quits.
 // The editor has no manual editing UI (the AI edits), so edits go through the same commands the AI and the Console call.
 // Output directory: FA_EDITOR_AUTOTEST_OUT (default: <tmp>/fa_editor_autotest_out).
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -65,12 +66,38 @@ void Editor::at_check(bool cond, const std::string& what) {
     }
 }
 
+// Averages the pixels of `src` down to w x h (each target pixel is the mean of the source area it covers).
+static Image downscale(const Image& src, int w, int h) {
+    Image out;
+    out.width = w;
+    out.height = h;
+    out.rgba.resize(size_t(w) * size_t(h) * 4);
+    const float sx = float(src.width) / float(w), sy = float(src.height) / float(h);
+    for (int y = 0; y < h; ++y) {
+        const int y0 = int(y * sy), y1 = std::max(y0 + 1, std::min(src.height, int(std::ceil((y + 1) * sy))));
+        for (int x = 0; x < w; ++x) {
+            const int x0 = int(x * sx), x1 = std::max(x0 + 1, std::min(src.width, int(std::ceil((x + 1) * sx))));
+            unsigned sum[4] = {0, 0, 0, 0};
+            for (int yy = y0; yy < y1; ++yy)
+                for (int xx = x0; xx < x1; ++xx)
+                    for (int c = 0; c < 4; ++c) sum[c] += src.rgba[(size_t(yy) * size_t(src.width) + size_t(xx)) * 4 + c];
+            const unsigned n = unsigned((y1 - y0) * (x1 - x0));
+            for (int c = 0; c < 4; ++c) out.rgba[(size_t(y) * size_t(w) + size_t(x)) * 4 + c] = std::uint8_t(sum[c] / n);
+        }
+    }
+    return out;
+}
+
 void Editor::save_screenshot_now(const std::string& path) {
     Image img;
     if (!capture_window(img)) {
         at_check(false, "read back the swapchain for " + path);
         return;
     }
+    // Saved at the window's logical size: on a Retina screen the back buffer is 2x (2940x1782 on a MacBook Air), four
+    // times the pixels to encode (about a second per PNG in a Debug build) for no more detail than an AI looks at.
+    // The pixel checks (bloom) read capture_window() at full resolution.
+    if (dpi_ > 1.0f) img = downscale(img, int(std::lround(img.width / dpi_)), int(std::lround(img.height / dpi_)));
     auto r = save_png(img, path);
     at_check(bool(r), "saved window screenshot " + path + (r ? "" : " (" + r.error().to_string() + ")"));
 }

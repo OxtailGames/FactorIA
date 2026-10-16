@@ -11,7 +11,10 @@
 #                 engine/runtime/src/runners.cpp), and is still the same process 5 s later.
 #   2. audio      the player opened an audio output device ("audio: output device open") and the platform pulled
 #                 samples from it ("audio: stream running"); "no audio output device available" fails.
-#   3. touch      NOT covered: `simctl` cannot inject touches (see docs/MOBILE.md).
+#   3. touch      `simctl` cannot inject touches, so a UI test (platforms/ios/touch-test, XCUITest) taps the middle of
+#                 the screen of the running app: the player logs "input: first touch at design (x, y)", at the middle
+#                 of the design size for the "fit" and "stretch" scale modes (read from <app>/game/factoria.json), and
+#                 the process survives. Needs CMake (the UI test project is generated, then built by xcodebuild).
 #   4. suspend    Settings is launched on top of the app: "player: suspended", the process survives; the app is
 #                 launched again: same process, "player: resumed" and "player: 60 frames rendered after resume"
 #                 (the Metal view draws again), the screen shows a picture.
@@ -21,8 +24,12 @@
 # first simulator boot takes 5-7 minutes on a hosted runner and slows a build on the same machine, so CI runs
 # `--boot` on one runner while another builds the app.
 #
-# Output (outDir, default build/ios-smoke): stdout.log / stderr.log (the player's console; the engine logs to
-# stderr), screen.png, summary.txt; on failure also unified.log (the simulator's system log) and crash reports.
+# Output (outDir, default build/ios-smoke): console.log (the player's stdout and stderr; the engine logs to stderr),
+# screen.png, summary.txt; on failure also unified.log (the simulator's system log) and crash reports.
+#
+# The console is captured with `simctl launch --console-pty`, not with --stdout/--stderr: from the iOS 27 runtime
+# (Xcode 27) on, those two paths are opened inside the simulator's own file system (`/tmp/x` lands in
+# `<device>/data/tmp/x`, a path under the host's home makes the launch fail), so the files on the host stay empty.
 # Exit code 0 = the game runs.
 set -uo pipefail
 
@@ -60,7 +67,8 @@ if [ -z "$UDID" ]; then
     exit 1
 fi
 
-trap 'xcrun simctl shutdown "$UDID" >/dev/null 2>&1' EXIT
+CONSOLE_PID=
+trap '[ -n "$CONSOLE_PID" ] && kill "$CONSOLE_PID" 2>/dev/null; xcrun simctl shutdown "$UDID" >/dev/null 2>&1' EXIT
 
 fail() {
     echo "FAIL: $*" | tee -a "$OUT/summary.txt"
@@ -68,8 +76,8 @@ fail() {
     xcrun simctl spawn "$UDID" log show --style compact --last 10m \
         --predicate 'process == "factoria_player" OR eventMessage CONTAINS "factoria_player"' >"$OUT/unified.log" 2>&1
     cp ~/Library/Logs/DiagnosticReports/factoria_player* "$OUT/" 2>/dev/null
-    echo "---- stdout.log / stderr.log ----"
-    tail -n 60 "$OUT/stdout.log" "$OUT/stderr.log" 2>/dev/null
+    echo "---- console.log ----"
+    tail -n 60 "$OUT/console.log" 2>/dev/null
     exit 1
 }
 
@@ -82,19 +90,33 @@ xcrun simctl bootstatus "$UDID" -b 2>&1 | tail -n 2 | tee -a "$OUT/summary.txt"
 codesign --force --sign - --timestamp=none "$APP" 2>&1 | tee -a "$OUT/summary.txt"
 xcrun simctl install "$UDID" "$APP" 2>&1 | tee -a "$OUT/summary.txt" || fail "simctl install failed"
 
-# Launch with the console in files.
-: >"$OUT/stdout.log"; : >"$OUT/stderr.log"
-LAUNCH="$(xcrun simctl launch --terminate-running-process --stdout="$OUT/stdout.log" --stderr="$OUT/stderr.log" \
-          "$UDID" "$BUNDLE_ID" 2>&1)"
-echo "$LAUNCH" | tee -a "$OUT/summary.txt"
-PID="$(echo "$LAUNCH" | sed -n "s/^$BUNDLE_ID: \([0-9][0-9]*\).*/\1/p" | tail -n 1)"
-[ -n "$PID" ] || fail "simctl launch did not report a pid for $BUNDLE_ID"
+# The pid of the running app, from the simulator's launchd ("<pid> <status> UIKitApplication:<bundleId>[...]");
+# simulator processes are ordinary host processes, so the host can watch it.
+app_pid() {
+    xcrun simctl spawn "$UDID" launchctl list 2>/dev/null |
+        awk -v app="UIKitApplication:$BUNDLE_ID[" 'index($3, app) == 1 && $1 ~ /^[0-9]+$/ {print $1; exit}'
+}
+
+# Launch with the console in a file: simctl stays attached in the background and copies everything the app writes to
+# stdout and stderr (with --console-pty it does not print the pid, so launchd is asked for it).
+: >"$OUT/console.log"
+xcrun simctl launch --terminate-running-process --console-pty "$UDID" "$BUNDLE_ID" >"$OUT/console.log" 2>&1 &
+CONSOLE_PID=$!
+PID=
+for _ in $(seq 1 30); do
+    sleep 1
+    PID="$(app_pid)"
+    [ -n "$PID" ] && break
+    kill -0 "$CONSOLE_PID" 2>/dev/null || break
+done
+[ -n "$PID" ] || fail "the app $BUNDLE_ID is not running 30s after simctl launch (console above)"
+echo "launched: $BUNDLE_ID pid $PID" | tee -a "$OUT/summary.txt"
 STARTED_AT=$SECONDS
 alive() { kill -0 "$PID" 2>/dev/null; }   # simulator processes are ordinary host processes
 
-# Lines of the console containing the text, in both files.
-count() { grep -hcF -- "$1" "$OUT/stderr.log" "$OUT/stdout.log" | awk '{n += $1} END {print n + 0}'; }
-first_line() { grep -hF -- "$1" "$OUT/stderr.log" "$OUT/stdout.log" | sed -n 1p; }
+# Lines of the console containing the text (the pty ends lines with CR LF; strip the CR).
+count() { grep -cF -- "$1" "$OUT/console.log"; }
+first_line() { grep -F -- "$1" "$OUT/console.log" | sed -n 1p | tr -d '\r'; }
 
 # wait_for_log <needle> <seconds> [baseline]   returns 0 once the console has MORE than <baseline> (default 0) lines
 # containing <needle>, 1 after <seconds>. Fails at once when the app process is gone.
@@ -138,7 +160,43 @@ wait_for_log "audio: stream running" 30 || fail "audio: the device opened but th
 first_line 'audio: stream running' | tee -a "$OUT/summary.txt"
 
 # ---- 3. touch -------------------------------------------------------------------------------------------------------
-echo "touch: not covered on iOS (simctl cannot inject touches)" | tee -a "$OUT/summary.txt"
+# The UI test activates the running app (same process, the console stays captured) and taps the middle of its screen.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TOUCH_BUILD="${FA_IOS_TOUCH_TEST_BUILD:-$ROOT/build/ios-touch-test}"
+cmake -S "$ROOT/platforms/ios/touch-test" -B "$TOUCH_BUILD" -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
+      -DCMAKE_OSX_SYSROOT=iphonesimulator >"$OUT/touch-test.log" 2>&1 ||
+    fail "touch: cannot generate the UI test project (platforms/ios/touch-test): see touch-test.log"
+TEST_RUNNER_FA_TOUCH_BUNDLE_ID="$BUNDLE_ID" xcodebuild test -project "$TOUCH_BUILD/FactoriaTouch.xcodeproj" \
+    -scheme FactoriaTouchHost -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO \
+    -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 >>"$OUT/touch-test.log" 2>&1 || {
+    grep -E 'error|Test Case|failed' "$OUT/touch-test.log" | tail -n 20
+    fail "touch: the UI test that taps the screen failed (lines above, full log in touch-test.log)"
+}
+grep -E "Test Case .* passed|Tap Application" "$OUT/touch-test.log" | tee -a "$OUT/summary.txt"
+wait_for_log "input: first touch" 15 ||
+    fail "touch: the UI test tapped the middle of the screen but the player logged no 'input: first touch'"
+TOUCH="$(first_line 'input: first touch')"
+echo "$TOUCH" | tee -a "$OUT/summary.txt"
+alive || fail "touch: the app process $PID is gone after the tap"
+IFS= read -r -d '' CHECK_TOUCH <<'PY'
+import json, re, sys
+line, project = sys.argv[1], sys.argv[2]
+m = re.search(r"design \((-?[0-9.]+), (-?[0-9.]+)\)", line)
+if not m:
+    sys.exit(f"cannot read the design position in: {line}")
+x, y = float(m.group(1)), float(m.group(2))
+display = json.load(open(project)).get("display", {})
+w, h, mode = display.get("width", 1280), display.get("height", 720), display.get("scaleMode", "fit")
+if mode not in ("fit", "stretch"):
+    print(f"position not checked: scaleMode '{mode}' shows more than the design area")
+    sys.exit(0)
+if abs(x - w / 2) > 0.03 * w or abs(y - h / 2) > 0.03 * h:
+    sys.exit(f"the tap in the middle of the screen landed at design ({x:.0f}, {y:.0f}), expected about "
+             f"({w / 2:.0f}, {h / 2:.0f}) for a {w}x{h} design (scaleMode {mode}): touch positions are converted wrong")
+print(f"position ok: ({x:.0f}, {y:.0f}) is the middle of the {w}x{h} design")
+PY
+CHECKED="$(python3 -c "$CHECK_TOUCH" "$TOUCH" "$APP/game/factoria.json" 2>&1)" || fail "touch: $CHECKED"
+echo "touch: $CHECKED" | tee -a "$OUT/summary.txt"
 
 # ---- 4. suspend / resume --------------------------------------------------------------------------------------------
 SUSPENDED0="$(count 'player: suspended')"
@@ -165,12 +223,12 @@ has_picture "$OUT/screen-resumed.png" "resume"
 
 # ---- 5. no crash ----------------------------------------------------------------------------------------------------
 xcrun simctl io "$UDID" screenshot "$OUT/screen.png" >/dev/null 2>&1
-if grep -E '^\[ *[0-9.]+\] ERROR ' "$OUT/stderr.log" "$OUT/stdout.log"; then fail "the engine logged errors (lines above)"; fi
+if grep -E '^\[ *[0-9.]+\] ERROR ' "$OUT/console.log"; then fail "the engine logged errors (lines above)"; fi
 if ls ~/Library/Logs/DiagnosticReports/factoria_player* >/dev/null 2>&1; then fail "a crash report exists for factoria_player"; fi
 
 # The display shows a picture, not a black or flat window (the log alone cannot tell).
 has_picture "$OUT/screen.png" "display"
 
 echo "---- run evidence (player console) ----" | tee -a "$OUT/summary.txt"
-grep -hE '(engine: Graphics|scene: Loaded|audio: |player: )' "$OUT/stderr.log" "$OUT/stdout.log" | tee -a "$OUT/summary.txt"
-echo "OK: $BUNDLE_ID ran on the simulator (pid $PID): rendered, audio stream, suspend/resume, no crash (touch not covered)." | tee -a "$OUT/summary.txt"
+grep -E '(engine: Graphics|scene: Loaded|audio: |player: |input: )' "$OUT/console.log" | tr -d '\r' | tee -a "$OUT/summary.txt"
+echo "OK: $BUNDLE_ID ran on the simulator (pid $PID): rendered, audio stream, touch, suspend/resume, no crash." | tee -a "$OUT/summary.txt"

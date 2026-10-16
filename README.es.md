@@ -54,8 +54,9 @@ el editor:
 - **Windows:** menú Inicio > **FactorIA Editor** (instalador), o doble clic en `FactorIA-Editor.exe`. SmartScreen puede
   frenarlo (siempre con una versión sin firmar): pulsa **Más información > Ejecutar de todas formas**.
 - **macOS:** ejecuta `./factoria editor` en Terminal desde la carpeta descomprimida. Gatekeeper bloquea la primera vez
-  una versión que no está notarizada: en Finder, clic derecho en `factoria` > **Abrir** (macOS 15 y posteriores:
-  Ajustes del Sistema > Privacidad y seguridad > **Abrir igualmente**).
+  una versión que no está notarizada: quita la cuarentena de descarga una vez, `xattr -dr com.apple.quarantine
+  <carpeta>`, o permite `factoria` en Ajustes del Sistema > Privacidad y seguridad > **Abrir igualmente** (detalles en
+  docs/GETTING_STARTED.md).
 - **Linux:** ejecuta `./factoria editor` desde la carpeta descomprimida, o `./FactorIA-linux-x64.AppImage` (tras
   `chmod +x`; con argumentos es el comando `factoria`).
 

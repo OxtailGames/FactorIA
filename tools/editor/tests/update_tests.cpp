@@ -152,3 +152,47 @@ TEST_CASE("install_update replaces the files and keeps the old ones until the ne
     CHECK_FALSE(stdfs::exists(install / ".update"));
     stdfs::remove_all(root);
 }
+
+// Opt-in, needs the network: FA_UPDATE_LIVE=1 (or =<owner/repo>, default OxtailGames/FactorIA) installs the newest
+// published release over a fake old install, as the editor's Update button does, and runs the new factoria. It checks
+// what the unit test above cannot: the real package of this OS, the download from GitHub and the unpacking (executable
+// bits, macOS code signatures).
+TEST_CASE("install_update installs the newest published release (FA_UPDATE_LIVE=1, network)"
+          * doctest::skip(std::getenv("FA_UPDATE_LIVE") == nullptr)) {
+    std::string repo = std::getenv("FA_UPDATE_LIVE");
+    if (repo.find('/') == std::string::npos) repo = "OxtailGames/FactorIA";
+    ai::HttpRequest rq;
+    rq.method = "GET";
+    rq.url = "https://api.github.com/repos/" + repo + "/releases?per_page=30";
+    rq.headers = {{"Accept", "application/vnd.github+json"}};
+    ai::HttpResponse resp = ai::http_request(rq);
+    REQUIRE_MESSAGE(resp.ok(), (std::to_string(resp.status) + " " + resp.error + " " + resp.body.substr(0, 200)));
+    auto list = parse_json(resp.body, rq.url);
+    REQUIRE(list);
+    auto info = parse_releases(*list, "0.0.1");
+    REQUIRE_MESSAGE(info, info.error().to_string());
+    REQUIRE(info->available());
+
+    stdfs::path install = stdfs::temp_directory_path() / "fa_update_live_test";
+    stdfs::remove_all(install);
+#ifdef _WIN32
+    const std::string exe = "factoria.exe";
+#else
+    const std::string exe = "factoria";
+#endif
+    put(install / exe, "old factoria");
+    auto r = install_update(*info, install);
+    REQUIRE_MESSAGE(r, r.error().to_string());
+    CHECK(stdfs::exists(install / (exe + ".old")));
+    CHECK(stdfs::is_directory(install / "mobile"));  // every package carries the prebuilt Android player
+    ai::ProcessOptions po;
+    po.argv = {(install / exe).string(), "--version"};
+    po.captureStdout = true;
+    auto ran = ai::run_process(po);
+    REQUIRE(ran);
+    CHECK(ran->exitCode == 0);
+    CHECK_MESSAGE(ran->stdoutText.find(info->latest) != std::string::npos, (ran->stdoutText + ran->stderrText));
+    remove_update_leftovers(install);
+    CHECK_FALSE(stdfs::exists(install / (exe + ".old")));
+    stdfs::remove_all(install);
+}

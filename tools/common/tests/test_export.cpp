@@ -320,7 +320,15 @@ TEST_CASE("export: ios source mode produces a script and the game folder") {
     CHECK(script.find("-DFA_GAME_PROJECT_DIR=\"$HERE/game\"") != std::string::npos);
     CHECK(script.find("-DFA_GAME_BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
     CHECK(script.find("-DFA_GAME_NAME='Space Dodge'") != std::string::npos);
-    CHECK(script.find("--config Release") != std::string::npos);
+    CHECK(script.find("CONFIG=Release") != std::string::npos);
+    CHECK(script.find("BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
+    // A device build is a scheme build with a destination, so Xcode can register a connected device with the team (a
+    // target build ignores the destination and fails with "Your team has no devices"); --run installs and starts it.
+    CHECK(script.find("-scheme factoria_player") != std::string::npos);
+    CHECK(script.find("-allowProvisioningDeviceRegistration") != std::string::npos);
+    CHECK(script.find("--run) BUILD=1; RUN=1") != std::string::npos);
+    CHECK(script.find("xcrun devicectl device install app") != std::string::npos);
+    CHECK(script.find("xcrun simctl launch --terminate-running-process --console-pty") != std::string::npos);
     CHECK(script.find("cmake -S \"$ENGINE_DIR\"") != std::string::npos);
     CHECK(script.find("-DFA_BUILD_TOOLS=OFF") != std::string::npos);
     CHECK(script.find("XCODE_ARGS") != std::string::npos);  // everything after `--` goes to xcodebuild
@@ -523,7 +531,8 @@ TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded 
     CHECK(script.find("-DFA_GAME_PROJECT_DIR=\"$HERE/game\"") != std::string::npos);
     CHECK(script.find("ENGINE_DIR") == std::string::npos);
     CHECK(script.find("FA_BUILD_TOOLS") == std::string::npos);
-    CHECK(script.find("-sdk \"$SYSROOT\"") != std::string::npos);
+    CHECK(script.find("-sdk iphonesimulator CODE_SIGNING_ALLOWED=NO") != std::string::npos);
+    CHECK(script.find("-scheme factoria_player") != std::string::npos);
     CHECK(script.find("--) shift; XCODE_ARGS") != std::string::npos);
     std::string steps;
     for (auto& s : r->nextSteps) steps += s + "\n";
@@ -580,7 +589,7 @@ TEST_CASE("export: command project.export (MCP tool project_export)") {
     for (const std::string& f : ok.result["files"].get<std::vector<std::string>>()) CHECK(f.find("game/build/") != 0);
     CHECK_FALSE(ok.result["nextSteps"].empty());
     CHECK(ok.result["warnings"].is_array());
-    CHECK(testing::read_all(root / "build_ios.sh").find("--config Release") != std::string::npos);
+    CHECK(testing::read_all(root / "build_ios.sh").find("CONFIG=Release") != std::string::npos);
 
     // Unknown platform: a teaching error, nothing written.
     auto bad = reg.call("project.export", {{"platform", "windwos"}});
