@@ -18,6 +18,7 @@
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
+#include "assets_internal.h"
 #include "util.h"
 
 namespace fa {
@@ -33,6 +34,7 @@ struct PropsCheck {
 struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
+    std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -145,6 +147,9 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
     if (entity.contains("components") && entity["components"].is_object()) {
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
+            if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
+                !it.value()["texture"].get<std::string>().empty())
+                c.spriteTextures.insert(it.value()["texture"].get<std::string>());
             if (it.key() == "Tilemap") check_tilemap_tileset(c, file, pointer + "/components/Tilemap", it.value());
             if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
                 scripts.insert(it.value()["path"].get<std::string>());
@@ -363,6 +368,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     check_project_file(c, mainScene, feedbackFile);
     check_feedback_file(c, feedbackFile);
     check_assets_manifest(c);
+    assets_detail::check_shipped_assets(c.dir, c.report.warnings);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
@@ -404,6 +410,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
+        assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
         if (sceneFiles.empty())
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
         else if (!mainScene.empty() && std::find(sceneFiles.begin(), sceneFiles.end(), mainScene) == sceneFiles.end() &&
