@@ -10,7 +10,7 @@ A game is a folder of text files:
 
 ```
 my-game/
-  factoria.json           project settings: display, physics, input actions, main scene
+  factoria.json           project settings: display, physics, input actions, main scene, icon and per-platform export settings (docs: exporting)
   scenes/*.scene.json     levels: entities with components
   prefabs/*.prefab.json   reusable entities (optional)
   scripts/*.js            behaviours: game logic as JavaScript classes
