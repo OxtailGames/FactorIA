@@ -1,0 +1,17 @@
+{
+  "format": "factoria.project/1",
+  "name": "My Game",
+  "id": "com.factoria.fixtures.menus",
+  "version": "0.1.0",
+  "mainScene": "scenes/menu.scene.json",
+  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "input": {
+    "actions": {
+      "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
+      "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"],
+      "jump": ["Space", "W", "Up", "GamepadA"],
+      "pause": ["Escape", "P", "GamepadStart"]
+    }
+  }
+}

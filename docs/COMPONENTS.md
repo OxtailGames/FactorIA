@@ -1140,7 +1140,7 @@ Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefab
 
 Create a native plugin (C/C++) for this game and declare it in factoria.json.
 
-Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt and README.md, and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Returns {folder, files[], plugin, nextSteps[]}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Returns {folder, files[], plugin, nextSteps[]}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -2007,7 +2007,14 @@ declare module "factoria" {
      */
     music(path: string, opts?: { volume?: number; fade?: number }): void;
     stopMusic(fade?: number): void;
+    /**
+     * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
+     */
     setVolume(bus: "master" | "sfx" | "music" | "ui", volume: number): void;
+    /**
+     * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
+     */
+    getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
   }
 
   /**
@@ -2154,6 +2161,10 @@ declare module "factoria" {
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
+    /**
+     * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
+     */
+    readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
   }
 
   /**

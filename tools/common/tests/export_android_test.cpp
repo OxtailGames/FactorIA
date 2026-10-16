@@ -63,6 +63,13 @@ std::string make_game(const testing::TempDir& tmp, const std::string& extraMembe
     return dir;
 }
 
+// A game that declares the native plugin "example" for Android, whose folder holds `files` (relative to it).
+std::string make_plugin_game(const testing::TempDir& tmp, const std::vector<std::string>& files) {
+    const std::string game = make_game(tmp, R"("plugins": {"example": {"path": "plugins/example", "platforms": ["android"]}})");
+    for (const std::string& f : files) testing::write_all(stdfs::path(game) / "plugins" / "example" / f, "contents of " + f);
+    return game;
+}
+
 void write_icon(const std::string& gameDir, int size = 512, const std::string& rel = "assets/icon.png") {
     Image img;
     img.width = img.height = size;
@@ -204,6 +211,120 @@ TEST_CASE("android export: no icon means the default icon and a warning; no sign
     CHECK(gradle.find("compileSdk 36") != std::string::npos);
     CHECK(gradle.find("minSdk 26") != std::string::npos);
     CHECK(gradle.find("versionCode 100") != std::string::npos);  // 0.1.0
+    // No native plugin: no Java code to load, no module, no dependencies.
+    CHECK(manifest.find("android:hasCode=\"false\"") != std::string::npos);
+    CHECK(gradle.find("dependencies") == std::string::npos);
+    CHECK(testing::read_all(root / "settings.gradle").find("plugin_") == std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "plugins"));
+    // The levels a plugin's Gradle module reads, and the library plugin it applies at the same AGP version.
+    CHECK(testing::read_all(root / "gradle.properties").find("factoria.compileSdk=36") != std::string::npos);
+    CHECK(testing::read_all(root / "gradle.properties").find("factoria.minSdk=26") != std::string::npos);
+    CHECK(testing::read_all(root / "build.gradle").find("com.android.library' version '8.13.2' apply false") != std::string::npos);
+}
+
+TEST_CASE("android export: a plugin's Gradle module becomes a project of the build and its Java code loads") {
+    testing::TempDir tmp;
+    const std::string game = make_plugin_game(
+        tmp, {"src/plugin.c", "android/build.gradle", "android/consumer-rules.pro", "android/src/main/AndroidManifest.xml",
+              "android/src/main/java/factoria/plugin/example/Plugin.java", "android/src/main/jniLibs/arm64-v8a/libexample.so",
+              "android/src/main/jniLibs/x86_64/libexample.so", "android/build/outputs/aar/old.aar", "android/.gradle/state",
+              "android/.cxx/cache"});
+    auto r = export_project(options(game, tmp, "gradle"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+
+    // The module is copied (with its native libraries), without what building it left behind and without the plugin's sources.
+    for (const char* f : {"build.gradle", "consumer-rules.pro", "src/main/AndroidManifest.xml", "src/main/java/factoria/plugin/example/Plugin.java",
+                          "src/main/jniLibs/arm64-v8a/libexample.so", "src/main/jniLibs/x86_64/libexample.so"}) {
+        CAPTURE(f);
+        CHECK(testing::read_all(root / "plugins/example" / f) == std::string("contents of android/") + f);
+        CHECK(has(r->files, std::string("plugins/example/") + f));
+    }
+    for (const char* f : {"build", ".gradle", ".cxx", "src/plugin.c"}) {
+        CAPTURE(f);
+        CHECK_FALSE(stdfs::exists(root / "plugins/example" / f));
+    }
+    CHECK_FALSE(stdfs::exists(root / "app/src/main/assets/plugins"));
+    CHECK_FALSE(any_contains(r->files, "assets/plugins/"));
+
+    // It is a project of the build and a dependency of the app.
+    const std::string settings = testing::read_all(root / "settings.gradle");
+    CHECK(settings.find("include ':app'\ninclude ':plugin_example'\nproject(':plugin_example').projectDir = file('plugins/example')") != std::string::npos);
+    const std::string gradle = testing::read_all(root / "app/build.gradle");
+    CHECK(gradle.find("\ndependencies {\n    implementation project(':plugin_example')\n}") != std::string::npos);
+    CHECK(gradle.find("fileTree") == std::string::npos);
+
+    // The app carries code: the plugin's Java classes are in its dex.
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("{{") == std::string::npos);
+}
+
+TEST_CASE("android export: a plugin module without Java or Kotlin code leaves hasCode false; Kotlin sources turn it on") {
+    testing::TempDir tmp;
+    SUBCASE("only the native libraries") {
+        const std::string game = make_plugin_game(tmp, {"android/build.gradle", "android/src/main/jniLibs/arm64-v8a/libexample.so"});
+        auto r = export_project(options(game, tmp, "gradle"));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"false\"") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle").find("implementation project(':plugin_example')") != std::string::npos);
+    }
+    SUBCASE("a Kotlin module") {
+        const std::string game = make_plugin_game(tmp, {"android/build.gradle.kts", "android/src/main/kotlin/factoria/plugin/example/Plugin.kt"});
+        auto r = export_project(options(game, tmp, "gradle"));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+        CHECK(stdfs::exists(stdfs::path(r->outputDir) / "plugins/example/build.gradle.kts"));
+    }
+}
+
+// Copied file by file through fs::os_path: std::filesystem::copy of a folder silently drops what lies past MAX_PATH on Windows.
+TEST_CASE("android export: a plugin module is copied whole into an output folder deeper than Windows' MAX_PATH") {
+    testing::TempDir tmp;
+    const std::string game = make_plugin_game(tmp, {"android/build.gradle", "android/src/main/java/factoria/plugin/example/Plugin.java",
+                                                    "android/src/main/jniLibs/x86_64/libexample.so"});
+    const stdfs::path deep = stdfs::path(tmp.sub("out")) / std::string(90, 'a') / std::string(90, 'b');
+    ExportOptions o = options(game, tmp, "gradle");
+    o.outDir = deep.string();
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    for (const char* f : {"build.gradle", "src/main/java/factoria/plugin/example/Plugin.java", "src/main/jniLibs/x86_64/libexample.so"}) {
+        CAPTURE(f);
+        const stdfs::path copy = stdfs::path(r->outputDir) / "plugins/example" / f;
+        std::error_code ec;
+        CHECK(stdfs::is_regular_file(fs::os_path(copy), ec));
+        CHECK(has(r->files, std::string("plugins/example/") + f));
+    }
+    CHECK((stdfs::path(r->outputDir) / "plugins/example/src/main/java/factoria/plugin/example/Plugin.java").string().size() > 260);
+    std::error_code ec;
+    stdfs::remove_all(fs::os_path(deep), ec);  // TempDir's own remove_all would stop at the long paths on Windows
+}
+
+TEST_CASE("android export: a plugin of .aar and .jar files is a dependency of the app") {
+    testing::TempDir tmp;
+    const std::string game = make_plugin_game(tmp, {"android/sdk.aar", "android/Helper.JAR", "android/notes.txt", "android/sub/other.aar"});
+    auto r = export_project(options(game, tmp, "gradle"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+
+    CHECK(testing::read_all(root / "app/libs/example/sdk.aar") == "contents of android/sdk.aar");
+    CHECK(stdfs::exists(root / "app/libs/example/Helper.JAR"));
+    CHECK_FALSE(stdfs::exists(root / "app/libs/example/notes.txt"));  // only the archives
+    CHECK_FALSE(stdfs::exists(root / "app/libs/example/sub"));
+    CHECK_FALSE(stdfs::exists(root / "plugins"));
+    CHECK(testing::read_all(root / "settings.gradle").find("plugin_") == std::string::npos);
+    CHECK(testing::read_all(root / "app/build.gradle")
+              .find("\ndependencies {\n    implementation fileTree(dir: 'libs/example', include: ['*.aar', '*.jar'])\n}") != std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+}
+
+TEST_CASE("android export: a plugin without an Android build stops the export and says what to put there") {
+    testing::TempDir tmp;
+    const std::string game = make_plugin_game(tmp, {"android/readme.txt"});
+    auto r = export_project(options(game, tmp, "gradle"));
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("factoria.json#/plugins/example") != std::string::npos);
+    CHECK(r.error().message.find("no Android build") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-android")));
 }
 
 TEST_CASE("android export: an icon that cannot be used stops the export with the settings pointer") {

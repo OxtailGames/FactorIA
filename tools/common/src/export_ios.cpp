@@ -19,6 +19,7 @@ Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::p
     static const std::pair<const char*, const char*> kFiles[] = {
         {"platforms/ios/prebuilt/CMakeLists.txt", "CMakeLists.txt"},
         {"platforms/ios/plist.cmake", "cmake/plist.cmake"},
+        {"platforms/ios/plugins.cmake", "cmake/plugins.cmake"},
         {"platforms/ios/Info.plist.in", "cmake/Info.plist.in"},
         {"platforms/common/copy_game.cmake", "cmake/copy_game.cmake"}};
     for (const auto& [from, to] : kFiles) {
@@ -47,6 +48,18 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     if (auto r = copy_game(p, files, outRoot / "game"); !r.ok()) return r;
     if (setup.prebuilt)
         if (auto r = write_ios_prebuilt_project(setup, outRoot); !r.ok()) return r;
+    // Native plugins: each one's static libraries (<name>/iphoneos, <name>/iphonesimulator) next to build_ios.sh, which hands
+    // them to CMake (-DFA_GAME_PLUGINS, -DFA_GAME_PLUGIN_DIR) so that the app links them (platforms/ios/plugins.cmake).
+    std::string pluginNames;
+    for (const Project::Plugin& plugin : p.plugins) {
+        const stdfs::path dest = outRoot / "plugins" / plugin.name;
+        std::error_code ec;
+        stdfs::create_directories(os_path(dest), ec);
+        stdfs::copy(os_path(plugin.build), os_path(dest), stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing, ec);
+        if (ec) return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " + generic(dest) +
+                           ": " + ec.message());
+        pluginNames += (pluginNames.empty() ? "" : ";") + plugin.name;
+    }
     // The app icon: an asset catalog next to build_ios.sh, which hands it to CMake (-DFA_GAME_ASSET_CATALOG) so that Xcode
     // compiles it into the app (Assets.car + CFBundleIcons). The App Store icon has no transparency: it is composed over
     // export.ios.iconBackground.
@@ -103,6 +116,7 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          "  -DFA_GAME_BUILD=" + sh_quote(buildNumber) + " \\\n"
          "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n" +
          (hasIcon ? "  -DFA_GAME_ASSET_CATALOG=\"$HERE/Assets.xcassets\" \\\n" : "") +
+         (pluginNames.empty() ? "" : "  -DFA_GAME_PLUGINS=" + sh_quote(pluginNames) + " -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\" \\\n") +
          "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-" + team + "}\"\n";
     std::string build = R"SH(if [ "$BUILD" = 0 ]; then
   echo "Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run."

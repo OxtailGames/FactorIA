@@ -1,0 +1,281 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Options",
+    "components": {
+      "Panel": {
+        "size": [760, 620],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      },
+      "Script": {
+        "path": "scripts/ui/options.js"
+      }
+    },
+    "children": [
+      {
+        "name": "Title",
+        "components": {
+          "Text": {
+            "text": "Options",
+            "fontSize": 40,
+            "space": "screen",
+            "layer": 301
+          }
+        }
+      },
+      {
+        "name": "Tabs",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "tab_video",
+            "components": {
+              "Button": {
+                "text": "Video",
+                "size": [160, 48],
+                "layer": 302,
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "tab_audio",
+            "components": {
+              "Button": {
+                "text": "Audio",
+                "size": [160, 48],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "tab_controls",
+            "components": {
+              "Button": {
+                "text": "Controls",
+                "size": [160, 48],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "tab_language",
+            "components": {
+              "Button": {
+                "text": "Language",
+                "size": [160, 48],
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "video_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "fullscreen",
+            "components": {
+              "Toggle": {
+                "label": "Full screen",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "resolution",
+            "components": {
+              "Button": {
+                "text": "Window size",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "vsync",
+            "components": {
+              "Toggle": {
+                "label": "VSync",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "frame_cap",
+            "components": {
+              "Button": {
+                "text": "Frame cap",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "video_note",
+            "components": {
+              "Text": {
+                "text": "Video settings apply when the game runs in its own window.",
+                "fontSize": 18,
+                "color": [0.75, 0.8, 0.9, 1],
+                "space": "screen",
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "audio_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "master_volume",
+            "components": {
+              "Slider": {
+                "label": "Master",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "music_volume",
+            "components": {
+              "Slider": {
+                "label": "Music",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "sfx_volume",
+            "components": {
+              "Slider": {
+                "label": "Effects",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "ui_volume",
+            "components": {
+              "Slider": {
+                "label": "Interface",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "controls_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "bindings",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            }
+          },
+          {
+            "id": "reset_controls",
+            "components": {
+              "Button": {
+                "text": "Reset to defaults",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "language_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "language",
+            "components": {
+              "Button": {
+                "text": "Language: English",
+                "size": [560, 44],
+                "layer": 302,
+                "interactable": false
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "options_back",
+        "tags": ["back"],
+        "components": {
+          "Button": {
+            "text": "Back",
+            "layer": 302
+          }
+        }
+      }
+    ]
+  }
+}

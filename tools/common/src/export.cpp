@@ -325,15 +325,17 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
 }
 
 // The files of an export, relative to its root. An Android export that ran Gradle holds thousands of build products too
-// (.gradle/, build/, app/build/): they are not part of the export and are left out.
+// (.gradle/, build/, app/build/, plugins/<name>/build/): they are not part of the export and are left out.
 std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutput) {
     std::vector<std::string> out;
     std::error_code ec;
     const stdfs::path osRoot = os_path(root);
     for (stdfs::recursive_directory_iterator it(osRoot, ec), end; !ec && it != end; it.increment(ec)) {
         const std::string rel = generic(it->path().lexically_relative(osRoot));
+        const std::size_t pluginSlash = rel.rfind("plugins/", 0) == 0 ? rel.find('/', 8) : std::string::npos;
         if (skipGradleOutput && it->is_directory(ec) &&
-            (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build")) {
+            (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build" ||
+             (pluginSlash != std::string::npos && rel.compare(pluginSlash, std::string::npos, "/build") == 0))) {
             it.disable_recursion_pending();
             continue;
         }
