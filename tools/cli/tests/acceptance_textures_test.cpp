@@ -1,0 +1,142 @@
+// Acceptance test of the texture pipeline (docs/ASSETS.md, "Textures"): a mobile export of the 2d-platformer template ships
+// its tileset as a GPU-compressed KTX2 file instead of the PNG, and the exported game, run from the exported folder, draws
+// the same picture as the project does from its PNG.
+//
+// What is compared: the first frames of the main scene, rendered headless (the screenshot `factoria screenshot` takes), once
+// from the project and once from the assets folder of the Android Gradle project the export wrote. Both are checked against
+// ONE committed golden, tests/golden/export_2d_platformer.png (written from the project's render; FA_UPDATE_GOLDEN=1
+// rewrites it). The project must match it as tightly as any render golden; the exported game gets a looser bound because
+// UASTC is lossy: the tileset is block-compressed (BC7 on a desktop GPU, ASTC on a phone), so tile edges move by a few
+// levels. The bound below is what that costs on this scene (measured, below), with room for another GPU's rounding.
+#include <doctest.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+
+#include "common.h"  // tools/cli/src: Session
+#include "fa/core/fs.h"
+#include "fa/core/image.h"
+#include "fa/core/json.h"
+#include "fa/render/renderer.h"
+#include "fa/tooling/export.h"
+#include "fa/tooling/scaffold.h"
+
+namespace stdfs = std::filesystem;
+
+namespace {
+
+// Mean absolute channel difference (0..1) the project's render may have to the golden: the render goldens' own bound.
+constexpr double kProjectTolerance = 0.004;
+// ... and the exported game's: UASTC (near lossless, 8 bits a pixel) on the pixel-art tileset. Measured with BC7 on a
+// Radeon RX 6950 XT (D3D11): meanError 0.00034, about 2500 of 230400 pixels differ (by up to 0.1 in one channel).
+constexpr double kExportedTolerance = 0.002;
+
+void write_file(const stdfs::path& path, const std::string& data) {
+    stdfs::create_directories(path.parent_path());
+    std::ofstream(path, std::ios::binary).write(data.data(), std::streamsize(data.size()));
+}
+
+// Runs `dir` headless for a few frames and returns the game view; `tilesetReport` receives how the tileset sits in GPU memory.
+fa::Image render_project(const std::string& dir, const stdfs::path& shot, fa::Json& tilesetReport, bool& hadGpu) {
+    fa::cli::SessionOptions so;
+    so.gfx = fa::cli::Gfx::Auto;
+    so.width = 640;
+    so.height = 360;
+    auto session = fa::cli::Session::open(dir, so);
+    hadGpu = session->has_graphics();
+    if (!hadGpu) return {};
+    session->engine().step(30);
+    std::string err;
+    REQUIRE_MESSAGE(session->engine().screenshot(shot.generic_string(), &err), err);
+    if (fa::Renderer* renderer = session->engine().renderer()) {
+        const fa::Json report = renderer->asset_report();
+        for (const fa::Json& t : report["textures"])
+            if (t["path"] == "assets/tileset.png") tilesetReport = t;
+    }
+    auto img = fa::load_image(shot.generic_string());
+    REQUIRE_MESSAGE(img.ok(), (img.ok() ? "" : img.error().to_string()));
+    return std::move(*img);
+}
+
+}  // namespace
+
+TEST_CASE("A mobile export ships compressed textures and still matches the render golden") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path tmp = fa::fs::make_temp_dir("fa_cli_texture_acceptance");
+    const std::string project = (tmp / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(project, "2d-platformer", opt).ok());
+
+    // 1. A mobile export: prebuilt mode with stand-in players (as tools/common/tests/test_export.cpp), the Gradle project only.
+    const stdfs::path download = tmp / "download" / "mobile";
+    for (const char* abi : {"arm64-v8a", "x86_64"}) write_file(download / "android" / "jniLibs" / abi / "libfactoria_player.so", abi);
+    fa::ExportOptions o;
+    o.projectDir = project;
+    o.platform = "android";
+    o.outDir = (tmp / "out").string();
+    o.mobileDir = download.string();
+    o.format = "gradle";
+    auto exported = fa::export_project(o);
+    REQUIRE_MESSAGE(exported.ok(), (exported.ok() ? "" : exported.error().to_string()));
+    const stdfs::path assetsDir = stdfs::path(exported->outputDir) / "app" / "src" / "main" / "assets";
+
+    // 2. The tileset ships as its GPU-compressed twin, not as the PNG; the rest of the game is there.
+    const stdfs::path twin = assetsDir / "assets" / "tileset.png.ktx2";
+    REQUIRE(stdfs::exists(twin));
+    CHECK_FALSE(stdfs::exists(assetsDir / "assets" / "tileset.png"));
+    CHECK(stdfs::exists(assetsDir / "scenes" / "main.scene.json"));
+    CHECK(stdfs::file_size(twin) > 100);
+    MESSAGE("tileset.png: " << stdfs::file_size(stdfs::path(project) / "assets" / "tileset.png") << " bytes as PNG, "
+                           << stdfs::file_size(twin) << " bytes as KTX2");
+
+    // 3. The same scene drawn from the project and from the exported folder.
+    const std::string goldenPath = (stdfs::path(FA_REPO_ROOT) / "tools" / "cli" / "tests" / "golden" / "export_2d_platformer.png").generic_string();
+    fa::Json plainTileset, exportedTileset;
+    bool gpuA = false, gpuB = false;
+    const fa::Image fromProject = render_project(project, tmp / "project.png", plainTileset, gpuA);
+    const fa::Image fromExport = render_project(assetsDir.string(), tmp / "exported.png", exportedTileset, gpuB);
+    fa::fs::set_project_root(oldRoot);
+    if (!gpuA || !gpuB) {
+        MESSAGE("no GPU on this machine: the render part of the acceptance test is skipped");
+        std::error_code ec;
+        stdfs::remove_all(tmp, ec);
+        return;
+    }
+
+    // 4. What the GPU holds: the export's tileset is smaller. (Which format it is depends on the GPU: BC7 on desktop GPUs, ASTC
+    // 4x4 on phones, ETC2 where nothing else is sampled; the Android emulator's GLES3 always has ETC2.)
+    REQUIRE(plainTileset.is_object());
+    REQUIRE(exportedTileset.is_object());
+    MESSAGE("GPU format of assets/tileset.png: " << exportedTileset["format"].get<std::string>() << ", " << exportedTileset["bytes"].get<int>()
+                                                 << " bytes (project: " << plainTileset["format"].get<std::string>() << ", "
+                                                 << plainTileset["bytes"].get<int>() << " bytes)");
+    CHECK(plainTileset["format"] == "RGBA8");
+    CHECK(exportedTileset["width"] == plainTileset["width"]);  // the picture's size, so tile indices still mean the same tiles
+    CHECK(exportedTileset["height"] == plainTileset["height"]);
+    if (exportedTileset["format"] != "RGBA8") CHECK(exportedTileset["bytes"].get<int>() < plainTileset["bytes"].get<int>());
+
+    // 5. Both against the golden.
+    const char* update = std::getenv("FA_UPDATE_GOLDEN");
+    if ((update && std::string(update) == "1") || !stdfs::exists(goldenPath)) {
+        REQUIRE(fa::save_png(fromProject, goldenPath).ok());
+        MESSAGE("wrote golden " << goldenPath);
+    }
+    auto golden = fa::load_image(goldenPath);
+    REQUIRE_MESSAGE(golden.ok(), "cannot load golden " << goldenPath);
+    REQUIRE(golden->width == fromProject.width);
+    REQUIRE(golden->height == fromProject.height);
+    const fa::ImageDiff project_diff = fa::diff_images(*golden, fromProject, 4.0f / 255.0f);
+    const fa::ImageDiff exported_diff = fa::diff_images(*golden, fromExport, 4.0f / 255.0f);
+    MESSAGE("project vs golden: meanError=" << project_diff.meanError << " maxError=" << project_diff.maxError << " differingPixels="
+                                             << project_diff.differingPixels);
+    MESSAGE("exported vs golden: meanError=" << exported_diff.meanError << " maxError=" << exported_diff.maxError << " differingPixels="
+                                              << exported_diff.differingPixels);
+    CHECK(project_diff.meanError <= kProjectTolerance);
+    CHECK(exported_diff.meanError <= kExportedTolerance);
+    CHECK(exported_diff.sameSize);
+
+    std::error_code ec;
+    stdfs::remove_all(tmp, ec);
+}
