@@ -17,6 +17,12 @@ std::string describe_http_error(std::string_view provider, const HttpResponse& r
 // Teaching hint for common statuses.
 std::string http_error_hint(std::string_view provider, int status);
 
+// `base` without trailing slashes, ready to have a path appended.
+inline std::string trim_slashes(std::string base) {
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    return base;
+}
+
 // Default cancel-aware sleep.
 void default_sleep(double seconds, const CancelFlag* cancel);
 

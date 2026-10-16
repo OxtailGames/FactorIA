@@ -15,9 +15,19 @@
 
 namespace fa::ai {
 
-enum class ProviderKind { Anthropic, OpenAICompatible, ClaudeCode, Codex, GenericCli };
+// The last four only generate assets (images, sounds, 3D models; docs/AI_PROVIDERS.md, "Asset providers"): roles cannot use them.
+enum class ProviderKind { Anthropic, OpenAICompatible, ClaudeCode, Codex, GenericCli, ElevenLabs, Meshy, Fake, AssetCommand };
 const char* provider_kind_name(ProviderKind k);  // "anthropic", "openai-compatible", "claude-code", ...
 bool is_cli_kind(ProviderKind k);
+bool is_asset_only_kind(ProviderKind k);  // elevenlabs, meshy, fake, asset-command
+
+// What an asset provider makes; the names are the keys of "assets" in ai.json.
+enum class MediaKind { Image, Sound, Music, Voice, Model3d };
+inline constexpr MediaKind kMediaKinds[] = {MediaKind::Image, MediaKind::Sound, MediaKind::Music, MediaKind::Voice,
+                                            MediaKind::Model3d};
+const char* media_kind_name(MediaKind k);  // "image", "sound", "music", "voice", "model3d"
+// openai-compatible: image, voice. elevenlabs: sound, music, voice. meshy: model3d. fake and asset-command: all.
+bool provider_makes(ProviderKind k, MediaKind m);
 
 struct ProviderConfig {
     std::string name;
@@ -37,8 +47,17 @@ struct ProviderConfig {
     std::vector<std::string> unsetEnv;
     std::string factoriaCommand = "factoria";
     Pricing pricing;                      // known=false unless configured
+    std::string license;                  // asset providers: the license note recorded for what they generate ("" = a built-in note)
     int maxRetries = 5;
     double timeoutSeconds = 600;
+};
+
+// Which provider (and model, voice) generates one kind of asset: an entry of "assets" in ai.json. There is no default:
+// generation costs money, so a missing kind is an error that shows what to add.
+struct AssetRoute {
+    std::string provider;
+    std::string model;  // "" = the provider's default for the kind
+    std::string voice;  // voice: the provider's voice name or id
 };
 
 struct RoleConfig {
@@ -65,6 +84,7 @@ struct AiConfig {
     std::string defaultProvider = "anthropic";
     std::map<std::string, ProviderConfig> providers;
     std::map<std::string, RoleConfig> roles;  // always has the three roles after load
+    std::map<std::string, AssetRoute> assets; // by media_kind_name; empty unless the file sets "assets"
     Limits limits;
     std::string sourcePath;                   // "" when defaults only
     std::vector<std::string> warnings;
@@ -73,6 +93,8 @@ struct AiConfig {
     // Role with defaults filled in. Unknown role names return the worker role.
     RoleConfig role(std::string_view name) const;
 };
+
+std::string providers_that_make(const AiConfig& cfg, MediaKind m);  // the names of the providers that make `m`: "a, b"
 
 using EnvLookup = std::function<std::string(const std::string& name)>;  // "" when unset
 EnvLookup system_env();

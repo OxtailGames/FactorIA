@@ -15,6 +15,7 @@ struct ProviderStatus {
     std::string path;          // CLI path
     std::string keySource;     // "env:OPENAI_API_KEY" | "config" | "ant-cli" | ""
     std::string hint;          // what to do when !available
+    std::vector<std::string> makes;  // asset providers (and openai): the media kinds it can generate ("image", "sound"...)
     Json to_json() const;
 };
 

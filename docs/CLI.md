@@ -218,7 +218,7 @@ Providers and roles are configured in `~/.factoria/ai.json` ([AI_PROVIDERS.md](A
 
 | Command | Purpose |
 |---|---|
-| `factoria ai doctor [--json]` | Which CLIs/keys are usable right now |
+| `factoria ai doctor [--json]` | Which CLIs/keys are usable right now, which asset providers make what (`[makes image, voice]`), and which provider each kind of asset is assigned to |
 | `factoria ai providers [--json]` | Providers and the role mapping |
 | `factoria ai config [--json]` | Config path, effective settings (redacted), example file |
 | `factoria ai run [project] "<task>" [--provider P] [--role orchestrator\|worker\|fast] [--model M] [--max-turns N] [--max-cost USD] [--no-delegate] [--json]` | Run a task; streams text, tool calls and cost |
