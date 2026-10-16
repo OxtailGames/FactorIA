@@ -50,10 +50,8 @@ struct PeVersionInfo {
 
 struct PeVersionPatch {
     bool found = false;                  // the file has a VS_VERSIONINFO resource (false: nothing was changed)
-    std::vector<std::string> set;        // the keys of `strings` written, in the order found
-    std::vector<std::string> truncated;  // ... of which the value was cut to the room of the placeholder
+    std::vector<std::string> truncated;  // keys of `strings` whose value was cut to the room of the placeholder
     bool signatureRemoved = false;       // as in PeIconPatch
-    bool truncatedFile = false;
 };
 
 // Writes `info` into the version information of the PE image `exe`: each string of `info.strings` whose key the resource

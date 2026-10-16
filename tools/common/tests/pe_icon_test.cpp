@@ -205,7 +205,6 @@ TEST_CASE("pe_version: the strings and numbers are written in place, padded with
     auto r = patch_pe_version(pe.bytes, info);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(r->found);
-    CHECK(r->set == std::vector<std::string>{"FileDescription", "ProductVersion", "OriginalFilename"});
     CHECK(r->truncated.empty());
     CHECK(r->signatureRemoved);
     CHECK(pe.bytes.size() == before.size() - 40);
@@ -253,7 +252,6 @@ TEST_CASE("pe_version: a value longer than its room is cut; a file without versi
         auto r = patch_pe_version(pe.bytes, info);
         REQUIRE(r.ok());
         CHECK_FALSE(r->found);
-        CHECK(r->set.empty());
         CHECK(pe.bytes == before);  // signature and stale checksum included
     }
     Bytes script = {'#', '!', '/', 'b', 'i', 'n', '/', 's', 'h', '\n'};
@@ -280,9 +278,7 @@ TEST_CASE("pe_version: the built factoria_player.exe is a GUI program with the v
     auto r = patch_pe_version(exe, info);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(r->found);
-    CHECK(r->set.size() == 6);
     CHECK(r->truncated.empty());
-    CHECK(version_string(exe, "FileDescription") == "value of FileDescription");
-    CHECK(version_string(exe, "OriginalFilename") == "value of OriginalFilename");
+    for (const auto& [key, value] : info.strings) CHECK(version_string(exe, key) == value);
 }
 #endif

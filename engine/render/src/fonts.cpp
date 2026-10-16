@@ -186,7 +186,7 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
     if (lineH < 1) lineH = float(px);
 
     std::vector<std::uint32_t> missing;  // characters neither the font nor its fallback has, for the warning below
-    auto get_glyph_cached = [&](std::uint32_t cp) -> GlyphInfo {
+    auto get_glyph = [&](std::uint32_t cp) -> GlyphInfo {
         FontFace* ff = f;
         if (!stbtt_FindGlyphIndex(&ff->info, int(cp)) && cp > 32 && fallback && fallback != f &&
             stbtt_FindGlyphIndex(&fallback->info, int(cp)))
@@ -205,6 +205,8 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
         stbtt_GetGlyphBitmapBox(&ff->info, gi, s, s, &x0, &y0, &x1, &y1);
         int w = x1 - x0, h = y1 - y0;
         if (w <= 0 || h <= 0 || gi == 0) {
+            if (!g.valid && visible(cp) && missing.size() < 8 && std::find(missing.begin(), missing.end(), cp) == missing.end())
+                missing.push_back(cp);
             g.empty = true;
             im.glyphs[key] = g;
             return g;
@@ -229,12 +231,6 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
         g.u0 = ax * inv; g.v0 = ay * inv; g.u1 = (ax + w) * inv; g.v1 = (ay + h) * inv;
         g.x0 = float(x0); g.y0 = float(y0); g.x1 = float(x1); g.y1 = float(y1);
         im.glyphs[key] = g;
-        return g;
-    };
-    auto get_glyph = [&](std::uint32_t cp) -> GlyphInfo {
-        GlyphInfo g = get_glyph_cached(cp);
-        if (!g.valid && visible(cp) && missing.size() < 8 && std::find(missing.begin(), missing.end(), cp) == missing.end())
-            missing.push_back(cp);
         return g;
     };
 
@@ -317,9 +313,9 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
 void Fonts::warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<std::uint32_t>& missing) {
     std::string chars;
     for (std::uint32_t cp : missing) chars += std::format("{}U+{:04X} '{}'", chars.empty() ? "" : ", ", cp, utf8(cp));
-    std::string excerpt;
-    for (std::size_t i = 0, n = 0; i < text.size() && n < 24; ++n) excerpt += utf8(next_codepoint(text, i));
-    if (excerpt.size() < text.size()) excerpt += "...";
+    std::size_t end = 0;
+    for (int n = 0; n < 24 && end < text.size(); ++n) next_codepoint(text, end);
+    const std::string excerpt = text.substr(0, end) + (end < text.size() ? "..." : "");
     std::string hint;
     for (const auto& [key, other] : impl_->faces) {
         if (other.get() == f || !other->ok) continue;
