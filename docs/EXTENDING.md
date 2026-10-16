@@ -702,10 +702,7 @@ The folder holds one build per platform:
 | Windows | `windows/<name>.dll` | copies `windows/` next to the `.exe` |
 | macOS | `macos/lib<name>.dylib` | copies `macos/` into `Contents/Frameworks` (the app is signed with `--deep`) |
 | Linux | `linux/lib<name>.so` | copies `linux/` next to the executable |
-| iOS | `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` | copies `ios/` to `plugins/<name>/` next to `build_ios.sh`, which links the library of the SDK into the app |
-
-An iOS plugin is a static library per SDK (the template builds it with `FA_PLUGIN_STATIC`, which gives its entry point
-the name `fa_plugin_init_<name>`), and the app registers it before `main`: [MOBILE.md](MOBILE.md#native-plugins-ios).
+| iOS | `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` | copies `ios/` to `plugins/<name>/` next to `build_ios.sh`, which links the library of the SDK into the app ([MOBILE.md](MOBILE.md#native-plugins-ios)) |
 
 Libraries the plugin needs go next to it, in the same folder: the template's `CMakeLists.txt` sets the run path to
 the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's folder. Android and iOS builds are

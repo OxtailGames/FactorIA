@@ -290,20 +290,18 @@ copies the plugin's `ios/` folder to `plugins/<name>/` next to `build_ios.sh`, w
 and `-DFA_GAME_PLUGIN_DIR=<export>/plugins` to CMake. In both modes (`platforms/ios/plugins.cmake`, used by
 `player/CMakeLists.txt` and by the exported `CMakeLists.txt`) the app links the libraries of the SDK it is configured for
 and gets a generated source that calls `fa_register_static_plugin("<name>", fa_plugin_init_<name>)` from a static
-constructor, before `main`. The source belongs to the app itself, not to an archive, so the linker cannot drop it. When
-the game starts, the engine finds the registered entry point instead of loading a library. A plugin declared for iOS that
+constructor, before `main` (the source is the app's own, not an archive's, so the linker keeps it). The engine finds the
+registered entry point instead of loading a library. A plugin declared for iOS that
 the app was built without (no `FA_GAME_PLUGINS`) logs the warning "it is not linked into the app", and a script that uses
 it gets that reason as an error, as for any plugin that does not load.
 
 Direct use of the engine checkout: add `-DFA_GAME_PLUGINS=example -DFA_GAME_PLUGIN_DIR=/path/to/plugins` to the
 `cmake --preset ios-simulator` command above, with `/path/to/plugins/example/iphonesimulator/libexample.a` in place (the
-device build needs `iphoneos/`). CI does this with the example plugin and a copy of the demo game that calls it
-(`tools/cli/tests/plugin_probe.js`): the `ios` job checks the app's console for `probe add=3` and
-`probe info={"plugin":"example",...}` (`FA_IOS_PLUGIN_PROBE=1` for `scripts/ios-smoke.sh`).
+device build needs `iphoneos/`). CI does this with the example plugin (the `ios` job runs `scripts/ios-smoke.sh` with
+`FA_IOS_PLUGIN_PROBE=1`).
 
-Not supported yet: Swift packages and XCFrameworks as plugins, and linking more than the plugin's own static library. The
-app links the frameworks listed in `platforms/ios/prebuilt/CMakeLists.txt` and nothing else, so a plugin that needs
-another framework or library cannot be linked yet.
+Not supported yet: Swift packages, XCFrameworks, and plugins that need more than their own `.a` (the app links only the
+frameworks listed in `platforms/ios/prebuilt/CMakeLists.txt`).
 
 App Store: archive from Xcode (Product > Archive) with a distribution
 certificate and provisioning profile. The icon comes from the game's `icon` (without one the app has the default

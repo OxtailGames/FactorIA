@@ -597,10 +597,8 @@ From the project's [platform settings](#platform-settings) the export takes:
   device without the variable. Setting `FA_IOS_DEVELOPMENT_TEAM` yourself still wins.
 - **`buildNumber`** becomes `CFBundleVersion` (`FA_GAME_BUILD`); when absent, the `version` is used as before.
 
-**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). A plugin is a static library per SDK on iOS. For every plugin
-declared for iOS the export needs `ios/iphoneos/lib<name>.a` and `ios/iphonesimulator/lib<name>.a` (it fails and names the
-missing file) and copies the plugin's `ios/` folder to `plugins/<name>/` next to `build_ios.sh`. The script passes the names
-and that folder to CMake, and the app links the libraries of the SDK it is built for and registers them before `main`
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). Each plugin declared for iOS needs `ios/iphoneos/lib<name>.a` and
+`ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it
 ([MOBILE.md](MOBILE.md#native-plugins-ios)).
 
 ```
