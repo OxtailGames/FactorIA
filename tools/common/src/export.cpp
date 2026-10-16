@@ -41,16 +41,6 @@ std::string host_platform() {
 #endif
 }
 
-std::string replace_all(std::string text, const std::string& from, const std::string& to) {
-    if (from.empty()) return text;
-    std::size_t pos = 0;
-    while ((pos = text.find(from, pos)) != std::string::npos) {
-        text.replace(pos, from.size(), to);
-        pos += to.size();
-    }
-    return text;
-}
-
 std::string xml_escape(const std::string& s, bool androidString) {
     std::string o;
     for (char c : s) {

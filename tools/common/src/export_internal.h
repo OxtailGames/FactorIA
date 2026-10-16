@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "fa/core/image.h"
+#include "fa/core/strings.h"  // replace_all
 #include "fa/core/types.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/export_settings.h"
@@ -44,7 +45,6 @@ struct Project {
 // ---- helpers (export.cpp) -----------------------------------------------------------------------------
 
 std::string host_platform();  // linux | windows | macos: the machine running factoria
-std::string replace_all(std::string text, const std::string& from, const std::string& to);
 std::string xml_escape(const std::string& s, bool androidString = false);
 std::string sh_quote(const std::string& s);
 

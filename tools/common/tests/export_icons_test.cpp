@@ -409,6 +409,7 @@ TEST_CASE("export: a missing icon file is an error that names factoria.json and 
 
     stdfs::create_directories(tmp.sub("out/space-dodge-linux"));
     testing::write_all(tmp.sub("out/space-dodge-linux/previous.txt"), "keep me");
+    testing::write_all(tmp.sub("out/space-dodge-linux/" + std::string(kExportMarkerFile)), "an earlier export");
     auto r = export_project(o);
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message == plan.error().message);
