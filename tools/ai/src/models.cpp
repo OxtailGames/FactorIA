@@ -13,11 +13,6 @@ using namespace util;
 
 namespace {
 
-std::string trim_slashes(std::string base) {
-    while (!base.empty() && base.back() == '/') base.pop_back();
-    return base;
-}
-
 // GET `hr.url`; the "data" array of the reply. One try: the caller shows the error and the user can ask again.
 Result<Json> get_model_list(std::string_view provider, HttpRequest hr, const ProviderRuntime& rt) {
     hr.method = "GET";
@@ -136,6 +131,14 @@ Result<std::vector<ModelInfo>> list_models(const ProviderConfig& cfg, ProviderRu
         case ProviderKind::ClaudeCode: return list_claude(cfg);
         case ProviderKind::Anthropic: return list_anthropic(cfg, rt);
         case ProviderKind::OpenAICompatible: return list_openai(cfg, rt);
+        case ProviderKind::ElevenLabs:
+        case ProviderKind::Meshy:
+        case ProviderKind::Fake:
+        case ProviderKind::AssetCommand:
+            return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) +
+                                  ") generates assets, it has no chat models",
+                              "Use it under \"assets\" in ai.json (docs/AI_PROVIDERS.md, Asset providers); its model is "
+                              "assets.<kind>.model.");
         default:
             return make_error("Provider '" + cfg.name + "' (" + provider_kind_name(cfg.kind) + ") does not list its models",
                               "Type the model name; the CLI's own documentation lists the ones it accepts.");

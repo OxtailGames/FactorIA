@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus) and M11 (native plugins) are done, M15 (asset pipeline) is in progress, the rest is not started.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus), M11 (native plugins) and M15 (asset pipeline) are done, the rest is not started.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -586,7 +586,7 @@ Acceptance criteria:
 - `validate` fails on a missing glyph and names the character, the text and the file.
 - Switching language at run time updates every Text that has a `key`.
 
-## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything")
+## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56, #57)
 
 Closes A-01..A-07, H-04 and F-07 (music streaming). Today an AI can only write a PNG through `fs.write`; `assets.list` is
 the only asset command, textures stay uncompressed RGBA8, and music is decoded whole into memory
@@ -607,6 +607,41 @@ Acceptance criteria:
 - With a fake provider in tests, `assets.generate_image` writes a PNG and its provenance record.
 - A 3-minute OGG plays with under 2 MB of decoded audio resident.
 - A mobile export ships compressed textures and still matches the render golden.
+
+What was built (docs/ASSETS.md is the reference):
+- `assets.json` at the project root: per-asset import settings (with `defaults` per kind) and provenance; validated by
+  `project.validate`; exports ship the import settings and drop provenance and style.
+- Generation (#57): an `assets` section in `ai.json` maps image, sound, music, voice and 3D models to
+  providers (OpenAI, ElevenLabs, Meshy, a local `asset-command`, and `fake` for tests); `assets.generate_image`,
+  `_sprite_sheet`, `_sound`, `_music`, `_voice`, `_model` write under `assets/` with provenance; house style (prompt,
+  reference images, palette lock); `assets.provenance`, `assets.set_provenance`, `assets.disclosure`, and exports write
+  `AI_CONTENT_DISCLOSURE.md` (Steam's pre-generated / live-generated answer) when an asset is AI-made. Acceptance:
+  `tools/ai/tests/test_assets.cpp`, "assets.generate_image with the fake provider writes the PNG and its provenance".
+- Import (#52): `assets.import` for Aseprite (tags as clips), PSD (flattened), OBJ + MTL (to glTF), FBX (through
+  FBX2glTF or Blender), and copies of the formats the engine reads; `assets.slice_sheet` (grid check, or auto-slicing of
+  uneven sheets with background removal); validate checks texture size, alpha, file weight and store size limits.
+- Audio (#55): streamed playback (per-voice decoders), BS.1770-4 loudness with `assets.analyze_audio` and `normalize` /
+  `targetLufs`, WAV to QOA conversion at export, a loudness check in validate. Acceptance:
+  `engine/audio/tests/test_streaming.cpp` plays a 3-minute OGG with at most 40 KB of decoded audio resident (about 60 MB
+  decoded whole).
+- Textures (#56): Basis Universal KTX2 twins written by mobile exports (`compression`), transcoded at load to ASTC 4x4,
+  BC7, ETC2 or RGBA8; atlas groups (`atlas`) packed by the export for sprites, particles and UI widgets. Acceptance:
+  `tools/cli/tests/acceptance_textures_test.cpp` against `tools/cli/tests/golden/export_2d_platformer.png`.
+
+Left open:
+- SDF/MSDF font atlases: the runtime rasterizes TTF/OTF at any size already; distance-field text belongs with the text
+  work of M10/M14.
+- Video import: waits for M19's video player, which decides the format.
+- Importers: OBJ polygons are triangulated as fans (concave faces come out wrong); Aseprite blend modes are composed as
+  normal and tilemap layers are skipped (both warn); PSD imports the flattened image only; FBX skins and animations wait
+  for M18.
+- Providers: Meshy makes untextured preview meshes only; ElevenLabs music is instrumental; seeds are honoured by `fake`
+  and `asset-command` only, reference images by OpenAI and `fake` only (the others warn).
+- Audio: normalization has no limiter (the gain is capped so the peak stays under -1 dBFS); Android and iOS never
+  measure loudness at run time, so sounds need the `analysis` records `assets.analyze_audio` or the export writes.
+- Textures: ASTC and ETC2 are sampled in the Linux CI (llvmpipe) and were checked by software decoding, not on a phone
+  GPU; ETC2 keeps less colour detail than ASTC and BC7 (one brightness offset for red, green and blue); KTX2 files use
+  no Zstd supercompression (none vendored); textures whose sides are not multiples of 4 ship as PNG.
 
 ## M16. Mobile store-ready (M, high on mobile)
 

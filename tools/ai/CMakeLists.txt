@@ -1,6 +1,6 @@
 # fa_ai: AI providers (Anthropic API, OpenAI-compatible APIs, CLI agents such as
-# Claude Code / Codex), roles, config, agent loop. Depends only on fa_core (the
-# CommandRegistry is its tool source); the CLI binary wires it to a project.
+# Claude Code / Codex), asset providers (images, sounds, 3D models), roles, config, agent loop. Depends on fa_core
+# (the CommandRegistry is its tool source) and fa_tooling (palette lock, AI disclosure); the CLI binary wires it to a project.
 file(GLOB_RECURSE ai_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 _fa_filter_platform_sources(ai_srcs ${ai_srcs})
 
@@ -15,7 +15,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/config_schema.cpp.in
 add_library(fa_ai STATIC ${ai_srcs} ${CMAKE_CURRENT_BINARY_DIR}/generated/config_schema.cpp)
 target_include_directories(fa_ai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(fa_ai PUBLIC cxx_std_20)
-target_link_libraries(fa_ai PUBLIC fa_core PRIVATE fa_warnings)
+target_link_libraries(fa_ai PUBLIC fa_core fa_tooling PRIVATE fa_warnings)
 
 # HTTP: libcurl when available, otherwise the `curl` executable at runtime.
 find_package(CURL QUIET)
@@ -33,7 +33,7 @@ if(FA_BUILD_TESTS)
     file(GLOB_RECURSE ai_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(ai_tests)
         add_executable(fa_test_ai ${ai_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
-        target_link_libraries(fa_test_ai PRIVATE fa_ai fa_ext_doctest fa_warnings)
+        target_link_libraries(fa_test_ai PRIVATE fa_ai fa_ext_cgltf fa_ext_doctest fa_warnings)
         target_compile_definitions(fa_test_ai PRIVATE FA_REPO_ROOT="${FA_ROOT}"
             FA_AI_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
         add_test(NAME ai COMMAND fa_test_ai WORKING_DIRECTORY ${FA_ROOT})

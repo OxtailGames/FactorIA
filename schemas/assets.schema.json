@@ -144,9 +144,9 @@
           "description": "Text appended to every image prompt, e.g. \"16-bit pixel art, black outline, flat shading\"."
         },
         "palette": {
-          "description": "Palette lock: generated images are reduced to these colours. Either a list of \"#rrggbb\" colours or the path of an image whose pixels are the palette.",
+          "description": "Palette lock: generated images are reduced to these colours. Either a list of colours (\"#rrggbb\" or a colour name) or the path of an image whose pixels are the palette.",
           "oneOf": [
-            { "type": "array", "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }, "minItems": 2 },
+            { "type": "array", "items": { "type": "string" }, "minItems": 2 },
             { "type": "string" }
           ]
         },
@@ -171,6 +171,11 @@
         "ai": {
           "type": "boolean",
           "description": "Whether AI made the content. Always true for generated; set it for imported files made with AI elsewhere."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["image", "sound", "music", "voice", "model3d"],
+          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart."
         },
         "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
         "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },

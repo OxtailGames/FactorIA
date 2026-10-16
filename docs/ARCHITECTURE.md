@@ -47,9 +47,9 @@ engine/            runtime modules (ship inside every game)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
-  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake)
+  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
-  ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles
+  ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles; asset providers (images, sounds, 3D models) and the assets.generate_* commands
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
   cli/             factoria    the single developer binary
 templates/         project templates used by `factoria new`

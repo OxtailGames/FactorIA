@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FactorIA AI config (~/.factoria/ai.json)",
-  "description": "User-level AI configuration: providers (API keys or CLI agents) and the roles orchestrator/worker/fast. Lives in the user's home, NEVER inside a game project.",
+  "description": "User-level AI configuration: providers (API keys or CLI agents), the roles orchestrator/worker/fast, and the asset providers that generate images, sounds and 3D models. Lives in the user's home, NEVER inside a game project.",
   "type": "object",
   "properties": {
     "$schema": { "type": "string" },
@@ -11,8 +11,20 @@
     },
     "providers": {
       "type": "object",
-      "description": "Providers by name. Built-in names (anthropic, openai, openrouter, gemini, groq, deepseek, ollama, lmstudio, claude-code, codex) exist without being listed; listing one overrides its fields.",
+      "description": "Providers by name. Built-in names (anthropic, openai, openrouter, gemini, groq, deepseek, ollama, lmstudio, claude-code, codex, elevenlabs, meshy, fake) exist without being listed; listing one overrides its fields.",
       "additionalProperties": { "$ref": "#/$defs/provider" }
+    },
+    "assets": {
+      "type": "object",
+      "description": "Which provider generates each kind of asset for the assets.generate_* commands. There is no default (generation costs money): a kind that is not listed makes its command fail with the JSON to add. The `fake` provider generates placeholders offline for free. Example: {\"image\": {\"provider\": \"openai\", \"model\": \"gpt-image-1\"}, \"sound\": {\"provider\": \"elevenlabs\"}, \"voice\": {\"provider\": \"elevenlabs\", \"voice\": \"<voice id>\"}, \"model3d\": {\"provider\": \"meshy\"}}.",
+      "properties": {
+        "image": { "$ref": "#/$defs/assetRoute" },
+        "sound": { "$ref": "#/$defs/assetRoute" },
+        "music": { "$ref": "#/$defs/assetRoute" },
+        "voice": { "$ref": "#/$defs/assetRoute" },
+        "model3d": { "$ref": "#/$defs/assetRoute" }
+      },
+      "additionalProperties": false
     },
     "roles": {
       "type": "object",
@@ -37,6 +49,16 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "assetRoute": {
+      "type": "object",
+      "required": ["provider"],
+      "properties": {
+        "provider": { "type": "string", "description": "Name of a provider that can make this kind: image: openai (or an openai-compatible server), fake, asset-command. sound and music: elevenlabs, fake, asset-command. voice: openai, elevenlabs, fake, asset-command. model3d: meshy, fake, asset-command." },
+        "model": { "type": "string", "description": "Model of the provider (\"gpt-image-1\", \"eleven_text_to_sound_v2\"...). Empty: the provider's default for the kind." },
+        "voice": { "type": "string", "description": "voice only: the voice to speak with (an ElevenLabs voice id, an OpenAI voice name such as \"alloy\")." }
+      },
+      "additionalProperties": false
+    },
     "role": {
       "type": "object",
       "properties": {
@@ -57,7 +79,8 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["anthropic", "openai-compatible", "claude-code", "codex", "generic-cli"]
+          "enum": ["anthropic", "openai-compatible", "claude-code", "codex", "generic-cli", "elevenlabs", "meshy", "fake", "asset-command"],
+          "description": "elevenlabs, meshy, fake and asset-command only generate assets (see `assets`); they cannot play a role."
         },
         "preset": {
           "type": "string",
@@ -71,15 +94,16 @@
         "defaultModel": { "type": "string" },
         "useAntCli": { "type": "boolean", "default": true, "description": "anthropic: fall back to `ant auth print-credentials` when no key is set." },
         "sendReasoningEffort": { "type": "boolean", "default": false, "description": "openai-compatible: send reasoning_effort (low|medium|high) from the role effort." },
-        "command": { "type": "string", "description": "CLI agents: executable name or path." },
+        "command": { "type": "string", "description": "CLI agents and asset-command: executable name or path." },
         "argv": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "CLI agents: argv template after the command. Placeholders: {prompt} {model} {project} {mcp_config} {session} {project_json} {factoria_json}. {session} is the CLI session id of the conversation (an argument whose placeholder is empty, like the first message's {session}, is dropped together with a bare flag before it). Without {prompt} the prompt is sent on standard input; with `--input-format stream-json` it is one JSON user message that can carry images."
+          "description": "CLI agents: argv template after the command. asset-command uses {prompt} {output} {width} {height} {seconds} {kind} {model} {seed} instead: the program writes the asset to {output} (.png for images, .wav for sounds, music and voice, .glb for models). Placeholders of CLI agents: {prompt} {model} {project} {mcp_config} {session} {project_json} {factoria_json}. {session} is the CLI session id of the conversation (an argument whose placeholder is empty, like the first message's {session}, is dropped together with a bare flag before it). Without {prompt} the prompt is sent on standard input; with `--input-format stream-json` it is one JSON user message that can carry images."
         },
         "env": { "type": "object", "additionalProperties": { "type": "string" } },
         "unsetEnv": { "type": "array", "items": { "type": "string" } },
         "factoriaCommand": { "type": "string", "description": "Command that starts FactorIA for the MCP server. Default: factoria." },
+        "license": { "type": "string", "description": "Asset providers: the license or terms note recorded in assets.json for every asset this provider generates (e.g. \"Commercial use under our ElevenLabs Creator plan\"). Default: a note that says where the provider's terms are." },
         "pricing": {
           "type": "object",
           "description": "USD per 1M tokens, for cost estimates of non-Claude models.",

@@ -10,9 +10,7 @@ namespace fa::ai::openai {
 using namespace util;
 
 std::string chat_completions_url(const ProviderConfig& cfg) {
-    std::string base = cfg.baseUrl;
-    while (!base.empty() && base.back() == '/') base.pop_back();
-    return base + "/chat/completions";
+    return trim_slashes(cfg.baseUrl) + "/chat/completions";
 }
 
 namespace {

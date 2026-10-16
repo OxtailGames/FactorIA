@@ -12,8 +12,10 @@
 #include <set>
 
 #include "export_internal.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/ai_disclosure.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/icons.h"
@@ -446,6 +448,21 @@ Result<void> write_notices(const Project& p, const std::string& platform, const 
     return {};
 }
 
+// AI_CONTENT_DISCLOSURE.md at the top of the export when any asset of the project is recorded as made with AI
+// (provenance in assets.json): the text for the AI questions of Steam's content survey. `projectFiles` are the project's
+// files before the asset steps swapped some for their converted forms.
+Result<void> write_ai_disclosure(const Project& p, const std::vector<std::string>& projectFiles, const stdfs::path& outRoot,
+                                 ExportReport& report) {
+    auto text = read_file(p.dir / assets::kManifestFile);
+    if (!text) return {};
+    auto manifest = parse_json(*text, assets::kManifestFile);
+    if (!manifest.ok() || !has_ai_content(*manifest)) return {};
+    if (auto r = write_text(outRoot / kAiDisclosureFile, ai_content_disclosure(*manifest, projectFiles)); !r.ok()) return r;
+    report.nextSteps.push_back(std::string(kAiDisclosureFile) + " answers the AI-generated content questions of store forms (Steam); "
+                               "check its section on assets without provenance first");
+    return {};
+}
+
 // ---- the output folder: only one an export wrote is replaced ---------------------------------------
 
 // kExportMarkerFile, written first into every export folder (so an export that stopped halfway is replaced too).
@@ -672,6 +689,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         }
     }
 
+    const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
     if (auto assetsReady = prepare_game_assets(p, platform, files, report); !assetsReady.ok()) {
         stdfs::remove_all(os_path(outRoot), ec);
         return assetsReady.error();
@@ -687,6 +705,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         r = export_desktop(p, platform, plan.player, outRoot, files, plan.icon, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
+    if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
         if (!keepOutput) stdfs::remove_all(os_path(outRoot), ec);
