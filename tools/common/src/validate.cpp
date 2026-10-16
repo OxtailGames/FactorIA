@@ -414,11 +414,9 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     if (options.hooksCheck) {
         for (const auto& s : scripts) {
             // tools/*.js export command objects, not behaviours
-            if (s.rfind("tools/", 0) == 0 || failedScripts.count(s) || !stdfs::exists(stdfs::path(c.dir) / s)) continue;
+            if (s.rfind("tools/", 0) == 0 || failedScripts.count(s)) continue;
             for (const std::string& msg : options.hooksCheck(s))
-                c.warn(s, "", msg,
-                       "Lifecycle hooks are onStart, onUpdate, onFixedUpdate, onLateUpdate, onDestroy, "
-                       "onCollisionEnter/Exit, onTriggerEnter/Exit and onEvent (docs: SCRIPTING.md, \"Lifecycle\").");
+                c.warn(s, "", msg, "Rename the method to the suggested hook (all hooks: docs SCRIPTING.md, \"Lifecycle\").");
         }
     }
     if (auto dts = tooling_detail::read_file(stdfs::path(c.dir) / "types" / "factoria.d.ts");
