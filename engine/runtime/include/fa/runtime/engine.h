@@ -66,6 +66,13 @@ struct EngineConfig {
     // Where the native plugins' libraries are (fa/runtime/plugins.h): an exported game keeps them next to its executable.
     // "" = in each plugin's folder (factoria.json "plugins"), as `factoria run`, the editor and tests use them.
     std::string pluginDir;
+    // Which backend answers the game's `platform` calls (docs/PLATFORM.md, "Which backend runs"): "" = automatic (the store
+    // plugin the game declares, else platformFallback), "fake" (deterministic, in memory: headless runs, tests, `factoria
+    // call/session` and the MCP server always use it), "none", or the name of a plugin that registered a backend.
+    std::string platformBackend;
+    // What automatic falls back to when no plugin offers a backend: "fake" (development: purchases are not real) or "none"
+    // (exported games: a shipped game must never get free purchases from the fake).
+    std::string platformFallback = "fake";
 };
 
 class Engine final : public ScriptHost {
@@ -126,6 +133,7 @@ public:
     Json project_settings() const override;
     double fixed_dt() const override;
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
+    PlatformServices* platform_services() override;
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;

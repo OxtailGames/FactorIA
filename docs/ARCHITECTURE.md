@@ -43,6 +43,7 @@ engine/            runtime modules (ship inside every game)
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes with rigid-body rotation, continuous collision, shape casts)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
+  services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
   script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
@@ -63,8 +64,10 @@ external/          vendored third-party code (do not edit)
 Module dependency order (a module may only include modules above it):
 
 ```
-core -> scene -> platform -> render, physics, audio, ui -> script -> runtime -> tooling -> mcp, ai -> editor -> cli
+core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> tooling -> mcp, ai -> editor -> cli
 ```
+
+(`platform` is the OS layer: window, input, gamepads. `services` is the stores' side: achievements, purchases.)
 
 ## Core concepts
 
@@ -159,6 +162,23 @@ Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`
 - **How it looks** is `fa_render` (`render/src/ui2d.cpp`): 9-slice backgrounds, labels, focus ring, drawn into the screen quad
   list. A ScrollList's descendants (widgets and every other screen-space item) carry a clip rectangle that `draw_group` applies as a scissor;
   batches only merge with an equal clip.
+
+### Platform services
+Achievements, stats, leaderboards, cloud saves, purchases, the store overlay and rich presence are ONE request
+interface, `fa_services` (`fa/services/platform.h`), so a game is written once and a backend decides what answers. A
+request is `(method, args)` and gets one answer, a result or `{code, message, hint}`:
+- **The catalog** is the `"platform"` section of factoria.json. `PlatformServices::start` checks every id against it
+  and adds the store's own id (`storeId`) before the backend sees the request; a mistake is a teaching error there,
+  never inside an SDK.
+- **A backend** is a `PlatformBackend`: the fake (`fake_platform.h`, in memory, deterministic, the reference of every
+  method), "none" (exported games without a store), or the adapter in `fa_runtime` (`platform_backend.h`) that turns a
+  native plugin's `FaBackendDesc` (plugin ABI v2, `fa_plugin.h`) into one. `choose_platform_backend` picks which runs.
+- **Answers** may come later and from any thread (`PlatformSink`, a weak handle: an answer after the engine is gone is
+  ignored). The game thread takes them once per frame (`Engine` calls `PlatformServices::frame()` and
+  `ScriptSystem::dispatch_platform()` first thing), which settles the scripts' Promises and calls `platform.on` listeners.
+- **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.set_fake`
+  (`platform_commands.h`, registered by the runtime): `game.platform` of `factoria:test` is a view of them.
+Docs: [PLATFORM.md](PLATFORM.md).
 
 ### Headless
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works

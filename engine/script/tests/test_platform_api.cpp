@@ -1,0 +1,263 @@
+// The `platform` object of the "factoria" module and `game.platform` of "factoria:test", run against the fake backend
+// (fa_services) through the script test host. The dispatcher and the fake have their own tests in engine/services.
+#include <doctest.h>
+
+#include "test_host.h"
+
+using namespace fa;
+using namespace fa::test;
+
+namespace {
+
+Json settings() {
+    return Json::parse(R"({
+      "platform": {
+        "achievements": [{"id": "first_win", "name": "First win"}, {"id": "veteran", "name": "Veteran"}],
+        "stats": [{"id": "wins"}, {"id": "distance", "type": "float"}],
+        "leaderboards": [{"id": "high_score", "name": "High score"}],
+        "products": [
+          {"id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99},
+          {"id": "remove_ads", "type": "nonConsumable", "title": "Remove ads", "price": 2.99, "currency": "EUR"}
+        ]
+      }
+    })");
+}
+
+}  // namespace
+
+TEST_CASE("platform api: calls answer through promises, in tests with await") {
+    TestHost h("platform_await", settings());
+    h.file("tests/platform.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform } from "factoria";
+
+test("the fake backend is what tests talk to", async () => {
+  expect(platform.backend).toBe("fake");
+  expect(platform.has("purchases")).toBe(true);
+  const player = await platform.signIn();
+  expect(player).toEqual({ id: "fake-player", name: "Player", signedIn: true });
+  expect(platform.player.name).toBe("Player");
+});
+
+test("achievements, stats and leaderboards", async () => {
+  const unlocked = await platform.achievements.unlock("first_win");
+  expect(unlocked).toEqual({ id: "first_win", unlocked: true, newly: true });
+  expect((await platform.achievements.unlock("first_win")).newly).toBe(false);
+  expect(await platform.achievements.progress("veteran", 0.5)).toEqual({ id: "veteran", progress: 0.5, unlocked: false });
+  expect((await platform.achievements.list()).map((a) => a.id + ":" + a.unlocked)).toEqual(["first_win:true", "veteran:false"]);
+  expect(await platform.stats.get("wins")).toBe(0);
+  expect(await platform.stats.set("wins", 4)).toBe(4);
+  expect(await platform.stats.add("wins", 3)).toBe(7);
+  expect(await platform.stats.add("distance", 1.5)).toBe(1.5);
+  expect((await platform.leaderboards.submit("high_score", 120)).best).toBe(120);
+  const rows = await platform.leaderboards.entries("high_score", { range: "around", count: 3 });
+  expect(rows.length).toBe(1);
+  expect(rows[0].isPlayer).toBe(true);
+});
+
+test("cloud saves keep any JSON value", async () => {
+  expect(await platform.cloud.load("slot1")).toBeUndefined();
+  await platform.cloud.save("slot1", { level: 3, items: ["a", "b"], name: "Ann" });
+  expect(await platform.cloud.load("slot1")).toEqual({ level: 3, items: ["a", "b"], name: "Ann" });
+  expect(await platform.cloud.list()).toEqual(["slot1"]);
+  await platform.cloud.remove("slot1");
+  expect(await platform.cloud.load("slot1")).toBeUndefined();
+});
+
+test("purchases: buy, finish, restore", async () => {
+  const products = await platform.purchases.products();
+  expect(products.map((p) => p.id + " " + p.price)).toEqual(["gems_100 $0.99", "remove_ads 2.99 EUR"]);
+  const bought = await platform.purchases.buy("gems_100");
+  expect(bought.status).toBe("purchased");
+  expect(bought.productId).toBe("gems_100");
+  expect(bought.transactionId).toBe("fake-1");
+  await platform.purchases.finish(bought.transactionId);
+  await platform.purchases.buy("remove_ads");
+  const owned = await platform.purchases.restore();
+  expect(owned.map((o) => o.productId)).toEqual(["remove_ads"]);
+});
+
+test("overlay and presence", async () => {
+  await platform.overlay.open("achievements", "first_win");
+  await platform.presence.set("In level 3", { level: "3" });
+  expect(game.platform.state().fake.presence).toEqual({ text: "In level 3", data: { level: "3" } });
+  // The call log keeps every call of the file; the last two are the ones just made.
+  expect(game.platform.calls().map((c) => c.method).slice(-2)).toEqual(["overlay.open", "presence.set"]);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/platform.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 5);
+}
+
+TEST_CASE("platform api: a mistake in the call throws at once, a store failure rejects with code and hint") {
+    TestHost h("platform_errors", settings());
+    h.file("tests/errors.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform } from "factoria";
+
+test("an undeclared id throws with a suggestion and where to declare it", () => {
+  let message = "";
+  try { platform.achievements.unlock("first_wn"); } catch (e) { message = e.message; }
+  expect(message).toContain('platform.achievements.unlock("first_wn")');
+  expect(message).toContain('"first_wn" is not an achievement of this game (did you mean "first_win"?)');
+  expect(message).toContain("factoria.json platform.achievements");
+  expect(() => platform.purchases.buy("gems_10")).toThrow("did you mean");
+  expect(() => platform.stats.get("wins ")).toThrow("did you mean");
+});
+
+test("wrong arguments throw", () => {
+  expect(() => platform.achievements.progress("veteran", 2)).toThrow("fraction from 0 to 1");
+  expect(() => platform.stats.set("wins", 1.5)).toThrow("is an int");
+  expect(() => platform.leaderboards.submit("high_score", 1.5)).toThrow("whole number");
+  expect(() => platform.leaderboards.entries("high_score", { range: "tops" })).toThrow('did you mean "top"');
+  expect(() => platform.cloud.save("bad key", {})).toThrow("is not valid");
+  expect(() => platform.cloud.save("k", undefined)).toThrow("cannot be saved");
+  expect(() => platform.presence.set("x", { level: 3 })).toThrow("must be strings");
+  expect(() => platform.overlay.open("achievments")).toThrow('did you mean "achievements"');
+  expect(() => platform.stats.add("wins", "1")).toThrow("delta must be a finite number");
+  expect(() => platform.purchases.finish("nope")).toThrow("is not one this game was told about");
+});
+
+test("unknown services and events throw with a suggestion", () => {
+  expect(() => platform.has("purchase")).toThrow('did you mean "purchases"');
+  expect(() => platform.on("purchased", () => {})).toThrow('did you mean "purchase"');
+  expect(() => platform.on("purchase")).toThrow("expects a function");
+});
+
+test("a store failure rejects with an Error that has code and hint", async () => {
+  game.platform.respond("purchases.buy", { error: "network", message: "no route to the store", hint: "check the connection" });
+  let caught;
+  await platform.purchases.buy("gems_100").catch((e) => { caught = e; });
+  expect(caught.code).toBe("network");
+  expect(caught.hint).toBe("check the connection");
+  expect(caught.message).toBe('platform.purchases.buy("gems_100") failed: no route to the store (hint: check the connection)');
+  // Nothing was bought.
+  expect(game.platform.state().fake.owned).toEqual([]);
+});
+
+test("not signed in rejects everything but signIn", async () => {
+  game.platform.set({ signedIn: false });
+  let code = "";
+  await platform.achievements.unlock("first_win").catch((e) => { code = e.code; });
+  expect(code).toBe("notSignedIn");
+  expect((await platform.signIn()).signedIn).toBe(false);
+  game.platform.set({ signedIn: true });
+  expect((await platform.achievements.unlock("first_win")).unlocked).toBe(true);
+});
+
+test("a rejection somebody handles is no script error", async () => {
+  game.platform.respond("stats.get", { error: "unknownId" });
+  const p = platform.stats.get("wins");
+  let code = "";
+  try { await p; } catch (e) { code = e.code; }
+  expect(code).toBe("unknownId");
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/errors.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 6);
+    CHECK(h.scripts.errors().empty());
+}
+
+TEST_CASE("platform api: delayed answers arrive at the start of a frame, events reach listeners") {
+    TestHost h("platform_delay", settings());
+    h.file("tests/delay.test.js", R"(
+import { test, expect, game } from "factoria:test";
+import { platform } from "factoria";
+
+test("delayFrames holds an answer until the frame it is due", () => {
+  game.platform.set({ delayFrames: 2 });
+  let status = "waiting";
+  platform.purchases.buy("gems_100").then((r) => { status = r.status; });
+  game.step(1);
+  expect(status).toBe("waiting");
+  expect(game.platform.state().pending).toBe(1);
+  game.step(1);
+  // The continuation of a promise is a microtask: it runs when the frame's jobs run.
+  expect(status).toBe("purchased");
+  expect(game.platform.state().pending).toBe(0);
+  game.platform.set({ delayFrames: 0 });
+});
+
+test("emit reaches platform.on at the next step, and the listener can stop", () => {
+  const seen = [];
+  const off = platform.on("overlay", (e) => seen.push(e.open));
+  game.platform.emit("overlay", { open: true });
+  expect(seen).toEqual([]);
+  game.step(1);
+  expect(seen).toEqual([true]);
+  game.platform.emit("overlay", { open: false });
+  game.step(1);
+  expect(seen).toEqual([true, false]);
+  off();
+  game.platform.emit("overlay", { open: true });
+  game.step(1);
+  expect(seen).toEqual([true, false]);
+});
+
+test("a purchase nobody listens for is kept for the first listener", () => {
+  game.platform.emit("purchase", { productId: "gems_100" });
+  game.step(1);
+  const got = [];
+  platform.on("purchase", (e) => got.push(e.transactionId));
+  game.step(1);  // the kept event is delivered right after the registration, when the jobs run
+  expect(got).toEqual(["fake-2"]);
+});
+
+test("the player event updates platform.player", () => {
+  game.platform.emit("player", { id: "p9", name: "Zed", signedIn: true });
+  game.step(1);
+  expect(platform.player.name).toBe("Zed");
+});
+
+test("scripted answers are used in order", async () => {
+  game.platform.respond("achievements.unlock", { error: "network" }, 2);
+  game.platform.respond("achievements.unlock", { newly: false });
+  const codes = [];
+  for (let i = 0; i < 3; i++) {
+    await platform.achievements.unlock("first_win").then((r) => codes.push("ok:" + r.newly), (e) => codes.push(e.code));
+  }
+  expect(codes).toEqual(["network", "network", "ok:false"]);
+});
+
+test("each test file starts with a fresh fake", () => {
+  expect(game.platform.state().fake.calls.length > 0).toBe(true);
+  game.platform.reset();
+  expect(game.platform.state().fake.calls).toEqual([]);
+});
+)");
+    h.file("tests/fresh.test.js", R"(
+import { test, expect, game } from "factoria:test";
+test("nothing carried over from the other file", () => {
+  expect(game.platform.state().fake.calls).toEqual([]);
+  expect(game.platform.state().fake.unfinished).toEqual([]);
+});
+)");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/delay.test.js", "tests/fresh.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 7);
+}
+
+TEST_CASE("platform api: a host without platform services reports the none backend and explains every call") {
+    struct NoPlatformHost : TestHost {
+        using TestHost::TestHost;
+        PlatformServices* platform_services() override { return nullptr; }
+    };
+    NoPlatformHost h("platform_none", settings());
+    REQUIRE(h.start());
+    auto backend = h.scripts.eval("platform.backend");
+    REQUIRE(backend.ok());
+    CHECK(backend.value() == "none");
+    CHECK(h.scripts.eval("platform.has('stats')").value() == false);
+    auto call = h.scripts.eval("platform.achievements.unlock('first_win')");
+    REQUIRE_FALSE(call.ok());
+    CHECK(call.error().message.find("this run has no platform services") != std::string::npos);
+    h.scripts.dispatch_platform();  // harmless
+}

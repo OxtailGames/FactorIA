@@ -715,6 +715,34 @@ void ScriptSystem::on_scene_loaded() {
     impl_->run_jobs();
 }
 
+Json platform_answer_json(const PlatformAnswer& a) {
+    Json j = Json::object({{"id", a.id}, {"method", a.method}, {"ok", a.ok}});
+    if (a.ok) j["result"] = a.result;
+    else j["error"] = Json::object({{"code", a.error.code}, {"message", a.error.message}, {"hint", a.error.hint}});
+    return j;
+}
+
+void ScriptSystem::dispatch_platform() {
+    Impl& I = *impl_;
+    if (!I.initialized || !I.host) return;
+    PlatformServices* services = I.host->platform_services();
+    if (!services) return;
+    const std::vector<PlatformAnswer> answers = services->take_answers();
+    const std::vector<PlatformEvent> events = services->take_events();
+    if (answers.empty() && events.empty()) return;
+    Json answersJson = Json::array(), eventsJson = Json::array();
+    for (const PlatformAnswer& a : answers) answersJson.push_back(platform_answer_json(a));
+    for (const PlatformEvent& e : events) eventsJson.push_back(Json::object({{"name", e.name}, {"data", e.data}}));
+    JSValue av = I.from_json(answersJson), ev = I.from_json(eventsJson);
+    JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "platformDeliver");
+    JSValue r = I.call("platform answers", "", fn, I.hooks.get(), {av, ev});
+    JS_FreeValue(I.ctx, r);
+    JS_FreeValue(I.ctx, fn);
+    JS_FreeValue(I.ctx, av);
+    JS_FreeValue(I.ctx, ev);
+    I.run_jobs();
+}
+
 void ScriptSystem::update(float dt) {
     if (!impl_->initialized) return;
     impl_->lastDt = dt;

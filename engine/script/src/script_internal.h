@@ -14,8 +14,12 @@
 #include <quickjs.h>
 
 #include "fa/script/script.h"
+#include "fa/services/platform.h"
 
 namespace fa {
+
+// A platform answer as the prelude's platformDeliver and platformStart get it: {id, method, ok, result | error: {code, message, hint}}.
+Json platform_answer_json(const PlatformAnswer& answer);
 
 // RAII holder for a JSValue (strict ownership).
 class JsVal {

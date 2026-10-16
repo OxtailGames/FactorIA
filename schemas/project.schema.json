@@ -175,6 +175,215 @@
         }
       }
     },
+    "platform": {
+      "type": "object",
+      "description": "Store and platform services of the game: achievements, stats, leaderboards, cloud saves and in-app purchases behind one scripting API (`platform` from \"factoria\", docs/PLATFORM.md). This section declares what the game has, so that ids are checked before a request leaves the game and each store gets its own id for the same entry (\"ids\"). Every key is optional. Which store answers is chosen by the native plugins the game declares (\"plugins\") and by \"backend\"; development runs, tests and the MCP server use a deterministic fake store. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "backend": {
+          "description": "Which native plugin provides the store backend: \"auto\" (the default: the only plugin that registers one), a plugin name (\"steam\"), or an object per platform ({\"windows\": \"steam\", \"macos\": \"steam\", \"linux\": \"steam\", \"ios\": \"apple\"}). Needed only when several plugins offer a backend. Without any, development runs use the fake backend and exported games get no platform services.",
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^(auto|[a-z][a-z0-9_]{0,63})$"
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "windows",
+                  "macos",
+                  "linux",
+                  "ios",
+                  "android"
+                ]
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^(auto|[a-z][a-z0-9_]{0,63})$"
+              }
+            }
+          ]
+        },
+        "achievements": {
+          "type": "array",
+          "description": "The achievements of the game: platform.achievements.unlock(\"<id>\").",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "description": "The id scripts use (platform.<service>.<function>(\"<id>\")): 1-64 letters, digits, '_', '.' or '-', unique within its section."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The achievement's title."
+              },
+              "description": {
+                "type": "string",
+                "description": "What the player did to earn it."
+              },
+              "hidden": {
+                "type": "boolean",
+                "default": false,
+                "description": "Hidden until unlocked (the stores' secret achievements)."
+              },
+              "ids": {
+                "type": "object",
+                "description": "The id each store uses for this entry, keyed by backend name: {\"steam\": \"ACH_WIN_ONE_GAME\", \"apple\": \"com.studio.game.first_win\"}. Without an entry for a backend, the id is used as it is.",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "stats": {
+          "type": "array",
+          "description": "Numbers the store keeps for the player: platform.stats.get(\"<id>\"), set, add.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "description": "The id scripts use (platform.<service>.<function>(\"<id>\")): 1-64 letters, digits, '_', '.' or '-', unique within its section."
+              },
+              "type": {
+                "enum": [
+                  "int",
+                  "float"
+                ],
+                "default": "int",
+                "description": "\"int\" keeps whole numbers, \"float\" fractions."
+              },
+              "ids": {
+                "type": "object",
+                "description": "The id each store uses for this entry, keyed by backend name: {\"steam\": \"ACH_WIN_ONE_GAME\", \"apple\": \"com.studio.game.first_win\"}. Without an entry for a backend, the id is used as it is.",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "leaderboards": {
+          "type": "array",
+          "description": "Leaderboards: platform.leaderboards.submit(\"<id>\", score) and entries(\"<id>\").",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "description": "The id scripts use (platform.<service>.<function>(\"<id>\")): 1-64 letters, digits, '_', '.' or '-', unique within its section."
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The leaderboard's title."
+              },
+              "order": {
+                "enum": [
+                  "descending",
+                  "ascending"
+                ],
+                "default": "descending",
+                "description": "\"descending\": a higher score is better (points); \"ascending\": a lower one is (times)."
+              },
+              "ids": {
+                "type": "object",
+                "description": "The id each store uses for this entry, keyed by backend name: {\"steam\": \"ACH_WIN_ONE_GAME\", \"apple\": \"com.studio.game.first_win\"}. Without an entry for a backend, the id is used as it is.",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "products": {
+          "type": "array",
+          "description": "What the game sells: platform.purchases.buy(\"<id>\").",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "type",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.-]{1,64}$",
+                "description": "The id scripts use (platform.<service>.<function>(\"<id>\")): 1-64 letters, digits, '_', '.' or '-', unique within its section."
+              },
+              "type": {
+                "enum": [
+                  "consumable",
+                  "nonConsumable",
+                  "subscription"
+                ],
+                "description": "\"consumable\" can be bought again (gems), \"nonConsumable\" once (remove ads), \"subscription\" renews."
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The product's name. Real stores show their own; the fake backend uses this."
+              },
+              "description": {
+                "type": "string",
+                "description": "What it gives. Real stores show their own; the fake backend uses this."
+              },
+              "price": {
+                "type": "number",
+                "minimum": 0,
+                "description": "The price the fake backend shows (real stores give their own)."
+              },
+              "currency": {
+                "type": "string",
+                "default": "USD",
+                "description": "The currency of `price` for the fake backend."
+              },
+              "ids": {
+                "type": "object",
+                "description": "The id each store uses for this entry, keyed by backend name: {\"steam\": \"ACH_WIN_ONE_GAME\", \"apple\": \"com.studio.game.first_win\"}. Without an entry for a backend, the id is used as it is.",
+                "propertyNames": {
+                  "pattern": "^[a-z][a-z0-9_]{0,63}$"
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "export": {
       "type": "object",
       "description": "Per-platform export settings, committed with the game. Every field is optional and defaults are applied; a field equal to its default is best left out. Unknown keys inside a platform object only give a warning (with a \"did you mean\"). Edited by the editor's Platform settings window; machine-specific settings (Android SDK and JDK folders, keystore passwords) are never stored here but in ~/.factoria/export.json. See docs/EXPORTING.md, \"Platform settings\".",

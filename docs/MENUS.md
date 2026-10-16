@@ -22,7 +22,12 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
-7. **Check.** `factoria call scene.format` (the files below are written short; it rewrites them in the canonical
+7. **Shop (only when the game sells things).** `scripts/ui/shop.js` and the `shop` panel and `shop_button` of
+   `scenes/menu.scene.json`, with the products declared in `factoria.json` `"platform"`
+   ([PLATFORM.md](PLATFORM.md)). Without a store (the exported game before a store plugin is added) the button stays
+   hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
+   `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
+8. **Check.** `factoria call scene.format` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.
@@ -57,6 +62,11 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
 - **Language.** A slot: the tab shows the current language, greyed out. Localization arrives with a later FactorIA
   milestone (M14); a game with translations of its own can make the button cycle through them meanwhile.
+- **Shop.** A purchase is granted first and finished after (`platform.purchases.finish`): the store hands over a
+  purchase that was never finished again on the next run, so a crash between the two loses nothing, and the wallet
+  remembers the transactions it already granted so the player is not paid twice. A cancelled purchase and a store error
+  (`e.code`, `e.hint`) show a message and grant nothing. "Restore purchases" returns the non-consumables. The tests are
+  `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
 - **Add an option.** Add a widget to `options.prefab.json`, read and write its value in `options.js`, and keep it in
   `settings.js` (`DEFAULTS` and `apply`).
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
@@ -198,9 +208,23 @@ export class MenuStack {
         { "id": "play", "components": { "Button": { "text": "Play", "autoFocus": true } } },
         { "id": "options_button", "components": { "Button": { "text": "Options" } } },
         { "id": "credits_button", "components": { "Button": { "text": "Credits" } } },
+        { "id": "shop_button", "active": false, "components": { "Button": { "text": "Shop" } } },
         { "id": "quit", "components": { "Button": { "text": "Quit" } } }
       ] },
     { "id": "options", "active": false, "prefab": "prefabs/ui/options.prefab.json" },
+    { "id": "shop", "active": false,
+      "components": {
+        "Panel": { "size": [760, 520], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
+        "Script": { "path": "scripts/ui/shop.js" } },
+      "children": [
+        { "id": "shop_title", "components": { "Text": { "text": "Shop", "fontSize": 40, "space": "screen", "layer": 301 } } },
+        { "id": "gems_label", "components": { "Text": { "text": "Gems: 0", "fontSize": 28, "space": "screen", "layer": 301 } } },
+        { "id": "buy_gems", "components": { "Button": { "text": "100 gems", "layer": 302, "autoFocus": true } } },
+        { "id": "buy_remove_ads", "components": { "Button": { "text": "Remove ads", "layer": 302 } } },
+        { "id": "restore", "components": { "Button": { "text": "Restore purchases", "layer": 302 } } },
+        { "id": "shop_status", "components": { "Text": { "text": "", "fontSize": 22, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "maxWidth": 700, "layer": 301 } } },
+        { "id": "shop_back", "tags": ["back"], "components": { "Button": { "text": "Back", "layer": 302 } } }
+      ] },
     { "id": "credits", "active": false,
       "components": {
         "Panel": { "size": [760, 620], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
@@ -217,9 +241,9 @@ export class MenuStack {
 
 ```js scripts/main_menu.js
 // @ts-check
-// The title screen (scenes/menu.scene.json): Play, Options, Credits, Quit. Panels open over each other with MenuStack;
-// a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
-import { Behaviour, ui, game, scene, session } from "factoria";
+// The title screen (scenes/menu.scene.json): Play, Options, Credits, Shop, Quit. Panels open over each other with
+// MenuStack; a button tagged "back" or ui_cancel (Escape, gamepad B) returns to the previous panel.
+import { Behaviour, ui, game, scene, session, platform } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 
@@ -230,6 +254,8 @@ export default class MainMenu extends Behaviour {
   onStart() {
     applyOnce();
     this.menus = new MenuStack("main_menu");
+    // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).
+    if (platform.has("purchases")) this.world.find("shop_button").active = true;
     if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false; // mobile apps do not quit themselves
     ui.on("click", "play", () => {
       session.nextScene = this.firstScene; // scenes/loading.scene.json shows "Loading" for a frame, then loads it
@@ -237,6 +263,7 @@ export default class MainMenu extends Behaviour {
     });
     ui.on("click", "options_button", () => this.menus.show("options"));
     ui.on("click", "credits_button", () => this.menus.show("credits"));
+    ui.on("click", "shop_button", () => this.menus.show("shop"));
     ui.on("click", "quit", () => game.quit());
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());
@@ -272,6 +299,132 @@ export default class Credits extends Behaviour {
   onUpdate(dt) {
     if (!this.entity.active) return;
     this.list.get("ScrollList").scroll += input.axis("ui_up", "ui_down") * this.scrollSpeed * dt;
+  }
+}
+```
+
+### `scripts/ui/shop.js`
+
+```js scripts/ui/shop.js
+// @ts-check
+// The shop panel of the main menu (scenes/menu.scene.json), shown by the Shop button when the run has a store. It sells
+// the products of factoria.json "platform.products": gems (a consumable) and "Remove ads" (a non-consumable). A purchase
+// is granted first and finished after: the store keeps a purchase "unfinished" and hands it over again on the next run
+// until finish() is called, so a crash between the two never loses what the player paid for.
+import { Behaviour, ui, platform, storage } from "factoria";
+
+/** What the player owns, kept in storage under "wallet". `seen` holds the transactions already granted. */
+function wallet() {
+  return { gems: 0, noAds: false, seen: [], ...storage.get("wallet", {}) };
+}
+
+export default class Shop extends Behaviour {
+  /** Gems one "gems_100" purchase gives. */
+  gemsPerPack = 100;
+
+  onStart() {
+    this.busy = false; // a purchase is waiting for the store: the buttons do nothing meanwhile
+    this.status = this.world.find("shop_status").get("Text");
+    ui.on("click", "buy_gems", () => this.buy("gems_100"));
+    ui.on("click", "buy_remove_ads", () => this.buy("remove_ads"));
+    ui.on("click", "restore", () => this.restore());
+    // Purchases that finish outside buy(): a parent approves an "ask to buy", or the store hands over a purchase the last run left
+    // unfinished.
+    platform.on("purchase", (p) => p.status === "purchased" && this.grant(p).then(() => this.say("Your purchase arrived.")));
+    this.refresh();
+    // The store's own titles and prices (already formatted for the player's country) go on the buttons.
+    platform.purchases.products().then((list) => {
+      for (const p of list) {
+        const button = this.world.find(p.id === "gems_100" ? "buy_gems" : "buy_remove_ads");
+        button.get("Button").text = `${p.title} - ${p.price}`;
+      }
+    }, () => {});
+  }
+
+  say(message) {
+    this.status.text = message;
+  }
+
+  refresh() {
+    const w = wallet();
+    this.world.find("gems_label").get("Text").text = `Gems: ${w.gems}` + (w.noAds ? "   (ads removed)" : "");
+  }
+
+  /** Gives the player what the purchase bought, once per transaction, then tells the store it is done. */
+  async grant(purchase) {
+    const w = wallet();
+    if (!w.seen.includes(purchase.transactionId)) {
+      if (purchase.productId === "gems_100") w.gems += this.gemsPerPack;
+      if (purchase.productId === "remove_ads") w.noAds = true;
+      w.seen.push(purchase.transactionId);
+      storage.set("wallet", w);
+      this.refresh();
+    }
+    await platform.purchases.finish(purchase.transactionId);
+  }
+
+  async buy(productId) {
+    if (this.busy) return;
+    this.busy = true;
+    this.say("Waiting for the store...");
+    try {
+      const r = await platform.purchases.buy(productId);
+      if (r.status === "purchased") {
+        const finished = this.grant(r); // the wallet changes at once; telling the store it is done may take a moment
+        this.say("Thank you!");
+        await finished;
+      } else if (r.status === "pending") {
+        this.say("Waiting for approval. The purchase arrives when it is approved."); // the "purchase" event grants it
+      } else {
+        this.say("Purchase cancelled. Nothing was charged.");
+      }
+    } catch (e) {
+      // e.code is "network", "unavailable", "notSignedIn"...; e.hint says what to try.
+      this.say(`The store could not be reached (${e.code}). ${e.hint ?? e.message}`);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async restore() {
+    if (this.busy) return;
+    this.busy = true;
+    this.say("Asking the store...");
+    try {
+      const w = wallet();
+      for (const owned of await platform.purchases.restore()) if (owned.productId === "remove_ads") w.noAds = true;
+      storage.set("wallet", w);
+      this.refresh();
+      this.say(w.noAds ? "Your purchases were restored." : "There was nothing to restore.");
+    } catch (e) {
+      this.say(`The store could not be reached (${e.code}). ${e.hint ?? e.message}`);
+    } finally {
+      this.busy = false;
+    }
+  }
+}
+```
+
+### `scripts/store_events.js`
+
+```js scripts/store_events.js
+// @ts-check
+// Put this behaviour on one entity of every level: while the store's overlay (Steam, the App Store sheet) is open the
+// game pauses, and it resumes when the overlay closes. A game the player paused itself stays paused.
+import { Behaviour, game, platform } from "factoria";
+
+export default class StoreEvents extends Behaviour {
+  onStart() {
+    this.pausedByOverlay = false;
+    platform.on("overlay", (e) => {
+      if (e.open && !game.paused) {
+        game.paused = true;
+        this.pausedByOverlay = true;
+      } else if (!e.open && this.pausedByOverlay) {
+        game.paused = false;
+        this.pausedByOverlay = false;
+      }
+    });
   }
 }
 ```

@@ -674,11 +674,13 @@ factoria run
 and `android/`, the Gradle module of the Android build) and declares the plugin in `factoria.json`. Its `CMakeLists.txt`
 copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
 `linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
-is complete:
+is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
+store backends such as the Steamworks and Apple plugins of the later M12 packages; an unknown name lists the ones
+there are):
 
 ```js
 plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
-fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 1}
+fa.call("example.info", {})     // {plugin: "example", platform: "windows", apiVersion: 2}
 ```
 
 ### G.2 The declaration
@@ -763,3 +765,12 @@ FA_PLUGIN_INIT(example) {
   `ANativeActivity*`). `api->version` is `FA_PLUGIN_API_VERSION`; the struct only grows at its end.
 - **Threads and memory.** Handlers run on the game's thread. Strings passed to the engine are copied. Never let a C++
   exception leave a handler.
+- **Platform backends (version 2).** A plugin that wraps a store SDK registers a backend with
+  `add_backend(api, &FaBackendDesc)` (one per plugin, inside the entry point): `name` (the key of the catalog's `ids`),
+  `services` (a JSON array: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`,
+  `"presence"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
+  thread, before scripts: `SteamAPI_RunCallbacks`). The game's `platform.*` calls arrive in `request` with their ids
+  already checked; answer each `FaRequest*` exactly once with `resolve(req, result_json)` or `reject(req, code,
+  message, hint)`, now or later and from any thread, and push unasked news with `emit(api, "purchase" | "overlay" |
+  "player", data_json)`. A plugin built for version 2 checks `api->version >= 2`; a version 1 plugin keeps working.
+  [PLATFORM.md](PLATFORM.md), section 5, has the method table and a minimal backend.
