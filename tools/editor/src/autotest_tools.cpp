@@ -7,6 +7,7 @@
 // window screenshots. A script of small steps, one step per frame followed by a wait, so a step never races the UI: a click is
 // move, press, release on different frames.
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 
@@ -101,6 +102,72 @@ void Editor::at_build_tools_script() {
     };
     auto project_file = [this](const std::string& rel) { return projectDir_ + "/" + rel; };
 
+    // FA_EDITOR_AUTOTEST_REAL_CMAKE=1 (a manual end-to-end check, never set by ctest): the editor's setup context is the real
+    // one, so this script does only one thing, press the CMake button of the Set Up window and let it install CMake for real
+    // into the autotest's own FACTORIA_HOME (<out>/factoria_home, about 50 MB from Kitware). Nothing else is clicked: the other
+    // sections press buttons that would download players and the Android SDK.
+    if (const char* real = std::getenv("FA_EDITOR_AUTOTEST_REAL_CMAKE"); real && *real && std::string(real) != "0") {
+        atFrameBudget_ = 20000;
+        step(2, [this] {
+            stop();
+            select_id("");
+        });
+        click("menu:file");
+        step(3, [] {});
+        click("menu:setup");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return setupStatus_.has() && !setupStatus_.refreshing(); };
+        });
+        step(4, [this] {
+            const SetupComponent* c = setupStatus_.status().find("cmake");
+            at_check(c != nullptr, "the Set Up window lists CMake");
+            at_check(at_visible("setup:install:cmake") && at_enabled("setup:install:cmake"), "...with a button to install it");
+            at_check(setupStatus_.status().home == (std::filesystem::path(atOutDir_) / "factoria_home").string(),
+                     "...into the autotest's own FACTORIA_HOME (" + setupStatus_.status().home + ")");
+        });
+        snap("editor_setup_cmake_before.png");
+        click("setup:install:cmake");
+        // The bar fills while the download runs: one picture in the middle of it.
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !setupJob_.running() || setupJob_.fraction() >= 0.3; };
+        });
+        step(3, [this] { at_check(true, "the install runs on its worker thread while the window keeps drawing (" + setupJob_.progress_line() + ")"); });
+        snap("editor_setup_cmake_progress.png");
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !setupJob_.running() && setupLast_.has_value(); };
+        });
+        step(1, [this] {
+            atWaitCount_ = 0;
+            atWaitUntil_ = [this] { return !setupRefreshAgain_ && !setupStatus_.refreshing(); };  // the window looks again
+        });
+        step(6, [this] {
+            at_check(setupLast_.has_value() && setupLast_->ok, "CMake was installed: " + (setupLast_ ? setupLast_->error : std::string("no result")));
+            if (setupLast_) at_check(!setupLast_->report.steps.empty(), "...the report lists its steps");
+            std::string installed;
+            if (setupLast_)
+                for (const auto& [key, value] : setupLast_->report.paths)
+                    if (key == "cmake") installed = value;
+            const std::string home = (std::filesystem::path(atOutDir_) / "factoria_home").string();
+            at_check(!installed.empty() && stdfs::exists(installed) && installed.rfind(home, 0) == 0,
+                     "CMake is where the report says, inside the autotest's FACTORIA_HOME (" + installed + ")");
+            const std::string cmakeExe = find_cmake(make_setup_context());
+            at_check(!cmakeExe.empty(), "find_cmake finds a CMake afterwards (" + cmakeExe + ")");
+            const SetupComponent* c = setupStatus_.status().find("cmake");
+            at_check(c && c->state == "installed", "the window reads the computer again: CMake is installed");
+        });
+        snap("editor_setup_cmake_done.png");
+        step(2, [this] {
+            Json report = Json::object({{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}});
+            (void)save_json_file(atOutDir_ + "/autotest_result.json", report);
+            FA_INFO("autotest", "finished: {} failure(s)", atFailures_.size());
+            sapp_request_quit();
+        });
+        return;
+    }
+
     // ------------------------------------------------------------------------------------------------------ setup
     step(2, [this, project_file] {
         stop();
@@ -109,6 +176,19 @@ void Editor::at_build_tools_script() {
         reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
         write_file(project_file("assets/blip.wav"), silence_wav());
         focus_window("###Viewport");
+    });
+
+    // The toolbar's Screenshot button. It reads the game target back, which never completes inside the UI frame on Metal (the
+    // game's command buffer is not committed yet): the button only asks, on_frame takes the picture between frames. A hang here
+    // is caught by the autotest's watchdog (no frame for 60 s) instead of freezing the window for good.
+    click("toolbar:screenshot");
+    step(8, [this] {
+        std::error_code ec;
+        bool found = false;
+        for (const auto& e : stdfs::directory_iterator(projectDir_ + "/.factoria/screenshots", ec))
+            if (e.path().extension() == ".png") found = true;
+        at_check(found, "the toolbar Screenshot button saves a PNG into the project's .factoria/screenshots");
+        toasts_.clear();
     });
 
     // ----------------------------------------------------------------------------------- A. Audio panel (View menu)
@@ -502,14 +582,19 @@ void Editor::at_build_tools_script() {
     // computer's file is untouched), closing with unsaved changes asks, and File > Platform Settings... opens it again.
     // This computer's settings live in a scratch file (FACTORIA_EXPORT_CONFIG, set by on_init): never the user's own.
     const std::string machineFile = machine_export_config_path();
-    auto scroll_body = [this, &step](float dy) {  // the wheel over the tab's body
-        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{800, 420}); });
-        for (int i = 0; i < 12; ++i)
-            step(1, [this, dy] {
+    // The wheel over (x, y) until a widget is shown in its window with room below it (maxY): what a long page needs, however
+    // long it is on this computer (a warning that wraps onto more lines moves everything down). A click never lands on a widget
+    // that is scrolled out of its window: at_widget refuses it.
+    auto scroll_until = [this, &step](const std::string& name, float dy, Vec2 at, float maxY) {
+        step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at); });
+        for (int i = 0; i < 60; ++i)
+            step(1, [this, name, dy, at, maxY] {
+                auto it = atWidgets_.find(name);
+                if (at_shown(name) && it != atWidgets_.end() && it->second.y < maxY && it->second.y > 120) return;
                 sapp_event ev{};
                 ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
-                ev.mouse_x = 800 * dpi_;
-                ev.mouse_y = 420 * dpi_;
+                ev.mouse_x = at.x * dpi_;
+                ev.mouse_y = at.y * dpi_;
                 ev.scroll_y = dy;
                 on_event(&ev);
             });
@@ -551,7 +636,7 @@ void Editor::at_build_tools_script() {
         at_check(ps.validate().warning_for("/export/android/signing/alias") != nullptr, "a keystore without an alias is a warning next to the alias field");
     });
     snap("editor_platform_android.png");
-    scroll_body(-40);
+    scroll_until("platform:keystore-create", -6, Vec2{800, 420}, 560);
     snap("editor_platform_android_signing.png");
     click("platform:keystore-create");
     step(4, [this] {
@@ -632,6 +717,225 @@ void Editor::at_build_tools_script() {
     click("platform:close");
     step(4, [this] { at_check(!showPlatformSettings_, "Close with nothing unsaved just closes"); });
     step(2, [this] { showExport_ = false; });
+
+    // ------------------------------------------------- J. Set Up This Computer
+    // File > Set Up This Computer... lists the four components; the Export window and the Platform settings tabs offer the
+    // "Set up" button that fixes a row; the Android SDK license dialog only lets "I accept" through after its checkbox.
+    // The editor's setup context in the autotest (on_init) can neither download nor run a program, and its FACTORIA_HOME is a
+    // folder of the autotest's own: no step here can install anything, and none presses "I accept".
+    std::string otherOs, ownOs;  // a desktop platform that needs another OS's player, and one that does not
+    for (const char* p : {"windows", "linux", "macos"}) {
+        if (export_needs_player(p) && otherOs.empty()) otherOs = p;
+        if (!export_needs_player(p) && ownOs.empty()) ownOs = p;
+    }
+    // A Mac with nothing set up, and Export rows to match: the other OS's player and the Android toolchain missing, the rest ready.
+    auto inject_setup = [this, otherOs] {
+        SetupStatus st;
+        st.home = atOutDir_ + "/factoria_home";
+        st.host = "injected-autotest";
+        auto add = [&st](const char* id, const char* title, const char* details, int mb) {
+            SetupComponent c;
+            c.id = id;
+            c.title = title;
+            c.state = "missing";
+            c.details = details;
+            c.installSizeMb = mb;
+            c.canInstall = true;
+            st.components.push_back(c);
+        };
+        add("android", "Android export (JDK + Android SDK)", "`setup.install android` fetches what is missing.", 600);
+        add("players", "Players of the other platforms", "Missing: other desktop players and mobile libraries.", 60);
+        add("cmake", "CMake (iOS export)", "CMake 3.24 or newer is needed by build_ios.sh.", 75);
+        st.components.back().problems = {"No CMake 3.24 or newer was found (PATH, Homebrew, /Applications/CMake.app)."};
+        add("xcode", "Xcode (iOS export)", "Xcode is not installed.", 0);
+        setupStatus_.set(st, time_ + 100000.0);  // far in the future: the window's own refresh leaves it alone
+        setupRefreshAgain_ = false;
+        exportStatus_.assign(export_targets().size(), ExportStatus{});
+        for (size_t i = 0; i < exportStatus_.size(); ++i) {
+            const std::string platform = export_targets()[i].platform;
+            exportStatus_[i].ready = true;
+            exportStatus_[i].hint = "injected-autotest";
+            if (platform == otherOs) {
+                exportStatus_[i].ready = false;
+                exportStatus_[i].error = "export: cannot export for " + platform + " without a player binary built for " + platform;
+            } else if (platform == "android") {
+                exportStatus_[i].ready = false;
+                exportStatus_[i].error = "export: cannot build the Android app on this computer: No JDK 17 or newer was found.";
+            }
+        }
+        exportChecked_ = time_ + 100000.0;
+        exportLast_.reset();  // the report of section H would push the rows out of view
+    };
+    auto action_labels = [this](const std::string& platform) {
+        std::vector<std::string> out;
+        for (size_t i = 0; i < export_targets().size() && i < exportStatus_.size(); ++i)
+            if (platform == export_targets()[i].platform)
+                for (const SetupAction& a : setup_actions_for_row(platform, exportStatus_[i], setupStatus_.status())) out.push_back(a.label);
+        return out;
+    };
+
+    // The window: File > Set Up This Computer... lists the four components, each with its Install button.
+    click("menu:file");
+    step(3, [] {});
+    click("menu:setup");
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return setupStatus_.has() && !setupStatus_.refreshing(); };
+    });
+    step(4, [this] {
+        at_check(showSetup_, "File > Set Up This Computer... opens the window");
+        const SetupStatus& st = setupStatus_.status();
+        std::string ids;
+        for (const SetupComponent& c : st.components) ids += c.id + " ";
+        at_check(ids == "android players cmake xcode ", "the window lists the four components, in order (" + ids + ")");
+        at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(), "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
+        for (const SetupComponent& c : st.components)
+            if (setup_action_for_component(c, st.home))
+                at_check(at_visible("setup:install:" + c.id) && at_enabled("setup:install:" + c.id), "the " + c.id + " component has an Install button");
+        at_check(at_visible("setup:install:android") && at_visible("setup:install:players"), "Android and players can always be installed");
+        at_check(at_visible("setup:refresh"), "the window can check the computer again");
+        at_check(!setupJob_.running() && !setupLast_, "nothing is installed until a button is pressed");
+    });
+    snap("editor_setup_window.png");
+    step(2, [this] { showSetup_ = false; });
+
+    // The Export window: the "Set up" button that fixes each row that is not ready.
+    step(2, [this, inject_setup] {
+        inject_setup();
+        showExport_ = true;
+        exportFocus_ = true;
+    });
+    step(4, [this, otherOs, ownOs, action_labels] {
+        at_check(at_visible("setup:export:android:android"), "the Android row that cannot find a JDK and SDK has a Set up button");
+        at_check(action_labels("android") == std::vector<std::string>{"Install Android build tools"}, "...Install Android build tools");
+        const std::string os = otherOs == "macos" ? "macOS" : (otherOs == "windows" ? "Windows" : "Linux");
+        at_check(at_visible("setup:export:" + otherOs + ":players-" + otherOs), "the row that needs another OS's player has a Set up button");
+        at_check(action_labels(otherOs) == std::vector<std::string>{"Download " + os + " player"}, "...Download " + os + " player");
+        at_check(at_visible("setup:export:ios:cmake") && at_visible("setup:export:ios:xcode"), "the iOS row, ready, still offers CMake and Xcode");
+        at_check((action_labels("ios") == std::vector<std::string>{"Install CMake", "Open App Store (Xcode)"}), "...Install CMake and Open App Store (Xcode)");
+        at_check(!at_visible("setup:export:" + ownOs + ":players-" + ownOs), "a row that is ready has no download button");
+        at_check(at_enabled("setup:export:android:android") && at_enabled("setup:export:ios:cmake"), "the Set up buttons can be pressed");
+    });
+    snap("editor_setup_export.png");
+
+    // Pressing one runs the setup in the editor (here it can only fail, the autotest has no network) and shows its report.
+    scroll_until("setup:export:" + otherOs + ":players-" + otherOs, 6, Vec2{700, 400}, 500);
+    click("setup:export:" + otherOs + ":players-" + otherOs);
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !setupJob_.running() && setupLast_.has_value(); };
+    });
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return setupStatus_.has() && !setupStatus_.refreshing() && setupStatus_.status().host != "injected-autotest"; };
+    });
+    step(4, [this, otherOs] {
+        at_check(showSetup_, "pressing a Set up button opens the Set Up window");
+        at_check(setupLast_.has_value() && !setupLast_->ok && !setupLast_->cancelled,
+                 "the setup ran (setup_install) and failed where the autotest cannot download: " + (setupLast_ ? setupLast_->error : std::string("no result")));
+        at_check(setupLast_ && setupLast_->options.component == "players" && setupLast_->options.platforms == std::vector<std::string>{otherOs},
+                 "...it was the player of that platform");
+        at_check(setupStatus_.status().host != "injected-autotest", "when it finished the status was read again");
+        bool rechecked = !exportStatus_.empty();
+        for (const ExportStatus& st : exportStatus_) rechecked = rechecked && st.hint != "injected-autotest";
+        at_check(rechecked, "...and so were the Export rows");
+        at_check(at_visible("setup:copy-report"), "the window shows the report with Copy report");
+    });
+    snap("editor_setup_failed.png");
+    step(2, [this] { showSetup_ = false; });
+
+    // The license dialog, first with a license that cannot be loaded: the dialog says so and installs nothing.
+    step(2, [this, inject_setup] {
+        inject_setup();
+        setupLicense_.reset();
+        setupLast_.reset();
+        showExport_ = true;
+        exportFocus_ = true;
+    });
+    step(3, [] {});
+    scroll_until("setup:export:android:android", -6, Vec2{700, 400}, 560);
+    click("setup:export:android:android");
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return setupLicense_.state() == SetupLicenseLoad::State::Failed; };
+    });
+    step(4, [this] {
+        at_check(setupLicenseOpen_ && at_visible("setup:license-retry"), "Install Android build tools opens the license dialog first; a license that cannot be loaded offers Try again");
+        at_check(!at_visible("setup:license-accept") || !at_enabled("setup:license-accept"), "...and cannot be accepted");
+        at_check(!setupJob_.running(), "...and nothing is installed meanwhile");
+    });
+    snap("editor_setup_license_failed.png");
+    click("setup:license-decline");
+    step(4, [this] {
+        at_check(!setupLicenseOpen_ && !setupJob_.running() && !setupLast_.has_value(), "Decline closes the dialog and installs nothing");
+    });
+
+    // With the text: shown in full, "I accept" waits for the checkbox.
+    step(2, [this] {
+        SetupLicense lic;
+        lic.id = "android-sdk-license";
+        lic.title = "Android Software Development Kit License Agreement";
+        lic.text = "Terms and Conditions\n\n";
+        for (int i = 1; i <= 24; ++i)
+            lic.text += std::to_string(i) + ". This is paragraph " + std::to_string(i) + " of the test license. It is long enough to wrap onto a second "
+                        "line in the box, so the box has to scroll to show all of the text before anyone agrees to it.\n\n";
+        lic.text += "The end of the license.";
+        setupLicense_.set(SetupLicenseLoad::State::Ready, {lic});
+    });
+    click("setup:export:android:android");
+    step(4, [this] {
+        at_check(setupLicenseOpen_ && at_visible("setup:license-text"), "the license dialog shows the license text in a box of its own");
+        at_check(at_visible("setup:license-accept") && !at_enabled("setup:license-accept"), "I accept is disabled until the checkbox is ticked");
+        at_check(at_enabled("setup:license-check") && !setupLicenseTick_, "...the checkbox is there, not ticked");
+        at_check(at_visible("setup:license-decline"), "...next to Decline");
+    });
+    snap("editor_setup_license.png");
+    click("setup:license-check");
+    step(3, [this] {
+        at_check(setupLicenseTick_, "ticking the checkbox...");
+        at_check(at_enabled("setup:license-accept"), "...enables I accept");
+        at_check(!setupJob_.running(), "...but nothing is installed until it is pressed");
+    });
+    snap("editor_setup_license_ticked.png");
+    click("setup:license-check");
+    step(3, [this] {
+        at_check(!setupLicenseTick_ && !at_enabled("setup:license-accept"), "unticking the checkbox disables I accept again");
+    });
+    click("setup:license-decline");
+    step(4, [this] {
+        at_check(!setupLicenseOpen_ && !setupJob_.running() && !setupLast_.has_value(), "Decline closes the dialog and installs nothing");
+        showExport_ = false;
+    });
+
+    // The Platform settings window: a button on General, and the tabs offer what their row needs.
+    step(2, [this, inject_setup] {
+        inject_setup();
+        open_platform_settings(SettingsTab::General);
+    });
+    step(4, [this] { at_check(at_visible("setup:open-general"), "Platform settings > General has a Set Up This Computer... button"); });
+    click("setup:open-general");
+    step(4, [this] {
+        at_check(showSetup_, "...that opens the Set Up window");
+        showSetup_ = false;
+        open_platform_settings(SettingsTab::Android);
+    });
+    step(4, [this] { at_check(at_visible("setup:tab:android:android"), "the Android tab offers Install Android build tools next to the JDK and SDK status"); });
+    step(2, [this, otherOs] { open_platform_settings(*settings_tab_for_platform(otherOs)); });
+    step(4, [this, otherOs] {
+        at_check(at_visible("setup:tab:" + otherOs + ":players-" + otherOs), "the " + otherOs + " tab offers to download its player");
+        open_platform_settings(SettingsTab::Ios);
+    });
+    step(4, [this] {
+        at_check(at_visible("setup:tab:ios:cmake") && at_visible("setup:tab:ios:xcode"), "the iOS tab offers CMake and Xcode");
+    });
+    snap("editor_setup_ios_tab.png");
+    step(2, [this] {
+        request_close_platform_settings();
+        platformCloseAsk_ = false;
+        showPlatformSettings_ = false;
+        exportChecked_ = -100;
+        setupRefreshAgain_ = true;  // what the windows show is read from this computer again
+    });
 
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The

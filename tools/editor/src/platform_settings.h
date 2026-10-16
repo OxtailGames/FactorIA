@@ -216,6 +216,9 @@ public:
     bool project_file_changed() const;
     // Reads only the project part again (the machine edits stay).
     void reload_project();
+    // Reads only this computer's settings again (the project edits stay): `factoria setup` wrote export.json (the JDK and SDK it
+    // installed), or another program did.
+    void reload_machine();
 
     // The Android toolchain the working machine settings find (a folder search: no process runs). Cached; `refresh` forces a
     // new search (the folder of a JDK was just installed).
@@ -241,6 +244,7 @@ public:
 
 private:
     void read_project();
+    void read_machine();
     std::int64_t project_file_mtime() const;
 
     std::string projectDir_, machinePath_;
