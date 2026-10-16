@@ -198,6 +198,15 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 | Steam (Steamworks) | Coming in the next M12 packages. |
 | Apple (StoreKit 2 and Game Center) | Coming in the next M12 packages. |
 
+### Store backends: one command sets them up
+
+`factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`) does the setup of a store backend in one call:
+it writes the backend's plugin from its template (`project.new_plugin` with `"template": "<backend>"`) unless
+factoria.json already declares it, builds it for this computer with CMake (the CMake `setup` installs when there is
+none), and adds what that store needs. Running it again keeps what is there. Its result lists what it did (`done`) and
+what only a person can do (`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which
+arguments it reads.
+
 ## 5. Writing a backend plugin
 
 A [native plugin](EXTENDING.md#g-native-plugins-cc-for-one-game) becomes a backend with the **plugin API version 2**:
