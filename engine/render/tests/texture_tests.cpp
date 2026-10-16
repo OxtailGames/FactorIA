@@ -222,9 +222,13 @@ TEST_CASE("textures: FA_TEXTURE_FORMAT picks the format, and every choice draws 
         if (wanted == "rgba8" || wanted == "bogus") CHECK(format == "RGBA8");
         CHECK(entry["bytes"] == expected_bytes(format, 12, 8));
         anyCompressed = anyCompressed || format != "RGBA8";
+        // ETC2 gives every texel one brightness offset for red, green and blue together, so it cannot keep the fixture's
+        // one-texel checker in blue alone: 0.0153 on llvmpipe, and the same in a software decode of the transcoded blocks,
+        // against 0.0061 for ASTC and BC7, which keep separate endpoints per channel. Codec loss, not a decoding error.
+        const double bound = format == "ETC2_RGBA8" ? 0.02 : 0.01;
         const ImageDiff d = diff_images(img, reference, 8.0f / 255.0f);
         INFO("meanError=" << d.meanError);
-        CHECK(d.meanError < 0.01);
+        CHECK(d.meanError < bound);
     }
     if (!anyCompressed) MESSAGE("this GPU samples none of ASTC 4x4, BC7 and ETC2: KTX2 textures were transcoded to RGBA8");
 }
@@ -442,7 +446,11 @@ TEST_CASE("textures: sprites of a packed atlas draw exactly like the textures th
     g.renderer.clear_asset_cache();  // resets emitter states so both worlds start identically
     for (int i = 0; i < 20; ++i) b = g.render(plain, 1.0f / 60.0f);
 
-    const ImageDiff d = diff_images(a, b, 1.0f / 255.0f);
+    // D3D11 draws both worlds bit for bit alike. llvmpipe (the Linux CI) filters with 8-bit fixed-point weights, and the
+    // atlas puts every texel at other texture coordinates, so some bilinear samples round a step differently: 117 pixels
+    // off by at most 6/255 (mean 1e-5). A packing bug (a wrong rectangle, a neighbour bleeding in, a half-texel shift) is
+    // off by a texel step, 17/255 or more in these patterns, so pixels count as different from 8/255 on.
+    const ImageDiff d = diff_images(a, b, 8.0f / 255.0f);
     INFO("meanError=" << d.meanError << " maxError=" << d.maxError << " differingPixels=" << d.differingPixels);
     CHECK(d.meanError < 0.0005);
     CHECK(d.differingPixels < 40);
