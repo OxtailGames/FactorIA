@@ -1,9 +1,13 @@
-// Desktop exports (linux, windows, macos): the factoria_player runtime plus the game, and the .app bundle of macOS.
+// Desktop exports (linux, windows, macos): the factoria_player runtime plus the game, the .app bundle of macOS, and the
+// game's icon in the form each platform wants it (docs/EXPORTING.md, "Desktop").
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 
 #include "export_internal.h"
+#include "fa/tooling/icons.h"
+#include "fa/tooling/pe_icon.h"
 
 namespace fa::export_detail {
 
@@ -29,21 +33,88 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
 
 namespace {
 
-std::string macos_plist(const Project& p, const std::string& exeName) {
-    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-           "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-           "<plist version=\"1.0\">\n<dict>\n"
-           "\t<key>CFBundleExecutable</key><string>" + xml_escape(exeName) + "</string>\n"
-           "\t<key>CFBundleIdentifier</key><string>" + xml_escape(p.id.empty() ? "com.example.game" : p.id) + "</string>\n"
-           "\t<key>CFBundleName</key><string>" + xml_escape(p.name) + "</string>\n"
-           "\t<key>CFBundleDisplayName</key><string>" + xml_escape(p.name) + "</string>\n"
-           "\t<key>CFBundlePackageType</key><string>APPL</string>\n"
-           "\t<key>CFBundleShortVersionString</key><string>" + xml_escape(p.version) + "</string>\n"
-           "\t<key>CFBundleVersion</key><string>" + xml_escape(p.version) + "</string>\n"
-           "\t<key>LSMinimumSystemVersion</key><string>11.0</string>\n"
-           "\t<key>NSHighResolutionCapable</key><true/>\n"
-           "\t<key>LSApplicationCategoryType</key><string>public.app-category.games</string>\n"
-           "</dict>\n</plist>\n";
+// Info.plist of the .app. The keys the settings decide (export.macos in factoria.json): LSApplicationCategoryType,
+// LSMinimumSystemVersion, NSHumanReadableCopyright; the icon is Contents/Resources/AppIcon.icns, named by CFBundleIconFile.
+std::string macos_plist(const Project& p, const std::string& exeName, bool hasIcon) {
+    const MacosExportSettings& m = p.settings.macos;
+    std::string plist =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+        "<plist version=\"1.0\">\n<dict>\n"
+        "\t<key>CFBundleExecutable</key><string>" + xml_escape(exeName) + "</string>\n"
+        "\t<key>CFBundleIdentifier</key><string>" + xml_escape(p.id.empty() ? "com.example.game" : p.id) + "</string>\n"
+        "\t<key>CFBundleName</key><string>" + xml_escape(p.name) + "</string>\n"
+        "\t<key>CFBundleDisplayName</key><string>" + xml_escape(p.name) + "</string>\n"
+        "\t<key>CFBundlePackageType</key><string>APPL</string>\n"
+        "\t<key>CFBundleShortVersionString</key><string>" + xml_escape(p.version) + "</string>\n"
+        "\t<key>CFBundleVersion</key><string>" + xml_escape(p.version) + "</string>\n";
+    if (hasIcon) plist += "\t<key>CFBundleIconFile</key><string>AppIcon</string>\n";
+    plist += "\t<key>LSMinimumSystemVersion</key><string>" + xml_escape(m.minimumSystemVersion) + "</string>\n"
+             "\t<key>NSHighResolutionCapable</key><true/>\n"
+             "\t<key>LSApplicationCategoryType</key><string>" + xml_escape(m.category) + "</string>\n";
+    if (!m.copyright.empty()) plist += "\t<key>NSHumanReadableCopyright</key><string>" + xml_escape(m.copyright) + "</string>\n";
+    return plist + "</dict>\n</plist>\n";
+}
+
+// A value of a .desktop file: backslash, newline and tab are escaped (Desktop Entry Specification, "Value types").
+std::string desktop_entry_value(const std::string& s) {
+    std::string o;
+    for (char c : s) {
+        if (c == '\\') o += "\\\\";
+        else if (c == '\n') o += "\\n";
+        else if (c == '\t') o += "\\t";
+        else if (c == '\r') o += "\\r";
+        else o += c;
+    }
+    return o;
+}
+
+// <slug>.desktop: the entry that puts the game in the application menu of a Linux desktop. `Exec` and `Icon` are the bare
+// names; installing the file (nextSteps) points them at the real folder.
+std::string linux_desktop_file(const Project& p, const std::string& slug, bool hasIcon) {
+    std::string categories;
+    for (std::string c : p.settings.linux.categories) {
+        c.erase(std::remove_if(c.begin(), c.end(), [](char ch) { return ch == ';' || ch == '\n' || ch == '\r'; }), c.end());
+        if (!c.empty()) categories += c + ";";
+    }
+    std::string out = "[Desktop Entry]\nType=Application\nName=" + desktop_entry_value(p.name) + "\nExec=" + slug + "\n";
+    if (hasIcon) out += "Icon=" + slug + "\n";
+    out += "Terminal=false\n";
+    if (!categories.empty()) out += "Categories=" + categories + "\n";
+    return out;
+}
+
+Result<void> write_binary(const stdfs::path& path, const std::vector<std::uint8_t>& bytes) {
+    std::string e;
+    if (!write_file(path, std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), &e)) return err("export: " + e);
+    return {};
+}
+
+// Puts the player at `dest`. A Windows export with an icon writes it with the icon of the exe replaced (pe_icon.h); a
+// player that cannot take the icon is copied as it is, with a warning (the window still shows the game's icon at run
+// time). `signatureRemoved` tells that the patch cut the exe's digital signature.
+Result<void> install_player(const stdfs::path& player, const stdfs::path& dest, const std::string& platform, const Image& icon,
+                            ExportReport& report, bool& signatureRemoved) {
+    std::error_code ec;
+    if (platform == "windows" && !icon.empty()) {
+        const std::string keeps = " The exe keeps the player's own icon; the window still shows the game's icon at run time.";
+        if (auto data = read_file(player)) {
+            std::vector<std::uint8_t> bytes(data->begin(), data->end());
+            data.reset();
+            auto patched = patch_pe_icon(bytes, icon);
+            if (patched.ok() && patched->replaced > 0) {
+                signatureRemoved = patched->signatureRemoved;
+                return write_binary(dest, bytes);
+            }
+            report.warnings.push_back(patched.ok() ? "The player " + generic(player) + " has no placeholder icon to replace (it was built "
+                                                         "without player/windows/factoria_player.rc)." + keeps +
+                                                         " Use the factoria_player.exe of this FactorIA version."
+                                                   : patched.error().message + "." + keeps + " " + patched.error().hint);
+        }
+    }
+    stdfs::copy_file(player, dest, stdfs::copy_options::overwrite_existing, ec);
+    if (ec) return err("export: cannot copy the player to " + generic(dest) + ": " + ec.message());
+    return {};
 }
 
 }  // namespace
@@ -80,7 +151,7 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 }
 
 Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player, const stdfs::path& outRoot,
-                            const std::vector<std::string>& files, ExportReport& report) {
+                            const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string exeName = slug + (platform == "windows" ? ".exe" : "");
     std::error_code ec;
@@ -89,14 +160,16 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
         stdfs::path app = outRoot / (fs_safe_name(p.name) + ".app") / "Contents";
         exeDest = app / "MacOS" / exeName;
         gameDest = app / "Resources" / "game";
-        if (auto r = write_text(app / "Info.plist", macos_plist(p, exeName)); !r.ok()) return r.error();
+        if (auto r = write_text(app / "Info.plist", macos_plist(p, exeName, !icon.empty())); !r.ok()) return r.error();
+        if (!icon.empty())
+            if (auto r = write_binary(app / "Resources" / "AppIcon.icns", make_icns(icon)); !r.ok()) return r;
     } else {
         exeDest = outRoot / exeName;
         gameDest = outRoot / "game";
     }
     stdfs::create_directories(exeDest.parent_path(), ec);
-    stdfs::copy_file(player, exeDest, stdfs::copy_options::overwrite_existing, ec);
-    if (ec) return err("export: cannot copy the player to " + generic(exeDest) + ": " + ec.message());
+    bool signatureRemoved = false;
+    if (auto r = install_player(player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
     stdfs::permissions(exeDest, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                        stdfs::perm_options::add, ec);
     if (auto r = copy_game(p, files, gameDest); !r.ok()) return r;
@@ -112,8 +185,20 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
     } else if (platform == "windows") {
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
                             "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep game/ next to the exe"};
+        if (signatureRemoved)
+            report.nextSteps.push_back("The exe's digital signature was removed because its icon changed (the player of the FactorIA "
+                                       "download is signed with FactorIA's certificate). Windows may show 'unknown publisher'; sign "
+                                       "the exe with your own certificate to publish it: signtool sign /fd SHA256 /a /tr <timestamp "
+                                       "server URL> /td SHA256 " + exeName);
     } else {
+        if (!icon.empty())
+            if (auto r = write_png_icon(generic(outRoot / (slug + ".png")), icon, 256); !r.ok()) return r;
+        if (auto r = write_text(outRoot / (slug + ".desktop"), linux_desktop_file(p, slug, !icon.empty())); !r.ok()) return r;
         report.nextSteps = {"Run it: " + generic(outRoot / exeName),
+                            "To add it to the application menu, run this in the folder where the game will live: sed -e "
+                            "\"s|^Exec=.*|Exec=$PWD/" + exeName + "|\" -e \"s|^Icon=.*|Icon=$PWD/" + slug + ".png|\" " + slug +
+                                ".desktop > ~/.local/share/applications/" + slug + ".desktop (" + slug + ".desktop names the game, "
+                                "its categories and its icon)",
                             "Archive to share: tar czf " + outRoot.filename().string() + ".tar.gz -C " +
                                 generic(outRoot.parent_path()) + " " + outRoot.filename().string()};
     }

@@ -1,9 +1,11 @@
 // iOS export: the game plus build_ios.sh, which configures the Xcode project with CMake; in prebuilt mode the project
 // and the engine archives are written into the export as well. The modes are described in export_internal.h.
+#include <cctype>
 #include <filesystem>
 
 #include "export_internal.h"
 #include "fa/tooling/bundle.h"
+#include "fa/tooling/icons.h"
 
 namespace fa::export_detail {
 
@@ -40,10 +42,22 @@ Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::p
 }  // namespace
 
 Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
-                        const std::vector<std::string>& files, ExportReport& report) {
+                        const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     if (auto r = copy_game(p, files, outRoot / "game"); !r.ok()) return r;
     if (setup.prebuilt)
         if (auto r = write_ios_prebuilt_project(setup, outRoot); !r.ok()) return r;
+    // The app icon: an asset catalog next to build_ios.sh, which hands it to CMake (-DFA_GAME_ASSET_CATALOG) so that Xcode
+    // compiles it into the app (Assets.car + CFBundleIcons). The App Store icon has no transparency: it is composed over
+    // export.ios.iconBackground.
+    const IosExportSettings& ios = p.settings.ios;
+    const bool hasIcon = !icon.empty();
+    if (hasIcon)
+        if (auto r = write_ios_app_icon(generic(outRoot / "Assets.xcassets"), icon, icon_color_from_hex(ios.iconBackground)); !r.ok()) return r;
+    // The team id is 10 letters/digits (validated with the settings): it goes into the script as it is, inside "${VAR:-...}" where
+    // single quotes would be kept literally.
+    std::string team;
+    for (char c : ios.teamId) if (std::isalnum(static_cast<unsigned char>(c))) team += c;
+    const std::string buildNumber = safe_version_name(p.settings.ios_build_number().empty() ? p.version : p.settings.ios_build_number());
     const std::string config = o.release ? "Release" : "Debug";
     std::string s;
     s += "#!/usr/bin/env bash\n";
@@ -53,7 +67,8 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
                   : "# Configures the Xcode project (same settings as the `ios` CMake preset) with the game in ./game bundled.\n";
     s += "#   ./build_ios.sh                    Xcode project for a device, then opens it\n";
     s += "#   ./build_ios.sh --simulator        same for the iOS Simulator\n";
-    s += "#   ./build_ios.sh --build            also compile (" + config + "). A device build needs FA_IOS_DEVELOPMENT_TEAM and\n";
+    s += "#   ./build_ios.sh --build            also compile (" + config + "). A device build needs a team (FA_IOS_DEVELOPMENT_TEAM" +
+         (team.empty() ? std::string() : ", default " + team + " from export.ios.teamId of factoria.json") + ") and\n";
     s += "#                                     the iPhone/iPad connected (FA_IOS_DEVICE=<udid> picks one): the first build\n";
     s += "#                                     for a team registers it there. Simulator builds are not signed.\n";
     s += "#   ./build_ios.sh [--simulator] --run   build, install and start the game, its console in this terminal\n";
@@ -77,8 +92,10 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          "  -DFA_GAME_BUNDLE_ID=" + sh_quote(p.id) + " \\\n"
          "  -DFA_GAME_NAME=" + sh_quote(p.name) + " \\\n"
          "  -DFA_GAME_VERSION=" + sh_quote(safe_version_name(p.version)) + " \\\n"
-         "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n"
-         "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-}\"\n";
+         "  -DFA_GAME_BUILD=" + sh_quote(buildNumber) + " \\\n"
+         "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n" +
+         (hasIcon ? "  -DFA_GAME_ASSET_CATALOG=\"$HERE/Assets.xcassets\" \\\n" : "") +
+         "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-" + team + "}\"\n";
     std::string build = R"SH(if [ "$BUILD" = 0 ]; then
   echo "Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run."
   open "$HERE/build/FactorIA.xcodeproj" 2>/dev/null || true
@@ -155,12 +172,16 @@ exec xcrun devicectl device process launch --console --terminate-existing --devi
     report.nextSteps = {
         "On a Mac with Xcode and CMake 3.24+, copy or open this folder: cd '" + generic(outRoot) + "'",
         "./build_ios.sh --simulator --run   builds the game, starts it in the iOS Simulator and shows its console",
-        "On an iPhone/iPad (connected, unlocked, Developer Mode on): FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run. "
+        "On an iPhone/iPad (connected, unlocked, Developer Mode on): " +
+            std::string(team.empty() ? "FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run (or set export.ios.teamId in factoria.json). "
+                                     : "./build_ios.sh --run (team " + team + " from export.ios.teamId in factoria.json; "
+                                       "FA_IOS_DEVELOPMENT_TEAM overrides it). ") +
             "Or ./build_ios.sh creates build/FactorIA.xcodeproj and opens it: select the 'factoria_player' scheme, set a "
             "Team under Signing & Capabilities (bundle id " + p.id + "), then Run",
         std::string(setup.prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " + generic(setup.libs) + " (no engine source needed). "
                                    : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
-            "Details and App Store notes: docs/MOBILE.md"};
+            "Build number (CFBundleVersion) " + buildNumber + (hasIcon ? ", app icon from Assets.xcassets" : ", no app icon (set `icon` in factoria.json)") +
+            ". Details and App Store notes: docs/MOBILE.md"};
     return {};
 }
 
