@@ -749,6 +749,7 @@
     music(path, o = {}) { N.audioMusic(path, o.volume ?? 0.6, o.fade ?? 0.5); },
     stopMusic: (fade = 0.5) => N.audioStopMusic(fade),
     setVolume: (bus, v) => N.audioVolume(bus, v),
+    getVolume: (bus) => N.audioGetVolume(bus),
   };
 
   const maskOf = (o) => (o && typeof o.mask === "number" ? o.mask : -1);
@@ -843,6 +844,7 @@
     get project() { return Object.freeze(N.project()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
+    get platform() { return N.platform(); },
   };
 
   const storage = {
