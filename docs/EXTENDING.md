@@ -714,6 +714,33 @@ the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's 
 the NDK build of the library, Java code) and the iOS build (two static libraries) are described in
 [MOBILE.md](MOBILE.md#native-plugins-on-android).
 
+**The manifest, `ios/plugin.json` and `macos/plugin.json`** (optional). A library cannot tell the export what the app that
+ships it must do, so the plugin says so in a small file in its platform folder:
+
+```json
+{
+  "frameworks": ["StoreKit", "GameKit"],
+  "swift": true,
+  "entitlements": { "com.apple.developer.game-center": true }
+}
+```
+
+`frameworks` are system frameworks the iOS app links (a static library cannot), `swift` gives the iOS app the Swift runtime
+for a plugin written in Swift, and `entitlements` are capabilities the signed app needs (Game Center, iCloud, ...; values
+are booleans, numbers, strings or lists of strings, and may use Xcode's `$(TeamIdentifierPrefix)` and `$(CFBundleIdentifier)`).
+`factoria export --platform ios` merges the manifests of all plugins (two plugins that ask for the same entitlement with
+different values fail the export, naming both) into the Xcode project's frameworks, Swift runtime and
+`factoria_player.entitlements`. `factoria export --platform macos` reads only `entitlements`, from `macos/plugin.json`: it
+writes them to `<game>.entitlements` next to the app, because only a signature with the developer's certificate and a
+provisioning profile can carry restricted ones. The file never ships inside the app and the plugin never sees it. The
+Apple backend (`platforms/plugins/apple`, [PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)) is the
+example, and [MOBILE.md](MOBILE.md#native-plugins-ios) has the details of the iOS side.
+
+A plugin written in Swift needs a small C file for the entry point: the Swift code exports a function with `@_cdecl` (the
+Apple plugin's is `fa_apple_init`) and `FA_PLUGIN_INIT(<name>)` in the C file calls it, so `fa_plugin_init` (a dylib) or
+`fa_plugin_init_<name>` (the iOS static library) is a C symbol like any other plugin's. The Apple plugin's `CMakeLists.txt` shows how `xcrun swiftc` builds the macOS dylib and
+the two iOS libraries.
+
 ### G.3 Checks and failures
 
 - `factoria validate` checks every plugin: a missing build for this computer is an error, one for another platform a

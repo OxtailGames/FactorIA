@@ -1,18 +1,26 @@
 // iOS export: the game plus build_ios.sh, which configures the Xcode project with CMake; in prebuilt mode the project
 // and the engine archives are written into the export as well. The modes are described in export_internal.h.
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 
 #include "export_internal.h"
+#include "fa/core/json.h"
+#include "fa/services/platform.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/plugin_manifest.h"
 #include "fa/tooling/setup.h"
+#include "fa/tooling/storekit_config.h"
 
 namespace fa::export_detail {
 
 // ---- ios -----------------------------------------------------------------------------------------
 
 namespace {
+
+// The entitlements the plugins' manifests ask for, as the app's .entitlements file next to build_ios.sh.
+constexpr const char* kIosEntitlementsFile = "factoria_player.entitlements";
 
 // Prebuilt mode: the CMake project (CMakeLists.txt + cmake/) and the engine archives (lib/<sdk>/*.a) of the app.
 Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::path& outRoot) {
@@ -50,7 +58,10 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
         if (auto r = write_ios_prebuilt_project(setup, outRoot); !r.ok()) return r;
     // Native plugins: each one's static libraries (<name>/iphoneos, <name>/iphonesimulator) next to build_ios.sh, which hands
     // them to CMake (-DFA_GAME_PLUGINS, -DFA_GAME_PLUGIN_DIR) so that the app links them (platforms/ios/plugins.cmake).
+    // Each plugin's manifest (ios/plugin.json, fa/tooling/plugin_manifest.h) says which system frameworks and Swift runtime the
+    // app must link and which capabilities (entitlements) it is signed with.
     std::string pluginNames;
+    std::vector<NamedManifest> manifests;
     for (const Project::Plugin& plugin : p.plugins) {
         const stdfs::path dest = outRoot / "plugins" / plugin.name;
         std::error_code ec;
@@ -59,6 +70,34 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
         if (ec) return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " + generic(dest) +
                            ": " + ec.message());
         pluginNames += (pluginNames.empty() ? "" : ";") + plugin.name;
+        auto manifest = read_plugin_manifest(plugin.build);
+        if (!manifest.ok())
+            return err("export: the manifest of the plugin '" + plugin.name + "': " + manifest.error().message, manifest.error().hint);
+        manifests.push_back({plugin.name, manifest.value()});
+    }
+    auto merged = merge_plugin_manifests(manifests);
+    if (!merged.ok()) return err("export: " + merged.error().message, merged.error().hint);
+    const PluginManifest& needs = merged.value();
+    const bool hasEntitlements = !needs.entitlements.empty();
+    if (hasEntitlements)
+        if (auto r = write_text(outRoot / kIosEntitlementsFile, entitlements_plist(needs.entitlements)); !r.ok()) return r;
+    // A plugin that links StoreKit sells the catalog's products: Products.storekit lets a run from Xcode sell them without
+    // App Store Connect (build_ios.sh wires it into the scheme).
+    bool hasStoreKit = false;
+    if (std::find(needs.frameworks.begin(), needs.frameworks.end(), "StoreKit") != needs.frameworks.end()) {
+        auto project = load_json_file(generic(p.dir / "factoria.json"));
+        if (project.ok() && project->is_object() && project->contains("platform")) {
+            const PlatformCatalog catalog = parse_platform_catalog((*project)["platform"]).catalog;
+            if (!catalog.products.empty()) {
+                auto script = bundled_read("platforms/ios/storekit_scheme.cmake");
+                if (!script)
+                    return err("export: this factoria has no built-in platforms/ios/storekit_scheme.cmake", "this is an engine bug; report it");
+                if (auto r = write_text(outRoot / kStoreKitFileName, dump_json(storekit_configuration(catalog, "apple", p.name, p.id))); !r.ok())
+                    return r;
+                if (auto r = write_text(outRoot / "storekit_scheme.cmake", *script); !r.ok()) return r;
+                hasStoreKit = true;
+            }
+        }
     }
     // The app icon: an asset catalog next to build_ios.sh, which hands it to CMake (-DFA_GAME_ASSET_CATALOG) so that Xcode
     // compiles it into the app (Assets.car + CFBundleIcons). The App Store icon has no transparency: it is composed over
@@ -117,7 +156,15 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n" +
          (hasIcon ? "  -DFA_GAME_ASSET_CATALOG=\"$HERE/Assets.xcassets\" \\\n" : "") +
          (pluginNames.empty() ? "" : "  -DFA_GAME_PLUGINS=" + sh_quote(pluginNames) + " -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\" \\\n") +
-         "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-" + team + "}\"\n";
+         (needs.frameworks.empty() ? "" : "  -DFA_GAME_PLUGIN_FRAMEWORKS=" + sh_quote(join(needs.frameworks, ";")) + " \\\n") +
+         (needs.swift ? "  -DFA_GAME_PLUGIN_SWIFT=ON \\\n" : "") +
+         (hasEntitlements ? std::string("  -DFA_GAME_ENTITLEMENTS=\"$HERE/") + kIosEntitlementsFile + "\" \\\n" : "") +
+         (hasStoreKit ? "  -DFA_GAME_STOREKIT=ON \\\n" : "") +
+         "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-" + team + "}\"\n" +
+         (hasStoreKit ? std::string("# Running the project from Xcode sells the products of ") + kStoreKitFileName + " (no App Store Connect needed).\n"
+                        "\"$CMAKE\" -DPROJECT=\"$HERE/build/FactorIA.xcodeproj\" -DSTOREKIT=\"$HERE/" + kStoreKitFileName +
+                        "\" -P \"$HERE/storekit_scheme.cmake\"\n"
+                      : "");
     std::string build = R"SH(if [ "$BUILD" = 0 ]; then
   echo "Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run."
   open "$HERE/build/FactorIA.xcodeproj" 2>/dev/null || true
@@ -204,6 +251,19 @@ exec xcrun devicectl device process launch --console --terminate-existing --devi
                                    : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
             "Build number (CFBundleVersion) " + buildNumber + (hasIcon ? ", app icon from Assets.xcassets" : ", no app icon (set `icon` in factoria.json)") +
             ". Details and App Store notes: docs/MOBILE.md"};
+    if (hasEntitlements) {
+        std::vector<std::string> names;
+        for (auto it = needs.entitlements.begin(); it != needs.entitlements.end(); ++it) names.push_back(it.key());
+        report.nextSteps.push_back(
+            "The plugins ask for capabilities (" + join(names, ", ") + "): " + std::string(kIosEntitlementsFile) +
+            " is the app's entitlements file, so Xcode's automatic signing turns them on for the App ID of " + p.id +
+            " (a device build needs the Team). They need the matching services set up in App Store Connect: docs/PLATFORM.md");
+    }
+    if (hasStoreKit)
+        report.nextSteps.push_back(std::string("Running the project from Xcode sells the products of ") + kStoreKitFileName +
+                                   " (generated from factoria.json's platform.products), no App Store Connect needed; if the scheme "
+                                   "shows StoreKit Configuration: None, pick the file under Product > Scheme > Edit Scheme > Run > Options. "
+                                   "./build_ios.sh --run (simctl launch) does not use it");
     return {};
 }
 

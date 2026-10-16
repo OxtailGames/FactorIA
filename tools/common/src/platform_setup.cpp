@@ -1,0 +1,148 @@
+// platform.add_backend: sets a store backend plugin up in a game (docs/PLATFORM.md, "Store backends"). The shared steps
+// are here; what each store needs is in platform_setup_<backend>.cpp.
+#include "platform_setup.h"
+
+#include <algorithm>
+#include <filesystem>
+
+#include "fa/core/process.h"
+#include "fa/core/strings.h"
+#include "fa/runtime/plugins.h"
+#include "fa/runtime/project.h"
+#include "fa/tooling/setup.h"
+#include "fa/tooling/tooling.h"
+
+namespace fa {
+
+namespace stdfs = std::filesystem;
+
+namespace platform_setup {
+
+namespace {
+
+const std::vector<Backend>& backends() {
+    static const std::vector<Backend> all = {steam_backend(), apple_backend()};
+    return all;
+}
+
+// The last `lines` lines of `text`.
+std::string tail(const std::string& text, std::size_t lines) {
+    std::size_t pos = text.size();
+    for (std::size_t n = 0; pos > 0 && n <= lines; --pos)
+        if (text[pos - 1] == '\n') ++n;
+    return text.substr(pos == 0 ? 0 : pos + 1);
+}
+
+}  // namespace
+
+std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
+    auto project = load_project(projectDir);
+    if (!project.ok()) throw CommandError("invalid_argument", project.error().message, project.error().hint);
+    for (const PluginSettings& p : project->plugins) {
+        if (p.name != backend) continue;
+        auto folder = plugin_folder(projectDir, p);
+        if (!folder.ok()) throw CommandError("invalid_argument", folder.error().message, folder.error().hint);
+        done.push_back("kept the plugin '" + backend + "' factoria.json already declares (" + folder.value() + ")");
+        this->folder = folder.value();
+        return this->folder;
+    }
+    Json platformList = Json::array();
+    for (const std::string& p : platforms) platformList.push_back(p);
+    const CommandResult r = registry->call("project.new_plugin",
+                                           Json::object({{"name", backend}, {"template", backend}, {"platforms", platformList}}));
+    if (!r.ok)
+        throw CommandError(r.error.value("code", std::string("failed")),
+                           "could not create the " + backend + " plugin: " + r.error.value("message", std::string()),
+                           r.error.value("hint", std::string()));
+    folder = r.result.value("folder", std::string());
+    done.push_back("created the plugin '" + backend + "' from its template in " + folder + " and declared it in factoria.json");
+    return folder;
+}
+
+void Context::run_cmake(const std::vector<std::string>& arguments, const std::string& what) {
+    const std::string cmake = find_cmake();
+    if (cmake.empty())
+        throw CommandError("not_found", "cannot " + what + ": CMake 3.24 or newer is not installed",
+                           "Install it with `factoria call setup.install '{\"items\":[\"cmake\"]}'` (or the editor's Setup "
+                           "window), then run platform.add_backend again.");
+    ProcessOptions po;
+    po.argv = {cmake};
+    po.argv.insert(po.argv.end(), arguments.begin(), arguments.end());
+    po.workingDir = projectDir;
+    po.timeoutSeconds = 900;
+    auto r = run_process(po);
+    if (!r.ok()) throw CommandError("failed", "cannot " + what + ": " + r.error().message, r.error().hint);
+    if (r->exitCode != 0) {
+        const std::string log = tail(r->stdoutText + "\n" + r->stderrText, 30);
+        throw CommandError("failed", "cannot " + what + ": CMake exited with " + std::to_string(r->exitCode) + ". The end of its output:\n" + log,
+                           "A C/C++ compiler is needed to build a plugin (Visual Studio on Windows, Xcode on macOS, GCC or Clang on "
+                           "Linux). Fix what the output says and run platform.add_backend again.");
+    }
+}
+
+void Context::build_plugin(const std::string& folder, const std::vector<std::string>& configureArguments) {
+    const std::string build = folder + "/build";
+    std::vector<std::string> configure = {"-S", folder, "-B", build, "-DCMAKE_BUILD_TYPE=Release"};
+    configure.insert(configure.end(), configureArguments.begin(), configureArguments.end());
+    run_cmake(configure, "configure the " + backend + " plugin");
+    run_cmake({"--build", build, "--config", "Release"}, "build the " + backend + " plugin");
+    done.push_back("built the " + backend + " plugin for " + runtime_platform() + " (" + folder + "/" + runtime_platform() + "/)");
+}
+
+}  // namespace platform_setup
+
+void register_platform_setup_commands(CommandRegistry& registry, const std::string& projectDir) {
+    using namespace platform_setup;
+    std::vector<std::string> names;
+    std::string perBackend;
+    Json properties = Json::object();
+    for (const Backend& b : backends()) {
+        names.push_back(b.name);
+        perBackend += " " + b.name + ": " + b.summary;
+        for (auto it = b.properties.begin(); it != b.properties.end(); ++it) properties[it.key()] = it.value();
+    }
+    Json backendNames = Json::array();
+    for (const std::string& n : names) backendNames.push_back(n);
+    properties["backend"] = Json::object({{"type", "string"}, {"enum", backendNames},
+                                          {"description", "The store backend to set up; it is also the plugin's name."}});
+
+    CommandInfo info;
+    info.name = "platform.add_backend";
+    info.category = "platform";
+    info.readOnly = false;
+    info.summary = "Set up a store backend for this game: its plugin, its build and what the store needs.";
+    info.description =
+        "One call instead of the manual steps of docs/PLATFORM.md (\"Store backends\"): writes the backend's plugin from "
+        "its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for "
+        "this computer with CMake, and adds what that store needs." + perBackend +
+        " Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps "
+        "lists what only a person can do (store dashboards, accounts). Example: {\"backend\": \"steam\", \"appId\": 480}.";
+    info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"backend"})}, {"properties", properties}});
+    registry.add(info, [&registry, projectDir](const Json& a) {
+        const std::string name = a.at("backend").get<std::string>();
+        const auto& all = backends();
+        const auto it = std::find_if(all.begin(), all.end(), [&](const Backend& b) { return b.name == name; });
+        if (it == all.end()) {  // the schema's enum stops this first; kept for direct C++ callers
+            std::vector<std::string> known;
+            for (const Backend& b : all) known.push_back(b.name);
+            throw CommandError("invalid_argument", "unknown store backend '" + name + "'", did_you_mean(name, known));
+        }
+        Context ctx;
+        ctx.projectDir = projectDir;
+        ctx.backend = name;
+        ctx.args = a;
+        ctx.registry = &registry;
+        it->run(ctx);
+        Json out = Json::object({{"backend", name}});
+        if (!ctx.folder.empty()) out["folder"] = ctx.folder;
+        for (auto e = ctx.extra.begin(); e != ctx.extra.end(); ++e) out[e.key()] = e.value();
+        Json done = Json::array(), next = Json::array();
+        for (const std::string& s : ctx.done) done.push_back(s);
+        for (const std::string& s : ctx.nextSteps) next.push_back(s);
+        out["done"] = done;
+        out["nextSteps"] = next;
+        return out;
+    });
+}
+
+}  // namespace fa
