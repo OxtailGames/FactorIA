@@ -117,9 +117,11 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
         CHECK(stdfs::weakly_canonical(rep.outputDir) == stdfs::weakly_canonical(root));
         std::string game = root + "/game";
         std::string exe = root + "/space-dodge" + (std::string(platform) == "windows" ? ".exe" : "");
+        std::string notices = "FACTORIA_NOTICES.txt";
         if (std::string(platform) == "macos") {
             game = root + "/Space Dodge.app/Contents/Resources/game";
             exe = root + "/Space Dodge.app/Contents/MacOS/space-dodge";
+            notices = "Space Dodge.app/Contents/Resources/FACTORIA_NOTICES.txt";
             CHECK(testing::read_all(root + "/Space Dodge.app/Contents/Info.plist").find("com.example.spacedodge") != std::string::npos);
         }
         CHECK(stdfs::exists(exe));
@@ -133,6 +135,11 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
         CHECK_FALSE(stdfs::exists(game + "/AGENTS.md"));
         CHECK_FALSE(rep.nextSteps.empty());
         CHECK(rep.to_json()["files"].is_array());
+        // The licenses of the runtime ship with the game, next to the executable (inside the bundle on macOS).
+        CHECK(rep.notices == notices);
+        CHECK(rep.to_json()["notices"] == notices);
+        CHECK(testing::read_all(root + "/" + notices).find("Permission is hereby granted") != std::string::npos);
+        CHECK_FALSE(stdfs::exists(game + "/FACTORIA_NOTICES.txt"));
     }
     // The project itself is untouched.
     CHECK(stdfs::exists(stdfs::path(proj) / "ENGINE_FEEDBACK.json"));
@@ -197,7 +204,7 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     for (const char* f : {"settings.gradle", "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties",
                           "app/build.gradle", "app/src/main/AndroidManifest.xml", "app/src/main/res/values/strings.xml",
                           "app/src/main/assets/factoria.json", "app/src/main/assets/scenes/main.scene.json",
-                          "app/src/main/assets/assets_index.txt"})
+                          "app/src/main/assets/assets_index.txt", "app/src/main/assets/FACTORIA_NOTICES.txt"})
         CHECK_MESSAGE(stdfs::exists(root / f), f);
     CHECK_FALSE(stdfs::exists(root / "app/src/main/assets/ENGINE_FEEDBACK.json"));
     CHECK_FALSE(stdfs::exists(root / "app/src/main/assets/.factoria"));
@@ -251,7 +258,7 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     for (auto& e : stdfs::recursive_directory_iterator(root / "app/src/main/assets"))
         if (e.is_regular_file()) {
             std::string rel = stdfs::relative(e.path(), root / "app/src/main/assets").generic_string();
-            if (rel != "assets_index.txt") onDisk.push_back(rel);
+            if (rel != "assets_index.txt" && rel != "FACTORIA_NOTICES.txt") onDisk.push_back(rel);  // not game files
         }
     std::sort(onDisk.begin(), onDisk.end());
     auto sorted = lines;
@@ -303,6 +310,8 @@ TEST_CASE("export: ios source mode produces a script and the game folder") {
     CHECK(r->mode == "source");
     stdfs::path root = r->outputDir;
     CHECK(stdfs::exists(root / "game/factoria.json"));
+    CHECK(r->notices == "game/FACTORIA_NOTICES.txt");  // game/ is copied into the app bundle
+    CHECK(stdfs::exists(root / "game/FACTORIA_NOTICES.txt"));
     CHECK_FALSE(stdfs::exists(root / "game/ENGINE_FEEDBACK.json"));
     REQUIRE(stdfs::exists(root / "build_ios.sh"));
     std::string script = testing::read_all(root / "build_ios.sh");

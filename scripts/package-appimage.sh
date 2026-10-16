@@ -45,6 +45,8 @@ mkdir -p "$appdir/usr/bin"
 cp "$package/factoria" "$package/factoria_player" "$appdir/usr/bin/"
 cp "$repo/platforms/linux/AppRun" "$appdir/AppRun"
 cp "$repo/platforms/linux/FactorIA.desktop" "$repo/platforms/linux/factoria.svg" "$appdir/"
+mkdir -p "$appdir/usr/share/doc/factoria"  # licenses (also printed by `factoria docs licenses`)
+cp "$package/LICENSE" "$package/THIRD_PARTY_NOTICES.txt" "$appdir/usr/share/doc/factoria/"
 chmod +x "$appdir/AppRun" "$appdir/usr/bin/"*
 
 mkdir -p "$(dirname "$out")"

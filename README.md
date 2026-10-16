@@ -133,3 +133,18 @@ platforms/   packaging for Android (Gradle) and iOS
 
 If you are going to modify the engine, read [CLAUDE.md](CLAUDE.md) and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first.
+
+## License
+
+FactorIA is open source under the [MIT License](LICENSE): use it, change it and ship games with it, free or
+commercial, as long as the copyright notice and the license travel with the engine code.
+
+- **Your games are yours.** The files `factoria new` puts in a project are [MIT-0](templates/LICENSE) (no notice
+  needed). An exported game contains the FactorIA runtime, so `factoria export` writes `FACTORIA_NOTICES.txt` with the
+  licenses of the engine and the third-party code inside it; keep it in what you ship
+  ([docs/EXPORTING.md](docs/EXPORTING.md#license-notices)).
+- **Third-party code** in `external/` keeps its own license ([external/VERSIONS.md](external/VERSIONS.md); all MIT,
+  zlib or public domain). `factoria docs licenses` prints every notice; the downloads ship them as
+  `THIRD_PARTY_NOTICES.txt`.
+- **The name.** The license covers the code, not the FactorIA name or logo. Say that your game is "made with FactorIA";
+  a modified or redistributed engine must not present itself as FactorIA, or as endorsed by it, without permission.

@@ -11,6 +11,7 @@
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/bundle.h"
+#include "fa/tooling/notices.h"
 #include "fa/tooling/project_fs.h"
 #include "util.h"
 
@@ -642,6 +643,22 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     return {};
 }
 
+// ---- license notices -----------------------------------------------------------------------------
+
+// The runtime inside the game is FactorIA (MIT) plus third-party code whose licenses ask for their notices in every
+// copy: FACTORIA_NOTICES.txt goes where it ships with the game (next to the executable, or inside the app bundle/APK).
+Result<void> write_notices(const Project& p, const std::string& platform, const stdfs::path& outRoot, ExportReport& report) {
+    stdfs::path dir = outRoot;
+    if (platform == "macos") dir = outRoot / (fs_safe_name(p.name) + ".app") / "Contents" / "Resources";
+    else if (platform == "android") dir = outRoot / "app" / "src" / "main" / "assets";
+    else if (platform == "ios") dir = outRoot / "game";
+    if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game)); !r.ok()) return r;
+    report.notices = generic((dir.lexically_relative(outRoot) / kExportNoticesFile).lexically_normal());
+    report.nextSteps.push_back(report.notices + " holds the licenses of the FactorIA runtime inside the game: keep it in "
+                               "what you distribute (docs/EXPORTING.md, \"License notices\")");
+    return {};
+}
+
 }  // namespace
 
 stdfs::path executable_dir() {
@@ -677,6 +694,7 @@ Json ExportReport::to_json() const {
     Json j = Json::object();
     j["outputDir"] = outputDir;
     if (!mode.empty()) j["mode"] = mode;
+    j["notices"] = notices;
     j["files"] = files;
     j["nextSteps"] = nextSteps;
     j["warnings"] = warnings;
@@ -721,6 +739,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     } else {
         r = export_desktop(options, p, platform, outRoot, files, report);
     }
+    if (r.ok()) r = write_notices(p, platform, outRoot, report);
     if (!r.ok()) {
         stdfs::remove_all(outRoot, ec);
         return r.error();
@@ -745,7 +764,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, "
         "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "
         "$FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error "
-        "says what to do. Returns {outputDir, mode (android/ios), files[], nextSteps[], warnings[]}; nextSteps lists what to "
+        "says what to do. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, "
+        "where it ships with it (`notices`). Returns {outputDir, mode (android/ios), notices, files[], nextSteps[], "
+        "warnings[]}; nextSteps lists what to "
         "do next (e.g. the Gradle build command). Nothing is built or signed here. Details: docs_read "
         "{\"name\":\"exporting\"}. Example: {\"platform\":\"windows\",\"release\":true}.";
     info.inputSchema = Json::parse(R"({
