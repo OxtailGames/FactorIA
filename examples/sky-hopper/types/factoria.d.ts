@@ -366,6 +366,10 @@ declare module "factoria" {
      */
     enabled: boolean;
     /**
+     * Default false. While time.scale is 0 (game.paused) the engine calls onUpdate and onLateUpdate only on behaviours whose runWhilePaused is true, with the REAL frame time as dt (time.dt is 0 then; time.unscaledDt is the real one). Set it as a class field (`runWhilePaused = true;`) on pause menus and anything else that must react while gameplay is frozen. onFixedUpdate never runs while paused. ui events and world.on listeners are delivered either way.
+     */
+    runWhilePaused: boolean;
+    /**
      * One-shot timer (scaled game time); cancelled automatically on destroy.
      */
     after(seconds: number, fn: () => void): TimerHandle;
@@ -710,14 +714,18 @@ declare module "factoria" {
     readonly dt: number;
     readonly fixedDt: number;
     /**
-     * Simulated seconds since scene start.
+     * Simulated seconds since scene start (fixed steps run so far x fixedDt); not affected by time.scale.
      */
     readonly elapsed: number;
     readonly frame: number;
     /**
-     * Time scale for gameplay; 0 pauses behaviours.
+     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled.
      */
     scale: number;
+    /**
+     * Seconds of the current frame, NOT scaled by time.scale (the real frame time while paused): animate pause menus with it.
+     */
+    readonly unscaledDt: number;
   }
 
   /**
@@ -760,7 +768,7 @@ declare module "factoria" {
   export interface GameAPI {
     quit(): void;
     /**
-     * True while time.scale is 0.
+     * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false sets it back to 1.
      */
     paused: boolean;
     /**
@@ -768,6 +776,10 @@ declare module "factoria" {
      */
     readonly project: Readonly<Json>;
     readonly screenSize: Vec2;
+    /**
+     * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
+     */
+    notices(): { name: string; url: string; license: string; usedFor: string }[];
   }
 
   /**
