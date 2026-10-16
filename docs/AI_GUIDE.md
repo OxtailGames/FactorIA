@@ -355,7 +355,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
-| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
+| `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.platform` (`"windows"`, `"android"`...), `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
 | `rng`, `math` | `rng.seed(n)`, `rng.float()`, `rng.range(a, b)`, `rng.int(a, b)`, `rng.chance(p)`, `rng.pick(array)`, `rng.shuffle(array)` (all draw from the ONE world RNG); `rng.create(seed)` returns an independent seeded generator with the same methods, for generators and tools (section 9.16); `math.clamp`, `lerp`, `damp`, `moveTowards`, `degToRad` and others |
 | `particles`, `ui` | `particles.burst(entity, count)`; `ui.measureText(text, {fontSize, font, maxWidth})` returns `{width, height}` |
@@ -1030,6 +1030,99 @@ export default class Dash extends Behaviour {
 - **Not for** testing a spot (`from === to` returns `null`; use `overlapBox` / `overlapCircle`), ground checks (`isGrounded`) or walls (`isTouching`).
 - From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
 - A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
+
+### 9.22 Menus: main menu, panels over panels, pause
+
+A menu is a `Panel` with `layout: "column"` and `Button` children, in screen space. The first button has `autoFocus`, so the arrow keys and the D-pad work at once (nothing takes the focus by itself otherwise, so HUD buttons never steal a jump press). The `2d-platformer` template (`factoria new mygame --template 2d-platformer`) has the complete set: main menu, loading screen, pause, options, credits.
+
+```json
+{
+  "id": "main_menu",
+  "components": {
+    "Transform": { "position": [0, 60, 0] },
+    "Panel": { "anchor": [0.5, 0.5], "color": [0, 0, 0, 0], "layout": "column", "spacing": 12, "fit": true },
+    "Script": { "path": "scripts/main_menu.js" }
+  },
+  "children": [
+    { "id": "play", "components": { "Button": { "text": "Play", "autoFocus": true } } },
+    { "id": "options_button", "components": { "Button": { "text": "Options" } } },
+    { "id": "quit", "components": { "Button": { "text": "Quit" } } }
+  ]
+}
+```
+
+```js
+// scripts/main_menu.js
+import { Behaviour, ui, game, scene } from "factoria";
+
+export default class MainMenu extends Behaviour {
+  onStart() {
+    if (game.platform === "ios" || game.platform === "android") this.world.find("quit").active = false;
+    ui.on("click", "play", () => scene.load("scenes/main.scene.json"));
+    ui.on("click", "options_button", () => this.open("options"));
+    ui.on("cancel", () => this.close()); // ui_cancel: Escape or gamepad B
+  }
+  open(id) {
+    this.back = ui.focused; // to give the focus back on close
+    this.world.find("main_menu").active = false;
+    this.world.find(id).active = true; // its autoFocus button takes the focus
+    this.openId = id;
+  }
+  close() {
+    if (!this.openId) return;
+    this.world.find(this.openId).active = false;
+    this.world.find("main_menu").active = true;
+    ui.focus(this.back);
+    this.openId = null;
+  }
+}
+```
+
+- **Panels over panels.** Show one panel and hide the one below with `active`; a focused widget that becomes inactive loses the focus and the new panel's `autoFocus` widget takes it. Remember `ui.focused` before and call `ui.focus(...)` after closing so the player lands where they were (the template's `scripts/ui/menu_stack.js` does it for any depth).
+- **Pause menu.** `game.paused = true` freezes physics, animations, timers and `onUpdate`. The pause menu's behaviour sets `runWhilePaused = true` to keep getting `onUpdate` (with the real `dt`); the UI works while paused. Put the overlay in the level scene as an inactive `Panel` and show it from that behaviour on `input.pressed("pause")`.
+- **Resume without a jump.** The A or Space press that clicks "Resume" is also `jump`. Unpause in the pause behaviour's next `onUpdate`, not in the click handler: that frame's gameplay was already skipped, so the press never reaches the player.
+- **Back to the main menu.** `time.scale` outlives scene loads: set `game.paused = false` before `scene.load`.
+- **Test it with a gamepad only** (`game.gamepad(0).tap("DpadDown")`, `"A"`, `"B"`) and assert `ui.focused.id` after each press; see the template's `tests/menus.test.js`.
+
+### 9.23 Options: volumes, video, controls, saved between runs
+
+Keep the settings in `storage`, apply them once when the game starts and again whenever the player changes one.
+
+```js
+// scripts/settings.js
+import { storage, audio, window, input, session } from "factoria";
+
+const DEFAULTS = { volume: { master: 1, music: 0.6, sfx: 1, ui: 1 }, fullscreen: null, bindings: {} };
+
+export function load() {
+  const saved = storage.get("settings", {});
+  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+}
+export const save = (s) => storage.set("settings", s);
+
+export function applyOnce() {         // call it from the first scene's onStart
+  if (session.settingsApplied) return; // session outlives scene loads
+  session.settingsApplied = true;
+  const s = load();
+  for (const [bus, v] of Object.entries(s.volume)) audio.setVolume(bus, v);
+  for (const [action, list] of Object.entries(s.bindings)) input.rebind(action, list);
+  if (window.available && s.fullscreen !== null) window.setFullscreen(s.fullscreen);
+}
+```
+
+```js
+// In the options panel's behaviour: a Slider per bus.
+ui.on("change", "music_volume", (e) => {
+  this.s.volume.music = e.value;
+  audio.setVolume("music", e.value);
+  save(this.s);
+});
+```
+
+- **Audio.** One `Slider` per bus (`master`, `music`, `sfx`, `ui`; `min` 0, `max` 1, `step` 0.1). `audio.getVolume(bus)` reads a volume back.
+- **Video.** `window.setFullscreen`, `window.setSize` (one of `window.resolutions()`), `window.setVsync`, `window.frameCap`. They throw in headless runs and tests, where there is no window: check `window.available` and make the video rows `interactable: false` without one.
+- **Controls.** On a "rebind" click, wait for the next frame's `input.lastPressed()` (skip the frame of the click, whose press is the click itself), then `input.rebind(action, [pressed, ...otherDeviceBindings])` and save the list. Show bindings with `input.buttonName(action)`: it names the button as the player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad). `input.resetBindings()` goes back to factoria.json.
+- **Language.** The template's Language tab is a placeholder: localization arrives with a later milestone.
 
 ## 10. Tests
 
