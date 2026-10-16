@@ -174,6 +174,88 @@ struct ParticleEmitter {
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
 };
 
+// -------------------------------------------------------------------- UI ---
+// Game UI widgets. They live in SCREEN SPACE only: design pixels, origin top-left, +Y down. Position is the entity's
+// Transform.position (relative to its parent, like every entity); `anchor` and `pivot` mean what they mean on Shape2D
+// in screen space. ponytail: rotation and scale of UI entities are ignored by layout and hit-testing.
+// Behaviour lives in fa_ui (layout, focus, input, events) and fa_render (drawing); the geometry both need is in
+// scene/ui_rect.h. components.cpp registers them (category "UI") with ui_box_fields(), so the shared doc strings exist once.
+enum class UiLayout : std::int32_t { None, Row, Column, Grid };
+enum class UiAlign : std::int32_t { Start, Center, End };
+
+// Geometry and background shared by every widget.
+struct UiBox {
+    Vec2 size{320, 240};                      // [w, h] in design pixels (each kind sets its own default)
+    Vec2 pivot{0.5f, 0.5f};                   // 0,0 = bottom-left, 1,1 = top-right (like Shape2D)
+    Vec2 anchor{0, 0};                        // screen point the position is relative to
+    std::int32_t layer = 200;                 // draw order; labels draw at layer + 1, the focus ring at layer + 2
+    Color color{0.16f, 0.18f, 0.24f, 0.92f};  // background tint, multiplied with `texture`
+    std::string texture;                      // optional background image, drawn 9-slice with `slice`
+    Vec4 slice{0, 0, 0, 0};                   // 9-slice borders in texture pixels [left, top, right, bottom]
+};
+
+// What Button, Toggle, Slider and TextField add to UiBox.
+struct UiControl : UiBox {
+    std::string font;                         // asset path to .ttf; "" = built-in font
+    float fontSize = 24.0f;
+    Color textColor{1, 1, 1, 1};
+    Color accentColor{1.0f, 0.76f, 0.2f, 1.0f};  // focus ring, slider fill and knob, toggle check, caret
+    bool interactable = true;                 // false: drawn at half alpha, never hovered, focused or clicked
+    bool autoFocus = false;                   // takes focus when nothing is focused
+    bool focused = false;                     // runtime: has keyboard / gamepad focus
+    bool hovered = false;                     // runtime: the pointer is over it
+    bool pressed = false;                     // runtime: the pointer is held down on it
+};
+
+// Container that groups children and can lay them out in a row, a column or a grid.
+struct Panel : UiBox {
+    UiLayout layout = UiLayout::None;
+    float spacing = 8.0f;
+    Vec4 padding{16, 16, 16, 16};             // left, top, right, bottom
+    std::int32_t columns = 2;                 // grid only
+    UiAlign align = UiAlign::Center;          // cross axis
+    UiAlign justify = UiAlign::Start;         // main axis
+    bool fit = false;                         // size = content + padding, every frame
+};
+
+struct Button : UiControl {
+    std::string text = "Button";
+    Button() { size = {240, 56}; }
+};
+
+struct Toggle : UiControl {
+    std::string label = "Toggle";
+    bool value = false;
+    Toggle() { size = {240, 40}; }
+};
+
+struct Slider : UiControl {
+    std::string label;
+    float value = 0.5f;
+    float min = 0.0f;
+    float max = 1.0f;
+    float step = 0.1f;                        // keyboard / gamepad increment and snapping; 0 = continuous
+    bool showValue = true;
+    Slider() { size = {320, 40}; }
+};
+
+struct TextField : UiControl {
+    std::string text;
+    std::string placeholder;
+    std::int32_t maxLength = 64;              // code points; 0 = unlimited
+    bool caret = false;                       // runtime: the caret is in the visible half of its blink
+    TextField() { size = {320, 48}; }
+};
+
+// Container whose children are stacked in a column, scrolled and clipped to its rectangle.
+struct ScrollList : UiBox {
+    float spacing = 8.0f;
+    Vec4 padding{8, 8, 8, 8};
+    float scroll = 0.0f;                      // runtime: pixels scrolled from the top
+    float scrollSpeed = 40.0f;                // pixels per mouse-wheel notch
+    ScrollList() { size = {320, 240}; }
+};
+
 // ------------------------------------------------------------------- 3D ---
 // mesh: "cube" | "sphere" | "plane" | "cylinder" | "capsule" | "cone" | "quad"
 //       or an asset path to a .gltf/.glb file ("assets/models/ship.glb").
