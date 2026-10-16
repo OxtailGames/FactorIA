@@ -189,7 +189,8 @@ struct ScriptSystem::Impl {
     void compact();
     void drop_all_behaviours();
     void on_entity_destroyed(Entity e);
-    void run_callbacks(const char* method, float dt, bool scaled);
+    // pausedOnly: time.scale is 0, so only behaviours whose `runWhilePaused` is true are called.
+    void run_callbacks(const char* method, float dt, bool pausedOnly);
     void dispatch(const char* method, Entity self, std::initializer_list<JSValue> args);
     Behaviour* find_behaviour(Entity e);
     JSValue entity_object(Entity e);  // JS Entity wrapper (owned)

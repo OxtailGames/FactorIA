@@ -75,7 +75,7 @@ suggestion; `factoria validate` reports the same through
 | Method | When |
 |---|---|
 | `onStart()` | once, before the first update after the entity exists (props already applied) |
-| `onUpdate(dt)` | every frame, `dt` in seconds (scaled by `time.scale`) |
+| `onUpdate(dt)` | every frame, `dt` in seconds (scaled by `time.scale`; not called while it is 0 unless `runWhilePaused`) |
 | `onFixedUpdate(dt)` | every fixed step (default 60 Hz), before physics |
 | `onLateUpdate(dt)` | after all updates (cameras following targets) |
 | `onDestroy()` | before the entity is removed |
@@ -275,7 +275,25 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 - `applyImpulse(entity, v)` · `applyForce(entity, v)` · `setVelocity(entity, v)`
 
 ### time
-`dt`, `fixedDt`, `elapsed`, `frame`, `scale` (writable; 0 pauses gameplay).
+`dt`, `fixedDt`, `elapsed`, `frame`, `scale`, `unscaledDt`.
+
+`time.scale` (writable, default 1) scales gameplay: the `dt` of `onUpdate`/`onFixedUpdate`, timers (`after`, `every`),
+physics steps, particles and sprite animators. `0` freezes all of them; `game.paused = true` is the same as
+`time.scale = 0`. Audio keeps playing and `time.elapsed` keeps counting fixed steps. While it is 0 the engine calls
+`onUpdate`/`onLateUpdate` only on behaviours with `runWhilePaused = true` (a class field), with the real frame time as
+`dt` (`time.dt` is 0 then, `time.unscaledDt` is the real one), and the UI and `world.on` listeners keep working. A pause
+menu is such a behaviour:
+
+```js
+export default class PauseMenu extends Behaviour {
+  runWhilePaused = true;              // keeps getting onUpdate while game.paused
+  onUpdate() {
+    if (input.pressed("pause")) { game.paused = !game.paused; this.world.find("pause_panel").active = game.paused; }
+  }
+}
+```
+
+Keep such a behaviour on an entity that stays active (an inactive entity gets no callbacks) and show or hide the panel.
 
 ### camera
 `main` (primary camera Entity), `worldToScreen(v)`, `screenToWorld(v)`.
@@ -387,7 +405,10 @@ the press is released over the same widget; a Slider follows the pointer while p
 
 ### scene / game / storage
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
-- `game.quit()` · `game.paused` · `game.project` (read-only factoria.json) · `game.screenSize`
+- `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize`
+- `game.notices()` → `[{ name, url, license, usedFor }]`: the third-party software inside the runtime every game ships
+  (FactorIA first), the parts whose license texts `factoria export` writes to `FACTORIA_NOTICES.txt`. For a credits
+  screen.
 - `storage.get(key, fallback)` · `storage.set(key, value)` · `storage.remove(key)` — persistent JSON save data
   (`<user dir>/storage.json`). Tests always use an empty in-memory storage per test file and never touch the real
   save; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
