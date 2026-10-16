@@ -4,11 +4,9 @@
 import { Behaviour, scene, session } from "factoria";
 
 export default class Loading extends Behaviour {
-  /** Loaded when nothing set session.nextScene (e.g. the loading scene started on its own). */
-  fallback = "scenes/main.scene.json";
   frames = 0;
 
   onUpdate() {
-    if (++this.frames === 2) scene.load(session.nextScene || this.fallback);
+    if (++this.frames === 2) scene.load(session.nextScene || "scenes/main.scene.json");
   }
 }
