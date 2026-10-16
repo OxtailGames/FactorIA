@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 
 namespace fa {
@@ -61,6 +62,65 @@ Result<Image> load_image(std::string_view path) {
     auto img = decode_image(bytes->data(), bytes->size());
     if (!img) return make_error("'" + std::string(path) + "': " + img.error().message, img.error().hint);
     return img;
+}
+
+std::vector<Image> mip_chain(Image base) {
+    constexpr int kMaxMipLevels = 16;
+    std::vector<Image> chain;
+    chain.push_back(std::move(base));
+    while ((chain.back().width > 1 || chain.back().height > 1) && int(chain.size()) < kMaxMipLevels) {
+        const Image& prev = chain.back();
+        const int w = prev.width, h = prev.height;
+        Image next;
+        next.width = std::max(1, w / 2);
+        next.height = std::max(1, h / 2);
+        next.rgba.resize(std::size_t(next.width) * next.height * 4);
+        for (int y = 0; y < next.height; ++y) {
+            for (int x = 0; x < next.width; ++x) {
+                const int x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
+                const int y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
+                for (int c = 0; c < 4; ++c) {
+                    const int sum = prev.rgba[(std::size_t(y0) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y0) * w + x1) * 4 + c] +
+                                    prev.rgba[(std::size_t(y1) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y1) * w + x1) * 4 + c];
+                    next.rgba[(std::size_t(y) * next.width + x) * 4 + c] = std::uint8_t((sum + 2) / 4);
+                }
+            }
+        }
+        chain.push_back(std::move(next));
+    }
+    return chain;
+}
+
+Result<ImageSize> ktx2_size(const std::uint8_t* data, std::size_t size) {
+    // KTX2 header: the 12-byte identifier, then vkFormat, typeSize, pixelWidth, pixelHeight (little-endian u32).
+    static const std::uint8_t magic[12] = {0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
+    if (size < 28 || std::memcmp(data, magic, sizeof(magic)) != 0)
+        return make_error("Not a KTX2 file", "A .ktx2 twin is written by `factoria export`; delete it and export again.");
+    auto u32 = [&](std::size_t at) {
+        return std::uint32_t(data[at]) | std::uint32_t(data[at + 1]) << 8 | std::uint32_t(data[at + 2]) << 16 | std::uint32_t(data[at + 3]) << 24;
+    };
+    const std::uint32_t w = u32(20), h = u32(24);
+    if (w == 0 || h == 0 || w > 16384 || h > 16384) return make_error("The KTX2 file has an invalid size", "Export the texture again.");
+    return ImageSize{int(w), int(h)};
+}
+
+Result<ImageSize> texture_size(std::string_view path) {
+    std::string key = fs::normalize(path);
+    if (key.empty()) key = path;
+    auto of_file = [](const std::string& file) -> Result<ImageSize> {
+        auto bytes = fs::read_bytes(file);
+        if (!bytes) return bytes.error();
+        if (fs::extension(file) == kTextureTwinExtension) return ktx2_size(bytes->data(), bytes->size());
+        int w = 0, h = 0, comp = 0;
+        if (!stbi_info_from_memory(bytes->data(), int(bytes->size()), &w, &h, &comp) || w <= 0 || h <= 0)
+            return make_error("'" + file + "': cannot read the image size", "Supported formats: PNG, JPG, TGA, BMP. Re-export the file from your image editor.");
+        return ImageSize{w, h};
+    };
+    if (fs::exists(key)) return of_file(key);
+    if (const assets::PackedTexture packed = assets::packed_texture(key); !packed.atlas.empty()) return ImageSize{packed.w, packed.h};
+    const std::string twin = key + kTextureTwinExtension;
+    if (fs::exists(twin)) return of_file(twin);
+    return make_error("file not found: " + key);
 }
 
 std::vector<std::uint8_t> encode_png(const Image& img) {
