@@ -16,6 +16,9 @@ Project...). Type a path or press **Browse...** for the system's folder dialog (
 starts at your Documents folder. Recent projects, and projects found in the current folder,
 are listed by name under the path; hover one to see its path (`~/.factoria/editor_recent.json`).
 
+The window title names the engine version and the open project, `FactorIA 0.1.3 — My Game` (just `FactorIA 0.1.3` on
+the Open or create a project dialog). The version is the one `factoria version` prints.
+
 ## Updates
 
 The downloaded editor checks GitHub Releases when it opens. When a newer version is out, the **FactorIA update**
@@ -34,7 +37,7 @@ what it did. View > Reset layout restores this layout (`~/.factoria/editor_layou
 
 | Panel | What it does |
 |---|---|
-| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot; Undo, Redo. |
+| Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` included). Click an entity to select it: the selection outline shows what you point at. Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
@@ -80,6 +83,17 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
   and Play waits for it. Codex still uses a `factoria mcp` process of its own (see `docs/AI_PROVIDERS.md`, CLI agents in
   the editor).
 - Chats are saved in `.factoria/ai/chats/` after each answer and when a tab closes; the open tabs come back when the project opens.
+
+## Exporting the game
+
+**Export** in the toolbar (or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
+macOS, Linux, Android, iOS) that runs the same export as `factoria export` and the `project.export` command. Each
+platform's row says what the export writes, or why it cannot run on this machine (no player built for that OS, no
+mobile players or engine checkout, a missing `id`) and how to fix it; for another OS's desktop export, **Choose
+player...** picks a `factoria_player` built there. Pick the output folder (default `<project>/build/export`), press a
+platform, and the report shows the output folder (**Show in Finder** / Explorer), warnings and next steps. Android and
+iOS exports are a Gradle / Xcode project that you build afterwards: the next steps say how. Details:
+[EXPORTING.md, From the editor](EXPORTING.md#from-the-editor).
 
 ## Selecting things
 
@@ -132,12 +146,14 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 ## Testing the editor
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed (`tools/editor/src/editor_tools.*`), picking geometry
-  (`pick.cpp`), the reflected fields the AI edits, and what Save writes.
+  (`pick.cpp`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
+  (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread).
 - `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS; not
   registered on Windows, which has no window read-back for the screenshots yet): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
   files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
-  tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint. It checks the result after
+  tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, and the Export window
+  (it exports the game for the machine it runs on and checks the report). It checks the window title and the result after
   every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`).
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
   (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; `FA_EDITOR_AUTOTEST=welcome` for the other).

@@ -444,7 +444,7 @@ Start here. Returns name, title and size of each document; read one with docs.re
 
 Read a documentation page (Markdown).
 
-Example: {"name":"scripting"}. Long pages can be read in slices with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components).
+Example: {"name":"scripting"}. Long pages can be read in slices with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -766,13 +766,14 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 
 Package the game for a platform: a desktop bundle, or an Android/iOS project.
 
-Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project; ios: the game plus an Xcode/CMake project and build_ios.sh. Both have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. Returns {outputDir, mode (android/ios), files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the Gradle build command). Nothing is built or signed here. Details: docs_read {"name":"exporting"}. Example: {"platform":"windows","release":true}.
+Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project; ios: the game plus an Xcode/CMake project and build_ios.sh. Both have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). Returns {outputDir, mode (android/ios), notices, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the Gradle build command). Nothing is built here (a macOS app is only sealed with an ad hoc signature). dryRun: true runs every check and writes nothing: it returns {platform, outputDir (the folder an export would replace), mode, player (desktop), warnings[]} or the error the export would give. Details: docs_read {"name":"exporting"}. Example: {"platform":"windows","release":true}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `platform` | string | no | linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria. |
 | `out` | string | no | Parent folder of the export, relative to the project folder and inside it. Default: build/export. |
 | `release` | boolean | no | Release build: only changes the build commands in nextSteps (and the iOS script). Default false. |
+| `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
 
 ### `project.info`
 

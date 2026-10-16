@@ -59,8 +59,9 @@ current machine's platform is used; `--out` is the parent folder (default `<proj
 `--player` selects the `factoria_player` binary to bundle. Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
-Prints the output folder, warnings and the next steps. The command `project.export` (`platform`, `out`, `release`) does
-the same for MCP clients and `factoria call`; see [EXPORTING.md](EXPORTING.md).
+Prints the output folder, warnings and the next steps. The command `project.export` (`platform`, `out`, `release`,
+`dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
+[EXPORTING.md](EXPORTING.md).
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio
