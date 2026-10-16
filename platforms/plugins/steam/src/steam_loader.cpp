@@ -2,6 +2,7 @@
 // LoadLibrary, the folder of this plugin's library); the rest is shared.
 #include "steam_loader.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -182,6 +183,66 @@ std::string join_names(const std::vector<const char*>& names) {
     return out;
 }
 
+// "SteamAPI_SteamUtils_v010" -> "SteamAPI_SteamUtils_v" and 10.
+bool split_version(const std::string& name, std::string& prefix, int& number) {
+    const std::size_t at = name.rfind("_v");
+    if (at == std::string::npos || at + 2 >= name.size()) return false;
+    for (std::size_t i = at + 2; i < name.size(); ++i)
+        if (name[i] < '0' || name[i] > '9') return false;
+    prefix = name.substr(0, at + 2);
+    number = std::atoi(name.c_str() + at + 2);
+    return true;
+}
+
+std::string versioned_name(const std::string& prefix, int number) {
+    char digits[16];
+    std::snprintf(digits, sizeof digits, "%03d", number);
+    return prefix + digits;
+}
+
+// The accessor of an interface in the library: the versions the plugin was checked against first (newest first), then the
+// kNewerVersionWindow versions above the newest of them. A later SDK that bumped the interface still gets used: the flat
+// functions the plugin calls are looked up by name and do not depend on the interface version.
+struct FoundAccessor {
+    void* (*function)() = nullptr;
+    std::string name;
+    bool newer = false;  // not one of the versions the plugin was checked against
+};
+
+FoundAccessor find_accessor(Handle handle, const AccessorSpec& spec) {
+    FoundAccessor found;
+    for (const char* name : spec.names) {
+        found.function = reinterpret_cast<void* (*)()>(symbol(handle, name));
+        if (found.function) {
+            found.name = name;
+            return found;
+        }
+    }
+    std::string prefix;
+    int number = 0;
+    if (spec.names.empty() || !split_version(spec.names.front(), prefix, number)) return found;
+    for (int next = number + 1; next <= number + kNewerVersionWindow; ++next) {
+        const std::string name = versioned_name(prefix, next);
+        found.function = reinterpret_cast<void* (*)()>(symbol(handle, name.c_str()));
+        if (found.function) {
+            found.name = name;
+            found.newer = true;
+            return found;
+        }
+    }
+    return found;
+}
+
+// What find_accessor looked for, for the errors: "SteamAPI_SteamUtils_v010, newer SteamAPI_SteamUtils_v011 to ..._v015".
+std::string tried_names(const AccessorSpec& spec) {
+    std::string out = join_names(spec.names);
+    std::string prefix;
+    int number = 0;
+    if (!spec.names.empty() && split_version(spec.names.front(), prefix, number))
+        out += "; newer: " + versioned_name(prefix, number + 1) + " to " + versioned_name(prefix, number + kNewerVersionWindow);
+    return out;
+}
+
 std::string init_failure(const SteamApi& api, int result, const char* sdkMessage) {
     std::string out = "Steam did not start";
     if (sdkMessage && *sdkMessage) out += std::string(" (") + sdkMessage + ")";
@@ -204,6 +265,16 @@ std::string init_failure(const SteamApi& api, int result, const char* sdkMessage
 }
 
 }  // namespace
+
+std::string newer_interfaces_warning(const SteamApi& api) {
+    if (api.newerInterfaces.empty()) return std::string();
+    std::string names;
+    for (const std::string& n : api.newerInterfaces) names += (names.empty() ? "" : ", ") + n;
+    const bool one = api.newerInterfaces.size() == 1;
+    return names + (one ? " is" : " are") + " newer than the SDKs this plugin was checked against (" + kCheckedSdkRange + "); " +
+           (one ? "it is" : "they are") + " used, since every function the plugin calls is present. If something misbehaves, use "
+           "the redistributable of the SDK 1.64 or update the plugin.";
+}
 
 std::string how_to_start_steam() {
     return "Start the Steam client and sign in. For development, put a steam_appid.txt holding 480 (Valve's test app, which "
@@ -258,29 +329,30 @@ bool load_library(SteamApi& api, std::string& error) {
     if (!missing.empty()) {
         error = api.library + " does not export " + missing[0] +
                 (missing.size() > 1 ? " (and " + std::to_string(missing.size() - 1) + " more)" : std::string()) +
-                ": it is not a Steamworks library this plugin can use. The plugin was checked against the flat API of the " +
-                kSupportedSdk + "; copy the redistributable of one of those SDKs next to the plugin.";
+                ": it is not a Steamworks library this plugin can use. The plugin calls only functions of the flat API that the " +
+                kCheckedSdk + " have; a later SDK may have renamed or removed one, and then the plugin needs an update. Copy the "
+                "redistributable of one of those SDKs next to the plugin.";
         return false;
     }
     if (!api.SteamAPI_InitFlat && !api.SteamAPI_Init) {
         error = api.library + " exports neither SteamAPI_InitFlat nor SteamAPI_Init: it is not a Steamworks library. Use the " +
-                std::string(kSupportedSdk) + " redistributable.";
+                std::string(kCheckedSdk) + " redistributable.";
         return false;
     }
 
-    // The interfaces are looked up after Steam started (start_steam), but their accessors are checked now: a library of an SDK
-    // this plugin does not know is refused before it is started.
+    // The interfaces are looked up after Steam started (start_steam), but their accessors are checked now: a library that has
+    // no version of an interface this plugin knows or can probe for is refused before it is started.
     std::string absent;
     for (const AccessorSpec& spec : accessor_specs()) {
-        bool found = false;
-        for (const char* name : spec.names) found = found || symbol(handle, name) != nullptr;
-        if (!found) absent += (absent.empty() ? "" : "; ") + std::string(spec.label) + " (" + join_names(spec.names) + ")";
+        if (!find_accessor(handle, spec).function)
+            absent += (absent.empty() ? "" : "; ") + std::string(spec.label) + " (" + tried_names(spec) + ")";
     }
     if (!absent.empty()) {
-        error = api.library + " has none of the interface accessors this plugin knows: " + absent + ". This plugin supports the " +
-                kSupportedSdk + "; this library is from a newer or an older SDK. Copy the redistributable of a supported SDK next "
-                "to the plugin, or update the plugin from the engine's template (a new `factoria call project.new_plugin` with "
-                "\"template\": \"steam\" in another folder, then compare).";
+        error = api.library + " has none of the interface accessors this plugin can use. Tried: " + absent + ". This plugin was "
+                "checked against the " + kCheckedSdk + " and also accepts up to " + std::to_string(kNewerVersionWindow) +
+                " interface versions above them; this library is from an older SDK, or from one that changed the interfaces more "
+                "than that. Copy the redistributable of a checked SDK next to the plugin, or update the plugin (a new `factoria "
+                "call project.new_plugin` with \"template\": \"steam\" in another folder has the current version).";
         return false;
     }
     return true;
@@ -307,24 +379,20 @@ bool start_steam(SteamApi& api, std::string& error) {
     const Handle handle = static_cast<Handle>(api.module);
     std::string failed;
     for (const AccessorSpec& spec : accessor_specs()) {
-        void* (*accessor)() = nullptr;
-        std::string used;
-        for (const char* name : spec.names) {
-            if (accessor) break;
-            accessor = reinterpret_cast<void* (*)()>(symbol(handle, name));
-            used = name;
-        }
-        api.*spec.field = accessor ? accessor() : nullptr;
+        const FoundAccessor accessor = find_accessor(handle, spec);
+        api.*spec.field = accessor.function ? accessor.function() : nullptr;
         if (!(api.*spec.field)) {
             failed += (failed.empty() ? "" : ", ") + std::string(spec.label);
             continue;
         }
-        api.accessors += (api.accessors.empty() ? "" : ", ") + std::string(spec.label) + " " + used.substr(used.rfind('_') + 1);
+        const std::string version = std::string(spec.label) + " " + accessor.name.substr(accessor.name.rfind('_') + 1);
+        api.accessors += (api.accessors.empty() ? "" : ", ") + version;
+        if (accessor.newer) api.newerInterfaces.push_back(version);
     }
     if (!failed.empty()) {
         api.SteamAPI_Shutdown();
         error = "Steam started, but the library returned no interface for " + failed + ": it does not match the client. Update "
-                "Steam, or use the redistributable of a supported SDK (" + kSupportedSdk + ").";
+                "Steam, or use the redistributable of a checked SDK (" + kCheckedSdk + ").";
         return false;
     }
     api.needsStatsRequest = api.SteamAPI_ISteamUserStats_RequestCurrentStats != nullptr;

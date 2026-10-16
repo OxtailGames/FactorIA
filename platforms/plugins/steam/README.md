@@ -33,8 +33,10 @@ Valve's redistributable, **next to the plugin's library** (it is looked for ther
 | Linux | `linux/lib{{NAME}}.so` | `linux/libsteam_api.so` (`linux64/`) |
 
 Get the SDK at partner.steamgames.com/downloads/list (a free Steamworks account). Valve's license does not let this repository
-ship its files, so you copy them. The plugin was checked against the flat API of the **Steamworks SDK 1.58 to 1.64**; a library
-of another version is refused with a message that says so. 64-bit only.
+ship its files, so you copy them. The plugin was checked against the flat API of the **Steamworks SDK 1.58 to 1.64**. A library
+of a newer SDK (1.65 and later) is used with one warning, as long as the functions the plugin calls are present and its
+interface versions are at most five above the known ones (`{{NAME}}.status` lists them as `newerInterfaces`); a library that
+does not fit is refused with a message that says what was tried. 64-bit only.
 
 Then declare the plugin and choose it as the game's backend in `factoria.json`:
 

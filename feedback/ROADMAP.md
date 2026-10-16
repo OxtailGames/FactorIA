@@ -563,7 +563,9 @@ Done so far (package B, branch `m12/steam`): the Steamworks backend.
 - **`platforms/plugins/steam`** (the `"steam"` template of `project.new_plugin`, a C++17 plugin with no Valve file in the
   repository): it loads Valve's redistributable at run time (`steam_api64.dll`, `libsteam_api.dylib`, `libsteam_api.so`,
   next to the plugin first), declares the part of the flat API it uses itself and finds the versioned interfaces by name
-  (SDK 1.58 to 1.64; another library is refused with a message naming that range). Steam starts in `fa_plugin_init`
+  (checked against SDK 1.58 to 1.64; a newer SDK such as 1.65 is used with a warning when every function the plugin calls
+  is present, probing up to five interface versions above the known ones; anything else is refused with what was tried). Steam
+  starts in `fa_plugin_init`
   (`SteamAPI_InitFlat`, `SteamAPI_Init` on old libraries), callbacks run by manual dispatch in the plugin's `frame`, and
   the dev app id comes from `steam_appid.txt` (project folder or working folder; 480 is Valve's test app). Every failure to
   start is a teaching log line and the engine falls back (fake in development, none in an exported game).
@@ -572,10 +574,11 @@ Done so far (package B, branch `m12/steam`): the Steamworks backend.
   DLC arrives), overlay, rich presence, and the events `overlay`, `purchase`, `player`. Consumables and subscriptions are
   `unavailable` (Steam's microtransactions need the game's own server). The command `steam.status` shows what the plugin found.
 - **Tests**: a mock of the Steamworks library (`platforms/plugins/steam/tests/mock_steam_api.cpp`, built as a shared library
-  with the redistributable's file name, in a current, an older (SDK 1.58 to 1.60) and a newer-than-supported variant) and ctest `steam_plugin_*`
+  with the redistributable's file name, in a current, an older (SDK 1.58 to 1.60), a next (one interface version above the newest known) and a far-future variant) and ctest `steam_plugin_*`
   (Linux, Windows, macOS): the real plugin in an Engine with `platformBackend="steam"` covers every method and event, stats that
   load late, Steam failing to deliver or to start, a late answer after the engine ended, a stray call result, a missing
-  library, Steam not running, no app id, a newer SDK, and the exit on Linux and macOS (stats stored, `SteamAPI_Shutdown`). `tooling` tests build
+  library, Steam not running, no app id, the services again on a library with newer interface versions (used, one warning), a
+  library too far ahead (refused), and the exit on Linux and macOS (stats stored, `SteamAPI_Shutdown`). `tooling` tests build
   the plugin through `platform.add_backend` with an SDK folder and a .zip.
 - **`platform.add_backend {"backend": "steam"}`**: writes and builds the plugin, copies the three libraries from the SDK folder or
   .zip, writes `steam_appid.txt` (default 480), and `factoria export` never ships that file. Docs: the Steam section of
@@ -584,7 +587,8 @@ Done so far (package B, branch `m12/steam`): the Steamworks backend.
 Left open (Steam):
 - **The manual check with app 480 has not run**: it needs a Steam client and account, which the machine that built this did
   not have (`docs/PLATFORM.md`, "Manual check with Valve's test app 480"). Everything above is tested against the mock only,
-  so struct layouts, callback ids and interface versions rest on the public Steamworks headers (SDK 1.58a to 1.64). Whether
+  so struct layouts, callback ids and interface versions rest on the public Steamworks headers (SDK 1.58a to 1.64); a real
+  SDK 1.65 library (newer ISteamUtils) has not been tried either. Whether
   Steam's overlay appears over the engine's Metal (macOS), OpenGL (Linux) and Direct3D 11 (Windows) windows is unchecked.
 - **The Steam Deck on-screen keyboard for `TextField` is not wired.** The plugin API has no hook for it: it needs (1) a
   notification to the plugin when a text field takes or loses focus (with the field's rectangle, its text and whether it

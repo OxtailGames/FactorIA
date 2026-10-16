@@ -4,8 +4,9 @@
 //
 // A plugin is loaded once per process, and a failed start is remembered, so the scenarios that need a different Steam run in
 // their own process (CMakeLists.txt registers one ctest entry per test-case prefix): "steam services" (Steam running,
-// current SDK), "steam legacy" (an SDK 1.58 to 1.60 library), "steam future" (interface versions the plugin does not know),
-// "steam without library", "steam not running", "steam without app id", "steam exit".
+// current SDK), "steam legacy" (an SDK 1.58 to 1.60 library), "steam next" (interface versions one above the newest the
+// plugin was checked against: the services again on that library, FA_STEAM_TEST_VARIANT=next), "steam future" (interface
+// versions far above them), "steam without library", "steam not running", "steam without app id", "steam exit".
 #include <doctest.h>
 
 #include <algorithm>
@@ -183,7 +184,7 @@ const char* const kCatalog = R"({
   "backend": "steam"
 })";
 
-enum class Library { Current, Legacy, Future, None };
+enum class Library { Current, Legacy, Next, Future, None };
 
 // A project folder with the plugin and (unless Library::None) the mock next to it, as `platform.add_backend` leaves a game.
 struct SteamGame {
@@ -201,8 +202,9 @@ struct SteamGame {
         if (!appId.empty()) std::ofstream(dir / "steam_appid.txt") << appId << "\n";
         stdfs::copy_file(FA_STEAM_PLUGIN_FILE, native / kPluginFile, stdfs::copy_options::overwrite_existing);
         if (library != Library::None) {
-            const char* source = library == Library::Current ? FA_STEAM_MOCK_CURRENT
+            const char* source = library == Library::Current  ? FA_STEAM_MOCK_CURRENT
                                  : library == Library::Legacy ? FA_STEAM_MOCK_LEGACY
+                                 : library == Library::Next   ? FA_STEAM_MOCK_NEXT
                                                               : FA_STEAM_MOCK_FUTURE;
             stdfs::copy_file(source, native / kLibraryFile, stdfs::copy_options::overwrite_existing);
             mock = std::make_unique<Mock>(native / kLibraryFile);
@@ -279,13 +281,63 @@ void expect_clean(Session& s, Mock& mock) {
     CHECK_FALSE(has(logs, "not waiting for an answer"));  // the engine's warning for an answer to a request that is not waiting
 }
 
+// Whether this process runs the services on the "next" library (the ctest entry steam_plugin_next sets the variable).
+bool next_variant() {
+    const char* variant = std::getenv("FA_STEAM_TEST_VARIANT");
+    return variant && std::string(variant) == "next";
+}
+
 // One game for every test of the "steam services" process: the plugin loads once.
 SteamGame& services_game() {
-    static SteamGame game(Library::Current, "480");
+    static SteamGame game(next_variant() ? Library::Next : Library::Current, "480");
     return game;
 }
 
 }  // namespace
+
+// ============================================================================================== steam next ======
+// A library of a later SDK (SDK 1.65 bumped ISteamUtils to v011): every interface is one version above the newest the
+// plugin knows. The accessors are found by probing upwards, the flat functions the plugin calls are the same, so it works,
+// and says once that it is running on interface versions it was not checked against. (Run with the services, in
+// steam_plugin_next, whose library is this one: the plugin loads once per process, so all its logs are in logs_since(0).)
+TEST_CASE("steam next: interfaces newer than the checked SDKs are used, with one warning") {
+    if (!next_variant()) return;  // `steam_plugin_services` has the current library; this test belongs to steam_plugin_next
+    SteamGame& game = services_game();
+    Mock& mock = *game.mock;
+    mock.reset();
+    Session s(game);
+    CHECK(run(s.engine, "platform.backend") == "steam");
+
+    const std::string logs = logs_since(0);
+    CHECK(has(logs, "are newer than the SDKs this plugin was checked against (1.58 to 1.64); they are used, since every function the "
+                    "plugin calls is present"));
+    CHECK(has(logs, "ISteamUtils v011"));
+    CHECK(has(logs, "ISteamUser v024"));
+    CHECK(has(logs, "ISteamRemoteStorage v017"));
+    std::size_t warnings = 0;
+    for (std::size_t at = logs.find("newer than the SDKs this plugin was checked against"); at != std::string::npos;
+         at = logs.find("newer than the SDKs this plugin was checked against", at + 1))
+        ++warnings;
+    CHECK_MESSAGE(warnings == 1, "the warning must be logged once, not per interface or per engine: " << logs);
+    CHECK(has(logs, "Steam is ready: app 480"));
+
+    CommandResult status = s.engine.commands().call("steam.status");
+    REQUIRE(status.ok);
+    CHECK(status.result["checkedSdk"] == "Steamworks SDK 1.58 to 1.64");
+    std::vector<std::string> newer;
+    for (const Json& n : status.result["newerInterfaces"]) newer.push_back(n.get<std::string>());
+    std::sort(newer.begin(), newer.end());
+    CHECK(newer == std::vector<std::string>{"ISteamApps v010", "ISteamFriends v019", "ISteamRemoteStorage v017", "ISteamUser v024",
+                                            "ISteamUserStats v014", "ISteamUtils v011"});
+    CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamUtils v011"));
+    CHECK(status.result["statsLoaded"] == true);
+
+    // And it works: the mock hands every method the interface pointer it expects, whatever the version name.
+    Json who = settle(s.engine, "platform.signIn()");
+    CHECK(who["ok"] == true);
+    CHECK(settle(s.engine, "platform.achievements.unlock('first_win')")["ok"] == true);
+    expect_clean(s, mock);
+}
 
 // ============================================================================================ steam services ======
 TEST_CASE("steam services: the backend registers, signs the player in and reports its status") {
@@ -317,7 +369,8 @@ TEST_CASE("steam services: the backend registers, signs the player in and report
     CHECK(status.result["appId"] == 480);
     CHECK(has(status.result["appIdFrom"].get<std::string>(), "steam_appid.txt in "));
     CHECK(has(status.result["library"].get<std::string>(), kLibraryFile));
-    CHECK(has(status.result["interfaces"].get<std::string>(), "ISteamUserStats v013"));
+    CHECK(has(status.result["interfaces"].get<std::string>(), next_variant() ? "ISteamUserStats v014" : "ISteamUserStats v013"));
+    CHECK(status.result["newerInterfaces"].size() == (next_variant() ? 6u : 0u));
     CHECK(status.result["player"]["name"] == "Tester");
     CHECK(status.result["overlayEnabled"] == true);
     CHECK(status.result["cloudEnabledForApp"] == true);
@@ -733,8 +786,11 @@ TEST_CASE("steam future: a library of a newer SDK is refused with the supported 
     SteamGame game(Library::Future, "");
     Session s(game, "");  // the way `factoria run` starts: factoria.json platform.backend names the plugin
     const std::string logs = s.logs();
-    CHECK(has(logs, "has none of the interface accessors this plugin knows"));
-    CHECK(has(logs, "SteamAPI_SteamUserStats_v013, SteamAPI_SteamUserStats_v012"));
+    CHECK(has(logs, "has none of the interface accessors this plugin can use"));
+    // It says which versions were tried: the ones it was checked against, then the window above them.
+    CHECK(has(logs, "SteamAPI_SteamUserStats_v013, SteamAPI_SteamUserStats_v012; newer: SteamAPI_SteamUserStats_v014 to "
+                    "SteamAPI_SteamUserStats_v018"));
+    CHECK(has(logs, "SteamAPI_SteamUtils_v010; newer: SteamAPI_SteamUtils_v011 to SteamAPI_SteamUtils_v015"));
     CHECK(has(logs, "Steamworks SDK 1.58 to 1.64"));
     CHECK(has(logs, "plugin 'steam' is not loaded"));
     CHECK(has(logs, "factoria.json platform.backend names the plugin 'steam', which did not load"));

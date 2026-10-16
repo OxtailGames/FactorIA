@@ -78,8 +78,8 @@ void wait_for(FaRequest* request, u64 call, Ok ok) {
             reject(request, "failed",
                    "Steam answered with a result of " + std::to_string(size) + " bytes, but this plugin expects " +
                        std::to_string(sizeof(T)),
-                   "The Steam library does not match the SDK this plugin was written for (" + std::string(kSupportedSdk) +
-                       "): use the redistributable of one of them.");
+                   "The Steam library does not match the SDK this plugin was checked against (" + std::string(kCheckedSdk) +
+                       "): use the redistributable of one of them, or update the plugin.");
             return;
         }
         T value;

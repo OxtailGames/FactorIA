@@ -239,9 +239,17 @@ copy the library of each platform next to the plugin's, write `steam_appid.txt`.
 | macOS | `macos/libsteam.dylib` | `libsteam_api.dylib` (`redistributable_bin/osx/`) |
 | Linux | `linux/libsteam.so` | `libsteam_api.so` (`redistributable_bin/linux64/`) |
 
-The plugin was written against the flat API of **Steamworks SDK 1.58 to 1.64** and finds the interfaces by their versioned
-names; a library from an SDK it does not know is refused with a message that says so. Only the 64-bit libraries are used.
-The export copies the plugin's whole folder for the platform, so Valve's library ships next to it.
+The plugin was checked against the flat API of **Steamworks SDK 1.58 to 1.64**. It calls the flat functions by name (they do
+not change with the interface versions) and finds the interfaces by their versioned accessors (`SteamAPI_SteamUtils_v010`...):
+the versions of those SDKs first, then the five versions above the newest it knows. **A newer SDK is used, with one warning**
+that names the interfaces newer than the plugin was checked against (and `steam.status` lists them as `newerInterfaces`), as
+long as every function the plugin calls is present. That is how **SDK 1.65** (July 2026) works: it bumps the version of
+ISteamUtils (it replaced `IsRunningOnSteamDeck`, which the plugin never calls), so its library exports a newer accessor than
+1.64's. Only a library with a function the plugin needs missing (a later SDK renamed or removed it), or with interface
+versions more than five above the known ones, or from an SDK older than 1.58, is refused, with a message that lists what was
+tried. If a newer SDK misbehaves, put the redistributable of SDK 1.64 next to the plugin, or update the plugin. (The tests use
+a mock of Steam's library with a newer accessor for each interface; none ran against a real 1.65 library.) Only the 64-bit
+libraries are used. The export copies the plugin's whole folder for the platform, so Valve's library ships next to it.
 
 **steam_appid.txt.** In development Steam learns which game this is from a `steam_appid.txt` (a number) in the project
 folder. `add_backend` writes **480** (Spacewar, Valve's test app: any Steam account can run it, and it has achievements,
@@ -320,7 +328,9 @@ feedback/ROADMAP.md). Until then players type with the keyboard Steam opens by i
 | `The Steamworks library ... was not found` | Copy Valve's library next to the plugin (`add_backend` with `sdk` does it). |
 | `Steam is not running, or the game has no app id` | Start the Steam client and sign in; check `steam_appid.txt` is in the project folder and holds a number. |
 | `The Steam client is older than the Steamworks library` | Update Steam (Steam menu > Check for Steam Client Updates), or use an older SDK's library. |
-| `has none of the interface accessors this plugin knows` | The library is from an SDK newer or older than 1.58 to 1.64: use one of those. |
+| `has none of the interface accessors this plugin can use` | The library is from an SDK older than 1.58, or one that changed the interfaces by more than five versions: the message lists what was tried; use an SDK between 1.58 and 1.64, or update the plugin. |
+| `... newer than the SDKs this plugin was checked against` | A warning, not an error: the library is from a newer SDK (1.65 or later) and the plugin uses it. If a call misbehaves, use the SDK 1.64 library, or update the plugin. |
+| `does not export SteamAPI_...` | A function the plugin calls is not in the library: a later SDK renamed or removed it. Use the SDK 1.64 library, or update the plugin. |
 | `The Steamworks library ... cannot be loaded` | It is not the 64-bit library of this OS (or it is damaged). On macOS a library that came through a browser may be quarantined: `xattr -d com.apple.quarantine <file>`. |
 | `Steam Cloud is not enabled for app N` | Enable it in the partner site (App Admin > Cloud) and publish; for 480 it may simply be off. |
 | `The Steam overlay is not available` | In Steam: Settings > In Game > Enable the Steam Overlay. It loads a few seconds after start and needs the game to draw with a graphics API Steam hooks. |
