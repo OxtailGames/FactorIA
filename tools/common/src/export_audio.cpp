@@ -21,17 +21,14 @@ namespace {
 std::vector<std::uint8_t> qoa_twin(ExportAssets& ea, const std::string& path, const std::vector<std::uint8_t>& wav, stdfs::path& cached) {
     cached = ea.cacheDir / "audio" / (sha256_hex(wav.data(), wav.size()) + ".qoa");
     if (auto hit = fs::read_bytes(cached.generic_string()); hit && !hit->empty()) return *hit;
+    auto skip = [&](const std::string& why) {
+        ea.report.warnings.push_back(path + " was not converted to QOA, so it ships as a WAV: " + why);
+        return std::vector<std::uint8_t>{};
+    };
     auto encoded = encode_qoa(wav);
-    if (!encoded) {
-        ea.report.warnings.push_back(path + " was not converted to QOA, so it ships as a WAV: " + encoded.error().message +
-                                     (encoded.error().hint.empty() ? "" : " (" + encoded.error().hint + ")"));
-        return {};
-    }
+    if (!encoded) return skip(encoded.error().message + (encoded.error().hint.empty() ? "" : " (" + encoded.error().hint + ")"));
     std::string e;
-    if (!write_file(cached, std::string_view(reinterpret_cast<const char*>(encoded->data()), encoded->size()), &e)) {
-        ea.report.warnings.push_back(path + " was not converted to QOA, so it ships as a WAV: " + e);
-        return {};
-    }
+    if (!write_file(cached, std::string_view(reinterpret_cast<const char*>(encoded->data()), encoded->size()), &e)) return skip(e);
     return *encoded;
 }
 
@@ -52,6 +49,7 @@ Result<void> convert_audio(ExportAssets& ea) {
             ea.report.warnings.push_back(path + " could not be read, so its audio import settings were not applied: " + file.error().message);
             continue;
         }
+        const Json entry = assets::entry(path);
         std::vector<std::uint8_t> shipped = file->bytes;
         std::string shippedExt = fs::extension(path);
         if (convert && shippedExt == ".wav") {
@@ -62,13 +60,12 @@ Result<void> convert_audio(ExportAssets& ea) {
                 shipped = std::move(qoa);
                 shippedExt = ".qoa";
             }
-        } else if (convert && assets::entry(path).value("import", Json::object()).contains("convert")) {
+        } else if (convert && entry.value("import", Json::object()).contains("convert")) {
             ea.report.warnings.push_back(path + ": convert \"qoa\" only applies to WAV files, so it ships as it is (lossy files are never converted).");
         }
         if (!normalize) continue;
 
         Json record;  // what describes the bytes that ship
-        const Json entry = assets::entry(path);
         if (shippedExt == fs::extension(path) && entry.contains("analysis"))
             if (auto fresh = cached_loudness(entry["analysis"], shipped)) record = loudness_analysis(*fresh, shipped);
         if (record.is_null()) {
