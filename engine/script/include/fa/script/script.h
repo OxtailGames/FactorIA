@@ -133,11 +133,28 @@ struct TestReport {
     std::string summary() const;
 };
 
+// A namespace of native functions that scripts call as plugins.<name>.<function>(...args): the functions of one native
+// plugin (fa_runtime loads them: fa/runtime/plugins.h).
+struct ScriptPlugin {
+    struct Function {
+        std::string name;
+        std::string doc;
+        // The JS arguments as a JSON array -> the result. Failures throw CommandError (message + hint); scripts get them
+        // as exceptions.
+        std::function<Json(const Json& args)> call;
+    };
+    std::string name;
+    std::string error;  // why the plugin is not loaded ("" = loaded): every use of plugins.<name> throws it
+    std::vector<Function> functions;
+};
+
 class ScriptSystem {
 public:
     ScriptSystem();
     ~ScriptSystem();
 
+    // The `plugins` object of scripts (call before init; the typings and api_manifest list them too).
+    void set_plugins(std::vector<ScriptPlugin> plugins);
     bool init(ScriptHost& host, std::string* error);
     void shutdown();
 
