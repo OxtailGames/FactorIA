@@ -63,10 +63,24 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
     input.set_gamepad_deadzone(float(project.inputDeadzone));
-    for (const std::string& problem : input.set_actions(project.inputActions)) {
+    for (const std::string& problem : input.set_actions(ui_with_default_actions(project.inputActions))) {
         FA_WARN("input", "{}", problem);
         startupProblems.push_back(problem);
     }
+}
+
+Vec2 Engine::Impl::design_size() const {
+    if (renderer && renderer->initialized()) return {float(renderer->target_width()), float(renderer->target_height())};
+    return {float(cfg.width > 0 ? cfg.width : project.width), float(cfg.height > 0 ? cfg.height : project.height)};
+}
+
+VisualMeasure Engine::Impl::measure() const {
+    VisualMeasure m;
+    if (renderer && renderer->initialized()) {
+        const Renderer* r = renderer.get();
+        m.textSize = [r](const Text& t) { return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth); };
+    }
+    return m;
 }
 
 // Every scene load (scene.load, scene.reload, hot reload, project.test) starts from what is on disk now. ponytail: only
@@ -122,6 +136,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
         else FA_WARN("scene", "{}", m.to_string());
     }
     physics.sync(world);  // bodies exist (and can be queried) right after the load, before the first step
+    ui.reset();
     scripts.on_scene_loaded();
     if (renderer) renderer->debug().clear();
     // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
@@ -165,6 +180,7 @@ void update_visuals(R& r, World& w, float dt) {
 
 void Engine::Impl::draw(double dt) {
     if (!renderer) return;
+    ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
     renderer->begin_frame();
     renderer->render_world(world, float(dt));
     renderer->end_frame();
@@ -241,6 +257,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         world.advance_clock(fixedDt);
         ++fixedStep;
     }
+    // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
+    ui.update(world, input, design_size(), float(dt), measure());
+    scripts.dispatch_events();
     scripts.update(float(dt));
     audio.update(world, float(dt));
     if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
@@ -298,7 +317,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // World + input.
     I.world.rng().reseed(config.seed);
     I.input.set_gamepad_deadzone(float(I.project.inputDeadzone));
-    for (const std::string& problem : I.input.set_actions(I.project.inputActions)) {
+    for (const std::string& problem : I.input.set_actions(ui_with_default_actions(I.project.inputActions))) {
         FA_WARN("input", "{}", problem);
         I.startupProblems.push_back(problem);
     }
@@ -567,6 +586,7 @@ Renderer* Engine::renderer() {
     // Renderer::update, which runs every simulated frame even when drawing is skipped (OnDemand).
     return impl_->renderer.get();
 }
+UiSystem* Engine::ui() { return &impl_->ui; }
 CommandRegistry& Engine::commands() { return impl_->commands; }
 Json Engine::project_settings() const {
     Json j = impl_->project.to_json();

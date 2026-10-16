@@ -8,6 +8,7 @@
 
 #include "fa/runtime/engine.h"
 #include "fa/scene/serialize.h"
+#include "fa/ui/ui.h"
 
 namespace fa {
 
@@ -26,6 +27,7 @@ struct Engine::Impl {
     Physics physics;
     Audio audio;
     ScriptSystem scripts;
+    UiSystem ui;
     CommandRegistry commands;
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
@@ -66,6 +68,8 @@ struct Engine::Impl {
     bool load_scene_impl(const std::string& path, std::string* error);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
+    Vec2 design_size() const;       // the renderer's target size (UI anchors are fractions of it); without one the project's
+    VisualMeasure measure() const;  // text sizes from the renderer, else the approximation
     void poll_hot_reload(bool force = false);
     void apply_scene_change();
 

@@ -855,12 +855,39 @@
     burst(entity, count = 10) { N.particlesBurst(entityHandle(entity, "particles.burst"), count); },
   };
 
+  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel"];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     measureText(text, o = {}) {
       const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0);
       return { width: m[0], height: m[1] };
     },
+    // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
+    // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
+    // id) limits it to one widget. Returns the function that stops listening.
+    on(type, a, b) {
+      const fn = typeof a === "function" ? a : b, target = typeof a === "function" ? undefined : a;
+      if (!UI_EVENTS.includes(type)) {
+        const sug = closest(String(type), UI_EVENTS);
+        throw new Error(`ui.on(type, fn): unknown event type ${inspect(type)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${UI_EVENTS.map((t) => `"${t}"`).join(", ")}`);
+      }
+      if (typeof fn !== "function") throw new Error(`ui.on("${type}", [target,] fn) expects a function as its last argument, e.g. ui.on("${type}", (e) => console.log(e.id)), but got ${inspect(fn)}`);
+      let id = null;
+      if (target !== undefined && target !== null) {
+        if (target instanceof Entity) id = target.id;
+        else if (typeof target === "string") { const h = N.find(target); id = h === null ? target : N.idOf(h); }
+        else throw new Error(`ui.on("${type}", target, fn): target must be an Entity or an entity id such as "play_button", but got ${inspect(target)}`);
+      }
+      return addListener(`ui.${type}`, (data, source) => {
+        if (id !== null && (!data || data.id !== id)) return;
+        fn({ type, id: data ? data.id : null, entity: source, value: data ? data.value : undefined });
+      }, null);
+    },
+    // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
+    // the entity cannot take focus.
+    focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
+    get focused() { return entityOf(N.uiState()[0]); },
+    get hovered() { return entityOf(N.uiState()[1]); },
   };
 
   const assets = {
