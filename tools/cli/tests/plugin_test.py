@@ -54,10 +54,17 @@ def main():
         code, out, err = run(["call", "project.new_plugin", args, "--project", game], env=env)
         check(code == 0, "project.new_plugin", out + err)
         folder = os.path.join(private, "example")
-        for f in ["src/plugin.c", "include/fa_plugin.h", "CMakeLists.txt", "README.md"]:
+        java = "android/src/main/java/factoria/plugin/example/Plugin.java"  # the Gradle module of the Android build
+        for f in ["src/plugin.c", "include/fa_plugin.h", "CMakeLists.txt", "README.md", "android/build.gradle",
+                  "android/consumer-rules.pro", "android/src/main/AndroidManifest.xml", java]:
             check(os.path.isfile(os.path.join(folder, f)), "the plugin has " + f)
-        with open(os.path.join(folder, "CMakeLists.txt"), encoding="utf-8") as f:
-            check("{{NAME}}" not in f.read(), "the template's {{NAME}} is replaced")
+        with open(os.path.join(folder, java), encoding="utf-8") as f:
+            check("package factoria.plugin.example;" in f.read(), "the Java class is in the plugin's package")
+        for dirpath, _, names in os.walk(folder):
+            for name in names:
+                path = os.path.join(dirpath, name)
+                with open(path, encoding="utf-8") as f:
+                    check("{{NAME}}" not in path + f.read(), "the template's {{NAME}} is replaced in " + path)
         with open(os.path.join(game, "factoria.json"), encoding="utf-8") as f:
             declared = json.load(f).get("plugins", {}).get("example", {})
         check(declared == {"path": "${FA_TEST_PLUGINS}/example", "platforms": [HOST]}, "factoria.json declares it: %s" % declared)

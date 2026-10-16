@@ -124,6 +124,68 @@ std::string indent_lines(const std::vector<std::string>& lines) {
     return out;
 }
 
+bool is_file(const stdfs::path& p) {
+    std::error_code ec;
+    return stdfs::is_regular_file(os_path(p), ec);
+}
+
+bool is_folder(const stdfs::path& p) {
+    std::error_code ec;
+    return stdfs::is_directory(os_path(p), ec);
+}
+
+// What the native plugins add to the Gradle project (docs/MOBILE.md, "Native plugins on Android").
+struct PluginGradle {
+    std::string projects;      // settings.gradle: the modules, one "\ninclude ..." + "\nproject(...)" pair each
+    std::string dependencies;  // app/build.gradle: a dependencies block, or ""
+    bool hasCode = false;      // Java / Kotlin sources or .aar / .jar files: the APK carries classes (android:hasCode)
+};
+
+// A plugin's Android build (<plugin folder>/android, see plugin_build) is a Gradle library module, copied to plugins/<name>
+// and included in the build, or .aar / .jar files, copied to app/libs/<name> and added to the app's dependencies.
+Result<PluginGradle> export_plugins(const Project& p, const stdfs::path& outRoot) {
+    PluginGradle g;
+    std::string deps;
+    for (const Project::Plugin& plugin : p.plugins) {
+        const std::string& name = plugin.name;
+        const stdfs::path& from = plugin.build;
+        const bool isModule = is_file(from / "build.gradle") || is_file(from / "build.gradle.kts");
+        const stdfs::path to = isModule ? outRoot / "plugins" / name : outRoot / "app" / "libs" / name;
+        const stdfs::path osFrom = os_path(from);
+        std::error_code ec, copyEc;  // apart: the iterator's increment clears ec
+        // File by file: std::filesystem::copy of a folder silently drops what lies past Windows' MAX_PATH.
+        auto copy_to = [&](const stdfs::path& src, const stdfs::path& rel) {
+            stdfs::create_directories(os_path((to / rel).parent_path()), copyEc);
+            if (!copyEc) stdfs::copy_file(src, os_path(to / rel), stdfs::copy_options::overwrite_existing, copyEc);
+        };
+        if (isModule) {  // the whole module but for what building it leaves behind
+            for (stdfs::recursive_directory_iterator it(osFrom, ec), end; !ec && !copyEc && it != end; it.increment(ec)) {
+                const stdfs::path rel = it->path().lexically_relative(osFrom);
+                const std::string top = rel.begin()->string();
+                if (top == "build" || top == ".gradle" || top == ".cxx") it.disable_recursion_pending();
+                else if (it->is_regular_file(ec)) copy_to(it->path(), rel);
+            }
+        } else {  // only the archives
+            for (stdfs::directory_iterator it(osFrom, ec), end; !ec && !copyEc && it != end; it.increment(ec)) {
+                const std::string ext = lower(it->path().extension().string());
+                if ((ext == ".aar" || ext == ".jar") && it->is_regular_file(ec)) copy_to(it->path(), it->path().filename());
+            }
+        }
+        if (ec || copyEc)
+            return err("export: cannot copy the plugin '" + name + "' (" + generic(from) + ") to " + generic(to) + ": " + (copyEc ? copyEc : ec).message());
+        if (isModule) {
+            g.projects += "\ninclude ':plugin_" + name + "'\nproject(':plugin_" + name + "').projectDir = file('plugins/" + name + "')";
+            deps += "\n    implementation project(':plugin_" + name + "')";
+            g.hasCode = g.hasCode || is_folder(from / "src" / "main" / "java") || is_folder(from / "src" / "main" / "kotlin");
+        } else {
+            deps += "\n    implementation fileTree(dir: 'libs/" + name + "', include: ['*.aar', '*.jar'])";
+            g.hasCode = true;
+        }
+    }
+    if (!deps.empty()) g.dependencies = "\n\ndependencies {" + deps + "\n}";
+    return g;
+}
+
 }  // namespace
 
 // ---- plan ----------------------------------------------------------------------------------------------------
@@ -241,6 +303,9 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
                             "factoria.signing.keystore=" + properties_escape(a.keystore) + "\n"
                             "factoria.signing.alias=" + properties_escape(a.alias) + "\n";
 
+    auto plugins = export_plugins(p, outRoot);
+    if (!plugins.ok()) return plugins.error();
+
     const std::vector<std::pair<std::string, std::string>> vars = {
         {"APPLICATION_ID", p.id},
         {"PROJECT_SLUG", slug_of(p)},
@@ -254,6 +319,9 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
         {"APP_ICON_ATTRS", a.hasIcon ? "\n        android:icon=\"@mipmap/ic_launcher\"\n        android:roundIcon=\"@mipmap/ic_launcher_round\"" : ""},
         {"USES_PERMISSIONS", indent_lines(permissions)},
         {"SIGNING_PROPERTIES", signingProperties},
+        {"PLUGIN_PROJECTS", plugins->projects},
+        {"PLUGIN_DEPENDENCIES", plugins->dependencies},
+        {"HAS_CODE", plugins->hasCode ? "true" : "false"},
         // The prebuilt libraries are stripped already (and Gradle has no NDK to strip them with): say so instead of a warning.
         {"PACKAGING_OPTIONS", setup.prebuilt ? "\n\n    // The prebuilt engine libraries are stripped already.\n    packaging {\n        jniLibs {\n"
                                                "            keepDebugSymbols += ['**/*.so']\n        }\n    }" : ""},

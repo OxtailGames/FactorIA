@@ -501,11 +501,13 @@ my-game-android/
   gradlew  gradlew.bat  gradle/wrapper/{gradle-wrapper.jar,gradle-wrapper.properties}   the Gradle wrapper (Gradle 8.14.3)
   settings.gradle  build.gradle  gradle.properties  local.properties (sdk.dir of this computer: do not commit)
   app/build.gradle                 applicationId, versionName/Code, minSdk/targetSdk, abiFilters, signing (prebuilt: no native build)
-  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation, icon, permissions
+  app/src/main/AndroidManifest.xml NativeActivity + android.app.lib_name=factoria_player, orientation, icon, permissions, hasCode
   app/src/main/res/values/strings.xml   app name
   app/src/main/res/mipmap-*/       launcher icons made from the project's icon (and the adaptive icon)
   app/src/main/assets/             the game + assets_index.txt
   app/src/main/jniLibs/<abi>/libfactoria_player.so   prebuilt mode only: the engine
+  plugins/<name>/                  native plugins: the Gradle module of each plugin's android/ folder
+  app/libs/<name>/                 native plugins: the .aar / .jar files of a plugin that has no module
 ```
 
 `assets_index.txt` lists every game file (one project-relative path per line).
@@ -546,6 +548,16 @@ needs NDK r27+ and CMake 3.31 in the SDK (`sdkmanager "ndk;27.2.12479018" "cmake
 
 The engine's libraries are linked for 16 KB memory pages (Google Play requires it for apps that target Android 15+), and the
 APK is zip-aligned for them.
+
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). A plugin declared for `android` needs an `android/` folder in
+its own folder: a Gradle library module (`build.gradle` or `build.gradle.kts`, with the plugin's `lib<name>.so` for
+`arm64-v8a` and `x86_64` in `src/main/jniLibs/<abi>/` and any Java or Kotlin code) or `.aar` / `.jar` files. The export
+copies a module to `plugins/<name>` (without its `build/`, `.gradle/` and `.cxx/`) and adds it to `settings.gradle` and
+to the app's dependencies; `.aar` / `.jar` files go to `app/libs/<name>`. The module reads `factoria.compileSdk` and
+`factoria.minSdk` from `gradle.properties`, which the export writes from `targetSdk` and `minSdk`. `android:hasCode` is
+`false` unless a plugin brings code (Java / Kotlin sources or archives). A plugin folder inside the project never ships
+as game files. A plugin without an Android build fails the export and says what to put in `android/`. Building the
+library, calling Java from C, `hasCode` and the details: [MOBILE.md](MOBILE.md#native-plugins-on-android).
 
 **Platform settings** that change the project: `minSdk` / `targetSdk` (`compileSdk` follows `targetSdk`), `versionCode`,
 `permissions` (extra `<uses-permission>` lines), the `icon` (launcher icons and adaptive icon, in the manifest as `icon` and
