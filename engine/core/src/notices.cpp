@@ -15,6 +15,7 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"cgltf", "https://github.com/jkuhlmann/cgltf", "MIT", "external/cgltf/LICENSE", "glTF 2.0 models", true},
         {"dr_libs", "https://github.com/mackron/dr_libs", "MIT-0 OR Unlicense", "external/dr_libs/LICENSE",
          "WAV and MP3 decoding", true},
+        {"qoa", "https://github.com/phoboslab/qoa", "MIT", "external/qoa/LICENSE", "QOA audio files", true},
         {"nlohmann/json", "https://github.com/nlohmann/json", "MIT", "external/nlohmann_json/LICENSE.MIT", "JSON", true},
         {"SDL_GameControllerDB", "https://github.com/mdqinc/SDL_GameControllerDB", "zlib",
          "external/sdl_gamecontrollerdb/LICENSE", "gamepad mappings (data)", true},

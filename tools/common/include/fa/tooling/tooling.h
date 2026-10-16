@@ -4,6 +4,7 @@
 #include "fa/core/command.h"
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/asset_import.h"
+#include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/export.h"
@@ -24,8 +25,8 @@ class Engine;
 
 // Registers every tooling command for the project at `projectDir`:
 // feedback.{report,list,update}, docs.{list,read,search,components,commands},
-// fs.{list,read,write,edit,search,delete}, assets.{import,slice_sheet}, project.validate, project.export, project.new_plugin,
-// setup.{status,install}.
+// fs.{list,read,write,edit,search,delete}, assets.{import,slice_sheet,analyze_audio}, project.validate, project.export,
+// project.new_plugin, setup.{status,install}.
 void register_tooling_commands(CommandRegistry& registry, const std::string& projectDir);
 
 // project.new_plugin: writes a native plugin from platforms/plugin/ and declares it in factoria.json (plugin_scaffold.cpp).

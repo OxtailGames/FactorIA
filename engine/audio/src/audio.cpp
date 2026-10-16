@@ -2,7 +2,8 @@
 //
 // Threading: in device mode sokol_audio calls render() on its own thread; every piece of state shared with the
 // game thread (voices, bus volumes, recorder, clip cache) is protected by Impl::mu. The callback does no
-// allocation except when the recorder grows, and decoding happens OUTSIDE the lock.
+// allocation except when the recorder grows. Clips are decoded OUTSIDE the lock; a streamed clip is decoded inside it,
+// a few thousand frames at a time, into buffers its voice allocated when it started.
 #include "fa/audio/audio.h"
 
 #include <algorithm>
@@ -13,23 +14,28 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 
-#include "dr_mp3.h"
-#include "dr_wav.h"
+#include "audio_decoder.h"
+#include "fa/audio/analysis.h"
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "sokol_audio.h"
 
-extern "C" int stb_vorbis_decode_memory(const unsigned char* mem, int len, int* channels, int* sample_rate,
-                                        short** output);
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 namespace fa {
 
 namespace {
 
-constexpr int kRate = 44100;
+using audio_detail::Stream;
+
+constexpr int kRate = audio_detail::kMixRate;
 constexpr std::size_t kMaxVoices = 64;
 constexpr std::size_t kMaxRecordFrames = std::size_t(kRate) * 600;  // 10 minutes
 constexpr int kBlock = 512;
@@ -40,10 +46,13 @@ const char* const kBusNames[BusCount] = {"sfx", "music", "ui"};
 
 struct Clip {
     std::string path;
-    std::vector<float> data;  // interleaved stereo, 44100 Hz
-    std::size_t frames = 0;
+    std::vector<float> data;  // interleaved stereo, 44100 Hz; empty for a streamed clip
+    std::shared_ptr<const audio_detail::Bytes> encoded;  // a streamed clip keeps its file: each voice decodes it as it plays
+    std::string ext;           // of `encoded`
+    std::size_t frames = 0;    // 44100 Hz frames (counted from the header for a streamed clip)
     int srcChannels = 0;
     int srcRate = 0;
+    float gain = 1.0f;         // loudness normalization (the `normalize` import setting)
 };
 
 struct Voice {
@@ -57,6 +66,7 @@ struct Voice {
     long fadeFrames = 0;
     bool stopAtFadeEnd = false;
     bool dead = false;
+    std::unique_ptr<Stream> stream;  // set for a streamed clip: `pos` then counts frames of the whole timeline
 };
 
 struct EntityAudio {
@@ -68,38 +78,25 @@ struct EntityAudio {
     std::uint64_t seen = 0;
 };
 
-std::string audio_extensions_hint() { return "supported formats: .wav, .ogg, .mp3"; }
-
-bool is_audio_ext(const std::string& ext) { return ext == ".wav" || ext == ".ogg" || ext == ".mp3"; }
-
-void resample_to_stereo(const float* in, std::size_t frames, int channels, int rate, std::vector<float>& out) {
-    // 1. to stereo at source rate
-    std::vector<float> st(frames * 2);
-    for (std::size_t i = 0; i < frames; ++i) {
-        if (channels == 1) {
-            st[2 * i] = st[2 * i + 1] = in[i];
-        } else {
-            st[2 * i] = in[i * std::size_t(channels)];
-            st[2 * i + 1] = in[i * std::size_t(channels) + 1];
-        }
-    }
-    if (rate == kRate || rate <= 0 || frames == 0) {
-        out = std::move(st);
-        return;
-    }
-    // 2. linear resample to 44100
-    double ratio = double(rate) / double(kRate);
-    std::size_t n = std::size_t(std::ceil(double(frames) / ratio));
-    out.assign(n * 2, 0.0f);
-    for (std::size_t i = 0; i < n; ++i) {
-        double p = double(i) * ratio;
-        std::size_t i0 = std::min(std::size_t(p), frames - 1);
-        std::size_t i1 = std::min(i0 + 1, frames - 1);
-        float t = float(p - double(i0));
-        out[2 * i] = st[2 * i0] + (st[2 * i1] - st[2 * i0]) * t;
-        out[2 * i + 1] = st[2 * i0 + 1] + (st[2 * i1 + 1] - st[2 * i0 + 1]) * t;
-    }
+// Import settings come from a file people edit: read them without assuming their types.
+std::string setting_string(const Json& settings, const char* key, const char* fallback) {
+    auto it = settings.find(key);
+    return it != settings.end() && it->is_string() ? it->get<std::string>() : fallback;
 }
+bool setting_bool(const Json& settings, const char* key, bool fallback) {
+    auto it = settings.find(key);
+    return it != settings.end() && it->is_boolean() ? it->get<bool>() : fallback;
+}
+double setting_number(const Json& settings, const char* key, double fallback) {
+    auto it = settings.find(key);
+    return it != settings.end() && it->is_number() ? it->get<double>() : fallback;
+}
+
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+constexpr bool kMeasuresAtLoad = false;  // phones play what the export measured (convert_audio)
+#else
+constexpr bool kMeasuresAtLoad = true;
+#endif
 
 void write_le16(std::vector<std::uint8_t>& b, std::uint16_t v) {
     b.push_back(std::uint8_t(v & 0xff));
@@ -186,69 +183,106 @@ struct Audio::Impl {
         auto clip = get_clip(clipPath);
         log_play(clipPath, params, false, source, clip != nullptr);
         if (!clip) return 0;
+        std::string err;
+        auto stream = open_stream(*clip, params.loop, &err);
+        if (clip->encoded && !stream) {
+            FA_ERROR("audio", "Audio clip '{}' cannot be streamed: {}", clipPath, err);
+            return 0;
+        }
         std::lock_guard<std::mutex> lk(mu);
-        return add_voice_locked(std::move(clip), params);
+        return add_voice_locked(std::move(clip), params, std::move(stream));
+    }
+
+    // The decoding state of a new voice on a streamed clip (null for a clip decoded whole). Made outside the lock: it
+    // opens a decoder and decodes the first few thousand frames.
+    static std::unique_ptr<Stream> open_stream(const Clip& clip, bool loop, std::string* err) {
+        if (!clip.encoded) return nullptr;
+        auto decoder = audio_detail::open_decoder(clip.encoded->data(), clip.encoded->size(), clip.ext, err);
+        if (!decoder) return nullptr;
+        return std::make_unique<Stream>(audio_detail::Resampler(clip.encoded, std::move(decoder), loop));
     }
 
     // ------------------------------------------------------------ decode
     std::shared_ptr<const Clip> decode(const std::string& path, std::string* err) {
-        auto bytes = fs::read_bytes(path);
-        if (!bytes) {
+        auto file = read_audio_file(path);
+        if (!file) {
             std::vector<std::string> cands;
             for (const std::string& f : fs::list("", true)) {
-                if (is_audio_ext(fs::extension(f))) cands.push_back(f);
+                if (audio_detail::is_audio_extension(fs::extension(f))) cands.push_back(f);
             }
-            std::string msg = "Audio clip '" + path + "' could not be loaded: " + bytes.error().message;
-            std::string hint = cands.empty() ? "put .wav/.ogg/.mp3 files under the project (e.g. assets/sounds/) and use a project-relative path"
+            std::string msg = "Audio clip '" + path + "' could not be loaded: " + file.error().message;
+            std::string hint = cands.empty() ? "put .wav/.ogg/.mp3/.qoa files under the project (e.g. assets/sounds/) and use a project-relative path"
                                               : did_you_mean(path, cands);
             *err = msg + " (hint: " + hint + ")";
             return nullptr;
         }
-        const std::string ext = fs::extension(path);
-        const auto& data = *bytes;
-        std::vector<float> pcm;  // interleaved at source layout
-        std::size_t frames = 0;
-        int channels = 0, rate = 0;
-        if (ext == ".wav") {
-            unsigned ch = 0, sr = 0;
-            drwav_uint64 total = 0;
-            float* p = drwav_open_memory_and_read_pcm_frames_f32(data.data(), data.size(), &ch, &sr, &total, nullptr);
-            if (!p) { *err = "Audio clip '" + path + "' is not a valid WAV file (hint: use 8/16/24/32-bit PCM or float WAV)"; return nullptr; }
-            pcm.assign(p, p + total * ch);
-            drwav_free(p, nullptr);
-            frames = std::size_t(total); channels = int(ch); rate = int(sr);
-        } else if (ext == ".mp3") {
-            drmp3_config cfg{};
-            drmp3_uint64 total = 0;
-            float* p = drmp3_open_memory_and_read_pcm_frames_f32(data.data(), data.size(), &cfg, &total, nullptr);
-            if (!p) { *err = "Audio clip '" + path + "' is not a valid MP3 file"; return nullptr; }
-            pcm.assign(p, p + total * cfg.channels);
-            drmp3_free(p, nullptr);
-            frames = std::size_t(total); channels = int(cfg.channels); rate = int(cfg.sampleRate);
-        } else if (ext == ".ogg") {
-            int ch = 0, sr = 0;
-            short* p = nullptr;
-            int n = stb_vorbis_decode_memory(data.data(), int(data.size()), &ch, &sr, &p);
-            if (n <= 0 || !p) { *err = "Audio clip '" + path + "' is not a valid OGG Vorbis file"; if (p) std::free(p); return nullptr; }
-            pcm.resize(std::size_t(n) * std::size_t(ch));
-            for (std::size_t i = 0; i < pcm.size(); ++i) pcm[i] = float(p[i]) / 32768.0f;
-            std::free(p);
-            frames = std::size_t(n); channels = ch; rate = sr;
-        } else {
-            *err = "Audio clip '" + path + "' has unsupported extension '" + ext + "' (hint: " + audio_extensions_hint() + ")";
+        const std::string ext = fs::extension(file->path);
+        auto bytes = std::make_shared<audio_detail::Bytes>(std::move(file->bytes));
+        std::string problem;
+        auto decoder = audio_detail::open_decoder(bytes->data(), bytes->size(), ext, &problem);
+        if (!decoder) {
+            *err = "Audio clip '" + path + "' " + problem;
             return nullptr;
         }
-        if (channels < 1 || frames == 0) {
+        const Json settings = assets::import_settings(path);
+        const std::string mode = setting_string(settings, "stream", "auto");
+        auto clip = std::make_shared<Clip>();
+        clip->path = path;
+        clip->srcChannels = decoder->channels();
+        clip->srcRate = decoder->rate();
+        const double toMixRate = double(kRate) / double(decoder->rate());
+        const bool streams = clip_streams(mode, mode == "auto" ? double(decoder->frames()) / double(decoder->rate()) : 0.0);
+        if (streams && decoder->frames() > 0) {
+            clip->encoded = bytes;
+            clip->ext = ext;
+            clip->frames = std::size_t(std::ceil(double(decoder->frames()) * toMixRate));
+        } else {
+            // Whole: through the same resampler a streamed clip plays through.
+            const std::uint64_t expected = streams ? 0 : decoder->frames();
+            audio_detail::Resampler source(bytes, std::move(decoder), false);
+            clip->data.reserve(std::size_t(std::ceil(double(expected) * toMixRate)) * 2);
+            for (;;) {
+                const std::size_t at = clip->data.size();
+                clip->data.resize(at + 2 * 16384);
+                const std::size_t got = source.pull(clip->data.data() + at, 16384);
+                clip->data.resize(at + 2 * got);
+                if (got < 16384) break;
+            }
+            clip->frames = clip->data.size() / 2;
+        }
+        if (clip->frames == 0) {
             *err = "Audio clip '" + path + "' contains no audio samples";
             return nullptr;
         }
-        auto clip = std::make_shared<Clip>();
-        clip->path = path;
-        clip->srcChannels = channels;
-        clip->srcRate = rate;
-        resample_to_stereo(pcm.data(), frames, channels, rate, clip->data);
-        clip->frames = clip->data.size() / 2;
+        normalize(*clip, settings, *bytes, ext);
         return clip;
+    }
+
+    // Sets clip.gain when the clip's `normalize` import setting is on: from the loudness assets.json holds for this very
+    // file, else measured now (once per load, desktop only).
+    void normalize(Clip& clip, const Json& settings, const audio_detail::Bytes& bytes, const std::string& ext) {
+        if (!setting_bool(settings, "normalize", false)) return;
+        const Json entry = assets::entry(clip.path);
+        auto analysis = entry.find("analysis");
+        std::optional<Loudness> loudness = cached_loudness(analysis != entry.end() ? *analysis : Json(), bytes);
+        const double target = setting_number(settings, "targetLufs", -16.0);
+        if (!loudness) {
+            if (!kMeasuresAtLoad) {
+                FA_WARN("audio", "'{}' has normalize on but no loudness measured for this file in assets.json, so it plays unchanged "
+                                 "(hint: `factoria export` measures it; on desktop run assets.analyze_audio)", clip.path);
+                return;
+            }
+            auto measured = measure_loudness(bytes, ext);
+            if (!measured) {
+                FA_WARN("audio", "'{}' cannot be normalized: {}", clip.path, measured.error().message);
+                return;
+            }
+            loudness = *measured;
+            FA_INFO("audio", "measured '{}': {:.1f} LUFS, peak {:.1f} dBFS; playing it {:+.1f} dB to reach {:.0f} LUFS "
+                             "(hint: assets.analyze_audio keeps the measurement in assets.json)", clip.path, loudness->integratedLufs,
+                    loudness->peakDb, normalization_gain_db(*loudness, target), target);
+        }
+        clip.gain = float(std::pow(10.0, normalization_gain_db(*loudness, target) / 20.0));
     }
 
     std::shared_ptr<const Clip> get_clip(std::string_view pathIn) {
@@ -282,7 +316,7 @@ struct Audio::Impl {
         return nullptr;
     }
 
-    VoiceId add_voice_locked(std::shared_ptr<const Clip> clip, const PlayParams& p) {
+    VoiceId add_voice_locked(std::shared_ptr<const Clip> clip, const PlayParams& p, std::unique_ptr<Stream> stream) {
         if (voices.size() >= kMaxVoices) {
             auto it = std::find_if(voices.begin(), voices.end(), [&](const Voice& v) { return !v.loop && v.id != musicVoice; });
             if (it == voices.end()) it = voices.begin();
@@ -293,6 +327,7 @@ struct Audio::Impl {
         v.id = nextVoice++;
         if (nextVoice == 0) nextVoice = 1;
         v.clip = std::move(clip);
+        v.stream = std::move(stream);
         v.volume = std::max(p.volume, 0.0f);
         v.pitch = std::max(p.pitch, 0.001f);
         v.pan = clamp(p.pan, -1.0f, 1.0f);
@@ -324,26 +359,32 @@ struct Audio::Impl {
         for (Voice& v : voices) {
             if (v.dead || !v.clip || v.clip->frames == 0) { v.dead = true; continue; }
             const Clip& c = *v.clip;
+            Stream* const stream = v.stream.get();
             const double n = double(c.frames);
             const double step = double(v.pitch) * rateRatio;
             const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
             // Equal-power pan law normalised to unity at the centre (gain capped at 1 on the loud side).
             const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
             const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
-            const float base = v.volume * busVol[v.bus] * master;
+            const float base = v.volume * busVol[v.bus] * master * c.gain;
             for (int f = 0; f < frames; ++f) {
-                if (v.pos >= n) {
-                    if (v.loop) v.pos = std::fmod(v.pos, n);
-                    else { v.dead = true; break; }
+                float l, r;
+                if (stream) {
+                    if (!stream->at(v.pos, l, r)) { v.dead = true; break; }
+                } else {
+                    if (v.pos >= n) {
+                        if (v.loop) v.pos = std::fmod(v.pos, n);
+                        else { v.dead = true; break; }
+                    }
+                    std::size_t i0 = std::size_t(v.pos);
+                    if (i0 >= c.frames) i0 = c.frames - 1;
+                    std::size_t i1 = i0 + 1;
+                    if (i1 >= c.frames) i1 = v.loop ? 0 : i0;
+                    const float t = float(v.pos - double(i0));
+                    const float* d = c.data.data();
+                    l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * t;
+                    r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * t;
                 }
-                std::size_t i0 = std::size_t(v.pos);
-                if (i0 >= c.frames) i0 = c.frames - 1;
-                std::size_t i1 = i0 + 1;
-                if (i1 >= c.frames) i1 = v.loop ? 0 : i0;
-                const float t = float(v.pos - double(i0));
-                const float* d = c.data.data();
-                float l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * t;
-                float r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * t;
                 float g = base * v.fade;
                 out[2 * f] += l * gl * g;
                 out[2 * f + 1] += r * gr * g;
@@ -533,6 +574,12 @@ void Audio::play_music(std::string_view clipPath, float volume, float fadeSecond
     }
     if (!retune) impl_->log_play(clipPath, p, true, "", clip != nullptr);
     if (!clip) return;
+    std::string err;
+    std::unique_ptr<Stream> stream = retune ? nullptr : Impl::open_stream(*clip, true, &err);
+    if (clip->encoded && !retune && !stream) {
+        FA_ERROR("audio", "Music '{}' cannot be streamed: {}", clipPath, err);
+        return;
+    }
     std::lock_guard<std::mutex> lk(impl_->mu);
     Impl& im = *impl_;
     if (Voice* cur = im.find_voice(im.musicVoice)) {
@@ -549,7 +596,7 @@ void Audio::play_music(std::string_view clipPath, float volume, float fadeSecond
             vs.erase(std::remove_if(vs.begin(), vs.end(), [&](const Voice& v) { return v.id == oldId; }), vs.end());
         }
     }
-    VoiceId id = im.add_voice_locked(clip, p);
+    VoiceId id = im.add_voice_locked(clip, p, std::move(stream));
     if (Voice* v = im.find_voice(id)) {
         if (fadeSeconds > 0.0f) {
             v->fade = 0.0f;
@@ -658,6 +705,16 @@ Json Audio::stats() const {
     Json names = Json::array();
     for (const auto& [path, clip] : im.clips) names.push_back(path);
     j["clips"] = names;
+    std::size_t decoded = 0;  // PCM resident: clips decoded whole, plus the buffers of the voices that stream
+    Json streamed = Json::array();
+    for (const auto& [path, clip] : im.clips) {
+        decoded += clip->data.size() * sizeof(float);
+        if (clip->encoded) streamed.push_back(path);
+    }
+    for (const Voice& v : im.voices)
+        if (v.stream) decoded += v.stream->resident_bytes();
+    j["decodedBytes"] = decoded;
+    j["streamedClips"] = streamed;
     j["peak"] = im.lastPeak;
     j["master"] = im.master;
     Json buses = Json::object();
@@ -681,7 +738,8 @@ void Audio::reload_clip(std::string_view pathIn) {
     impl_->clips[path] = clip;
     impl_->failedLogged.erase(path);
     for (Voice& v : impl_->voices) {
-        if (v.clip && v.clip->path == path) {
+        // A voice that streams goes on with the file it opened; so does one on a clip that now streams.
+        if (v.clip && v.clip->path == path && !v.stream && !clip->encoded) {
             v.clip = clip;
             if (v.pos >= double(clip->frames)) v.pos = v.loop ? std::fmod(v.pos, double(clip->frames)) : double(clip->frames);
         }

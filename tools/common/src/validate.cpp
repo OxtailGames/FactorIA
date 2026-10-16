@@ -16,6 +16,7 @@
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
+#include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
@@ -385,6 +386,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     check_plugins(c);
     check_feedback_file(c, feedbackFile);
     check_assets_manifest(c);
+    for (ValidationIssue& w : check_audio_loudness(c.dir)) c.report.warnings.push_back(std::move(w));
     assets_detail::check_shipped_assets(c.dir, c.report.warnings);
 
     std::set<std::string> scripts;
