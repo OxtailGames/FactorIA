@@ -359,7 +359,7 @@ struct AtlasFixture {
 };
 
 // Every way a 2D texture reaches the screen: a sprite filtered linearly (its edges read the padding), a sprite with a
-// region, a flipbook, a screen-space sprite and particles. `packed` names the textures the atlas holds.
+// region, a flipbook, a screen-space sprite, particles and a UI panel's 9-slice background. `packed` names the textures the atlas holds.
 std::vector<Entity> build_scene(World& w, bool packed) {
     auto tex = [&](const char* name) { return std::string("assets/") + (packed ? "pk_" : "ref_") + name + ".png"; };
     std::vector<Entity> sprites;
@@ -414,6 +414,14 @@ std::vector<Entity> build_scene(World& w, bool packed) {
         p.startSize = 12;
         p.endSize = 6;
         p.endColor = Color::white();
+    }
+    Entity panel = make(w, "panel", {200, 120, 0});
+    {
+        auto& p = w.add<Panel>(panel);
+        p.texture = tex("b");
+        p.slice = {3, 2, 3, 2};
+        p.size = {60, 40};
+        p.color = Color::white();
     }
     return {a, b, sheet, hud};
 }
