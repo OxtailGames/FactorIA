@@ -91,6 +91,84 @@ Keep it in what you distribute (zip, installer, store build). You may also show 
 nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
 contain (Dear ImGui, in the editor).
 
+## Setting up this computer
+
+An export needs things that are not part of FactorIA: a JDK and the Android SDK for an APK or AAB, the `factoria_player`
+of the other operating systems, CMake and Xcode for iOS. FactorIA installs what it can instead of only telling you what to
+install:
+
+```bash
+factoria setup                                     # what this computer has and what is missing (writes and downloads nothing)
+factoria setup android                             # JDK 21 + Android SDK; shows the Android SDK license and asks first
+factoria setup android --accept-licenses           # you have read the license and accept it (scripts)
+factoria setup players                             # the players of the other desktop OSes + the Android/iOS libraries, for this version
+factoria setup players --platforms windows,linux   # only these (windows, linux, macos, mobile)
+factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
+factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
+```
+
+| Component | What it installs | Download | The export that needs it |
+|---|---|---|---|
+| `android` | Eclipse Temurin JDK 21, the Android command-line tools, `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the SDK licenses | about 600 MB (1.1 GB on disk) | `--platform android` (APK/AAB through Gradle) |
+| `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (Android libraries; also iOS on a Mac), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
+| `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
+| `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
+
+Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
+
+```
+~/.factoria/
+  android/jdk/          Eclipse Temurin 21
+  android/sdk/          cmdline-tools/latest, platform-tools, platforms/android-36, build-tools/35.0.0, licenses/
+  android/user/         what Google's command-line tools keep for themselves ($ANDROID_USER_HOME, about 250 MB)
+  players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/
+  tools/cmake/          CMake (CMake.app on macOS)
+  export.json           machine settings: learns where the JDK and the SDK are (below)
+```
+
+Nothing else on the computer changes: no `sudo`, no `PATH`, no registry. A JDK or SDK that is found already (`android.jdk`,
+`JAVA_HOME`, `ANDROID_HOME`, Android Studio's) is used and only completed with what is missing, never replaced; Unity Hub's
+belongs to Unity and is never touched (FactorIA sets up its own next to it). Only what was installed here is written to
+`export.json`. Running a setup again is safe: it skips what is there and says so.
+
+**The Android SDK license** is a legal agreement between you and Google. In a terminal `factoria setup android` prints the
+text and asks `[y/N]`; without a terminal it refuses (code `license_required`) until `--accept-licenses` says you have read
+it (`factoria setup --json` prints the text). The refusal comes before anything is downloaded. The newest command-line tools
+(revision 23) are a front for Google's "Android CLI": it records the agreement while it installs the first package,
+unpacks itself into `android/user` (about 250 MB), shows Google's terms and sends Google usage statistics under Google's
+privacy policy. `sdkmanager` has no switch for that (the `android` program next to it has `--no-metrics`).
+
+**What is trusted.** Downloads come only from `api.adoptium.net` and `github.com/adoptium` (JDK), `dl.google.com` (SDK),
+`api.github.com` and `github.com/OxtailGames/FactorIA/releases` (players) and `github.com/Kitware/CMake` (CMake); a listing
+that points anywhere else is refused. Every file is checked against the checksum its publisher lists (SHA-256 from Adoptium,
+GitHub and Kitware, SHA-1 from Google's package list) before it is unpacked, and a mismatch (code `checksum_mismatch`)
+installs nothing. Archives are unpacked next to their destination and moved into place only when complete, so an
+interrupted install never looks installed. The programs used are `curl` (macOS, Windows 10+ and most Linux have it;
+`HTTPS_PROXY` is honored), `tar` (macOS, Windows) and `tar` or `unzip` (Linux).
+
+**`players` needs a release.** It downloads the packages of release `v<version>` of `OxtailGames/FactorIA`, the version that
+`factoria version` prints. A development build ahead of the last release fails with code `no_release` and names the newest
+release; build the player on the other OS (BUILDING.md) and pass it with `--player`, or use a downloaded factoria. A
+player has to match the factoria that copies it into a game, which is why the folder carries the version.
+
+**The export uses what was installed.** `--player` and `--mobile-dir` still win; then the `mobile/` folder next to
+`factoria`; then `players/<version>/` of the FactorIA home (`fa::installed_player`, `fa::installed_mobile_dir`). The Android
+toolchain is read from `export.json` (below) and CMake is `fa::find_cmake`: `PATH`, Homebrew, `/Applications/CMake.app`, then
+`tools/cmake`.
+
+**From an AI.** The commands `setup.status` (read-only) and `setup.install` (MCP tools `setup_status`, `setup_install`) do
+the same. `setup.status {"component":"android"}` returns each component's `state` (`installed`, `missing`, `partial`,
+`unsupported`), `problems[]`, `installSizeMb` and, while the Android license is not accepted, `licenses[]` with its full
+text. `setup.install {"component":"android","acceptLicenses":true}` installs and returns the `steps[]` (each `installed`,
+`skipped` or `guidance`), `paths`, `nextSteps` and `warnings`; errors carry a `code` (`license_required`, `checksum_mismatch`,
+`network`, `no_release`, `cancelled`, `unsupported`, `invalid_argument`, `failed`) and the steps done before the failure. An
+install downloads hundreds of megabytes: ask the user first, and set `acceptLicenses` only after the user has read the
+license text and said yes, never on your own. C++: `fa/tooling/setup.h` (`fa::setup_status`, `fa::setup_install`); the
+editor's Export window builds its buttons on it.
+
+Tests: `FACTORIA_SETUP_ONLINE_TESTS=1 ctest -R tooling` also reads the real Google, Adoptium and GitHub listings (a few
+hundred KB, nothing is installed) to catch a changed format.
+
 ## Platform settings
 
 What an export needs besides the game itself (an icon, the Android version code, a Mac app category, a signing key...)
@@ -164,8 +242,9 @@ endings stay as they are, fields equal to their default are removed, and a save 
 
 ### Machine settings: `~/.factoria/export.json`
 
-`%USERPROFILE%\.factoria\export.json` on Windows; `FACTORIA_EXPORT_CONFIG` names another file. Keys this version does not
-know are kept when the file is saved.
+`%USERPROFILE%\.factoria\export.json` on Windows; `FACTORIA_HOME` moves it into that folder (`$FACTORIA_HOME/export.json`,
+where `factoria setup` installs too) and `FACTORIA_EXPORT_CONFIG` names another file, winning over both. Keys this version
+does not know are kept when the file is saved. `factoria setup android` fills in `android.jdk` and `android.sdk` for what it installs.
 
 ```json
 {
@@ -191,12 +270,12 @@ qualifies:
 
 | | Order | A folder qualifies when |
 |---|---|---|
-| JDK | `android.jdk`, `JAVA_HOME`, Android Studio's bundled JDK (macOS `/Applications/Android Studio.app/Contents/jbr/Contents/Home`, Windows `%ProgramFiles%\Android\Android Studio\jbr`, Linux `/opt/android-studio/jbr`, `~/android-studio/jbr`), then Unity Hub's Android JDK (`.../Unity/Hub/Editor/<newest version first>/.../AndroidPlayer/OpenJDK`) | it has `bin/java` and `bin/javac`, and its `release` file says Java 17 or newer (`JAVA_VERSION="17.0.9"`) |
-| SDK | `android.sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the usual folder (macOS `~/Library/Android/sdk`, Windows `%LOCALAPPDATA%\Android\Sdk`, Linux `~/Android/Sdk`), then Unity Hub's `AndroidPlayer/SDK` | it has `platform-tools/`, `platforms/` or `licenses/` |
+| JDK | `android.jdk`, `JAVA_HOME`, the JDK of `factoria setup android` (`<FactorIA home>/android/jdk`), Android Studio's bundled JDK (macOS `/Applications/Android Studio.app/Contents/jbr/Contents/Home`, Windows `%ProgramFiles%\Android\Android Studio\jbr`, Linux `/opt/android-studio/jbr`, `~/android-studio/jbr`), then Unity Hub's Android JDK (`.../Unity/Hub/Editor/<newest version first>/.../AndroidPlayer/OpenJDK`) | it has `bin/java` and `bin/javac`, and its `release` file says Java 17 or newer (`JAVA_VERSION="17.0.9"`) |
+| SDK | `android.sdk`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the SDK of `factoria setup android` (`<FactorIA home>/android/sdk`), the usual folder (macOS `~/Library/Android/sdk`, Windows `%LOCALAPPDATA%\Android\Sdk`, Linux `~/Android/Sdk`), then Unity Hub's `AndroidPlayer/SDK` | it has `platform-tools/`, `platforms/` or `licenses/` |
 
 A folder you named (in the file or an environment variable) that does not qualify is skipped with a warning when a later
-one does, and is reported as the problem when none does. A missing JDK or SDK is a *problem* that says what to install
-(Android Studio, or a JDK 17+ from adoptium.net, or the command-line tools) and where to set the folder (Platform settings >
+one does, and is reported as the problem when none does. A missing JDK or SDK is a *problem* that says what to run
+(`factoria setup android` installs both; otherwise Android Studio, or a JDK 17+ from adoptium.net, or the command-line tools) and where to set the folder (Platform settings >
 Android in the editor, `~/.factoria/export.json`, or the environment variable). An SDK without accepted licenses
 (`licenses/android-sdk-license`) only gets a warning: Gradle cannot download a missing SDK platform until you run
 `sdkmanager --licenses`.
@@ -206,7 +285,8 @@ Android in the editor, `~/.factoria/export.json`, or the environment variable). 
 The `factoria_player` binary is copied next to the game. By default it is taken
 from the folder of the running `factoria` binary (or the build tree layout
 `<build>/player/`). Exporting for another OS than the one you run on needs a
-player built there: pass `--player path/to/factoria_player[.exe]`.
+player of that OS: `factoria setup players` downloads the ones of the release ([Setting up this computer](#setting-up-this-computer)),
+or pass `--player path/to/factoria_player[.exe]` for one built there.
 
 ```
 linux/windows:  my-game-linux/
@@ -271,7 +351,7 @@ and in the CLI output (`Exported android build to ... (22 files, mode: prebuilt)
 
 | mode | The engine runtime is | Needs |
 |---|---|---|
-| `prebuilt` | the ready-made `mobile/` libraries of the download, copied into the project | Android: JDK 17 and the Android SDK only (no NDK, no CMake). iOS: Xcode and CMake 3.24+ (no engine source) |
+| `prebuilt` | the ready-made `mobile/` libraries of the download, copied into the project | Android: JDK 17 and the Android SDK only (no NDK, no CMake); `factoria setup android` installs both. iOS: Xcode and CMake 3.24+ (no engine source); `factoria setup cmake` installs CMake |
 | `source` | compiled from an engine source checkout, with that checkout's templates | the checkout and, on Android, NDK r27+ and CMake 3.31 (engine developers) |
 
 **The rule**, in order (the first that applies wins):
@@ -279,7 +359,8 @@ and in the CLI output (`Exported android build to ... (22 files, mode: prebuilt)
 1. `--engine-root DIR` was given, or `$FACTORIA_ENGINE_DIR` is set (and no `--mobile-dir` was given): **source**, from that
    checkout. A path that is not an engine checkout is an error, not a silent fallback.
 2. `--mobile-dir DIR` was given, or the `mobile/` folder next to the `factoria` executable holds the players (Android: a
-   `libfactoria_player.so` for both `arm64-v8a` and `x86_64`; iOS: `libfactoria_player_main.a` in both `iphoneos` and `iphonesimulator`): **prebuilt**.
+   `libfactoria_player.so` for both `arm64-v8a` and `x86_64`; iOS: `libfactoria_player_main.a` in both `iphoneos` and `iphonesimulator`),
+   or `factoria setup players` installed them (`<FactorIA home>/players/<version>/mobile`): **prebuilt**.
 3. The source checkout this `factoria` was built from still exists (a development build): **source**.
 4. Otherwise the export fails and says what to do: use the FactorIA download, or set `FACTORIA_ENGINE_DIR`.
 

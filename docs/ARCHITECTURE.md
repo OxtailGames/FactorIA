@@ -36,7 +36,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 
 ```
 engine/            runtime modules (ship inside every game)
-  core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema, child processes (process.h)
+  core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture
@@ -46,7 +46,7 @@ engine/            runtime modules (ship inside every game)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
-  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons)
+  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons), setup (one-click install of the JDK, Android SDK, players, CMake)
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
