@@ -10,9 +10,7 @@
 // levels. The bound below is what that costs on this scene (measured, below), with room for another GPU's rounding.
 #include <doctest.h>
 
-#include <algorithm>
 #include <filesystem>
-#include <fstream>
 
 #include "common.h"  // tools/cli/src: Session
 #include "fa/core/fs.h"
@@ -31,11 +29,6 @@ constexpr double kProjectTolerance = 0.004;
 // ... and the exported game's: UASTC (near lossless, 8 bits a pixel) on the pixel-art tileset. Measured with BC7 on a
 // Radeon RX 6950 XT (D3D11): meanError 0.00034, about 2500 of 230400 pixels differ (by up to 0.1 in one channel).
 constexpr double kExportedTolerance = 0.002;
-
-void write_file(const stdfs::path& path, const std::string& data) {
-    stdfs::create_directories(path.parent_path());
-    std::ofstream(path, std::ios::binary).write(data.data(), std::streamsize(data.size()));
-}
 
 // Runs `dir` headless for a few frames and returns the game view; `tilesetReport` receives how the tileset sits in GPU memory.
 fa::Image render_project(const std::string& dir, const stdfs::path& shot, fa::Json& tilesetReport, bool& hadGpu) {
@@ -71,7 +64,8 @@ TEST_CASE("A mobile export ships compressed textures and still matches the rende
 
     // 1. A mobile export: prebuilt mode with stand-in players (as tools/common/tests/test_export.cpp), the Gradle project only.
     const stdfs::path download = tmp / "download" / "mobile";
-    for (const char* abi : {"arm64-v8a", "x86_64"}) write_file(download / "android" / "jniLibs" / abi / "libfactoria_player.so", abi);
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        REQUIRE(fa::fs::write_text((download / "android" / "jniLibs" / abi / "libfactoria_player.so").generic_string(), abi).ok());
     fa::ExportOptions o;
     o.projectDir = project;
     o.platform = "android";
