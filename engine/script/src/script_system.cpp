@@ -701,6 +701,7 @@ ScriptSystem::~ScriptSystem() {
     if (impl_) impl_->shutdown();
 }
 
+void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }
 void ScriptSystem::shutdown() { impl_->shutdown(); }
 
