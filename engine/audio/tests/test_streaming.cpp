@@ -1,0 +1,268 @@
+// Streamed clips (import setting `stream`): the same sound as a clip decoded whole, with a fixed amount of PCM resident.
+#include <doctest.h>
+
+#include <fstream>
+#include <iterator>
+
+#include "audio_test_helpers.h"
+#include "fa/audio/audio.h"
+#include "fa/audio/convert.h"
+#include "fa/core/fs.h"
+
+using namespace fa;
+using namespace audio_test;
+
+namespace {
+
+std::vector<std::uint8_t> fixture_bytes(const char* name) {
+    std::ifstream in(std::filesystem::path(FA_REPO_ROOT) / "engine/audio/tests/fixtures" / name, std::ios::binary);
+    REQUIRE(in.good());
+    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+void install(const std::filesystem::path& dir, const char* rel, const std::vector<std::uint8_t>& bytes) {
+    write_file(dir / rel, bytes);
+}
+
+// Import settings of two copies of the same file: one streamed, one decoded whole.
+const char* kStreamedAndWhole = R"({"format": "factoria.assets/1", "assets": {
+    "sounds/streamed.wav": {"import": {"stream": "always"}},
+    "sounds/whole.wav": {"import": {"stream": "never"}},
+    "sounds/streamed44.wav": {"import": {"stream": "always"}},
+    "sounds/whole44.wav": {"import": {"stream": "never"}},
+    "sounds/tone.mp3": {"import": {"stream": "auto"}},
+    "sounds/tone_whole.mp3": {"import": {"stream": "never"}}}})";
+
+// Left and right differ.
+std::vector<std::uint8_t> stereo_wav(int rate) {
+    std::vector<float> l, r, st;
+    add_sine(l, 2.5, 330.0, 0.5, rate);
+    add_sine(r, 2.5, 550.0, 0.25, rate);
+    for (std::size_t i = 0; i < l.size(); ++i) {
+        st.push_back(l[i]);
+        st.push_back(r[i]);
+    }
+    return wav_bytes(st, 2, rate);
+}
+
+Recording record(Fixture& fx, const char* clip, const PlayParams& p, double seconds) {
+    fx.audio.stop_all();
+    fx.audio.start_recording();
+    fx.audio.play(clip, p);
+    fx.run(seconds);
+    return fx.finish();
+}
+
+float max_difference(const Recording& a, const Recording& b) {
+    REQUIRE(a.frames() == b.frames());
+    float worst = 0.0f;
+    for (std::size_t i = 0; i < a.frames(); ++i) worst = std::max({worst, std::fabs(a.l[i] - b.l[i]), std::fabs(a.r[i] - b.r[i])});
+    return worst;
+}
+
+bool streams(Fixture& fx, const char* clip) {
+    const Json stats = fx.audio.stats();  // (a temporary would be gone before the loop starts)
+    for (const Json& name : stats["streamedClips"])
+        if (name == clip) return true;
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE("audio streaming: a streamed clip plays exactly like the same clip decoded whole") {
+    Fixture fx;
+    // 22050 Hz makes the resampler work; 44100 Hz keeps the loop seam of a streamed clip identical to a whole one's.
+    install(fx.dir, "sounds/streamed.wav", stereo_wav(22050));
+    install(fx.dir, "sounds/whole.wav", stereo_wav(22050));
+    install(fx.dir, "sounds/streamed44.wav", stereo_wav(44100));
+    install(fx.dir, "sounds/whole44.wav", stereo_wav(44100));
+    fx.write_assets(kStreamedAndWhole);
+    REQUIRE(fx.audio.load("sounds/streamed.wav"));
+    REQUIRE(fx.audio.load("sounds/whole.wav"));
+    CHECK(streams(fx, "sounds/streamed.wav"));
+    CHECK_FALSE(streams(fx, "sounds/whole.wav"));
+    CHECK(fx.audio.stats()["decodedBytes"] == 110250 * 2 * sizeof(float));  // only the whole clip is resident
+
+    PlayParams plain;
+    PlayParams bent;
+    bent.pitch = 1.37f;
+    bent.pan = 0.3f;
+    PlayParams looped;
+    looped.loop = true;
+    looped.volume = 0.5f;
+    looped.pitch = 0.81f;
+    struct Case { const char* whole; const char* streamed; PlayParams params; double seconds; };
+    for (const Case& c : {Case{"sounds/whole.wav", "sounds/streamed.wav", plain, 3.0},
+                          Case{"sounds/whole.wav", "sounds/streamed.wav", bent, 2.5},
+                          Case{"sounds/whole44.wav", "sounds/streamed44.wav", looped, 7.0}}) {
+        Recording whole = record(fx, c.whole, c.params, c.seconds);
+        Recording streamed = record(fx, c.streamed, c.params, c.seconds);
+        CHECK(whole.peak() > 0.2f);
+        CHECK(max_difference(whole, streamed) < 6.5e-5f);  // two steps of the 16-bit recording at most
+    }
+    Recording left = record(fx, "sounds/streamed.wav", plain, 1.0);
+    CHECK(left.peak_l() == doctest::Approx(0.5f).epsilon(0.03));  // each side keeps its own channel
+    CHECK(left.peak_r() == doctest::Approx(0.25f).epsilon(0.03));
+}
+
+TEST_CASE("audio streaming: a streamed voice holds a small buffer, not the clip") {
+    Fixture fx;
+    install(fx.dir, "sounds/streamed.wav", stereo_wav(22050));
+    fx.write_assets(kStreamedAndWhole);
+    CHECK(fx.audio.stats()["decodedBytes"] == 0);
+    VoiceId v = fx.audio.play("sounds/streamed.wav");
+    REQUIRE(v != 0);
+    fx.run(0.5);
+    const std::size_t resident = fx.audio.stats()["decodedBytes"];
+    CHECK(resident > 0);
+    CHECK(resident < 128 * 1024);  // the clip decoded whole would be 882 KB
+    fx.audio.stop(v);
+    CHECK(fx.audio.stats()["decodedBytes"] == 0);
+}
+
+TEST_CASE("audio streaming: `auto` streams what lasts more than 10 seconds, `always` and `never` decide the rest") {
+    Fixture fx;
+    std::vector<float> longer, shorter;
+    add_sine(longer, 10.5, 440.0, 0.3, 8000);
+    add_sine(shorter, 9.5, 440.0, 0.3, 8000);
+    install(fx.dir, "sounds/long.wav", wav_bytes(longer, 1, 8000));
+    install(fx.dir, "sounds/short.wav", wav_bytes(shorter, 1, 8000));
+    install(fx.dir, "sounds/long_never.wav", wav_bytes(longer, 1, 8000));
+    install(fx.dir, "sounds/short_always.wav", wav_bytes(shorter, 1, 8000));
+    fx.write_assets(R"({"format": "factoria.assets/1",
+        "defaults": {"audio": {"stream": "auto"}},
+        "assets": {"sounds/long_never.wav": {"import": {"stream": "never"}},
+                   "sounds/short_always.wav": {"import": {"stream": "always"}}}})");
+    for (const char* clip : {"sounds/long.wav", "sounds/short.wav", "sounds/long_never.wav", "sounds/short_always.wav"})
+        REQUIRE(fx.audio.load(clip));
+    CHECK(streams(fx, "sounds/long.wav"));
+    CHECK_FALSE(streams(fx, "sounds/short.wav"));
+    CHECK_FALSE(streams(fx, "sounds/long_never.wav"));
+    CHECK(streams(fx, "sounds/short_always.wav"));
+    CHECK(fx.audio.stats()["streamedClips"].size() == 2);
+}
+
+TEST_CASE("audio streaming: a streamed mp3 plays to its end like the same mp3 decoded whole") {
+    Fixture fx;
+    install(fx.dir, "sounds/tone.mp3", fixture_bytes("tone_12s.mp3"));
+    install(fx.dir, "sounds/tone_whole.mp3", fixture_bytes("tone_12s.mp3"));
+    fx.write_assets(kStreamedAndWhole);
+    PlayParams plain;
+    Recording streamed = record(fx, "sounds/tone.mp3", plain, 13.0);
+    CHECK(streams(fx, "sounds/tone.mp3"));  // 12 seconds: `auto` streams it
+    Recording whole = record(fx, "sounds/tone_whole.mp3", plain, 13.0);
+    CHECK_FALSE(streams(fx, "sounds/tone_whole.mp3"));
+    CHECK(streamed.peak() == doctest::Approx(0.3f).epsilon(0.15));
+    CHECK(streamed.sound_end() == doctest::Approx(12.0 * 44100.0).epsilon(0.01));
+    CHECK(max_difference(whole, streamed) < 6.5e-5f);
+}
+
+TEST_CASE("audio streaming: music, scene music and AudioSource stream too, pitch included") {
+    Fixture fx;
+    install(fx.dir, "sounds/streamed.wav", stereo_wav(44100));
+    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
+
+    // play_music: fades in, loops past the clip's 2.5 seconds, fades out
+    fx.audio.start_recording();
+    fx.audio.play_music("sounds/streamed.wav", 1.0f, 0.5f);
+    fx.run(6.0);
+    Recording music = fx.finish("out/music.wav");
+    CHECK(music.peak(0, 2000) < 0.1f);
+    CHECK(music.peak(music.frames() - 4000) > 0.2f);
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    CHECK(fx.audio.stats()["music"] == "sounds/streamed.wav");
+    CHECK(streams(fx, "sounds/streamed.wav"));
+    fx.audio.stop_music(0.25f);
+    fx.run(1.0);
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+    CHECK(fx.audio.stats()["decodedBytes"] == 0);
+
+    // SceneSettings.music, and an AudioSource with its own pitch
+    World world;
+    world.settings().music = "sounds/streamed.wav";
+    world.settings().musicVolume = 0.8f;
+    fx.audio.update(world, 1.0f / 60.0f);
+    fx.run(1.0);
+    CHECK(fx.audio.stats()["music"] == "sounds/streamed.wav");
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    world.settings().music = "";
+    fx.audio.update(world, 1.0f / 60.0f);
+    fx.run(1.0);
+    CHECK(fx.audio.stats()["activeVoices"] == 0);
+
+    Entity e = world.create("fast", "fast");
+    AudioSource& src = world.add<AudioSource>(e);
+    src.clip = "sounds/streamed.wav";
+    src.playOnStart = true;
+    src.pitch = 2.0f;
+    fx.audio.start_recording();
+    fx.audio.update(world, 1.0f / 60.0f);
+    CHECK(fx.audio.stats()["activeVoices"] == 1);
+    for (int i = 0; i < 90; ++i) {
+        fx.audio.update(world, 1.0f / 60.0f);
+        fx.audio.advance_null_device(1.0 / 60.0);
+    }
+    Recording fast = fx.finish("out/fast.wav");
+    CHECK_FALSE(world.get<AudioSource>(e)->playing);  // 2.5 s at double speed: over after 1.25 s
+    CHECK(fast.sound_end() == doctest::Approx(1.25 * 44100.0).epsilon(0.02));
+    CHECK(fast.peak() > 0.4f);
+    CHECK(fx.audio.stats()["decodedBytes"] == 0);
+}
+
+TEST_CASE("audio streaming: a 3-minute OGG plays with under 2 MB of decoded audio resident") {
+    Fixture fx;
+    const std::vector<std::uint8_t> ogg = fixture_bytes("music_3min.ogg");
+    REQUIRE(fs::write_bytes("assets/music.ogg", ogg.data(), ogg.size()).ok());
+    // What decoding it whole would hold, worked out and not allocated: 180 s of 44.1 kHz stereo float.
+    const std::uint64_t wholeDecode = 180ull * 44100 * 2 * sizeof(float);
+    CHECK(wholeDecode == 63504000);  // about 60 MB
+
+    REQUIRE(fx.audio.load("assets/music.ogg"));  // `auto`, and 180 s is longer than 10 s
+    CHECK(streams(fx, "assets/music.ogg"));
+    CHECK(fx.audio.stats()["decodedBytes"] == 0);
+
+    fx.audio.play_music("assets/music.ogg", 1.0f, 0.0f);  // loops: the second pass starts at 180 s
+    const double step = 0.05;
+    const int steps = 3900;  // 195 s
+    std::vector<float> peak(steps);
+    std::uint64_t mostDecoded = 0;
+    for (int i = 0; i < steps; ++i) {
+        fx.audio.advance_null_device(step);
+        const Json st = fx.audio.stats();
+        mostDecoded = std::max<std::uint64_t>(mostDecoded, st["decodedBytes"].get<std::uint64_t>());
+        peak[std::size_t(i)] = st["peak"].get<float>();
+    }
+    INFO("most PCM resident at once: ", mostDecoded, " bytes, a whole decode would hold ", wholeDecode);
+    CHECK(mostDecoded > 0);
+    CHECK(mostDecoded < 2u * 1024 * 1024);
+    CHECK(mostDecoded < wholeDecode / 100);
+
+    // The tone sits at 0.05 and a beep (0.5) starts every 10 s, the second pass included (190 s = 10 s into the loop, beep 19).
+    for (int beep : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19}) {
+        const int at = beep * 200;  // step index of beep * 10 s: the file has one at 10 s ... 170 s, none at 180 s
+        CAPTURE(beep);
+        CHECK(peak[std::size_t(at)] > 0.3f);
+        CHECK(peak[std::size_t(at + 1)] > 0.3f);
+        for (int i = at + 4; i < at + 195 && i < steps; ++i) CHECK(peak[std::size_t(i)] < 0.1f);
+    }
+    for (int i = 200 * 17 + 4; i < 200 * 19 - 5; ++i) {  // 180 s included: the loop restarts and there is no beep
+        CAPTURE(i);
+        CHECK(peak[std::size_t(i)] < 0.1f);
+    }
+
+    const std::vector<AudioEvent> log = fx.audio.play_log();
+    REQUIRE(log.size() == 1);
+    CHECK(log[0].path == "assets/music.ogg");
+    CHECK(log[0].music);
+    CHECK(log[0].ok);
+
+    // Played once it ends after the 180 seconds, with the same small buffers.
+    fx.audio.stop_all();
+    const VoiceId once = fx.audio.play("assets/music.ogg");
+    REQUIRE(once != 0);
+    fx.run(179.0);
+    CHECK(fx.audio.is_playing(once));
+    fx.run(2.0);
+    CHECK_FALSE(fx.audio.is_playing(once));
+    CHECK(fx.audio.stats()["decodedBytes"] == 0);
+}
