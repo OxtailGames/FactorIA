@@ -58,8 +58,137 @@ The file is optional; the assets.* commands create and update it. Schema: `schem
 
 ## Importing files
 
-<!-- Filled by the importers work: assets.import, Aseprite, PSD, OBJ, FBX, sprite-sheet slicing. -->
+`assets.import` brings a file made elsewhere into the project and records where it came from. It reads files on this
+machine (an absolute path, or a path relative to the project); to use something from the web, download it first and pass
+the page it came from as `sourceUrl` so the credits keep it.
+
+```
+assets.import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
+assets.import {"source":"C:/art/crate.obj","path":"assets/models/crate/","license":"CC0"}
+```
+
+| Argument | Meaning |
+|---|---|
+| `source` | The file. Required. |
+| `path` | Where it lands: a path under `assets/` that ends in the extension the result has (a `.aseprite` becomes `.png`), or a folder ending in `/`. Default: `assets/<name>.<ext>`, with sounds in `assets/audio/`, fonts in `assets/fonts/` and models in `assets/models/`. Spaces and punctuation in the name become `_`. |
+| `license`, `author` | Recorded in the provenance. Pass them for anything you did not make: the credits and the store disclosures read `assets.json`. |
+| `sourceUrl` | The page the file came from. It replaces the local path in `provenance.source`. |
+| `ai` | `true` when an AI made it. Left out when you do not know. |
+| `columns` | Aseprite only: frames per row of the sheet. |
+| `overwrite` | Replace files that already exist. Without it an existing file is an error that says so. |
+
+The result lists the files written, the provenance recorded, importer details, warnings (what could not be carried over)
+and next steps with the component settings to use. Each written file gets an `assets.json` entry with
+`provenance: {origin: "imported", source, license, author, ai, date}`.
+
+| Source | What lands in the project |
+|---|---|
+| `.png` `.jpg` `.tga` `.bmp` | Copied as they are (decoded once to check the engine can read it; the size is in `details`). |
+| `.wav` `.ogg` `.mp3` | Copied into `assets/audio/`. |
+| `.ttf` `.otf` | Copied into `assets/fonts/`. |
+| `.glb` | Copied into `assets/models/`. |
+| `.gltf` | Copied with the `.bin` buffers and images it refers to (relative paths, next to the model or below it). A missing buffer is an error, a missing image a warning. |
+| `.aseprite` `.ase` | A PNG sprite sheet plus its `sheet` entry (see below). |
+| `.psd` | A PNG of the merged image. |
+| `.obj` (+ `.mtl`, textures) | A `.gltf` with its data embedded, plus the textures next to it. |
+| `.fbx` | A `.glb`, converted by FBX2glTF or Blender (see below). |
+
+Not supported (the error says what to do instead): `.blend` (export glTF from Blender), `.webp` `.gif` `.svg` `.psb`
+(convert to PNG), `.flac` `.m4a` `.aac` (convert to OGG or WAV), video, and SDF/MSDF font atlases.
+
+### Aseprite
+
+Every frame is drawn with its visible layers (layer and cel opacity, linked cels, RGBA, grayscale and indexed color with
+the palette and the transparent index) and laid out in a grid, left to right and top to bottom. By default the grid is
+`ceil(sqrt(frames))` columns wide; `columns` changes it. The `sheet` entry in `assets.json` records
+`columns, rows, frameWidth, frameHeight, frames` and one clip per Aseprite tag (`name, firstFrame, lastFrame, fps, loop`).
+A clip's `fps` is the average of its frames' durations (`1000 * frames / milliseconds`, two decimals).
+
+To play a clip, use the next steps of the result:
+
+```json
+{"Sprite": {"texture": "assets/hero.png"},
+ "SpriteAnimator": {"columns": 4, "rows": 2, "firstFrame": 2, "lastFrame": 5, "fps": 12, "loop": true}}
+```
+
+Leave the Sprite's `region` and `size` empty: SpriteAnimator sets the region, and the frame size is the sprite size.
+
+What is not carried over, with a warning each time: tags that play in reverse or ping-pong (the clip plays forward,
+because `SpriteAnimator` only plays forward), layers with a blend mode other than normal (drawn as normal) and tilemap
+layers. Slices and user data are ignored. A damaged file is an error that names what is wrong ("frame 3 is cut short").
+
+### PSD
+
+The merged image saved in the file (8 and 16 bit RGB) becomes a PNG, with a warning that the layers were
+flattened. If it cannot be read the error says how to save it again (Maximize PSD Compatibility) or to export a PNG.
+Export layers one by one from Photoshop (File > Export > Layers to Files) when you need them separately.
+
+### OBJ
+
+Vertices, texture coordinates, normals and faces are imported (polygons are triangulated as a fan, which is right for
+convex polygons; negative indices work). Objects and groups (`o`, `g`) become separate meshes, and a change of material
+(`usemtl`) a separate primitive of the mesh. A face without normals is flat shaded; a face without texture coordinates
+gets none. Materials come from the `.mtl` next to the OBJ: `Kd` (color), `d` / `Tr` (opacity) and `map_Kd` (the base
+color texture, found next to the `.mtl` or the OBJ and copied next to the glTF; formats other than PNG and JPEG are
+converted to PNG). The result has `details` with the vertex and triangle counts and the bounds (`boundsMin`, `boundsMax`,
+`size`) in the OBJ's own units; OBJ has no unit and the engine reads 1 as 1 meter, so scale the entity if the model is not
+that size. Points and lines are skipped, and a missing `.mtl` or texture leaves the material with its color only: each
+is a warning, not an error. Smoothing groups and the other material maps (bump, specular) are ignored.
+
+### FBX
+
+FBX is a closed format, so FactorIA converts it with a program that reads it. Neither ships with the engine:
+
+- **FBX2glTF** (<https://github.com/godotengine/FBX2glTF/releases>): put it in `PATH` or set `FACTORIA_FBX2GLTF` to its
+  path. Tried first.
+- **Blender** (<https://www.blender.org/download/>): found in `PATH` or in its standard install folder. It runs in the
+  background (`blender -b --factory-startup --python ...`), imports the FBX into an empty scene and exports a `.glb`.
+
+When neither is found the error says so and links both. The converted `.glb` has meshes and materials; skins and
+animations are not used by the engine yet. Check scale and orientation with `game.screenshot`.
+
+### Sprite sheets: assets.slice_sheet
+
+SpriteAnimator plays a uniform grid of frames. `assets.slice_sheet` makes an image fit that, in two ways:
+
+- **A grid you know.** `{"path":"assets/walk.png","columns":4,"rows":2,"fps":12}` (or `frameWidth` / `frameHeight`
+  instead of columns / rows; `frames` when the last row is partly empty). The grid is checked against the image: a
+  width that `columns` does not divide is an error that lists the values that fit, and a warning names frames that are
+  completely empty (a sign the grid is wrong). The image is not touched; the layout is recorded as the `sheet` entry
+  in `assets.json`.
+- **Frames of different sizes separated by transparent gutters**, as AI-generated and downloaded sheets often are:
+  `{"path":"assets/walk_raw.png","auto":true,"frames":8,"align":"bottom"}`. Every group of touching pixels is a sprite
+  (sprites whose boxes overlap count as one, so a floating spark stays with its character), sprites are ordered by rows
+  then columns, and repacked into a uniform grid whose cell is the largest sprite, each one centred (`align: "bottom"`
+  stands characters on the same ground line). The new PNG is `out` (default `<name>_sheet.png`; the source is kept and
+  its provenance is copied, with a note). `frames` is the number of sprites you expect: a different count is an
+  error that lists what was found with their positions. `columns` chooses how many frames go in a row of the new sheet.
+
+`background: "auto"` first makes a solid background transparent, in either mode: the four corners must be the same
+opaque color (JPEG noise is tolerated), the background that touches them is cleared, and the same color inside a sprite
+stays. The result has the SpriteAnimator fields (`spriteAnimator`) and the Sprite `texture` to use. Aseprite files need
+no slicing: `assets.import` reads their frames and tags.
 
 ## Checks
 
-<!-- Filled by each part: what `factoria validate` reports about assets (size, alpha, weight, loudness). -->
+`factoria validate` (`project.validate`) reads the asset files, fast, from their headers, and reports warnings (a game
+with warnings still runs and exports):
+
+- **Texture size.** A texture over 4096 px on a side: many mobile GPUs cannot sample it. Over 2048 px when
+  `factoria.json` `platforms` lists `android` or `ios`: low-end phones struggle. The hint says to scale it or cut it into
+  tiles.
+- **Alpha.** A texture drawn by a `Sprite` whose four corners are the same opaque color is probably a background that
+  should be transparent: the hint gives the `assets.slice_sheet` call that clears it. A texture that is fully transparent
+  draws nothing. A flat one-color image is left alone (a placeholder rectangle).
+- **Weight.** One shipped file over 20 MB, with a hint by kind (convert audio to OGG, compress a texture). The total of
+  the shipped files against the limit of each store the game targets: Google Play's 500 MB for the base module of an app
+  (`android`), and for `ios` 200 MB, above which an iPhone asks the player before downloading over cellular data, and 4 GB,
+  the App Store's limit for an uncompressed app. The numbers are in one table in `tools/common/src/validate_assets.cpp`
+  with their sources and the date they were checked. The total is before the export's texture compression and audio
+  conversion, so a game just over a limit may fit once exported (`factoria export` reports the real size).
+
+The shipped files are the ones the export includes: `build/`, `tests/`, `tools/`, `types/`, `node_modules/`, hidden files
+and folders, `AGENTS.md`, `CLAUDE.md`, `jsconfig.json` and the feedback file are left out of the count, as they are from the
+export.
+
+<!-- Filled by the audio and texture work: the loudness and atlas-usage checks. -->
