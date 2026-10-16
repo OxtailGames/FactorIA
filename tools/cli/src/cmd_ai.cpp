@@ -250,7 +250,7 @@ Command make_ai_command() {
         if (res.costUsd > 0) ctx.out << ", ~$" << res.costUsd;
         ctx.out << "\n";
         if (!res.transcriptPath.empty()) ctx.out << "transcript: " << res.transcriptPath << "\n";
-        if (!res.ok) return report_failure(ctx.err, res.error.empty() ? "The agent stopped: " + res.stopReason : res.error, res.hint);
+        if (!res.ok) return report_failure(ctx, res.error.empty() ? "The agent stopped: " + res.stopReason : res.error, res.hint);
         return 0;
     };
 

@@ -3,6 +3,8 @@
 //   Desktop : factoria_player [projectDir] [--scene S] [--fullscreen] [--help]
 //             projectDir defaults to "<exe dir>/game" (or "<exe dir>/../Resources/game" inside a macOS
 //             .app) when that folder contains factoria.json, otherwise the current directory.
+//             The log of every run also goes to <save folder>/log.txt. On Windows the player is a GUI program (no
+//             console window); started from a terminal it prints to that terminal.
 //   Android : sokol_main() via NativeActivity. The project lives in the APK assets (root "").
 //   iOS     : sokol_main(). The project lives in the app bundle at <bundle resources>/game.
 //
@@ -32,6 +34,8 @@ namespace stdfs = std::filesystem;
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <mutex>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -79,6 +83,50 @@ stdfs::path desktop_user_dir(const std::string& gameId) {
     return root / (gameId.empty() ? "factoria-game" : gameId);
 }
 
+// Every log line also goes to <save folder>/log.txt, rewritten on each start: a double-clicked game has no console, and
+// this is the file a player can send with a bug report.
+void log_to_file(const stdfs::path& dir) {
+    static std::ofstream file;
+    static std::mutex mutex;
+    std::error_code ec;
+    stdfs::create_directories(dir, ec);
+    file.open(dir / "log.txt", std::ios::binary | std::ios::trunc);
+    if (!file) return;
+    fa::add_log_sink([](const fa::LogEntry& e) {
+        std::lock_guard<std::mutex> lock(mutex);
+        file << fa::format_log_line(e) << '\n' << std::flush;
+    });
+}
+
+#if defined(_WIN32)
+bool g_noConsole = false;  // double-clicked: nobody sees stderr
+
+// factoria_player.exe is a GUI program (player/CMakeLists.txt), so a game opens no console window. Started from a
+// terminal, it still prints there: an output the terminal did not redirect is pointed at the terminal's console.
+// (The terminal does not wait for a GUI program; `start /wait game.exe` does.)
+void attach_parent_console() {
+    const bool outOk = GetFileType(GetStdHandle(STD_OUTPUT_HANDLE)) != FILE_TYPE_UNKNOWN;
+    const bool errOk = GetFileType(GetStdHandle(STD_ERROR_HANDLE)) != FILE_TYPE_UNKNOWN;
+    if (outOk && errOk) return;  // redirected
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) {
+        g_noConsole = !errOk;
+        return;
+    }
+    FILE* f = nullptr;
+    if (!outOk) freopen_s(&f, "CONOUT$", "w", stdout);
+    if (!errOk) freopen_s(&f, "CONOUT$", "w", stderr);
+}
+#endif
+
+// An error before the game starts (there is no log file yet): on stderr, and in a message box when nobody sees stderr.
+int startup_error(const std::string& text) {
+    std::fprintf(stderr, "%s", text.c_str());
+#if defined(_WIN32)
+    if (g_noConsole) MessageBoxA(nullptr, text.c_str(), "Cannot start the game", MB_OK | MB_ICONERROR);
+#endif
+    return 1;
+}
+
 void print_usage() {
     std::puts("factoria_player [projectDir] [--scene <scene path>] [--fullscreen] [--help]\n"
               "  projectDir  folder containing factoria.json (default: ./game next to the executable, else the current directory)\n"
@@ -89,6 +137,9 @@ void print_usage() {
 }  // namespace
 
 int main(int argc, char** argv) {
+#if defined(_WIN32)
+    attach_parent_console();
+#endif
     std::string projectArg, scene;
     bool fullscreen = false;
     for (int i = 1; i < argc; ++i) {
@@ -125,12 +176,9 @@ int main(int argc, char** argv) {
         else projectDir = stdfs::current_path();
     }
     if (!has_project(projectDir)) {
-        std::fprintf(stderr,
-                     "error: no %s in '%s'.\n"
-                     "hint: pass the game folder (factoria_player path/to/game) or put the game in a 'game' folder next to "
-                     "the executable (`factoria export` does this).\n",
-                     fa::kProjectFileName, projectDir.string().c_str());
-        return 1;
+        return startup_error(std::string("error: no ") + fa::kProjectFileName + " in '" + projectDir.string() +
+                             "'.\nhint: pass the game folder (factoria_player path/to/game) or put the game in a 'game' folder "
+                             "next to the executable (`factoria export` does this).\n");
     }
 
     fa::EngineConfig cfg;
@@ -139,9 +187,9 @@ int main(int argc, char** argv) {
     cfg.hotReload = false;
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
+        log_to_file(fa::fs::user_dir());
     } else {
-        std::fprintf(stderr, "error: %s\n", proj.error().to_string().c_str());
-        return 1;
+        return startup_error("error: " + proj.error().to_string() + "\n");
     }
     fa::AppDesc desc = fa::make_app_desc(cfg);  // == what run_windowed() does
     if (fullscreen) desc.fullscreen = true;

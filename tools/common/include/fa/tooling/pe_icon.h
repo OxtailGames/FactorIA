@@ -1,5 +1,5 @@
-// Gives a Windows executable the game's icon without a Windows toolchain: the export of `factoria_player.exe`
-// (docs/EXPORTING.md, "Desktop").
+// Gives a Windows executable the game's icon and version information without a Windows toolchain: the export of
+// `factoria_player.exe` (docs/EXPORTING.md, "Desktop").
 //
 // factoria_player.exe is built with a placeholder icon (player/windows/factoria_player.rc): an ICON resource made only of
 // uncompressed 32-bit BMP images of fixed sizes (16, 24, 32, 48, 64, 128, 256 px). patch_pe_icon() overwrites each of
@@ -12,10 +12,15 @@
 //     wrong one is a defect).
 // The PE structure it reads: DOS header -> PE headers -> section table -> the resource directory (data directory 2),
 // whose tree is type -> name -> language -> data entry; the RT_ICON type is 3.
+//
+// The version information works the same way: the player's VERSIONINFO resource (RT_VERSION, 16) holds strings padded
+// with spaces, and patch_pe_version() overwrites each value in place, padded with NULs, so nothing moves either.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "fa/core/image.h"
@@ -37,6 +42,25 @@ struct PeIconPatch {
 // `exe` is NOT touched at all, signature and checksum included, and the result says replaced == 0. An Error (with what
 // is wrong and a hint) means `exe` is not a PE file or its resource table is damaged; `exe` is unchanged then too.
 Result<PeIconPatch> patch_pe_icon(std::vector<std::uint8_t>& exe, const Image& icon);
+
+struct PeVersionInfo {
+    std::map<std::string, std::string> strings;  // StringFileInfo key -> value (UTF-8): {"ProductName", "Space Dodge"}
+    std::string version;                         // "1.2.3": the FILEVERSION and PRODUCTVERSION numbers; "" = unchanged
+};
+
+struct PeVersionPatch {
+    bool found = false;                  // the file has a VS_VERSIONINFO resource (false: nothing was changed)
+    std::vector<std::string> set;        // the keys of `strings` written, in the order found
+    std::vector<std::string> truncated;  // ... of which the value was cut to the room of the placeholder
+    bool signatureRemoved = false;       // as in PeIconPatch
+    bool truncatedFile = false;
+};
+
+// Writes `info` into the version information of the PE image `exe`: each string of `info.strings` whose key the resource
+// has (keys it lacks are skipped), and the version numbers. A file without a well-formed VS_VERSIONINFO is NOT touched
+// (found == false). Like patch_pe_icon, a change removes the signature and recomputes the checksum; an Error means `exe`
+// is not a PE file or its resource table is damaged, and `exe` is unchanged.
+Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const PeVersionInfo& info);
 
 // The PE checksum of `bytes`: the sum of its 16-bit words (the 4 bytes at `checksumOffset` counted as zero) with the
 // carries folded back in, plus the length of the file. checksumOffset is the file offset of the CheckSum field

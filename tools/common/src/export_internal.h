@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/core/fs.h"  // os_path
 #include "fa/core/image.h"
 #include "fa/core/strings.h"  // replace_all
 #include "fa/core/types.h"
@@ -24,6 +25,9 @@
 namespace fa::export_detail {
 
 namespace stdfs = std::filesystem;
+// Every file system call on the output folder goes through fs::os_path: an export lands deep (a macOS .app nests four
+// folders), and Windows refuses paths over MAX_PATH without its \\?\ prefix (docs/EXPORTING.md, "Long paths on Windows").
+using fs::os_path;
 using tooling_detail::read_file;
 using tooling_detail::slugify;
 using tooling_detail::write_file;

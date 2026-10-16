@@ -75,11 +75,11 @@ std::string sh_quote(const std::string& s) {
 
 Result<void> copy_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& dest) {
     std::error_code ec;
-    stdfs::create_directories(dest, ec);
+    stdfs::create_directories(os_path(dest), ec);
     for (const auto& f : files) {
         stdfs::path to = dest / f;
-        stdfs::create_directories(to.parent_path(), ec);
-        stdfs::copy_file(p.dir / f, to, stdfs::copy_options::overwrite_existing, ec);
+        stdfs::create_directories(os_path(to.parent_path()), ec);
+        stdfs::copy_file(os_path(p.dir / f), os_path(to), stdfs::copy_options::overwrite_existing, ec);
         if (ec) return err("export: cannot copy '" + f + "' to " + generic(to) + ": " + ec.message());
     }
     return {};
@@ -90,7 +90,7 @@ Result<void> write_text(const stdfs::path& path, const std::string& text, bool e
     if (!write_file(path, text, &e)) return err("export: " + e);
     if (executable) {
         std::error_code ec;
-        stdfs::permissions(path, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+        stdfs::permissions(os_path(path), stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                            stdfs::perm_options::add, ec);
     }
     return {};
@@ -311,8 +311,9 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
 std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutput) {
     std::vector<std::string> out;
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
-        const std::string rel = generic(stdfs::relative(it->path(), root, ec));
+    const stdfs::path osRoot = os_path(root);
+    for (stdfs::recursive_directory_iterator it(osRoot, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string rel = generic(it->path().lexically_relative(osRoot));
         if (skipGradleOutput && it->is_directory(ec) &&
             (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build")) {
             it.disable_recursion_pending();
@@ -443,18 +444,18 @@ std::string marker_text(const Project& p, const std::string& platform) {
 // name, is an error that says how to proceed.
 Result<void> check_replaceable(const Project& p, const std::string& platform, const stdfs::path& outRoot) {
     std::error_code ec;
-    if (!stdfs::exists(stdfs::symlink_status(outRoot, ec))) return {};
+    if (!stdfs::exists(stdfs::symlink_status(os_path(outRoot), ec))) return {};
     const std::string where = "'" + generic(outRoot) + "'";
     const std::string choose =
         "choose another output folder (--out, the `out` argument of project.export, or Choose... in the editor's Export "
         "window)";
-    if (!stdfs::is_directory(outRoot, ec))
+    if (!stdfs::is_directory(os_path(outRoot), ec))
         return err("export: " + where + " already exists and is not a folder; an export would delete it, so it is left "
                    "as it is",
                    choose + ", or move or delete that file yourself");
-    if (stdfs::is_regular_file(outRoot / kExportMarkerFile, ec)) return {};
-    if (stdfs::is_regular_file(notices_dir(p, platform, outRoot) / kExportNoticesFile, ec)) return {};
-    if (bool empty = stdfs::is_empty(outRoot, ec); empty && !ec) return {};
+    if (stdfs::is_regular_file(os_path(outRoot / kExportMarkerFile), ec)) return {};
+    if (stdfs::is_regular_file(os_path(notices_dir(p, platform, outRoot) / kExportNoticesFile), ec)) return {};
+    if (bool empty = stdfs::is_empty(os_path(outRoot), ec); empty && !ec) return {};
     return err("export: the output folder " + where + " already exists and was not written by an export (it has no " +
                    kExportMarkerFile + " file); an export would delete it, so it is left as it is",
                choose + ", or move or delete that folder yourself if nothing in it is needed. A folder an older "
@@ -618,10 +619,10 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     report.warnings = plan.warnings;
 
     std::error_code ec;
-    stdfs::create_directories(plan.outParent, ec);
+    stdfs::create_directories(os_path(plan.outParent), ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
-    stdfs::remove_all(outRoot, ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
-    stdfs::create_directories(outRoot, ec);
+    stdfs::remove_all(os_path(outRoot), ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
+    stdfs::create_directories(os_path(outRoot), ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
     if (auto r = write_text(outRoot / kExportMarkerFile, marker_text(p, platform)); !r.ok()) return r.error();
 
@@ -651,7 +652,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
-        if (!keepOutput) stdfs::remove_all(outRoot, ec);
+        if (!keepOutput) stdfs::remove_all(os_path(outRoot), ec);
         return r.error();
     }
     if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too

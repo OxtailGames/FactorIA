@@ -54,7 +54,7 @@ Command make_new_command() {
         o.id = ctx.args.str("id");
         o.force = ctx.args.has("force");
         auto r = create_project(absolute_path(ctx.args.pos(0)), tmpl, o);
-        if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         if (ctx.args.has("json")) {
             print_json(ctx.out, r->to_json());
             return 0;
@@ -130,13 +130,13 @@ Command make_validate_command() {
             rep.warnings.push_back(w);
         }
         if (ctx.args.has("fix-types")) {
-            if (!session) return report_failure(ctx.err, "Cannot regenerate typings: " + engineProblem);
+            if (!session) return report_failure(ctx, "Cannot regenerate typings: " + engineProblem);
             std::string text = session->engine().scripts().typescript_declarations();
             std::string path = (fsys::path(dir) / "types" / "factoria.d.ts").string();
             std::error_code ec;
             fsys::create_directories(fsys::path(path).parent_path(), ec);
             std::ofstream f(path, std::ios::binary);
-            if (!f) return report_failure(ctx.err, "Cannot write " + path);
+            if (!f) return report_failure(ctx, "Cannot write " + path);
             f << text;
             f.close();
             // The placeholder warning is moot now.
@@ -206,7 +206,7 @@ Command make_export_command() {
         eo.mobileDir = ctx.args.has("mobile-dir") ? absolute_path(ctx.args.str("mobile-dir")) : "";
         eo.playerBinary = ctx.args.has("player") ? absolute_path(ctx.args.str("player")) : "";
         auto r = export_project(eo);
-        if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         if (ctx.args.has("json")) {
             print_json(ctx.out, r->to_json());
             return 0;
@@ -219,7 +219,7 @@ Command make_export_command() {
         for (std::size_t i = 0; i < r->nextSteps.size(); ++i) ctx.out << "  " << (i + 1) << ". " << r->nextSteps[i] << "\n";
         return 0;
 #else
-        return report_failure(ctx.err, "Export is not available in this build of factoria.",
+        return report_failure(ctx, "Export is not available in this build of factoria.",
                               "Rebuild with the export module (tools/common export.h) enabled.");
 #endif
     };
@@ -242,7 +242,7 @@ Command make_editor_command() {
         return run_editor(eo);
 #else
         (void)ctx;
-        return report_failure(ctx.err, "This build of factoria has no editor.",
+        return report_failure(ctx, "This build of factoria has no editor.",
                               "Rebuild with -DFA_BUILD_EDITOR=ON (desktop), or use 'factoria run' and 'factoria mcp'.");
 #endif
     };

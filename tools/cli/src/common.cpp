@@ -27,6 +27,17 @@ int report_failure(std::ostream& err, const std::string& message, const std::str
     return 1;
 }
 
+void print_json_error(std::ostream& out, const std::string& code, const std::string& message, const std::string& hint) {
+    Json e = Json::object({{"code", code}, {"message", message}});
+    if (!hint.empty()) e["hint"] = hint;
+    print_json(out, Json::object({{"ok", false}, {"error", e}}));
+}
+
+int report_failure(const Context& ctx, const std::string& message, const std::string& hint) {
+    if (ctx.args.has("json")) print_json_error(ctx.out, "failed", message, hint);
+    return report_failure(ctx.err, message, hint);
+}
+
 std::string absolute_path(const std::string& path) {
     std::error_code ec;
     fsys::path p = fsys::absolute(fsys::path(path), ec);

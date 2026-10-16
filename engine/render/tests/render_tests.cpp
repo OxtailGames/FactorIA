@@ -352,6 +352,38 @@ TEST_CASE("missing assets fall back and log exactly one error") {
     CHECK(report["failures"].size() >= 3);
 }
 
+TEST_CASE("text: characters the font has no glyph for are reported once per font, with what to do") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    g.renderer.clear_asset_cache();  // a fresh font cache: nothing warned yet
+    clear_recent_logs();
+    World w;
+    make(w, "cam");
+    w.add<Camera>(w.find("cam"));
+    auto text = [&](const std::string& s, const std::string& font = "") {
+        auto& t = w.add<Text>(make(w, "t"));
+        t.text = s;
+        t.font = font;
+    };
+    text("Score 日本語 中文 한국어");   // DejaVu Sans has no CJK
+    text("Año ñandú, Ωμέγα, Привет");  // Latin, Greek and Cyrillic: all there
+    text("Pixel 日本", "builtin:pixel");
+    for (int i = 0; i < 3; ++i) g.render(w);
+    std::vector<std::string> warnings;
+    for (const auto& l : recent_logs(200, LogLevel::Warn))
+        if (l.message.find("no glyph for") != std::string::npos) warnings.push_back(l.message);
+    REQUIRE(warnings.size() == 2);  // one per font, not per frame or per text
+    const std::string& builtin = warnings[0].find("builtin:pixel") == std::string::npos ? warnings[0] : warnings[1];
+    const std::string& pixel = warnings[0].find("builtin:pixel") == std::string::npos ? warnings[1] : warnings[0];
+    CHECK(builtin.find("U+65E5 '\xE6\x97\xA5'") != std::string::npos);  // 日
+    CHECK(builtin.find("DejaVu Sans") != std::string::npos);
+    CHECK(builtin.find("Noto Sans SC, JP or KR") != std::string::npos);
+    CHECK(builtin.find("assets/fonts/") != std::string::npos);
+    CHECK(builtin.find("U+00F1") == std::string::npos);  // ñ is not missing
+    CHECK(pixel.find("Press Start 2P") != std::string::npos);
+    CHECK(pixel.find("U+65E5") != std::string::npos);
+}
+
 TEST_CASE("camera helpers: world_to_screen / screen_to_world / ray") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
