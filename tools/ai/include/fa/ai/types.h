@@ -5,20 +5,20 @@
 // how Anthropic thinking blocks survive between turns). History is append-only.
 #pragma once
 
-#include <atomic>
 #include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "fa/core/json.h"
+#include "fa/core/process.h"
 #include "fa/core/types.h"
 
 namespace fa::ai {
 
-// Cooperative cancellation: callers set it to true; long operations poll it.
-using CancelFlag = std::atomic<bool>;
-inline bool is_cancelled(const CancelFlag* f) { return f && f->load(std::memory_order_relaxed); }
+// Cooperative cancellation: callers set it to true; long operations poll it. Defined in fa_core (fa/core/process.h).
+using fa::CancelFlag;
+using fa::is_cancelled;
 
 enum class Role { User, Assistant };
 

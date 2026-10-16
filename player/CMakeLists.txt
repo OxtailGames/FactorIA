@@ -9,8 +9,10 @@
 #   FA_GAME_BUNDLE_ID    CFBundleIdentifier      (default com.factoria.player)
 #   FA_GAME_NAME         display name            (default FactorIA Player)
 #   FA_GAME_VERSION      version, e.g. 1.2.3     (default 0.1.0)
+#   FA_GAME_BUILD        CFBundleVersion         (default: FA_GAME_VERSION)
 #   FA_GAME_ORIENTATION  landscape|portrait|any  (default landscape)
 #   FA_IOS_DEVELOPMENT_TEAM  Apple team id for signing (optional; can be set in Xcode)
+#   FA_GAME_ASSET_CATALOG    an Assets.xcassets folder with an AppIcon set (optional), compiled into the app
 file(GLOB player_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
 if(FA_PLATFORM STREQUAL "android")
@@ -18,14 +20,19 @@ if(FA_PLATFORM STREQUAL "android")
     # ANativeActivity_onCreate lives in the static fa_platform archive (sokol_app); force the linker
     # to pull it in and export it, otherwise NativeActivity cannot find its entry point.
     target_link_options(factoria_player PRIVATE -u ANativeActivity_onCreate)
+    # 16 KB pages: Google Play requires every native library of an app that targets Android 15+ to load on devices with
+    # 16 KB memory pages, so the segments are aligned to 0x4000 (NDK r28+ does it by default, r27 does not).
+    target_link_options(factoria_player PRIVATE -Wl,-z,max-page-size=16384)
     target_link_libraries(factoria_player PRIVATE android log EGL GLESv3)
 elseif(FA_PLATFORM STREQUAL "ios")
     set(FA_GAME_BUNDLE_ID "com.factoria.player" CACHE STRING "iOS bundle identifier (reverse DNS)")
     set(FA_GAME_NAME "FactorIA Player" CACHE STRING "Game display name")
     set(FA_GAME_VERSION "0.1.0" CACHE STRING "Game version (x.y.z)")
+    set(FA_GAME_BUILD "" CACHE STRING "Build number, CFBundleVersion (empty = the version)")
     set(FA_GAME_ORIENTATION "landscape" CACHE STRING "landscape | portrait | any")
     set(FA_GAME_PROJECT_DIR "" CACHE PATH "Game folder (contains factoria.json) to copy into the app bundle")
     set(FA_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple developer team id used for signing")
+    set(FA_GAME_ASSET_CATALOG "" CACHE PATH "Assets.xcassets folder with an AppIcon set, compiled into the app (optional)")
 
     set(FA_PLIST_OUT ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     include(${FA_ROOT}/platforms/ios/plist.cmake)  # fa_ios_configure_plist(): orientations + XML-escaped name -> Info.plist.in
@@ -41,6 +48,17 @@ elseif(FA_PLATFORM STREQUAL "ios")
         XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
     if(FA_IOS_DEVELOPMENT_TEAM)
         set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${FA_IOS_DEVELOPMENT_TEAM}")
+    endif()
+    if(FA_GAME_ASSET_CATALOG)
+        # `factoria export --platform ios` writes <export>/Assets.xcassets (AppIcon set) and build_ios.sh passes it here.
+        # Xcode compiles it into Assets.car and adds CFBundleIcons / CFBundleIconName to the app's Info.plist.
+        if(NOT IS_DIRECTORY "${FA_GAME_ASSET_CATALOG}")
+            message(FATAL_ERROR "FA_GAME_ASSET_CATALOG='${FA_GAME_ASSET_CATALOG}' is not a folder. "
+                "Point it at the Assets.xcassets folder that `factoria export --platform ios` writes next to build_ios.sh.")
+        endif()
+        target_sources(factoria_player PRIVATE "${FA_GAME_ASSET_CATALOG}")
+        set_source_files_properties("${FA_GAME_ASSET_CATALOG}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
     endif()
     target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit"
         "-framework QuartzCore" "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation")
@@ -70,6 +88,16 @@ elseif(FA_PLATFORM STREQUAL "ios")
     endif()
 else()
     add_executable(factoria_player ${player_srcs})
+    if(WIN32)
+        # The placeholder icon of the exe (player/windows/factoria_player.rc): 32-bit BMP images of fixed sizes that
+        # `factoria export --platform windows` overwrites in place with the game's icon (tools/common/src/pe_icon.cpp).
+        # CMake enables the RC language by itself with C/C++ on Windows (rc.exe with MSVC, windres with MinGW); the include
+        # directory is where both look for the .ico named in the .rc.
+        target_sources(factoria_player PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.rc)
+        target_include_directories(factoria_player PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/windows)
+        set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.rc PROPERTIES
+            OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.ico)
+    endif()
 endif()
 
 target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)

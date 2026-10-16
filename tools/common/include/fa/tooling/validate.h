@@ -3,7 +3,8 @@
 // Checks: factoria.json vs schemas/project.schema.json (+ mainScene exists, input
 // bindings valid), ENGINE_FEEDBACK.json present and valid, every scene/prefab in
 // the project loads (messages from fa::load_scene_file are forwarded), asset
-// paths referenced by reflected Asset fields exist, scenes and prefabs are in the canonical layout (warning), scripts
+// paths referenced by reflected Asset fields exist, scenes and prefabs are in the canonical layout (warning), the
+// `icon` / `export` settings of factoria.json (fa/tooling/export_settings.h) and the icon files they name, scripts
 // (via an optional syntax-check hook installed by the CLI once the script module exists).
 #pragma once
 

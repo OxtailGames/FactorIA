@@ -751,6 +751,113 @@ TEST_CASE("make_app_desc: title and size come from the project") {
     CHECK(static_cast<bool>(d.event));
 }
 
+// A solid-colour square PNG at `path` (any folders are created).
+void write_icon_png(const stdfs::path& path, int w, int h, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+    Image img;
+    img.width = w;
+    img.height = h;
+    img.rgba.resize(std::size_t(w) * h * 4);
+    for (std::size_t i = 0; i < img.rgba.size(); i += 4) img.rgba[i] = r, img.rgba[i + 1] = g, img.rgba[i + 2] = b, img.rgba[i + 3] = 255;
+    REQUIRE(save_png(img, path.generic_string()).ok());
+}
+
+std::string icon_project(const std::string& extra) {
+    return R"({"name":"Icon Test","display":{"width":320,"height":180})" + extra + "}";
+}
+
+std::vector<int> icon_sizes(const AppDesc& d) {
+    std::vector<int> sizes;
+    for (const AppIconImage& i : d.icon) {
+        CHECK(i.width == i.height);
+        CHECK(i.rgba.size() == std::size_t(i.width) * i.height * 4);
+        sizes.push_back(i.width);
+    }
+    return sizes;
+}
+
+bool logged_window_icon_warning() {
+    for (const LogEntry& e : recent_logs(64))
+        if (e.level == LogLevel::Warn && e.message.find("window icon:") != std::string::npos) return true;
+    return false;
+}
+
+TEST_CASE("make_app_desc: the window icon is the project's icon in square sizes from 16 to 256 px") {
+    TempProject p("app_icon", icon_project(R"(,"icon":"assets/icon.png")").c_str(), nullptr);
+    write_icon_png(p.dir / "assets/icon.png", 300, 300, 200, 30, 40);
+    EngineConfig c;
+    c.projectDir = p.path();
+    AppDesc d = make_app_desc(c);
+    CHECK(icon_sizes(d) == std::vector<int>{16, 32, 48, 64, 128, 256});
+    REQUIRE_FALSE(d.icon.empty());
+    const AppIconImage& big = d.icon.back();
+    const std::size_t mid = (std::size_t(big.height / 2) * big.width + big.width / 2) * 4;
+    CHECK(int(big.rgba[mid]) == 200);
+    CHECK(int(big.rgba[mid + 1]) == 30);
+    CHECK(int(big.rgba[mid + 3]) == 255);
+}
+
+TEST_CASE("make_app_desc: a non-square or small icon gives the sizes that fit, and export.<this platform>.icon wins") {
+    {
+        TempProject p("app_icon_wide", icon_project(R"(,"icon":"icon.png")").c_str(), nullptr);
+        write_icon_png(p.dir / "icon.png", 100, 60, 10, 20, 30);
+        EngineConfig c;
+        c.projectDir = p.path();
+        CHECK(icon_sizes(make_app_desc(c)) == std::vector<int>{16, 32, 48, 64});  // centered on a 100 px square, never enlarged
+    }
+    {
+        TempProject p("app_icon_tiny", icon_project(R"(,"icon":"icon.png")").c_str(), nullptr);
+        write_icon_png(p.dir / "icon.png", 8, 8, 10, 20, 30);
+        EngineConfig c;
+        c.projectDir = p.path();
+        CHECK(icon_sizes(make_app_desc(c)) == std::vector<int>{8});  // smaller than every size: as it is
+    }
+    {
+        // The platform's own icon replaces `icon`; the icon of another platform is ignored.
+        const std::string mine = FA_PLATFORM_NAME, other = mine == "windows" ? "ios" : "windows";
+        TempProject p("app_icon_platform",
+                      icon_project(R"(,"icon":"icon.png","export":{")" + other + R"(":{"icon":"other.png"},")" + mine +
+                                   R"(":{"icon":"mine.png"}})")
+                          .c_str(),
+                      nullptr);
+        write_icon_png(p.dir / "icon.png", 64, 64, 1, 1, 1);
+        write_icon_png(p.dir / "other.png", 32, 32, 2, 2, 2);
+        write_icon_png(p.dir / "mine.png", 32, 32, 3, 3, 3);
+        EngineConfig c;
+        c.projectDir = p.path();
+        AppDesc d = make_app_desc(c);
+        CHECK(icon_sizes(d) == std::vector<int>{16, 32});
+        CHECK(int(d.icon[0].rgba[0]) == 3);
+        auto loaded = load_project(p.path());
+        REQUIRE(loaded.ok());
+        CHECK(loaded->icon == "icon.png");
+        CHECK(loaded->window_icon() == "mine.png");
+        // Round trip: the icon survives save_project.
+        REQUIRE(save_project(p.path(), *loaded).ok());
+        CHECK(load_project(p.path())->window_icon() == "mine.png");
+    }
+}
+
+TEST_CASE("make_app_desc: no icon, a missing file or a file that is not an image never fail: the window keeps the default icon") {
+    {
+        TempProject p("app_icon_none", icon_project("").c_str(), nullptr);
+        EngineConfig c;
+        c.projectDir = p.path();
+        CHECK(make_app_desc(c).icon.empty());
+    }
+    for (const char* bad : {"assets/missing.png", "notes.txt", "../outside.png"}) {
+        CAPTURE(bad);
+        TempProject p("app_icon_bad", icon_project(std::string(R"(,"icon":")") + bad + R"(")").c_str(), nullptr);
+        p.write("notes.txt", "this is not an image");
+        EngineConfig c;
+        c.projectDir = p.path();
+        clear_recent_logs();
+        AppDesc d = make_app_desc(c);
+        CHECK(d.icon.empty());
+        CHECK(d.title == "Icon Test");  // the rest of the window description is intact
+        CHECK(logged_window_icon_warning());
+    }
+}
+
 // ------------------------------------------------------- render on demand --
 namespace {
 const char* kSceneWithEmitter = R"({

@@ -1,0 +1,771 @@
+// The Android export: the Gradle project (settings, icons, signing, the Gradle wrapper), the format and artifact, the
+// toolchain checks of the plan and the Gradle build. Gradle itself never runs here: the build tests use a source-mode
+// "engine checkout" whose gradlew is a shell script that records how it was called and writes a fake APK (POSIX only).
+#include <doctest.h>
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <map>
+#include <optional>
+
+#include "fa/core/image.h"
+#include "fa/tooling/export.h"
+#include "fa/tooling/export_settings.h"
+#include "fa/tooling/scaffold.h"
+#include "test_helpers.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+
+namespace {
+
+bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+
+bool any_contains(const std::vector<std::string>& v, const std::string& part) {
+    return std::any_of(v.begin(), v.end(), [&](const std::string& s) { return s.find(part) != std::string::npos; });
+}
+
+struct ScopedEnv {
+    std::string name;
+    std::optional<std::string> old;
+    ScopedEnv(const char* n, const char* value) : name(n) {
+        if (const char* cur = std::getenv(n)) old = cur;
+        set(value);
+    }
+    ~ScopedEnv() { set(old ? old->c_str() : nullptr); }
+    void set(const char* value) const {
+#if defined(_WIN32)
+        _putenv_s(name.c_str(), value ? value : "");
+#else
+        if (value) setenv(name.c_str(), value, 1);
+        else unsetenv(name.c_str());
+#endif
+    }
+};
+
+// A game with an id; `settings` (a JSON object text) is inserted as extra top-level members of factoria.json.
+std::string make_game(const testing::TempDir& tmp, const std::string& extraMembers = {}) {
+    const std::string dir = tmp.sub("game");
+    ScaffoldOptions so;
+    so.name = "Space Dodge";
+    so.id = "com.example.spacedodge";
+    auto r = create_project(dir, "2d-platformer", so);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    if (!extraMembers.empty()) {
+        std::string json = testing::read_all(stdfs::path(dir) / "factoria.json");
+        const std::size_t brace = json.find('{');
+        json.insert(brace + 1, "\n  " + extraMembers + ",");
+        testing::write_all(stdfs::path(dir) / "factoria.json", json);
+    }
+    return dir;
+}
+
+void write_icon(const std::string& gameDir, int size = 512, const std::string& rel = "assets/icon.png") {
+    Image img;
+    img.width = img.height = size;
+    img.rgba.assign(static_cast<std::size_t>(size) * size * 4, 255);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x) {
+            const std::size_t i = (static_cast<std::size_t>(y) * size + x) * 4;
+            img.rgba[i] = static_cast<std::uint8_t>(x * 255 / size);
+            img.rgba[i + 1] = static_cast<std::uint8_t>(y * 255 / size);
+            img.rgba[i + 2] = 80;
+        }
+    REQUIRE(save_png(img, (stdfs::path(gameDir) / rel).generic_string()).ok());
+}
+
+std::string make_fake_mobile(const testing::TempDir& tmp) {
+    const stdfs::path root = tmp.sub("download/mobile");
+    for (const char* abi : {"arm64-v8a", "x86_64"}) testing::write_all(root / "android" / "jniLibs" / abi / "libfactoria_player.so", std::string("fake ") + abi);
+    return root.string();
+}
+
+// A JDK 17 and an Android SDK that only look like ones, and the lookup that points at them (and at a machine config).
+struct FakeToolchain {
+    std::string jdk, sdk, config;
+    std::map<std::string, std::string> vars;
+    AndroidToolchainSearch search;
+
+    explicit FakeToolchain(const testing::TempDir& tmp, const std::string& sdkFolder = "sdk") {
+        jdk = tmp.sub("jdk");
+        sdk = tmp.sub(sdkFolder);
+        config = tmp.sub("machine/export.json");
+        testing::write_all(stdfs::path(jdk) / "bin" / "java", "");
+        testing::write_all(stdfs::path(jdk) / "bin" / "javac", "");
+        testing::write_all(stdfs::path(jdk) / "release", "JAVA_VERSION=\"17.0.9\"\n");
+        testing::write_all(stdfs::path(sdk) / "platform-tools" / "adb", "");
+        testing::write_all(stdfs::path(sdk) / "licenses" / "android-sdk-license", "ok");
+        vars = {{"JAVA_HOME", jdk}, {"ANDROID_HOME", sdk}, {"FACTORIA_EXPORT_CONFIG", config}};
+        search.env = [this](const std::string& name) {
+            auto it = vars.find(name);
+            return it == vars.end() ? std::string() : it->second;
+        };
+    }
+};
+
+ExportOptions options(const std::string& game, const testing::TempDir& tmp, const std::string& format) {
+    ExportOptions o;
+    o.projectDir = game;
+    o.platform = "android";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
+    o.format = format;
+    return o;
+}
+
+}  // namespace
+
+TEST_CASE("android export: the Gradle project follows the settings and ships the Gradle wrapper") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp,
+        R"("icon": "assets/icon.png", "export": { "android": { "versionCode": 777, "minSdk": 28, "targetSdk": 35,
+           "permissions": ["android.permission.VIBRATE", "android.permission.INTERNET"],
+           "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
+    write_icon(game);
+    testing::write_all(stdfs::path(game) / "keys" / "upload.jks", "secret keystore bytes");
+    ExportOptions o = options(game, tmp, "gradle");
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+
+    CHECK(r->format == "gradle");
+    CHECK(r->artifact.empty());
+    CHECK(r->to_json()["format"] == "gradle");
+    CHECK_FALSE(r->to_json().contains("artifact"));
+
+    // The wrapper: byte for byte what platforms/android has, gradlew executable (POSIX) with LF line endings.
+    const stdfs::path repo = stdfs::path(FA_REPO_ROOT) / "platforms" / "android";
+    for (const char* f : {"gradlew", "gradlew.bat", "gradle/wrapper/gradle-wrapper.jar", "gradle/wrapper/gradle-wrapper.properties"}) {
+        CAPTURE(f);
+        REQUIRE(stdfs::exists(root / f));
+        CHECK(has(r->files, f));
+    }
+    CHECK(testing::read_all(root / "gradle/wrapper/gradle-wrapper.jar") == testing::read_all(repo / "gradle/wrapper/gradle-wrapper.jar"));
+    CHECK(testing::read_all(root / "gradlew.bat") == testing::read_all(repo / "gradlew.bat"));
+    CHECK(testing::read_all(root / "gradlew").find('\r') == std::string::npos);
+    CHECK(testing::read_all(root / "gradlew").rfind("#!/bin/sh", 0) == 0);
+#if !defined(_WIN32)
+    CHECK((stdfs::status(root / "gradlew").permissions() & stdfs::perms::owner_exec) != stdfs::perms::none);
+#endif
+    const std::string wrapper = testing::read_all(root / "gradle/wrapper/gradle-wrapper.properties");
+    CHECK(wrapper.find("gradle-8.14.3-bin.zip") != std::string::npos);
+    CHECK(wrapper.find("distributionSha256Sum=") != std::string::npos);
+    CHECK(testing::read_all(root / "build.gradle").find("com.android.application' version '8.13.2'") != std::string::npos);
+
+    // compileSdk = targetSdk, and the SDK levels, version code and permissions come from the settings.
+    const std::string gradle = testing::read_all(root / "app/build.gradle");
+    CHECK(gradle.find("compileSdk 35") != std::string::npos);
+    CHECK(gradle.find("minSdk 28") != std::string::npos);
+    CHECK(gradle.find("targetSdk 35") != std::string::npos);
+    CHECK(gradle.find("versionCode 777") != std::string::npos);
+    CHECK(gradle.find("keepDebugSymbols") != std::string::npos);  // prebuilt libraries are stripped already
+    CHECK(gradle.find("FACTORIA_ANDROID_KEYSTORE_PASSWORD") != std::string::npos);  // read from the environment only
+    const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
+    CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
+    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") != std::string::npos);
+    CHECK(manifest.find("<uses-permission android:name=\"android.permission.INTERNET\" />") != std::string::npos);
+    CHECK(manifest.find("android:icon=\"@mipmap/ic_launcher\"") != std::string::npos);
+    CHECK(manifest.find("android:roundIcon=\"@mipmap/ic_launcher_round\"") != std::string::npos);
+    for (const char* f : {"mipmap-mdpi/ic_launcher.png", "mipmap-xxxhdpi/ic_launcher_round.png", "mipmap-anydpi-v26/ic_launcher.xml",
+                          "mipmap-xxhdpi/ic_launcher_foreground.png", "values/ic_launcher_background.xml"}) {
+        CAPTURE(f);
+        CHECK(stdfs::exists(root / "app/src/main/res" / f));
+    }
+    CHECK(testing::read_all(root / "app/src/main/res/values/strings.xml").find("app_name") != std::string::npos);
+
+    // The keystore path and alias travel in gradle.properties (never a password); a keystore inside the project is not shipped.
+    const std::string props = testing::read_all(root / "gradle.properties");
+    CHECK(props.find("org.gradle.daemon.idletimeout=900000") != std::string::npos);
+    CHECK(props.find("factoria.signing.alias=upload") != std::string::npos);
+    CHECK(props.find("keys/upload.jks") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "app/src/main/assets/keys/upload.jks"));
+    CHECK_FALSE(has(r->files, "app/src/main/assets/keys/upload.jks"));
+    CHECK(any_contains(r->warnings, "keystore 'keys/upload.jks' is inside the project folder"));
+    CHECK_FALSE(any_contains(r->warnings, "No icon is set"));
+}
+
+TEST_CASE("android export: no icon means the default icon and a warning; no signing means no properties") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    auto r = export_project(options(game, tmp, "gradle"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    CHECK(any_contains(r->warnings, "No icon is set for android"));
+    const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
+    CHECK(manifest.find("android:icon") == std::string::npos);
+    CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
+    CHECK(manifest.find("<uses-permission") == std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "app/src/main/res/mipmap-mdpi"));
+    CHECK(testing::read_all(root / "gradle.properties").find("factoria.signing") == std::string::npos);
+    const std::string gradle = testing::read_all(root / "app/build.gradle");
+    CHECK(gradle.find("compileSdk 36") != std::string::npos);
+    CHECK(gradle.find("minSdk 26") != std::string::npos);
+    CHECK(gradle.find("versionCode 100") != std::string::npos);  // 0.1.0
+}
+
+TEST_CASE("android export: an icon that cannot be used stops the export with the settings pointer") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/nothing.png")");
+    auto r = export_project(options(game, tmp, "gradle"));
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("/icon") != std::string::npos);
+    CHECK(r.error().message.find("nothing.png") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-android")));
+}
+
+TEST_CASE("android export: local.properties holds the SDK with the characters of a properties file escaped") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    FakeToolchain tc(tmp, "sdk \xC3\xA9 #1");  // a space, an accent and a hash in the path
+    ExportOptions o = options(game, tmp, "gradle");
+    o.androidSearch = &tc.search;
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const std::string local = testing::read_all(stdfs::path(r->outputDir) / "local.properties");
+    CHECK(local.find("sdk.dir=") != std::string::npos);
+    CHECK(local.find("\\u00E9") != std::string::npos);
+    CHECK(local.find("\\#1") != std::string::npos);
+    CHECK(local.find("\xC3\xA9") == std::string::npos);
+}
+
+TEST_CASE("android export: format and artifact in the plan, the report and the command") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    FakeToolchain tc(tmp);
+    ExportOptions o = options(game, tmp, "");
+    o.androidSearch = &tc.search;
+    // Generic strings: on Windows the folders of a path are separated by \, and the expectations below use /.
+    const std::string out = stdfs::weakly_canonical(tmp.sub("out/space-dodge-android")).generic_string();
+    auto artifact = [&](const ExportOptions& opts) {
+        auto plan = plan_export(opts);
+        REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
+        return std::make_pair(plan->format, stdfs::weakly_canonical(plan->artifact).generic_string());
+    };
+
+    SUBCASE("the default is a debug apk") {
+        CHECK(artifact(o) == std::make_pair(std::string("apk"), out + "/space-dodge-debug.apk"));
+    }
+    SUBCASE("release drops the -debug") {
+        o.release = true;
+        // A release without a keystore is signed with the debug key, with a warning.
+        auto plan = plan_export(o);
+        REQUIRE(plan.ok());
+        CHECK(stdfs::weakly_canonical(plan->artifact).generic_string() == out + "/space-dodge.apk");
+        CHECK(any_contains(plan->warnings, "signed with the debug key"));
+    }
+    SUBCASE("aab") {
+        o.format = "aab";
+        CHECK(artifact(o) == std::make_pair(std::string("aab"), out + "/space-dodge-debug.aab"));
+        o.release = true;
+        CHECK(artifact(o).second == out + "/space-dodge.aab");
+    }
+    SUBCASE("the format of factoria.json is the default and the option wins; case does not matter") {
+        const std::string game2 = tmp.sub("game2");
+        ScaffoldOptions so;
+        so.name = "Space Dodge";
+        so.id = "com.example.spacedodge";
+        REQUIRE(create_project(game2, "2d-platformer", so).ok());
+        std::string json = testing::read_all(stdfs::path(game2) / "factoria.json");
+        json.insert(json.find('{') + 1, "\n  \"export\": { \"android\": { \"format\": \"aab\" } },");
+        testing::write_all(stdfs::path(game2) / "factoria.json", json);
+        o.projectDir = game2;
+        CHECK(artifact(o).first == "aab");
+        o.format = "APK";
+        CHECK(artifact(o).first == "apk");
+    }
+    SUBCASE("gradle has no artifact and needs no toolchain") {
+        o.format = "gradle";
+        auto plan = plan_export(o);
+        REQUIRE(plan.ok());
+        CHECK(plan->format == "gradle");
+        CHECK(plan->artifact.empty());
+        CHECK_FALSE(plan->to_json().contains("artifact"));
+        CHECK_FALSE(plan->to_json().contains("toolchain"));
+    }
+    SUBCASE("the plan reports the toolchain and where each part came from") {
+        auto plan = plan_export(o);
+        REQUIRE(plan.ok());
+        const Json j = plan->to_json();
+        CHECK(j["format"] == "apk");
+        CHECK(j["toolchain"]["jdk"] == tc.jdk);
+        CHECK(j["toolchain"]["jdkFrom"] == "JAVA_HOME");
+        CHECK(j["toolchain"]["jdkMajor"] == 17);
+        CHECK(j["toolchain"]["sdk"] == tc.sdk);
+        CHECK(j["toolchain"]["sdkFrom"] == "ANDROID_HOME");
+        CHECK_FALSE(stdfs::exists(tmp.sub("out")));  // a plan writes nothing
+    }
+    SUBCASE("an unknown format teaches the valid ones") {
+        o.format = "apkk";
+        auto plan = plan_export(o);
+        REQUIRE_FALSE(plan.ok());
+        CHECK(plan.error().message.find("apkk") != std::string::npos);
+        CHECK(plan.error().hint.find("Did you mean 'apk'") != std::string::npos);
+        CHECK(plan.error().hint.find("gradle") != std::string::npos);
+    }
+    SUBCASE("other platforms ignore the format, with a warning") {
+        testing::write_all(tmp.sub("player/factoria_player"), "#!/bin/sh\n");
+        ExportOptions linux = o;
+        linux.platform = "linux";
+        linux.playerBinary = tmp.sub("player/factoria_player");
+        linux.format = "apk";
+        auto plan = plan_export(linux);
+        REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
+        CHECK(plan->format.empty());
+        CHECK(any_contains(plan->warnings, "only applies to android"));
+    }
+}
+
+TEST_CASE("android export: command project.export takes the format and plans the toolchain") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    CommandRegistry reg;
+    register_export_commands(reg, game);
+    const CommandInfo* info = reg.info("project.export");
+    REQUIRE(info != nullptr);
+    const Json& format = info->inputSchema["properties"]["format"];
+    CHECK(format["enum"] == Json::array({"apk", "aab", "gradle"}));
+    CHECK_FALSE(format.value("description", std::string()).empty());
+    CHECK(info->description.find("artifact") != std::string::npos);
+
+    auto bad = reg.call("project.export", {{"platform", "android"}, {"format", "zip"}, {"dryRun", true}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["code"] == "invalid_arguments");  // the schema's enum
+    CHECK(bad.error["hint"].get<std::string>().find("aab") != std::string::npos);
+
+    // gradle never needs a JDK: its dry run works on any machine, and says so.
+    ScopedEnv engine("FACTORIA_ENGINE_DIR", FA_REPO_ROOT);
+    auto dry = reg.call("project.export", {{"platform", "android"}, {"format", "gradle"}, {"dryRun", true}});
+    REQUIRE_MESSAGE(dry.ok, dry.error.dump());
+    CHECK(dry.result["format"] == "gradle");
+    CHECK(dry.result["mode"] == "source");
+}
+
+TEST_CASE("android export: a missing JDK or SDK is the plan's error, with how to fix it") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    AndroidToolchainSearch nothing;  // no environment, no usual folders
+    nothing.env = [&](const std::string& name) { return name == "FACTORIA_EXPORT_CONFIG" ? tmp.sub("machine/export.json") : std::string(); };
+    ExportOptions o = options(game, tmp, "apk");
+    o.androidSearch = &nothing;
+
+    auto plan = plan_export(o);
+    REQUIRE_FALSE(plan.ok());
+    CHECK(plan.error().message.find("cannot build the Android app") != std::string::npos);
+    CHECK(plan.error().message.find("No JDK 17 or newer found") != std::string::npos);
+    CHECK(plan.error().message.find("No Android SDK found") != std::string::npos);
+    CHECK(plan.error().message.find("JAVA_HOME") != std::string::npos);
+    CHECK(plan.error().message.find("ANDROID_HOME") != std::string::npos);
+    CHECK(plan.error().hint.find("--format gradle") != std::string::npos);
+    auto failed = export_project(o);
+    REQUIRE_FALSE(failed.ok());
+    CHECK(failed.error().message == plan.error().message);
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-android")));  // nothing was written
+
+    o.format = "aab";
+    CHECK(plan_export(o).error().message.find("cannot build the Android bundle") != std::string::npos);
+
+    // The Gradle project alone needs neither.
+    o.format = "gradle";
+    CHECK(plan_export(o).ok());
+    CHECK(export_project(o).ok());
+
+    // A JDK that is too old is named.
+    FakeToolchain tc(tmp);
+    testing::write_all(stdfs::path(tc.jdk) / "release", "JAVA_VERSION=\"11.0.2\"\n");
+    o.format = "apk";
+    o.androidSearch = &tc.search;
+    auto old = plan_export(o);
+    REQUIRE_FALSE(old.ok());
+    CHECK(old.error().message.find("Java 11") != std::string::npos);
+
+    // A broken machine config is an error for a build, and only a note for the Gradle project.
+    FakeToolchain good(tmp, "sdk2");
+    testing::write_all(good.config, "{ not json");
+    o.androidSearch = &good.search;
+    CHECK_FALSE(plan_export(o).ok());
+    o.format = "gradle";
+    auto gradleOnly = plan_export(o);
+    REQUIRE(gradleOnly.ok());
+    CHECK(any_contains(gradleOnly->warnings, "Ignoring the machine settings"));
+}
+
+TEST_CASE("android export: release signing needs the keystore file and its passwords, from the environment or export.json") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("export": { "android": { "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
+    FakeToolchain tc(tmp);
+    ExportOptions o = options(game, tmp, "apk");
+    o.androidSearch = &tc.search;
+    o.release = true;
+
+    SUBCASE("a debug build never needs the key") {
+        o.release = false;
+        CHECK(plan_export(o).ok());
+    }
+    SUBCASE("the keystore file must exist") {
+        auto plan = plan_export(o);
+        REQUIRE_FALSE(plan.ok());
+        CHECK(plan.error().message.find("factoria.json#/export/android/signing/keystore") != std::string::npos);
+        CHECK(plan.error().message.find("does not exist") != std::string::npos);
+        CHECK(plan.error().hint.find("keytool") != std::string::npos);
+    }
+    testing::write_all(stdfs::path(game) / "keys" / "upload.jks", "keystore");
+    SUBCASE("the passwords are not set") {
+        auto plan = plan_export(o);
+        REQUIRE_FALSE(plan.ok());
+        CHECK(plan.error().message.find("password of the release keystore") != std::string::npos);
+        CHECK(plan.error().hint.find("FACTORIA_ANDROID_KEYSTORE_PASSWORD") != std::string::npos);
+        CHECK(plan.error().hint.find("never stored in the project") != std::string::npos);
+        // The Gradle project alone does not need them.
+        o.format = "gradle";
+        CHECK(plan_export(o).ok());
+    }
+    SUBCASE("from the environment") {
+        tc.vars["FACTORIA_ANDROID_KEYSTORE_PASSWORD"] = "store-pw";
+        auto plan = plan_export(o);
+        REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
+        CHECK_FALSE(any_contains(plan->warnings, "debug key"));
+        CHECK(plan->to_json().dump().find("store-pw") == std::string::npos);  // a plan never carries a secret
+    }
+    SUBCASE("from ~/.factoria/export.json") {
+        testing::write_all(tc.config, R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "from-file"}})");
+        auto plan = plan_export(o);
+        REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
+    }
+}
+
+#if !defined(_WIN32)
+
+namespace {
+
+// A source-mode "engine checkout" holding the real Android template, except that gradlew is a script that records its
+// arguments and environment in fake-gradle.txt and behaves as FAKE_GRADLE says.
+std::string make_fake_engine(const testing::TempDir& tmp) {
+    const stdfs::path engine = tmp.sub("engine");
+    const stdfs::path repo = stdfs::path(FA_REPO_ROOT) / "platforms" / "android";
+    stdfs::create_directories(engine / "platforms");
+    stdfs::copy(repo, engine / "platforms" / "android", stdfs::copy_options::recursive);
+    testing::write_all(engine / "CMakeLists.txt", "# fake engine checkout\n");
+    testing::write_all(engine / "platforms" / "android" / "gradlew", R"SH(#!/bin/sh
+echo "fake gradle $*"
+{
+  echo "args=$*"
+  echo "cwd=$(pwd)"
+  echo "JAVA_HOME=$JAVA_HOME"
+  echo "ANDROID_HOME=$ANDROID_HOME"
+  echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT-unset}"
+  echo "KEYSTORE_PASSWORD=${FACTORIA_ANDROID_KEYSTORE_PASSWORD-unset}"
+  echo "KEY_PASSWORD=${FACTORIA_ANDROID_KEY_PASSWORD-unset}"
+} > fake-gradle.txt
+case "$FAKE_GRADLE" in
+  licenses)
+    echo "> Task :app:checkDebugAarMetadata"
+    cat >&2 <<'EOT'
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Could not determine the dependencies of task ':app:compileDebugJavaWithJavac'.
+> Failed to install the following Android SDK packages as some licences have not been accepted.
+   build-tools;35.0.0 Android SDK Build-Tools 35
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+
+BUILD FAILED in 3s
+EOT
+    exit 1 ;;
+  network)
+    echo "> Task :app:checkDebugAarMetadata"
+    printf 'FAILURE: Build failed with an exception.\n\n* What went wrong:\nCould not resolve all files for configuration classpath.\n> Could not resolve com.android.tools.build:gradle:8.13.2.\n   > Could not GET https://dl.google.com/x.pom. java.net.UnknownHostException: dl.google.com\n\n* Try:\n> Run with --info\n' >&2
+    exit 1 ;;
+  jdk)
+    printf 'FAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task :app:x.\n> java.lang.UnsupportedClassVersionError: Unsupported class file major version 69\n\n* Try:\n> x\n' >&2
+    exit 1 ;;
+  cmake)
+    printf 'FAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task :app:configureCMakeDebug[arm64-v8a].\n> [CXX1300] CMake 3.31.6 was not found in SDK, PATH, or by cmake.dir property.\n\n* Try:\n> x\n' >&2
+    exit 1 ;;
+  crash)
+    echo "line 1"; echo "the last line before the crash" >&2
+    exit 3 ;;
+  nothing) echo "BUILD SUCCESSFUL in 1s"; exit 0 ;;
+  sleep) echo "started"; sleep 30 ;;
+esac
+printf 'Download progress 25%%\r> Task :app:preBuild UP-TO-DATE\n'
+case "$1" in
+  assembleDebug) mkdir -p app/build/outputs/apk/debug && echo "debug apk" > app/build/outputs/apk/debug/app-debug.apk ;;
+  assembleRelease) mkdir -p app/build/outputs/apk/release && echo "release apk" > app/build/outputs/apk/release/app-release.apk ;;
+  bundleDebug) mkdir -p app/build/outputs/bundle/debug && echo "debug aab" > app/build/outputs/bundle/debug/app-debug.aab ;;
+  bundleRelease) mkdir -p app/build/outputs/bundle/release && echo "release aab" > app/build/outputs/bundle/release/app-release.aab ;;
+esac
+echo "BUILD SUCCESSFUL in 1s"
+)SH");
+    return engine.string();
+}
+
+std::string fake_gradle_record(const std::string& outputDir) { return testing::read_all(stdfs::path(outputDir) / "fake-gradle.txt"); }
+
+}  // namespace
+
+TEST_CASE("android export: the build runs the project's Gradle wrapper and copies the APK") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");
+    write_icon(game);
+    FakeToolchain tc(tmp);
+    ScopedEnv noMode("FAKE_GRADLE", nullptr);
+    ScopedEnv noAndroidRoot("ANDROID_SDK_ROOT", "/somewhere/else");  // must not reach Gradle
+    ExportOptions o = options(game, tmp, "");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+    std::vector<std::string> lines;
+    o.progress = [&](const std::string& line) { lines.push_back(line); };
+
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    CHECK(r->mode == "source");
+    CHECK(r->format == "apk");
+    CHECK(stdfs::weakly_canonical(r->artifact) == stdfs::weakly_canonical(root / "space-dodge-debug.apk"));
+    CHECK(testing::read_all(r->artifact) == "debug apk\n");
+    CHECK(r->to_json()["artifact"] == r->artifact);
+    CHECK(r->to_json()["format"] == "apk");
+
+    // How Gradle was started: the task, the plain console, the working folder, the JDK and SDK that were found.
+    const std::string record = fake_gradle_record(r->outputDir);
+    CHECK(record.find("args=assembleDebug --console=plain") != std::string::npos);
+    CHECK(record.find("cwd=" + stdfs::weakly_canonical(root).string()) != std::string::npos);
+    CHECK(record.find("JAVA_HOME=" + tc.jdk + "\n") != std::string::npos);
+    CHECK(record.find("ANDROID_HOME=" + tc.sdk + "\n") != std::string::npos);
+    CHECK(record.find("ANDROID_SDK_ROOT=unset") != std::string::npos);
+    CHECK(record.find("KEYSTORE_PASSWORD=unset") != std::string::npos);  // a debug build has no secrets
+
+    // Every line went to the progress callback and to build.log; the progress bar a carriage return redrew keeps its last text.
+    CHECK(any_contains(lines, "Starting Gradle: ./gradlew assembleDebug"));
+    CHECK(has(lines, "fake gradle assembleDebug --console=plain"));
+    CHECK(has(lines, "> Task :app:preBuild UP-TO-DATE"));
+    CHECK(has(lines, "BUILD SUCCESSFUL in 1s"));
+    const std::string log = testing::read_all(root / "build.log");
+    CHECK(log.find("fake gradle assembleDebug --console=plain\n") != std::string::npos);
+    CHECK(log.find("BUILD SUCCESSFUL in 1s\n") != std::string::npos);
+    CHECK(log.find('\r') == std::string::npos);
+
+    // The report lists the project, the artifact and the log, not the build products.
+    CHECK(has(r->files, "space-dodge-debug.apk"));
+    CHECK(has(r->files, "build.log"));
+    CHECK(has(r->files, "gradlew"));
+    CHECK(has(r->files, "app/src/main/res/mipmap-mdpi/ic_launcher.png"));
+    for (const auto& f : r->files) CHECK_MESSAGE(f.rfind("app/build/", 0) != 0, f);
+    CHECK_FALSE(any_contains(r->warnings, "No icon is set"));
+
+    // The next steps use the SDK's adb and start with installing the app.
+    REQUIRE_FALSE(r->nextSteps.empty());
+    CHECK(r->nextSteps[0].find("install -r") != std::string::npos);
+    CHECK(r->nextSteps[0].find(tc.sdk + "/platform-tools/adb") != std::string::npos);
+    CHECK(r->nextSteps[0].find("space-dodge-debug.apk") != std::string::npos);
+    CHECK(r->nextSteps.back().find("FACTORIA_NOTICES.txt") != std::string::npos);
+
+    // The notices were written before Gradle ran, so they are in the build.
+    CHECK(stdfs::exists(root / "app/src/main/assets/FACTORIA_NOTICES.txt"));
+}
+
+TEST_CASE("android export: the format picks the Gradle task and the file name") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");
+    write_icon(game);
+    FakeToolchain tc(tmp);
+    ScopedEnv noMode("FAKE_GRADLE", nullptr);
+    ExportOptions o = options(game, tmp, "aab");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+
+    auto debug = export_project(o);
+    REQUIRE_MESSAGE(debug.ok(), (debug.ok() ? "" : debug.error().to_string()));
+    CHECK(fake_gradle_record(debug->outputDir).find("args=bundleDebug --console=plain") != std::string::npos);
+    CHECK(stdfs::weakly_canonical(debug->artifact) == stdfs::weakly_canonical(stdfs::path(debug->outputDir) / "space-dodge-debug.aab"));
+    CHECK(debug->format == "aab");
+    CHECK(any_contains(debug->nextSteps, "Upload"));
+    CHECK(any_contains(debug->nextSteps, "bundletool"));
+
+    o.release = true;  // no keystore: signed with the debug key, said in a warning
+    auto release = export_project(o);
+    REQUIRE_MESSAGE(release.ok(), (release.ok() ? "" : release.error().to_string()));
+    CHECK(fake_gradle_record(release->outputDir).find("args=bundleRelease --console=plain") != std::string::npos);
+    CHECK(stdfs::weakly_canonical(release->artifact) == stdfs::weakly_canonical(stdfs::path(release->outputDir) / "space-dodge.aab"));
+    CHECK(testing::read_all(release->artifact) == "release aab\n");
+    CHECK(any_contains(release->warnings, "signed with the debug key"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(release->outputDir) / "space-dodge-debug.aab"));  // a fresh folder every export
+
+    o.format = "apk";
+    auto apk = export_project(o);
+    REQUIRE_MESSAGE(apk.ok(), (apk.ok() ? "" : apk.error().to_string()));
+    CHECK(fake_gradle_record(apk->outputDir).find("args=assembleRelease --console=plain") != std::string::npos);
+    CHECK(any_contains(apk->nextSteps, "--format aab --release"));  // Google Play takes a bundle
+}
+
+TEST_CASE("android export: the signing passwords reach Gradle as environment variables and nowhere else") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png", "export": { "android": { "signing": { "keystore": "keys/upload.jks", "alias": "upload" } } })");
+    write_icon(game);
+    testing::write_all(stdfs::path(game) / "keys" / "upload.jks", "keystore");
+    FakeToolchain tc(tmp);
+    ScopedEnv noMode("FAKE_GRADLE", nullptr);
+    ExportOptions o = options(game, tmp, "apk");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+    o.release = true;
+
+    SUBCASE("from export.json: the key password falls back to the keystore password") {
+        testing::write_all(tc.config, R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "store-pw-1"}})");
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string record = fake_gradle_record(r->outputDir);
+        CHECK(record.find("KEYSTORE_PASSWORD=store-pw-1\n") != std::string::npos);
+        CHECK(record.find("KEY_PASSWORD=store-pw-1\n") != std::string::npos);
+        CHECK(testing::read_all(r->artifact) == "release apk\n");
+        CHECK_FALSE(any_contains(r->warnings, "debug key"));
+        // No file of the export holds a password.
+        for (const auto& f : r->files) {
+            if (f == "fake-gradle.txt") continue;  // the fake wrapper's own record of its environment
+            const std::string ext = stdfs::path(f).extension().string();
+            if (ext == ".jar" || ext == ".png" || ext == ".so" || ext == ".apk") continue;
+            CHECK_MESSAGE(testing::read_all(stdfs::path(r->outputDir) / f).find("store-pw-1") == std::string::npos, f);
+        }
+    }
+    SUBCASE("the environment wins over the file, and the key can have its own password") {
+        testing::write_all(tc.config, R"({"format": "factoria.export-config/1", "android": {"keystorePassword": "from-file"}})");
+        tc.vars["FACTORIA_ANDROID_KEYSTORE_PASSWORD"] = "from-env";
+        tc.vars["FACTORIA_ANDROID_KEY_PASSWORD"] = "key-env";
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string record = fake_gradle_record(r->outputDir);
+        CHECK(record.find("KEYSTORE_PASSWORD=from-env\n") != std::string::npos);
+        CHECK(record.find("KEY_PASSWORD=key-env\n") != std::string::npos);
+        CHECK(r->nextSteps[0].find("space-dodge.apk") != std::string::npos);
+    }
+    SUBCASE("a debug build has no secrets even when they are set") {
+        tc.vars["FACTORIA_ANDROID_KEYSTORE_PASSWORD"] = "from-env";
+        o.release = false;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK(fake_gradle_record(r->outputDir).find("KEYSTORE_PASSWORD=unset") != std::string::npos);
+    }
+}
+
+TEST_CASE("android export: a failed build says what went wrong, where the log is, and keeps the Gradle project") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");
+    write_icon(game);
+    FakeToolchain tc(tmp);
+    ExportOptions o = options(game, tmp, "apk");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+    const stdfs::path root = stdfs::weakly_canonical(tmp.sub("out/space-dodge-android"));
+
+    SUBCASE("SDK licenses not accepted") {
+        ScopedEnv mode("FAKE_GRADLE", "licenses");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        const std::string& m = r.error().message;
+        CHECK(m.find("the Gradle build failed") != std::string::npos);
+        CHECK(m.find("assembleDebug exited with code 1") != std::string::npos);
+        CHECK(m.find("What went wrong: Could not determine the dependencies") != std::string::npos);
+        CHECK(m.find("some licences have not been accepted") != std::string::npos);
+        CHECK(m.find("Full log: ") != std::string::npos);
+        CHECK(m.find("build.log") != std::string::npos);
+        CHECK(m.find("The Gradle project stays in ") != std::string::npos);
+        CHECK(m.find("Try:") == std::string::npos);  // only Gradle's "What went wrong" part
+        CHECK(r.error().hint.find("sdkmanager --licenses") != std::string::npos);
+        CHECK(r.error().hint.find(tc.sdk) != std::string::npos);
+    }
+    SUBCASE("no network on the first build") {
+        ScopedEnv mode("FAKE_GRADLE", "network");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("Could not resolve com.android.tools.build:gradle") != std::string::npos);
+        CHECK(r.error().hint.find("could not download") != std::string::npos);
+        CHECK(r.error().hint.find("internet") != std::string::npos);
+    }
+    SUBCASE("a JDK that does not suit the build") {
+        ScopedEnv mode("FAKE_GRADLE", "jdk");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("Unsupported class file major version 69") != std::string::npos);
+        CHECK(r.error().hint.find(tc.jdk) != std::string::npos);
+        CHECK(r.error().hint.find("Java 17") != std::string::npos);
+        CHECK(r.error().hint.find("JAVA_HOME") != std::string::npos);
+    }
+    SUBCASE("source mode without the NDK or CMake in the SDK") {
+        ScopedEnv mode("FAKE_GRADLE", "cmake");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("CMake 3.31.6 was not found in SDK") != std::string::npos);
+        CHECK(r.error().hint.find("ndk;27.2.12479018") != std::string::npos);
+        CHECK(r.error().hint.find("cmake;3.31.6") != std::string::npos);
+        CHECK(r.error().hint.find(tc.sdk) != std::string::npos);
+    }
+    SUBCASE("an unknown failure quotes the last lines and points at the log") {
+        ScopedEnv mode("FAKE_GRADLE", "crash");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("exited with code 3") != std::string::npos);
+        CHECK(r.error().message.find("the last line before the crash") != std::string::npos);
+        CHECK(r.error().hint.find("build.log") != std::string::npos);
+        CHECK(r.error().hint.find("Android Studio") != std::string::npos);
+    }
+    SUBCASE("Gradle ends well but the file is not there") {
+        ScopedEnv mode("FAKE_GRADLE", "nothing");
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("app/build/outputs/apk/debug/app-debug.apk was not written") != std::string::npos);
+    }
+    // Every build failure leaves the project (and the log) for the user to open; other failures remove the folder.
+    CHECK(stdfs::exists(root / "gradlew"));
+    CHECK(stdfs::exists(root / "build.log"));
+    CHECK(stdfs::exists(root / "app/build.gradle"));
+    CHECK_FALSE(stdfs::exists(root / "space-dodge-debug.apk"));
+}
+
+TEST_CASE("android export: cancelling stops the Gradle build and keeps the project") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");
+    write_icon(game);
+    FakeToolchain tc(tmp);
+    ScopedEnv mode("FAKE_GRADLE", "sleep");
+    CancelFlag cancel{false};
+    ExportOptions o = options(game, tmp, "apk");
+    o.engineRoot = make_fake_engine(tmp);
+    o.androidSearch = &tc.search;
+    o.cancel = &cancel;
+    o.progress = [&](const std::string& line) {
+        if (line == "started") cancel = true;  // the user pressed Cancel while Gradle was working
+    };
+    const auto start = std::chrono::steady_clock::now();
+    auto r = export_project(o);
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("cancelled") != std::string::npos);
+    CHECK(r.error().message.find("The Gradle project stays in") != std::string::npos);
+    CHECK(seconds < 20.0);  // the script sleeps 30 s: it was killed
+    CHECK(stdfs::exists(stdfs::path(tmp.sub("out/space-dodge-android")) / "app/build.gradle"));
+}
+
+#endif  // !_WIN32
+
+TEST_CASE("android export: the wrapper files are part of what factoria embeds, byte for byte") {
+    // The export writes the embedded copy: a binary jar and a batch file must survive embedding unchanged.
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp, R"("icon": "assets/icon.png")");
+    write_icon(game);
+    ExportOptions o = options(game, tmp, "gradle");
+    o.buildSourceRoot = tmp.sub("no-checkout-here");
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path repo = stdfs::path(FA_REPO_ROOT) / "platforms" / "android";
+    const std::string jar = testing::read_all(repo / "gradle/wrapper/gradle-wrapper.jar");
+    REQUIRE(jar.size() > 1000);
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradle/wrapper/gradle-wrapper.jar") == jar);
+    CHECK(jar.rfind("PK", 0) == 0);
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "gradlew.bat").find("\r\n") != std::string::npos);
+}

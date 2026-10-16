@@ -209,6 +209,21 @@ void on_event(const sapp_event* e) {
 
 }  // namespace
 
+int fill_sapp_icon(sapp_icon_desc& out, const std::vector<AppIconImage>& images) {
+    int count = 0;
+    for (const AppIconImage& image : images) {
+        if (count >= SAPP_MAX_ICONIMAGES) break;
+        const std::size_t bytes = std::size_t(std::max(image.width, 0)) * std::size_t(std::max(image.height, 0)) * 4;
+        if (bytes == 0 || image.rgba.size() != bytes) continue;
+        out.images[count].width = image.width;
+        out.images[count].height = image.height;
+        out.images[count].pixels.ptr = image.rgba.data();
+        out.images[count].pixels.size = bytes;
+        ++count;
+    }
+    return count;
+}
+
 sapp_desc to_sapp_desc(const AppDesc& desc) {
     g.desc = desc;
     g.focused = true;
@@ -224,6 +239,11 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     s.high_dpi = desc.highDpi;
     s.fullscreen = desc.fullscreen;
     s.window_title = g.desc.title.c_str();  // owned by g.desc, which outlives sapp_run
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
+    // The window icon: sokol_app sets it on Windows and Linux (macOS would replace the Dock icon of the app bundle, which
+    // is better made than a plain image; mobile has no window icon). The pixels are owned by g.desc, like the title.
+    fill_sapp_icon(s.icon, g.desc.icon);
+#endif
     s.enable_dragndrop = true;
     s.max_dropped_files = 8;
     s.depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL;

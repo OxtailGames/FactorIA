@@ -1,9 +1,9 @@
-#include "fa/ai/process.h"
+#include "fa/core/process.h"
 
 #include <cstdlib>
 #include <filesystem>
 
-namespace fa::ai {
+namespace fa {
 
 namespace fs = std::filesystem;
 
@@ -73,4 +73,4 @@ std::string which(std::string_view name) {
     return {};
 }
 
-}  // namespace fa::ai
+}  // namespace fa

@@ -876,6 +876,14 @@ bool Renderer::capture(Image& out, std::string* error) {
         return false;
     }
     Impl& im = *impl_;
+    // A read-back waits for the GPU. On Metal sokol's command buffer of the frame is already queued but only submitted by
+    // sg_commit(): a read-back behind it waits forever. The editor commits once per UI frame, after the game is drawn, so a
+    // screenshot taken in between (the toolbar button, a Play mark, game.screenshot) submits the game's work itself. Always
+    // outside a pass: the game pass is closed when drawing returns.
+    if (!im.gpu.committed()) {
+        sg_commit();
+        im.gpu.note_commit();
+    }
     sg_image img = im.gpu.sample_count() > 1 ? im.resolveImg : im.colorImg;
     std::vector<std::uint8_t> px;
     if (!readback_rgba8(img, im.targetW, im.targetH, px, error)) return false;

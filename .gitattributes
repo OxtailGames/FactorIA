@@ -8,3 +8,10 @@ external/sdl_gamecontrollerdb/gamecontrollerdb_linux.txt text eol=lf
 
 # The Windows fake CLI of the AI tests runs through cmd.exe: CRLF on every checkout.
 tools/ai/tests/fixtures/*.cmd text eol=crlf
+
+# The Gradle wrapper of the Android template is embedded into factoria and written into every exported project byte for
+# byte (platforms/android): a CRLF gradlew from a Windows checkout would not run on Linux/macOS, and an LF gradlew.bat
+# is not a valid batch file.
+platforms/android/gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

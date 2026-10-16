@@ -7,6 +7,7 @@
 // them (Editor::on_frame -> queue.pump()).
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -47,7 +48,9 @@
 #include "export_job.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include "platform_settings.h"
 #include "play_recorder.h"
+#include "setup_job.h"
 
 struct sapp_event;
 
@@ -228,6 +231,34 @@ public:
     void refresh_export_status();   // plan_export for every platform
     void reset_export_state();      // project switch: waits for a running export, forgets settings and report
 
+    // Platform settings window (platform_settings_panel.cpp; File > Platform Settings..., the Export window's Settings...
+    // buttons): the game icon and what each platform's export needs, as a working copy that Save writes with
+    // fa::save_export_settings (platform_settings.h has the logic).
+    void open_platform_settings(SettingsTab tab = SettingsTab::General);
+    void draw_platform_settings_window();
+    void poll_platform_settings();          // every frame: factoria.json changed on disk, icon pictures, a keystore being created
+    void reset_platform_settings_state();   // project switch: forgets the working copy
+    void request_close_platform_settings(); // closes now, or asks first when there are unsaved changes
+    void set_android_format(const std::string& format);  // the Export window's format combo: saves export.android.format
+    // A project picture scaled down for a preview (<project>/<relPath>, at most 256 px a side), loaded again when the file
+    // changes; nullptr when it cannot be read.
+    const TextureEntry* icon_preview(const std::string& relPath);
+
+    // Set Up This Computer window (setup_panel.cpp; File > Set Up This Computer..., the "Set up" buttons of the Export and
+    // Platform settings windows): the four components fa::setup_status looks at and fa::setup_install on a worker thread
+    // (setup_job.h has the logic). Nothing is installed without a click; the Android SDK license is shown first.
+    void open_setup_window();
+    void draw_setup_window();
+    void draw_setup_license_dialog();   // the modal that shows the Android SDK license before its install
+    void poll_setup();                  // every frame: takes a finished install, status and license text in; keeps the status fresh
+    // Runs `action` (the Android SDK license dialog first when the license is not accepted yet) and shows the Set Up window.
+    void request_setup(const SetupAction& action);
+    // The "Set up" buttons of `platform`'s row (Export window, Platform settings tabs); idPrefix names them for the autotest.
+    // `explain`: say why the row is not ready above them (the tabs do not show the row's own error).
+    void draw_setup_buttons(const std::string& platform, const char* idPrefix, bool explain = false);
+    SetupContext make_setup_context();  // the real downloader and process runner, the editor's shared Android listing cache
+    void start_setup_install(const SetupAction& action, bool acceptLicenses);
+
     // AI
     void ai_refresh_providers();
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
@@ -325,6 +356,43 @@ public:
     double exportChecked_ = -100;
     ExportJob exportJob_;
     std::optional<ExportOutcome> exportLast_;  // the last export's report (or error), shown under the buttons
+    ProjectExportSettings exportSaved_;        // what factoria.json says now (the Android row's format), read with the rows
+    std::string exportSavedError_;             // why it could not be read ("" = fine)
+
+    // Platform settings window
+    bool showPlatformSettings_ = false, platformFocus_ = false, platformCloseAsk_ = false, platformDiskChanged_ = false;
+    PlatformSettings platformSettings_;
+    SettingsTab platformTab_ = SettingsTab::General;  // the tab shown (platformTabSet_: select it next frame)
+    bool platformTabSet_ = false;
+    int platformBgMode_ = -1;                         // Android adaptive background: -1 = by its value, 0 colour, 1 image
+    std::string platformMessage_;                     // what the last Save said when it failed
+    double platformPolled_ = -10;
+    IconChecks iconChecks_;                           // the icon files the window shows, checked when they change
+    struct IconPreview {
+        TextureEntry tex;
+        std::int64_t mtime = -2;
+        double checkedAt = -1e9;
+    };
+    std::map<std::string, IconPreview> iconPreviews_;  // the pictures the window shows (icon_preview)
+    bool keystoreOpen_ = false, keystoreOpenRequest_ = false;  // the Create keystore... popup
+    KeystoreForm keystoreForm_;
+    std::string keystoreError_;
+    KeystoreJob keystoreJob_;
+    KeystoreRequest keystoreRunning_;                 // what the job in flight creates
+    KeystoreForm keystoreRunningForm_;
+
+    // Set Up This Computer window
+    bool showSetup_ = false, setupFocus_ = false;
+    int setupScroll_ = 0;  // frames left to scroll the Set up window to its report
+    SetupJob setupJob_;                              // the install that runs (one at a time)
+    SetupStatusCache setupStatus_;                   // what each component says now; refreshed on a worker, never downloads
+    bool setupRefreshAgain_ = false;                 // an install finished: look again when the refresh in flight is done
+    std::shared_ptr<SetupCache> setupCache_ = std::make_shared<SetupCache>();  // one Android listing for the license and the install
+    std::optional<SetupOutcome> setupLast_;          // the last install's report (or error), shown in the window
+    SetupLicenseLoad setupLicense_;                  // the Android SDK license text, loaded when the dialog opens
+    bool setupLicenseOpen_ = false, setupLicenseRequest_ = false, setupLicenseTick_ = false;  // the dialog; the "I accept" checkbox
+    SetupAction setupPending_;                       // what the license dialog installs when it is accepted
+    std::optional<SetupContext> setupTestContext_;   // tests: a fake downloader and process runner instead of the real ones
 
     // textures for ImGui (texture_for, viewport.cpp), and image sizes for the selection bounds
     std::unordered_map<std::string, TextureEntry> textures_;
@@ -428,9 +496,13 @@ public:
     // at_track() right after a widget is submitted, only when the autotest runs.
     std::map<std::string, Vec2> atWidgets_;
     std::map<std::string, std::uint64_t> atWidgetFrame_;   // uiFrame_ when the widget was last submitted
-    void at_track(const std::string& name);
+    std::map<std::string, bool> atWidgetEnabled_;           // false when the widget was submitted disabled (at_track's `enabled`)
+    std::map<std::string, bool> atWidgetShown_;             // false when the widget was submitted but is scrolled out of its window
+    void at_track(const std::string& name, bool enabled = true);
     Vec2 at_widget(const std::string& name);               // centre of a widget drawn in the last frames (fails the test otherwise)
     bool at_visible(const std::string& name) const;        // was the widget submitted in the last frame?
+    bool at_enabled(const std::string& name) const;        // ... and not disabled (a button that cannot be pressed yet)?
+    bool at_shown(const std::string& name) const;          // ... and not scrolled out of its window (a click would land elsewhere)?
     // Second half of the autotest (autotest_tools.cpp): a script of steps, one per frame, each followed by a wait.
     struct AtStep {
         int wait = 1;
@@ -453,12 +525,26 @@ public:
     std::vector<ai::ProviderStatus> atSavedStatus_;
     std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
     int atWaitCount_ = 0;
+    // A frame that never ends (a GPU read-back that waits for ever) would leave the window frozen on the user's screen: the
+    // watchdog thread ends the process when the editor draws no frame for a minute (on_init starts it, only in the autotest).
+    std::atomic<std::uint64_t> atHeartbeat_{0};
+    std::atomic<bool> atWatchdogStop_{false};
+    std::thread atWatchdog_;
+    int atFrameBudget_ = 3000;  // the autotest must be done by this frame (a real download, in the manual check, needs more)
     std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
 };
 
 // Helpers shared across panel files.
 extern Editor* g_editor;
+// The first size of a window that is centred on the main viewport: `wanted`, made smaller to fit its work area so the
+// window's own buttons (Save, Close...) are never off screen on a small display.
+inline ImVec2 fit_work_area(ImVec2 wanted) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    return ImVec2(std::min(wanted.x, vp->WorkSize.x * 0.96f), std::min(wanted.y, vp->WorkSize.y * 0.96f));
+}
+// Status colours of the Export and Platform settings windows.
+inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);
 // The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or
 // create a project dialog). `version` is the engine's, FA_ENGINE_VERSION: what `factoria version` prints.
 std::string editor_window_title(std::string_view version, std::string_view projectName);
@@ -481,6 +567,8 @@ void maximize_window();
 // Opens `dir` in the system's file manager (Finder, Explorer, xdg-open on Linux) without waiting for it. Returns "" or
 // what went wrong. file_manager_name() is what the button says: "Finder", "Explorer" or "file manager".
 std::string open_in_file_manager(const std::string& dir);
+// Shows one file in the file manager, selected where the system can (Finder, Explorer); on Linux its folder opens.
+std::string reveal_in_file_manager(const std::string& path);
 const char* file_manager_name();
 
 }  // namespace fa::editor

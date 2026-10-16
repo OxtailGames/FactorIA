@@ -34,18 +34,52 @@ void apply_expand(Engine& engine, int fbW, int fbH) {
     if (tw != r->target_width() || th != r->target_height()) r->set_target_size(tw, th);
 }
 
+// The window icon (AppDesc::icon): the game's icon (`icon` / `export.<this platform>.icon` of factoria.json) as a few square
+// images of 16 to 256 px, never larger than the file itself. A missing or unreadable icon is a warning, never a failure:
+// the window just keeps the platform's default icon. Desktop only (mobile apps have no window icon).
+std::vector<AppIconImage> load_window_icon(const std::string& projectDir, const std::string& rel) {
+    std::vector<AppIconImage> out;
+    if (rel.empty() || app_is_mobile()) return out;
+    auto relative = fs::normalize_checked(rel);
+    if (!relative.ok()) {
+        FA_WARN("engine", "window icon: {}", relative.error().to_string());
+        return out;
+    }
+    auto bytes = fs::read_bytes(projectDir.empty() ? relative.value() : fs::join(projectDir, relative.value()));
+    if (!bytes.ok()) {
+        FA_WARN("engine", "window icon: cannot read '{}': {} (the window keeps the default icon; fix `icon` in factoria.json)", rel,
+                bytes.error().message);
+        return out;
+    }
+    auto decoded = decode_image(bytes->data(), bytes->size());
+    if (!decoded.ok()) {
+        FA_WARN("engine", "window icon: cannot decode '{}': {} (use a PNG or JPG; the window keeps the default icon)", rel,
+                decoded.error().message);
+        return out;
+    }
+    const int side = std::max(decoded->width, decoded->height);
+    const Image square = decoded->width == decoded->height ? *decoded : fit_image(*decoded, side, 1.0f, Color::clear());
+    for (int size : {16, 32, 48, 64, 128, 256}) {
+        if (size > side) break;
+        const Image img = size == side ? square : resize_image(square, size, size);
+        out.push_back({img.width, img.height, img.rgba});
+    }
+    if (out.empty()) out.push_back({square.width, square.height, square.rgba});  // smaller than 16 px: as it is
+    return out;
+}
+
 }  // namespace
 
 namespace {
 AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState> st) {
     st->cfg = config;
     st->cfg.headless = false;
+    std::string dir = config.projectDir;
+    if (!dir.empty()) {
+        std::error_code ec;
+        dir = std::filesystem::absolute(std::filesystem::path(dir), ec).lexically_normal().generic_string();
+    }
     {
-        std::string dir = config.projectDir;
-        if (!dir.empty()) {
-            std::error_code ec;
-            dir = std::filesystem::absolute(std::filesystem::path(dir), ec).lexically_normal().generic_string();
-        }
         auto p = load_project(dir);
         if (p.ok()) st->project = p.value();
         else FA_ERROR("engine", "{}", p.error().to_string());  // init reports it again and quits
@@ -57,6 +91,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.height = config.height > 0 ? config.height : st->project.height;
     d.fullscreen = st->project.fullscreen;
     d.vsync = st->project.vsync;
+    d.icon = load_window_icon(dir, st->project.window_icon());
     d.input = &st->engine.input();
     d.to_design_coords = [st](Vec2 p) {
         Renderer* r = st->engine.renderer();

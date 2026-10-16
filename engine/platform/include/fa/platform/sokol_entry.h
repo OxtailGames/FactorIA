@@ -25,4 +25,9 @@ namespace fa {
 // storage, so the argument may be a temporary. Only one app can run per process.
 sapp_desc to_sapp_desc(const AppDesc& desc);
 
+// Points `out.images` at the usable images of `images` (AppDesc::icon): at most SAPP_MAX_ICONIMAGES, skipping one whose pixel
+// buffer is not width * height * 4 bytes. The pixels are not copied, so `images` must outlive `out`. Returns how many were
+// set. to_sapp_desc uses it on Windows and Linux, the platforms where sokol_app shows a window icon.
+int fill_sapp_icon(sapp_icon_desc& out, const std::vector<AppIconImage>& images);
+
 }  // namespace fa
