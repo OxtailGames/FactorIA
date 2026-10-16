@@ -246,7 +246,7 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
-- `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` (`"master"`, `"sfx"`, `"music"`, `"ui"`)
+- `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
   `game.audioLog()`, agents with the `audio.log` command.
 

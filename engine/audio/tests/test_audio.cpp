@@ -156,13 +156,17 @@ TEST_CASE("audio: buses, master volume, pan and fades") {
     };
     PlayParams p;
     CHECK(measure(p).peak() == doctest::Approx(0.5f).epsilon(0.03));
+    CHECK(fx.audio.bus_volume("music") == 1.0f);
     fx.audio.set_bus_volume("sfx", 0.5f);
+    CHECK(fx.audio.bus_volume("sfx") == 0.5f);
+    CHECK(fx.audio.bus_volume("nope") == -1.0f);
     CHECK(measure(p).peak() == doctest::Approx(0.25f).epsilon(0.03));
     PlayParams ui;
     ui.bus = "ui";
     CHECK(measure(ui).peak() == doctest::Approx(0.5f).epsilon(0.03));
     fx.audio.set_bus_volume("sfx", 1.0f);
     fx.audio.set_master_volume(0.5f);
+    CHECK(fx.audio.bus_volume("master") == 0.5f);
     CHECK(measure(p).peak() == doctest::Approx(0.25f).epsilon(0.03));
     fx.audio.set_master_volume(1.0f);
     PlayParams left;

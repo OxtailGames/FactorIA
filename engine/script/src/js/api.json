@@ -922,7 +922,11 @@
       },
       {
        "sig": "setVolume(bus: \"master\" | \"sfx\" | \"music\" | \"ui\", volume: number): void",
-       "doc": ""
+       "doc": "Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to \"sfx\" unless their `bus` option says otherwise; \"master\" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start."
+      },
+      {
+       "sig": "getVolume(bus: \"master\" | \"sfx\" | \"music\" | \"ui\"): number",
+       "doc": "The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name."
       }
      ]
     },

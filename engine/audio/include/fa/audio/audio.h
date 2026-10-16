@@ -62,6 +62,7 @@ public:
     bool is_playing(VoiceId voice) const;
     void set_voice_volume(VoiceId voice, float volume);
     void set_bus_volume(std::string_view bus, float volume);
+    float bus_volume(std::string_view bus) const;  // "master", "sfx", "music" or "ui"; -1 for an unknown bus
     void set_master_volume(float volume);
     void play_music(std::string_view clipPath, float volume = 0.6f, float fadeSeconds = 0.5f);
     void stop_music(float fadeSeconds = 0.5f);
