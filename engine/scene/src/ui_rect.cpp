@@ -40,6 +40,10 @@ const UiBox* ui_box(const World& w, Entity e) {
     return nullptr;
 }
 
+const UiControl* ui_control(const World& w, Entity e) {
+    return ui_is_control(ui_kind(w, e)) ? static_cast<const UiControl*>(ui_box(w, e)) : nullptr;
+}
+
 std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize) {
     const UiBox* b = ui_box(w, e);
     if (!b) return std::nullopt;

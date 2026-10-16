@@ -23,9 +23,8 @@
 
 namespace fa {
 
-// The bindings of the ui_* actions when the project does not define them.
-Json ui_default_actions();
-// `actions` (factoria.json input.actions, may be null) plus every default action that it does not define itself.
+// `actions` (factoria.json input.actions, may be null) plus the default bindings of the ui_* actions that it does not
+// define itself.
 Json ui_with_default_actions(const Json& actions);
 
 class UiSystem {
