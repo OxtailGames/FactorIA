@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus) is done, the rest is not started.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus) and M11 (native plugins) are done, the rest is not started.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -481,7 +481,7 @@ Left open:
   macOS vsync off tears but keeps the display's frame rate (sokol paces frames with a display link).
 - Save slots with their menu are M19; a GDPR/COPPA consent screen on these menus is M22.
 
-## M11. Native plugins per game (L, blocker for M12 and the consoles)
+## M11. Native plugins per game (L, blocker for M12 and the consoles) — DONE (PR #49 and the `m11/plugins-mobile` PR)
 
 Closes F-13. Adding C++ means changing the engine and rebuilding the players (docs/EXTENDING.md), and the exported
 Android manifest says `android:hasCode="false"`, so no store SDK (all of them native, Java or Swift) can be used, and
@@ -497,6 +497,26 @@ Acceptance criteria:
 - A test plugin adds `plugins.example.add(1, 2)` and a command; both work in `factoria run`, in the exported Windows,
   Linux and macOS games, and in the Android project CI builds and runs on the emulator (with a Java class from the
   plugin).
+
+Done: the C ABI `engine/runtime/include/fa/runtime/fa_plugin.h` (commands and `plugins.<name>.<fn>()` with doc
+strings), `"plugins"` in `factoria.json` (paths with `${VAR}`, so a plugin can live in a private folder), the loader in
+`engine/runtime` (a plugin that does not load is a warning, and its reason is the script's error), `factoria validate`
+(the missing file of each declared platform, teaching), the export (desktop: next to the exe or in
+`Contents/Frameworks`; Android: the plugin's Gradle module or `.aar` / `.jar`, `hasCode` true when it brings code; iOS:
+two static libraries linked by `platforms/ios/plugins.cmake`) and `factoria call project.new_plugin`, which writes a
+plugin that builds for every platform (`platforms/plugin`). CI: ctest `cli_plugin` runs `factoria run` and an exported
+game on Linux, Windows and macOS; `android-apk` builds the plugin with the NDK and `android-emulator` checks that the
+sum came from the plugin's Java class; `ios-build` / `ios` link it into the simulator app and check the same log.
+
+Left open:
+- iOS takes static libraries only: no Swift packages or XCFrameworks, and no extra system frameworks or linker flags
+  per plugin (a plugin that needs StoreKit has to be linked by hand in the generated project).
+- An Android plugin that is only a Maven dependency in its `build.gradle` (no Java/Kotlin sources, no `.aar` / `.jar`)
+  keeps `hasCode="false"`; the export cannot see that it brings code.
+- A missing ABI's `.so` on Android is not a warning (the module may build it itself); on a device of that ABI the
+  plugin just does not load.
+- The desktop export copies plugin folders with `std::filesystem::copy`: very deep plugin folders can hit MAX_PATH on
+  Windows.
 
 ## M12. Platform services API (L, blocker for Steam and for any monetization)
 

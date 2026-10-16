@@ -1000,9 +1000,36 @@
     commands() { return N.commands(); },
   };
 
+  // plugins.<plugin>.<function>(...args): the functions of the game's native plugins (factoria.json "plugins",
+  // docs/EXTENDING.md). A plugin not built for this platform is undefined; one that failed to load throws why on use.
+  const plugins = {};
+  for (const p of N.pluginList()) {
+    const fns = {}, names = p.functions.map((f) => f.name);
+    for (const f of names) {
+      fns[f] = (...args) => {
+        const r = N.pluginCall(p.name, f, plain(args));
+        if (r.ok) return r.result;
+        const e = new Error(`plugins.${p.name}.${f} failed: ${r.error.message}` + (r.error.hint ? ` (hint: ${r.error.hint})` : ""));
+        e.hint = r.error.hint;
+        throw e;
+      };
+    }
+    plugins[p.name] = new Proxy(Object.freeze(fns), {
+      get(target, key) {
+        // `then` and `toJSON` are what await and JSON.stringify probe for: absent, not an error.
+        if (typeof key === "symbol" || key in target || key === "then" || key === "toJSON") return target[key];
+        if (p.error) throw new Error(`plugins.${p.name}.${key}: the native plugin '${p.name}' is not loaded: ${p.error}`);
+        const near = closest(key, names);
+        throw new Error(`plugins.${p.name}.${key}: the plugin '${p.name}' has no function '${key}'.` +
+          (near ? ` Did you mean '${near}'?` : "") + ` It has: ${names.join(", ") || "no functions"}.`);
+      },
+    });
+  }
+  Object.freeze(plugins);
+
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins,
     window: windowApi,
   };
 

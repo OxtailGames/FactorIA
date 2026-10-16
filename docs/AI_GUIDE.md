@@ -15,6 +15,7 @@ my-game/
   prefabs/*.prefab.json   reusable entities (optional)
   scripts/*.js            behaviours: game logic as JavaScript classes
   tools/*.js              project tools: commands you (and other AIs) can call
+  plugins/<name>/         native plugins: C/C++ code for this game, plugins.<name>.<fn>() in scripts (optional; docs: extending, G)
   tests/*.test.js         headless tests
   data/*.json             level or balance data, imported from scripts (optional)
   assets/                 images, sounds, fonts, models (only when you need them)
@@ -1282,7 +1283,7 @@ The same format works with `factoria call --input` and `factoria session --input
 
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
-- `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools and engine commands.
+- `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
 - `factoria docs read menus` (MCP `docs_read {"name":"menus"}`): a main menu, options, credits, a loading screen
   and a pause menu to copy into a game.

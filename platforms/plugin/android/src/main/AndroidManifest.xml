@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The permissions and components the plugin's SDK needs go here; Gradle merges them into the app's manifest. -->
+<manifest />
