@@ -53,9 +53,7 @@ def check(cond, what, detail=""):
 
 
 def run(args, env=None, timeout=180):
-    e = dict(os.environ)
-    e.update(env or {})
-    p = subprocess.run([FACTORIA] + args, env=e, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run([FACTORIA] + args, env={**os.environ, **(env or {})}, capture_output=True, text=True, timeout=timeout)
     return p.returncode, p.stdout, p.stderr
 
 
