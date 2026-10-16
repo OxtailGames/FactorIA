@@ -246,6 +246,107 @@ TEST_CASE("export: plan_export checks what export_project would, and writes noth
     CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-android")));
 }
 
+TEST_CASE("export: only an empty folder or one an export wrote is replaced") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "linux";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = make_fake_player(tmp);
+    const stdfs::path root = tmp.sub("out/space-dodge-linux");
+
+    // A folder of the user's that happens to have the export's name: the plan and the export refuse, nothing is touched.
+    testing::write_all(root / "thesis" / "draft.txt", "years of work");
+    auto plan = plan_export(o);
+    REQUIRE_FALSE(plan.ok());
+    CHECK(plan.error().message.find("space-dodge-linux") != std::string::npos);
+    CHECK(plan.error().message.find("not written by an export") != std::string::npos);
+    CHECK(plan.error().message.find(kExportMarkerFile) != std::string::npos);
+    CHECK(plan.error().hint.find("choose another output folder") != std::string::npos);
+    CHECK(plan.error().hint.find("delete") != std::string::npos);
+    auto refused = export_project(o);
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().message == plan.error().message);
+    CHECK(testing::read_all(root / "thesis" / "draft.txt") == "years of work");
+    CHECK_FALSE(stdfs::exists(root / kExportMarkerFile));
+    CHECK_FALSE(stdfs::exists(root / "space-dodge"));
+
+    // A file where the folder would go is not deleted either.
+    {
+        ExportOptions w = o;
+        w.platform = "windows";
+        testing::write_all(tmp.sub("out/space-dodge-windows"), "notes");
+        auto file = plan_export(w);
+        REQUIRE_FALSE(file.ok());
+        CHECK(file.error().message.find("is not a folder") != std::string::npos);
+        CHECK_FALSE(file.error().hint.empty());
+        CHECK_FALSE(export_project(w).ok());
+        CHECK(testing::read_all(tmp.sub("out/space-dodge-windows")) == "notes");
+    }
+
+    // An empty folder is fine, and the export leaves its marker at the top.
+    stdfs::remove_all(root);
+    stdfs::create_directories(root);
+    REQUIRE(plan_export(o).ok());
+    auto first = export_project(o);
+    REQUIRE_MESSAGE(first.ok(), (first.ok() ? "" : first.error().to_string()));
+    CHECK(has(first->files, kExportMarkerFile));
+    CHECK(testing::read_all(root / kExportMarkerFile).find("factoria export") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(root / "game" / kExportMarkerFile));  // not a game file
+
+    // The next export replaces its own folder: what was added to it goes.
+    testing::write_all(root / "stale.txt", "old");
+    auto second = export_project(o);
+    REQUIRE_MESSAGE(second.ok(), (second.ok() ? "" : second.error().to_string()));
+    CHECK_FALSE(stdfs::exists(root / "stale.txt"));
+    CHECK(stdfs::exists(root / kExportMarkerFile));
+
+    // Exports made before the marker existed: FACTORIA_NOTICES.txt where that platform's export puts it is enough, and
+    // nowhere else (the same places write_notices uses; a top-level one is not where a macOS export puts it).
+    o.mobileDir = make_fake_mobile(tmp);
+    const std::vector<std::pair<std::string, std::string>> legacy = {
+        {"linux", "FACTORIA_NOTICES.txt"},
+        {"windows", "FACTORIA_NOTICES.txt"},
+        {"macos", "Space Dodge.app/Contents/Resources/FACTORIA_NOTICES.txt"},
+        {"android", "app/src/main/assets/FACTORIA_NOTICES.txt"},
+        {"ios", "game/FACTORIA_NOTICES.txt"}};
+    for (const auto& [platform, notices] : legacy) {
+        CAPTURE(platform);
+        ExportOptions l = o;
+        l.platform = platform;
+        const stdfs::path dir = tmp.sub("legacy-" + platform + "/space-dodge-" + platform);
+        l.outDir = dir.parent_path().string();
+        testing::write_all(dir / "old-file.txt", "from an earlier export");
+        CHECK_FALSE(plan_export(l).ok());
+        if (platform == "macos") {
+            testing::write_all(dir / "FACTORIA_NOTICES.txt", "notices");
+            CHECK_FALSE(plan_export(l).ok());
+        }
+        testing::write_all(dir / notices, "notices");
+        auto ok = plan_export(l);
+        CHECK_MESSAGE(ok.ok(), (ok.ok() ? "" : ok.error().to_string()));
+    }
+    stdfs::remove(root / kExportMarkerFile);
+    testing::write_all(root / "stale.txt", "old");
+    auto migrated = export_project(o);
+    REQUIRE_MESSAGE(migrated.ok(), (migrated.ok() ? "" : migrated.error().to_string()));
+    CHECK_FALSE(stdfs::exists(root / "stale.txt"));
+    CHECK(stdfs::exists(root / kExportMarkerFile));
+
+    // project.export {dryRun:true} explains it before anything is written, with the same message and hint.
+    stdfs::path taken = stdfs::path(proj) / "dist" / "space-dodge-ios";
+    testing::write_all(taken / "notes.txt", "mine");
+    CommandRegistry reg;
+    register_export_commands(reg, proj);
+    auto dry = reg.call("project.export", {{"platform", "ios"}, {"out", "dist"}, {"dryRun", true}});
+    REQUIRE_FALSE(dry.ok);
+    CHECK(dry.error["message"].get<std::string>().find("not written by an export") != std::string::npos);
+    CHECK(dry.error["hint"].get<std::string>().find("choose another output folder") != std::string::npos);
+    CHECK_FALSE(reg.call("project.export", {{"platform", "ios"}, {"out", "dist"}}).ok);
+    CHECK(testing::read_all(taken / "notes.txt") == "mine");
+}
+
 TEST_CASE("export: validation errors are clear") {
     testing::TempDir tmp;
     {
