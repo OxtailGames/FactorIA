@@ -411,6 +411,14 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 c.warn(pc.file, pc.pointer, msg, "Fix the prop name, or declare the field in " + pc.module + " (props only set existing fields).");
         }
     }
+    if (options.hooksCheck) {
+        for (const auto& s : scripts) {
+            // tools/*.js export command objects, not behaviours
+            if (s.rfind("tools/", 0) == 0 || failedScripts.count(s)) continue;
+            for (const std::string& msg : options.hooksCheck(s))
+                c.warn(s, "", msg, "Rename the method to the suggested hook (all hooks: docs SCRIPTING.md, \"Lifecycle\").");
+        }
+    }
     if (auto dts = tooling_detail::read_file(stdfs::path(c.dir) / "types" / "factoria.d.ts");
         dts && dts->find("(placeholder)") != std::string::npos)
         c.warn("types/factoria.d.ts", "", "The script typings are a placeholder (everything is `any`).",

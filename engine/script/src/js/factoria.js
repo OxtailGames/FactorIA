@@ -542,6 +542,25 @@
 
   function isBehaviourClass(c) { return typeof c === "function" && c.prototype instanceof Behaviour; }
 
+  // The lifecycle methods the engine calls by name (script_behaviours.cpp, script_system.cpp).
+  const HOOKS = ["onStart", "onUpdate", "onFixedUpdate", "onLateUpdate", "onDestroy",
+    "onCollisionEnter", "onCollisionExit", "onTriggerEnter", "onTriggerExit", "onEvent"];
+  // Methods that were meant to be hooks but are never called: a hook without its `on` (update, fixedUpdate, Start) or a
+  // near-miss of a name that starts with `on` (onupdate, onStrat). Helpers (loadLevel, clickCell) are not near a hook.
+  function checkHooks(Cls) {
+    if (!isBehaviourClass(Cls)) return [];
+    const out = [];
+    for (const m of Object.getOwnPropertyNames(Cls.prototype)) {
+      if (HOOKS.includes(m) || typeof Object.getOwnPropertyDescriptor(Cls.prototype, m).value !== "function") continue;
+      const hook = HOOKS.find((h) => h.toLowerCase() === "on" + m.toLowerCase()) ||
+        (/^on/i.test(m) ? closest(m, HOOKS) : "");
+      if (hook) out.push(`class ${Cls.name}: method '${m}()' is not a lifecycle hook, so the engine never calls it ` +
+        `(did you mean '${hook}()'?). Rename it to ${hook}, or give a helper a name that is not close to a hook.`);
+    }
+    return out;
+  }
+  const checkedHookClasses = new WeakSet();
+
   const warnedProps = new Set();
   function unknownProps(inst, props) {
     const out = [];
@@ -555,6 +574,10 @@
     return out;
   }
   function instantiate(Cls, h, props, entityId, path) {
+    if (!checkedHookClasses.has(Cls)) {  // once per class (a hot reload is a new class)
+      checkedHookClasses.add(Cls);
+      for (const t of checkHooks(Cls)) N.log(3, `${path}: ${t}`);
+    }
     binding = entityOf(h);
     let inst;
     try { inst = new Cls(); } finally { binding = null; }
@@ -1188,7 +1211,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, resetSession, makeInfo, serialize,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize,
     tick: (dt) => timers.tick(dt),
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

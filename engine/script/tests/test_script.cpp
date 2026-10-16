@@ -4,6 +4,7 @@
 #include "test_host.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/strings.h"
 #include "fa/scene/tilemap.h"
 
 using namespace fa;
@@ -779,6 +780,62 @@ TEST_CASE("unknown Script.props warn once naming the entity") {
     int n = 0;
     for (auto& m : msgs) if (m.find("sped") != std::string::npos) { ++n; CHECK(m.find("bad_1") != std::string::npos); CHECK(m.find("did you mean 'speed'") != std::string::npos); }
     CHECK(n == 1);
+}
+
+TEST_CASE("behaviour methods that look like misspelled hooks warn once per class and method; helpers and hooks do not") {
+    TestHost h("hooktypos");
+    h.file("scripts/probe.js", R"(
+import { Behaviour } from "factoria";
+export default class Probe extends Behaviour {
+  start() {}
+  update(dt) {}
+  onupdate(dt) {}
+  onStrat() {}
+  fixedUpdate(dt) {}
+  loadLevel(n) {}
+  clickCell(x, y) {}
+  restart() {}
+  onKilled() {}
+  get onScreen() { return true; }
+}
+)");
+    h.file("scripts/good.js", R"(
+import { Behaviour } from "factoria";
+export default class Good extends Behaviour {
+  onStart() {} onUpdate(dt) {} onFixedUpdate(dt) {} onLateUpdate(dt) {} onDestroy() {}
+  onCollisionEnter(o, i) {} onCollisionExit(o) {} onTriggerEnter(o) {} onTriggerExit(o) {} onEvent(n, d, s) {}
+  loadLevel(n) {} clickCell(x, y) {} updateHud() {} step() {}
+}
+)");
+    REQUIRE(h.start());
+    std::vector<std::string> msgs;
+    int sink = add_log_sink([&](const LogEntry& e) {
+        if (e.level == LogLevel::Warn && e.category == "script") msgs.push_back(e.message);
+    });
+    ev_ok(h, "for (const id of ['p1', 'p2']) world.spawn({id, components:{Script:{path:'scripts/probe.js'}}});"
+             "world.spawn({id:'g', components:{Script:{path:'scripts/good.js'}}})");
+    h.step_frames(1);
+    remove_log_sink(sink);
+
+    const std::pair<const char*, const char*> expected[] = {
+        {"'start()'", "'onStart()'"}, {"'update()'", "'onUpdate()'"}, {"'onupdate()'", "'onUpdate()'"},
+        {"'onStrat()'", "'onStart()'"}, {"'fixedUpdate()'", "'onFixedUpdate()'"}};
+    for (auto [method, hook] : expected) {
+        CAPTURE(method);
+        int n = 0;
+        for (const std::string& m : msgs)
+            if (m.find("method " + std::string(method)) != std::string::npos) {
+                ++n;
+                CHECK(m.rfind("scripts/probe.js: class Probe", 0) == 0);  // file and class
+                CHECK(m.find("did you mean " + std::string(hook) + "?") != std::string::npos);
+            }
+        CHECK(n == 1);  // two entities, one warning
+    }
+    // no helper, getter or real hook, nothing from good.js
+    CHECK_MESSAGE(msgs.size() == std::size(expected), join(msgs, " | "));
+    CHECK(h.scripts.check_hooks("scripts/probe.js").size() == std::size(expected));
+    CHECK(h.scripts.check_hooks("scripts/good.js").empty());
+    CHECK(h.scripts.check_hooks("scripts/missing.js").empty());
 }
 
 namespace {
