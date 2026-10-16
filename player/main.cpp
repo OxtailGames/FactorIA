@@ -194,6 +194,7 @@ int main(int argc, char** argv) {
     cfg.scene = scene;
     cfg.hotReload = false;
     cfg.pluginDir = pluginDir.generic_string();
+    cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
         log_to_file(fa::fs::user_dir());
@@ -264,6 +265,7 @@ sapp_desc error_desc(const std::string& message) {
 extern "C" sapp_desc sokol_main(int, char*[]) {
     fa::EngineConfig cfg;
     cfg.hotReload = false;
+    cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
 #if defined(__ANDROID__)
     const auto* activity = static_cast<const ANativeActivity*>(sapp_android_get_native_activity());
     if (!activity) return error_desc("Android: sapp_android_get_native_activity() returned null.");

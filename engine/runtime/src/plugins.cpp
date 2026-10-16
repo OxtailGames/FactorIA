@@ -8,10 +8,13 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <system_error>
 
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/services/platform.h"
+#include "plugin_backend.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -46,7 +49,8 @@ struct Loaded {
     std::string error;  // why it is not loaded ("" = loaded)
     std::vector<Command> commands;
     std::vector<ScriptPlugin::Function> functions;
-    bool initializing = false;  // add_command / add_function are accepted only inside the entry point
+    std::optional<PluginBackendSpec> backend;  // what add_backend registered (ABI version 2)
+    bool initializing = false;  // add_command / add_function / add_backend are accepted only inside the entry point
     FaPluginApi api{};
 };
 
@@ -139,6 +143,53 @@ int add_function(const FaPluginApi* api, const FaFunctionDesc* d) {
     return 0;
 }
 
+int add_backend(const FaPluginApi* api, const FaBackendDesc* d) {
+    Loaded* p = of(api);
+    if (!p || !d) return 1;
+    const std::string name = d->name ? d->name : "";
+    if (!p->initializing)
+        return refuse(*p, "add_backend", "'" + name + "': register the backend inside fa_plugin_init only");
+    if (p->backend)
+        return refuse(*p, "add_backend", "'" + name + "': this plugin already registered the backend '" + p->backend->name +
+                                             "'; a plugin has one backend (make another plugin for another store)");
+    if (!is_snake(name))
+        return refuse(*p, "add_backend", "'" + name + "' is not a backend name: use lower-case letters, digits and underscores, "
+                                             "e.g. \"steam\" (the \"ids\" of the catalog in factoria.json are keyed by it)");
+    if (!d->request)
+        return refuse(*p, "add_backend", "'" + name + "' has no request handler: it receives every platform request "
+                                             "(\"achievements.unlock\", \"purchases.buy\", ...; docs/PLATFORM.md lists them)");
+    const std::string services = d->services ? d->services : "";
+    const std::string example = "e.g. \"services\": \"[\\\"achievements\\\",\\\"stats\\\"]\" (all of them: " +
+                                join(platform_services_all(), ", ") + ")";
+    if (services.empty())
+        return refuse(*p, "add_backend", "'" + name + "' has no services: pass a JSON array of the ones it offers, " + example);
+    auto parsed = parse_json(services, name + " services");
+    if (!parsed.ok() || !parsed->is_array())
+        return refuse(*p, "add_backend", "the services of '" + name + "' are not a JSON array of strings (" +
+                                             (parsed.ok() ? std::string("got ") + parsed->type_name() : parsed.error().message) + "), " + example);
+    std::vector<std::string> offered;
+    for (const Json& item : parsed.value()) {
+        const std::string service = item.is_string() ? item.get<std::string>() : "";
+        const auto& all = platform_services_all();
+        if (std::find(all.begin(), all.end(), service) == all.end())
+            return refuse(*p, "add_backend", "'" + name + "' lists " + (item.is_string() ? "'" + service + "'" : item.dump()) +
+                                                 ", which is not a platform service. " + did_you_mean(service, all));
+        if (std::find(offered.begin(), offered.end(), service) == offered.end()) offered.push_back(service);
+    }
+    if (offered.empty())
+        return refuse(*p, "add_backend", "'" + name + "' offers no service: list at least one, " + example);
+    PluginBackendSpec spec;
+    spec.api = &p->api;
+    spec.plugin = p->name;
+    spec.name = name;
+    spec.services = std::move(offered);
+    spec.request = d->request;
+    spec.frame = d->frame;
+    spec.user = d->user;
+    p->backend = std::move(spec);
+    return 0;
+}
+
 void reply(FaCall* call, const char* json) {
     if (!call || call->answered) return;  // the first answer counts
     call->answered = true;
@@ -206,7 +257,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         }
     }
     p.api = FaPluginApi{FA_PLUGIN_API_VERSION, p.name.c_str(), runtime_platform(), &p, add_command, add_function, reply, fail,
-                        plugin_log, native_handle};
+                        plugin_log, native_handle, add_backend, plugin_resolve, plugin_reject, plugin_emit};
     p.initializing = true;
     const int rc = init(&p.api);
     p.initializing = false;
@@ -214,6 +265,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         p.error = "its fa_plugin_init returned " + std::to_string(rc) + " (the plugin's log lines above say why)";
         p.commands.clear();
         p.functions.clear();
+        p.backend.reset();
     }
     return true;
 }
@@ -285,9 +337,9 @@ Result<std::string> plugin_build(const std::string& projectDir, const PluginSett
     return dir.generic_string();
 }
 
-std::vector<std::string> install_plugins(const ProjectSettings& project, const std::string& projectDir,
-                                         const std::string& libraryDir, CommandRegistry& commands, ScriptSystem& scripts) {
-    std::vector<std::string> problems;
+PluginInstall install_plugins(const ProjectSettings& project, const std::string& projectDir, const std::string& libraryDir,
+                              CommandRegistry& commands, ScriptSystem& scripts) {
+    PluginInstall result;
     std::vector<ScriptPlugin> forScripts;
     const std::string platform = runtime_platform();
     std::lock_guard<std::mutex> lock(g_mutex);
@@ -336,17 +388,23 @@ std::vector<std::string> install_plugins(const ProjectSettings& project, const s
         if (!error.empty()) {
             const std::string message = "plugin '" + ps.name + "' is not loaded: " + error;
             FA_WARN("plugin", "{}", message);
-            problems.push_back(message);
+            result.problems.push_back(message);
+            result.failed.push_back(ps.name);
             forScripts.push_back({ps.name, error, {}});
             continue;
         }
 
         for (const Command& c : p->commands) commands.add(c.info, c.call);
         forScripts.push_back({ps.name, "", p->functions});
-        FA_DEBUG("plugin", "{}: {} command(s), {} function(s) from {}", ps.name, p->commands.size(), p->functions.size(), library);
+        if (p->backend) {
+            PluginBackendSpec spec = *p->backend;
+            result.backends.push_back({ps.name, spec.name, spec.services, [spec] { return make_plugin_backend(spec); }});
+        }
+        FA_DEBUG("plugin", "{}: {} command(s), {} function(s){} from {}", ps.name, p->commands.size(), p->functions.size(),
+                 p->backend ? ", platform backend '" + p->backend->name + "'" : std::string(), library);
     }
     scripts.set_plugins(std::move(forScripts));
-    return problems;
+    return result;
 }
 
 }  // namespace fa

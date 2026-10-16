@@ -78,6 +78,7 @@ Result<std::string> write_project_typings(const std::string& projectDir) {
         cfg.audioDevice = false;
         cfg.hotReload = false;
         cfg.memoryStorage = true;
+        cfg.platformBackend = "fake";
         Engine engine;
         std::string err;
         if (!engine.init(cfg, nullptr, &err)) {

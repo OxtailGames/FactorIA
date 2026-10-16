@@ -9,6 +9,7 @@
 
 #include "fa/runtime/engine.h"
 #include "fa/scene/serialize.h"
+#include "fa/services/platform.h"
 #include "fa/ui/ui.h"
 
 namespace fa {
@@ -52,6 +53,7 @@ struct Engine::Impl {
     Audio audio;
     ScriptSystem scripts;
     UiSystem ui;
+    PlatformServices platform;  // achievements, purchases, ...: the catalog of factoria.json and the backend (platform_backend.h)
     CommandRegistry commands;
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;

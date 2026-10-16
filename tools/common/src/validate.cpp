@@ -16,6 +16,7 @@
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
+#include "fa/services/platform.h"
 #include "fa/tooling/audio_analysis.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
@@ -257,6 +258,27 @@ void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
     check_icon_file(c, "/export/android/adaptiveIcon/monochrome", s.android.adaptiveIcon.monochrome, kLayerSize);
 }
 
+// The "platform" catalog: every problem with how to fix it (the messages of fa_services), and a "backend" that names a
+// plugin the game does not declare. The schema checks the shape too; where the catalog has errors its messages replace the
+// schema's, which cannot suggest anything.
+void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) {
+    for (const PlatformIssue& i : parsed.issues) {
+        if (i.warning) c.warn(kProjectFileName, i.pointer, i.message, i.hint);
+        else c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    }
+    std::vector<std::string> declared;
+    if (auto it = pj.find("plugins"); it != pj.end() && it->is_object())
+        for (auto p = it->begin(); p != it->end(); ++p) declared.push_back(p.key());
+    for (const PlatformCatalog::BackendRef& ref : parsed.catalog.backendRefs) {
+        if (std::find(declared.begin(), declared.end(), ref.name) != declared.end()) continue;
+        c.error(kProjectFileName, ref.pointer, "\"" + ref.name + "\" is not a plugin of this game: factoria.json declares " +
+                    (declared.empty() ? std::string("no plugins") : "the plugins " + join(declared, ", ")),
+                declared.empty() ? "Declare the store plugin under \"plugins\" (`factoria call project.new_plugin`, docs/PLATFORM.md), or "
+                                   "remove \"backend\" to use \"auto\"."
+                                 : did_you_mean(ref.name, declared) + " Or use \"auto\" when only one plugin offers a backend.");
+    }
+}
+
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
     auto text = tooling_detail::read_file(stdfs::path(c.dir) / kProjectFileName);
     if (!text) {
@@ -271,9 +293,12 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     }
     const Json& pj = parsed.value();
     const ExportSettingsParse exportSettings = parse_export_settings(pj);
+    const PlatformCatalogParse platform =
+        parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
         for (const auto& e : validate_json(schema, pj)) {
+            if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
             const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(),
                                                         [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; });
@@ -281,6 +306,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         }
     if (!pj.is_object()) return;
     check_export_settings(c, exportSettings);
+    check_platform(c, pj, platform);
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));
     if (!stdfs::exists(stdfs::path(c.dir) / mainScene))

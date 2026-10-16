@@ -20,6 +20,19 @@
  *       return api->add_function(api, &f);
  *   }
  *
+ * A plugin can also be a platform backend (version 2): it answers the game's `platform` requests (achievements, stats,
+ * leaderboards, cloud saves, purchases, overlay, presence) with a store SDK. It registers one with add_backend and
+ * answers each FaRequest with resolve() or reject(), now or later and from any thread; docs/PLATFORM.md lists the methods.
+ *
+ *   static void on_request(FaRequest* req, const char* method, const char* args, void* user) {
+ *       if (strcmp(method, "achievements.unlock") == 0) {
+ *           // ... call the store; when its callback fires, on any thread:
+ *           g_api->resolve(req, "{\"unlocked\":true,\"newly\":true}");
+ *       } else {
+ *           g_api->reject(req, "unavailable", "this backend does not do that", NULL);
+ *       }
+ *   }
+ *
  * Rules:
  *   - Register everything inside the entry point; the engine calls it once per process, before any game starts.
  *   - Handlers run on the game's thread. Answer each call once, before returning, with reply() or fail(); a handler
@@ -27,14 +40,17 @@
  *   - Strings passed to the engine are copied: they may be temporaries.
  *   - The api pointer stays valid until the process ends: keep it for reply/fail/log.
  *   - The engine only grows this struct at its end and raises FA_PLUGIN_API_VERSION when it does; a plugin built
- *     against a newer header checks api->version before it uses a newer member.
+ *     against a newer header checks api->version before it uses a newer member (add_backend, resolve, reject and emit
+ *     need version 2; a version 1 plugin keeps working unchanged).
+ *   - Backends: answer each FaRequest exactly once; a second answer, or one for a game that has since ended, is
+ *     ignored. resolve, reject and emit may be called from any thread. frame runs on the game thread.
  */
 #ifndef FA_PLUGIN_H
 #define FA_PLUGIN_H
 
 #include <stdint.h>
 
-#define FA_PLUGIN_API_VERSION 1
+#define FA_PLUGIN_API_VERSION 2
 
 #if defined(_WIN32)
 #define FA_PLUGIN_EXPORT __declspec(dllexport)
@@ -48,6 +64,7 @@ extern "C" {
 
 typedef struct FaPluginApi FaPluginApi;
 typedef struct FaCall FaCall; /* one call of a command or function; answer it with api->reply or api->fail */
+typedef struct FaRequest FaRequest; /* one platform request; answer it once with resolve() or reject(), now or later, any thread */
 
 /* Runs a command or a script function. args_json: UTF-8 JSON text, an object for a command (already checked against
  * its input_schema, defaults filled in), an array of the arguments for a function. `user` is the desc's user. */
@@ -70,8 +87,22 @@ typedef struct FaFunctionDesc {
     void* user;
 } FaFunctionDesc;
 
+/* A platform backend (version 2): the plugin answers the game's `platform` requests with a store SDK. */
+typedef struct FaBackendDesc {
+    const char* name;     /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
+    const char* services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
+                           * "overlay","presence" (required) */
+    /* Starts one request: method is "achievements.unlock", "purchases.buy", ... and args_json its arguments, with the
+     * store's own id for the entry in "storeId" (docs/PLATFORM.md lists every method). Answer req with resolve() or
+     * reject() before or after returning, from any thread. Required. */
+    void (*request)(FaRequest* req, const char* method, const char* args_json, void* user);
+    /* Once per frame on the game thread, before scripts run (Steam: SteamAPI_RunCallbacks). May be NULL. */
+    void (*frame)(void* user);
+    void* user;
+} FaBackendDesc;
+
 struct FaPluginApi {
-    uint32_t version;     /* FA_PLUGIN_API_VERSION of the engine running the plugin */
+    uint32_t version;    /* FA_PLUGIN_API_VERSION of the engine running the plugin */
     const char* plugin;   /* the plugin's name in factoria.json */
     const char* platform; /* "windows", "macos", "linux", "android" or "ios" */
     void* host;           /* the engine's: never touch it */
@@ -93,6 +124,20 @@ struct FaPluginApi {
      *   "android.activity"  the game's ANativeActivity* (->vm for JNI, ->clazz for the activity object and its
      *                       class loader, which finds the plugin's own Java classes) */
     void* (*native_handle)(const char* name);
+
+    /* Version 2: platform backends. Check api->version >= 2 before using these. */
+
+    /* Register the plugin's platform backend (only inside the entry point; one per plugin). 0 = done; otherwise the
+     * engine logged why (no name, services that are not JSON or not service names, no request handler, a second one). */
+    int (*add_backend)(const FaPluginApi* api, const FaBackendDesc* desc);
+    /* Answer a request: the result as JSON text. A result that is not JSON fails the request with the code "failed". */
+    void (*resolve)(FaRequest* req, const char* result_json);
+    /* Answer a request with an error. code: "unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or
+     * "failed" (anything else becomes "failed"); message says what went wrong and hint how to fix it (hint may be NULL). */
+    void (*reject)(FaRequest* req, const char* code, const char* message, const char* hint);
+    /* Tell the game something happened without being asked: event "purchase" {status, productId, transactionId,
+     * receipt}, "overlay" {open} or "player" {id, name, signedIn}; scripts get it through platform.on(event, fn). */
+    void (*emit)(const FaPluginApi* api, const char* event, const char* data_json);
 };
 
 typedef int (*FaPluginInitFn)(const FaPluginApi* api);
