@@ -27,6 +27,7 @@
 
 #include "fa/core/command.h"
 #include "fa/core/json.h"
+#include "fa/core/process.h"
 #include "fa/core/types.h"
 
 namespace fa {
@@ -51,6 +52,8 @@ struct ExportOptions {
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
                                 // of a long step, such as the Gradle build of an Android export (may be empty). Not
                                 // used yet
+    const CancelFlag* cancel = nullptr;  // optional: set to true to stop a long step (the Gradle build kills its process
+                                // tree) and fail the export with "cancelled". Not used yet
 };
 
 struct ExportReport {
