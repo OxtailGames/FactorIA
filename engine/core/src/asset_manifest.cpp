@@ -54,7 +54,29 @@ Json sorted_object(const Json& o) {
     return out;
 }
 
-Result<void> edit_document(const std::function<void(Json& doc)>& edit) {
+std::string key_of(std::string_view path) {
+    std::string k = fs::normalize(path);
+    return k.empty() ? std::string(path) : k;
+}
+
+void merge_into(Json& base, const Json& over) {
+    if (!over.is_object()) return;
+    for (auto it = over.begin(); it != over.end(); ++it) base[it.key()] = it.value();
+}
+
+// Built-in import settings of a kind (the defaults schemas/assets.schema.json documents).
+Json builtin_import_defaults(AssetKind kind) {
+    switch (kind) {
+        case AssetKind::Texture: return Json::object({{"compression", "auto"}, {"atlas", ""}});
+        case AssetKind::Audio:
+            return Json::object({{"stream", "auto"}, {"normalize", false}, {"targetLufs", -16.0}, {"convert", "none"}});
+        default: return Json::object();
+    }
+}
+
+}  // namespace
+
+Result<void> update_manifest(const std::function<void(Json& doc)>& edit) {
     Json doc = empty_manifest();
     if (fs::exists(kManifestFile)) {
         auto text = fs::read_text(kManifestFile);
@@ -75,18 +97,6 @@ Result<void> edit_document(const std::function<void(Json& doc)>& edit) {
     invalidate();
     return r;
 }
-
-std::string key_of(std::string_view path) {
-    std::string k = fs::normalize(path);
-    return k.empty() ? std::string(path) : k;
-}
-
-void merge_into(Json& base, const Json& over) {
-    if (!over.is_object()) return;
-    for (auto it = over.begin(); it != over.end(); ++it) base[it.key()] = it.value();
-}
-
-}  // namespace
 
 AssetKind kind_of(std::string_view path) {
     const std::string ext = fs::extension(path);
@@ -148,30 +158,19 @@ Json entry(std::string_view path) {
     return e != assets->end() && e->is_object() ? *e : Json::object();
 }
 
-Json builtin_import_defaults(AssetKind kind) {
-    switch (kind) {
-        case AssetKind::Texture: return Json::object({{"compression", "auto"}, {"atlas", ""}});
-        case AssetKind::Audio:
-            return Json::object({{"stream", "auto"}, {"normalize", false}, {"targetLufs", -16.0}, {"convert", "none"}});
-        default: return Json::object();
-    }
-}
-
 Json import_settings(std::string_view path) {
     const AssetKind kind = kind_of(path);
     Json out = builtin_import_defaults(kind);
     Json m = manifest();
     if (auto d = m.find("defaults"); d != m.end() && d->is_object())
         if (auto k = d->find(kind_name(kind)); k != d->end()) merge_into(out, *k);
-    if (auto a = m.find("assets"); a != m.end() && a->is_object())
-        if (auto e = a->find(key_of(path)); e != a->end() && e->is_object())
-            if (auto imp = e->find("import"); imp != e->end()) merge_into(out, *imp);
+    merge_into(out, entry(path).value("import", Json::object()));
     return out;
 }
 
 Result<void> update_entry(std::string_view path, const std::function<void(Json& entry)>& edit) {
     const std::string key = key_of(path);
-    return edit_document([&](Json& doc) {
+    return update_manifest([&](Json& doc) {
         if (!doc.contains("assets") || !doc["assets"].is_object()) doc["assets"] = Json::object();
         Json& assets = doc["assets"];
         Json e = assets.contains(key) && assets[key].is_object() ? assets[key] : Json::object();
@@ -180,8 +179,6 @@ Result<void> update_entry(std::string_view path, const std::function<void(Json& 
         else assets.erase(key);
     });
 }
-
-Result<void> update_manifest(const std::function<void(Json& doc)>& edit) { return edit_document(edit); }
 
 std::string today() {
     const std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
