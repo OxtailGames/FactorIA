@@ -115,6 +115,11 @@ checkout on the machine.
 `factoria export --platform android` writes the Gradle project **and builds the app with it** (`--format aab` builds the
 Google Play bundle, `--format gradle` only writes the project). Details of the export: [EXPORTING.md](EXPORTING.md#android).
 
+The quickest way to get the prerequisites: `factoria setup android` downloads a JDK 21 and the Android SDK (platform 36,
+build-tools 35.0.0, platform-tools; you read and accept the SDK license first) into `~/.factoria` and tells `factoria export`
+where they are, and `factoria setup players` downloads the prebuilt `mobile/` libraries for an exe that has none next to it
+([EXPORTING.md](EXPORTING.md#setting-up-this-computer)). The editor has the same as buttons. By hand:
+
 Prerequisites (the export checks them first and says what is missing and how to set it up):
 
 - A JDK 17 or newer (Android builds are tested with 17 and 21). The export finds `JAVA_HOME`, Android Studio's bundled JDK
@@ -208,7 +213,9 @@ project's `scaleMode`.
 
 Prerequisites: macOS, the full Xcode app (not only command line tools; run
 `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`), CMake 3.24+,
-an Apple developer team for devices (a free Apple ID works for your own device).
+an Apple developer team for devices (a free Apple ID works for your own device). `factoria setup` checks them,
+`factoria setup cmake` installs CMake and `factoria setup xcode` opens Xcode's App Store page and lists the steps that need
+your password ([EXPORTING.md](EXPORTING.md#setting-up-this-computer)).
 
 Steps: `factoria export --platform ios`, then on the Mac, in the exported folder:
 

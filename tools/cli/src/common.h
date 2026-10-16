@@ -19,6 +19,7 @@ Command make_new_command();
 Command make_templates_command();
 Command make_validate_command();
 Command make_export_command();
+Command make_setup_command();
 Command make_editor_command();
 Command make_run_command();
 Command make_screenshot_command();
