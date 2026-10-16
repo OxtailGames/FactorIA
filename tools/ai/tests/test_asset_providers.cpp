@@ -1,0 +1,483 @@
+// The asset providers through recorded answers (fixtures/): OpenAI images and speech, ElevenLabs, Meshy, and the asset-command
+// program. No test reaches a network: the transport is injected.
+#include "asset_test.h"
+#include "fa/ai/assets.h"
+#include "fa/ai/detect.h"
+
+using namespace fa;
+using namespace fa::ai;
+using namespace fa::ai::test;
+
+namespace {
+
+const std::string kMp3(std::string("ID3\x04\x00\x00\x00\x00\x00\x0A", 10) + "frames of audio");
+const std::string kGlb(std::string("glTF\x02\x00\x00\x00\x14\x00\x00\x00", 12) + "binary model");
+
+}  // namespace
+
+// ---- OpenAI ---------------------------------------------------------------------------------------------------------
+
+TEST_CASE("OpenAI images: POST /images/generations with the key, the answer is written at the size asked for") {
+    Wire wire;
+    wire.replies = {Wire::reply(200, fixture("openai_image.json"))};
+    Game game(config_from(R"({"assets":{"image":{"provider":"openai"}}})"), wire.runtime({{"OPENAI_API_KEY", "sk-test-0123456789abcdef"}}));
+    const Json r = game.ok("assets.generate_image", {{"prompt", "a mossy stone wall"}, {"path", "assets/wall.png"}, {"width", 16}, {"height", 16}, {"transparent", true}});
+
+    REQUIRE(wire.requests.size() == 1);
+    const HttpRequest& req = wire.requests[0];
+    CHECK(req.method == "POST");
+    CHECK(req.url == "https://api.openai.com/v1/images/generations");
+    CHECK(Wire::header(req, "Authorization") == "Bearer sk-test-0123456789abcdef");
+    CHECK(Wire::header(req, "Content-Type") == "application/json");
+    const Json body = Json::parse(req.body);
+    CHECK(body["model"] == "gpt-image-1");
+    CHECK(body["prompt"] == "a mossy stone wall");
+    CHECK(body["size"] == "1024x1024");
+    CHECK(body["background"] == "transparent");
+    CHECK(body["output_format"] == "png");
+
+    const Image wall = decode_png(game.file("assets/wall.png"));  // the 4x4 picture of the fixture, resized
+    CHECK(wall.width == 16);
+    CHECK(wall.height == 16);
+    const Json prov = game.provenance("assets/wall.png");
+    CHECK(prov["provider"] == "openai");
+    CHECK(prov["model"] == "gpt-image-1");
+    CHECK(prov["license"].get<std::string>().find("openai.com/policies") != std::string::npos);
+    CHECK(prov["notes"] == "Resized from 4x4.");
+    // the key is in no file and in no result
+    CHECK(game.file("assets.json").find("sk-test") == std::string::npos);
+    CHECK(r.dump().find("sk-test") == std::string::npos);
+}
+
+TEST_CASE("OpenAI images: references go to /images/edits as multipart image[] parts; the shape follows the aspect ratio") {
+    Wire wire;
+    wire.replies = {Wire::reply(200, fixture("openai_image.json"))};
+    Game game(config_from(R"({"assets":{"image":{"provider":"openai","model":"gpt-image-1.5"}}})"), wire.runtime({{"OPENAI_API_KEY", "sk-test-0123456789abcdef"}}));
+    const std::string hero = png_bytes(6, 6, 10, 200, 10);
+    game.put("assets/hero.png", hero);
+    game.ok("assets.generate_image", {{"prompt", "the hero, waving"}, {"path", "assets/hero_wave.png"}, {"width", 48}, {"height", 24},
+                                      {"references", Json::array({"assets/hero.png"})}});
+
+    REQUIRE(wire.requests.size() == 1);
+    const HttpRequest& req = wire.requests[0];
+    CHECK(req.url == "https://api.openai.com/v1/images/edits");
+    const std::string contentType = Wire::header(req, "Content-Type");
+    REQUIRE(contentType.rfind("multipart/form-data; boundary=", 0) == 0);
+    const std::string boundary = contentType.substr(std::string("multipart/form-data; boundary=").size());
+    CHECK(req.body.rfind("--" + boundary + "\r\n", 0) == 0);
+    CHECK(req.body.find("--" + boundary + "--\r\n") == req.body.size() - boundary.size() - 6);
+    CHECK(req.body.find("Content-Disposition: form-data; name=\"image[]\"; filename=\"hero.png\"\r\nContent-Type: image/png\r\n\r\n" + hero + "\r\n") !=
+          std::string::npos);
+    CHECK(req.body.find("name=\"prompt\"\r\n\r\nthe hero, waving\r\n") != std::string::npos);
+    CHECK(req.body.find("name=\"model\"\r\n\r\ngpt-image-1.5\r\n") != std::string::npos);
+    CHECK(req.body.find("name=\"size\"\r\n\r\n1536x1024\r\n") != std::string::npos);  // twice as wide as high
+    CHECK(Wire::header(req, "Authorization") == "Bearer sk-test-0123456789abcdef");
+    CHECK(game.provenance("assets/hero_wave.png")["references"] == Json::array({"assets/hero.png"}));
+    CHECK(game.provenance("assets/hero_wave.png")["model"] == "gpt-image-1.5");
+}
+
+TEST_CASE("OpenAI: no key, a rejected key and a gif reference stop the call without leaving a file or a record") {
+    {
+        Wire wire;
+        wire.replies = {Wire::reply(200, fixture("openai_image.json"))};
+        Game game(config_from(R"({"assets":{"image":{"provider":"openai"}}})"), wire.runtime());
+        auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "generation_failed");
+        CHECK(r.error["message"] == "No API key for provider 'openai'");
+        CHECK(r.error["hint"].get<std::string>().find("OPENAI_API_KEY") != std::string::npos);
+        CHECK(wire.requests.empty());
+    }
+    {
+        Wire wire;
+        wire.replies = {Wire::reply(401, fixture("openai_error_401.json"))};
+        Game game(config_from(R"({"assets":{"image":{"provider":"openai"}}})"), wire.runtime({{"OPENAI_API_KEY", "sk-test-0123456789abcdef"}}));
+        auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "generation_failed");
+        CHECK(r.error["message"].get<std::string>().find("Incorrect API key") != std::string::npos);
+        CHECK(wire.requests.size() == 1);  // a rejected key is not retried
+        CHECK_FALSE(game.exists("assets/a.png"));
+        CHECK_FALSE(game.exists("assets.json"));
+    }
+    {
+        Wire wire;
+        wire.replies = {Wire::reply(200, fixture("openai_image.json"))};
+        Game game(config_from(R"({"assets":{"image":{"provider":"openai"}}})"), wire.runtime({{"OPENAI_API_KEY", "sk-test-0123456789abcdef"}}));
+        game.put("assets/anim.gif", "GIF89a");
+        auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}, {"references", Json::array({"assets/anim.gif"})}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find("PNG, JPEG or WebP") != std::string::npos);
+        CHECK(wire.requests.empty());
+    }
+}
+
+TEST_CASE("OpenAI voice: POST /audio/speech writes the MP3") {
+    Wire wire;
+    wire.replies = {Wire::reply(200, kMp3)};
+    Game game(config_from(R"({"assets":{"voice":{"provider":"openai"}}})"), wire.runtime({{"OPENAI_API_KEY", "sk-test-0123456789abcdef"}}));
+    game.ok("assets.generate_voice", {{"text", "Welcome, traveller."}, {"path", "assets/voice/welcome.mp3"}});
+    REQUIRE(wire.requests.size() == 1);
+    CHECK(wire.requests[0].url == "https://api.openai.com/v1/audio/speech");
+    const Json body = Json::parse(wire.requests[0].body);
+    CHECK(body["input"] == "Welcome, traveller.");
+    CHECK(body["voice"] == "alloy");
+    CHECK(body["model"] == "gpt-4o-mini-tts");
+    CHECK(body["response_format"] == "mp3");
+    CHECK(game.file("assets/voice/welcome.mp3") == kMp3);
+    CHECK(game.provenance("assets/voice/welcome.mp3")["kind"] == "voice");
+    CHECK(game.provenance("assets/voice/welcome.mp3")["notes"] == "Voice: alloy.");  // OpenAI picks the default voice when none is set
+
+    // OpenAI does not make sound effects or music
+    auto sound = game.call("assets.generate_sound", {{"prompt", "x"}, {"path", "assets/a.mp3"}, {"provider", "openai"}});
+    REQUIRE_FALSE(sound.ok);
+    CHECK(sound.error["message"].get<std::string>().find("cannot generate sound") != std::string::npos);
+}
+
+// ---- ElevenLabs -----------------------------------------------------------------------------------------------------
+
+TEST_CASE("ElevenLabs sound effects, music and voice: endpoints, xi-api-key, bytes written as they come") {
+    Wire wire;
+    wire.replies = {Wire::reply(200, kMp3)};
+    Game game(config_from(R"({"assets":{"sound":{"provider":"elevenlabs"},"music":{"provider":"elevenlabs"},
+                                       "voice":{"provider":"elevenlabs","voice":"21m00Tcm4TlvDq8ikWAM"}}})"),
+              wire.runtime({{"ELEVENLABS_API_KEY", "xi-test-0123456789abcdef"}}));
+
+    game.ok("assets.generate_sound", {{"prompt", "heavy wooden door slam"}, {"path", "assets/sfx/door.mp3"}, {"seconds", 2}});
+    REQUIRE(wire.requests.size() == 1);
+    CHECK(wire.requests[0].url == "https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100_128");
+    CHECK(Wire::header(wire.requests[0], "xi-api-key") == "xi-test-0123456789abcdef");
+    const Json soundBody = Json::parse(wire.requests[0].body);
+    CHECK(soundBody["text"] == "heavy wooden door slam");
+    CHECK(soundBody["duration_seconds"] == 2);
+    CHECK(game.file("assets/sfx/door.mp3") == kMp3);
+    CHECK(game.provenance("assets/sfx/door.mp3")["kind"] == "sound");
+    CHECK(game.provenance("assets/sfx/door.mp3")["provider"] == "elevenlabs");
+    CHECK(game.provenance("assets/sfx/door.mp3")["license"].get<std::string>().find("elevenlabs.io/terms") != std::string::npos);
+
+    game.ok("assets.generate_music", {{"prompt", "calm forest theme"}, {"path", "assets/music/forest.mp3"}, {"seconds", 30}});
+    CHECK(wire.requests[1].url == "https://api.elevenlabs.io/v1/music?output_format=mp3_44100_128");
+    const Json musicBody = Json::parse(wire.requests[1].body);
+    CHECK(musicBody["prompt"] == "calm forest theme");
+    CHECK(musicBody["music_length_ms"] == 30000);
+    CHECK(musicBody["force_instrumental"] == true);
+    CHECK(game.provenance("assets/music/forest.mp3")["kind"] == "music");
+
+    game.ok("assets.generate_voice", {{"text", "Halt!"}, {"path", "assets/voice/halt.mp3"}});
+    CHECK(wire.requests[2].url == "https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM?output_format=mp3_44100_128");
+    CHECK(Json::parse(wire.requests[2].body)["text"] == "Halt!");
+    game.ok("assets.generate_voice", {{"text", "Halt!"}, {"path", "assets/voice/halt2.mp3"}, {"voice", "JBFqnCBsd6RMkjVDRZzb"}});
+    CHECK(wire.requests[3].url.find("/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb?") != std::string::npos);
+    CHECK(game.provenance("assets/voice/halt2.mp3")["notes"] == "Voice: JBFqnCBsd6RMkjVDRZzb.");
+}
+
+TEST_CASE("ElevenLabs: the extension is checked before the paid call; errors from the API are shown") {
+    Wire wire;
+    wire.replies = {Wire::reply(401, fixture("elevenlabs_error_401.json"))};
+    Game game(config_from(R"({"assets":{"sound":{"provider":"elevenlabs"},"voice":{"provider":"elevenlabs"}}})"),
+              wire.runtime({{"ELEVENLABS_API_KEY", "xi-test-0123456789abcdef"}}));
+
+    auto wav = game.call("assets.generate_sound", {{"prompt", "door"}, {"path", "assets/sfx/door.wav"}});
+    REQUIRE_FALSE(wav.ok);
+    CHECK(wav.error["code"] == "wrong_extension");
+    CHECK(wav.error["message"].get<std::string>().find(".mp3") != std::string::npos);
+    CHECK(wav.error["hint"] == "Use 'assets/sfx/door.mp3'.");
+    CHECK(wire.requests.empty());
+
+    auto rejected = game.call("assets.generate_sound", {{"prompt", "door"}, {"path", "assets/sfx/door.mp3"}});
+    REQUIRE_FALSE(rejected.ok);
+    CHECK(rejected.error["code"] == "generation_failed");
+    CHECK(rejected.error["message"].get<std::string>().find("Invalid API key") != std::string::npos);
+    CHECK_FALSE(game.exists("assets/sfx/door.mp3"));
+    CHECK_FALSE(game.exists("assets.json"));
+
+    CHECK_FALSE(game.call("assets.generate_sound", {{"prompt", "door"}, {"path", "assets/sfx/long.mp3"}, {"seconds", 45}}).ok);  // the limit is 30
+
+    // no voice id anywhere
+    auto noVoice = game.call("assets.generate_voice", {{"text", "Halt!"}, {"path", "assets/voice/halt.mp3"}});
+    REQUIRE_FALSE(noVoice.ok);
+    CHECK(noVoice.error["message"] == "ElevenLabs needs a voice id to speak with");
+    CHECK(noVoice.error["hint"].get<std::string>().find("assets.voice.voice") != std::string::npos);
+}
+
+// ---- Meshy ----------------------------------------------------------------------------------------------------------
+
+TEST_CASE("Meshy: create the task, poll until it succeeds, download the GLB") {
+    Wire wire;
+    wire.replies = {Wire::reply(200, fixture("meshy_create.json")), Wire::reply(200, fixture("meshy_pending.json")),
+                    Wire::reply(200, fixture("meshy_succeeded.json")), Wire::reply(200, kGlb)};
+    Game game(config_from(R"({"assets":{"model3d":{"provider":"meshy"}}})"), wire.runtime({{"MESHY_API_KEY", "msy-test-0123456789abcdef"}}));
+    game.ok("assets.generate_model", {{"prompt", "a low-poly wooden crate"}, {"path", "assets/models/crate.glb"}});
+
+    REQUIRE(wire.requests.size() == 4);
+    CHECK(wire.requests[0].method == "POST");
+    CHECK(wire.requests[0].url == "https://api.meshy.ai/openapi/v2/text-to-3d");
+    CHECK(Wire::header(wire.requests[0], "Authorization") == "Bearer msy-test-0123456789abcdef");
+    const Json created = Json::parse(wire.requests[0].body);
+    CHECK(created["mode"] == "preview");
+    CHECK(created["prompt"] == "a low-poly wooden crate");
+    for (int poll : {1, 2}) {
+        CHECK(wire.requests[poll].method == "GET");
+        CHECK(wire.requests[poll].url == "https://api.meshy.ai/openapi/v2/text-to-3d/0190a3c1-task-text-to-3d");
+        CHECK(Wire::header(wire.requests[poll], "Authorization") == "Bearer msy-test-0123456789abcdef");
+    }
+    CHECK(wire.requests[3].url == "https://assets.meshy.ai/signed/0190a3c1/model.glb?Expires=4102444800&Signature=x");
+    CHECK(Wire::header(wire.requests[3], "Authorization").empty());  // the signed link takes no key
+    CHECK(wire.sleeps == std::vector<double>{5});  // one wait, between the two polls
+    CHECK(game.file("assets/models/crate.glb") == kGlb);
+    const Json prov = game.provenance("assets/models/crate.glb");
+    CHECK(prov["kind"] == "model3d");
+    CHECK(prov["provider"] == "meshy");
+    CHECK(prov["license"].get<std::string>().find("meshy.ai/terms") != std::string::npos);
+}
+
+TEST_CASE("Meshy: a failed task, a task that takes too long and a wrong extension") {
+    {
+        Wire wire;
+        wire.replies = {Wire::reply(200, fixture("meshy_create.json")), Wire::reply(200, fixture("meshy_failed.json"))};
+        Game game(config_from(R"({"assets":{"model3d":{"provider":"meshy"}}})"), wire.runtime({{"MESHY_API_KEY", "msy-test-0123456789abcdef"}}));
+        auto r = game.call("assets.generate_model", {{"prompt", "x"}, {"path", "assets/m.glb"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "generation_failed");
+        CHECK(r.error["message"].get<std::string>().find("content filter") != std::string::npos);
+        CHECK_FALSE(game.exists("assets/m.glb"));
+    }
+    {
+        Wire wire;
+        wire.replies = {Wire::reply(200, fixture("meshy_create.json")), Wire::reply(200, fixture("meshy_pending.json"))};
+        Game game(config_from(R"({"providers":{"meshy":{"type":"meshy","timeoutSeconds":10}},"assets":{"model3d":{"provider":"meshy"}}})"),
+                  wire.runtime({{"MESHY_API_KEY", "msy-test-0123456789abcdef"}}));
+        auto r = game.call("assets.generate_model", {{"prompt", "x"}, {"path", "assets/m.glb"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find("still IN_PROGRESS after 10 seconds") != std::string::npos);
+        CHECK(r.error["hint"].get<std::string>().find("timeoutSeconds") != std::string::npos);
+        CHECK(wire.sleeps.size() == 2);
+        CHECK_FALSE(game.exists("assets/m.glb"));
+    }
+    {
+        Wire wire;
+        Game game(config_from(R"({"assets":{"model3d":{"provider":"meshy"}}})"), wire.runtime({{"MESHY_API_KEY", "msy-test-0123456789abcdef"}}));
+        auto r = game.call("assets.generate_model", {{"prompt", "x"}, {"path", "assets/m.gltf"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "wrong_extension");
+        CHECK(r.error["hint"] == "Use 'assets/m.glb'.");
+        CHECK(wire.requests.empty());
+    }
+}
+
+// ---- asset-command --------------------------------------------------------------------------------------------------
+
+namespace {
+
+std::string fake_asset_program() {
+#ifdef _WIN32
+    return std::filesystem::path(std::string(FA_AI_FIXTURES) + "/fake_asset.cmd").make_preferred().string();
+#else
+    return std::string(FA_AI_FIXTURES) + "/fake_asset.sh";
+#endif
+}
+
+// A provider "sketcher" that runs fake_asset: it copies `source` to {output} and records its arguments in `argvFile`.
+AiConfig sketcher_config(const std::string& source, const std::string& argvFile, Json argv, const std::string& mode = {}) {
+    Json env = Json::object({{"FAKE_ASSET_SOURCE", source}, {"FAKE_ARGV_FILE", argvFile}});
+    if (!mode.empty()) env["FAKE_MODE"] = mode;
+    return config_from(Json::object({{"providers", Json::object({{"sketcher", Json::object({{"type", "asset-command"},
+                                                                                              {"command", fake_asset_program()},
+                                                                                              {"argv", std::move(argv)},
+                                                                                              {"env", env}})}})},
+                                     {"assets", Json::object({{"image", Json::object({{"provider", "sketcher"}})}})}}));
+}
+
+std::vector<std::string> lines_of(const std::string& text) {
+    std::vector<std::string> out;
+    std::istringstream in(text);
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        out.push_back(line);
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("asset-command: the argv template is filled in, the program's file becomes the asset") {
+    TempDir scratch;
+    const std::string source = (scratch.path / "source.png").string();
+    std::ofstream(source, std::ios::binary) << png_bytes(4, 4, 90, 140, 200);
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    Game game(sketcher_config(source, argvFile, Json::array({"{output}", "--prompt", "{prompt}", "--size", "{width}x{height}", "--kind", "{kind}"})));
+
+    const Json r = game.ok("assets.generate_image", {{"prompt", "a red potion"}, {"path", "assets/potion.png"}, {"width", 16}, {"height", 24}});
+    const std::vector<std::string> argv = lines_of(read_file(argvFile));
+    REQUIRE(argv.size() == 7);
+    CHECK(std::filesystem::path(argv[0]).filename() == "asset.png");
+    CHECK(argv[1] == "--prompt");
+    CHECK(argv[2] == "a red potion");
+    CHECK(argv[3] == "--size");
+    CHECK(argv[4] == "16x24");
+    CHECK(argv[6] == "image");
+
+    const Image img = decode_png(game.file("assets/potion.png"));  // the 4x4 picture of the program, resized
+    CHECK(img.width == 16);
+    CHECK(img.height == 24);
+    const Json prov = game.provenance("assets/potion.png");
+    CHECK(prov["provider"] == "sketcher");
+    CHECK(prov["ai"] == true);
+    CHECK(prov["license"].get<std::string>().find("local program") != std::string::npos);
+    CHECK_FALSE(r.contains("warnings"));
+    CHECK_FALSE(std::filesystem::exists(std::filesystem::path(argv[0]).parent_path()));  // the scratch folder of the call is gone
+}
+
+TEST_CASE("asset-command: references and seeds the program cannot take are said, not hidden") {
+    TempDir scratch;
+    const std::string source = (scratch.path / "source.png").string();
+    std::ofstream(source, std::ios::binary) << png_bytes(4, 4, 90, 140, 200);
+    const std::string argvFile = (scratch.path / "argv.txt").string();
+    Game game(sketcher_config(source, argvFile, Json::array({"{output}", "{prompt}"})));
+    game.put("assets/hero.png", png_bytes(4, 4, 1, 1, 1));
+
+    const Json r = game.ok("assets.generate_image", {{"prompt", "a potion"}, {"path", "assets/potion.png"}, {"width", 8}, {"height", 8}, {"seed", 5},
+                                                      {"references", Json::array({"assets/hero.png"})}});
+    REQUIRE(r.contains("warnings"));
+    REQUIRE(r["warnings"].size() == 2);
+    CHECK(r["warnings"][0].get<std::string>().find("cannot take reference images") != std::string::npos);
+    CHECK(r["warnings"][1].get<std::string>().find("takes no seed") != std::string::npos);
+    const Json prov = game.provenance("assets/potion.png");
+    CHECK_FALSE(prov.contains("references"));  // none was sent, so none is recorded
+    CHECK_FALSE(prov.contains("seed"));
+
+    // with {seed} in the template the program gets the seed, and it is recorded
+    TempDir scratch2;
+    Game seeded(sketcher_config(source, (scratch2.path / "argv.txt").string(), Json::array({"{output}", "--seed", "{seed}"})));
+    seeded.ok("assets.generate_image", {{"prompt", "a potion"}, {"path", "assets/potion.png"}, {"width", 8}, {"height", 8}, {"seed", 1234}});
+    CHECK(lines_of(read_file((scratch2.path / "argv.txt").string()))[2] == "1234");
+    CHECK(seeded.provenance("assets/potion.png")["seed"] == 1234);
+}
+
+TEST_CASE("asset-command: a failing program and a program that writes nothing are errors that say what happened") {
+    TempDir scratch;
+    const std::string source = (scratch.path / "source.png").string();
+    std::ofstream(source, std::ios::binary) << png_bytes(4, 4, 90, 140, 200);
+    {
+        Game game(sketcher_config(source, (scratch.path / "a.txt").string(), Json::array({"{output}"}), "fail"));
+        auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "generation_failed");
+        CHECK(r.error["message"].get<std::string>().find("exit code 3") != std::string::npos);
+        CHECK(r.error["message"].get<std::string>().find("the model is not loaded") != std::string::npos);
+        CHECK_FALSE(game.exists("assets/a.png"));
+        CHECK_FALSE(game.exists("assets.json"));
+    }
+    {
+        Game game(sketcher_config(source, (scratch.path / "b.txt").string(), Json::array({"{output}"}), "nothing"));
+        auto r = game.call("assets.generate_image", {{"prompt", "x"}, {"path", "assets/a.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find("exited without writing asset.png") != std::string::npos);
+        CHECK(r.error["hint"].get<std::string>().find("{output}") != std::string::npos);
+    }
+#ifdef _WIN32
+    {  // a .cmd file cannot take % in an argument: the process runner refuses, and the hint says what to do
+        Game game(sketcher_config(source, (scratch.path / "c.txt").string(), Json::array({"{output}", "{prompt}"})));
+        auto r = game.call("assets.generate_image", {{"prompt", "100% sure"}, {"path", "assets/a.png"}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find("cmd.exe") != std::string::npos);
+        CHECK(r.error["hint"].get<std::string>().find(".exe") != std::string::npos);
+    }
+#endif
+}
+
+// ---- configuration --------------------------------------------------------------------------------------------------
+
+TEST_CASE("ai.json: the assets section is validated, saved and shown") {
+    const AiConfig cfg = config_from(R"({"providers":{"mytool":{"type":"asset-command","command":"python","argv":["gen.py","{output}"],"license":"CC0"}},
+        "assets":{"image":{"provider":"mytool","model":"sdxl"},"sound":{"provider":"elevenlabs"},"voice":{"provider":"elevenlabs","voice":"abc"}}})");
+    CHECK(cfg.assets.at("image").provider == "mytool");
+    CHECK(cfg.assets.at("image").model == "sdxl");
+    CHECK(cfg.assets.at("voice").voice == "abc");
+    CHECK(cfg.providers.at("mytool").kind == ProviderKind::AssetCommand);
+    CHECK(cfg.providers.at("mytool").license == "CC0");
+    CHECK(cfg.providers.at("elevenlabs").kind == ProviderKind::ElevenLabs);  // built in
+    CHECK(cfg.providers.at("meshy").kind == ProviderKind::Meshy);
+    CHECK(cfg.providers.at("fake").kind == ProviderKind::Fake);
+
+    const Json saved = config_to_json(cfg);
+    CHECK(saved["assets"]["image"]["model"] == "sdxl");
+    CHECK(saved["providers"]["mytool"]["license"] == "CC0");
+    CHECK(validate_config_json(saved).empty());
+    const AiConfig again = config_from(saved);
+    CHECK(again.assets.size() == 3);
+    CHECK(again.assets.at("voice").voice == "abc");
+
+    // the example in the docs validates against the schema
+    CHECK(validate_config_json(Json::parse(R"({"assets":{"image":{"provider":"openai","model":"gpt-image-1"},
+        "sound":{"provider":"elevenlabs"},"music":{"provider":"elevenlabs"},"voice":{"provider":"elevenlabs","voice":"21m00Tcm4TlvDq8ikWAM"},
+        "model3d":{"provider":"meshy"}}})")).empty());
+}
+
+TEST_CASE("ai.json: wrong assets sections teach") {
+    auto parse = [](const char* json) { return parse_config(Json::parse(json), "ai.json"); };
+
+    auto typo = parse(R"({"assets":{"image":{"provider":"opnai"}}})");
+    REQUIRE_FALSE(typo.ok());
+    CHECK(typo.error().message.find("/assets/image/provider") != std::string::npos);
+    CHECK(typo.error().hint.find("openai") != std::string::npos);  // did you mean
+
+    auto cannot = parse(R"({"assets":{"image":{"provider":"elevenlabs"}}})");
+    REQUIRE_FALSE(cannot.ok());
+    CHECK(cannot.error().message.find("cannot generate image") != std::string::npos);
+    CHECK(cannot.error().hint.find("Providers that can") != std::string::npos);
+    CHECK(cannot.error().hint.find("openai") != std::string::npos);
+
+    auto noCommand = parse(R"({"providers":{"mytool":{"type":"asset-command"}}})");
+    REQUIRE_FALSE(noCommand.ok());
+    CHECK(noCommand.error().message.find("command") != std::string::npos);
+
+    auto role = parse(R"({"roles":{"worker":{"provider":"fake"}}})");
+    REQUIRE_FALSE(role.ok());
+    CHECK(role.error().message.find("only generates assets") != std::string::npos);
+
+    auto defaultProvider = parse(R"({"defaultProvider":"meshy"})");
+    CHECK_FALSE(defaultProvider.ok());
+
+    CHECK_FALSE(validate_config_json(Json::parse(R"({"assets":{"video":{"provider":"fake"}}})")).empty());  // not a kind
+}
+
+TEST_CASE("asset providers are not chat providers: models, chat and the doctor report") {
+    const AiConfig cfg = config_from(R"({"assets":{"image":{"provider":"openai","model":"gpt-image-1"},"model3d":{"provider":"meshy"}}})");
+    for (const char* name : {"fake", "meshy", "elevenlabs"}) {
+        auto models = list_models(cfg.providers.at(name), {});
+        REQUIRE_FALSE(models.ok());
+        CHECK(models.error().message.find("generates assets") != std::string::npos);
+        auto chat = make_chat_provider(cfg.providers.at(name));
+        REQUIRE_FALSE(chat.ok());
+        CHECK(chat.error().message.find("only generates assets") != std::string::npos);
+    }
+
+    DetectOptions dopt;
+    dopt.probeVersions = false;
+    dopt.env = fake_env({{"ELEVENLABS_API_KEY", "xi-test-0123456789abcdef"}});
+    dopt.which = [](const std::string&) { return std::string(); };
+    const auto status = detect_providers(cfg, dopt);
+    auto find = [&](const std::string& name) -> const ProviderStatus& {
+        for (const auto& s : status) {
+            if (s.name == name) return s;
+        }
+        FAIL("no provider " << name);
+        return status.front();
+    };
+    CHECK(find("fake").available);
+    CHECK(find("elevenlabs").available);
+    CHECK_FALSE(find("meshy").available);  // no MESHY_API_KEY
+    CHECK(find("elevenlabs").makes == std::vector<std::string>{"sound", "music", "voice"});
+    CHECK(find("meshy").makes == std::vector<std::string>{"model3d"});
+
+    const std::string report = format_doctor_report(cfg, status);
+    CHECK(report.find("[makes sound, music, voice]") != std::string::npos);
+    CHECK(report.find("Asset providers:") != std::string::npos);
+    CHECK(report.find("image: openai / gpt-image-1") != std::string::npos);
+    CHECK(report.find("model3d: meshy") != std::string::npos);
+    CHECK(report.find("xi-test") == std::string::npos);
+
+    const std::string bare = format_doctor_report(default_config(), detect_providers(default_config(), dopt));
+    CHECK(bare.find("none configured: add \"assets\" to ai.json") != std::string::npos);
+}

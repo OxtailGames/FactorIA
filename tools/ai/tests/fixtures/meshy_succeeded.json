@@ -1,0 +1,13 @@
+{
+  "id": "0190a3c1-task-text-to-3d",
+  "mode": "preview",
+  "status": "SUCCEEDED",
+  "progress": 100,
+  "model_urls": {
+    "glb": "https://assets.meshy.ai/signed/0190a3c1/model.glb?Expires=4102444800&Signature=x",
+    "obj": "https://assets.meshy.ai/signed/0190a3c1/model.obj?Expires=4102444800&Signature=x"
+  },
+  "task_error": {
+    "message": ""
+  }
+}
