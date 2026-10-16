@@ -1098,105 +1098,35 @@ export default class Menu extends Behaviour {
 - **Long lists** go in a `ScrollList`: the wheel scrolls it, moving the focus to an item scrolls it into view, and
   everything inside is clipped to its rectangle.
 
-### 9.23 Menus over menus, pause, loading screen, credits
+### 9.23 Game menus: main menu, options, credits, loading screen, pause
 
-The `2d-platformer` template (`factoria new mygame --template 2d-platformer`) has the complete set: main menu, loading
-screen, pause menu, options and credits, with a test that drives them with a gamepad only (`tests/menus.test.js`).
+New projects have no menus. `factoria docs read menus` (MCP `docs_read {"name":"menus"}`) has a complete set to copy,
+which FactorIA's own tests drive with a gamepad only: a main menu, options (video, audio per bus, controls, a language
+slot), credits listing the software in `FACTORIA_NOTICES.txt`, a loading screen and a pause menu, with the settings
+saved between runs. In short:
 
-```js
-// scripts/pause_menu.js, on an entity of the level scene. "pause_panel" is an inactive Panel whose first Button,
-// "resume", has autoFocus. factoria.json: "pause": ["Escape", "P", "GamepadStart"].
-import { Behaviour, ui, input, game } from "factoria";
+1. `factoria.json`: `"mainScene": "scenes/menu.scene.json"` and a `"pause": ["Escape", "P", "GamepadStart"]` action.
+2. `scripts/settings.js` (settings in `storage`, applied once per run) and `scripts/ui/menu_stack.js` (panels over
+   panels, back with B / Escape).
+3. The main menu and credits: `scenes/menu.scene.json`, `scripts/main_menu.js`, `scripts/ui/credits.js`.
+4. Options: `prefabs/ui/options.prefab.json`, `scripts/ui/options.js`.
+5. The loading screen: `scenes/loading.scene.json`, `scripts/loading.js`.
+6. Pause: `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one `pause_menu` entity in each level.
 
-export default class PauseMenu extends Behaviour {
-  runWhilePaused = true; // keeps getting onUpdate (with the real dt) while game.paused
-
-  onStart() {
-    this.panel = this.world.find("pause_panel");
-    ui.on("click", "resume", () => {
-      this.panel.active = false;
-      this.resuming = true;
-    });
-  }
-
-  onUpdate() {
-    if (this.resuming) {
-      this.resuming = false;
-      game.paused = false; // here, not in the click handler: see "Resume without a jump"
-      return;
-    }
-    if (input.pressed("pause") && !game.paused) {
-      game.paused = true; // freezes physics, animations, timers and every other onUpdate
-      this.panel.active = true; // "resume" takes the focus
-    }
-  }
-}
-```
+When you write menus of your own, the same rules apply:
 
 - **Panels over panels.** Show one panel and hide the one below with `active`: a focused widget that becomes inactive
-  loses the focus and the new panel's `autoFocus` widget takes it. Remember `ui.focused` before and call
-  `ui.focus(...)` after closing, so the player lands where they were (the template's `scripts/ui/menu_stack.js` does it
-  for any depth, and goes back on `ui.on("cancel")`, Escape or pad B).
-- **Resume without a jump.** The A or Space press that clicks "Resume" is also `jump`. Unpause in the pause behaviour's
-  next `onUpdate`, not in the click handler: that frame's gameplay was already skipped, so the press never reaches the
-  player.
-- **Back to the main menu.** `time.scale` outlives scene loads: set `game.paused = false` before `scene.load`.
-- **One panel in two scenes.** The options panel is a prefab: a scene entity `{"id": "options", "active": false,
-  "prefab": "prefabs/ui/options.prefab.json"}` in the menu scene, `world.spawnPrefab(...)` in the level (a scene that
-  `scene.import_ascii` rebuilds would get the prefab expanded into it).
-- **Loading screen.** Scene loads are synchronous: load a small scene that shows "Loading", let it draw a frame or two,
-  then `scene.load(session.nextScene)`.
-- **Quit** has no place on phones and tablets (the system closes apps): hide it when `game.platform` is `"ios"` or
-  `"android"`.
-- **Credits.** `game.notices()` lists the software inside the runtime with its license (the full texts ship next to the
-  game in FACTORIA_NOTICES.txt): spawn a `Text` per entry into a `ScrollList`.
-
-### 9.24 Options: volumes, video, controls, saved between runs
-
-Keep the settings in `storage`, apply them once when the game starts and again whenever the player changes one.
-
-```js
-// scripts/settings.js
-import { storage, audio, window, input, session } from "factoria";
-
-const DEFAULTS = { volume: { master: 1, music: 0.6, sfx: 1, ui: 1 }, fullscreen: null, bindings: {} };
-
-export function load() {
-  const saved = storage.get("settings", {});
-  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings } };
-}
-export const save = (s) => storage.set("settings", s);
-
-export function applyOnce() {         // call it from the first scene's onStart
-  if (session.settingsApplied) return; // session outlives scene loads
-  session.settingsApplied = true;
-  const s = load();
-  for (const [bus, v] of Object.entries(s.volume)) audio.setVolume(bus, v);
-  for (const [action, list] of Object.entries(s.bindings)) input.rebind(action, list);
-  if (window.available && s.fullscreen !== null) window.setFullscreen(s.fullscreen);
-}
-```
-
-```js
-// In the options panel's behaviour: a Slider per bus.
-ui.on("change", "music_volume", (e) => {
-  this.s.volume.music = e.value;
-  audio.setVolume("music", e.value);
-  save(this.s);
-});
-```
-
-- **Audio.** One `Slider` per bus (`master`, `music`, `sfx`, `ui`; `min` 0, `max` 1, `step` 0.1). `audio.getVolume(bus)`
-  reads a volume back.
-- **Video.** `window.setFullscreen`, `window.setSize` (one of `window.resolutions()`), `window.setVsync`,
-  `window.frameCap`. They throw in headless runs and tests, where there is no window: check `window.available` and make
-  the video rows `interactable: false` without one.
-- **Controls.** On a "rebind" click, wait for the next frame's `input.lastPressed()` (skip the frame of the click, whose
-  press is the click itself), then `input.rebind(action, [pressed, ...otherDeviceBindings])` and save the list. While it
-  waits, keep the menus from treating Escape or B as "back". Show bindings with `input.buttonName(action)`: it names the
-  button as the player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad). `input.resetBindings()` goes back
-  to factoria.json.
-- **Language.** The template's Language tab is a placeholder: localization arrives with a later milestone.
+  loses the focus and the new panel's `autoFocus` widget takes it. Remember `ui.focused` before, and `ui.focus(...)` it
+  after closing, so the player lands where they were.
+- **Pause.** `game.paused = true` freezes physics, animations and every behaviour without `runWhilePaused = true`; the
+  UI keeps working. Unpause in the pause behaviour's next `onUpdate`, not in the "Resume" click handler, or the A /
+  Space press that clicked it also jumps. `time.scale` outlives scene loads: set `game.paused = false` before
+  `scene.load`.
+- **Settings.** Keep them in `storage` and apply them when the game starts (`session` remembers that it was done).
+  `window.*` setters throw when there is no window (headless runs, tests): check `window.available`.
+- **Controls.** Rebind with `input.rebind(action, list)` from the next `input.lastPressed()`, and name buttons with
+  `input.buttonName(action)` (Cross on a PlayStation pad, A on an Xbox pad).
+- **Quit** has no place on phones and tablets: hide it when `game.platform` is `"ios"` or `"android"`.
 
 ## 10. Tests
 
@@ -1354,4 +1284,6 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
 - `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
+- `factoria docs read menus` (MCP `docs_read {"name":"menus"}`): a main menu, options, credits, a loading screen
+  and a pause menu to copy into a game.
 - The project's `AGENTS.md`: short rules for this game.

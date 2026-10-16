@@ -1,0 +1,71 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Pause",
+    "components": {
+      "Panel": {
+        "size": [1280, 720],
+        "anchor": [0.5, 0.5],
+        "layer": 290,
+        "color": [0, 0, 0, 0.55],
+        "layout": "column",
+        "justify": "center"
+      }
+    },
+    "children": [
+      {
+        "id": "pause_box",
+        "components": {
+          "Panel": {
+            "layer": 300,
+            "layout": "column",
+            "spacing": 12,
+            "padding": [32, 24, 32, 32],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "pause_title",
+            "components": {
+              "Text": {
+                "text": "Paused",
+                "fontSize": 40,
+                "layer": 301,
+                "space": "screen"
+              }
+            }
+          },
+          {
+            "id": "resume",
+            "components": {
+              "Button": {
+                "text": "Resume",
+                "layer": 302,
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "pause_options",
+            "components": {
+              "Button": {
+                "text": "Options",
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "to_main_menu",
+            "components": {
+              "Button": {
+                "text": "Main menu",
+                "layer": 302
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

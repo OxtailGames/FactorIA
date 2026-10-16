@@ -192,9 +192,7 @@ cd mi-juego
 Plantillas disponibles:
 
 - `2d-empty`: una escena 2D vacía, solo con una cámara. Para empezar desde cero.
-- `2d-platformer`: un juego pequeño y completo: plataformas con física, monedas, marcador y una cámara que sigue al
-  jugador, más menú principal, menú de pausa, opciones (vídeo, audio, controles) que se guardan entre partidas, créditos
-  y una pantalla de carga.
+- `2d-platformer`: plataformas con física, monedas, marcador y una cámara que sigue al jugador.
 - `3d-empty`: una escena 3D vacía, solo con una cámara en perspectiva.
 
 `factoria templates` muestra las plantillas disponibles con su descripción.
@@ -221,8 +219,7 @@ factoria run
 Se abre una ventana con el juego. Los controles están definidos en `factoria.json`, dentro de `input.actions`:
 
 - `2d-empty`: todavía no se mueve nada; las acciones `move_left/right/up/down` (A, D, W, S o las flechas) y `action` ya están definidas.
-- `2d-platformer`: A y D, las flechas o la cruceta para moverte; Espacio, W, la flecha arriba o el botón A del mando
-  para saltar; Escape, P o Start para pausar. Los menús funcionan con las flechas y Enter, el ratón o un mando.
+- `2d-platformer`: A y D o las flechas para moverte; Espacio, W o la flecha arriba para saltar.
 - `3d-empty`: todavía no se mueve nada; las acciones para W/S, A/D, E/Espacio y Q/LeftShift (`move_forward`, `move_back`, `move_left`, `move_right`, `move_up`, `move_down`) ya están definidas.
 
 ## 4. Modo sin ventana y capturas

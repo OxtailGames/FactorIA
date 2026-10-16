@@ -1,6 +1,7 @@
 // @ts-check
-// Pauses the game with the "pause" action (Escape, P, gamepad Start): game.paused freezes physics, animations and
-// gameplay scripts, and this behaviour keeps running (runWhilePaused) to show the pause menu and its options panel.
+// Put this behaviour on one entity of every level: the "pause" action (Escape, P, gamepad Start) pauses the game and
+// opens the pause menu. game.paused freezes physics, animations and the other scripts; this one keeps running
+// (runWhilePaused) to drive the menu and its options panel.
 import { Behaviour, ui, input, game, scene, world } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
@@ -11,11 +12,12 @@ export default class PauseMenu extends Behaviour {
   onStart() {
     applyOnce();
     this.menus = new MenuStack(null);
-    // The options panel is the main menu's (one prefab for both). Spawned here rather than written into the scene,
-    // which scene.import_ascii rebuilds from levels/level1.json.
-    const options = world.spawnPrefab("prefabs/ui/options.prefab.json");
-    options.id = "options"; // MenuStack shows panels by id
-    options.active = false;
+    // Spawned, not written into the level: any level works with this one entity, even one scene.import_ascii rebuilds.
+    for (const [id, prefab] of [["pause_panel", "pause"], ["options", "options"]]) {
+      const panel = world.spawnPrefab(`prefabs/ui/${prefab}.prefab.json`);
+      panel.id = id; // MenuStack shows panels by id
+      panel.active = false;
+    }
     ui.on("click", "resume", () => this.resume());
     ui.on("click", "pause_options", () => this.menus.show("options"));
     ui.on("click", "to_main_menu", () => {

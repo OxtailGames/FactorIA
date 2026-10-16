@@ -94,12 +94,12 @@ test("Play goes through the loading screen to the level", () => {
   pad.tap("A");
   expect(scene.current).toBe("scenes/loading.scene.json");
   game.step(3);
-  expect(scene.current).toBe("scenes/main.scene.json");
+  expect(scene.current).toBe("scenes/level.scene.json");
   expect(game.find("player")).toBeTruthy();
 });
 
 test("pause freezes the level, and Resume does not make the player jump", () => {
-  load("scenes/main.scene.json");
+  load("scenes/level.scene.json");
   game.step(60);
   const player = game.find("player");
   const p0 = player.position.clone();
@@ -118,7 +118,7 @@ test("pause freezes the level, and Resume does not make the player jump", () => 
 });
 
 test("pause -> options -> the pause key goes back one panel at a time", () => {
-  load("scenes/main.scene.json");
+  load("scenes/level.scene.json");
   game.step(2);
   game.tap("pause");
   pad.tap("DpadDown");
