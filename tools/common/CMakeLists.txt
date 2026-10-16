@@ -33,7 +33,7 @@ if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(tooling_tests)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
-        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings)
+        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings fa_ext_cgltf)
         target_compile_definitions(fa_test_tooling PRIVATE FA_REPO_ROOT="${FA_ROOT}")
         add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders

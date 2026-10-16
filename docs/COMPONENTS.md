@@ -275,7 +275,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `clip` | asset (audio) | `""` | Project-relative path of the sound (.wav, .ogg or .mp3). |
+| `clip` | asset (audio) | `""` | Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa). |
 | `volume` | float | `1.0` | Loudness multiplier, 0 (silent) to 1 (full). Range 0.0..1.0. |
 | `pitch` | float | `1.0` | Playback speed multiplier; 2 = one octave higher and twice as fast. Range 0.05..8.0. |
 | `loop` | bool | `false` | Restart the clip when it ends. |
@@ -387,6 +387,40 @@ Example: api.scripting {}
 
 ## assets
 
+### `assets.analyze_audio` (modifies state)
+
+Measure the loudness of a sound (or of every sound) and keep the result in assets.json.
+
+Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak (dBFS) of .wav, .ogg, .mp3 and .qoa files, and stores them under the sound's `analysis` in assets.json together with the size and SHA-256 of the file, so editing the sound later makes the record stale instead of wrong. Sounds with import "normalize": true play at `targetLufs` using that record; without one the desktop engine measures the sound when it loads it, and mobile builds cannot, so run this (or export, which stores it) before shipping. A sound whose record is still fresh is not measured again. Without `path` every sound under assets/ and every sound a scene or prefab names is analyzed. Returns {files: [{path, loudnessLufs, peakDb, seconds, streams, normalize, gainDb, cached, stored}], measured, cached, failed}: `streams` says whether the sound is decoded while it plays (import stream), `gainDb` is the gain normalize would apply (only when normalize is on). A sound that cannot be decoded is listed with `error` and `hint` when no path is given. Example: {"path": "assets/music/theme.ogg"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative sound file, e.g. assets/sfx/jump.wav. Omit to analyze every sound of the project. |
+
+### `assets.import` (modifies state)
+
+Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from.
+
+Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
+- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf, .glb: copied as they are (images are checked to decode).
+- .gltf: copied with the .bin buffers and images it refers to, which must sit next to it or below it.
+- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips; the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
+- .psd: the merged image becomes a PNG (layers are flattened).
+- .obj (with its .mtl and textures): becomes a .gltf with an embedded buffer and the textures next to it; polygons are triangulated, objects/groups/materials become separate meshes, missing normals give flat shading, and the result has the bounds so you can scale it.
+- .fbx: converted to .glb by FBX2glTF ($FACTORIA_FBX2GLTF or PATH) or by Blender (PATH or its install folder). With neither installed the error says where to get them.
+Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts in assets/fonts/ by default) or at `path`, which must be under assets/. An existing file is an error unless overwrite is true. Example: {"source":"C:/art/hero.aseprite","license":"CC0","author":"Ana"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `source` | string | yes | The file to import: an absolute path on this machine, or a path relative to the project folder. Not a URL: download it first. |
+| `path` | string | no | Where it lands, under assets/ (a path ending in / is a folder). Default: assets/<name>.<ext>, or assets/models/, assets/audio/ or assets/fonts/ for those kinds. The extension is the importer's output (.png for Aseprite and PSD, .gltf for OBJ, .glb for FBX). |
+| `license` | string | no | License or terms of the file, e.g. "CC0", "CC-BY 4.0", "bought from itch.io, single project". Recorded in assets.json. |
+| `author` | string | no | Who made it. Recorded in assets.json for the credits. |
+| `sourceUrl` | string | no | Where the file came from (a page URL). Recorded as the provenance source instead of the local path. |
+| `ai` | boolean | no | Set true when AI made the content elsewhere (Steam's AI disclosure reads it). Leave out when unknown. |
+| `columns` | integer | no | Aseprite only: frames per row of the sheet (default ceil(sqrt(frames))). |
+| `overwrite` | boolean | no | Replace files that already exist. Default false. |
+
 ### `assets.list`
 
 List project asset files with type and size.
@@ -397,6 +431,29 @@ Example: assets.list {"folder":"assets","extension":".png"}
 |---|---|---|---|
 | `folder` | string | no | Project-relative folder. Default "assets". |
 | `extension` | string | no | Only files with this extension, e.g. .png |
+
+### `assets.slice_sheet` (modifies state)
+
+Make an image playable by SpriteAnimator: check its frame grid, or find the frames of an uneven sheet and repack them.
+
+SpriteAnimator plays a uniform grid of frames (columns x rows, row-major from the top-left). Two ways to get one:
+1. The image already is a grid: give columns/rows (or frameWidth/frameHeight). The grid is checked against the image size (a width that columns does not divide is an error that lists the columns that fit) and recorded as the `sheet` of the image in assets.json. Example: {"path":"assets/hero.png","columns":4,"rows":2,"fps":12}.
+2. Frames separated by transparent gutters and of uneven sizes, as AI-generated and downloaded sheets often are: pass auto: true. Every group of touching pixels is a sprite (sprites whose boxes overlap are one frame), ordered by rows then columns, and repacked into a uniform grid of the largest sprite's size, each centred (align "bottom" stands characters on the same ground line). The new PNG is `out` (default <name>_sheet.png next to the image; the source is kept). `frames` is the number of sprites you expect: a different count is an error that lists what was found. Example: {"path":"assets/hero_raw.png","auto":true,"frames":8,"align":"bottom","background":"auto"}.
+background "auto" first makes a solid background transparent (the four corners must be the same opaque colour; the background that touches them is cleared, the same colour inside a sprite stays), also for a grid. The result has the `sheet`, the SpriteAnimator fields and the Sprite texture to use. Aseprite files need no slicing: assets.import reads their frames and tags.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Project-relative image (png, jpg, tga, bmp), e.g. "assets/hero.png". |
+| `columns` | integer | no | Grid mode: frames per row (1 if neither columns nor frameWidth is given). With auto: frames per row of the new sheet (default: the most sprites found in one row). |
+| `rows` | integer | no | Grid mode: number of rows (1 if neither rows nor frameHeight is given). |
+| `frameWidth` | integer | no | Grid mode: width of a frame in pixels, instead of columns. |
+| `frameHeight` | integer | no | Grid mode: height of a frame in pixels, instead of rows. |
+| `frames` | integer | no | Grid mode: how many cells are used, row by row (default all; the last row may be partly empty). With auto: the number of sprites you expect (a different count is an error). |
+| `fps` | number | no | Playback speed to put in the SpriteAnimator fields of the result (default 10). Not stored in assets.json. |
+| `auto` | boolean | no | Find the frames (groups of touching pixels separated by transparent gutters) and repack them into a uniform grid. Default false. |
+| `align` | string ["center","bottom"] | no | auto only: where a sprite sits in its cell. center (default), or bottom: centred horizontally with feet on the cell's bottom edge, for characters standing on the ground. |
+| `background` | string ["none","auto"] | no | auto: first make the solid background (the four corners the same opaque colour) transparent. Default none. |
+| `out` | string | no | PNG to write when the pixels change (auto, background) or when given: default <name>_sheet.png next to the image. An existing file is replaced; use the image's own path to change it in place. |
 
 ## audio
 
@@ -1356,6 +1413,10 @@ declare module "factoria" {
      */
     enabled: boolean;
     /**
+     * Default false. While time.scale is 0 (game.paused) the engine calls onUpdate and onLateUpdate only on behaviours whose runWhilePaused is true, with the REAL frame time as dt (time.dt is 0 then; time.unscaledDt is the real one). Set it as a class field (`runWhilePaused = true;`) on pause menus and anything else that must react while gameplay is frozen. onFixedUpdate never runs while paused. ui events and world.on listeners are delivered either way.
+     */
+    runWhilePaused: boolean;
+    /**
      * One-shot timer (scaled game time); cancelled automatically on destroy.
      */
     after(seconds: number, fn: () => void): TimerHandle;
@@ -1648,14 +1709,18 @@ declare module "factoria" {
     readonly dt: number;
     readonly fixedDt: number;
     /**
-     * Simulated seconds since scene start.
+     * Simulated seconds since scene start (fixed steps run so far x fixedDt); not affected by time.scale.
      */
     readonly elapsed: number;
     readonly frame: number;
     /**
-     * Time scale for gameplay; 0 pauses behaviours.
+     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled.
      */
     scale: number;
+    /**
+     * Seconds of the current frame, NOT scaled by time.scale (the real frame time while paused): animate pause menus with it.
+     */
+    readonly unscaledDt: number;
   }
 
   /**
@@ -1698,7 +1763,7 @@ declare module "factoria" {
   export interface GameAPI {
     quit(): void;
     /**
-     * True while time.scale is 0.
+     * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false sets it back to 1.
      */
     paused: boolean;
     /**
@@ -1706,6 +1771,10 @@ declare module "factoria" {
      */
     readonly project: Readonly<Json>;
     readonly screenSize: Vec2;
+    /**
+     * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
+     */
+    notices(): { name: string; url: string; license: string; usedFor: string }[];
   }
 
   /**
@@ -2710,7 +2779,7 @@ declare module "factoria" {
    */
   export interface AudioSourceComponent {
     /**
-     * Project-relative path of the sound (.wav, .ogg or .mp3). (asset path: audio)
+     * Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa). (asset path: audio)
      */
     clip: string;
     /**

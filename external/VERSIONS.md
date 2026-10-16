@@ -17,6 +17,7 @@ every exported game, and a tooling test fails until it is there.
 | [cgltf](https://github.com/jkuhlmann/cgltf) | `85cd623` (2026-02-02) | MIT | render | glTF 2.0 model loading |
 | [Basis Universal](https://github.com/BinomialLLC/basis_universal) | `v2.50` (`9bebe16`) | Apache-2.0 (encoder extras: BSD-3-Clause, MIT) | render (transcoder), tooling (encoder) | KTX2 textures: the transcoder turns them into ASTC, BC7 or ETC2 at load time; `factoria export` encodes them (UASTC, ETC1S) |
 | [dr_libs](https://github.com/mackron/dr_libs) | `dfe8377` (2026-09-01) | MIT-0 / Public domain | audio | WAV and MP3 decoding |
+| [qoa](https://github.com/phoboslab/qoa) | `bc05897` (2026-09-27) | MIT | audio, tooling | QOA audio: decoding in the engine, WAV to QOA conversion in `factoria export` |
 | [nlohmann/json](https://github.com/nlohmann/json) | `v3.12.0` | MIT | everywhere | JSON (scenes, project files, MCP, AI APIs) |
 | [doctest](https://github.com/doctest/doctest) | `v2.4.12` | MIT | tests | C++ unit tests |
 | [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) (Linux lines only; data, not code) | `c1d5289` (2026-10-02) | zlib | platform | Gamepad mappings for Linux pads (`external/sdl_gamecontrollerdb/`, embedded in the binary) |
