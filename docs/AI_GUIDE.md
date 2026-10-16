@@ -1040,7 +1040,13 @@ it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
 
 <!-- Importing: filled by the importers work. -->
 
-<!-- Shipping (compression, atlases, streamed music, loudness): filled by the texture and audio work. -->
+Shipping textures: a mobile `factoria export` compresses every texture to a KTX2 twin (`assets/hero.png.ktx2` replaces
+`assets/hero.png`; names in scenes and scripts do not change; import setting `compression`). Set `"atlas": "ui"` in a
+texture's import settings (`assets.json`) to have the export pack that group into one atlas image, for sprites and
+particles only (not tilesets or mesh textures; validate warns). `factoria run` keeps using your PNGs. Details:
+`docs/ASSETS.md` > Textures.
+
+<!-- Shipping audio (streamed music, loudness): filled by the audio work. -->
 
 ## 10. Tests
 

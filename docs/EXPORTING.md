@@ -98,6 +98,21 @@ The export adds two files of its own: `.factoria-export` at the top of the expor
 `export.android.signing` when it lives inside the project (a warning says to keep it outside the repository): a signing
 key must never end up in the assets of an APK.
 
+### Textures
+
+Textures are the one thing an export changes instead of copying (import settings `compression` and `atlas` in
+`assets.json`; [ASSETS.md](ASSETS.md#textures) has the details):
+
+- **Android and iOS exports** compress every PNG to a GPU-ready KTX2 file (UASTC, Basis Universal): the export ships
+  `assets/hero.png.ktx2` in place of `assets/hero.png`, and the game, which keeps asking for `assets/hero.png`, loads the
+  twin and uploads it to ASTC, ETC2 or BC7 depending on the device, falling back to RGBA8 when needed. Video memory
+  for textures drops to a quarter. **Desktop exports** ship PNGs (set `"compression": "uastc"` in
+  `defaults.texture` to compress them too).
+- Textures with the same `atlas` group are packed into `assets/atlases/<group>.png` (several pages when they do not fit)
+  and the shipped `assets.json` records where each went (`packed`); the original PNGs are not shipped.
+- Encoding is cached in `.factoria/export-cache/<platform>/` (never shipped), so only the first export is slow. A texture
+  that cannot be converted ships as a PNG with a warning; the export never fails because of it.
+
 ## Replacing an earlier export
 
 Every export starts by deleting `<out>/<game-slug>-<platform>/` and writing it again, so files you add there do not
@@ -122,7 +137,7 @@ Your game is yours. FactorIA is open source under the MIT License, and the files
 (the templates) are MIT-0: use, change and sell them with no notice at all.
 
 What an exported game does carry is the FactorIA runtime (`factoria_player`), which is FactorIA's MIT-licensed code
-plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, dr_libs, nlohmann/json,
+plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, Basis Universal, dr_libs, nlohmann/json,
 SDL_GameControllerDB, DejaVu Sans, Press Start 2P). Their licenses only ask that their notices travel with every copy,
 so every export writes `FACTORIA_NOTICES.txt` with all of them where it ships with the game:
 
