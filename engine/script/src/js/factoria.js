@@ -654,10 +654,28 @@
       N.inPad(0, index, "");  // validates the index
       return {
         get connected() { return N.inPad(0, index, ""); },
+        // "xbox" | "playstation" | "nintendo" | "steamdeck" | "generic": the family of a connected pad, from its vendor id and name.
+        get type() { return N.inPadType(index); },
         down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
         axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
       };
     },
+    // ---- settings an options menu needs (M10): text, rebinding, last input, button names, cursor, on-screen keyboard
+    // Characters typed this frame (UTF-8), from the keyboard or the on-screen keyboard.
+    get text() { return N.inText(); },
+    showKeyboard(on = true) { N.inCursor(2, !!on); },
+    get keyboardShown() { return N.inCursor(2); },
+    // Rebinding. rebind() replaces an action's bindings and validates the names (an unknown action or binding throws with
+    // a suggestion); resetBindings() goes back to factoria.json (one action, or all of them).
+    actions: () => N.inActions(),
+    bindings: (action) => N.inBindings(action),
+    rebind(action, bindings) { N.inRebind(action, bindings); },
+    resetBindings(action) { N.inResetBindings(action); },
+    // The binding that went down this frame ("Space", "MouseLeft", "GamepadA"...) or null: for "press a key" screens.
+    lastPressed: () => N.inLastPressed(),
+    get lastDevice() { return N.inLastDevice(); },
+    // The label a player sees for a binding or an action: "Space", "Cross" (PlayStation A), "ZL"...
+    buttonName: (bindingOrAction, pad = 0) => N.inButtonName(bindingOrAction, pad),
     // Deadzone of sticks (radial) and triggers, from factoria.json input.deadzone (default 0.2). Assign to offer calibration.
     get deadzone() { return N.inDeadzone(); },
     set deadzone(v) { N.inDeadzone(v); },
@@ -668,12 +686,60 @@
       get delta() { const m = N.inMouse().delta; return new Vec2(m[0], m[1]); },
       get wheel() { return N.inMouse().wheel; },
       down: (b = "left") => N.inMouseButton(0, b), pressed: (b = "left") => N.inMouseButton(1, b), released: (b = "left") => N.inMouseButton(2, b),
+      // Cursor visibility (default true) and lock (hidden, held in the window, delta reports raw movement). A headless run
+      // only records them.
+      get visible() { return N.inCursor(0); },
+      set visible(v) { N.inCursor(0, !!v); },
+      get locked() { return N.inCursor(1); },
+      set locked(v) { N.inCursor(1, !!v); },
     },
     get touches() {
       return N.inTouches().map((t) => {
         const position = new Vec2(t.position[0], t.position[1]);
         return { id: t.id, position, world: camera.screenToWorld(position), pressed: t.pressed };
       });
+    },
+  };
+
+  // ---- window (M10): full screen, size, vsync and frame cap for options menus. Getters work everywhere (a run without a
+  // window answers from factoria.json); every setter throws a teaching Error when there is no window (headless, tests).
+  const winSet = (fn, kind, a, b) => {
+    const err = N.windowSet(kind, a, b);
+    if (err) throw new Error(`window.${fn}: ${err}`);
+  };
+  const needBool = (fn, v) => {
+    if (typeof v !== "boolean") throw new Error(`window.${fn}(on) expects true or false, e.g. window.${fn}(true), but got ${inspect(v)}`);
+  };
+  const windowApi = {
+    get available() { return N.windowInfo().available; },
+    get fullscreen() { return N.windowInfo().fullscreen; },
+    setFullscreen(on) { needBool("setFullscreen", on); winSet("setFullscreen", 0, on); },
+    get size() { const w = N.windowInfo(); return new Vec2(w.width, w.height); },
+    get displaySize() { const w = N.windowInfo(); return new Vec2(w.displayWidth, w.displayHeight); },
+    setSize(width, height) {
+      const ok = (v) => Number.isInteger(v) && v >= 160 && v <= 16384;
+      if (!ok(width) || !ok(height)) {
+        throw new Error(`window.setSize(width, height) expects whole numbers of pixels from 160 to 16384, e.g. window.setSize(1280, 720), but got ${inspect(width)} and ${inspect(height)}`);
+      }
+      winSet("setSize", 1, width, height);
+    },
+    // Common 16:9 and 16:10 sizes, plus the game's design size, that fit the monitor: [{ width, height }], smallest first.
+    resolutions() {
+      const w = N.windowInfo(), d = N.project().display || {};
+      const all = [[640, 360], [960, 540], [1280, 720], [1600, 900], [1920, 1080], [2560, 1440], [3840, 2160],
+                   [1280, 800], [1440, 900], [1680, 1050], [1920, 1200], [2560, 1600]];
+      if (d.width > 0 && d.height > 0 && !all.some(([x, y]) => x === d.width && y === d.height)) all.push([d.width, d.height]);
+      return all.filter(([x, y]) => x <= w.displayWidth && y <= w.displayHeight)
+        .sort((a, b) => a[0] * a[1] - b[0] * b[1] || a[0] - b[0]).map(([width, height]) => ({ width, height }));
+    },
+    get vsync() { return N.windowInfo().vsync; },
+    setVsync(on) { needBool("setVsync", on); winSet("setVsync", 2, on); },
+    get frameCap() { return N.windowInfo().frameCap; },
+    set frameCap(fps) {
+      if (!Number.isInteger(fps) || (fps !== 0 && (fps < 15 || fps > 1000))) {
+        throw new Error(`window.frameCap expects 0 (unlimited) or a whole number of frames per second from 15 to 1000, e.g. window.frameCap = 60, but got ${inspect(fps)}`);
+      }
+      winSet("frameCap", 3, fps);
     },
   };
 
@@ -858,12 +924,39 @@
     burst(entity, count = 10) { N.particlesBurst(entityHandle(entity, "particles.burst"), count); },
   };
 
+  const UI_EVENTS = ["click", "change", "submit", "focus", "cancel"];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
     measureText(text, o = {}) {
       const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0);
       return { width: m[0], height: m[1] };
     },
+    // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
+    // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
+    // id) limits it to one widget. Returns the function that stops listening.
+    on(type, a, b) {
+      const fn = typeof a === "function" ? a : b, target = typeof a === "function" ? undefined : a;
+      if (!UI_EVENTS.includes(type)) {
+        const sug = closest(String(type), UI_EVENTS);
+        throw new Error(`ui.on(type, fn): unknown event type ${inspect(type)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${UI_EVENTS.map((t) => `"${t}"`).join(", ")}`);
+      }
+      if (typeof fn !== "function") throw new Error(`ui.on("${type}", [target,] fn) expects a function as its last argument, e.g. ui.on("${type}", (e) => console.log(e.id)), but got ${inspect(fn)}`);
+      let id = null;
+      if (target !== undefined && target !== null) {
+        if (target instanceof Entity) id = target.id;
+        else if (typeof target === "string") { const h = N.find(target); id = h === null ? target : N.idOf(h); }
+        else throw new Error(`ui.on("${type}", target, fn): target must be an Entity or an entity id such as "play_button", but got ${inspect(target)}`);
+      }
+      return addListener(`ui.${type}`, (data, source) => {
+        if (id !== null && (!data || data.id !== id)) return;
+        fn({ type, id: data?.id ?? null, entity: source, value: data?.value });
+      }, null);
+    },
+    // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
+    // the entity cannot take focus.
+    focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
+    get focused() { return entityOf(N.uiState()[0]); },
+    get hovered() { return entityOf(N.uiState()[1]); },
   };
 
   const assets = {
@@ -935,6 +1028,7 @@
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins,
+    window: windowApi,
   };
 
   // ============================================================================================ eval serialization
@@ -1147,6 +1241,9 @@
     tap(action) { N.inSetAction(action, true); stepN(1); N.inSetAction(action, false); stepN(1); },
     keyDown(key) { N.inKeyEvent(key, true); },
     keyUp(key) { N.inKeyEvent(key, false); },
+    // Types text as a keyboard would: input.text shows it until the next step. Control characters are skipped, like the
+    // real keyboard does; send Enter and Backspace with keyDown/keyUp.
+    typeText(text) { for (const ch of String(text)) { const cp = ch.codePointAt(0); if (cp >= 32 && cp !== 127) N.testText(cp); } },
     // gamepad(index = 0): drives pad `index`. press/release/axis/connect/disconnect act now (like keyDown/keyUp); tap steps.
     // press, release and axis connect the pad if needed; disconnect releases what it held.
     gamepad(index = 0) {
@@ -1158,6 +1255,9 @@
         axis(name, value) { N.testPad(2, index, name, value); },
         connect() { N.testPad(3, index, "", 0); },
         disconnect() { N.testPad(4, index, "", 0); },
+        // Plugs the pad in as this family, for input.buttonName("jump") and input.gamepad(i).type: "xbox", "playstation",
+        // "nintendo", "steamdeck" or "generic". Tests start with "generic" pads.
+        setType(type) { N.testPad(5, index, type, 0); },
       };
     },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },
