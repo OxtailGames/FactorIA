@@ -39,7 +39,7 @@ Vec2 approx_text_size(const std::string& text, float fontSize, float maxWidth);
 
 // One drawn thing of an entity.
 struct VisualFootprint {
-    const char* component = "";                  // "Tilemap", "Sprite", "Shape2D" or "Text"
+    const char* component = "";                  // "Tilemap", "Sprite", "Shape2D", "Text" or a UI widget ("Button", "Panel"...)
     RenderSpace space = RenderSpace::World;      // Screen: design pixels, origin top-left, local y flipped (see below)
     std::int32_t layer = 0;                      // the component's draw layer
     Vec2 anchor{0, 0};                           // Screen space only: the component's anchor (fraction of the design size)
@@ -51,7 +51,7 @@ struct VisualFootprint {
     std::array<Vec2, 4> hull{};
 };
 
-// Every visual of `e`, in the order Tilemap, Sprite, Shape2D, Text, screen-space ones included (`space`) unless
+// Every visual of `e`, in the order Tilemap, Sprite, Shape2D, Text, UI widget (screen space, see ui_rect.h), screen-space ones included (`space`) unless
 // `includeScreenSpace` is false. Empty when the entity draws nothing (an empty map, a zero-length line, empty text).
 // `active` and colour alpha are ignored.
 //

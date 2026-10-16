@@ -183,7 +183,7 @@ forms. Rects (`physics.overlapBox`, `debug.rect`) take `{x, y, w, h}` or
 Everything is imported from `"factoria"`:
 
 ```js
-import { Behaviour, world, input, audio, physics, time, camera, debug, scene, game,
+import { Behaviour, world, input, window, audio, physics, time, camera, debug, scene, game,
          storage, rng, fa, vec2, vec3, color, Vec2, Vec3, Color, math,
          session, particles, ui, assets, ToolError } from "factoria";
 ```
@@ -243,6 +243,78 @@ import { Behaviour, world, input, audio, physics, time, camera, debug, scene, ga
   frees it. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
   `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
   (`docs/MOBILE.md`). Real pads tried so far: an Xbox Wireless Controller on macOS; Linux and Android not yet.
+- Options menus (rebinding, "press any key", button labels):
+  - `actions()` lists the action names; `bindings(action)` the names bound to one (`["Space", "GamepadA"]`).
+    `rebind(action, bindings)` replaces ALL of an action's bindings at once (`input.rebind("jump", ["Enter",
+    "GamepadX"])`); an empty array unbinds it. Names are case-insensitive and stored in their canonical spelling. An
+    unknown action or binding name throws a "did you mean" error and changes nothing (all or nothing).
+    `resetBindings(action?)` goes back to the `factoria.json` bindings, of one action or of all (an action a script
+    created with `rebind` and the project does not list is removed). The change is live at once: `input.down` and
+    friends follow the new binding. It is NOT saved: persist it yourself (recipe below).
+  - `lastPressed()` is the binding that went down this frame (`"Space"`, `"MouseLeft"`, `"GamepadA"`, `"GamepadLeftStickLeft"`
+    when a stick crosses halfway) or `null`. Poll it from a "press the new key" screen and pass the result to `rebind`;
+    keys come first when several go down in the same frame. Mouse movement, a held key and a connected pad do not count.
+  - `lastDevice` is `"keyboard" | "mouse" | "touch" | "gamepad"`, whichever produced the last real input (a pad that merely
+    sits plugged in never takes it), so a game can switch its on-screen hints between key caps and pad buttons.
+  - `buttonName(bindingOrAction, pad = 0)` is the label a player sees: `"Space"`, `"Left Click"`, `"A"` (Xbox),
+    `"Cross"` (PlayStation), `"ZL"` (Nintendo). Give it an action and it names that action's first binding for the last
+    device used (the keyboard key unless the player last touched a pad). Pad families come from the pad's USB/Bluetooth
+    ids and name (`input.gamepad(i).type`: `"xbox" | "playstation" | "nintendo" | "steamdeck" | "generic"`); a pad that is
+    not connected, or one nothing recognizes, is `"generic"` (Xbox-style names). Android reports `"generic"` for now.
+  - `text` is what the player typed this frame as UTF-8 (printable characters, emoji and accents included, no control
+    keys: read Backspace/Enter/Escape with `keyPressed`). Empty most frames. `showKeyboard(on = true)` raises the on-screen
+    keyboard on phones and tablets (a no-op on desktop, where the physical keyboard already types); `keyboardShown` is what
+    was asked for.
+  - `mouse.visible` (default true) and `mouse.locked` (default false) hide the cursor and lock it to the window for mouse
+    look; while locked, `mouse.delta` is the raw movement. The window follows the request every frame and re-locks after
+    the game regains focus. A headless run and tests only record the values (and reset them between tests).
+  ```js
+  // "Press a key" rebinding screen, saved between runs
+  import { Behaviour, input, storage } from "factoria";
+  for (const [action, list] of Object.entries(storage.get("bindings", {}))) {   // at startup
+    try { input.rebind(action, list); } catch (e) { console.warn(`ignoring saved bindings of '${action}': ${e.message}`); }
+  }
+  export default class Rebind extends Behaviour {
+    waiting = "jump";
+    onUpdate() {
+      const b = input.lastPressed();
+      if (!this.waiting || !b || b === "Escape") return;
+      input.rebind(this.waiting, [b]);
+      storage.set("bindings", Object.fromEntries(input.actions().map((a) => [a, input.bindings(a)])));
+      console.log(`${this.waiting} is now ${input.buttonName(b)}`);
+      this.waiting = null;
+    }
+  }
+  ```
+
+### window
+Settings an options menu needs. The getters work everywhere (a headless run or a test answers from `factoria.json`);
+every setter throws an Error that says what to do when the run has no window (`factoria run --headless`, tests, the
+editor's game view), so check `window.available` first or offer the option only in `factoria run` and exported games.
+- `available` is true when a real window exists. `fullscreen` (read only) and `setFullscreen(on)`: `window.setFullscreen(true)`
+  toggles at once (it takes `true` or `false`, nothing else).
+- `size` (Vec2, window pixels without the title bar) and `setSize(width, height)` (whole numbers, 160 to 16384). Setting
+  the size while full screen throws: leave full screen first. `displaySize` is the monitor's size.
+  `resolutions()` lists `[{ width, height }]`, smallest first: 16:9 and 16:10 sizes that fit the monitor plus the game's
+  design size, ready for a dropdown. The game letterboxes per `display.scaleMode`, so any size works.
+- `vsync` and `setVsync(on)`; `display.vsync: false` in `factoria.json` now really turns it off (it was ignored before).
+  Where it cannot be changed live (phones and tablets, a Linux driver without swap control, Windows before 10) the setter
+  throws and says to set `display.vsync` instead. On macOS, vsync off lets the picture tear; the frame rate stays at the display's.
+- `frameCap`: 0 (unlimited, the default) or 15 to 1000 frames per second, read and written (`window.frameCap = 60`). It
+  waits at the start of each frame and does not touch the simulation (the fixed step still runs per game time), so it
+  only saves power and heat; with vsync on the display rate wins when it is lower.
+- Phones and tablets are always full screen, with the display's frame rate: `setFullscreen(true)` is a no-op, and
+  `setFullscreen(false)`, `setSize` and `frameCap` throw with that explanation.
+```js
+import { window, storage } from "factoria";
+const s = storage.get("video", { fullscreen: false, vsync: true, cap: 0 });
+if (window.available) {
+  window.setFullscreen(s.fullscreen);
+  window.setVsync(s.vsync);
+  window.frameCap = s.cap;
+}
+// A resolution dropdown: window.resolutions().map((r) => `${r.width} x ${r.height}`); on pick: window.setSize(r.width, r.height).
+```
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
@@ -308,6 +380,93 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
 - `ui.measureText(text, { fontSize, font, maxWidth })` → `{ width, height }` laid out like `Text` rendering.
   Headless runs approximate (0.6 × fontSize per character) and warn once.
+- `ui.on`, `ui.focus`, `ui.focused` and `ui.hovered` belong to the widgets: see the next section.
+
+### UI: menus, settings screens and HUD widgets
+The widgets are components: `Panel` (a background that can lay out its children), `Button`, `Toggle`, `Slider`,
+`TextField` and `ScrollList` (a Panel that scrolls and clips its children). They are drawn and hit-tested in SCREEN
+SPACE only (design pixels, origin top-left, +Y down; there is no `space` field). `Transform.position` is the offset from
+`anchor` (a fraction of the design size: `[0, 0]` top-left, `[1, 1]` bottom-right) and `pivot` says which point of the
+widget sits there (`[0.5, 0.5]` centres it, `[0, 1]` puts its top-left corner on the position). Rotation and scale of UI
+entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the ones that matter:
+
+- Style, on every widget: `size`, `pivot`, `anchor`, `layer` (draw order, default 200: above `Text`'s 100; a widget's
+  label is drawn at `layer + 1` and its focus ring at `layer + 2`), `color` (background tint), `texture` + `slice`.
+  With a `texture`, the background is drawn 9-slice: `slice` = `[left, top, right, bottom]` borders in texture pixels
+  that keep their size (1 texture pixel = 1 design pixel) while the edges and the centre stretch, so one small PNG
+  gives a button or panel of any size. `slice: [0, 0, 0, 0]` stretches the whole image.
+- Button, Toggle, Slider and TextField also have `font`, `fontSize`, `textColor`, `accentColor` (focus ring, slider fill
+  and knob, toggle check, caret), `interactable` (false: drawn at half alpha, never focused or clicked) and
+  `autoFocus`. Read-only runtime flags: `focused`, `hovered`, `pressed` (a script may read them to restyle).
+  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`; TextField
+  `text`, `placeholder`, `maxLength`.
+- **Layout.** A `Panel` with `layout: "column" | "row" | "grid"` places its active children (widgets, and screen-space
+  `Text`, `Sprite` and `Shape2D`) inside its rectangle minus `padding`: `spacing` between them, `align` (the cross axis:
+  `start`, `center`, `end`; default center), `justify` (where the run sits along the main axis), `columns` for a grid, and
+  `fit: true` makes the Panel as big as its content plus padding. Layout moves the children's `Transform.position`
+  every frame, so a child's own position is only a starting point inside a laid-out Panel. `layout: "none"` (the default)
+  leaves them where they are. Give a `Sprite` inside a container an explicit `size` (it is measured as 32 x 32 until
+  the texture size is known to the layout); a `Text` is measured with the real font.
+- **ScrollList.** Lays its children out as a column and shows the part inside its rectangle: everything drawn by its
+  descendants (widgets, `Text`, `Sprite`, `Shape2D`) is clipped to it, and hits outside it do nothing. The mouse wheel
+  over it scrolls (`scrollSpeed` pixels per notch) and moving the focus to a child scrolls it into view. `scroll` is
+  the offset in pixels (scripts may write it; it is clamped).
+
+**Focus and navigation.** A widget can have keyboard / gamepad focus when it is a Button, Toggle, Slider or TextField,
+active and `interactable`. Nothing takes focus by itself except one thing: when no widget is focused, the first
+focusable widget (top to bottom, then left to right) with `autoFocus: true` takes it. So a HUD button never reacts to the
+gameplay keys; a menu marks its first item `autoFocus` (or calls `ui.focus(...)` when it opens). A focused widget that is
+destroyed, deactivated or made not interactable loses focus, and `autoFocus` applies again. The actions below move
+the focus to the nearest focusable widget in that direction (holding repeats after 0.4 s, then every 0.1 s; it does not
+wrap):
+
+| action | default bindings | does |
+|---|---|---|
+| `ui_up` `ui_down` `ui_left` `ui_right` | arrows, d-pad, left stick | move the focus; on a focused Slider, left / right change the value by `step` |
+| `ui_submit` | Enter, Space, `GamepadA` | click the focused Button, flip the focused Toggle (a TextField ignores it) |
+| `ui_cancel` | Escape, `GamepadB` | send `ui.cancel` (also with nothing focused) |
+
+The engine installs these six unless `input.actions` in `factoria.json` defines an action of the same name, so to rebind
+a key, add the action there: `"ui_submit": ["Enter", "GamepadA"]` (the project's list replaces the default one).
+A focused TextField takes typed characters (`maxLength` code points, UTF-8), Backspace deletes (it repeats) and the
+Enter key sends `ui.submit`. The mouse (and the first touch) hovers, presses and focuses; a Button or Toggle acts when
+the press is released over the same widget; a Slider follows the pointer while pressed.
+
+**The UI works while the game is paused** (`time.scale = 0`): it runs on real time, which is what a pause menu needs.
+
+**Events.** The UI sends game events (`world.on(name, (data, source) => ...)`, `Behaviour.onEvent`), with the widget as
+`source` and `data.id` its entity id:
+
+| event | when | `data` |
+|---|---|---|
+| `ui.click` | a Button was clicked (mouse, or `ui_submit` while focused) | `{ id }` |
+| `ui.change` | a Toggle flipped, a Slider moved, a TextField was edited | `{ id, value }` (boolean, number, string) |
+| `ui.submit` | Enter in a TextField | `{ id, value }` |
+| `ui.focus` | a widget took the focus | `{ id }` |
+| `ui.cancel` | `ui_cancel` was pressed | `{ id }` (`null` when nothing is focused) |
+
+- `ui.on(type, fn)` / `ui.on(type, target, fn)` → unsubscribe function. `type` is `"click"`, `"change"`, `"submit"`, `"focus"`
+  or `"cancel"`; `target` (an Entity or an entity id) limits it to one widget; `fn` gets `{ type, id, entity, value }`.
+  A wrong `type` throws with a "did you mean". Inside a behaviour prefer `this.on("ui.click", (data, source) => ...)`:
+  it is removed with the behaviour. Scripts do not need to poll the widgets:
+  ```js
+  ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json"));
+  ui.on("change", "music_volume", (e) => audio.setVolume("music", e.value));
+  ```
+- `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it throws, saying why, when
+  the entity is not a focusable widget, is inactive or has `interactable: false`. `ui.focused` and `ui.hovered`
+  are the focused widget and the one under the pointer (Entity or `null`): check `ui.hovered` so a click meant for a
+  button does not also fire the gun.
+- The command `ui.state` returns what is on screen: every widget with its `id`, `kind`, `rect` `[x, y, w, h]`,
+  `focused`, `hovered`, `pressed`, `interactable`, `visible` and `value` / `text`, in reading order. Use it to find what
+  to click (`game.input` with `mouse.position`) or which widget has the focus.
+- Tests: drive a menu with pad taps and assert on events and values, no mouse needed:
+  ```js
+  game.loadJson(menuScene); game.step(1);
+  const pad = game.gamepad();
+  pad.tap("DpadDown"); pad.tap("DpadRight");   // focus the slider below, +1 step
+  pad.tap("A");                                // ui_submit on the focused widget
+  ```
 
 ### assets
 - `assets.textureSize(path)` → `{ width, height }` (same shape as `ui.measureText`): the pixel size of the texture file at
@@ -454,6 +613,11 @@ test("the stick moves the player", () => {
 ```
 
 Bad button or axis names and indices outside 0..3 throw with a "did you mean".
+
+Options-menu tests: `game.typeText("héllo")` types characters (what `input.text` returns for the next step; control
+characters are skipped) and `game.gamepad(i).setType("playstation")` plugs the pad in as that family, so
+`input.buttonName("jump")` answers "Cross" instead of "A". `rebind`, the cursor and the keyboard request are reset
+between tests. `window.*` setters throw in tests (no window): test the logic around them, not the toggle itself.
 
 Each test FILE starts from fresh module instances (module-level state is
 re-created, tools are re-evaluated against them), an empty in-memory `storage`
