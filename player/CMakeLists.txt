@@ -20,6 +20,9 @@ if(FA_PLATFORM STREQUAL "android")
     # ANativeActivity_onCreate lives in the static fa_platform archive (sokol_app); force the linker
     # to pull it in and export it, otherwise NativeActivity cannot find its entry point.
     target_link_options(factoria_player PRIVATE -u ANativeActivity_onCreate)
+    # 16 KB pages: Google Play requires every native library of an app that targets Android 15+ to load on devices with
+    # 16 KB memory pages, so the segments are aligned to 0x4000 (NDK r28+ does it by default, r27 does not).
+    target_link_options(factoria_player PRIVATE -Wl,-z,max-page-size=16384)
     target_link_libraries(factoria_player PRIVATE android log EGL GLESv3)
 elseif(FA_PLATFORM STREQUAL "ios")
     set(FA_GAME_BUNDLE_ID "com.factoria.player" CACHE STRING "iOS bundle identifier (reverse DNS)")
