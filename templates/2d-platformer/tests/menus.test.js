@@ -1,7 +1,8 @@
 import { test, expect, game } from "factoria:test";
-import { ui, input, storage, audio, scene, session } from "factoria";
+import { ui, input, storage, audio, scene, session, game as running } from "factoria";
 
 // The menus are driven the way a player with only a gamepad would: D-pad to move the focus, A to press, B to go back.
+// `game` is the test driver (steps, presses); `running` is the game's own object (paused, notices()).
 const pad = game.gamepad(0);
 const focused = () => (ui.focused ? ui.focused.id : null);
 const shown = (id) => game.find(id).activeInHierarchy;
@@ -83,7 +84,7 @@ test("credits list the software inside the runtime", () => {
   pad.tap("A");
   expect(shown("credits")).toBe(true);
   const lines = game.find("credits_list").children.map((e) => e.get("Text").text);
-  for (const n of game.notices()) expect(lines.some((l) => l.startsWith(n.name))).toBe(true);
+  for (const n of running.notices()) expect(lines.some((l) => l.startsWith(n.name))).toBe(true);
   pad.tap("B");
   expect(focused()).toBe("credits_button");
 });
@@ -103,14 +104,14 @@ test("pause freezes the level, and Resume does not make the player jump", () => 
   const player = game.find("player");
   const p0 = player.position.clone();
   pad.tap("Start");
-  expect(game.paused).toBe(true);
+  expect(running.paused).toBe(true);
   expect(focused()).toBe("resume");
   game.press("move_right");
   game.step(30);
   game.release("move_right");
   expect(player.position.x).toBeCloseTo(p0.x);
   pad.tap("A"); // Resume (A is also jump)
-  expect(game.paused).toBe(false);
+  expect(running.paused).toBe(false);
   expect(shown("pause_panel")).toBe(false);
   game.step(10);
   expect(player.position.y).toBeCloseTo(p0.y, 0);
@@ -128,5 +129,5 @@ test("pause -> options -> the pause key goes back one panel at a time", () => {
   expect(focused()).toBe("pause_options");
   game.tap("pause");
   game.step(1);
-  expect(game.paused).toBe(false);
+  expect(running.paused).toBe(false);
 });

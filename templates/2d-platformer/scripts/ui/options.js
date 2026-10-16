@@ -97,12 +97,12 @@ export default class Options extends Behaviour {
   setupControls() {
     const list = world.find("bindings");
     for (const [action, label] of Object.entries(this.actions)) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: label, size: [480, 44], fontSize: 22 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: label, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };
         MenuStack.busy = true; // Escape cancels the rebinding instead of closing the panel
-        button.get("Button").text = `${label}: press a key or button (Escape cancels)`;
+        button.get("Button").text = `${label}: press a key or button (Esc cancels)`;
       });
     }
     ui.on("click", "reset_controls", () => {
