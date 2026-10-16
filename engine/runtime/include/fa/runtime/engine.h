@@ -4,6 +4,7 @@
 //   input.begin_frame (events were fed by the platform/injection)
 //   N x fixed step @ fixedHz:  scripts.fixed_update -> physics.step -> scripts.dispatch_events
 //   scripts.update(dt) -> animators/particles -> audio.update -> scripts.late_update
+//   physics.step and animators/particles are scaled by scripts.time_scale() (game.paused: frozen)
 //   renderer: begin_frame -> render_world -> end_frame
 //   world.flush() (deferred destroys), pending scene change, hot-reload poll
 //
