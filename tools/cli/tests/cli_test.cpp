@@ -190,6 +190,33 @@ TEST_CASE("run --input: a missing file lists the places tried and suggests a clo
     CHECK(r.err.find("a folder of that name exists") != std::string::npos);
 }
 
+// Whoever parses stdout of a --json command gets an object, also when it fails: {"ok": false, "error": {code, message,
+// hint}} (the text for people still goes to stderr).
+TEST_CASE("--json: a failure is a JSON error object on stdout, whatever the command and the kind of failure") {
+    PathsFixture f;
+    auto check = [](const Result& r, int code, const std::string& errorCode, const std::string& message) {
+        CHECK(r.code == code);
+        const fa::Json j = fa::Json::parse(r.out, nullptr, false);
+        REQUIRE_MESSAGE(j.is_object(), "stdout: " << r.out);
+        CHECK(j["ok"] == false);
+        CHECK(j["error"]["code"] == errorCode);
+        CHECK_MESSAGE(j["error"]["message"].get<std::string>().find(message) != std::string::npos, r.out);
+        CHECK(j["error"].contains("hint"));
+        CHECK(r.err.find(message) != std::string::npos);
+    };
+    // A failure the command reports (report_failure): the export cannot find the player it was given.
+    const std::string missing = (f.root / "no-such-player").string();
+    check(run({"export", f.project.string(), "--platform", "linux", "--player", missing, "--json"}), 1, "failed", "not found");
+    // A failure thrown out of the command (CliError): no project there.
+    check(run({"validate", (f.root / "nothing-here").string(), "--json"}), 1, "failed", "nothing-here");
+    // Bad arguments (UsageError), exit code 2.
+    check(run({"export", f.project.string(), "--platform", "plan9", "--json"}), 2, "invalid_argument", "Unknown platform 'plan9'");
+    // Without --json, stdout stays empty.
+    auto plain = run({"export", f.project.string(), "--platform", "linux", "--player", missing});
+    CHECK(plain.code == 1);
+    CHECK(plain.out.empty());
+}
+
 TEST_CASE("run output options are relative to the current directory and the report prints the absolute path") {
     PathsFixture f;
     auto r = run({"run", f.project.string(), "--headless", "--frames", "3", "--state-out", "out/state.json", "--json"});

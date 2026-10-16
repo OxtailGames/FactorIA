@@ -64,9 +64,7 @@ void write_stderr(const LogEntry& e, LogFormat format) {
                   {"frame", e.frame}};
         line = j.dump(-1, ' ', false, Json::error_handler_t::replace);
     } else {
-        char head[96];
-        std::snprintf(head, sizeof head, "[%7.3f] %s %s: ", e.time, padded_level(e.level), e.category.c_str());
-        line = head + e.message;
+        line = format_log_line(e);
     }
     line += '\n';
     std::fwrite(line.data(), 1, line.size(), stderr);
@@ -80,6 +78,12 @@ void write_stderr(const LogEntry& e, LogFormat format) {
 }
 
 }  // namespace
+
+std::string format_log_line(const LogEntry& e) {
+    char head[96];
+    std::snprintf(head, sizeof head, "[%7.3f] %s %s: ", e.time, padded_level(e.level), e.category.c_str());
+    return head + e.message;
+}
 
 const char* log_level_name(LogLevel level) {
     switch (level) {

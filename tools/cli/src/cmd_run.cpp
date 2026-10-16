@@ -178,7 +178,7 @@ Command make_screenshot_command() {
         std::error_code ec;
         fsys::create_directories(fsys::path(out).parent_path(), ec);
         std::string err;
-        if (!session->engine().screenshot(out, &err)) return report_failure(ctx.err, "Screenshot failed: " + err);
+        if (!session->engine().screenshot(out, &err)) return report_failure(ctx, "Screenshot failed: " + err);
         if (a.has("json"))
             print_json(ctx.out, Json::object({{"path", out}, {"frames", frames}, {"ok", true}}));
         else

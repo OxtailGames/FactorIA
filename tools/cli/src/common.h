@@ -37,6 +37,10 @@ Command make_docs_command();
 void print_json(std::ostream& out, const Json& j);  // pretty, newline-terminated
 // "error: message\n  hint: ..." on `err`; returns 1.
 int report_failure(std::ostream& err, const std::string& message, const std::string& hint = {});
+// The same, and when the command runs with --json also {"ok": false, "error": {code, message, hint}} on stdout, so that
+// whoever parses stdout always gets an object (docs/CLI.md). Commands use this one.
+int report_failure(const Context& ctx, const std::string& message, const std::string& hint = {});
+void print_json_error(std::ostream& out, const std::string& code, const std::string& message, const std::string& hint);
 
 // ---- paths ----
 // Rule for every file path given to a CLI option (documented in docs/CLI.md, "Paths"):

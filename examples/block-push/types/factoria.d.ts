@@ -1247,7 +1247,7 @@ declare module "factoria" {
      */
     text: string;
     /**
-     * Project-relative path of a .ttf font. Empty uses the built-in font. (asset path: font)
+     * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). (asset path: font)
      */
     font: string;
     /**

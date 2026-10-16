@@ -48,6 +48,12 @@ Result<std::string> normalize_checked(std::string_view path);
 bool is_absolute(std::string_view path);
 std::filesystem::path resolve(std::string_view path);  // absolute host path (desktop)
 
+// The form of a host path to hand to the OS. On Windows a path of 248 characters or more (MAX_PATH, 260, minus room for
+// an 8.3 file name: the folder limit) comes back absolute, with backslashes and the \\?\ prefix, which lifts the limit
+// whether or not long paths are enabled on the machine; elsewhere, and for shorter paths, `p` as it is. For file system
+// calls only: show users the path itself.
+std::filesystem::path os_path(const std::filesystem::path& p);
+
 Result<std::string> read_text(std::string_view path);
 Result<std::vector<std::uint8_t>> read_bytes(std::string_view path);
 Result<void> write_text(std::string_view path, std::string_view text);  // creates parent dirs

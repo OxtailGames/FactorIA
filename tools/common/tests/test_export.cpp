@@ -1,5 +1,6 @@
 #include <doctest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -9,6 +10,7 @@
 #include <sys/wait.h>
 #endif
 
+#include "fa/core/fs.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/scaffold.h"
 #include "test_helpers.h"
@@ -186,6 +188,31 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
     }
     // The project itself is untouched.
     CHECK(stdfs::exists(stdfs::path(proj) / "ENGINE_FEEDBACK.json"));
+}
+
+// A macOS app nests four folders, so on Windows its files easily pass MAX_PATH (260 characters): the export reaches them
+// through fs::os_path whether or not long paths are enabled on the machine.
+TEST_CASE("export: an output folder deeper than Windows' MAX_PATH works") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    const stdfs::path deep = stdfs::path(tmp.sub("out")) / std::string(90, 'a') / std::string(90, 'b');
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "macos";
+    o.outDir = deep.string();
+    o.playerBinary = make_fake_player(tmp);
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path scene = stdfs::path(r->outputDir) / "Space Dodge.app/Contents/Resources/game/scenes/main.scene.json";
+    CHECK(scene.string().size() > 260);
+    std::error_code ec;
+    CHECK(stdfs::is_regular_file(fs::os_path(scene), ec));
+    CHECK(std::find(r->files.begin(), r->files.end(), "Space Dodge.app/Contents/Resources/game/scenes/main.scene.json") != r->files.end());
+    // Exporting again replaces the folder (the marker is found and the old tree removed, all past the limit).
+    auto again = export_project(o);
+    REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
+    CHECK(again->files == r->files);
+    stdfs::remove_all(fs::os_path(deep), ec);  // TempDir's own remove_all would stop at the long paths on Windows
 }
 
 #if defined(__APPLE__)

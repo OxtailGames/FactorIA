@@ -382,6 +382,17 @@ my-game [projectDir] [--scene scenes/level2.scene.json] [--fullscreen]
 Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 `%APPDATA%\<id>`, `~/Library/Application Support/<id>`).
 
+Every run writes its log to `log.txt` in that folder (rewritten on each start): it is the file to ask a player for with a
+bug report. On Windows the exe is a GUI program, so the game opens no console window. Started from a terminal it still
+prints its log there, but the terminal does not wait for it (`start /wait my-game.exe` does); output redirected to a
+file or a pipe works as with any program. If the game cannot start at all (no `game/` folder next to the exe), a
+double-clicked exe shows the error in a message box.
+
+**Long paths on Windows.** A macOS `.app` nests four folders, so an export into a deep folder easily passes the
+260-character limit of Windows paths (MAX_PATH). The export (and every file the engine reads or writes) uses the `\\?\`
+form of a path that long, so it works whether or not long paths are enabled on the machine. Explorer, zip tools and
+some other programs still cannot open such files: export into a short folder (`--out C:\exports`) when you can.
+
 On macOS the export signs the finished `.app` ad hoc (`codesign --force --sign -`), last, so the signature covers its
 `Info.plist` and the game files. The player of a signed release carries FactorIA's Developer ID signature, which covers
 the executable alone: copied into a bundle unchanged it fails `codesign --verify` ("code has no resources but signature
@@ -414,18 +425,21 @@ What each desktop export takes from [Platform settings](#platform-settings):
   structure, and recomputes the PE checksum. This works on any host: no Windows tools are needed to export for Windows
   from a Mac or Linux. A player without the placeholder (an older player, or another binary passed to `--player`) is copied
   unchanged and the report says so: the exe shows the player's own icon, and the game window still shows the game's
-  icon at run time (above).
+  icon at run time (above). The version information (Explorer's Details tab; Task Manager shows the description) is
+  filled in the same way, with or without an icon: `FileDescription` and `ProductName` are the game's `name`,
+  `FileVersion`, `ProductVersion` and the version numbers its `version`, `InternalName` and `OriginalFilename` the exe's
+  name. The placeholder leaves 79 characters for a name and 31 for a version; a longer one is cut, with a warning.
 - **Linux.** `<name>.png` (256 px) and `<name>.desktop` are written next to the game, with `Name`, `Exec`, `Icon`,
   `Type=Application`, `Terminal=false` and `Categories` (from `categories`; the default is `Game;`). Both
   `Exec=` and `Icon=` are bare names: the report prints the one command that installs the entry for the folder
   the game lives in (it rewrites them to absolute paths and copies the file to `~/.local/share/applications`).
 
 Windows: the player of a release download carries FactorIA's signature once the release is signed
-([BUILDING.md](BUILDING.md), "Releasing"), and one built from source is not signed. Changing the icon edits the exe,
-which invalidates a signature, so the export removes it (the certificate table at the end of the file) and says so in the
-report: an exe with the wrong signature is worse than an unsigned one. Without a game icon the exe is copied
-byte for byte, signature included. SmartScreen may warn about an unsigned exe, and shows FactorIA's name as the
-publisher of a signed one; sign the exported exe with `signtool` to publish under your own name:
+([BUILDING.md](BUILDING.md), "Releasing"), and one built from source is not signed. Writing the game's icon and version
+information edits the exe, which invalidates a signature, so the export removes it (the certificate table at the end of
+the file) and says so in the report: an exe with the wrong signature is worse than an unsigned one. Only a player
+without the placeholders is copied byte for byte, signature included. SmartScreen may warn about an unsigned exe; sign
+the exported exe with `signtool` to publish under your own name:
 
 ```
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a my-game.exe

@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "fa/core/image.h"
@@ -182,9 +184,70 @@ inline Bytes png_blob() {
 }
 inline Bytes bmp(const Image& icon, int size) { return icon_bmp_entry(icon, size); }
 
+// A VS_VERSIONINFO resource laid out as rc.exe writes it: the fixed file info (version 0.0.0.0), one string table
+// (040904B0) holding `strings` (key, value; ASCII) and VarFileInfo. Each block is {wLength, wValueLength, wType, key,
+// padding to 4, value, children each aligned to 4}.
+inline Bytes version_blob(const std::vector<std::pair<std::string, std::string>>& strings) {
+    auto align = [](Bytes& b) {
+        while (b.size() % 4) b.push_back(0);
+    };
+    auto wide = [](const std::string& text) {
+        Bytes b;
+        for (char c : text) b.push_back(std::uint8_t(c)), b.push_back(0);
+        b.push_back(0), b.push_back(0);
+        return b;
+    };
+    auto block = [&](const std::string& key, std::uint32_t type, const Bytes& value, std::uint32_t valueLength,
+                     const std::vector<Bytes>& children) {
+        Bytes b(6, 0);
+        const Bytes k = wide(key);
+        b.insert(b.end(), k.begin(), k.end());
+        align(b);
+        b.insert(b.end(), value.begin(), value.end());
+        for (const Bytes& c : children) {
+            align(b);
+            b.insert(b.end(), c.begin(), c.end());
+        }
+        put16(b, 0, std::uint32_t(b.size()));
+        put16(b, 2, valueLength);
+        put16(b, 4, type);
+        return b;
+    };
+    std::vector<Bytes> table;
+    for (const auto& [key, value] : strings) table.push_back(block(key, 1, wide(value), std::uint32_t(value.size() + 1), {}));
+    Bytes fixed(52, 0);
+    put32(fixed, 0, 0xFEEF04BDu);
+    put32(fixed, 4, 0x10000);
+    const Bytes translation = {0x09, 0x04, 0xB0, 0x04};
+    return block("VS_VERSION_INFO", 0, fixed, 52,
+                 {block("StringFileInfo", 1, {}, 0, {block("040904B0", 1, {}, 0, table)}),
+                  block("VarFileInfo", 1, {}, 0, {block("Translation", 0, translation, 4, {})})});
+}
+
+// The version strings of factoria_player.rc: placeholders padded with spaces (room: 39 characters, 15 for versions).
+inline Bytes placeholder_version_blob() {
+    const std::string name(39, ' '), version(15, ' ');
+    return version_blob({{"FileDescription", "FactorIA Player" + name.substr(15)}, {"ProductName", "FactorIA Player" + name.substr(15)},
+                         {"FileVersion", version}, {"ProductVersion", version}, {"InternalName", name}, {"OriginalFilename", name}});
+}
+
+// The value of the version string `key` in `exe` ("" when the key is not there): the UTF-16 text after the key, aligned
+// to 4 bytes, up to its NUL (ASCII only).
+inline std::string version_string(const Bytes& exe, const std::string& key) {
+    Bytes k;
+    for (char c : key) k.push_back(std::uint8_t(c)), k.push_back(0);
+    k.push_back(0), k.push_back(0);
+    auto it = std::search(exe.begin(), exe.end(), k.begin(), k.end());
+    if (it == exe.end()) return {};
+    std::size_t at = ((std::size_t(it - exe.begin()) + k.size()) + 3) & ~std::size_t(3);
+    std::string out;
+    for (; at + 1 < exe.size() && (exe[at] || exe[at + 1]); at += 2) out += char(exe[at]);
+    return out;
+}
+
 inline std::vector<Blob> placeholder_blobs(const Image& red) {
     return {{3, 1, bmp(red, 16)},   {3, 2, bmp(red, 32)}, {3, 3, bmp(red, 48)}, {3, 4, png_blob()},
-            {14, 1, Bytes(34, 0x11)}, {16, 1, Bytes(100, 0x22)}};
+            {14, 1, Bytes(34, 0x11)}, {16, 1, placeholder_version_blob()}};
 }
 
 

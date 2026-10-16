@@ -1,5 +1,6 @@
 #include "fa/cli/cli.h"
 
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 
@@ -144,6 +145,8 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
         rest.erase(rest.begin());
     }
 
+    // With --json a failure is a JSON object on stdout too (report_failure), bad arguments included.
+    const bool json = std::find(rest.begin(), rest.end(), "--json") != rest.end();
     try {
         bool help = false;
         Args parsed = parse_args(*cmd, rest, path, help);
@@ -162,12 +165,16 @@ int cli_main(const std::vector<std::string>& args, std::ostream& out, std::ostre
         Context ctx{out, err, in, std::move(parsed), cmd, path};
         return cmd->run(ctx);
     } catch (const UsageError& e) {
+        if (json) print_json_error(out, "invalid_argument", e.what(), e.hint);
         return usage_error(err, path, e);
     } catch (const CliError& e) {
+        if (json) print_json_error(out, "failed", e.what(), e.hint);
         return report_failure(err, e.what(), e.hint);
     } catch (const std::exception& e) {
-        return report_failure(err, std::string("internal error: ") + e.what(),
-                              "This is a bug in factoria; please report it with 'factoria feedback add --category tooling ...'.");
+        const std::string message = std::string("internal error: ") + e.what(),
+                          hint = "This is a bug in factoria; please report it with 'factoria feedback add --category tooling ...'.";
+        if (json) print_json_error(out, "internal", message, hint);
+        return report_failure(err, message, hint);
     }
 }
 

@@ -33,6 +33,9 @@ enum class LogFormat : std::uint8_t { Text, Json, None };
 
 void log(LogLevel level, std::string_view category, std::string message);
 
+// One entry as the text format writes it, without the newline: "[  1.234] WARN  render: message".
+std::string format_log_line(const LogEntry& entry);
+
 void set_log_level(LogLevel minLevel);  // affects stderr sink + ring buffer
 LogLevel log_level();
 void set_log_format(LogFormat format);  // stderr format; Json = one object per line

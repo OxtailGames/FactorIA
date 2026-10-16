@@ -112,7 +112,7 @@ int run_install(Context& ctx, const std::string& component) {
             std::getline(ctx.in, answer);
             const std::string a = to_lower(trim(answer));
             if (a != "y" && a != "yes")
-                return report_failure(ctx.err, "The Android SDK license was not accepted, so nothing was installed.", "Run 'factoria setup android' again when you want to install it.");
+                return report_failure(ctx, "The Android SDK license was not accepted, so nothing was installed.", "Run 'factoria setup android' again when you want to install it.");
             o.acceptLicenses = true;
             r = setup_install(o, sc);
         }
@@ -128,7 +128,7 @@ int run_install(Context& ctx, const std::string& component) {
         std::string hint = r.error.hint;
         if (r.code == "license_required")
             hint = "Run it in a terminal to read and accept the license, or pass --accept-licenses after reading it ('factoria call setup.status \"{\\\"component\\\":\\\"android\\\"}\"' prints the text).";
-        return report_failure(ctx.err, r.error.message, hint);
+        return report_failure(ctx, r.error.message, hint);
     }
     if (json) {
         print_json(ctx.out, r.report.to_json());
