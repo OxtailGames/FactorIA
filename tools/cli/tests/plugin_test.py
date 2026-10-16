@@ -22,25 +22,7 @@ LIBRARY = os.path.abspath(sys.argv[2])
 HOST = {"Windows": "windows", "Darwin": "macos"}.get(platform.system(), "linux")
 failures = []
 
-PROBE = """// @ts-check
-import { Behaviour, plugins, fa, game } from "factoria";
-
-export default class Probe extends Behaviour {
-  frames = 0;
-
-  onStart() {
-    const sum = plugins.example.add(1, 2), info = fa.call("example.info", {});
-    console.log(`probe add=${sum}`);
-    console.log(`probe info=${JSON.stringify(info)}`);
-    // A script error fails `factoria run --headless`.
-    if (sum !== 3 || info.plugin !== "example") throw new Error(`probe: unexpected ${sum} ${JSON.stringify(info)}`);
-  }
-
-  onUpdate() {
-    if (++this.frames === 5) game.quit();
-  }
-}
-"""
+PROBE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plugin_probe.js")
 
 
 def check(cond, what, detail=""):
@@ -99,12 +81,11 @@ def main():
 
         # factoria run: a script calls the function and the command.
         os.makedirs(os.path.join(game, "scripts"), exist_ok=True)
-        with open(os.path.join(game, "scripts", "probe.js"), "w", encoding="utf-8") as f:
-            f.write(PROBE)
+        shutil.copy(PROBE, os.path.join(game, "scripts", "probe.js"))
         scene_file = os.path.join(game, "scenes", "main.scene.json")
         with open(scene_file, encoding="utf-8") as f:
             scene = json.load(f)
-        scene["entities"].append({"id": "probe", "name": "Probe", "components": {"Script": {"path": "scripts/probe.js"}}})
+        scene["entities"].append({"id": "probe", "name": "Probe", "components": {"Script": {"path": "scripts/probe.js", "props": {"quitAfter": 5}}}})
         with open(scene_file, "w", encoding="utf-8") as f:
             json.dump(scene, f, indent=2)
         code, out, err = run(["run", game, "--headless", "--frames", "10"], env=env)
