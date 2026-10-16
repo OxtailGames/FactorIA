@@ -196,7 +196,7 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 | `fake` | Done. Development and tests. |
 | `none` | Done. Exported games without a store plugin. |
 | Steam (Steamworks) | Coming in the next M12 packages. |
-| Apple (StoreKit 2 and Game Center) | Coming in the next M12 packages. |
+| Apple (StoreKit 2, Game Center, iCloud) | Done: iOS and macOS, `platform.add_backend {"backend": "apple"}`, [section 6](#6-apple-storekit-2-game-center-and-icloud). |
 
 ### Store backends: one command sets them up
 
@@ -281,3 +281,136 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 The C++ side is `fa/services/platform.h` (`PlatformBackend`, `PlatformServices`, `platform_methods()` with this table)
 and `fa/runtime/platform_backend.h` (the plugin adapter and the choice of backend). The fake backend
 (`fa/services/fake_platform.h`) is the reference implementation of every row.
+
+## 6. Apple: StoreKit 2, Game Center and iCloud
+
+The backend `"apple"` is a Swift plugin (`platforms/plugins/apple`, written into the game by `platform.add_backend`) for **iOS
+16.3+ and macOS 12+**. It answers `platform` with:
+
+| Service | Apple's API | Notes |
+|---|---|---|
+| `purchases` | StoreKit 2 | consumables, non-consumables and subscriptions; Ask to Buy; refunds. |
+| `achievements`, `leaderboards` | Game Center | the sign-in sheet, the banners, global / around the player / friends boards. |
+| `overlay` | Game Center | `"achievements"`, `"leaderboards"` and `"friends"` through the Game Center access point. `"store"` is `unavailable`: `purchases.buy` shows the purchase sheet. |
+| `cloudSave` | iCloud key-value store | 1 MB and 1024 keys for the whole game. |
+
+Game Center has no stats and no presence: `platform.has("stats")` and `platform.has("presence")` are false and the engine
+answers those calls `unavailable`. Keep the numbers you need in `cloud.save` or on a leaderboard.
+
+### Setup, in one command
+
+On a Mac with Xcode:
+
+```bash
+factoria call platform.add_backend '{"backend": "apple"}'
+```
+
+It writes the plugin to `plugins/apple` from its template and declares it for iOS and macOS in factoria.json (unless it is
+declared already), then builds its three libraries with the Xcode toolchain (`xcrun swiftc`, driven by CMake):
+`macos/libapple.dylib`, `ios/iphoneos/libapple.a` and `ios/iphonesimulator/libapple.a`. Arguments: `appleSlices` (any of
+`"macos"`, `"iphoneos"`, `"iphonesimulator"`; default all three) and `appleBuild: false` (only write and declare, to build
+later on a Mac). A computer that is not a Mac cannot build Swift against StoreKit: the command says so and offers
+`appleBuild: false`. Its `nextSteps` list what only a person can do, with the ids of your catalog filled in:
+
+1. **Apple Developer portal**: the App ID of `factoria.json`'s `id` needs the capabilities **Game Center**, **In-App
+   Purchase** and **iCloud** (key-value storage only, no iCloud Drive or CloudKit).
+2. **App Store Connect**: add the app with that bundle id, accept the **Paid Apps Agreement**, turn **Game Center** on, and
+   create the products, achievements and leaderboards. Each gets **exactly** the id of the catalog (`ids.apple`, else `id`).
+3. A **sandbox tester** (Users and Access > Sandbox), signed in under Settings > Developer > Sandbox Apple Account.
+
+Then export with `factoria export --platform ios` (or `macos`). The exports read the plugin's `plugin.json` (frameworks,
+the Swift runtime, entitlements: [MOBILE.md](MOBILE.md#native-plugins-ios), [EXTENDING.md](EXTENDING.md#g2-the-declaration)).
+**iOS**: the Xcode project links StoreKit, GameKit and the Swift runtime and is signed with the entitlements
+(`factoria_player.entitlements`; set `export.ios.teamId` or `FA_IOS_DEVELOPMENT_TEAM` so Xcode can sign for a device).
+**macOS**: Game Center and iCloud are *restricted* entitlements, which macOS only honours in an app signed with your Apple
+Developer certificate and a provisioning profile. The export is signed ad hoc, so it runs, and those services answer
+`unavailable` with a hint; the export also writes `<game>.entitlements` and lists the `codesign` command that turns them on
+(`nextSteps`). An ad hoc app also gets no answers from the App Store: try purchases from Xcode (below) or after that signing step.
+
+### What each call does
+
+| Call | On Apple |
+|---|---|
+| `platform.signIn()` | Starts Game Center's authentication: a sheet the first time, a welcome banner after. Resolves `{ id, name, signedIn }` (`id` is the `gamePlayerID`, stable for this game). A player who is not signed in gets `notSignedIn` with a hint (sign in under Settings > Game Center). With no sheet and no answer it ends after 20 s; a sheet on screen waits for the player. |
+| `achievements.unlock(id)`, `.progress(id, fraction)` | Reports to Game Center (`newly` is false when it was unlocked already). An id that App Store Connect does not have is `unknownId`, listing the ids it has. |
+| `achievements.list()` | The catalog's achievements with what the player reached. |
+| `achievements.reset()` | Resets *every* achievement of the player (development). |
+| `leaderboards.submit(id, score)`, `.entries(id, {range, count})` | The all-time board. `range`: `"top"`, `"around"` (empty until the player has a score) or `"friends"`. `best` is the player's best including this score. |
+| `cloud.save/load/list/remove` | One iCloud key-value key per cloud key; the value is stored as JSON text. Over 1 MB or 1024 keys: `failed`. No iCloud account or no entitlement: `unavailable`. Syncing between devices is iCloud's (seconds to minutes); `load` reads what this device has. |
+| `purchases.products(ids?)` | The product's `displayName`, `description`, `displayPrice` (the player's storefront), price value, currency and type. A product the store does not know is left out, with a warning in the log that says how to create it. |
+| `purchases.buy(id)` | Shows the purchase sheet. `purchased` (with `transactionId` and the JWS `receipt`), `cancelled`, or `pending` (Ask to Buy). `notAllowed` when Screen Time forbids purchases. The call waits as long as the player takes with the sheet, but gives up after 30 s when the App Store never shows it. |
+| `purchases.finish(transactionId)` | `Transaction.finish()`. The id must come from a `buy()` result, a `purchase` event or a `restore()` entry of this run. |
+| `purchases.restore()` | Syncs with the App Store (it may ask for the Apple Account password) and returns the verified entitlements: non-consumables and active subscriptions. |
+| `overlay.open(page, id?)` | Opens the Game Center dashboard on the page (an `id` goes straight to that achievement or leaderboard on iOS 18 / macOS 15). Needs a signed-in player. |
+
+**Events.** `purchase` for a transaction that did not come from `buy()`: an Ask to Buy approval, a purchase made on another
+device, a subscription renewal, or a purchase the last run did not finish. Those arrive right after the game starts, before a
+script could listen, so the engine keeps the ones nobody listens for (up to 100) and hands them to the first
+`platform.on("purchase", ...)`: register it in `onStart`, grant, then `finish`. `overlay` `{open}` when the Game Center
+dashboard opens and closes. `player` when the Game Center sign-in changes (also when the player signs out in Settings while
+the game runs).
+
+**Refunds, expired subscriptions and unverified transactions.** A revoked (refunded) or expired transaction is finished and
+never delivered. A transaction whose signature does not verify on the device is *not* delivered and not finished (the log
+says so): a modified device or a missing StoreKit test certificate, never a purchase to grant.
+
+### Receipts are JWS documents
+
+The `receipt` of a purchase is the transaction as a **JWS** (the compact text `header.payload.signature`), signed by Apple.
+The device has verified it (StoreKit 2 delivers only verified transactions to the game). A game with real money at stake
+(server-side goods, an online economy) must verify it again **on its server** before granting: check the signature against
+the certificate chain in the header (`x5c`, ending at Apple's root CA), then read `productId`, `transactionId`,
+`originalTransactionId`, `bundleId` and `environment` (`"Sandbox"`, `"Xcode"` or `"Production"`) from the payload. Apple's
+App Store Server Library (Swift, Java, Node and Python) does the verification, and the App Store Server API looks a
+transaction up by its `transactionId` and sends refund notifications. A single-player game that trusts the device can ignore
+the receipt.
+
+### Testing purchases without App Store Connect
+
+`factoria export --platform ios` writes **`Products.storekit`** next to the Xcode project when the catalog has products: a
+StoreKit configuration file made from `platform.products` (consumables and non-consumables as such; a subscription as a
+monthly auto-renewable product in one subscription group; the prices and titles of the catalog; ids = `ids.apple`, else
+`id`). `build_ios.sh` wires it into the project's scheme, so **running the project from Xcode** sells exactly those products,
+with no App Store Connect, sandbox account, network or provisioning, and `Debug > StoreKit > Manage Transactions` approves or
+fails purchases and simulates Ask to Buy, refunds and renewals. If the scheme shows "StoreKit Configuration: None", pick the
+file under Product > Scheme > Edit Scheme > Run > Options. The file is rewritten at every export: edit the catalog, not the
+file. Launching the app any other way (`build_ios.sh --run`, `simctl launch`, the home screen of a device) does not use it;
+products then come from the App Store (sandbox for development-signed builds, TestFlight for TestFlight builds). Game Center
+has no such file: a sign-in needs a real or sandbox Apple Account (on the simulator: Settings > Game Center).
+
+### When something does not work: `apple.status`
+
+The plugin registers the command **`apple.status`** (from a script: `fa.call("apple.status", {})`): whether a Game Center
+player is signed in, whether this device may make payments, whether iCloud is signed in and, on macOS, whether the app
+carries the entitlements, with a `problems` list of sentences that say what to fix. When StoreKit or Game Center cannot talk to
+Apple at all (an app that is not signed with a development team, or run outside Xcode without a StoreKit file), the calls
+reject `unavailable` with a hint that points here.
+
+| Situation | What the game gets |
+|---|---|
+| Not signed in to Game Center | `notSignedIn` ("Sign in under Settings > Game Center..."). |
+| Achievement or leaderboard missing in App Store Connect | `unknownId`, with the ids that exist. |
+| Product missing in App Store Connect | `unknownId` from `buy`; `products()` leaves it out and logs the steps (Paid Apps Agreement, product id). |
+| Purchases restricted by Screen Time | `notAllowed`. |
+| No answer from Apple in 30 s (restore: 120 s) | `network`. |
+| iCloud signed out, or the entitlement missing | `unavailable` (cloud saves), naming the entitlement. |
+| Apple's servers cannot be reached | `network`. |
+
+### Manual checks
+
+These need App Store Connect, a development-signed build and a sandbox account, so no automated test runs them. The tests
+cover what needs none of that: the plugin registers in a real engine and answers every request once, in time, with a
+teaching error; the exports write the frameworks, entitlements and `Products.storekit`; the iOS Simulator job builds and
+launches an app with the plugin linked. Before a release, on a device with a sandbox account:
+
+1. `platform.signIn()` shows the sheet once; `platform.player` and the `player` event follow it; `platform.backend` is `"apple"`.
+2. An achievement unlocks (banner on screen), a half-way `progress` is kept, `list()` shows both, `reset()` clears them.
+3. A score reaches the board (`submit`), and `entries` returns it for `"top"`, `"around"` and `"friends"`.
+4. `overlay.open` opens the dashboard for each page, with `overlay` events at open and close.
+5. A consumable: `buy`, grant, `finish`, buy again. A non-consumable: `buy`, then `restore()` on a second device or after
+   reinstalling. A subscription: `buy`, then `restore()`. Ask to Buy: `pending`, then the approval arrives as a `purchase`
+   event.
+6. Kill the app after a `buy` and before `finish`: the next run delivers the purchase as a `purchase` event.
+7. `cloud.save` on one device, `cloud.load` on another with the same iCloud account.
+
+Record what a real check finds in `ENGINE_FEEDBACK.json`.

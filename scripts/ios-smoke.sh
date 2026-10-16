@@ -22,6 +22,10 @@
 #   (1b. plugin   only with FA_IOS_PLUGIN_PROBE=1: the game declares the native plugin "example" (platforms/plugin) and runs
 #                 tools/cli/tests/plugin_probe.js, which calls it when the game starts: the console must show "probe add=3"
 #                 and a "probe info=" line naming the plugin, so the static library is linked into the app and registered.)
+#   (1c. apple    only with FA_IOS_APPLE_PROBE=1: the game declares the Apple plugin (platforms/plugins/apple: Swift, StoreKit 2,
+#                 Game Center) and runs tools/cli/tests/apple_probe.js: the console must show "Apple backend ready", "probe
+#                 backend=apple" and an answer to a Game Center call ("probe unlock="), so the Swift runtime, StoreKit and GameKit
+#                 are linked into the app and the backend is registered. A purchase or a sign-in needs an Apple Account: manual.)
 #
 # The app must be built for the simulator (`cmake --build --preset ios-simulator ... -sdk iphonesimulator`). The
 # first simulator boot takes 5-7 minutes on a hosted runner and slows a build on the same machine, so CI runs
@@ -156,6 +160,16 @@ if [ -n "${FA_IOS_PLUGIN_PROBE:-}" ]; then
         fail "plugin: no 'probe info=' line naming the plugin \"example\" in the console: fa.call('example.info') failed"
 fi
 
+# ---- 1c. apple ------------------------------------------------------------------------------------------------------
+if [ -n "${FA_IOS_APPLE_PROBE:-}" ]; then
+    wait_for_log "Apple backend ready" 10 ||
+        fail "apple: no 'Apple backend ready' in the console: the Apple plugin (Swift, StoreKit, GameKit) is not linked into the app or did not register (a 'plugin' warning above says why)"
+    wait_for_log "probe backend=apple" 10 ||
+        fail "apple: no 'probe backend=apple' in the console: the game does not run the backend \"apple\" (platform.backend)"
+    wait_for_log "probe unlock=" 20 ||
+        fail "apple: no 'probe unlock=' in the console: a Game Center call was never answered by the Swift plugin"
+fi
+
 # ---- 2. audio -------------------------------------------------------------------------------------------------------
 NO_AUDIO="$(first_line 'no audio output device available')"
 if [ -n "$NO_AUDIO" ]; then
@@ -241,5 +255,5 @@ if ls ~/Library/Logs/DiagnosticReports/factoria_player* >/dev/null 2>&1; then fa
 has_picture "$OUT/screen.png" "display"
 
 echo "---- run evidence (player console) ----" | tee -a "$OUT/summary.txt"
-grep -E '(engine: Graphics|scene: Loaded|audio: |player: |input: |plugin|probe )' "$OUT/console.log" | tr -d '\r' | tee -a "$OUT/summary.txt"
+grep -E '(engine: Graphics|scene: Loaded|audio: |player: |input: |plugin|probe |Apple backend)' "$OUT/console.log" | tr -d '\r' | tee -a "$OUT/summary.txt"
 echo "OK: $BUNDLE_ID ran on the simulator (pid $PID): rendered, audio stream, touch, suspend/resume, no crash." | tee -a "$OUT/summary.txt"
