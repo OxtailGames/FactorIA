@@ -79,7 +79,9 @@ Result<void> copy_game(const Project& p, const std::vector<std::string>& files, 
     for (const auto& f : files) {
         stdfs::path to = dest / f;
         stdfs::create_directories(os_path(to.parent_path()), ec);
-        stdfs::copy_file(os_path(p.dir / f), os_path(to), stdfs::copy_options::overwrite_existing, ec);
+        const auto staged = p.staged.find(f);
+        const stdfs::path from = staged != p.staged.end() ? staged->second : p.dir / f;
+        stdfs::copy_file(os_path(from), os_path(to), stdfs::copy_options::overwrite_existing, ec);
         if (ec) return err("export: cannot copy '" + f + "' to " + generic(to) + ": " + ec.message());
     }
     return {};
@@ -303,10 +305,10 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
         std::string name = full.filename().string();
         bool skip = !name.empty() && name[0] == '.';
         if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
-        if (!skip && it->is_directory(ec)) {
+        if (!skip && (!outDirAbs.empty() || !p.pluginFolders.empty()) && it->is_directory(ec)) {
             std::error_code ec2;
             const stdfs::path dir = stdfs::weakly_canonical(full, ec2);
-            if (is_inside(dir, outDirAbs)) skip = true;  // never copy the export into itself
+            if (!outDirAbs.empty() && is_inside(dir, outDirAbs)) skip = true;  // never copy the export into itself
             // A native plugin's folder: its build is copied or linked for the platform, its sources do not ship.
             for (const stdfs::path& f : p.pluginFolders) skip = skip || dir == stdfs::weakly_canonical(f, ec2);
         }
@@ -544,6 +546,20 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
 
 }  // namespace
 
+namespace export_detail {
+
+std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile) {
+    Project p;
+    p.dir = dir;
+    p.feedbackFile = feedbackFile;
+    if (auto project = load_project(generic(dir)); project.ok())
+        for (const PluginSettings& plugin : project->plugins)
+            if (auto folder = plugin_folder(generic(dir), plugin); folder.ok()) p.pluginFolders.push_back(folder.value());
+    return collect_game_files(p, {});
+}
+
+}  // namespace export_detail
+
 stdfs::path executable_dir() {
     std::error_code ec;
 #if defined(_WIN32)
@@ -628,7 +644,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     auto planned = make_plan(options, true);  // every check first: a failed one leaves the previous export in place
     if (!planned.ok()) return planned.error();
     const Plan& plan = planned.value();
-    const Project& p = plan.project;
+    Project p = plan.project;  // the asset steps fill p.staged
     const std::string& platform = plan.platform;
     const stdfs::path& outRoot = plan.outRoot;
     ExportReport report;
@@ -654,6 +670,11 @@ Result<ExportReport> export_project(const ExportOptions& options) {
                                           "your repository too (add it to .gitignore, or move it outside the project and use an absolute path in "
                                           "export.android.signing.keystore): anyone who gets it can sign apps as you");
         }
+    }
+
+    if (auto assetsReady = prepare_game_assets(p, platform, files, report); !assetsReady.ok()) {
+        stdfs::remove_all(os_path(outRoot), ec);
+        return assetsReady.error();
     }
 
     Result<void> r;
