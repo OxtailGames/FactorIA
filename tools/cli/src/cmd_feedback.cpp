@@ -66,7 +66,7 @@ Command make_feedback_command() {
             return 0;
         }
         auto r = save_feedback(path, create_empty_feedback(project_name(dir)));
-        if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         ctx.out << "Created " << path << "\n";
         return 0;
     };
@@ -126,7 +126,7 @@ Command make_feedback_command() {
         if (a.has("model")) rep["model"] = a.str("model");
         in.reporter = rep;
         auto r = add_feedback_entry_to_file(feedback_path(dir), in, project_name(dir));
-        if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         ctx.out << (r->merged ? "Merged into " : "Added ") << r->id << " (occurrences: " << r->occurrences << ")\n";
         return 0;
     };
@@ -141,7 +141,7 @@ Command make_feedback_command() {
     list.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         auto doc = load_feedback(feedback_path(dir));
-        if (!doc.ok()) return report_failure(ctx.err, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
+        if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
         FeedbackFilter f{ctx.args.str("status"), ctx.args.str("category"), ctx.args.str("severity")};
         Json entries = list_feedback(*doc, f);
         if (ctx.args.has("json")) {
@@ -175,9 +175,9 @@ Command make_feedback_command() {
             throw UsageError("Nothing to update.", "Pass --status, --note and/or --engine-issue.");
         std::string path = feedback_path(dir);
         auto doc = load_feedback(path);
-        if (!doc.ok()) return report_failure(ctx.err, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
+        if (!doc.ok()) return report_failure(ctx, doc.error().message, doc.error().hint.empty() ? "Create it with 'factoria feedback init'." : doc.error().hint);
         auto r = update_feedback_entry(*doc, id, a.str("status"), a.str("engine-issue"));
-        if (!r.ok()) return report_failure(ctx.err, r.error().message, r.error().hint);
+        if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         if (a.has("note")) {
             for (auto& e : (*doc)["entries"]) {
                 if (e.value("id", std::string()) != id) continue;
@@ -187,7 +187,7 @@ Command make_feedback_command() {
             }
         }
         auto saved = save_feedback(path, *doc);
-        if (!saved.ok()) return report_failure(ctx.err, saved.error().message, saved.error().hint);
+        if (!saved.ok()) return report_failure(ctx, saved.error().message, saved.error().hint);
         if (a.has("json")) {
             print_json(ctx.out, *r);
             return 0;
@@ -241,7 +241,7 @@ Command make_feedback_command() {
         co.includeClosed = a.has("include-closed");
         co.similarity = a.number("similarity", co.similarity);
         auto rep = collect_feedback(paths, co);
-        if (!rep.ok()) return report_failure(ctx.err, rep.error().message, rep.error().hint);
+        if (!rep.ok()) return report_failure(ctx, rep.error().message, rep.error().hint);
         std::string out = a.has("out") ? absolute_path(a.str("out")) : "";
         std::string fmt = a.str("format");
         if (fmt.empty()) fmt = ends_with(to_lower(out), ".json") ? "json" : "md";
@@ -284,7 +284,7 @@ Command make_docs_command() {
         if (!t.ok()) {
             std::vector<std::string> names;
             for (const auto& d : list_docs()) names.push_back(d.name);
-            return report_failure(ctx.err, t.error().message, t.error().hint.empty() ? fa::did_you_mean(ctx.args.pos(0), names) : t.error().hint);
+            return report_failure(ctx, t.error().message, t.error().hint.empty() ? fa::did_you_mean(ctx.args.pos(0), names) : t.error().hint);
         }
         ctx.out << *t;
         if (t->empty() || t->back() != '\n') ctx.out << "\n";

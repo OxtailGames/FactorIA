@@ -25,7 +25,7 @@ std::string today_utc() {
 }
 
 std::optional<std::string> read_file(const std::filesystem::path& p) {
-    std::ifstream in(p, std::ios::binary);
+    std::ifstream in(fs::os_path(p), std::ios::binary);
     if (!in) return std::nullopt;
     std::ostringstream ss;
     ss << in.rdbuf();

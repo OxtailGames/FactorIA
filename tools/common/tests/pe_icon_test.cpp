@@ -1,10 +1,14 @@
-// patch_pe_icon on PE files built in memory (pe_test_helpers.h): a resource tree with RT_ICON / RT_GROUP_ICON entries, a fake
-// Authenticode certificate table at the end, 32- and 64-bit headers. No Windows toolchain needed.
+// patch_pe_icon and patch_pe_version on PE files built in memory (pe_test_helpers.h): a resource tree with RT_ICON /
+// RT_GROUP_ICON / RT_VERSION entries, a fake Authenticode certificate table at the end, 32- and 64-bit headers. No Windows
+// toolchain needed. On Windows, also the factoria_player.exe of the build.
 #include <doctest.h>
+
+#include <filesystem>
 
 #include "fa/tooling/icons.h"
 #include "fa/tooling/pe_icon.h"
 #include "pe_test_helpers.h"
+#include "test_helpers.h"
 
 using namespace fa;
 using namespace fa::testing::pe;
@@ -188,3 +192,93 @@ TEST_CASE("pe_icon: pe_checksum matches the loader's algorithm for odd lengths a
     Bytes allOnes(64, 0xFF);  // the sum that wraps the most
     CHECK(pe_checksum(allOnes, 0) == reference_checksum(allOnes, 0));
 }
+
+TEST_CASE("pe_version: the strings and numbers are written in place, padded with NULs; the signature is cut") {
+    PeOptions o;
+    o.certificate = 40;
+    PeFile pe = build_pe(placeholder_blobs(solid(64, 255, 0, 0)), o);
+    const Bytes before = pe.bytes;
+    PeVersionInfo info;
+    info.version = "1.2.3";
+    info.strings = {{"FileDescription", "Space Dodge"}, {"ProductVersion", "1.2.3"}, {"OriginalFilename", "space-dodge.exe"},
+                    {"CompanyName", "not in the resource"}};
+    auto r = patch_pe_version(pe.bytes, info);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r->found);
+    CHECK(r->truncated.empty());
+    CHECK(r->signatureRemoved);
+    CHECK(pe.bytes.size() == before.size() - 40);
+
+    CHECK(version_string(pe.bytes, "FileDescription") == "Space Dodge");
+    CHECK(version_string(pe.bytes, "ProductVersion") == "1.2.3");
+    CHECK(version_string(pe.bytes, "OriginalFilename") == "space-dodge.exe");
+    CHECK(version_string(pe.bytes, "ProductName") == "FactorIA Player" + std::string(24, ' '));  // not asked for: as it was
+    // VS_FIXEDFILEINFO: dwFileVersionMS/LS and dwProductVersionMS/LS (after the signature and the structure version).
+    const Bytes signature = {0xBD, 0x04, 0xEF, 0xFE};
+    const std::size_t fixed = std::size_t(std::search(pe.bytes.begin(), pe.bytes.end(), signature.begin(), signature.end()) - pe.bytes.begin());
+    REQUIRE(fixed < pe.bytes.size());
+    CHECK(get32(pe.bytes, fixed + 8) == 0x00010002u);
+    CHECK(get32(pe.bytes, fixed + 12) == 0x00030000u);
+    CHECK(get32(pe.bytes, fixed + 16) == 0x00010002u);
+    CHECK(get32(pe.bytes, fixed + 20) == 0x00030000u);
+    CHECK(get32(pe.bytes, pe.optOffset + 64) == reference_checksum(pe.bytes, pe.optOffset + 64));
+    // The icon images are untouched.
+    CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.blobOffset[0]), before.begin() + std::ptrdiff_t(pe.blobOffset[0] + 100),
+                     pe.bytes.begin() + std::ptrdiff_t(pe.blobOffset[0])));
+}
+
+TEST_CASE("pe_version: a value longer than its room is cut; a file without version information is left as it was") {
+    {
+        PeFile pe = build_pe(placeholder_blobs(solid(64, 255, 0, 0)));
+        PeVersionInfo info;
+        info.strings = {{"ProductName", std::string(50, 'x')}, {"FileVersion", "1.0.0-beta.1+build.20261016"}};
+        auto r = patch_pe_version(pe.bytes, info);
+        REQUIRE(r.ok());
+        CHECK(r->truncated == std::vector<std::string>{"ProductName", "FileVersion"});
+        CHECK(version_string(pe.bytes, "ProductName") == std::string(39, 'x'));
+        CHECK(version_string(pe.bytes, "FileVersion") == "1.0.0-beta.1+bu");
+        CHECK(version_string(pe.bytes, "ProductVersion") == std::string(15, ' '));  // the next string is intact
+    }
+    PeVersionInfo info;
+    info.strings = {{"ProductName", "Game"}};
+    info.version = "2.0";
+    for (const Bytes& data : {Bytes(100, 0x22), Bytes{}}) {  // a resource that is not a VS_VERSIONINFO, or none at all
+        PeOptions o;
+        o.certificate = 16;
+        std::vector<Blob> blobs = {{3, 1, png_blob()}};
+        if (!data.empty()) blobs.push_back({16, 1, data});
+        PeFile pe = build_pe(blobs, o);
+        const Bytes before = pe.bytes;
+        auto r = patch_pe_version(pe.bytes, info);
+        REQUIRE(r.ok());
+        CHECK_FALSE(r->found);
+        CHECK(pe.bytes == before);  // signature and stale checksum included
+    }
+    Bytes script = {'#', '!', '/', 'b', 'i', 'n', '/', 's', 'h', '\n'};
+    auto r = patch_pe_version(script, info);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("Cannot set the version information of the Windows player") != std::string::npos);
+    CHECK(r.error().hint.find("--player") != std::string::npos);
+}
+
+// The factoria_player.exe of this build: a GUI program (an exported game opens no console window), and its resources hold
+// every version string the export writes (player/windows/factoria_player.rc and export_desktop.cpp agree).
+#if defined(FA_PLAYER_EXE)
+TEST_CASE("pe_version: the built factoria_player.exe is a GUI program with the version placeholders the export fills") {
+    const std::string text = fa::testing::read_all(std::filesystem::path(FA_PLAYER_EXE));
+    Bytes exe(text.begin(), text.end());
+    REQUIRE(exe.size() > 0x40);
+    const std::size_t optionalHeader = get32(exe, 0x3C) + 24;
+    CHECK_MESSAGE((exe[optionalHeader + 68] | (exe[optionalHeader + 69] << 8)) == 2, "IMAGE_SUBSYSTEM_WINDOWS_GUI (3 = console)");
+
+    PeVersionInfo info;
+    info.version = "1.2.3";
+    for (const char* key : {"FileDescription", "ProductName", "FileVersion", "ProductVersion", "InternalName", "OriginalFilename"})
+        info.strings[key] = "value of " + std::string(key);
+    auto r = patch_pe_version(exe, info);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r->found);
+    CHECK(r->truncated.empty());
+    for (const auto& [key, value] : info.strings) CHECK(version_string(exe, key) == value);
+}
+#endif

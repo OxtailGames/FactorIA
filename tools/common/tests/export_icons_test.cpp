@@ -216,6 +216,11 @@ TEST_CASE("export windows: the exe gets the game icon, loses its signature, and 
     }
     CHECK(std::equal(player.bytes.begin() + std::ptrdiff_t(player.textOffset),
                      player.bytes.begin() + std::ptrdiff_t(player.textOffset + player.textSize), out.begin() + std::ptrdiff_t(player.textOffset)));
+    // The version information names the game.
+    CHECK(pe::version_string(out, "FileDescription") == "Space Dodge");
+    CHECK(pe::version_string(out, "ProductName") == "Space Dodge");
+    CHECK(pe::version_string(out, "ProductVersion") == "0.1.0");
+    CHECK(pe::version_string(out, "OriginalFilename") == "space-dodge.exe");
     CHECK(any_contains(r->nextSteps, "signature was removed"));
     CHECK(any_contains(r->nextSteps, "signtool"));
     CHECK(r->warnings.empty());
@@ -249,17 +254,37 @@ TEST_CASE("export windows: a player that cannot take the icon is copied as it is
     }
 }
 
-TEST_CASE("export windows: without an icon the exe is the player, byte for byte, signature included") {
+TEST_CASE("export windows: without an icon the exe keeps the player's icon but gets the game's name and version") {
     testing::TempDir tmp;
     pe::PeOptions po;
     po.certificate = 64;
-    pe::PeFile player = pe::build_pe(pe::placeholder_blobs(pe::solid(64, 255, 0, 0)), po);
+    const Image red = pe::solid(64, 255, 0, 0);
+    pe::PeFile player = pe::build_pe(pe::placeholder_blobs(red), po);
     const std::string playerPath = tmp.sub("player/factoria_player.exe");
     testing::write_all(playerPath, std::string(player.bytes.begin(), player.bytes.end()));
     const std::string proj = make_game(tmp, ProjectExportSettings{}, false);
     auto r = export_project(options_for(proj, tmp, "windows", playerPath));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(read_bytes_of(stdfs::path(r->outputDir) / "space-dodge.exe") == player.bytes);
+    const std::vector<std::uint8_t> out = read_bytes_of(stdfs::path(r->outputDir) / "space-dodge.exe");
+    const std::vector<std::uint8_t> placeholder = icon_bmp_entry(red, 32);
+    CHECK(std::equal(placeholder.begin(), placeholder.end(), out.begin() + std::ptrdiff_t(player.blobOffset[1])));
+    CHECK(pe::version_string(out, "ProductName") == "Space Dodge");
+    CHECK(any_contains(r->nextSteps, "signature was removed"));
+    CHECK_FALSE(any_contains(r->warnings, "version information"));  // only "No icon is set"
+}
+
+TEST_CASE("export windows: a player without version information is copied as it is, with a warning") {
+    testing::TempDir tmp;
+    pe::PeOptions po;
+    po.certificate = 64;
+    pe::PeFile player = pe::build_pe({{3, 1, pe::png_blob()}}, po);
+    const std::string playerPath = tmp.sub("player/factoria_player.exe");
+    testing::write_all(playerPath, std::string(player.bytes.begin(), player.bytes.end()));
+    const std::string proj = make_game(tmp, ProjectExportSettings{}, false);
+    auto r = export_project(options_for(proj, tmp, "windows", playerPath));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(read_bytes_of(stdfs::path(r->outputDir) / "space-dodge.exe") == player.bytes);  // signature included
+    CHECK(any_contains(r->warnings, "no version information"));
     CHECK_FALSE(any_contains(r->nextSteps, "signature was removed"));
 }
 

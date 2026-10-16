@@ -414,8 +414,8 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 |---|---|
 | Compilación en Linux (`./scripts/build.sh`) | Probada |
 | Compilación en Windows, macOS, iOS y Android | La CI compila en cada push. Windows (MSVC) y macOS ejecutan los tests (macOS incluye las pruebas de GPU en Metal y los autotests del editor); la app de iOS se ejecuta en el simulador de iOS y el APK de Android en un emulador x86_64, y ambas deben renderizar el juego; sin ejecutar aún en un dispositivo real (`docs/MOBILE.md`) |
-| Motor: escenas, scripts de JavaScript, render 2D y 3D, física (incluidas plataformas de un sentido y tilemaps), partículas y capturas | Funciona en Linux y macOS (Metal). El audio no se ha probado en el entorno de documentación |
-| CLI `factoria`: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export` | Funciona en Linux y macOS |
+| Motor: escenas, scripts de JavaScript, render 2D y 3D, física (incluidas plataformas de un sentido y tilemaps), partículas y capturas | Funciona en Linux, Windows (Direct3D 11) y macOS (Metal). El texto dibuja latín, griego y cirílico con la fuente integrada; otras escrituras necesitan un .ttf que las cubra (aún sin escritura de derecha a izquierda). El audio no se ha probado en el entorno de documentación |
+| CLI `factoria`: `new`, `templates`, `run`, `screenshot`, `test`, `validate`, `call`, `session`, `commands`, `api`, `mcp`, `ai`, `feedback`, `docs`, `export`, `setup` | Funciona en Linux, Windows y macOS |
 | `factoria editor` (editor visual) | Incluido en las builds de escritorio (`docs/EDITOR.md`, en inglés). Necesita pantalla. Las pruebas `editor_autotest` de ctest lo ejercitan de punta a punta en Linux (con `xvfb-run`) y macOS |
 | Plantillas de proyecto (`factoria new`): `2d-empty`, `2d-platformer`, `3d-empty` | Funciona |
 | Servidor MCP para Claude Code y Codex (`factoria mcp`) | Funciona |

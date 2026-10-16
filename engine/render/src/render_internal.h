@@ -249,6 +249,8 @@ public:
     Json report() const;
 
 private:
+    void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<std::uint32_t>& missing);
+
     struct Impl;
     Gpu& gpu_;
     Assets& assets_;

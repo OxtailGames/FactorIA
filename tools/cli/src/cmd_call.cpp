@@ -328,7 +328,7 @@ Command make_commands_command() {
             all.push_back(Json::object({{"name", i->name}, {"summary", i->summary}, {"description", i->description},
                                         {"inputSchema", i->inputSchema}, {"readOnly", i->readOnly}, {"category", i->category}}));
         }
-        if (all.empty()) return report_failure(ctx.err, "No command matches '" + filter + "'.", fa::did_you_mean(filter, names));
+        if (all.empty()) return report_failure(ctx, "No command matches '" + filter + "'.", fa::did_you_mean(filter, names));
         if (ctx.args.has("json")) {
             print_json(ctx.out, all);
             return 0;

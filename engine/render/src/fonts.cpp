@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <unordered_set>
 
 #include <stb_truetype.h>
 
@@ -43,6 +44,35 @@ std::uint32_t next_codepoint(const std::string& s, std::size_t& i) {
     for (int k = 0; k < extra && i < s.size(); ++k) cp = (cp << 6) | ((unsigned char)s[i++] & 0x3F);
     return cp;
 }
+
+std::string utf8(std::uint32_t cp) {
+    std::string o;
+    if (cp < 0x80) o += char(cp);
+    else if (cp < 0x800) o += char(0xC0 | (cp >> 6)), o += char(0x80 | (cp & 0x3F));
+    else if (cp < 0x10000) o += char(0xE0 | (cp >> 12)), o += char(0x80 | ((cp >> 6) & 0x3F)), o += char(0x80 | (cp & 0x3F));
+    else o += char(0xF0 | (cp >> 18)), o += char(0x80 | ((cp >> 12) & 0x3F)), o += char(0x80 | ((cp >> 6) & 0x3F)), o += char(0x80 | (cp & 0x3F));
+    return o;
+}
+
+// A character that should draw something: not a control, a zero-width or direction mark, a variation selector or a BOM.
+bool visible(std::uint32_t cp) {
+    return cp > 32 && !(cp >= 0x7F && cp < 0xA0) && !(cp >= 0x200B && cp <= 0x200F) && !(cp >= 0x2028 && cp <= 0x202E) &&
+           !(cp >= 0x2060 && cp <= 0x206F) && !(cp >= 0xFE00 && cp <= 0xFE0F) && cp != 0xFEFF;
+}
+
+bool is_cjk(std::uint32_t cp) {
+    return (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x2E80 && cp <= 0x9FFF) || (cp >= 0xA960 && cp <= 0xA97F) ||
+           (cp >= 0xAC00 && cp <= 0xD7FF) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFF00 && cp <= 0xFFEF) ||
+           (cp >= 0x20000 && cp <= 0x3FFFF);
+}
+
+bool is_emoji(std::uint32_t cp) { return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF); }
+
+std::string font_label(const std::string& key) {
+    if (key == "builtin") return "'' (DejaVu Sans, the default font)";
+    if (key == "builtin:pixel") return "'builtin:pixel' (Press Start 2P, and DejaVu Sans behind it)";
+    return "'" + key + "'";
+}
 }  // namespace
 
 struct Fonts::Impl {
@@ -54,6 +84,7 @@ struct Fonts::Impl {
     std::vector<Shelf> shelves;
     bool dirty = true;
     bool warnedFull = false;
+    std::unordered_set<std::string> warnedMissing;  // fonts already warned about a missing glyph
     int nextId = 1;
 
     void reset_atlas(int size) {
@@ -92,6 +123,7 @@ void Fonts::clear() {
     atlasTex_.view = {};
     atlasTex_.image = {};
     impl_->faces.clear();
+    impl_->warnedMissing.clear();
     impl_->reset_atlas(1024);
 }
 
@@ -153,6 +185,7 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
     float lineH = std::round(fm.lineHeight());
     if (lineH < 1) lineH = float(px);
 
+    std::vector<std::uint32_t> missing;  // characters neither the font nor its fallback has, for the warning below
     auto get_glyph = [&](std::uint32_t cp) -> GlyphInfo {
         FontFace* ff = f;
         if (!stbtt_FindGlyphIndex(&ff->info, int(cp)) && cp > 32 && fallback && fallback != f &&
@@ -172,6 +205,8 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
         stbtt_GetGlyphBitmapBox(&ff->info, gi, s, s, &x0, &y0, &x1, &y1);
         int w = x1 - x0, h = y1 - y0;
         if (w <= 0 || h <= 0 || gi == 0) {
+            if (!g.valid && visible(cp) && missing.size() < 8 && std::find(missing.begin(), missing.end(), cp) == missing.end())
+                missing.push_back(cp);
             g.empty = true;
             im.glyphs[key] = g;
             return g;
@@ -269,7 +304,41 @@ TextLayout Fonts::layout(const Text& t, float rasterPx, float unitsPerPx) {
             pen += g.advance;
         }
     }
+    if (!missing.empty() && im.warnedMissing.insert(f->key).second) warn_missing_glyphs(f, t.text, missing);
     return out;
+}
+
+// Text that draws as nothing is the worst kind of bug to find, so the first missing glyph of each font says which
+// characters, and what to do: a font already in use that has them, else the kind of font that does.
+void Fonts::warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<std::uint32_t>& missing) {
+    std::string chars;
+    for (std::uint32_t cp : missing) chars += std::format("{}U+{:04X} '{}'", chars.empty() ? "" : ", ", cp, utf8(cp));
+    std::size_t end = 0;
+    for (int n = 0; n < 24 && end < text.size(); ++n) next_codepoint(text, end);
+    const std::string excerpt = text.substr(0, end) + (end < text.size() ? "..." : "");
+    std::string hint;
+    for (const auto& [key, other] : impl_->faces) {
+        if (other.get() == f || !other->ok) continue;
+        bool all = true;
+        for (std::uint32_t cp : missing) all = all && stbtt_FindGlyphIndex(&other->info, int(cp)) != 0;
+        if (all) {
+            hint = std::format("The font {} (already used in this game) has them: set the Text's \"font\" to it.", font_label(key));
+            break;
+        }
+    }
+    if (hint.empty()) {
+        if (std::any_of(missing.begin(), missing.end(), is_cjk))
+            hint = "Chinese, Japanese and Korean need a font that covers them, such as Noto Sans SC, JP or KR (SIL Open Font "
+                   "License): put its .ttf in assets/fonts/ and set the Text's \"font\" to that path. The built-in fonts cover "
+                   "Latin, Greek and Cyrillic.";
+        else if (std::any_of(missing.begin(), missing.end(), is_emoji))
+            hint = "Colour emoji fonts are not supported (only TrueType outlines): draw emoji as sprites.";
+        else
+            hint = "Use a .ttf that covers them (the Noto fonts have one per script): put it in assets/fonts/ and set the Text's "
+                   "\"font\" to that path.";
+    }
+    FA_WARN("render", "text \"{}\" has characters the font {} has no glyph for, so they draw as nothing: {}. {} (Reported once per font.)",
+            excerpt, font_label(f->key), chars, hint);
 }
 
 void Fonts::sync() {

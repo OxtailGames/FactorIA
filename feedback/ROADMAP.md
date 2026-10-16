@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open".
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; none is started.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -34,6 +34,22 @@ M5 and M6; no game has hit any of it yet.
 Re-triage 2026-10-14, after M7 (merges `6b9b85d`, `46d12bb`, `79d6f1e`, `2eadd1e`): every item of the M5 and M6
 "Found while implementing" lists is done (each is struck through with its commit), and CI now runs the mobile players
 on a simulator and an emulator. What M7 left open is listed under "Found while implementing M7".
+
+Re-triage 2026-10-16, after `497303d` (v0.1.4), from an external evaluation: a veteran developer tried to take a game
+from `factoria new` to every store with v0.1.4 and listed 82 numbered gaps plus a few notes (the ids below are the
+report's: H tools, F engine features, E exports, S store services, A asset generation, D docs, U game menus, Q production
+quality; the report itself is not in the repository). Every gap was checked against the code; all of them held.
+- Fixed in the same PR as this triage: E-01 (the Windows player and every exported exe are GUI programs: no console
+  window, and a terminal that starts one still gets its log), E-02 (the exe's version information is the game's name
+  and version), E-06 in part (every run writes `log.txt` in the save folder; crash reporting is M13), E-11 (paths over
+  260 characters on Windows; with `--json` a failure prints a JSON error object), Q-07 (a missing glyph logs one warning
+  per font naming the characters and a font that has them) and D-06 (GETTING_STARTED status table).
+- Already listed, not repeated: E-03 and Q-02 (M8, "Left open"), H-11 and the Android shutdown part of F-10 (M9, "Found
+  while implementing M9"). Q-01 (the project's age, one maintainer) and Q-08 (a strength) are not engine work.
+- Everything else, and the points of the report's per-store table that no id covers, is grouped in M10-M23 below, in
+  the report's order of priority: what blocks any store release first.
+  Roblox is out of scope (end of the list). None of these gaps came from the four example games, which are jam-sized and
+  never needed menus, localization or stores; M21 adds a complete reference game to close that blind spot.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
@@ -406,6 +422,267 @@ Found while implementing M9, not fixed:
 - Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
+
+## M10. Game UI and a complete-game template (L, blocker for every store)
+
+Closes F-01, F-12, U-01..U-04, U-07, U-09 and the script half of F-08. Today the scripting API has `ui.measureText` and no
+widget component, so no game can have a main menu, options or an in-game shop; the window cannot go full screen from a
+script; and text entry, the cursor and input remapping exist only in C++ (`Input::text_input()`).
+
+- Widgets as components: Button, Slider, Toggle, scrolling List, text field, Panel with 9-slice; row/column/grid layout
+  on top of the existing `anchor`/`pivot`; focus and navigation with keyboard and gamepad (Steam Deck and consoles
+  require it); `ui` events in JS.
+- Settings an options menu needs, in JS: full screen, resolution, vsync and a frame cap (`window.*`); rebinding actions
+  and per-pad button names (`input.rebind`, `input.buttonName`); text entry and cursor show/lock.
+- Menus in the templates: main menu, pause (on `game.paused`), options (video, audio volume per bus with
+  `audio.setVolume`, controls, a language slot for M14), credits that list `FACTORIA_NOTICES.txt`, a loading screen.
+
+Acceptance criteria:
+- A headless test drives the template from the main menu to options, changes the music volume and comes back using only
+  gamepad presses, then checks the saved setting.
+- A 9-slice panel drawn at three sizes keeps its corners unscaled (golden image).
+- `window.setFullscreen(true)` toggles a windowed run; headless runs return a teaching error instead of doing nothing.
+- Every widget field and command has a doc string; COMPONENTS.md and the typings are regenerated.
+
+## M11. Native plugins per game (L, blocker for M12 and the consoles)
+
+Closes F-13. Adding C++ means changing the engine and rebuilding the players (docs/EXTENDING.md), and the exported
+Android manifest says `android:hasCode="false"`, so no store SDK (all of them native, Java or Swift) can be used, and
+console SDKs, which are under NDA, cannot live in this MIT repository.
+
+- A C ABI for per-game native modules (`fa_plugin_init(const FaPluginApi*)`) that registers commands and JS functions.
+- Desktop: a DLL/so/dylib next to the exe, declared in `factoria.json`; mobile: static libraries, AARs or Swift packages
+  linked by the generated Gradle and Xcode projects (`hasCode` true when a plugin has Java or Kotlin).
+- Plugins can live outside the game repository (a private folder), for SDKs that cannot be published.
+- `factoria validate` checks each declared plugin exists for the target platform; the export copies or links it.
+
+Acceptance criteria:
+- A test plugin adds `plugins.example.add(1, 2)` and a command; both work in `factoria run`, in the exported Windows,
+  Linux and macOS games, and in the Android project CI builds and runs on the emulator (with a Java class from the
+  plugin).
+
+## M12. Platform services API (L, blocker for Steam and for any monetization)
+
+Closes S-01..S-08 (S-09 is in M23), and the Play Integrity, iCloud and Steam Deck keyboard points of the per-store
+table. Needs M11.
+
+- A `platform` JS module: achievements, stats, leaderboards, cloud saves, purchases (with restore and receipts), overlay,
+  presence, and `platform.has("achievements")`. A fake backend runs in `factoria test` and headless runs, with
+  `game.platform` hooks to script store answers in tests.
+- Backends as M11 plugins, in this order: Steamworks (S-02; `steam_appid.txt` in development runs), StoreKit 2 and Game
+  Center (S-04, S-05), Play Billing and Play Games v2. Then Epic Online Services and GOG Galaxy (S-03), ads with
+  consent (Google UMP, Apple ATT; S-06), analytics and remote config (S-07), push notifications and deep links (S-08).
+- Steamworks also brings the Steam Deck's on-screen keyboard (`ShowGamepadTextInput`, the floating keyboard) for M10's
+  text field; M16's keyboard is mobile only.
+- Play Integrity (Google Play) next to Play Billing, and iCloud as a cloud-save backend next to StoreKit.
+- Later: the purchase SDKs of Android stores outside Play (Amazon Appstore, Samsung Galaxy Store, Huawei AppGallery).
+
+Acceptance criteria:
+- The M10 template's achievements and a purchase flow pass with the fake backend in a test.
+- With the Steamworks plugin and Valve's test AppID 480, an exported desktop game unlocks an achievement (manual check,
+  steps in the docs).
+
+## M13. Store-ready desktop export (M-L, high)
+
+Closes E-04, E-05, E-06 (the crash half), E-09 (the desktop half; mobile uploads are M16), E-10, F-15, Q-03 and H-10.
+Authenticode signing is M8, "Left open".
+
+- Linux: the release player needs glibc 2.38 and GLIBCXX 3.4.31 (`release.yml` builds on `ubuntu-24.04`), so it does
+  not start in the Steam Linux Runtime "sniper" (glibc 2.31), Ubuntu 22.04 or Debian 12. Build it in the sniper SDK
+  container or an old-glibc image.
+- Packing: with `--release` the game ships as one archive read through `fa::fs` instead of loose files, with optional
+  QuickJS bytecode instead of plain `.js`. The export copies the project's `README.md` today; leave out files that are
+  not game data.
+- Crash reporting next to `log.txt`: a minidump on Windows (`SetUnhandledExceptionFilter`, `MiniDumpWriteDump`), a
+  backtrace on POSIX; an optional upload URL, off by default.
+- Upload as commands an AI can call: steamcmd (writes the app build VDF), butler (itch.io), Epic's BuildPatchTool and
+  GOG's Galaxy Pipeline Builder, with a dry run.
+- macOS: Developer ID signing and notarization of the exported `.app` as a command (codesign, notarytool, stapler),
+  instead of the manual steps in docs/EXPORTING.md ("To distribute the game...").
+- Linux direct distribution: an AppImage or Flatpak of the exported game with its `.desktop` file (the export writes a
+  folder and suggests a tar).
+- A CI workflow for game projects (validate, test, export), from a template file or `factoria new`.
+- `scripts/build.ps1` asks only PATH for `cmake`, so a Visual Studio install with its bundled CMake fails with "cmake
+  not found"; find it through vswhere, and warn about checkout paths deep enough for MSBuild's FTK1011 (MAX_PATH).
+
+Acceptance criteria:
+- CI runs the release Linux player (`--version` and a headless frame) inside the Steam Runtime sniper container.
+- A `--release` desktop export has no loose `.js` and no README.md, and still runs.
+- A deliberate crash leaves a crash file with a stack in the save folder.
+- `build.ps1` builds on a machine whose only CMake is the one Visual Studio installs.
+
+## M14. Localization (L, blocker for a global release)
+
+Closes F-02, H-08, U-06 and the text-scaling part of U-05. This PR only made missing glyphs visible: Chinese, Japanese and
+Korean need a font the game ships, and Arabic draws left to right with unjoined letters.
+
+- String tables (`locales/<lang>.json`), `i18n.t(key, args)` in JS, a `key` field on Text, the system language on every
+  platform, a fallback language, `i18n.setLanguage` at run time.
+- A font fallback chain (project-wide and per Text), so a CJK font fills what the main font lacks.
+- Shaping with HarfBuzz (MIT) and bidirectional line layout for Arabic, Hebrew and Indic scripts.
+- `factoria validate` reports characters in string tables and scene texts that no configured font covers, with the file
+  and the character (the run-time warning added in this PR is the starting point); CSV or XLIFF export and import for
+  translators.
+
+Acceptance criteria:
+- `日本語 中文 한국어 العربية` renders every script with Noto fonts, Arabic joined and right to left (golden image).
+- `validate` fails on a missing glyph and names the character, the text and the file.
+- Switching language at run time updates every Text that has a `key`.
+
+## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything")
+
+Closes A-01..A-07, H-04 and F-07 (music streaming). Today an AI can only write a PNG through `fs.write`; `assets.list` is
+the only asset command, textures stay uncompressed RGBA8, and music is decoded whole into memory
+(`stb_vorbis_decode_memory`: a 3-minute track takes about 60 MB).
+
+- Asset providers configured like the LLM providers (docs/AI_PROVIDERS.md): images and sprite sheets, sound effects,
+  music and voice, 3D models; commands such as `assets.generate_image` write into `assets/`.
+- A provenance record for every generated or imported asset (provider, model, prompt, license, date) and an export
+  summary for Steam's AI-generated content disclosure.
+- Per-asset import settings: atlas packing, texture compression (BC7 on desktop, ASTC or ETC2 on mobile, e.g. KTX2 with
+  Basis Universal), audio conversion, loudness normalization and streamed music.
+- Sprite-sheet slicing and style consistency (palette lock, reference images passed to the provider).
+- Importers for Aseprite, PSD and OBJ; FBX through conversion to glTF; SDF/MSDF font atlases; video files (for M19's
+  video player).
+- `project.validate` checks asset size, alpha, weight and loudness (LUFS).
+
+Acceptance criteria:
+- With a fake provider in tests, `assets.generate_image` writes a PNG and its provenance record.
+- A 3-minute OGG plays with under 2 MB of decoded audio resident.
+- A mobile export ships compressed textures and still matches the render golden.
+
+## M16. Mobile store-ready (M, high on mobile)
+
+Closes F-17, the device half of F-08, the mobile half of E-09, E-12, E-13 and the mobile part of Q-06. Store SDKs on
+mobile come with M11 and M12.
+
+- `screen.safeArea` in JS (Android window insets, iOS `safeAreaInsets`), and anchors that can follow it.
+- Android Back: an event the game can consume; today the system Back leaves the app.
+- An on-screen keyboard for M10's text field, an optional on-screen gamepad, vibration.
+- The iOS export writes `PrivacyInfo.xcprivacy` (the required-reason APIs the engine uses) and
+  `ITSAppUsesNonExemptEncryption`; the docs list what to declare in Google Play's data safety form.
+- `setup players --platforms mobile` on Windows and Linux installs the iOS libraries too (only the macOS package has
+  them today, so an iOS project from Windows needs `--mobile-dir` pointed at a macOS package).
+- Upload as commands with a dry run: App Store Connect and TestFlight (App Store Connect API), and the Google Play
+  Developer API (or fastlane).
+- An Android `--release` export without a keystore is an error unless `--allow-debug-key` is passed: today it is only a
+  warning, and the AAB it produces is one Google Play rejects.
+
+Acceptance criteria:
+- The emulator smoke test sends Back and the game receives the event; a notched device profile reports non-zero insets.
+- A test reads `PrivacyInfo.xcprivacy` from the generated Xcode project.
+- `export --platform android --release` without a keystore fails with a teaching error.
+
+## M17. Web export (L, high)
+
+Closes E-07 and the web gamepad gap (docs/MOBILE.md). CMake already recognizes Emscripten; sokol and QuickJS build for it.
+
+- An Emscripten preset and player (WebGL2), `export --platform web` writing `index.html`, the wasm and a data pack;
+  audio unlocked on the first input; `storage` in IndexedDB; gamepads through the browser Gamepad API.
+- A loading page with progress for the wasm and data download.
+
+Acceptance criteria:
+- CI builds the web player and runs an exported template in headless Chromium until its first frame renders.
+- The export is a zip that itch.io accepts as an HTML5 game.
+
+## M18. Animation and production 3D (L, high for 3D games)
+
+Closes F-03, F-04, F-05, F-06 and the run-time part of H-06.
+
+- glTF skins and animation clips (the loader flattens nodes and reads neither `skins` nor `animations`): GPU skinning,
+  an animator with clips, blending and events; a tween/easing JS module; a small state machine.
+- Rendering (Blinn-Phong, `kMaxLights = 8`, no culling today): normal maps, glTF metallic-roughness PBR with image-based
+  lighting, frustum culling, instancing, more lights, custom shaders per material.
+- Physics (`Collider3D` is box or sphere, no joints): capsule, convex and triangle-mesh colliders; Box2D's joints exposed
+  in 2D (revolute, distance, prismatic, weld) and hinge/ball joints in 3D; a character controller.
+- 2D: flipped and rotated tile indices, 9-slice (shared with M10), 2D lights with normal maps, parallax layers.
+
+Acceptance criteria:
+- A skinned glTF sample plays two clips and blends between them (golden image).
+- 10 000 instanced cubes draw in one draw call per material; off-screen meshes are not submitted (render stats).
+- A capsule body walks up a triangle-mesh ramp; a revolute-joint pendulum keeps its period.
+
+## M19. Runtime features (M each, medium; take them when a game needs them)
+
+Closes F-07 (effects), F-09, F-10 (except the Android shutdown, M9), F-11, F-14, F-16, F-18, H-07 and U-08.
+
+- Networking: `http.fetch` (a Promise) and WebSocket in JS on every platform; real-time multiplayer later.
+- Saves: slots with their menu (on M10), a version field with a migration hook, optional encryption, cloud through
+  M12's `platform`.
+- Pathfinding: grid A* on a Tilemap, a navmesh for 3D, a behaviour-tree helper module.
+- Video: a video player component for logos and cut-scenes (e.g. pl_mpeg, MIT).
+- `scene.loadAsync` with progress, for loading screens and larger worlds.
+- Split screen: a viewport rectangle on Camera (four gamepads already work).
+- Audio: effects on the buses (low-pass, reverb), ducking and snapshots.
+
+Acceptance criteria: each item ships with its doctest or JS test and its docs, like any command or component.
+
+## M20. Editor and tooling (L, medium-high)
+
+Closes H-01, H-02, H-03, H-05, H-09 and the editor part of H-06.
+
+- Hand editing: entity tree, an inspector built from reflection (every field already has a doc string and a range), an
+  asset browser and transform gizmos; every edit goes through the commands the AI uses, so undo comes with them.
+- A script debugger: breakpoints and stepping in QuickJS behind a Debug Adapter Protocol server, for VS Code.
+- A profiler: CPU time per system and per behaviour class, GPU timings and memory, in `play.report` and an editor panel.
+- Later: tile painting and object placement in the viewport, an animation timeline, particle and material editors.
+
+Acceptance criteria:
+- The editor autotest edits a field in the inspector and the scene file changes.
+- An integration test drives the DAP server over stdio and stops at a breakpoint in a template behaviour.
+- The profiler report lists each behaviour class with its milliseconds per frame.
+
+## M21. Docs and material for shipping (M, high)
+
+Closes D-01..D-05, D-07 and the store-page notes of the report.
+
+- Docs marked by version ("since 0.1.x"); `factoria docs` already serves the docs of its own binary.
+- A publishing guide per store with a checklist (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io):
+  what the engine does and what the developer still does by hand.
+- A "finish your game" guide (menus, options, saves, localization, accessibility, credits) with M10-M14.
+- A complete reference game built on M10-M14 and the fake platform backend, with its own ENGINE_FEEDBACK.json, so the
+  feedback loop sees what jam-sized examples never reach.
+- Tutorials for people and a browsable API reference generated from `factoria api --md`.
+- An AI cost guide (tokens and money for a typical game, from `--max-cost` and the editor's usage records).
+- Store page material: screenshots and capsule art at each store's sizes, gameplay video recorded from a replay,
+  store metadata as text files per language.
+
+Acceptance criteria: every guide is embedded in the binary and listed by `factoria docs`; a replay can be written to a
+video file.
+
+## M22. Production quality and legal (M, high)
+
+Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14).
+
+- Frame time and memory of every example on every CI runner, recorded and failing on regressions.
+- Game updates: a content version in `factoria.json` and save migration (with M19's save versions).
+- Templates and guidance: EULA, privacy policy, a GDPR/COPPA consent screen (on M10), age ratings (IARC, PEGI, ESRB).
+- Accessibility: a subtitles component, colour-blind filters (post-processing), screen-reader hooks where the platform
+  has them.
+
+Acceptance criteria: a CI job fails when an example's frame time or memory regresses past its budget; the consent screen
+and subtitles are in the M10 template, with tests.
+
+## M23. Closed stores and consoles (L each, later)
+
+Closes E-08 and S-09, plus the Mac App Store and Microsoft Store rows of the report. Needs M11 and M12.
+
+- Mac App Store: App Sandbox entitlements, Apple Distribution signing and a provisioning profile, a `.pkg` from
+  `productbuild`, upload through the App Store Connect API (today only the Developer ID flow outside the store exists).
+- Microsoft Store and PC Game Pass: MSIX packaging of the game (the engine's own installer is not one), Partner Center
+  upload, the Microsoft GDK for Xbox services.
+- Consoles (Switch, PlayStation, Xbox): their SDKs are under NDA and cannot live in this MIT repository. What this
+  repository can do is the seam: a platform layer and render-backend interface (D3D12/GDKX, NVN, AGC) that a private M11
+  plugin implements, and certification checklists (TRC, Lotcheck, XR) once a licensed developer contributes them.
+
+Acceptance criteria: a sandboxed macOS export passes `codesign --verify --strict` with the App Sandbox entitlement and
+runs; an MSIX of an exported game installs with `Add-AppxPackage`.
+
+## Out of scope: Roblox
+
+Roblox is not an export target. Roblox games run Luau inside Roblox Studio with Roblox's own services (DataStore,
+MarketplaceService); exporting to it would take a JavaScript-to-Luau transpiler and a converter from scenes to `.rbxlx`,
+which is a different product. Not planned.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

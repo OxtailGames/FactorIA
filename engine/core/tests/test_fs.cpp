@@ -120,6 +120,32 @@ TEST_CASE("fs: writes replace the file atomically through a temporary file that 
     CHECK(names_in(p.dir / "scenes") == std::vector<std::string>{"a.scene.json"});
 }
 
+TEST_CASE("fs: paths longer than Windows' MAX_PATH are read and written (os_path)") {
+    TempProject p;
+    const std::string rel = std::string(100, 'a') + "/" + std::string(100, 'b') + "/" + std::string(60, 'c') + ".json";
+    REQUIRE((p.dir / rel).string().size() > 260);
+    auto w = fs::write_text(rel, "{\"deep\": true}");
+    REQUIRE_MESSAGE(w.ok(), (w.ok() ? "" : w.error().to_string()));
+    CHECK(fs::exists(rel));
+    CHECK(fs::read_text(rel).value() == "{\"deep\": true}");
+    CHECK(fs::is_directory(std::string(100, 'a')));
+    CHECK(fs::modified_time(rel) != -1);
+
+    const stdfs::path longPath = p.dir / rel, shortPath = p.dir / "x.json";
+    CHECK(fs::os_path(shortPath) == shortPath);  // short paths are left alone everywhere
+#ifdef _WIN32
+    const std::wstring prefixed = fs::os_path(longPath).native();
+    CHECK(prefixed.rfind(LR"(\\?\)", 0) == 0);
+    CHECK(prefixed.find(L'/') == std::wstring::npos);  // the prefix turns off '/' -> '\' conversion: none left
+    CHECK(fs::os_path(fs::os_path(longPath)) == fs::os_path(longPath));
+    CHECK(fs::os_path(LR"(\\server\share\)" + std::wstring(260, L'd')).native().rfind(LR"(\\?\UNC\server\share\)", 0) == 0);
+#else
+    CHECK(fs::os_path(longPath) == longPath);
+#endif
+    std::error_code ec;
+    stdfs::remove_all(fs::os_path(p.dir / std::string(100, 'a')), ec);  // TempProject's remove_all stops at long paths on Windows
+}
+
 TEST_CASE("fs: missing files get did-you-mean hints") {
     TempProject p;
     REQUIRE(fs::write_text("assets/player.png", "x").ok());
