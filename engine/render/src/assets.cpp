@@ -6,6 +6,7 @@
 
 #include <cgltf.h>
 
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -393,10 +394,13 @@ Assets::~Assets() {
 }
 
 void Assets::destroy_texture(TextureAsset& t) {
-    if (t.view.id) sg_destroy_view(t.view);
-    if (t.image.id) sg_destroy_image(t.image);
+    if (!t.atlas) {  // a packed texture borrows the GPU image of its atlas
+        if (t.view.id) sg_destroy_view(t.view);
+        if (t.image.id) sg_destroy_image(t.image);
+    }
     t.view = {};
     t.image = {};
+    t.atlas = nullptr;
 }
 
 void Assets::destroy_mesh(MeshAsset& m) {
@@ -421,41 +425,18 @@ void Assets::clear() {
 TextureAsset* Assets::white() { return white_.get(); }
 
 void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
-    std::vector<std::vector<std::uint8_t>> chain;
-    std::vector<std::pair<int, int>> dims;
-    dims.push_back({img.width, img.height});
-    const std::uint8_t* level0 = img.rgba.data();
-    if (mips) {
-        int w = img.width, h = img.height;
-        std::vector<std::uint8_t> prev(img.rgba);
-        while ((w > 1 || h > 1) && dims.size() < 16) {
-            int nw = std::max(1, w / 2), nh = std::max(1, h / 2);
-            std::vector<std::uint8_t> next(std::size_t(nw) * nh * 4);
-            for (int y = 0; y < nh; ++y) {
-                for (int x = 0; x < nw; ++x) {
-                    int x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
-                    int y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
-                    for (int c = 0; c < 4; ++c) {
-                        int s = prev[(std::size_t(y0) * w + x0) * 4 + c] + prev[(std::size_t(y0) * w + x1) * 4 + c] +
-                                prev[(std::size_t(y1) * w + x0) * 4 + c] + prev[(std::size_t(y1) * w + x1) * 4 + c];
-                        next[(std::size_t(y) * nw + x) * 4 + c] = std::uint8_t((s + 2) / 4);
-                    }
-                }
-            }
-            chain.push_back(next);
-            dims.push_back({nw, nh});
-            prev = std::move(next);
-            w = nw;
-            h = nh;
-        }
-    }
+    const std::vector<Image> chain = mips ? mip_chain(img) : std::vector<Image>();
     sg_image_desc d{};
     d.width = img.width;
     d.height = img.height;
     d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.num_mipmaps = int(dims.size());
-    d.data.mip_levels[0] = {level0, std::size_t(img.width) * img.height * 4};
-    for (std::size_t i = 1; i < dims.size(); ++i) d.data.mip_levels[i] = {chain[i - 1].data(), chain[i - 1].size()};
+    d.num_mipmaps = mips ? int(chain.size()) : 1;
+    d.data.mip_levels[0] = {img.rgba.data(), img.rgba.size()};
+    t.bytes = img.rgba.size();
+    for (std::size_t i = 1; i < chain.size(); ++i) {
+        d.data.mip_levels[i] = {chain[i].rgba.data(), chain[i].rgba.size()};
+        t.bytes += chain[i].rgba.size();
+    }
     d.label = t.path.c_str();
     t.image = make_image(d);
     sg_view_desc vd{};
@@ -464,6 +445,55 @@ void Assets::upload_texture(TextureAsset& t, const Image& img, bool mips) {
     t.view = sg_make_view(&vd);
     t.width = img.width;
     t.height = img.height;
+    t.format = SG_PIXELFORMAT_RGBA8;
+}
+
+// Uploads a KTX2 file in the best format the GPU samples. Falls back to RGBA8 when the driver rejects a compressed one.
+bool Assets::upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file, std::string& error) {
+    for (bool compressed : {true, false}) {
+        auto tex = transcode_ktx2(file.data(), file.size(), compressed);
+        if (!tex) {
+            error = tex.error().message;
+            return false;
+        }
+        sg_image_desc d{};
+        d.width = tex->width;
+        d.height = tex->height;
+        d.pixel_format = tex->format;
+        d.num_mipmaps = int(tex->levels.size());
+        t.bytes = 0;
+        for (std::size_t i = 0; i < tex->levels.size(); ++i) {
+            d.data.mip_levels[i] = {tex->levels[i].data(), tex->levels[i].size()};
+            t.bytes += tex->levels[i].size();
+        }
+        d.label = t.path.c_str();
+        t.image = make_image(d);
+        if (sg_query_image_state(t.image) == SG_RESOURCESTATE_VALID) {
+            sg_view_desc vd{};
+            vd.texture.image = t.image;
+            vd.label = t.path.c_str();
+            t.view = sg_make_view(&vd);
+            t.width = tex->width;
+            t.height = tex->height;
+            t.format = tex->format;
+            return true;
+        }
+        sg_destroy_image(t.image);
+        t.image = {};
+        if (tex->format == SG_PIXELFORMAT_RGBA8) break;
+    }
+    error = "the GPU rejected the texture";
+    return false;
+}
+
+void Assets::use_placeholder(TextureAsset& t) {
+    t.placeholder = true;
+    t.image = placeholderTex_->image;  // shared handles; never destroyed through this asset
+    t.view = placeholderTex_->view;
+    t.width = placeholderTex_->width;
+    t.height = placeholderTex_->height;
+    t.format = SG_PIXELFORMAT_RGBA8;
+    t.bytes = 0;
 }
 
 TextureAsset* Assets::make_texture(const std::string& name, const Image& img, bool mips) {
@@ -509,33 +539,51 @@ TextureAsset* Assets::load_texture(const std::string& path) {
     t.path = path;
     destroy_texture(t);
     t.placeholder = false;
-    if (!fs::exists(path)) {
-        std::string msg = "texture " + missing_hint(path, fs::extension(path));
-        // One error per path, even across reloads.
-        note_failure("texture", path, msg, "");
-        t.placeholder = true;
-        t.image = placeholderTex_->image;  // shared handles; never destroyed through this asset
-        t.view = placeholderTex_->view;
-        t.width = placeholderTex_->width;
-        t.height = placeholderTex_->height;
+    // A successful (re)load clears an older failure record.
+    auto loaded = [&]() -> TextureAsset* {
+        failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
+                                       [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
+                        failures_.end());
         return &t;
+    };
+    auto failed = [&](const std::string& message, const std::string& hint) -> TextureAsset* {
+        note_failure("texture", path, message, hint);  // one error per path, even across reloads
+        use_placeholder(t);
+        return &t;
+    };
+
+    // An export packed this texture into an atlas (assets.json `packed`): borrow the atlas's GPU image.
+    if (const assets::PackedTexture packed = assets::packed_texture(path); !packed.atlas.empty()) {
+        TextureAsset* atlas = texture(packed.atlas);
+        if (atlas->placeholder)
+            return failed(std::format("texture '{}' is packed into the atlas '{}', which could not be loaded", path, packed.atlas),
+                          "Export the project again.");
+        t.atlas = atlas;
+        t.atlasX = packed.x;
+        t.atlasY = packed.y;
+        t.width = packed.w;
+        t.height = packed.h;
+        t.format = atlas->format;
+        t.bytes = 0;
+        return loaded();
+    }
+
+    // An export replaces a texture by its compressed twin (path + ".ktx2"): the twin is loaded in place of the original.
+    const std::string twin = fs::extension(path) == kTextureTwinExtension ? path : path + kTextureTwinExtension;
+    if (fs::exists(twin)) {
+        std::string error;
+        auto bytes = fs::read_bytes(twin);
+        if (!bytes) error = bytes.error().message;
+        if (bytes && upload_ktx2(t, *bytes, error)) return loaded();
+        return failed(std::format("texture '{}' could not be loaded: {}", twin, error), "Export the project again.");
+    }
+    if (!fs::exists(path)) {
+        return failed("texture " + missing_hint(path, fs::extension(path)), "");
     }
     auto img = load_image(path);
-    if (!img) {
-        note_failure("texture", path, std::format("texture '{}' could not be loaded: {}", path, img.error().message), img.error().hint);
-        t.placeholder = true;
-        t.image = placeholderTex_->image;
-        t.view = placeholderTex_->view;
-        t.width = placeholderTex_->width;
-        t.height = placeholderTex_->height;
-        return &t;
-    }
-    // Successful (re)load clears an older failure record.
-    failures_.erase(std::remove_if(failures_.begin(), failures_.end(),
-                                   [&](const Failure& f) { return f.kind == "texture" && f.path == path; }),
-                    failures_.end());
+    if (!img) return failed(std::format("texture '{}' could not be loaded: {}", path, img.error().message), img.error().hint);
     upload_texture(t, *img, true);
-    return &t;
+    return loaded();
 }
 
 TextureAsset* Assets::texture(const std::string& path) {
@@ -622,6 +670,8 @@ void Assets::reload(const std::string& pathIn) {
     std::string path = fs::normalize(pathIn);
     if (path.empty()) path = pathIn;
     auto t = textures_.find(path);
+    if (t == textures_.end() && fs::extension(path) == kTextureTwinExtension)  // the twin of a texture changed
+        t = textures_.find(path.substr(0, path.size() - std::strlen(kTextureTwinExtension)));
     if (t != textures_.end()) {
         // Placeholder-shared handles must not be destroyed: load_texture() handles that via destroy_texture,
         // so detach them first.
@@ -629,7 +679,7 @@ void Assets::reload(const std::string& pathIn) {
             t->second->image = {};
             t->second->view = {};
         }
-        load_texture(path);
+        load_texture(t->first);
     }
     auto m = meshes_.find(path);
     if (m != meshes_.end()) {
@@ -647,7 +697,9 @@ Json Assets::report() const {
     Json tex = Json::array();
     for (const auto& [k, t] : textures_) {
         if (t->placeholder) continue;
-        tex.push_back({{"path", k}, {"width", t->width}, {"height", t->height}});
+        Json entry = {{"path", k}, {"width", t->width}, {"height", t->height}, {"format", pixel_format_name(t->format)}, {"bytes", t->bytes}};
+        if (t->atlas) entry["atlas"] = t->atlas->path;  // packed: the bytes are the atlas's
+        tex.push_back(std::move(entry));
     }
     Json meshes = Json::array();
     for (const auto& [k, m] : meshes_) {
