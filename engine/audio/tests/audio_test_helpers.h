@@ -19,7 +19,6 @@ namespace audio_test {
 
 using namespace fa;
 
-inline constexpr double kTestPi = std::numbers::pi;
 
 // A 16-bit PCM WAV of interleaved float samples (own writer, independent from the engine's).
 inline std::vector<std::uint8_t> wav_bytes(const std::vector<float>& interleaved, int channels, int rate) {
@@ -48,7 +47,7 @@ inline double dbfs(double db) { return std::pow(10.0, db / 20.0); }
 // `seconds` of a sine, mono, appended to `out`.
 inline void add_sine(std::vector<float>& out, double seconds, double freq, double amp, int rate) {
     const std::size_t n = std::size_t(std::lround(seconds * rate));
-    for (std::size_t i = 0; i < n; ++i) out.push_back(float(amp * std::sin(2.0 * kTestPi * freq * double(i) / rate)));
+    for (std::size_t i = 0; i < n; ++i) out.push_back(float(amp * std::sin(2.0 * std::numbers::pi * freq * double(i) / rate)));
 }
 
 // A 16-bit mono PCM WAV sine wave.
