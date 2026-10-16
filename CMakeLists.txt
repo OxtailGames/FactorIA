@@ -65,6 +65,11 @@ add_subdirectory(engine/script)     # fa_script    QuickJS gameplay scripting + 
 add_subdirectory(engine/runtime)    # fa_runtime   Engine: ties everything, game loop, commands
 add_subdirectory(player)            # factoria_player: minimal shipping runtime for games
 
+# The Steam backend plugin (platforms/plugins/steam/) is built and run against a mock of the Steamworks library.
+if(FA_BUILD_TESTS AND FA_DESKTOP)
+    add_subdirectory(platforms/plugins/steam/tests)
+endif()
+
 # ---- developer tools (desktop only) -----------------------------------------
 if(FA_BUILD_TOOLS)
     add_subdirectory(tools/common)  # fa_tooling   project scaffolding, validation, feedback, docs

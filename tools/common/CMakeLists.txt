@@ -17,6 +17,8 @@ list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
 file(GLOB_RECURSE FA_EMBED_SCHEMAS CONFIGURE_DEPENDS ${FA_ROOT}/schemas/*.json)
 file(GLOB_RECURSE FA_EMBED_PLATFORMS CONFIGURE_DEPENDS ${FA_ROOT}/platforms/*)
+# The tests of a store backend template (platforms/plugins/<name>/tests/: its mock SDK) are for the engine's CI, not for games.
+list(FILTER FA_EMBED_PLATFORMS EXCLUDE REGEX "/platforms/plugins/[^/]+/tests/")
 # License texts for the notices the export writes next to every game (fa/tooling/notices.h). A library that ships a NOTICE
 # file (Apache-2.0) or a LICENSES/ folder for parts of it has those embedded too.
 file(GLOB FA_EMBED_LICENSES CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/external/*/LICENSE* ${FA_ROOT}/external/*/NOTICE*
