@@ -136,6 +136,7 @@ página y de la guía de primeros pasos.
 - [docs/CLI.md](docs/CLI.md) y [docs/MCP.md](docs/MCP.md): la CLI `factoria` y el servidor MCP.
 - [docs/EDITOR.md](docs/EDITOR.md): el editor visual, centrado en la IA (en inglés): vista del juego, chat con la IA, selección, registro de audio.
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): proveedores de IA (Claude Code, Codex, claves de API) y roles.
+- [docs/ASSETS.md](docs/ASSETS.md): generar e importar arte, sonido y modelos; ajustes de importación y procedencia.
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): cómo las IAs registran lo que le falta al motor.
 - [docs/BUILDING.md](docs/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas.
 - [docs/MOBILE.md](docs/MOBILE.md) y [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android y exportar juegos.
