@@ -36,7 +36,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 
 ```
 engine/            runtime modules (ship inside every game)
-  core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema
+  core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema, child processes (process.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture

@@ -1,4 +1,31 @@
 // POSIX process runner: fork/exec, pipes, poll loop, process-group kill.
+//
+// iOS and Android build this file too (the runtime links against fa_core there) but get a run_process that always
+// fails: iOS forbids fork/exec for apps and the Android player has no use for starting programs.
+#include "fa/core/process.h"
+
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+#define FA_PROCESS_UNAVAILABLE 1
+#endif
+
+#ifdef FA_PROCESS_UNAVAILABLE
+
+namespace fa {
+
+Result<ProcessResult> run_process(const ProcessOptions& opt) {
+    const std::string program = opt.argv.empty() ? std::string("a program") : "'" + opt.argv[0] + "'";
+    return make_error("Cannot start " + program + ": running other programs is not available on iOS and Android",
+                      "Export, build and tool commands run on the desktop: use Windows, macOS or Linux.");
+}
+
+}  // namespace fa
+
+#else  // desktop POSIX: macOS and Linux
+
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -10,11 +37,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "fa/ai/process.h"
-
 extern char** environ;
 
-namespace fa::ai {
+namespace fa {
 
 namespace {
 
@@ -248,4 +273,6 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     return res;
 }
 
-}  // namespace fa::ai
+}  // namespace fa
+
+#endif  // FA_PROCESS_UNAVAILABLE
