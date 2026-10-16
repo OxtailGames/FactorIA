@@ -29,6 +29,15 @@ namespace fa::export_detail {
 
 // ---- helpers shared with the platform files (declared in export_internal.h) ------------------------
 
+const std::vector<std::string>& export_formats() {
+    static const std::vector<std::string> formats = {"apk", "aab", "gradle"};
+    return formats;
+}
+
+bool is_export_format(const std::string& format) {
+    return std::find(export_formats().begin(), export_formats().end(), format) != export_formats().end();
+}
+
 std::string host_platform() {
 #if defined(_WIN32)
     return "windows";
@@ -250,6 +259,14 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
     if (!stdfs::exists(p.dir / p.mainScene, ec))
         return err(generic(file) + "#/mainScene: '" + p.mainScene + "' does not exist in the project",
                    "create the scene or fix the path (project-relative, forward slashes)");
+    // `icon` and `export` (docs/EXPORTING.md, "Platform settings"): a wrong value is an error, an unknown key a warning.
+    auto settings = load_export_settings(generic(p.dir), &warnings);
+    if (!settings.ok()) return settings.error();
+    p.settings = std::move(settings.value());
+    if (p.settings.icon_for(platform).empty())
+        warnings.push_back("No icon is set for " + platform + ", so the app gets the platform's default icon. Set \"icon\" in "
+                           "factoria.json (a square PNG or JPG, 1024x1024 recommended), or \"export." + platform +
+                           ".icon\" for this platform only");
     return p;
 }
 
@@ -285,11 +302,20 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
     return out;
 }
 
-std::vector<std::string> list_files(const stdfs::path& root) {
+// The files of an export, relative to its root. An Android export that ran Gradle holds thousands of build products too
+// (.gradle/, build/, app/build/): they are not part of the export and are left out.
+std::vector<std::string> list_files(const stdfs::path& root, bool skipGradleOutput) {
     std::vector<std::string> out;
     std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_regular_file(ec)) out.push_back(generic(stdfs::relative(it->path(), root, ec)));
+    for (stdfs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string rel = generic(stdfs::relative(it->path(), root, ec));
+        if (skipGradleOutput && it->is_directory(ec) &&
+            (rel == ".gradle" || rel == ".kotlin" || rel == "build" || rel == "app/build")) {
+            it.disable_recursion_pending();
+            continue;
+        }
+        if (it->is_regular_file(ec)) out.push_back(rel);
+    }
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -391,6 +417,7 @@ struct Plan {
     stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export
     stdfs::path player;              // desktop
     MobileSetup mobile;              // android/ios
+    AndroidPlan android;             // android
     std::vector<std::string> warnings;
 };
 
@@ -420,6 +447,13 @@ Result<Plan> make_plan(const ExportOptions& options) {
         auto player = find_player(options, plan.platform);
         if (!player.ok()) return player.error();
         plan.player = std::move(player.value());
+    }
+    if (plan.platform == "android") {
+        auto android = plan_android(options, p, plan.outRoot, plan.warnings);
+        if (!android.ok()) return android.error();
+        plan.android = std::move(android.value());
+    } else if (!options.format.empty()) {
+        plan.warnings.push_back("The format '" + options.format + "' only applies to android; " + plan.platform + " has a single format, so it is ignored");
     }
     return plan;
 }
@@ -475,6 +509,12 @@ Json ExportPlan::to_json() const {
     if (!mode.empty()) j["mode"] = mode;
     if (!format.empty()) j["format"] = format;
     if (!artifact.empty()) j["artifact"] = artifact;
+    if (!toolchain.jdk.empty() || !toolchain.sdk.empty())
+        j["toolchain"] = Json::object({{"jdk", toolchain.jdk},
+                                       {"jdkFrom", toolchain.jdkFrom},
+                                       {"jdkMajor", toolchain.jdkMajor},
+                                       {"sdk", toolchain.sdk},
+                                       {"sdkFrom", toolchain.sdkFrom}});
     if (!player.empty()) j["player"] = player;
     j["warnings"] = warnings;
     return j;
@@ -489,6 +529,13 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
     out.outputDir = generic(plan.outRoot);
     if (plan.platform == "android" || plan.platform == "ios") out.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
     else out.player = generic(plan.player);
+    if (plan.platform == "android") {
+        out.format = plan.android.format;
+        out.artifact = generic(plan.android.artifact);
+        if (plan.android.format != "gradle") out.toolchain = plan.android.toolchain;
+        out.toolchain.problems.clear();
+        out.toolchain.warnings.clear();  // the plan's warnings carry them
+    }
     out.warnings = plan.warnings;
     return out;
 }
@@ -511,18 +558,32 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
 
     std::vector<std::string> files = collect_game_files(p, plan.outParent == p.dir ? outRoot : plan.outParent);
+    // The release keystore never ships: a keystore kept inside the project folder would end up in the app.
+    if (const std::string keystore = p.settings.android.signing.keystore; !keystore.empty() && !stdfs::path(keystore).is_absolute()) {
+        const std::string rel = generic(stdfs::path(keystore).lexically_normal());
+        const auto it = std::find(files.begin(), files.end(), rel);
+        if (it != files.end()) {
+            files.erase(it);
+            if (platform == "android")
+                report.warnings.push_back("The keystore '" + rel + "' is inside the project folder. It is left out of the app, but keep it out of "
+                                          "your repository too (add it to .gitignore, or move it outside the project and use an absolute path in "
+                                          "export.android.signing.keystore): anyone who gets it can sign apps as you");
+        }
+    }
 
     Result<void> r;
+    bool keepOutput = false;  // a failed Gradle build leaves its project in place, so that it can be opened and fixed
     if (platform == "android" || platform == "ios") {
         report.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
-        r = platform == "android" ? export_android(options, p, plan.mobile, outRoot, files, report)
+        r = platform == "android" ? export_android(p, plan.mobile, plan.android, outRoot, files, report)
                                   : export_ios(options, p, plan.mobile, outRoot, files, report);
     } else {
         r = export_desktop(p, platform, plan.player, outRoot, files, report);
     }
-    if (r.ok()) r = write_notices(p, platform, outRoot, report);
+    if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
+    if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
-        stdfs::remove_all(outRoot, ec);
+        if (!keepOutput) stdfs::remove_all(outRoot, ec);
         return r.error();
     }
     if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too
@@ -534,7 +595,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         }
     }
     report.outputDir = generic(outRoot);
-    report.files = list_files(outRoot);
+    report.files = list_files(outRoot, platform == "android");
     return report;
 }
 
@@ -543,29 +604,38 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
     info.name = "project.export";
     info.category = "project";
     info.readOnly = false;
-    info.summary = "Package the game for a platform: a desktop bundle, or an Android/iOS project.";
+    info.summary = "Package the game for a platform: a desktop bundle, an Android APK/AAB, or an iOS project.";
     info.description =
-        "Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh "
-        "<out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). "
-        "linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so "
-        "exporting for another OS than this machine's fails with a hint. android: a complete Gradle project; ios: the game "
-        "plus an Xcode/CMake project and build_ios.sh. Both have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
+        "Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a "
+        "fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not "
+        "modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria "
+        "binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project "
+        "that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the "
+        "first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "
+        "\"apk\" (default) or \"aab\" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports "
+        "it as `artifact`; \"gradle\" only writes the project and builds nothing. `release` builds the release variant "
+        "(signed with export.android.signing, else with the debug key and a warning). ios: the game plus an Xcode/CMake "
+        "project and build_ios.sh. Android and iOS have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
         "ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, "
         "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "
         "$FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error "
-        "says what to do. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, "
-        "where it ships with it (`notices`). Returns {outputDir, mode (android/ios), notices, files[], nextSteps[], "
-        "warnings[]}; nextSteps lists what to "
-        "do next (e.g. the Gradle build command). Nothing is built here (a macOS app is only sealed with an ad hoc "
-        "signature). dryRun: true runs every check and writes nothing: it returns {platform, outputDir (the folder an "
-        "export would replace), mode, player (desktop), warnings[]} or the error the export would give. Details: docs_read "
-        "{\"name\":\"exporting\"}. Example: {\"platform\":\"windows\",\"release\":true}.";
+        "says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is "
+        "(<out>/<slug>-android/build.log); the Gradle project stays on disk. Every export also writes "
+        "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). "
+        "Returns {outputDir, mode (android/ios), format and artifact (android), notices, files[], nextSteps[], "
+        "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
+        "writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, "
+        "format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), "
+        "player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read "
+        "{\"name\":\"exporting\"}. Examples: {\"platform\":\"windows\",\"release\":true}, "
+        "{\"platform\":\"android\",\"format\":\"aab\",\"release\":true}.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
         "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
-        "release":{"type":"boolean","description":"Release build: only changes the build commands in nextSteps (and the iOS script).","default":false},
+        "format":{"type":"string","enum":["apk","aab","gradle"],"description":"Android only (other platforms ignore it): apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed). apk and aab run Gradle and need a JDK 17+ and the Android SDK."},
+        "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore the debug key is used, with a warning). Other platforms: only changes the build commands in nextSteps (and the iOS script).","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {
@@ -582,6 +652,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
             if (!dir) throw CommandError("invalid_argument", dir.error().message, dir.error().hint);
             o.outDir = dir->string();
         }
+        o.format = tooling_detail::arg_string(args, "format", false);
+        if (!o.format.empty() && !is_export_format(o.format))
+            throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, export_formats()));
         o.release = tooling_detail::arg_bool(args, "release", false);
         if (tooling_detail::arg_bool(args, "dryRun", false)) {
             auto plan = plan_export(o);

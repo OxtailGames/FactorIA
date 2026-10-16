@@ -1,5 +1,6 @@
 // new, templates, validate, export, editor
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -158,18 +159,20 @@ Command make_validate_command() {
 Command make_export_command() {
     Command c;
     c.name = "export";
-    c.summary = "Package the game for a platform (desktop bundle, Android/iOS project).";
-    c.usage = "[project] [--platform P] [--out DIR] [--release]";
+    c.summary = "Package the game for a platform (desktop bundle, Android APK/AAB, iOS project).";
+    c.usage = "[project] [--platform P] [--format apk|aab|gradle] [--out DIR] [--release]";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
                {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/ (default out: <project>/build/export)."},
-               {"release", "", "Release build (assets packed, no dev tools)."},
+               {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk."},
+               {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json), else with the debug key and a warning."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria)."},
                {"json", "", "Machine-readable report."}};
-    c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android"};
+    c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android",
+                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         std::string platform = ctx.args.str("platform");
@@ -185,8 +188,20 @@ Command make_export_command() {
         ExportOptions eo;
         eo.projectDir = dir;
         eo.platform = platform;
+        eo.format = ctx.args.str("format");
+        if (!eo.format.empty()) {
+            std::string f;
+            for (char ch : eo.format) f += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            const std::vector<std::string> formats = {"apk", "aab", "gradle"};
+            if (std::find(formats.begin(), formats.end(), f) == formats.end())
+                throw UsageError("Unknown format '" + eo.format + "'.", fa::did_you_mean(eo.format, formats));
+            eo.format = f;
+        }
         eo.outDir = ctx.args.has("out") ? absolute_path(ctx.args.str("out")) : "";
         eo.release = ctx.args.has("release");
+        // A long step (the Gradle build of an Android export) shows its output as it goes; --json keeps the output clean
+        // (the same lines are in <export folder>/build.log).
+        if (!ctx.args.has("json")) eo.progress = [&ctx](const std::string& line) { ctx.err << line << std::endl; };
         eo.engineRoot = ctx.args.has("engine-root") ? absolute_path(ctx.args.str("engine-root")) : "";
         eo.mobileDir = ctx.args.has("mobile-dir") ? absolute_path(ctx.args.str("mobile-dir")) : "";
         eo.playerBinary = ctx.args.has("player") ? absolute_path(ctx.args.str("player")) : "";
@@ -197,7 +212,8 @@ Command make_export_command() {
             return 0;
         }
         ctx.out << "Exported " << (platform.empty() ? "host" : platform) << " build to " << r->outputDir << " (" << r->files.size() << " files"
-                << (r->mode.empty() ? "" : ", mode: " + r->mode) << ")\n";
+                << (r->mode.empty() ? "" : ", mode: " + r->mode) << (r->format.empty() ? "" : ", format: " + r->format) << ")\n";
+        if (!r->artifact.empty()) ctx.out << "Built " << r->artifact << "\n";
         for (const auto& w : r->warnings) ctx.out << "warning: " << w << "\n";
         if (!r->nextSteps.empty()) ctx.out << "Next steps:\n";
         for (std::size_t i = 0; i < r->nextSteps.size(); ++i) ctx.out << "  " << (i + 1) << ". " << r->nextSteps[i] << "\n";

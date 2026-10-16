@@ -3,9 +3,11 @@
 // export_project() validates a game project and writes a shippable folder:
 //   linux / windows : <out>/<slug>-<platform>/{<slug>[.exe], game/...}
 //   macos           : <out>/<slug>-macos/<Name>.app/Contents/{Info.plist, MacOS/<slug>, Resources/game/...}
-//   android         : <out>/<slug>-android/  a complete Gradle project with the game in app/src/main/assets/ plus
-//                     assets_index.txt (the file list the engine VFS needs to enumerate files inside an APK: one
-//                     project-relative path per line)
+//   android         : <out>/<slug>-android/  a complete Gradle project (with its own Gradle wrapper) with the game in
+//                     app/src/main/assets/ plus assets_index.txt (the file list the engine VFS needs to enumerate files
+//                     inside an APK: one project-relative path per line). Unless the format is "gradle", the export then
+//                     runs the project's Gradle wrapper and leaves the finished app next to the project:
+//                     <out>/<slug>-android/<slug>[-debug].apk or .aab (ExportReport::artifact)
 //   ios             : <out>/<slug>-ios/{game/..., build_ios.sh, ...}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
 // Android and iOS have two modes (ExportReport::mode); docs/EXPORTING.md has the rule that picks one:
@@ -29,6 +31,7 @@
 #include "fa/core/json.h"
 #include "fa/core/process.h"
 #include "fa/core/types.h"
+#include "fa/tooling/export_settings.h"
 
 namespace fa {
 
@@ -36,7 +39,9 @@ struct ExportOptions {
     std::string projectDir;     // folder containing factoria.json
     std::string platform;       // linux | windows | macos | android | ios ("" = the platform running factoria)
     std::string outDir;         // parent folder of the export ("" = <projectDir>/build/export)
-    bool release = false;       // only changes the build commands in nextSteps / the iOS script
+    bool release = false;       // android: builds the release APK/AAB (signed with export.android.signing, else with the
+                                // debug key and a warning); the other platforms: only changes the build commands in
+                                // nextSteps / the iOS script
     std::string playerBinary;   // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
@@ -45,23 +50,25 @@ struct ExportOptions {
                                 // With neither: $FACTORIA_ENGINE_DIR set = source; else <factoria dir>/mobile when it
                                 // holds the players = prebuilt; else the build-time source root = source (docs/EXPORTING.md)
     std::string buildSourceRoot;  // the checkout factoria was built from ("" = FA_SOURCE_ROOT); only tests change it
-    std::string format;         // the kind of file a platform exports ("" = the project's setting, else the platform's
-                                // default). android: "apk" | "aab" | "gradle" (the Gradle project only, nothing built);
-                                // the other platforms have one format and ignore it. Not used yet: the Android export
-                                // still always writes the Gradle project
+    std::string format;         // the kind of file a platform exports ("" = export.android.format of factoria.json, else the
+                                // platform's default). android: "apk" (default: built with Gradle), "aab" (the Google
+                                // Play bundle, built with Gradle) or "gradle" (only the Gradle project; nothing is built
+                                // and no JDK or SDK is needed). The other platforms have one format and ignore it
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
-                                // of a long step, such as the Gradle build of an Android export (may be empty). Not
-                                // used yet
-    const CancelFlag* cancel = nullptr;  // optional: set to true to stop a long step (the Gradle build kills its process
-                                // tree) and fail the export with "cancelled". Not used yet
+                                // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
+                                // may be empty
+    const CancelFlag* cancel = nullptr;  // optional: set to true to stop the Gradle build (its process tree is killed);
+                                // the export then fails with "cancelled" and the Gradle project stays on disk
+    const AndroidToolchainSearch* androidSearch = nullptr;  // where to look for the JDK and SDK, the environment variables
+                                // and ~/.factoria/export.json (nullptr = this machine); only tests change it
 };
 
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); empty for desktop exports
     std::string format;                    // the format that was exported (see ExportOptions::format); empty when none
-    std::string artifact;                  // absolute path of the file that was built (the .apk or .aab of an Android
-                                           // export); empty otherwise
+    std::string artifact;                  // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
+                                           // .aab of an Android export (release builds have no "-debug"); empty otherwise
     std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
     std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted)
     std::vector<std::string> nextSteps;    // what the user does next, in order
@@ -80,6 +87,8 @@ struct ExportPlan {
     std::string mode;                   // android/ios: "prebuilt" or "source"; empty for desktop exports
     std::string format;                 // the format the export would produce (see ExportOptions::format); empty when none
     std::string artifact;               // absolute path of the file the export would build (.apk / .aab); else empty
+    AndroidToolchain toolchain;         // android apk/aab: the JDK and SDK the build would use, and where each was found
+                                        // (problems stays empty: a missing one is the plan's error); else empty
     std::string player;                 // desktop: the factoria_player that is copied into the export
     std::vector<std::string> warnings;  // non-fatal problems found so far (the export's report repeats them)
     Json to_json() const;
