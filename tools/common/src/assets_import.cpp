@@ -221,7 +221,7 @@ const std::map<std::string, Route>& routes() {
         {".tga", {"copy", ".tga", import_copy}},              {".bmp", {"copy", ".bmp", import_copy}},
         {".wav", {"copy", ".wav", import_copy}},              {".ogg", {"copy", ".ogg", import_copy}},
         {".mp3", {"copy", ".mp3", import_copy}},              {".ttf", {"copy", ".ttf", import_copy}},
-        {".otf", {"copy", ".otf", import_copy}}};
+        {".otf", {"copy", ".otf", import_copy}},              {".qoa", {"copy", ".qoa", import_copy}}};
     return r;
 }
 
@@ -324,7 +324,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance "
         "(origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. "
         "The importer is chosen by the extension:\n"
-        "- .png .jpg .tga .bmp, .wav .ogg .mp3, .ttf .otf, .glb: copied as they are (images are checked to decode).\n"
+        "- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf, .glb: copied as they are (images are checked to decode).\n"
         "- .gltf: copied with the .bin buffers and images it refers to, which must sit next to it or below it.\n"
         "- .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the "
         "`sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from "
