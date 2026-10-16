@@ -315,6 +315,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.projectMtime = fs::modified_time(kProjectFileName);
     I.paused = config.editorMode;
     I.windowed = gfx != nullptr && !config.headless;
+    if (I.windowed && !config.editorMode) I.appWindow = std::make_unique<AppWindowControl>();
 
     // World + input.
     I.world.rng().reseed(config.seed);
@@ -404,6 +405,7 @@ void Engine::shutdown() {
     if (!I.initialized) return;
     I.initialized = false;
     I.scripts.shutdown();
+    I.appWindow.reset();
     I.audio.shutdown();
     I.physics.shutdown();
     I.world.clear();
@@ -592,6 +594,7 @@ Json Engine::project_settings() const {
     return j;
 }
 double Engine::fixed_dt() const { return impl_->fixedDt; }
+WindowControl* Engine::window() { return impl_->appWindow.get(); }
 
 void Engine::request_scene_change(std::string_view scenePath) {
     impl_->pendingScene = std::string(scenePath);

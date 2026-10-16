@@ -122,6 +122,7 @@ public:
     CommandRegistry& commands() override;
     Json project_settings() const override;
     double fixed_dt() const override;
+    WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;

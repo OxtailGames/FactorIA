@@ -19,7 +19,17 @@ struct WindowedState {
     int exitCode = 0;
     int framesRendered = 0;  // drawn frames, for the run marker in AppDesc.frame
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
+    // What the window shows of Input's requested cursor and on-screen keyboard state (input.mouse.visible/locked,
+    // input.showKeyboard): scripts change Input, apply_input_requests() makes the window follow.
+    bool mouseVisible = true, mouseLocked = false, keyboardShown = false;
 };
+
+void apply_input_requests(WindowedState& st) {
+    const Input& in = st.engine.input();
+    if (in.mouse_visible() != st.mouseVisible) app_show_mouse(st.mouseVisible = in.mouse_visible());
+    if (in.mouse_locked() != st.mouseLocked) app_lock_mouse(st.mouseLocked = in.mouse_locked());
+    if (in.keyboard_shown() != st.keyboardShown) app_show_keyboard(st.keyboardShown = in.keyboard_shown());
+}
 
 // Expand mode: the visible area grows on the long axis to match the window aspect.
 void apply_expand(Engine& engine, int fbW, int fbH) {
@@ -112,7 +122,9 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     };
     d.frame = [st](double dt) {
         if (!st->ok) return;
+        if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
         st->engine.frame(dt);
+        apply_input_requests(*st);
         // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
         // scripts/android-smoke.sh) grep for it to prove the game started and kept rendering on a simulator/emulator.
         if (st->engine.renderer() && ++st->framesRendered == 60) FA_INFO("player", "60 frames rendered");
@@ -129,6 +141,9 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
         switch (e.type) {
             case AppEvent::Type::Resized: apply_expand(st->engine, e.width, e.height); break;
             case AppEvent::Type::FocusLost: st->engine.input().release_all(); break;
+            case AppEvent::Type::FocusGained:
+                st->mouseLocked = false;  // the window system unlocked the mouse with the focus: lock it again if requested
+                break;
             case AppEvent::Type::Suspended: FA_INFO("player", "suspended"); break;
             case AppEvent::Type::Resumed:
                 FA_INFO("player", "resumed");
