@@ -57,18 +57,47 @@ TEST_CASE("usage errors exit with 2 and teach") {
 }
 
 TEST_CASE("every command has help with examples") {
-    for (const char* c : {"new", "templates", "run", "screenshot", "test", "validate", "call", "commands", "api", "mcp", "export", "version"}) {
+    for (const char* c : {"new", "templates", "run", "screenshot", "test", "validate", "call", "commands", "api", "mcp", "export", "setup", "version"}) {
         auto r = run({c, "--help"});
         CHECK_MESSAGE(r.code == 0, c);
         CHECK_MESSAGE(r.out.find("Examples:") != std::string::npos, c);
     }
-    for (auto sub : std::vector<std::vector<std::string>>{{"ai", "run"}, {"ai", "doctor"}, {"feedback", "add"}, {"feedback", "collect"}, {"docs", "search"}}) {
+    for (auto sub : std::vector<std::vector<std::string>>{{"ai", "run"}, {"ai", "doctor"}, {"feedback", "add"}, {"feedback", "collect"}, {"docs", "search"},
+                                                             {"setup", "android"}, {"setup", "players"}, {"setup", "cmake"}, {"setup", "xcode"}}) {
         auto args = sub;
         args.push_back("--help");
         auto r = run(args);
         CHECK(r.code == 0);
         CHECK(r.out.find("Examples:") != std::string::npos);
     }
+}
+
+TEST_CASE("setup: help names the components; mistakes exit with 2 and teach, without touching the computer") {
+    auto h = run({"setup", "--help"});
+    CHECK(h.code == 0);
+    for (const char* c : {"android", "players", "cmake", "xcode", "FACTORIA_HOME"}) CHECK_MESSAGE(h.out.find(c) != std::string::npos, c);
+
+    auto typo = run({"setup", "andriod"});
+    CHECK(typo.code == 2);
+    CHECK(typo.err.find("android") != std::string::npos);
+    auto flag = run({"setup", "android", "--accept-licence"});
+    CHECK(flag.code == 2);
+    CHECK(flag.err.find("--accept-licenses") != std::string::npos);
+    auto platform = run({"setup", "players", "--platforms", "windos"});  // refused before any lookup or download
+    CHECK(platform.code == 2);
+    CHECK(platform.err.find("windos") != std::string::npos);
+    CHECK(platform.err.find("windows") != std::string::npos);
+    auto json = run({"setup", "players", "--platforms", "windos", "--json"});
+    CHECK(json.code == 1);
+    CHECK(json.out.find("\"invalid_argument\"") != std::string::npos);
+    CHECK(json.out.find("\"ok\": false") != std::string::npos);
+}
+
+TEST_CASE("setup: the commands exist without a project") {
+    auto c = run({"commands"});
+    CHECK(c.code == 0);
+    CHECK(c.out.find("setup.status") != std::string::npos);
+    CHECK(c.out.find("setup.install") != std::string::npos);
 }
 
 TEST_CASE("templates and docs work without a project") {
