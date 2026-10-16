@@ -97,6 +97,28 @@ TEST_CASE("export: platform names are normalized") {
     CHECK(normalize_export_platform("amiga").empty());
 }
 
+TEST_CASE("export: format and artifact are serialized only when set") {
+    ExportReport report;
+    CHECK_FALSE(report.to_json().contains("format"));
+    CHECK_FALSE(report.to_json().contains("artifact"));
+    report.format = "apk";
+    report.artifact = "/out/game-android/game.apk";
+    CHECK(report.to_json()["format"] == "apk");
+    CHECK(report.to_json()["artifact"] == "/out/game-android/game.apk");
+
+    ExportPlan plan;
+    CHECK_FALSE(plan.to_json().contains("format"));
+    CHECK_FALSE(plan.to_json().contains("artifact"));
+    plan.format = "aab";
+    plan.artifact = "/out/game-android/game.aab";
+    CHECK(plan.to_json()["format"] == "aab");
+    CHECK(plan.to_json()["artifact"] == "/out/game-android/game.aab");
+
+    ExportOptions options;  // the options have defaults that mean "the project's setting"
+    CHECK(options.format.empty());
+    CHECK_FALSE(options.progress);
+}
+
 TEST_CASE("export: desktop layout (linux, windows, macos)") {
     testing::TempDir tmp;
     std::string proj = make_project(tmp);
