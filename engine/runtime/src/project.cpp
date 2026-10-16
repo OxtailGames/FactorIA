@@ -5,6 +5,10 @@
 #include <fstream>
 #include <sstream>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 
@@ -63,7 +67,28 @@ Json ProjectSettings::to_json() const {
     for (const auto& p : platforms) plats.push_back(p);
     j["platforms"] = plats;
     j["feedbackFile"] = feedbackFile;
+    if (icon.empty()) j.erase("icon");
+    else j["icon"] = icon;
     return j;
+}
+
+std::string ProjectSettings::window_icon() const {
+#if defined(__ANDROID__)
+    const char* platform = "android";
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+    const char* platform = "ios";
+#elif defined(__APPLE__)
+    const char* platform = "macos";
+#elif defined(_WIN32)
+    const char* platform = "windows";
+#else
+    const char* platform = "linux";
+#endif
+    if (auto exp = raw.find("export"); exp != raw.end() && exp->is_object())
+        if (auto plat = exp->find(platform); plat != exp->end() && plat->is_object())
+            if (auto own = plat->find("icon"); own != plat->end() && own->is_string() && !own->get<std::string>().empty())
+                return own->get<std::string>();
+    return icon;
 }
 
 namespace {
@@ -178,6 +203,7 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
     FA_TRY(read_string(j, "engine", "", s.engineVersion));
     FA_TRY(read_string(j, "mainScene", "", s.mainScene));
     FA_TRY(read_string(j, "feedbackFile", "", s.feedbackFile));
+    FA_TRY(read_string(j, "icon", "", s.icon));
 
     if (auto it = j.find("display"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/display", "an object like {\"width\": 1280, \"height\": 720}", *it);
@@ -409,7 +435,7 @@ constexpr const char* kSchemaText =
     },
     "icon": {
       "type": "string",
-      "description": "Game icon: the project-relative path of a square PNG or JPG image, e.g. \"assets/icon.png\" (forward slashes, inside the project folder). 1024x1024 recommended; it should be at least 512x512 (smaller or non-square images give a warning, a non-square one is centered on a transparent square). Every export generates what its platform needs from this one image: the .icns of a macOS app, the exe icon on Windows, the launcher icons of Android, the App Store icon of iOS, the PNG of a Linux build. Each platform can use another image through export.<platform>.icon. No icon at all means the platform's default icon plus a warning on export. Edited by the editor's Platform settings window."
+      "description": "Game icon: the project-relative path of a square PNG or JPG image, e.g. \"assets/icon.png\" (forward slashes, inside the project folder). 1024x1024 recommended; it should be at least 512x512 (smaller or non-square images give a warning, a non-square one is centered on a transparent square). Every export generates what its platform needs from this one image: the .icns of a macOS app, the exe icon on Windows, the launcher icons of Android, the App Store icon of iOS, the PNG of a Linux build. Each platform can use another image through export.<platform>.icon. No icon at all means the platform's default icon plus a warning on export. On Windows and Linux the same image is also the icon of the game window at run time. Edited by the editor's Platform settings window."
     },
     "export": {
       "type": "object",
