@@ -46,7 +46,8 @@ quality; the report itself is not in the repository). Every gap was checked agai
   per font naming the characters and a font that has them) and D-06 (GETTING_STARTED status table).
 - Already listed, not repeated: E-03 and Q-02 (M8, "Left open"), H-11 and the Android shutdown part of F-10 (M9, "Found
   while implementing M9"). Q-01 (the project's age, one maintainer) and Q-08 (a strength) are not engine work.
-- Everything else is grouped in M10-M23 below, in the report's order of priority: what blocks any store release first.
+- Everything else, and the points of the report's per-store table that no id covers, is grouped in M10-M23 below, in
+  the report's order of priority: what blocks any store release first.
   Roblox is out of scope (end of the list). None of these gaps came from the four example games, which are jam-sized and
   never needed menus, localization or stores; M21 adds a complete reference game to close that blind spot.
 
@@ -462,7 +463,8 @@ Acceptance criteria:
 
 ## M12. Platform services API (L, blocker for Steam and for any monetization)
 
-Closes S-01..S-08 (S-09 is in M23). Needs M11.
+Closes S-01..S-08 (S-09 is in M23), and the Play Integrity, iCloud and Steam Deck keyboard points of the per-store
+table. Needs M11.
 
 - A `platform` JS module: achievements, stats, leaderboards, cloud saves, purchases (with restore and receipts), overlay,
   presence, and `platform.has("achievements")`. A fake backend runs in `factoria test` and headless runs, with
@@ -470,6 +472,10 @@ Closes S-01..S-08 (S-09 is in M23). Needs M11.
 - Backends as M11 plugins, in this order: Steamworks (S-02; `steam_appid.txt` in development runs), StoreKit 2 and Game
   Center (S-04, S-05), Play Billing and Play Games v2. Then Epic Online Services and GOG Galaxy (S-03), ads with
   consent (Google UMP, Apple ATT; S-06), analytics and remote config (S-07), push notifications and deep links (S-08).
+- Steamworks also brings the Steam Deck's on-screen keyboard (`ShowGamepadTextInput`, the floating keyboard) for M10's
+  text field; M16's keyboard is mobile only.
+- Play Integrity (Google Play) next to Play Billing, and iCloud as a cloud-save backend next to StoreKit.
+- Later: the purchase SDKs of Android stores outside Play (Amazon Appstore, Samsung Galaxy Store, Huawei AppGallery).
 
 Acceptance criteria:
 - The M10 template's achievements and a purchase flow pass with the fake backend in a test.
@@ -478,7 +484,8 @@ Acceptance criteria:
 
 ## M13. Store-ready desktop export (M-L, high)
 
-Closes E-04, E-05, E-06 (the crash half), E-09, E-10, F-15, Q-03 and H-10. Authenticode signing is M8, "Left open".
+Closes E-04, E-05, E-06 (the crash half), E-09 (the desktop half; mobile uploads are M16), E-10, F-15, Q-03 and H-10.
+Authenticode signing is M8, "Left open".
 
 - Linux: the release player needs glibc 2.38 and GLIBCXX 3.4.31 (`release.yml` builds on `ubuntu-24.04`), so it does
   not start in the Steam Linux Runtime "sniper" (glibc 2.31), Ubuntu 22.04 or Debian 12. Build it in the sniper SDK
@@ -488,7 +495,12 @@ Closes E-04, E-05, E-06 (the crash half), E-09, E-10, F-15, Q-03 and H-10. Authe
   not game data.
 - Crash reporting next to `log.txt`: a minidump on Windows (`SetUnhandledExceptionFilter`, `MiniDumpWriteDump`), a
   backtrace on POSIX; an optional upload URL, off by default.
-- Upload as commands an AI can call: steamcmd (writes the app build VDF) and butler (itch.io), with a dry run.
+- Upload as commands an AI can call: steamcmd (writes the app build VDF), butler (itch.io), Epic's BuildPatchTool and
+  GOG's Galaxy Pipeline Builder, with a dry run.
+- macOS: Developer ID signing and notarization of the exported `.app` as a command (codesign, notarytool, stapler),
+  instead of the manual steps in docs/EXPORTING.md ("To distribute the game...").
+- Linux direct distribution: an AppImage or Flatpak of the exported game with its `.desktop` file (the export writes a
+  folder and suggests a tar).
 - A CI workflow for game projects (validate, test, export), from a template file or `factoria new`.
 - `scripts/build.ps1` asks only PATH for `cmake`, so a Visual Studio install with its bundled CMake fails with "cmake
   not found"; find it through vswhere, and warn about checkout paths deep enough for MSBuild's FTK1011 (MAX_PATH).
@@ -530,7 +542,8 @@ the only asset command, textures stay uncompressed RGBA8, and music is decoded w
 - Per-asset import settings: atlas packing, texture compression (BC7 on desktop, ASTC or ETC2 on mobile, e.g. KTX2 with
   Basis Universal), audio conversion, loudness normalization and streamed music.
 - Sprite-sheet slicing and style consistency (palette lock, reference images passed to the provider).
-- Importers for Aseprite and OBJ; FBX through conversion to glTF.
+- Importers for Aseprite, PSD and OBJ; FBX through conversion to glTF; SDF/MSDF font atlases; video files (for M19's
+  video player).
 - `project.validate` checks asset size, alpha, weight and loudness (LUFS).
 
 Acceptance criteria:
@@ -540,7 +553,8 @@ Acceptance criteria:
 
 ## M16. Mobile store-ready (M, high on mobile)
 
-Closes F-17, the device half of F-08, E-12, E-13 and the mobile part of Q-06. Store SDKs on mobile come with M11 and M12.
+Closes F-17, the device half of F-08, the mobile half of E-09, E-12, E-13 and the mobile part of Q-06. Store SDKs on
+mobile come with M11 and M12.
 
 - `screen.safeArea` in JS (Android window insets, iOS `safeAreaInsets`), and anchors that can follow it.
 - Android Back: an event the game can consume; today the system Back leaves the app.
@@ -549,6 +563,8 @@ Closes F-17, the device half of F-08, E-12, E-13 and the mobile part of Q-06. St
   `ITSAppUsesNonExemptEncryption`; the docs list what to declare in Google Play's data safety form.
 - `setup players --platforms mobile` on Windows and Linux installs the iOS libraries too (only the macOS package has
   them today, so an iOS project from Windows needs `--mobile-dir` pointed at a macOS package).
+- Upload as commands with a dry run: App Store Connect and TestFlight (App Store Connect API), and the Google Play
+  Developer API (or fastlane).
 - An Android `--release` export without a keystore is an error unless `--allow-debug-key` is passed: today it is only a
   warning, and the AAB it produces is one Google Play rejects.
 
@@ -563,6 +579,7 @@ Closes E-07 and the web gamepad gap (docs/MOBILE.md). CMake already recognizes E
 
 - An Emscripten preset and player (WebGL2), `export --platform web` writing `index.html`, the wasm and a data pack;
   audio unlocked on the first input; `storage` in IndexedDB; gamepads through the browser Gamepad API.
+- A loading page with progress for the wasm and data download.
 
 Acceptance criteria:
 - CI builds the web player and runs an exported template in headless Chromium until its first frame renders.
