@@ -13,6 +13,7 @@
 #   FA_GAME_ORIENTATION  landscape|portrait|any  (default landscape)
 #   FA_IOS_DEVELOPMENT_TEAM  Apple team id for signing (optional; can be set in Xcode)
 #   FA_GAME_ASSET_CATALOG    an Assets.xcassets folder with an AppIcon set (optional), compiled into the app
+#   FA_GAME_PLUGINS, FA_GAME_PLUGIN_DIR  the game's native plugins, linked into the app (platforms/ios/plugins.cmake)
 file(GLOB player_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
 if(FA_PLATFORM STREQUAL "android")
@@ -62,6 +63,8 @@ elseif(FA_PLATFORM STREQUAL "ios")
     endif()
     target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit"
         "-framework QuartzCore" "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation")
+    include(${FA_ROOT}/platforms/ios/plugins.cmake)
+    fa_ios_link_plugins(factoria_player)
 
     # The player's own code as a static library. The release workflow builds it with the engine archives it links
     # (every fa_* module, quickjs, box2d) for the device and the simulator, and the macOS download carries them in

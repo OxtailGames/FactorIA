@@ -74,6 +74,10 @@ endif()
 target_link_libraries(factoria_player PRIVATE ${FA_PLAYER_LIBS}
     "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit" "-framework QuartzCore"
     "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation" "-framework GameController")
+# The game's native plugins (-DFA_GAME_PLUGINS / -DFA_GAME_PLUGIN_DIR from build_ios.sh): their static libraries, and the code
+# that registers them with the engine before main.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/plugins.cmake)
+fa_ios_link_plugins(factoria_player)
 
 add_custom_command(TARGET factoria_player POST_BUILD
     # Not VERBATIM on purpose: with the Xcode generator the bundle path contains ${EFFECTIVE_PLATFORM_NAME}, which the
