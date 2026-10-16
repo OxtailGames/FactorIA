@@ -29,11 +29,11 @@ Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::p
     }
     std::error_code ec;
     for (const char* slice : kIosSlices) {
-        stdfs::create_directories(outRoot / "lib" / slice, ec);
+        stdfs::create_directories(os_path(outRoot / "lib" / slice), ec);
         for (stdfs::directory_iterator it(setup.libs / slice, ec), end; !ec && it != end; it.increment(ec)) {
             if (it->path().extension() != ".a") continue;
             std::error_code ec2;
-            stdfs::copy_file(it->path(), outRoot / "lib" / slice / it->path().filename(), stdfs::copy_options::overwrite_existing, ec2);
+            stdfs::copy_file(it->path(), os_path(outRoot / "lib" / slice / it->path().filename()), stdfs::copy_options::overwrite_existing, ec2);
             if (ec2) return err("export: cannot copy the prebuilt iOS library " + generic(it->path()) + ": " + ec2.message());
         }
     }

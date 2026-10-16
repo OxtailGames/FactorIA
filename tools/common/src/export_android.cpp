@@ -291,8 +291,8 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
     if (setup.prebuilt)
         for (const char* abi : kAndroidAbis) {
             const stdfs::path to = outRoot / "app" / "src" / "main" / "jniLibs" / abi / "libfactoria_player.so";
-            stdfs::create_directories(to.parent_path(), ec);
-            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", to, stdfs::copy_options::overwrite_existing, ec);
+            stdfs::create_directories(os_path(to.parent_path()), ec);
+            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", os_path(to), stdfs::copy_options::overwrite_existing, ec);
             if (ec) return err(std::string("export: cannot copy the prebuilt ") + abi + " player to " + generic(to) + ": " + ec.message());
         }
     stdfs::path assets = outRoot / "app" / "src" / "main" / "assets";

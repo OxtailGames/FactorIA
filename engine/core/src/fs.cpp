@@ -158,6 +158,24 @@ stdfs::path resolve(std::string_view path) {
     return project_root() / n.value();
 }
 
+stdfs::path os_path(const stdfs::path& p) {
+#ifdef _WIN32
+    // CreateDirectoryW refuses 248 characters or more and the other calls MAX_PATH (260) unless long paths are enabled
+    // both in the registry and in the program's manifest; the \\?\ prefix (absolute, backslashes, no . or ..) works always.
+    constexpr std::size_t kLimit = 248;
+    const std::wstring& given = p.native();
+    if (given.rfind(LR"(\\?\)", 0) == 0 || (!p.is_relative() && given.size() < kLimit)) return p;
+    std::error_code ec;
+    const stdfs::path abs = stdfs::absolute(p, ec).lexically_normal();
+    if (ec || abs.native().size() < kLimit) return p;
+    const std::wstring& a = abs.native();
+    if (a.rfind(LR"(\\)", 0) == 0) return stdfs::path(LR"(\\?\UNC\)" + a.substr(2));  // \\server\share\...
+    return stdfs::path(LR"(\\?\)" + a);
+#else
+    return p;
+#endif
+}
+
 namespace {
 bool is_same_or_below(std::string_view path, std::string_view folder) {
     return path == folder || (path.size() > folder.size() && path.substr(0, folder.size()) == folder && path[folder.size()] == '/');
@@ -201,13 +219,14 @@ Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
 #endif
     }
     stdfs::path full = resolve(path);
+    const stdfs::path osFull = os_path(full);
     std::error_code ec;
-    if (!stdfs::is_regular_file(full, ec)) {
-        if (stdfs::is_directory(full, ec))
+    if (!stdfs::is_regular_file(osFull, ec)) {
+        if (stdfs::is_directory(osFull, ec))
             return make_error("'" + std::string(path) + "' is a directory, not a file", "Use fs.list to see its contents.");
         return not_found_error(path, full);
     }
-    std::ifstream in(full, std::ios::binary);
+    std::ifstream in(osFull, std::ios::binary);
     if (!in) return make_error("Cannot open '" + to_generic(full) + "' for reading", "Check file permissions.");
     in.seekg(0, std::ios::end);
     std::streamoff size = in.tellg();
@@ -231,7 +250,7 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
     if (!n) return n.error();
     stdfs::path full = resolve(path);
     std::error_code ec;
-    if (full.has_parent_path()) stdfs::create_directories(full.parent_path(), ec);
+    if (full.has_parent_path()) stdfs::create_directories(os_path(full.parent_path()), ec);
     if (ec) {
         return make_error("Cannot create directory '" + to_generic(full.parent_path()) + "': " + ec.message(),
                           "Check permissions; on mobile the project folder is read-only (write to fs::user_dir()).");
@@ -239,8 +258,8 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
     // Atomic: the bytes go to a temporary file next to the target, which then replaces it (rename replaces an existing
     // file on Windows and POSIX). A crash, a full disk or a reader never sees a half-written file, and on any failure the
     // original stays as it was. The ".fa-tmp" suffix matches no extension anything watches or lists.
-    if (stdfs::is_symlink(full, ec)) {  // write through the link, as an in-place write would
-        stdfs::path target = stdfs::canonical(full, ec);
+    if (stdfs::is_symlink(os_path(full), ec)) {  // write through the link, as an in-place write would
+        stdfs::path target = stdfs::canonical(os_path(full), ec);
         if (!ec) full = target;
     }
     static std::atomic<unsigned> counter{0};
@@ -251,8 +270,9 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
 #endif
     stdfs::path tmp = full;
     tmp += ".fa-tmp" + std::to_string(pid) + "_" + std::to_string(counter++);
+    const stdfs::path osFull = os_path(full), osTmp = os_path(tmp);
     {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        std::ofstream out(osTmp, std::ios::binary | std::ios::trunc);
         if (!out) {
             return make_error("Cannot open '" + to_generic(tmp) + "' for writing",
                               "Check permissions; on mobile the project folder is read-only (write to fs::user_dir()).");
@@ -260,16 +280,16 @@ Result<void> write_bytes(std::string_view path, const void* data, std::size_t si
         if (size) out.write(static_cast<const char*>(data), std::streamsize(size));
         out.close();
         if (!out) {
-            stdfs::remove(tmp, ec);
+            stdfs::remove(osTmp, ec);
             return make_error("Failed while writing '" + to_generic(full) + "'", "Is the disk full?");
         }
     }
-    auto existing = stdfs::status(full, ec);  // keep the mode (executable bit, read-only) of the file being replaced
-    if (stdfs::is_regular_file(existing)) stdfs::permissions(tmp, existing.permissions(), ec);
-    stdfs::rename(tmp, full, ec);
+    auto existing = stdfs::status(osFull, ec);  // keep the mode (executable bit, read-only) of the file being replaced
+    if (stdfs::is_regular_file(existing)) stdfs::permissions(osTmp, existing.permissions(), ec);
+    stdfs::rename(osTmp, osFull, ec);
     if (ec) {
         std::error_code ignored;
-        stdfs::remove(tmp, ignored);
+        stdfs::remove(osTmp, ignored);
         return make_error("Cannot replace '" + to_generic(full) + "': " + ec.message(),
                           "Is it a folder, read-only, or open in another program? The original file was left untouched.");
     }
@@ -289,7 +309,7 @@ bool exists(std::string_view path) {
 #endif
     }
     std::error_code ec;
-    return stdfs::exists(resolve(path), ec);
+    return stdfs::exists(os_path(resolve(path)), ec);
 }
 
 bool is_directory(std::string_view path) {
@@ -301,14 +321,14 @@ bool is_directory(std::string_view path) {
 #endif
     }
     std::error_code ec;
-    return stdfs::is_directory(resolve(path), ec);
+    return stdfs::is_directory(os_path(resolve(path)), ec);
 }
 
 std::int64_t modified_time(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n || use_assets(n.value())) return -1;
     std::error_code ec;
-    auto t = stdfs::last_write_time(resolve(path), ec);
+    auto t = stdfs::last_write_time(os_path(resolve(path)), ec);
     if (ec) return -1;
     return std::int64_t(t.time_since_epoch().count());
 }

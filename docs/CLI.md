@@ -6,7 +6,10 @@ over MCP, run the built-in AI agent, manage `ENGINE_FEEDBACK.json`.
 - Every command has `--help` with examples. `factoria help [command]` works too.
 - Exit codes: `0` ok, `1` failure (the command ran and failed), `2` usage error (bad flag or argument).
 - Unknown commands, subcommands, flags, templates, platforms... answer with a "did you mean" suggestion.
-- Commands that inform (not just do) take `--json` for machine-readable output.
+- Commands that inform (not just do) take `--json` for machine-readable output. With `--json` a failure is JSON too:
+  stdout holds `{"ok": false, "error": {"code", "message", "hint"}}` (`code` is `invalid_argument` for bad arguments,
+  exit code 2; `internal` for a bug in factoria; `failed` otherwise, exit code 1), and the same text for people goes to
+  stderr.
 - Diagnostics and logs go to stderr; stdout carries the result. `--log-level trace|debug|info|warn|error`
   (default `warn`) is accepted by every command.
 - A command that needs a project takes it as the optional first argument, or via `--project DIR`; without

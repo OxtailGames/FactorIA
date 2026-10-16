@@ -96,29 +96,53 @@ Result<void> write_binary(const stdfs::path& path, const std::vector<std::uint8_
     return {};
 }
 
-// Puts the player at `dest`. A Windows export with an icon writes it with the icon of the exe replaced (pe_icon.h); a
-// player that cannot take the icon is copied as it is, with a warning (the window still shows the game's icon at run
-// time). `signatureRemoved` tells that the patch cut the exe's digital signature.
-Result<void> install_player(const stdfs::path& player, const stdfs::path& dest, const std::string& platform, const Image& icon,
-                            ExportReport& report, bool& signatureRemoved) {
+// Puts the player at `dest`. A Windows export writes the game into the exe's resources (pe_icon.h): its icon, when it
+// has one, and its name, version and file name (the version information Explorer and Task Manager show). A player that
+// cannot take them is copied as it is, with a warning. `signatureRemoved` tells that the patch cut the exe's signature.
+Result<void> install_player(const Project& p, const stdfs::path& player, const stdfs::path& dest, const std::string& platform,
+                            const Image& icon, ExportReport& report, bool& signatureRemoved) {
     std::error_code ec;
-    if (platform == "windows" && !icon.empty()) {
-        const std::string keeps = " The exe keeps the player's own icon; the window still shows the game's icon at run time.";
+    if (platform == "windows") {
         if (auto data = read_file(player)) {
             std::vector<std::uint8_t> bytes(data->begin(), data->end());
             data.reset();
-            auto patched = patch_pe_icon(bytes, icon);
-            if (patched.ok() && patched->replaced > 0) {
-                signatureRemoved = patched->signatureRemoved;
-                return write_binary(dest, bytes);
+            bool changed = false;
+            const std::string newer = " Use the factoria_player.exe of this FactorIA version.";
+            if (!icon.empty()) {
+                const std::string keeps = " The exe keeps the player's own icon; the window still shows the game's icon at run time.";
+                auto patched = patch_pe_icon(bytes, icon);
+                if (patched.ok() && patched->replaced > 0) {
+                    changed = true;
+                    signatureRemoved = signatureRemoved || patched->signatureRemoved;
+                } else {
+                    report.warnings.push_back(patched.ok() ? "The player " + generic(player) + " has no placeholder icon to replace (it was "
+                                                                 "built without player/windows/factoria_player.rc)." + keeps + newer
+                                                           : patched.error().message + "." + keeps + " " + patched.error().hint);
+                }
             }
-            report.warnings.push_back(patched.ok() ? "The player " + generic(player) + " has no placeholder icon to replace (it was built "
-                                                         "without player/windows/factoria_player.rc)." + keeps +
-                                                         " Use the factoria_player.exe of this FactorIA version."
-                                                   : patched.error().message + "." + keeps + " " + patched.error().hint);
+            PeVersionInfo info;
+            info.version = p.version;
+            info.strings = {{"FileDescription", p.name},  {"ProductName", p.name},
+                            {"FileVersion", p.version},   {"ProductVersion", p.version},
+                            {"InternalName", dest.stem().string()}, {"OriginalFilename", dest.filename().string()}};
+            auto version = patch_pe_version(bytes, info);
+            if (version.ok() && version->found) {
+                changed = true;
+                signatureRemoved = signatureRemoved || version->signatureRemoved;
+                for (const std::string& key : version->truncated)
+                    report.warnings.push_back("The " + key + " of the exe's version information is cut short: '" + info.strings[key] +
+                                              "' is longer than the room the player has for it (79 characters for names, 31 for "
+                                              "versions). Use a shorter `name` or `version` in factoria.json.");
+            } else if (version.ok()) {
+                report.warnings.push_back("The player " + generic(player) + " has no version information to fill in, so Windows shows "
+                                          "the exe's file name instead of the game's name and version." + newer);
+            } else if (icon.empty()) {  // with an icon, the icon's warning already says what is wrong with the file
+                report.warnings.push_back(version.error().message + ". " + version.error().hint);
+            }
+            if (changed) return write_binary(dest, bytes);
         }
     }
-    stdfs::copy_file(player, dest, stdfs::copy_options::overwrite_existing, ec);
+    stdfs::copy_file(os_path(player), os_path(dest), stdfs::copy_options::overwrite_existing, ec);
     if (ec) return err("export: cannot copy the player to " + generic(dest) + ": " + ec.message());
     return {};
 }
@@ -173,10 +197,10 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
         exeDest = outRoot / exeName;
         gameDest = outRoot / "game";
     }
-    stdfs::create_directories(exeDest.parent_path(), ec);
+    stdfs::create_directories(os_path(exeDest.parent_path()), ec);
     bool signatureRemoved = false;
-    if (auto r = install_player(player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
-    stdfs::permissions(exeDest, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+    if (auto r = install_player(p, player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
+    stdfs::permissions(os_path(exeDest), stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                        stdfs::perm_options::add, ec);
     if (auto r = copy_game(p, files, gameDest); !r.ok()) return r;
 
@@ -192,10 +216,10 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
                             "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep game/ next to the exe"};
         if (signatureRemoved)
-            report.nextSteps.push_back("The exe's digital signature was removed because its icon changed (the player of the FactorIA "
-                                       "download is signed with FactorIA's certificate). Windows may show 'unknown publisher'; sign "
-                                       "the exe with your own certificate to publish it: signtool sign /fd SHA256 /a /tr <timestamp "
-                                       "server URL> /td SHA256 " + exeName);
+            report.nextSteps.push_back("The exe's digital signature was removed because the export wrote the game's icon, name and "
+                                       "version into it (the player of the FactorIA download is signed with FactorIA's certificate). "
+                                       "Windows may show 'unknown publisher'; sign the exe with your own certificate to publish it: "
+                                       "signtool sign /fd SHA256 /a /tr <timestamp server URL> /td SHA256 " + exeName);
     } else {
         if (!icon.empty())
             if (auto r = write_png_icon(generic(outRoot / (slug + ".png")), icon, 256); !r.ok()) return r;

@@ -1,4 +1,5 @@
-// The icon resource of factoria_player.exe (Windows only; CMake compiles this file with rc.exe or windres).
+// The resources of factoria_player.exe: the icon and the version information (Windows only; CMake compiles this file
+// with rc.exe or windres).
 //
 // factoria_player.ico is a PLACEHOLDER: a neutral default icon (a play button) made only of uncompressed 32-bit BMP images
 // of 16, 24, 32, 48, 64, 128 and 256 px. `factoria export --platform windows` overwrites those images in the exported
@@ -7,3 +8,35 @@
 // tools/common/tests/placeholder_icon_test.cpp:
 //   FA_REGEN_PLACEHOLDER_ICON=1 <build dir>/tools/common/fa_test_tooling -tc="placeholder icon*"
 1 ICON "factoria_player.ico"
+
+// The version information of the exe (Explorer's Details tab; Task Manager shows FileDescription). Every string is a
+// PLACEHOLDER padded with spaces: `factoria export --platform windows` overwrites the values in place with the game's name,
+// version and file name, padded with NULs (patch_pe_version, tools/common/src/pe_icon.cpp), so the padding is the room
+// each value has (79 or 31 characters). Keep the keys: the export fills these six and the FILEVERSION/PRODUCTVERSION
+// numbers (FA_VERSION_* come from player/CMakeLists.txt).
+1 VERSIONINFO
+FILEVERSION FA_VERSION_MAJOR, FA_VERSION_MINOR, FA_VERSION_PATCH, 0
+PRODUCTVERSION FA_VERSION_MAJOR, FA_VERSION_MINOR, FA_VERSION_PATCH, 0
+FILEFLAGSMASK 0x3F
+FILEFLAGS 0x0
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "FactorIA Player                                                                "
+            VALUE "ProductName", "FactorIA Player                                                                "
+            VALUE "FileVersion", "                               "
+            VALUE "ProductVersion", "                               "
+            VALUE "InternalName", "factoria_player                                                                "
+            VALUE "OriginalFilename", "factoria_player.exe                                                            "
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
