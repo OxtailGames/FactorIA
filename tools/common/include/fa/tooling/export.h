@@ -16,6 +16,9 @@
 //              source root of a development build), with that checkout's platforms/ templates.
 // Every export also writes FACTORIA_NOTICES.txt (the licenses of the runtime inside the game, fa/tooling/notices.h):
 // next to the executable (linux, windows), in Contents/Resources (macos), in the APK assets (android), in game/ (ios).
+// It also writes kExportMarkerFile at the top of <out>/<slug>-<platform>/: an export replaces an existing folder of that
+// name only when it is empty or an export wrote it (the marker, or FACTORIA_NOTICES.txt where that platform's export
+// puts it, for exports older than the marker). Any other folder is an error, so an unrelated one is never deleted.
 // Never shipped: .factoria/, build/ (earlier exports), tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
 // jsconfig.json, every dot-file/dot-folder, and the output folder itself.
 #pragma once
@@ -31,6 +34,9 @@
 #include "fa/core/types.h"
 
 namespace fa {
+
+// File every export writes at the top of its <out>/<slug>-<platform>/ folder: the mark that the next export may replace it.
+inline constexpr const char* kExportMarkerFile = ".factoria-export";
 
 struct ExportOptions {
     std::string projectDir;     // folder containing factoria.json
@@ -72,7 +78,8 @@ struct ExportReport {
 Result<ExportReport> export_project(const ExportOptions& options);
 
 // What export_project would do, checked without writing anything: the same validation (platform, factoria.json, name,
-// mainScene, reverse-DNS id), the desktop player or the mobile mode, and the output folder. An error is the one
+// mainScene, reverse-DNS id), the desktop player or the mobile mode, and the output folder (outside the project, and
+// either absent, empty or written by an earlier export). An error is the one
 // export_project would return. The editor's Export window shows it for each platform before an export.
 struct ExportPlan {
     std::string platform;               // normalized: linux | windows | macos | android | ios

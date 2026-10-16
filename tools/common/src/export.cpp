@@ -387,11 +387,15 @@ Result<MobileSetup> resolve_mobile(const ExportOptions& o, const std::string& pl
 
 // The runtime inside the game is FactorIA (MIT) plus third-party code whose licenses ask for their notices in every
 // copy: FACTORIA_NOTICES.txt goes where it ships with the game (next to the executable, or inside the app bundle/APK).
+stdfs::path notices_dir(const Project& p, const std::string& platform, const stdfs::path& outRoot) {
+    if (platform == "macos") return outRoot / (fs_safe_name(p.name) + ".app") / "Contents" / "Resources";
+    if (platform == "android") return outRoot / "app" / "src" / "main" / "assets";
+    if (platform == "ios") return outRoot / "game";
+    return outRoot;
+}
+
 Result<void> write_notices(const Project& p, const std::string& platform, const stdfs::path& outRoot, ExportReport& report) {
-    stdfs::path dir = outRoot;
-    if (platform == "macos") dir = outRoot / (fs_safe_name(p.name) + ".app") / "Contents" / "Resources";
-    else if (platform == "android") dir = outRoot / "app" / "src" / "main" / "assets";
-    else if (platform == "ios") dir = outRoot / "game";
+    const stdfs::path dir = notices_dir(p, platform, outRoot);
     if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game)); !r.ok()) return r;
     report.notices = generic((dir.lexically_relative(outRoot) / kExportNoticesFile).lexically_normal());
     report.nextSteps.push_back(report.notices + " holds the licenses of the FactorIA runtime inside the game: keep it in "
@@ -399,12 +403,48 @@ Result<void> write_notices(const Project& p, const std::string& platform, const 
     return {};
 }
 
+// ---- the output folder: only one an export wrote is replaced ---------------------------------------
+
+// kExportMarkerFile, written first into every export folder (so an export that stopped halfway is replaced too).
+std::string marker_text(const Project& p, const std::string& platform) {
+    return "Written by `factoria export` (" + platform + " export of \"" + replace_all(p.name, "\n", " ") + "\").\n"
+           "The next export of this game deletes this folder and writes it again. A folder of that name without this\n"
+           "file is never deleted: the export stops with an error instead (docs/EXPORTING.md). The game does not need\n"
+           "this file; leave it out of what you ship if you like.\n";
+}
+
+// export_project deletes <out>/<slug>-<platform> before writing it, so the plan accepts it only when an export wrote
+// it: the marker is there, or FACTORIA_NOTICES.txt is where this platform's export puts it (exports made before the
+// marker existed). Absent or empty is fine too. Anything else, e.g. a folder of the user's that happens to have the
+// name, is an error that says how to proceed.
+Result<void> check_replaceable(const Project& p, const std::string& platform, const stdfs::path& outRoot) {
+    std::error_code ec;
+    if (!stdfs::exists(stdfs::symlink_status(outRoot, ec))) return {};
+    const std::string where = "'" + generic(outRoot) + "'";
+    const std::string choose =
+        "choose another output folder (--out, the `out` argument of project.export, or Choose... in the editor's Export "
+        "window)";
+    if (!stdfs::is_directory(outRoot, ec))
+        return err("export: " + where + " already exists and is not a folder; an export would delete it, so it is left "
+                   "as it is",
+                   choose + ", or move or delete that file yourself");
+    if (stdfs::is_regular_file(outRoot / kExportMarkerFile, ec)) return {};
+    if (stdfs::is_regular_file(notices_dir(p, platform, outRoot) / kExportNoticesFile, ec)) return {};
+    if (bool empty = stdfs::is_empty(outRoot, ec); empty && !ec) return {};
+    return err("export: the output folder " + where + " already exists and was not written by an export (it has no " +
+                   kExportMarkerFile + " file); an export would delete it, so it is left as it is",
+               choose + ", or move or delete that folder yourself if nothing in it is needed. A folder an older "
+               "factoria exported has no marker either: delete it once and export again; later exports replace it on "
+               "their own");
+}
+
 // ---- plan: every check, before anything is written ------------------------------------------------
 
 struct Plan {
     std::string platform;
     Project project;
-    stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export
+    stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export (absent,
+                                     // empty or an earlier export: check_replaceable)
     stdfs::path player;              // desktop
     MobileSetup mobile;              // android/ios
     Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
@@ -430,6 +470,7 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
     plan.outRoot = plan.outParent / (slug + "-" + plan.platform);
     if (is_inside(p.dir, plan.outRoot) || plan.outRoot == p.dir)
         return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project", "choose another --out folder");
+    if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
 
     if (plan.platform == "android" || plan.platform == "ios") {
         auto setup = resolve_mobile(options, plan.platform);
@@ -534,9 +575,10 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     std::error_code ec;
     stdfs::create_directories(plan.outParent, ec);
     if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
-    stdfs::remove_all(outRoot, ec);  // always a fresh <slug>-<platform> folder
+    stdfs::remove_all(outRoot, ec);  // always a fresh <slug>-<platform> folder; the plan checked that an export wrote it
     stdfs::create_directories(outRoot, ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
+    if (auto r = write_text(outRoot / kExportMarkerFile, marker_text(p, platform)); !r.ok()) return r.error();
 
     std::vector<std::string> files = collect_game_files(p, plan.outParent == p.dir ? outRoot : plan.outParent);
 
@@ -574,7 +616,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
     info.summary = "Package the game for a platform: a desktop bundle, or an Android/iOS project.";
     info.description =
         "Validates the project (factoria.json, name, mainScene, reverse-DNS id) and writes a fresh "
-        "<out>/<game-slug>-<platform>/ folder (deleted and recreated on every call; the project itself is not modified). "
+        "<out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an "
+        "export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that "
+        "name is an error that says how to proceed, never deleted; the project itself is not modified). "
         "linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so "
         "exporting for another OS than this machine's fails with a hint. android: a complete Gradle project; ios: the game "
         "plus an Xcode/CMake project and build_ios.sh. Both have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
@@ -604,7 +648,8 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
             const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios"};
             throw CommandError("invalid_argument", "Unknown platform '" + o.platform + "'.", did_you_mean(o.platform, platforms));
         }
-        // Inside the project only, like fs.*: the export folder is deleted and rewritten on every call.
+        // Inside the project only, like fs.*: the export folder is deleted and rewritten on every call (when an export
+        // wrote it).
         if (std::string out = tooling_detail::arg_string(args, "out", false); !out.empty()) {
             auto dir = resolve_project_path(projectDir, out);
             if (!dir) throw CommandError("invalid_argument", dir.error().message, dir.error().hint);
