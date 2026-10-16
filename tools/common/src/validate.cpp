@@ -137,6 +137,28 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
             hint);
 }
 
+// A texture of an atlas group (import setting `atlas`) is drawn from the packed atlas once the game is exported, which
+// only 2D sprites and particles do: any other texture field (a tileset, a mesh texture) would show the whole atlas.
+// The VFS root is the project (its assets.json is the one asked).
+void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields) {
+    if (typeName != "Tilemap" && typeName != "MeshRenderer") return;  // the others draw through the atlas rectangle
+    const TypeInfo* t = TypeRegistry::global().find(typeName);
+    if (!t || !fields.is_object()) return;
+    for (const FieldInfo& f : t->fields) {
+        if (f.kind != FieldKind::Asset || f.assetType != "texture" || !fields.contains(f.name) || !fields[f.name].is_string()) continue;
+        const std::string path = fields[f.name].get<std::string>();
+        if (path.empty()) continue;
+        const Json settings = assets::import_settings(path);
+        const auto group = settings.find("atlas");
+        if (group == settings.end() || !group->is_string() || group->get<std::string>().empty()) continue;
+        c.warn(file, pointer + "/" + f.name,
+               "Texture '" + path + "' is in atlas group \"" + group->get<std::string>() + "\" (assets.json), but " + typeName + "." + f.name +
+                   " cannot draw from an atlas: an exported game would show the whole atlas image here.",
+               "Set the \"atlas\" import setting of '" + path + "' to \"\" in assets.json, or point " + f.name +
+                   " at a copy of the image that is not in a group. Tilemap tilesets and MeshRenderer textures cannot be packed.");
+    }
+}
+
 void check_entity_assets(Ctx& c, const std::string& file, const std::string& pointer, const Json& entity,
                          std::set<std::string>& scripts) {
     if (!entity.is_object()) return;
@@ -148,6 +170,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
     if (entity.contains("components") && entity["components"].is_object()) {
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
+            check_atlas_use(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
             if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
                 !it.value()["texture"].get<std::string>().empty())
                 c.spriteTextures.insert(it.value()["texture"].get<std::string>());

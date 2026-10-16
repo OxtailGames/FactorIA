@@ -729,7 +729,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 sg_bindings b{};
                 b.vertex_buffers[0] = part.vb;
                 b.index_buffer = part.ib;
-                b.views[VIEW_mesh_tex] = tex->view;
+                b.views[VIEW_mesh_tex] = tex->gpu_view();
                 b.samplers[SMP_mesh_smp] = gpu.sampler(SamplerKind::LinearRepeat);
                 b.views[VIEW_mesh_shadow_tex] = doShadows ? shadowTexView : assets->white()->view;
                 b.samplers[SMP_mesh_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
@@ -773,7 +773,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 b.vertex_buffers[0] = vbuf;
                 b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
                 b.index_buffer = gpu.quad_index_buffer();
-                b.views[VIEW_quad_tex] = qb.tex->view;
+                b.views[VIEW_quad_tex] = qb.tex->gpu_view();
                 b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
                 sg_apply_bindings(&b);
                 sg_draw(0, int(n * 6), 1);

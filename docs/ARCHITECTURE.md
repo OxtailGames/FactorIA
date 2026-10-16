@@ -39,7 +39,7 @@ engine/            runtime modules (ship inside every game)
   core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads
-  render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture
+  render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture, KTX2 textures (Basis Universal transcoder)
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes with rigid-body rotation, continuous collision, shape casts)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
@@ -47,7 +47,7 @@ engine/            runtime modules (ship inside every game)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
-  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
+  common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   ai/              fa_ai       AI providers (API keys + Claude Code / Codex CLIs), agent loop, roles; asset providers (images, sounds, 3D models) and the assets.generate_* commands
   editor/          fa_editor   Dear ImGui editor with AI assistant panel
@@ -130,6 +130,16 @@ the frame is split: world pass, bloom, then a second pass that draws the screen-
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
 HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/`).
+
+### Textures
+An export replaces a texture `x.png` by its twin `x.png.ktx2` (Basis Universal, written by `fa_tooling`'s
+`export_textures.cpp`) and packs atlas groups into `assets/atlases/*.png`, recording each packed texture's rectangle
+as `packed` in the shipped `assets.json`. The renderer (`render/src/ktx2.cpp`, `assets.cpp`) loads the twin in place of
+the name scenes and scripts use, transcodes it to the best format `sg_query_pixelformat` reports (ASTC, BC7, ETC2,
+else RGBA8; `FA_TEXTURE_FORMAT` forces one), and a packed texture borrows the atlas image with a sub-rectangle
+(`TextureAsset::uv`). Only the Basis *transcoder* is in the runtime (`fa_render`, outputs the game never uses are
+compiled out); the encoder is in `fa_tooling`. `core/image.h` (`texture_size`) is the one place that answers "how big is
+this picture" whatever form it ships in.
 
 ### Bounds
 Where a 2D entity is and how big it is has ONE definition, `fa/scene/bounds.h` (`visual_footprints`, `entity_world_rect`): Tilemap, Sprite,

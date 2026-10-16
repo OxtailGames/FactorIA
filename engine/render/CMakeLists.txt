@@ -1,6 +1,6 @@
 fa_add_module(render
     DEPS fa_core fa_scene fa_platform
-    PRIVATE_DEPS fa_ext_sokol fa_ext_stb fa_ext_cgltf)
+    PRIVATE_DEPS fa_ext_sokol fa_ext_stb fa_ext_cgltf fa_ext_basisu_transcoder)
 
 # Built-in fonts are embedded in the binary (namespace fa_render_fonts, header embedded_fonts.h).
 fa_embed_files(fa_render fa_render_fonts embedded_fonts
@@ -20,8 +20,10 @@ endif()
 
 fa_add_tests(render)
 if(TARGET fa_test_render)
-    # Golden images live next to the tests.
-    target_compile_definitions(fa_test_render PRIVATE FA_RENDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden")
+    # Golden images and the KTX2 fixtures (tests/data) live next to the tests.
+    target_compile_definitions(fa_test_render PRIVATE FA_RENDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
+                                                      FA_RENDER_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
+    target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
 endif()
 
 # Windowed smoke test (needs a display; runs under xvfb when available).

@@ -6,7 +6,8 @@ add_library(fa_tooling STATIC)
 file(GLOB_RECURSE tooling_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_stb)
+# The Basis Universal encoder and stb_rect_pack make the compressed textures and atlases of `factoria export`.
+target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb)
 
 # Bake docs, templates and schemas into the binary (offline AI access), plus the Android/iOS project templates of
 # platforms/ so that `factoria export --platform android|ios` works without the engine source (prebuilt mode).
@@ -16,8 +17,10 @@ list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
 file(GLOB_RECURSE FA_EMBED_SCHEMAS CONFIGURE_DEPENDS ${FA_ROOT}/schemas/*.json)
 file(GLOB_RECURSE FA_EMBED_PLATFORMS CONFIGURE_DEPENDS ${FA_ROOT}/platforms/*)
-# License texts for the notices the export writes next to every game (fa/tooling/notices.h).
-file(GLOB FA_EMBED_LICENSES CONFIGURE_DEPENDS ${FA_ROOT}/external/*/LICENSE* ${FA_ROOT}/engine/render/assets/fonts/*.txt)
+# License texts for the notices the export writes next to every game (fa/tooling/notices.h). A library that ships a NOTICE
+# file (Apache-2.0) or a LICENSES/ folder for parts of it has those embedded too.
+file(GLOB FA_EMBED_LICENSES CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/external/*/LICENSE* ${FA_ROOT}/external/*/NOTICE*
+     ${FA_ROOT}/external/*/LICENSES/* ${FA_ROOT}/engine/render/assets/fonts/*.txt)
 list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
 set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES})
 if(FA_EMBED_ALL)

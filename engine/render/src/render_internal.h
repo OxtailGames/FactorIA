@@ -1,6 +1,7 @@
 // Private types shared by the renderer's translation units.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -57,9 +58,34 @@ struct TextureAsset {
     std::string path;
     sg_image image{};
     sg_view view{};
-    int width = 0, height = 0;
-    bool placeholder = false;  // magenta/black checker standing in for a missing/broken file
+    int width = 0, height = 0;  // pixels of the original file: what regions, sprite sizes and scripts work with
+    bool placeholder = false;   // magenta/black checker standing in for a missing/broken file
+    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;  // what the GPU holds (compressed when the file is a KTX2 twin)
+    std::size_t bytes = 0;                           // GPU memory of all mip levels
+    // Packed into an atlas by an export: the atlas holds this texture at (atlasX, atlasY) and image/view stay empty.
+    TextureAsset* atlas = nullptr;
+    int atlasX = 0, atlasY = 0;
+
+    sg_view gpu_view() const { return atlas ? atlas->view : view; }
+    // UV of pixel (x, y) of the original file (top-left origin): inside the atlas when the texture is packed.
+    Vec2 uv(float x, float y) const {
+        const TextureAsset& s = atlas ? *atlas : *this;
+        return {((atlas ? float(atlasX) : 0.0f) + x) / float(std::max(1, s.width)),
+                ((atlas ? float(atlasY) : 0.0f) + y) / float(std::max(1, s.height))};
+    }
 };
+
+// A KTX2 file (Basis Universal, UASTC or ETC1S) transcoded for the GPU (ktx2.cpp).
+struct TranscodedTexture {
+    int width = 0, height = 0;
+    sg_pixel_format format = SG_PIXELFORMAT_RGBA8;
+    std::vector<std::vector<std::uint8_t>> levels;  // every mip level, largest first
+};
+// Picks the best format this GPU samples: ASTC 4x4 (mobile GPUs), BC7 (desktop), ETC2 RGBA8 (every GLES3 device), else
+// RGBA8. `allowCompressed` false goes straight to RGBA8. The environment variable FA_TEXTURE_FORMAT (astc, bc7, etc2 or
+// rgba8) narrows the choice to that one format, to test a path on a GPU that would pick another.
+Result<TranscodedTexture> transcode_ktx2(const std::uint8_t* data, std::size_t size, bool allowCompressed);
+const char* pixel_format_name(sg_pixel_format format);  // "RGBA8", "BC7", "ASTC_4x4", "ETC2_RGBA8"
 
 struct SubMesh {
     sg_buffer vb{};
@@ -217,6 +243,8 @@ private:
     TextureAsset* load_texture(const std::string& path);
     void destroy_texture(TextureAsset& t);
     void upload_texture(TextureAsset& t, const Image& img, bool mips);
+    bool upload_ktx2(TextureAsset& t, const std::vector<std::uint8_t>& file, std::string& error);
+    void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
     std::string missing_hint(const std::string& path, std::string_view ext) const;

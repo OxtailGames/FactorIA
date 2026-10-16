@@ -158,15 +158,28 @@ Json entry(std::string_view path) {
     return e != assets->end() && e->is_object() ? *e : Json::object();
 }
 
-Json import_settings(std::string_view path) {
+PackedTexture packed_texture(std::string_view path) {
+    const Json e = entry(path);
+    const auto p = e.find("packed");
+    if (p == e.end() || !p->is_object()) return {};
+    const auto atlas = p->find("atlas"), rect = p->find("rect");
+    if (atlas == p->end() || !atlas->is_string() || rect == p->end() || !rect->is_array() || rect->size() != 4) return {};
+    for (const Json& v : *rect)
+        if (!v.is_number_integer()) return {};
+    return {atlas->get<std::string>(), (*rect)[0].get<int>(), (*rect)[1].get<int>(), (*rect)[2].get<int>(), (*rect)[3].get<int>()};
+}
+
+Json import_settings(const Json& m, std::string_view path) {
     const AssetKind kind = kind_of(path);
     Json out = builtin_import_defaults(kind);
-    Json m = manifest();
     if (auto d = m.find("defaults"); d != m.end() && d->is_object())
         if (auto k = d->find(kind_name(kind)); k != d->end()) merge_into(out, *k);
-    merge_into(out, entry(path).value("import", Json::object()));
+    if (auto a = m.find("assets"); a != m.end() && a->is_object())
+        if (auto e = a->find(key_of(path)); e != a->end() && e->is_object()) merge_into(out, e->value("import", Json::object()));
     return out;
 }
+
+Json import_settings(std::string_view path) { return import_settings(manifest(), path); }
 
 Result<void> update_entry(std::string_view path, const std::function<void(Json& entry)>& edit) {
     const std::string key = key_of(path);
