@@ -410,30 +410,38 @@ jobs:
           fi
           du -sh "$tmp/FactorIA/mobile"
 
+      # The export builds the APK, so it needs a JDK 17+ (it reads JAVA_HOME) next to the runner's Android SDK.
+      - name: Set up JDK 17
+        if: runner.os == 'Linux'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       # `factoria export --platform android` from the unpacked package, outside the checkout (whose path is compiled into
-      # factoria, so the report must say "prebuilt"), then a Gradle build with only the runner's Android SDK: the NDK and
-      # CMake folders are moved away to prove the prebuilt libraries need neither.
+      # factoria, so the report must say "prebuilt"). It also builds the APK, with the Gradle wrapper it wrote into the
+      # project and only the runner's Android SDK: the NDK and CMake folders are moved away (and the NDK variables are
+      # unset for the export, whose Gradle inherits them) to prove the prebuilt libraries need neither.
       - name: Smoke-test the Android export (Gradle, prebuilt)
         if: runner.os == 'Linux'
         run: |
           tmp="${RUNNER_TEMP//\\//}/smoke"
           fa="$tmp/FactorIA/factoria"
-          "$fa" new "$tmp/ga" --template 2d-platformer --name "Smoke Game" --id dev.factoria.smoke
-          "$fa" export "$tmp/ga" --platform android --out "$tmp/export-android" --json | tee "$tmp/android-report.json"
-          grep -Eq '"mode": *"prebuilt"' "$tmp/android-report.json"
-          proj="$tmp/export-android/smoke-game-android"
-          if grep -q externalNativeBuild "$proj/app/build.gradle"; then echo "::error::the prebuilt build.gradle still builds native code"; exit 1; fi
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$sdk/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
+          "$sdk/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0"
           for d in ndk ndk-bundle cmake; do
             if [[ -d "$sdk/$d" ]]; then sudo mv "$sdk/$d" "$sdk/$d.away"; fi
           done
-          echo "sdk.dir=$sdk" > "$proj/local.properties"
-          cd "$proj"
-          env -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME gradle wrapper --gradle-version 8.7
-          env -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME ./gradlew assembleDebug --no-daemon
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee "$tmp/apk-contents.txt"
+          "$fa" new "$tmp/ga" --template 2d-platformer --name "Smoke Game" --id dev.factoria.smoke
+          env -u ANDROID_NDK -u ANDROID_NDK_HOME -u ANDROID_NDK_ROOT -u ANDROID_NDK_LATEST_HOME \
+            "$fa" export "$tmp/ga" --platform android --out "$tmp/export-android" --json | tee "$tmp/android-report.json"
+          grep -Eq '"mode": *"prebuilt"' "$tmp/android-report.json"
+          proj="$tmp/export-android/smoke-game-android"
+          if grep -q externalNativeBuild "$proj/app/build.gradle"; then echo "::error::the prebuilt build.gradle still builds native code"; exit 1; fi
+          apk="$proj/smoke-game-debug.apk"
+          test -s "$apk"
+          unzip -l "$apk" | tee "$tmp/apk-contents.txt"
           grep -q 'lib/arm64-v8a/libfactoria_player.so' "$tmp/apk-contents.txt"
           grep -q 'lib/x86_64/libfactoria_player.so' "$tmp/apk-contents.txt"
           grep -q 'assets/factoria.json' "$tmp/apk-contents.txt"
