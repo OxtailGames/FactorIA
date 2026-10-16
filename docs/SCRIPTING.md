@@ -318,7 +318,7 @@ if (window.available) {
 
 ### audio
 - `play(path, { volume, pitch, pan, loop, bus })` → voice id · `stop(id)` · `stopAll()`
-- `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` (`"master"`, `"sfx"`, `"music"`, `"ui"`)
+- `music(path, { volume, fade })` · `stopMusic(fade)` · `setVolume(bus, v)` · `getVolume(bus)` (`"master"`, `"sfx"`, `"music"`, `"ui"`; default 1; not saved: an options menu stores it)
 - Every play request (scripts, `AudioSource`, scene music) is recorded in a play log: tests read it with
   `game.audioLog()`, agents with the `audio.log` command.
 
@@ -477,7 +477,8 @@ the press is released over the same widget; a Slider follows the pointer while p
 
 ### scene / game / storage
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
-- `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize`
+- `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize` ·
+  `game.platform` (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"` or `"web"`: e.g. no Quit button on phones)
 - `game.notices()` → `[{ name, url, license, usedFor }]`: the third-party software inside the runtime every game ships
   (FactorIA first), the parts whose license texts `factoria export` writes to `FACTORIA_NOTICES.txt`. For a credits
   screen.
