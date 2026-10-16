@@ -73,6 +73,9 @@ struct ScriptSystem::Impl {
     JsVal testApi;   // namespace object of module "factoria:test"
     JsVal hooks;     // H: hooks the prelude gives to C++
 
+    std::vector<ScriptPlugin> plugins;  // set_plugins: the `plugins` object of scripts
+    Json plugins_json() const;          // [{name, error?, functions: [{name, doc}]}] (script_api.cpp)
+
     // ---- errors
     std::vector<ScriptError> errors;
     std::set<std::string> loggedKeys;
