@@ -1046,6 +1046,270 @@ declare module "factoria" {
   }
 
   /**
+   * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
+   */
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence";
+
+  /**
+   * Who is signed in to the store.
+   */
+  export interface PlatformPlayer {
+    /**
+     * The store's id of the player ("" when nobody is signed in).
+     */
+    readonly id: string;
+    /**
+     * The player's display name.
+     */
+    readonly name: string;
+    /**
+     * False when nobody is signed in: calls then reject with code "notSignedIn".
+     */
+    readonly signedIn: boolean;
+  }
+
+  /**
+   * The outcome of a purchase, from purchases.buy() or the "purchase" event.
+   */
+  export interface PlatformPurchase {
+    /**
+     * purchased: paid, deliver the goods and call purchases.finish(transactionId). pending: waiting for approval (Ask to Buy, a slow payment): a "purchase" event follows when it is decided. cancelled: the player backed out (not an error).
+     */
+    readonly status: "purchased" | "pending" | "cancelled";
+    /**
+     * The catalog id of the product (as in factoria.json platform.products).
+     */
+    readonly productId: string;
+    /**
+     * Only when purchased: pass it to purchases.finish() once the goods are delivered.
+     */
+    readonly transactionId?: string;
+    /**
+     * Only when purchased: the store's proof of purchase, for a server that wants to verify it.
+     */
+    readonly receipt?: string;
+  }
+
+  /**
+   * A product as the store shows it.
+   */
+  export interface PlatformProduct {
+    /**
+     * The catalog id.
+     */
+    readonly id: string;
+    /**
+     * The store's title.
+     */
+    readonly title: string;
+    /**
+     * The store's description.
+     */
+    readonly description: string;
+    /**
+     * The price formatted for the player's country ("$0.99"): show it as it is.
+     */
+    readonly price: string;
+    /**
+     * The price as a number.
+     */
+    readonly priceValue: number;
+    /**
+     * ISO currency code ("USD").
+     */
+    readonly currency: string;
+    /**
+     * The catalog's product type.
+     */
+    readonly type: "consumable" | "nonConsumable" | "subscription";
+  }
+
+  /**
+   * One row of a leaderboard.
+   */
+  export interface PlatformLeaderboardEntry {
+    /**
+     * 1 is the best.
+     */
+    readonly rank: number;
+    /**
+     * The player's display name.
+     */
+    readonly name: string;
+    /**
+     * The score.
+     */
+    readonly score: number;
+    /**
+     * The store's id of the player.
+     */
+    readonly playerId: string;
+    /**
+     * True for the signed-in player's own row.
+     */
+    readonly isPlayer: boolean;
+  }
+
+  /**
+   * Achievements of factoria.json platform.achievements.
+   */
+  export interface PlatformAchievementsAPI {
+    /**
+     * Unlocks an achievement; `newly` is false when it already was. An id the catalog does not declare throws at once with a suggestion.
+     */
+    unlock(id: string): Promise<{ id: string; unlocked: true; newly: boolean }>;
+    /**
+     * Reports progress from 0 to 1 toward an achievement; 1 unlocks it. Progress never goes down.
+     */
+    progress(id: string, fraction: number): Promise<{ id: string; progress: number; unlocked: boolean }>;
+    /**
+     * The state of every achievement of the catalog.
+     */
+    list(): Promise<{ id: string; unlocked: boolean; progress: number }[]>;
+    /**
+     * Development only: locks every achievement again (the fake backend; real stores usually refuse).
+     */
+    reset(): Promise<void>;
+  }
+
+  /**
+   * Numbers the store keeps for the player (factoria.json platform.stats).
+   */
+  export interface PlatformStatsAPI {
+    /**
+     * The stat's value (0 when never set).
+     */
+    get(id: string): Promise<number>;
+    /**
+     * Sets the stat and resolves with the stored value. An int stat needs a whole number.
+     */
+    set(id: string, value: number): Promise<number>;
+    /**
+     * get() then set(): resolves with the new value. Not atomic: two adds in flight can lose one.
+     */
+    add(id: string, delta: number): Promise<number>;
+  }
+
+  /**
+   * Leaderboards of factoria.json platform.leaderboards.
+   */
+  export interface PlatformLeaderboardsAPI {
+    /**
+     * Submits a whole-number score (a time in milliseconds, not seconds); `best` is the player's best afterwards. The leaderboard's order decides what better means.
+     */
+    submit(id: string, score: number): Promise<{ id: string; score: number; best: number }>;
+    /**
+     * Reads entries: the best ("top", default), the ones around the player, or the player's friends; count 1..100 (default 10).
+     */
+    entries(id: string, options?: { range?: "top" | "around" | "friends"; count?: number }): Promise<PlatformLeaderboardEntry[]>;
+  }
+
+  /**
+   * Cloud saves: small named values the store keeps for the player across devices.
+   */
+  export interface PlatformCloudAPI {
+    /**
+     * Stores any JSON value under a key (1-64 letters, digits, '_', '.', '-'). Stores limit how much a game may keep in the cloud, so save small things (settings, progress), not assets.
+     */
+    save(key: string, value: Json): Promise<{ key: string; bytes: number }>;
+    /**
+     * The stored value, or undefined when the key does not exist.
+     */
+    load(key: string): Promise<Json | undefined>;
+    /**
+     * The stored keys.
+     */
+    list(): Promise<string[]>;
+    /**
+     * Deletes a key.
+     */
+    remove(key: string): Promise<void>;
+  }
+
+  /**
+   * In-app purchases of factoria.json platform.products.
+   */
+  export interface PlatformPurchasesAPI {
+    /**
+     * Titles and prices as the store shows them, for the given catalog ids (all by default). Products the store does not know are left out.
+     */
+    products(ids?: string[]): Promise<PlatformProduct[]>;
+    /**
+     * Starts a purchase. Resolves also when the player cancels (status "cancelled"); rejects when the store failed (network, notAllowed...). Deliver the goods when status is "purchased", then call finish().
+     */
+    buy(id: string): Promise<PlatformPurchase>;
+    /**
+     * Tells the store the goods were delivered, once per transaction (consumables can be bought again only after this). Take transactionId from buy(), a "purchase" event or restore().
+     */
+    finish(transactionId: string): Promise<void>;
+    /**
+     * The non-consumables and subscriptions the player owns (a "Restore purchases" button).
+     */
+    restore(): Promise<{ productId: string; transactionId: string; receipt: string }[]>;
+  }
+
+  /**
+   * The store's own overlay (Steam overlay, Game Center dashboard).
+   */
+  export interface PlatformOverlayAPI {
+    /**
+     * Opens a page of the overlay; `id` (an achievement, leaderboard or product of the catalog) goes to that entry where the store can. Pause the game on the "overlay" event while it is open.
+     */
+    open(page: "achievements" | "leaderboards" | "friends" | "store", id?: string): Promise<void>;
+  }
+
+  /**
+   * Rich presence: what friends see the player doing.
+   */
+  export interface PlatformPresenceAPI {
+    /**
+     * Sets the text ("In level 3"); "" clears it. `data` holds string values some stores use (Steam's rich presence keys).
+     */
+    set(text: string, data?: { [key: string]: string }): Promise<void>;
+  }
+
+  /**
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   */
+  export interface PlatformAPI {
+    /**
+     * Which backend answers: "fake" (development, tests), "none" (no store: every call rejects with "unavailable"), or the plugin's backend name ("steam", "apple").
+     */
+    readonly backend: string;
+    /**
+     * True when the backend offers the service, e.g. if (platform.has("leaderboards")) hide the button otherwise. An unknown service throws with a suggestion.
+     */
+    has(service: PlatformService): boolean;
+    /**
+     * The last known player (from signIn() and "player" events).
+     */
+    readonly player: PlatformPlayer;
+    /**
+     * Signs the player in (or reads who is signed in). Always allowed, even when nobody is.
+     */
+    signIn(): Promise<PlatformPlayer>;
+    /**
+     * Listens to purchases that did not come from a buy() call: Ask to Buy approved, an unfinished transaction from an earlier run, a purchase made in the store. Deliver the goods and call purchases.finish(e.transactionId). Events that arrive while nobody listens are kept (up to 100) and delivered to the first listener. Returns the function that stops listening; listeners end with the scene, like ui.on.
+     */
+    on(event: "purchase", fn: (e: PlatformPurchase) => void): () => void;
+    /**
+     * The store's overlay opened or closed: pause the game while it is open.
+     */
+    on(event: "overlay", fn: (e: { open: boolean }) => void): () => void;
+    /**
+     * The signed-in player changed.
+     */
+    on(event: "player", fn: (e: PlatformPlayer) => void): () => void;
+    readonly achievements: PlatformAchievementsAPI;
+    readonly stats: PlatformStatsAPI;
+    readonly leaderboards: PlatformLeaderboardsAPI;
+    readonly cloud: PlatformCloudAPI;
+    readonly purchases: PlatformPurchasesAPI;
+    readonly overlay: PlatformOverlayAPI;
+    readonly presence: PlatformPresenceAPI;
+  }
+
+  /**
    * The world.
    */
   export const world: WorldAPI;
@@ -1139,6 +1403,11 @@ declare module "factoria" {
    * Functions of the game's native plugins (factoria.json "plugins", docs/EXTENDING.md "Native plugins"): plugins.<plugin>.<function>(...args) passes the arguments as JSON and returns the plugin's JSON result; a failure throws an Error with the plugin's message and hint. A plugin that is not built for this platform is undefined (test with `if (plugins.steam)`); one that failed to load throws why on first use.
    */
   export const plugins: PluginsAPI;
+
+  /**
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence (docs/PLATFORM.md).
+   */
+  export const platform: PlatformAPI;
 
   /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
@@ -2694,6 +2963,70 @@ declare module "factoria:test" {
   }
 
   /**
+   * One request the game made to the platform backend, as the fake backend logged it.
+   */
+  export interface TestPlatformCall {
+    /**
+     * 1, 2, 3... in the order of the requests.
+     */
+    readonly seq: number;
+    /**
+     * The engine frame it was made in (counted from the start of the test file or the last reset).
+     */
+    readonly frame: number;
+    /**
+     * "achievements.unlock", "purchases.buy"... (docs/PLATFORM.md lists them).
+     */
+    readonly method: string;
+    /**
+     * The arguments the backend got, with the store's id (storeId) filled in.
+     */
+    readonly args: Json;
+    /**
+     * False when the request failed or was rejected; absent while it is waiting for an answer (delayFrames).
+     */
+    readonly ok?: boolean;
+    /**
+     * The answer, when ok.
+     */
+    readonly result?: Json;
+    /**
+     * The error, when not ok.
+     */
+    readonly error?: { code: string; message: string; hint: string };
+  }
+
+  /**
+   * The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.
+   */
+  export interface TestPlatform {
+    /**
+     * Queues the next answer(s) of a platform method (first in, first out, one per request). answer is { error: "network", message?, hint? } to reject, { result: value } to resolve with exactly that value, or any other object, which is merged into the default result: game.platform.respond("purchases.buy", { status: "cancelled" }). An unknown method throws with a suggestion.
+     */
+    respond(method: string, answer: Json, times?: number): void;
+    /**
+     * Sends an event as the store would; platform.on listeners get it at the next game.step(). A purchased "purchase" also records an unfinished transaction.
+     */
+    emit(event: "purchase" | "overlay" | "player", data?: Json): void;
+    /**
+     * Fresh fake: nothing unlocked, bought or saved, no scripted answers, signed in.
+     */
+    reset(): void;
+    /**
+     * signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
+     */
+    set(options: { signedIn?: boolean; delayFrames?: number }): void;
+    /**
+     * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
+     */
+    state(): Json;
+    /**
+     * Every request the game made, oldest first (the request log of state().fake.calls).
+     */
+    calls(): TestPlatformCall[];
+  }
+
+  /**
    * Drives the running game from a test.
    */
   export interface TestGame {
@@ -2765,6 +3098,10 @@ declare module "factoria:test" {
      * Empties the audio log (e.g. after setup, before the action under test).
      */
     clearAudioLog(): void;
+    /**
+     * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
+     */
+    readonly platform: TestPlatform;
   }
 
   /**
