@@ -25,6 +25,22 @@ Result<Image> load_image(std::string_view path);                       // png/jp
 Result<Image> decode_image(const std::uint8_t* data, std::size_t size);  // from memory
 Result<void> save_png(const Image& img, std::string_view path);        // via fs (creates dirs)
 std::vector<std::uint8_t> encode_png(const Image& img);
+// PNG without an alpha channel (colour type 2, RGB): the alpha of `img` is dropped, so compose it over a background
+// first (fit_image). For images that must not carry transparency, such as the App Store icon of an iOS app.
+std::vector<std::uint8_t> encode_png_rgb(const Image& img);
+
+// Resamples `src` to width x height (both > 0; an empty result for an empty `src` or a size below 1). Colours are
+// weighted by alpha (premultiplied), so the transparent pixels around a shape do not darken or tint its edge. Shrinking
+// averages every source pixel under a destination pixel by the area it covers (no aliasing); enlarging is bilinear.
+// The two axes are resampled independently. The same size returns a copy.
+Image resize_image(const Image& src, int width, int height);
+
+// A size x size canvas filled with `background`, with `src` drawn over it (alpha compositing) and centered. `src` keeps
+// its aspect ratio and is scaled so that its LONGER side is size * scale pixels: scale 1 fills the canvas, 0.61 leaves
+// the margin an Android adaptive icon asks for, and a non-square `src` is centered on the canvas (the background shows
+// on its short sides). A scale above 1 crops. A `background` with alpha 0 gives a transparent canvas; with alpha 1 the
+// result is opaque. An empty `src` returns just the background; size < 1 returns an empty image.
+Image fit_image(const Image& src, int size, float scale, Color background);
 
 struct ImageDiff {
     bool sameSize = false;

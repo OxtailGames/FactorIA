@@ -14,7 +14,9 @@
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/world.h"
+#include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
+#include "fa/tooling/icons.h"
 #include "util.h"
 
 namespace fa {
@@ -188,6 +190,42 @@ void check_binding(Ctx& c, const std::string& pointer, const std::string& bindin
     c.error(kProjectFileName, pointer, "Unknown input binding '" + binding + "'.", did_you_mean(binding, Input::binding_names()));
 }
 
+// An icon file named by factoria.json (`pointer` says which setting): it must exist and decode; a size or shape that
+// will look bad is a warning. `path` is "" when the setting is absent (or was rejected by parse_export_settings).
+void check_icon_file(Ctx& c, const std::string& pointer, const std::string& path, int recommendedSize = kRecommendedIconSize) {
+    if (path.empty()) return;
+    std::vector<ExportSettingsIssue> warnings;
+    auto img = load_icon_image(c.dir, path, pointer, &warnings, recommendedSize);
+    if (!img.ok()) {
+        std::string message = img.error().message;
+        const std::string prefix = std::string(kProjectFileName) + "#" + pointer + ": ";  // the report prints the location itself
+        if (starts_with(message, prefix)) message = message.substr(prefix.size());
+        c.error(kProjectFileName, pointer, message, img.error().hint);
+        return;
+    }
+    for (const auto& w : warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+}
+
+// `icon` and `export` of factoria.json: wrong types and values (errors), unknown keys (warnings), icon files that are
+// missing or unreadable. The schema reports the same wrong types, so schema errors at these pointers are dropped in
+// favour of the settings' own messages (see check_project_file).
+void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
+    for (const auto& e : parsed.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);
+    for (const auto& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+    const ProjectExportSettings& s = parsed.settings;
+    check_icon_file(c, "/icon", s.icon);
+    check_icon_file(c, "/export/windows/icon", s.windows.icon);
+    check_icon_file(c, "/export/macos/icon", s.macos.icon);
+    check_icon_file(c, "/export/linux/icon", s.linux.icon);
+    check_icon_file(c, "/export/android/icon", s.android.icon);
+    check_icon_file(c, "/export/ios/icon", s.ios.icon);
+    constexpr int kLayerSize = 432;  // the xxxhdpi size of an adaptive icon layer
+    check_icon_file(c, "/export/android/adaptiveIcon/foreground", s.android.adaptiveIcon.foreground, kLayerSize);
+    const std::string& background = s.android.adaptiveIcon.background;
+    if (!background.empty() && background[0] != '#') check_icon_file(c, "/export/android/adaptiveIcon/background", background, kLayerSize);
+    check_icon_file(c, "/export/android/adaptiveIcon/monochrome", s.android.adaptiveIcon.monochrome, kLayerSize);
+}
+
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
     auto text = tooling_detail::read_file(stdfs::path(c.dir) / kProjectFileName);
     if (!text) {
@@ -201,10 +239,17 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         return;
     }
     const Json& pj = parsed.value();
+    const ExportSettingsParse exportSettings = parse_export_settings(pj);
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
-        for (const auto& e : validate_json(schema, pj)) c.error(kProjectFileName, e.pointer, e.message, e.hint);
+        for (const auto& e : validate_json(schema, pj)) {
+            // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
+            const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(),
+                                                        [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; });
+            if (!reportedBySettings) c.error(kProjectFileName, e.pointer, e.message, e.hint);
+        }
     if (!pj.is_object()) return;
+    check_export_settings(c, exportSettings);
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));
     if (!stdfs::exists(stdfs::path(c.dir) / mainScene))
