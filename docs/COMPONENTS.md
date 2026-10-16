@@ -1066,6 +1066,18 @@ Like physics.raycast, but the shape has size: use it to ask whether a character 
 
 ## platform
 
+### `platform.add_backend` (modifies state)
+
+Set up a store backend for this game: its plugin, its build and what the store needs.
+
+One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs. steam: the Steamworks plugin (not available yet). apple: the StoreKit 2, Game Center and iCloud plugin for iOS and macOS (Swift: it builds on a Mac with Xcode). Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps lists what only a person can do (store dashboards, accounts). Example: {"backend": "steam", "appId": 480}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `appleSlices` | array | no | apple: which libraries to build: macos (the .dylib of a Mac app), iphoneos (an iPhone or iPad) and iphonesimulator (the iOS Simulator). Default: all three. |
+| `appleBuild` | boolean | no | apple: false only writes the plugin and declares it, without building (any computer); build it later on a Mac with Xcode: cmake -S plugins/apple -B plugins/apple/build && cmake --build plugins/apple/build. Default true. |
+| `backend` | string ["steam","apple"] | yes | The store backend to set up; it is also the plugin's name. |
+
 ### `platform.emit` (modifies state)
 
 Send an event to the game as the store would: a purchase, the overlay opening or closing, a sign-in change.

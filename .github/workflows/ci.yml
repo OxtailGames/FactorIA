@@ -225,9 +225,24 @@ jobs:
           [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "::error::libexample.a has '$archs', the player's simulator libraries have arm64 and x86_64"; exit 1; }
           cp -R "$plugin/ios" "$RUNNER_TEMP/plugins/example"
 
+          # The Apple backend plugin (platforms/plugins/apple: Swift, StoreKit 2, Game Center, iCloud), instantiated the way
+          # `factoria call project.new_plugin '{"template":"apple"}'` does ({{NAME}} replaced, the API header in include/) and
+          # built for the simulator. Its ios/plugin.json (frameworks, Swift) becomes the flags build_ios.sh passes (next step).
+          apple="$RUNNER_TEMP/plugin-apple"
+          mkdir -p "$apple/include" "$RUNNER_TEMP/plugins"
+          cp -R platforms/plugins/apple/. "$apple/"
+          find "$apple" -type f -exec sed -i '' 's/{{NAME}}/apple/g' {} +
+          cp engine/runtime/include/fa/runtime/fa_plugin.h "$apple/include/"
+          cmake -S "$apple" -B "$apple/build" -DCMAKE_BUILD_TYPE=Release -DFA_APPLE_SLICES=iphonesimulator
+          cmake --build "$apple/build"
+          archs=$(lipo -archs "$apple/ios/iphonesimulator/libapple.a")
+          [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "::error::libapple.a has '$archs', the player's simulator libraries have arm64 and x86_64"; exit 1; }
+          cp -R "$apple/ios" "$RUNNER_TEMP/plugins/apple"
+
           game="$RUNNER_TEMP/plugin-game"
           cp -R templates/2d-platformer "$game"
           cp tools/cli/tests/plugin_probe.js "$game/scripts/probe.js"
+          cp tools/cli/tests/apple_probe.js "$game/scripts/apple_probe.js"
           python3 - "$game" <<'PY'
           import json, pathlib, sys
           game = pathlib.Path(sys.argv[1])
@@ -236,17 +251,26 @@ jobs:
               data = json.loads(path.read_text(encoding="utf-8"))
               change(data)
               path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-          edit("factoria.json", lambda p: p.update(plugins={"example": {"path": "plugins/example", "platforms": ["ios"]}}))
-          edit("scenes/main.scene.json", lambda s: s["entities"].append(
-              {"id": "probe", "name": "Probe", "components": {"Script": {"path": "scripts/probe.js"}}}))
+          edit("factoria.json", lambda p: p.update(
+              plugins={"example": {"path": "plugins/example", "platforms": ["ios"]},
+                       "apple": {"path": "plugins/apple", "platforms": ["ios"]}},
+              platform={"achievements": [{"id": "first_win", "name": "First win"}]}))
+          def probes(s):
+              s["entities"].append({"id": "probe", "name": "Probe", "components": {"Script": {"path": "scripts/probe.js"}}})
+              s["entities"].append({"id": "appleProbe", "name": "Apple probe", "components": {"Script": {"path": "scripts/apple_probe.js"}}})
+          edit("scenes/main.scene.json", probes)
           PY
 
       # FA_GAME_PROJECT_DIR exercises the game-copy step (platforms/common/copy_game.cmake) and the Info.plist template;
-      # FA_GAME_PLUGINS and FA_GAME_PLUGIN_DIR (build_ios.sh passes them) link the plugin (platforms/ios/plugins.cmake).
-      - name: Configure (ios-simulator, with the demo game and its native plugin)
+      # FA_GAME_PLUGINS and FA_GAME_PLUGIN_DIR (build_ios.sh passes them) link the plugins (platforms/ios/plugins.cmake);
+      # FA_GAME_PLUGIN_FRAMEWORKS and FA_GAME_PLUGIN_SWIFT come from the Apple plugin's manifest, as the export reads it.
+      # The entitlements are left out: the simulator build is not signed.
+      - name: Configure (ios-simulator, with the demo game and its native plugins)
         run: |
-          cmake --preset ios-simulator -DFA_GAME_PROJECT_DIR="$RUNNER_TEMP/plugin-game" -DFA_GAME_PLUGINS=example \
-                -DFA_GAME_PLUGIN_DIR="$RUNNER_TEMP/plugins" -DFA_GAME_BUNDLE_ID=dev.factoria.ci -DFA_GAME_NAME="CI Game"
+          frameworks=$(python3 -c "import json,sys; print(';'.join(json.load(open(sys.argv[1]))['frameworks']))" "$RUNNER_TEMP/plugins/apple/plugin.json")
+          cmake --preset ios-simulator -DFA_GAME_PROJECT_DIR="$RUNNER_TEMP/plugin-game" -DFA_GAME_PLUGINS="example;apple" \
+                -DFA_GAME_PLUGIN_DIR="$RUNNER_TEMP/plugins" -DFA_GAME_PLUGIN_FRAMEWORKS="$frameworks" -DFA_GAME_PLUGIN_SWIFT=ON \
+                -DFA_GAME_BUNDLE_ID=dev.factoria.ci -DFA_GAME_NAME="CI Game"
 
       - name: Build factoria_player (ios-simulator)
         run: cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO
@@ -295,10 +319,12 @@ jobs:
           until gh run download "$GITHUB_RUN_ID" -n ios-app -D "$RUNNER_TEMP" 2>/dev/null; do sleep 10; done
           tar -xzf "$RUNNER_TEMP/ios-app.tgz" -C "$RUNNER_TEMP"
 
-      # The app carries the example native plugin (ios-build): the smoke test checks the log of the probe script that calls it.
+      # The app carries the example native plugin and the Apple backend plugin (ios-build): the smoke test checks the log of
+      # the probe scripts that call them.
       - name: Run the app in the iOS Simulator (smoke test)
         env:
           FA_IOS_PLUGIN_PROBE: 1
+          FA_IOS_APPLE_PROBE: 1
         run: ./scripts/ios-smoke.sh "$RUNNER_TEMP/factoria_player.app" dev.factoria.ci 90 build/ios-smoke
 
       - name: Upload simulator logs, screenshot and crash reports

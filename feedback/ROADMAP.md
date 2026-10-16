@@ -509,8 +509,8 @@ game on Linux, Windows and macOS; `android-apk` builds the plugin with the NDK a
 sum came from the plugin's Java class; `ios-build` / `ios` link it into the simulator app and check the same log.
 
 Left open:
-- iOS takes static libraries only: no Swift packages or XCFrameworks, and no extra system frameworks or linker flags
-  per plugin (a plugin that needs StoreKit has to be linked by hand in the generated project).
+- iOS takes static libraries only: no Swift packages or XCFrameworks (system frameworks, the Swift runtime and
+  entitlements came with M12's Apple backend: the plugin's `ios/plugin.json`, docs/MOBILE.md).
 - An Android plugin that is only a Maven dependency in its `build.gradle` (no Java/Kotlin sources, no `.aar` / `.jar`)
   keeps `hasCode="false"`; the export cannot see that it brings code.
 - A missing ABI's `.so` on Android is not a warning (the module may build it itself); on a device of that ABI the
@@ -559,7 +559,28 @@ Done so far (package A, branch `m12/platform-api`): the API, the fake backend an
   delayed answer shows "waiting", restore returns the non-consumable, an achievement unlocks during play and the
   overlay event pauses the game (the first acceptance criterion).
 
-Left open (the next M12 packages): the Steamworks plugin and Valve's AppID 480 check, StoreKit 2 and Game Center, Play
+Done (package C, branch `m12/apple`): the Apple backend, `platforms/plugins/apple`, backend `"apple"` on iOS and macOS.
+- **The plugin** (Swift, built with `xcrun swiftc` by its CMake file; a C file is the entry point): StoreKit 2
+  purchases (products, buy with Ask to Buy, finish, restore, `purchase` events for updates and unfinished transactions;
+  receipts are JWS), Game Center (sign-in with a `player` event, achievements, leaderboards, the access-point overlay),
+  iCloud key-value cloud saves, and the command `apple.status`. No stats and no presence (Game Center has none).
+  Tests (`apple_backend_tests`) load the real dylib into a real Engine with no signature or Apple Account: every
+  request is answered once and in time, each refusal teaches.
+- **Plugin manifests**: `ios/plugin.json` / `macos/plugin.json` (system frameworks, the Swift runtime, entitlements),
+  merged by the exports: the iOS project links StoreKit and GameKit and the Swift runtime and is signed with
+  `factoria_player.entitlements`; the macOS export writes `<game>.entitlements` for the developer's own signing.
+  `factoria export --platform ios` also writes `Products.storekit` from the catalog and wires it into the Xcode
+  scheme. `platform.add_backend {"backend": "apple"}` writes, declares and builds the plugin. CI: the `ios` job
+  links the plugin into the simulator app and checks `Apple backend ready`, `probe backend=apple` and a Game Center
+  answer (`FA_IOS_APPLE_PROBE=1`).
+
+Left open for the Apple backend (manual checks, docs/PLATFORM.md "Manual checks"): a real purchase, Ask to Buy, restore,
+Game Center sign-in, achievements, leaderboards and iCloud sync need App Store Connect, a development-signed app and a
+sandbox account, so no CI job runs them. The scheme reference to `Products.storekit` and the file's schema version are
+not yet checked in Xcode itself. A macOS app needs the developer's certificate and provisioning profile for Game Center
+and iCloud (the export is ad hoc signed). No `cloudChanged` event when iCloud brings a newer save from another device.
+
+Left open (the next M12 packages): the Steamworks plugin and Valve's AppID 480 check, Play
 Billing and Play Games, then the rest of the list above. `PlatformServices` keeps no receipts or entitlement cache: a
 backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
