@@ -574,7 +574,8 @@ Prerequisites, signing and troubleshooting: [MOBILE.md](MOBILE.md).
 `factoria export --platform ios` (macOS with Xcode only for the next step) writes the game and a `build_ios.sh`. The
 script runs CMake with the Xcode generator and the same settings as the `ios` preset, adding
 `-DFA_GAME_PROJECT_DIR=game -DFA_GAME_BUNDLE_ID=... -DFA_GAME_NAME=... -DFA_GAME_VERSION=... -DFA_GAME_BUILD=...
--DFA_GAME_ORIENTATION=... -DFA_GAME_ASSET_CATALOG=Assets.xcassets -DFA_IOS_DEVELOPMENT_TEAM=...`:
+-DFA_GAME_ORIENTATION=... -DFA_GAME_ASSET_CATALOG=Assets.xcassets -DFA_IOS_DEVELOPMENT_TEAM=...` (and, for a game with
+native plugins, `-DFA_GAME_PLUGINS=... -DFA_GAME_PLUGIN_DIR=plugins`):
 
 ```bash
 ./build_ios.sh --simulator --run                         # build, start in the iOS Simulator, console in the terminal
@@ -596,11 +597,16 @@ From the project's [platform settings](#platform-settings) the export takes:
   device without the variable. Setting `FA_IOS_DEVELOPMENT_TEAM` yourself still wins.
 - **`buildNumber`** becomes `CFBundleVersion` (`FA_GAME_BUILD`); when absent, the `version` is used as before.
 
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). Each plugin declared for iOS needs `ios/iphoneos/lib<name>.a` and
+`ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it
+([MOBILE.md](MOBILE.md#native-plugins-ios)).
+
 ```
 my-game-ios/                        prebuilt mode (the download for macOS)
   build_ios.sh  game/
   CMakeLists.txt  cmake/            a small project: Info.plist template, the game-copy script
   lib/iphoneos/*.a  lib/iphonesimulator/*.a   the engine and player as static libraries
+  plugins/<name>/iphoneos/lib<name>.a  plugins/<name>/iphonesimulator/lib<name>.a   the native plugins of the game (if any)
 ```
 
 In **prebuilt** mode the script configures `CMakeLists.txt` of the folder itself and links the app from `lib/`: no engine
