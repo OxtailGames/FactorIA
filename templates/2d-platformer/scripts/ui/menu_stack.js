@@ -11,7 +11,7 @@ export class MenuStack {
   /** @param {string | null} root the panel that is always there (the main menu), or null (gameplay: nothing open) */
   constructor(root) {
     this.root = root;
-    /** @type {{ id: string, focus: any }[]} */
+    /** @type {Array<{ id: string, focus: any }>} */
     this.open = root ? [{ id: root, focus: null }] : [];
   }
 
