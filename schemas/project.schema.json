@@ -136,6 +136,172 @@
         ]
       }
     },
+    "icon": {
+      "type": "string",
+      "description": "Game icon: the project-relative path of a square PNG or JPG image, e.g. \"assets/icon.png\" (forward slashes, inside the project folder). 1024x1024 recommended; it should be at least 512x512 (smaller or non-square images give a warning, a non-square one is centered on a transparent square). Every export generates what its platform needs from this one image: the .icns of a macOS app, the exe icon on Windows, the launcher icons of Android, the App Store icon of iOS, the PNG of a Linux build. Each platform can use another image through export.<platform>.icon. No icon at all means the platform's default icon plus a warning on export. On Windows and Linux the same image is also the icon of the game window at run time. Edited by the editor's Platform settings window."
+    },
+    "export": {
+      "type": "object",
+      "description": "Per-platform export settings, committed with the game. Every field is optional and defaults are applied; a field equal to its default is best left out. Unknown keys inside a platform object only give a warning (with a \"did you mean\"). Edited by the editor's Platform settings window; machine-specific settings (Android SDK and JDK folders, keystore passwords) are never stored here but in ~/.factoria/export.json. See docs/EXPORTING.md, \"Platform settings\".",
+      "properties": {
+        "windows": {
+          "type": "object",
+          "description": "Windows export settings (factoria export --platform windows).",
+          "properties": {
+            "icon": {
+              "type": "string",
+              "description": "Icon of the Windows export, replacing the project's top-level \"icon\" there. Same rules as the top-level \"icon\". Empty or absent = use the project's \"icon\"."
+            }
+          }
+        },
+        "macos": {
+          "type": "object",
+          "description": "macOS export settings (factoria export --platform macos): fields of the app's Info.plist.",
+          "properties": {
+            "icon": {
+              "type": "string",
+              "description": "Icon of the macOS export, replacing the project's top-level \"icon\" there. Same rules as the top-level \"icon\". Empty or absent = use the project's \"icon\"."
+            },
+            "category": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Mac App Store category of the app (LSApplicationCategoryType in Info.plist), e.g. \"public.app-category.games\" (the default), \"public.app-category.action-games\", \"public.app-category.puzzle-games\", \"public.app-category.role-playing-games\"."
+            },
+            "minimumSystemVersion": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
+              "description": "Oldest macOS the app runs on (LSMinimumSystemVersion in Info.plist), as \"major.minor\". Default \"11.0\", which is also the lowest value: FactorIA's macOS player needs macOS 11 or newer."
+            },
+            "copyright": {
+              "type": "string",
+              "description": "Copyright notice shown in the app's About information (NSHumanReadableCopyright in Info.plist), e.g. \"Copyright 2026 My Studio\". Default: none."
+            }
+          }
+        },
+        "linux": {
+          "type": "object",
+          "description": "Linux export settings (factoria export --platform linux).",
+          "properties": {
+            "icon": {
+              "type": "string",
+              "description": "Icon of the Linux export, replacing the project's top-level \"icon\" there. Same rules as the top-level \"icon\". Empty or absent = use the project's \"icon\"."
+            },
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^;]+$",
+                "description": "One freedesktop.org menu category, e.g. \"Game\", \"ActionGame\", \"ArcadeGame\", \"PuzzleGame\"."
+              },
+              "description": "Menu categories of the game's .desktop file (the Categories= line; FactorIA joins the entries with ';'). Default [\"Game\"]."
+            }
+          }
+        },
+        "android": {
+          "type": "object",
+          "description": "Android export settings (factoria export --platform android).",
+          "properties": {
+            "icon": {
+              "type": "string",
+              "description": "Icon of the Android export, replacing the project's top-level \"icon\" there. Same rules as the top-level \"icon\". Empty or absent = use the project's \"icon\". The launcher icons are generated from it, unless adaptiveIcon says otherwise."
+            },
+            "format": {
+              "enum": [
+                "apk",
+                "aab",
+                "gradle"
+              ],
+              "description": "What the Android export produces: \"apk\" (default; runs the Gradle build and copies <game>.apk next to the project; debug builds are <game>-debug.apk), \"aab\" (an Android App Bundle for Google Play) or \"gradle\" (only the Gradle project, to open in Android Studio)."
+            },
+            "adaptiveIcon": {
+              "type": "object",
+              "description": "Layers of the Android adaptive icon (Android 8+). Absent = the game icon scaled into the safe zone over a white background.",
+              "properties": {
+                "foreground": {
+                  "type": "string",
+                  "description": "Project-relative path of the foreground layer: a square PNG of the whole 108dp layer (432x432 recommended) in which only the inner 66dp circle is guaranteed to stay visible, with a transparent background. Default: the game icon scaled into that safe zone (66/108 of the layer)."
+                },
+                "background": {
+                  "type": "string",
+                  "description": "Background of the adaptive icon: a colour written \"#RRGGBB\" (default \"#FFFFFF\"), or the project-relative path of a square image (432x432 recommended) that fills the whole layer."
+                },
+                "monochrome": {
+                  "type": "string",
+                  "description": "Optional project-relative path of a square single-colour PNG with transparency (432x432 recommended) that Android 13+ tints for themed icons. Default: none, so the icon is not themed."
+                }
+              }
+            },
+            "versionCode": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2100000000,
+              "description": "Android versionCode: a whole number that must grow with every upload to Google Play. Default: derived from \"version\" (1.2.3 -> 10203; each part is capped at 99)."
+            },
+            "minSdk": {
+              "type": "integer",
+              "minimum": 26,
+              "maximum": 99,
+              "description": "Lowest Android API level the app installs on. Default 26 (Android 8.0), which is also the lowest value; it must not exceed targetSdk."
+            },
+            "targetSdk": {
+              "type": "integer",
+              "minimum": 26,
+              "maximum": 99,
+              "description": "Android API level the app is built and tested against (also the compileSdk). Default 36; Google Play requires a recent one for new apps and updates. Must be at least minSdk."
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$",
+                "description": "Android permission name, e.g. \"android.permission.VIBRATE\"."
+              },
+              "description": "Extra <uses-permission> entries of the manifest, for permissions the game's scripts or features need (the engine itself needs none). Default: none."
+            },
+            "signing": {
+              "type": "object",
+              "description": "Release signing of the Android export. The keystore PASSWORDS never go in the project: they come from the FACTORIA_ANDROID_KEYSTORE_PASSWORD and FACTORIA_ANDROID_KEY_PASSWORD environment variables, or from the machine settings file ~/.factoria/export.json. Release builds without a keystore are signed with the debug key and warn.",
+              "properties": {
+                "keystore": {
+                  "type": "string",
+                  "description": "Path of the keystore file (.keystore or .jks): project-relative, or absolute (keystores are better kept outside the repository). Create one with the editor's \"Create keystore...\" button or the JDK's keytool."
+                },
+                "alias": {
+                  "type": "string",
+                  "description": "Alias of the signing key inside the keystore (the -alias given to keytool), e.g. \"upload\"."
+                }
+              }
+            }
+          }
+        },
+        "ios": {
+          "type": "object",
+          "description": "iOS export settings (factoria export --platform ios).",
+          "properties": {
+            "icon": {
+              "type": "string",
+              "description": "Icon of the iOS export, replacing the project's top-level \"icon\" there. Same rules as the top-level \"icon\". Empty or absent = use the project's \"icon\". The App Store icon is the icon composed over iconBackground."
+            },
+            "iconBackground": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "description": "Colour \"#RRGGBB\" the icon is composed over: the App Store rejects icons with transparency, so any transparent pixels of the icon take this colour. Default \"#FFFFFF\"."
+            },
+            "teamId": {
+              "type": "string",
+              "pattern": "^([A-Z0-9]{10})?$",
+              "description": "Apple developer Team ID (10 capital letters and digits, shown at developer.apple.com/account under Membership details), used to sign device builds. Default: the FA_IOS_DEVELOPMENT_TEAM environment variable of build_ios.sh, which takes precedence when set."
+            },
+            "buildNumber": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+){0,2})?$",
+              "description": "Build number of the app (CFBundleVersion): up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\"; it must grow with every App Store upload of the same version. Default: the project's \"version\"."
+            }
+          }
+        }
+      }
+    },
     "feedbackFile": {
       "type": "string",
       "description": "Project-relative path of the engine feedback log (default ENGINE_FEEDBACK.json)."

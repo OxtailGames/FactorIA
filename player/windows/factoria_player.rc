@@ -1,0 +1,9 @@
+// The icon resource of factoria_player.exe (Windows only; CMake compiles this file with rc.exe or windres).
+//
+// factoria_player.ico is a PLACEHOLDER: a neutral default icon (a play button) made only of uncompressed 32-bit BMP images
+// of 16, 24, 32, 48, 64, 128 and 256 px. `factoria export --platform windows` overwrites those images in the exported
+// copy of the exe with the game's icon, rendered at the same sizes (tools/common/src/pe_icon.cpp), so keep them BMP and
+// keep the sizes; a game without an icon keeps this one. Regenerate the file after changing the drawing in
+// tools/common/tests/placeholder_icon_test.cpp:
+//   FA_REGEN_PLACEHOLDER_ICON=1 <build dir>/tools/common/fa_test_tooling -tc="placeholder icon*"
+1 ICON "factoria_player.ico"

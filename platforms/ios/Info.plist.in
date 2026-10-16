@@ -20,7 +20,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>@FA_GAME_VERSION@</string>
 	<key>CFBundleVersion</key>
-	<string>@FA_GAME_VERSION@</string>
+	<string>@FA_GAME_BUILD_VALUE@</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>MinimumOSVersion</key>

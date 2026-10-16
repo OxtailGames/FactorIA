@@ -75,11 +75,173 @@ std::vector<std::uint8_t> encode_png(const Image& img) {
     return out;
 }
 
+std::vector<std::uint8_t> encode_png_rgb(const Image& img) {
+    std::vector<std::uint8_t> out;
+    if (img.empty()) return out;
+    std::vector<std::uint8_t> rgb(std::size_t(img.width) * img.height * 3);
+    for (std::size_t i = 0, n = std::size_t(img.width) * img.height; i < n; ++i) {
+        rgb[i * 3 + 0] = img.rgba[i * 4 + 0];
+        rgb[i * 3 + 1] = img.rgba[i * 4 + 1];
+        rgb[i * 3 + 2] = img.rgba[i * 4 + 2];
+    }
+    auto write = [](void* ctx, void* data, int size) {
+        auto* v = static_cast<std::vector<std::uint8_t>*>(ctx);
+        const auto* p = static_cast<const std::uint8_t*>(data);
+        v->insert(v->end(), p, p + size);
+    };
+    stbi_write_png_to_func(write, &out, img.width, img.height, 3, rgb.data(), img.width * 3);
+    return out;
+}
+
 Result<void> save_png(const Image& img, std::string_view path) {
     if (img.empty()) return make_error("Cannot save an empty image to '" + std::string(path) + "'");
     std::vector<std::uint8_t> png = encode_png(img);
     if (png.empty()) return make_error("PNG encoding failed for '" + std::string(path) + "'");
     return fs::write_bytes(path, png.data(), png.size());
+}
+
+namespace {
+
+// One axis of a separable resample: for every destination index, the source indices and their weights (summing to 1).
+struct Tap {
+    int index;
+    float weight;
+};
+
+std::vector<std::vector<Tap>> make_taps(int srcN, int dstN) {
+    std::vector<std::vector<Tap>> taps;
+    taps.resize(std::size_t(dstN));
+    const double scale = double(srcN) / double(dstN);  // source pixels per destination pixel
+    for (int i = 0; i < dstN; ++i) {
+        std::vector<Tap>& t = taps[std::size_t(i)];
+        if (dstN < srcN) {
+            // Area average: destination pixel i covers the source interval [i * scale, (i + 1) * scale).
+            const double lo = double(i) * scale, hi = double(i + 1) * scale;
+            const int first = int(std::floor(lo)), last = std::min(srcN - 1, int(std::ceil(hi)) - 1);
+            for (int s = first; s <= last; ++s) {
+                const double overlap = std::min(hi, double(s + 1)) - std::max(lo, double(s));
+                if (overlap > 0.0) t.push_back({s, float(overlap / scale)});
+            }
+        } else if (dstN == srcN) {
+            t.push_back({i, 1.0f});
+        } else {
+            // Bilinear between the two source pixel centers around the destination pixel center.
+            const double c = (double(i) + 0.5) * scale - 0.5;
+            const int s0 = int(std::floor(c));
+            const float f = float(c - double(s0));
+            const int a = std::clamp(s0, 0, srcN - 1), b = std::clamp(s0 + 1, 0, srcN - 1);
+            if (a == b) {
+                t.push_back({a, 1.0f});
+            } else {
+                t.push_back({a, 1.0f - f});
+                t.push_back({b, f});
+            }
+        }
+    }
+    return taps;
+}
+
+}  // namespace
+
+Image resize_image(const Image& src, int width, int height) {
+    Image out;
+    if (src.empty() || width < 1 || height < 1) return out;
+    if (src.width == width && src.height == height) return src;
+
+    const auto xTaps = make_taps(src.width, width);
+    const auto yTaps = make_taps(src.height, height);
+
+    // Premultiplied RGBA as floats: colour channels are c * a / 255 (0..255), alpha is a (0..255).
+    std::vector<float> pre(std::size_t(src.width) * src.height * 4);
+    for (std::size_t i = 0, n = std::size_t(src.width) * src.height; i < n; ++i) {
+        const float a = src.rgba[i * 4 + 3];
+        const float k = a / 255.0f;
+        pre[i * 4 + 0] = src.rgba[i * 4 + 0] * k;
+        pre[i * 4 + 1] = src.rgba[i * 4 + 1] * k;
+        pre[i * 4 + 2] = src.rgba[i * 4 + 2] * k;
+        pre[i * 4 + 3] = a;
+    }
+
+    // Horizontal pass: width x src.height.
+    std::vector<float> mid(std::size_t(width) * src.height * 4, 0.0f);
+    for (int y = 0; y < src.height; ++y) {
+        const float* row = &pre[std::size_t(y) * src.width * 4];
+        float* dst = &mid[std::size_t(y) * width * 4];
+        for (int x = 0; x < width; ++x)
+            for (const Tap& t : xTaps[std::size_t(x)])
+                for (int c = 0; c < 4; ++c) dst[x * 4 + c] += row[t.index * 4 + c] * t.weight;
+    }
+    pre = {};
+
+    // Vertical pass, straight into bytes (un-premultiplied).
+    out.width = width;
+    out.height = height;
+    out.rgba.assign(std::size_t(width) * height * 4, 0);
+    std::vector<float> acc(std::size_t(width) * 4);
+    for (int y = 0; y < height; ++y) {
+        std::fill(acc.begin(), acc.end(), 0.0f);
+        for (const Tap& t : yTaps[std::size_t(y)]) {
+            const float* row = &mid[std::size_t(t.index) * width * 4];
+            for (std::size_t i = 0; i < acc.size(); ++i) acc[i] += row[i] * t.weight;
+        }
+        std::uint8_t* dst = &out.rgba[std::size_t(y) * width * 4];
+        for (int x = 0; x < width; ++x) {
+            const float a = std::clamp(acc[std::size_t(x) * 4 + 3], 0.0f, 255.0f);
+            if (a <= 0.0f) continue;  // fully transparent: black (0, 0, 0, 0)
+            const float inv = 255.0f / a;
+            for (int c = 0; c < 3; ++c)
+                dst[x * 4 + c] = std::uint8_t(std::clamp(acc[std::size_t(x) * 4 + std::size_t(c)] * inv, 0.0f, 255.0f) + 0.5f);
+            dst[x * 4 + 3] = std::uint8_t(a + 0.5f);
+        }
+    }
+    return out;
+}
+
+Image fit_image(const Image& src, int size, float scale, Color background) {
+    Image out;
+    if (size < 1) return out;
+    out.width = size;
+    out.height = size;
+    out.rgba.resize(std::size_t(size) * size * 4);
+    const Color bg = background;
+    const auto q = [](float v) { return std::uint8_t(saturate(v) * 255.0f + 0.5f); };
+    for (std::size_t i = 0, n = std::size_t(size) * size; i < n; ++i) {
+        out.rgba[i * 4 + 0] = q(bg.r);
+        out.rgba[i * 4 + 1] = q(bg.g);
+        out.rgba[i * 4 + 2] = q(bg.b);
+        out.rgba[i * 4 + 3] = q(bg.a);
+    }
+    if (src.empty() || !(scale > 0.0f)) return out;
+
+    const double target = double(size) * double(scale);  // length of the longer side, in pixels
+    const double longest = double(std::max(src.width, src.height));
+    const int tw = std::max(1, int(std::lround(double(src.width) * target / longest)));
+    const int th = std::max(1, int(std::lround(double(src.height) * target / longest)));
+    const Image scaled = resize_image(src, tw, th);
+    const int ox = (size - tw) / 2, oy = (size - th) / 2;  // truncates toward zero: a crop is centered within a pixel
+
+    for (int y = 0; y < th; ++y) {
+        const int dy = oy + y;
+        if (dy < 0 || dy >= size) continue;
+        for (int x = 0; x < tw; ++x) {
+            const int dx = ox + x;
+            if (dx < 0 || dx >= size) continue;
+            const std::uint8_t* s = &scaled.rgba[(std::size_t(y) * tw + x) * 4];
+            std::uint8_t* d = &out.rgba[(std::size_t(dy) * size + dx) * 4];
+            const float sa = s[3] / 255.0f, ba = d[3] / 255.0f;
+            const float oa = sa + ba * (1.0f - sa);
+            if (oa <= 0.0f) {
+                d[0] = d[1] = d[2] = d[3] = 0;
+                continue;
+            }
+            for (int c = 0; c < 3; ++c) {
+                const float v = (s[c] * sa + d[c] * ba * (1.0f - sa)) / oa;
+                d[c] = std::uint8_t(std::clamp(v, 0.0f, 255.0f) + 0.5f);
+            }
+            d[3] = std::uint8_t(oa * 255.0f + 0.5f);
+        }
+    }
+    return out;
 }
 
 ImageDiff diff_images(const Image& a, const Image& b, float tolerance) {

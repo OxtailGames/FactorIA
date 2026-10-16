@@ -20,6 +20,14 @@ namespace {
 
 bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
 
+// The warnings of a report without the one every project without an icon gets.
+std::vector<std::string> warnings_without_icon_note(const std::vector<std::string>& warnings) {
+    std::vector<std::string> out;
+    for (const auto& w : warnings)
+        if (w.find("No icon is set") == std::string::npos) out.push_back(w);
+    return out;
+}
+
 // Fake "player" so layout tests do not depend on a built factoria_player.
 std::string make_fake_player(const testing::TempDir& tmp) {
     std::string p = tmp.sub("fake_player/factoria_player");
@@ -90,11 +98,40 @@ struct MobileNextToExe {
 
 }  // namespace
 
+// The build command the next steps of an Android export name: the wrapper script of this OS.
+#if defined(_WIN32)
+constexpr const char* kGradlewAssemble = "gradlew.bat assembleDebug";
+#else
+constexpr const char* kGradlewAssemble = "./gradlew assembleDebug";
+#endif
+
 TEST_CASE("export: platform names are normalized") {
     CHECK(normalize_export_platform("Win") == "windows");
     CHECK(normalize_export_platform("OSX") == "macos");
     CHECK(normalize_export_platform("android") == "android");
     CHECK(normalize_export_platform("amiga").empty());
+}
+
+TEST_CASE("export: format and artifact are serialized only when set") {
+    ExportReport report;
+    CHECK_FALSE(report.to_json().contains("format"));
+    CHECK_FALSE(report.to_json().contains("artifact"));
+    report.format = "apk";
+    report.artifact = "/out/game-android/game.apk";
+    CHECK(report.to_json()["format"] == "apk");
+    CHECK(report.to_json()["artifact"] == "/out/game-android/game.apk");
+
+    ExportPlan plan;
+    CHECK_FALSE(plan.to_json().contains("format"));
+    CHECK_FALSE(plan.to_json().contains("artifact"));
+    plan.format = "aab";
+    plan.artifact = "/out/game-android/game.aab";
+    CHECK(plan.to_json()["format"] == "aab");
+    CHECK(plan.to_json()["artifact"] == "/out/game-android/game.aab");
+
+    ExportOptions options;  // the options have defaults that mean "the project's setting"
+    CHECK(options.format.empty());
+    CHECK_FALSE(options.progress);
 }
 
 TEST_CASE("export: desktop layout (linux, windows, macos)") {
@@ -170,7 +207,7 @@ TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify acce
     o.playerBinary = player;
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(r.value().warnings.empty());
+    CHECK(warnings_without_icon_note(r.value().warnings).empty());
     const std::string app = tmp.sub("out/space-dodge-macos/Space Dodge.app");
     CHECK(std::system(("/usr/bin/codesign --verify --strict '" + app + "' 2>/dev/null").c_str()) == 0);
     bool forceInSteps = false;
@@ -217,6 +254,7 @@ TEST_CASE("export: plan_export checks what export_project would, and writes noth
     m.platform = "android";
     m.outDir = tmp.sub("out");
     m.mobileDir = make_fake_mobile(tmp);
+    m.format = "gradle";  // an apk would need a JDK and the Android SDK (the plan checks them: see the android tests)
     auto mobile = plan_export(m);
     REQUIRE_MESSAGE(mobile.ok(), (mobile.ok() ? "" : mobile.error().to_string()));
     CHECK(mobile->mode == "prebuilt");
@@ -293,6 +331,7 @@ TEST_CASE("export: only an empty folder or one an export wrote is replaced") {
         CAPTURE(platform);
         ExportOptions l = o;
         l.platform = platform;
+        if (platform == "android") l.format = "gradle";  // the folder is what is checked, not this computer's JDK and SDK
         const stdfs::path dir = tmp.sub("legacy-" + platform + "/space-dodge-" + platform);
         l.outDir = dir.parent_path().string();
         testing::write_all(dir / "old-file.txt", "from an earlier export");
@@ -375,6 +414,7 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     o.platform = "android";
     o.outDir = tmp.sub("out");
     o.engineRoot = FA_REPO_ROOT;  // asking for a checkout is what selects source mode
+    o.format = "gradle";          // the project only: this test never runs Gradle
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const auto& rep = r.value();
@@ -419,7 +459,8 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     CHECK(strings.find("&quot;") != std::string::npos);
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.engineDir=") != std::string::npos);
     CHECK_FALSE(stdfs::exists(root / "app/src/main/jniLibs"));
-    for (auto& f : rep.files) CHECK(testing::read_all(root / f).find("{{") == std::string::npos);
+    for (auto& f : rep.files)
+        if (stdfs::path(f).extension() != ".jar") CHECK(testing::read_all(root / f).find("{{") == std::string::npos);
 
     // assets_index.txt: every shipped file, project-relative, one per line, nothing else.
     std::string index = testing::read_all(root / "app/src/main/assets/assets_index.txt");
@@ -446,7 +487,7 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     CHECK(sorted == onDisk);
     CHECK(rep.nextSteps.size() >= 3);
     bool mentionsGradlew = false;
-    for (auto& s : rep.nextSteps) mentionsGradlew |= s.find("./gradlew assembleDebug") != std::string::npos;
+    for (auto& s : rep.nextSteps) mentionsGradlew |= s.find(kGradlewAssemble) != std::string::npos;
     CHECK(mentionsGradlew);
 }
 
@@ -463,6 +504,7 @@ TEST_CASE("export: android orientation and keyword ids") {
     o.platform = "android";
     o.outDir = tmp.sub("out");
     o.mobileDir = make_fake_mobile(tmp);
+    o.format = "gradle";
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml").find("sensorPortrait") != std::string::npos);
@@ -509,7 +551,7 @@ TEST_CASE("export: ios source mode produces a script and the game folder") {
     CHECK(script.find("--run) BUILD=1; RUN=1") != std::string::npos);
     CHECK(script.find("xcrun devicectl device install app") != std::string::npos);
     CHECK(script.find("xcrun simctl launch --terminate-running-process --console-pty") != std::string::npos);
-    CHECK(script.find("cmake -S \"$ENGINE_DIR\"") != std::string::npos);
+    CHECK(script.find("\"$CMAKE\" -S \"$ENGINE_DIR\"") != std::string::npos);
     CHECK(script.find("-DFA_BUILD_TOOLS=OFF") != std::string::npos);
     CHECK(script.find("XCODE_ARGS") != std::string::npos);  // everything after `--` goes to xcodebuild
     CHECK_FALSE(stdfs::exists(root / "CMakeLists.txt"));
@@ -531,6 +573,7 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     o.outDir = tmp.sub("out");
     o.mobileDir = make_fake_mobile(tmp);
     o.buildSourceRoot = tmp.sub("no-checkout-here");  // factoria "was built" from a folder that does not exist
+    o.format = "gradle";
     ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
     auto r = export_project(o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -559,15 +602,17 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
     CHECK(testing::read_all(root / "gradle.properties").find("cmakeVersion") == std::string::npos);
     const std::string nowhere = stdfs::path(tmp.sub("no-checkout-here")).generic_string();
     for (auto& f : rep.files) {
+        const std::string ext = stdfs::path(f).extension().string();
+        if (ext == ".jar" || ext == ".png" || ext == ".so") continue;  // binary files
         std::string text = testing::read_all(root / f);
         CHECK_MESSAGE(text.find("{{") == std::string::npos, f);
         CHECK_MESSAGE(text.find(nowhere) == std::string::npos, f);
     }
-    CHECK(rep.warnings.empty());
+    CHECK(warnings_without_icon_note(rep.warnings).empty());
 
     std::string steps;
     for (auto& s : rep.nextSteps) steps += s + "\n";
-    CHECK(steps.find("./gradlew assembleDebug") != std::string::npos);
+    CHECK(steps.find(kGradlewAssemble) != std::string::npos);
     CHECK(steps.find("no NDK or CMake") != std::string::npos);
     CHECK(steps.find("ndk;") == std::string::npos);
 
@@ -582,6 +627,7 @@ TEST_CASE("export: android picks the mode by the documented rule") {
     base.projectDir = proj;
     base.platform = "android";
     base.outDir = tmp.sub("out");
+    base.format = "gradle";  // only the mode matters here, and an apk would run Gradle
     auto mode = [&](const ExportOptions& o) {
         auto r = export_project(o);
         return r.ok() ? r->mode : "error: " + r.error().message;
@@ -624,6 +670,8 @@ TEST_CASE("export: android without prebuilt players or a checkout says what to d
     testing::TempDir tmp;
     std::string proj = make_project(tmp);
     ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    const std::string home = tmp.sub("factoria-home");  // not what `factoria setup players` installed on this computer
+    ScopedEnv noSetup("FACTORIA_HOME", home.c_str());
     ExportOptions o;
     o.projectDir = proj;
     o.platform = "android";
@@ -705,7 +753,9 @@ TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded 
 
     std::string script = testing::read_all(root / "build_ios.sh");
     CHECK(script.find("mode: prebuilt") != std::string::npos);
-    CHECK(script.find("cmake -S \"$HERE\" -B \"$HERE/build\" -G Xcode") != std::string::npos);
+    CHECK(script.find("\"$CMAKE\" -S \"$HERE\" -B \"$HERE/build\" -G Xcode") != std::string::npos);
+    CHECK(script.find("CMAKE=\"${FACTORIA_CMAKE:-}\"") != std::string::npos);  // CMake: FACTORIA_CMAKE, the found one, PATH
+    CHECK(script.find("factoria setup cmake") != std::string::npos);
     CHECK(script.find("-DCMAKE_SYSTEM_NAME=iOS") != std::string::npos);
     CHECK(script.find("-DFA_GAME_BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
     CHECK(script.find("-DFA_GAME_PROJECT_DIR=\"$HERE/game\"") != std::string::npos);

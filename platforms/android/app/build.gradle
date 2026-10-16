@@ -8,9 +8,25 @@ def engineDir = providers.gradleProperty('factoria.engineDir').get()
 def cmakeVer  = providers.gradleProperty('factoria.cmakeVersion').getOrElse('3.31.6')
 
 {{/source}}
+// Release signing: export.android.signing of factoria.json (keystore and alias, in gradle.properties). The passwords come only
+// from the environment of the Gradle process (FACTORIA_ANDROID_KEYSTORE_PASSWORD, FACTORIA_ANDROID_KEY_PASSWORD), never from a
+// file. Without a keystore the release build is signed with the debug key: fine for testing, Google Play rejects it.
+def releaseKeystore = providers.gradleProperty('factoria.signing.keystore').orNull
+def releaseAlias    = providers.gradleProperty('factoria.signing.alias').orNull
+def hasReleaseKey   = releaseKeystore && releaseAlias
+def releaseStorePassword = System.getenv('FACTORIA_ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyPassword   = System.getenv('FACTORIA_ANDROID_KEY_PASSWORD') ?: releaseStorePassword
+
+gradle.taskGraph.whenReady { graph ->
+    if (hasReleaseKey && !releaseStorePassword && graph.allTasks.any { it.path.startsWith(':app:') && it.name.toLowerCase().contains('release') })
+        throw new GradleException('The release keystore password is not set. Set the environment variable FACTORIA_ANDROID_KEYSTORE_PASSWORD ' +
+                                  '(and FACTORIA_ANDROID_KEY_PASSWORD if the key has its own password) before running a release build; ' +
+                                  'factoria export reads them from the environment or from ~/.factoria/export.json. See docs/MOBILE.md (Signing).')
+}
+
 android {
     namespace '{{APPLICATION_ID}}'
-    compileSdk 34
+    compileSdk {{TARGET_SDK}}
 {{#source}}
     // Pin the NDK (AGP otherwise defaults to its own, e.g. 26.1.x; r27+ is needed for std::format). Install with sdkmanager "ndk;27.2.12479018".
     ndkVersion providers.gradleProperty('factoria.ndkVersion').getOrElse('27.2.12479018')
@@ -18,8 +34,8 @@ android {
 
     defaultConfig {
         applicationId '{{APPLICATION_ID}}'
-        minSdk 26
-        targetSdk 34
+        minSdk {{MIN_SDK}}
+        targetSdk {{TARGET_SDK}}
         versionCode {{VERSION_CODE}}
         versionName '{{VERSION_NAME}}'
 
@@ -56,12 +72,23 @@ android {
     // Package every game file (the default pattern skips dot-files and folders starting with "_").
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }{{PACKAGING_OPTIONS}}
+
+    if (hasReleaseKey) {
+        signingConfigs {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword releaseStorePassword
+                keyAlias releaseAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            // Signing: configure a release keystore (see docs/MOBILE.md) or sign the APK/AAB afterwards.
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
     }
 

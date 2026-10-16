@@ -1,14 +1,22 @@
 // Windows process runner: CreateProcessW with redirected pipes and a Job Object
 // (kill-on-close) so cancellation terminates the whole process tree.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
+#include <cctype>
 #include <chrono>
+#include <cwchar>
 #include <string>
 #include <vector>
 
-#include "fa/ai/process.h"
+#include "fa/core/process.h"
 
-namespace fa::ai {
+namespace fa {
 
 namespace {
 
@@ -247,4 +255,4 @@ Result<ProcessResult> run_process(const ProcessOptions& opt) {
     return res;
 }
 
-}  // namespace fa::ai
+}  // namespace fa

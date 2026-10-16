@@ -66,8 +66,8 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
    - AppImage: a link named `factoria` is the command itself:
      `ln -s ~/Downloads/FactorIA-linux-x64.AppImage ~/.local/bin/factoria`
 5. Export (`factoria export`) works from the download for desktop and mobile. Android needs the JDK 17 and the
-   Android SDK (no NDK, no CMake): the `mobile/` folder next to `factoria` holds the engine's Android runtime, so the
-   exported Gradle project only packages it. iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
+   Android SDK (no NDK, no CMake, no separate Gradle): the `mobile/` folder next to `factoria` holds the engine's Android
+   runtime, so the export only packages it and builds the APK itself (`factoria export --platform android`). iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
    package the same way. No engine source is involved; see [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source)
    and [MOBILE.md](MOBILE.md). Build from source if you want to change the engine itself.
 

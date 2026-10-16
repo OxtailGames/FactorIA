@@ -3,7 +3,8 @@
 #   - the project that `factoria export --platform ios` writes in prebuilt mode (cmake/plist.cmake next to
 #     cmake/Info.plist.in; no engine source needed).
 # Needs FA_GAME_BUNDLE_ID, FA_GAME_NAME, FA_GAME_VERSION and FA_GAME_ORIENTATION (landscape | portrait | any) set, and
-# CMAKE_OSX_DEPLOYMENT_TARGET. A macro (not a function) so the variables Info.plist.in reads land in the caller's scope.
+# CMAKE_OSX_DEPLOYMENT_TARGET. FA_GAME_BUILD (optional) is the build number, CFBundleVersion; empty = FA_GAME_VERSION.
+# A macro (not a function) so the variables Info.plist.in reads land in the caller's scope.
 set(FA_IOS_PLIST_DIR ${CMAKE_CURRENT_LIST_DIR})  # captured at include time: inside the macro it would be the caller's dir
 
 macro(fa_ios_configure_plist out)
@@ -24,6 +25,12 @@ macro(fa_ios_configure_plist out)
 		<string>UIInterfaceOrientationLandscapeRight</string>")
         set(FA_IOS_ORIENTATIONS_IPAD "<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>")
+    endif()
+    # CFBundleVersion: the build number when given, else the version.
+    if(FA_GAME_BUILD)
+        set(FA_GAME_BUILD_VALUE "${FA_GAME_BUILD}")
+    else()
+        set(FA_GAME_BUILD_VALUE "${FA_GAME_VERSION}")
     endif()
     # XML-escape the display name for the plist.
     string(REPLACE "&" "&amp;" FA_GAME_NAME_XML "${FA_GAME_NAME}")
