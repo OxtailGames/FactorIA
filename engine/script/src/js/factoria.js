@@ -880,7 +880,7 @@
       }
       return addListener(`ui.${type}`, (data, source) => {
         if (id !== null && (!data || data.id !== id)) return;
-        fn({ type, id: data ? data.id : null, entity: source, value: data ? data.value : undefined });
+        fn({ type, id: data?.id ?? null, entity: source, value: data?.value });
       }, null);
     },
     // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when

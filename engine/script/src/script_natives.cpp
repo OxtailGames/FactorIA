@@ -617,7 +617,7 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
 NATIVE(uiState) {  // () -> [focused, hovered]: entity handles, null for none (or when the host has no UI)
     SETUP;
     UiSystem* U = I->host->ui();
-    auto live = [&](Entity e) { return U && W.alive(e) ? ent_val(ctx, e) : JS_NULL; };
+    auto live = [&](Entity e) { return W.alive(e) ? ent_val(ctx, e) : JS_NULL; };
     JSValue a = JS_NewArray(ctx);
     JS_SetPropertyUint32(ctx, a, 0, live(U ? U->focused() : kNullEntity));
     JS_SetPropertyUint32(ctx, a, 1, live(U ? U->hovered() : kNullEntity));
