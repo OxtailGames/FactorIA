@@ -6,6 +6,17 @@
   "mainScene": "scenes/menu.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "platform": {
+    "achievements": [
+      { "id": "first_jump", "name": "First jump", "description": "Jump once." },
+      { "id": "big_spender", "name": "Big spender", "description": "Buy something in the shop." }
+    ],
+    "stats": [{ "id": "jumps" }],
+    "products": [
+      { "id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99 },
+      { "id": "remove_ads", "type": "nonConsumable", "title": "Remove ads", "price": 2.99 }
+    ]
+  },
   "input": {
     "actions": {
       "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
