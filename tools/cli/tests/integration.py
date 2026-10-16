@@ -491,8 +491,10 @@ def test_misc(tmp):
     code, out, err = run(["api", "--dts", "--project", proj])
     check(code == 0 and os.path.getsize(os.path.join(proj, "types", "factoria.d.ts")) > 200, "api --dts --project writes types/factoria.d.ts")
 
-    # export (desktop) needs the player binary; only check that it is wired
-    code, out, err = run(["export", proj, "--platform", "android", "--out", os.path.join(tmp, "exp")])
+    # export: only check that it is wired. --format gradle writes the Gradle project without building it, so the test
+    # never runs Gradle with this computer's JDK and ~/.gradle; the FactorIA home and machine settings are private too.
+    export_env = {"FACTORIA_HOME": os.path.join(tmp, "factoria-home"), "FACTORIA_EXPORT_CONFIG": os.path.join(tmp, "export.json")}
+    code, out, err = run(["export", proj, "--platform", "android", "--format", "gradle", "--out", os.path.join(tmp, "exp")], env=export_env)
     check(code in (0, 1), "export is wired (exit %d)" % code)
 
     # MCP without a project: bootstrap tools only

@@ -662,6 +662,8 @@ TEST_CASE("export: android without prebuilt players or a checkout says what to d
     testing::TempDir tmp;
     std::string proj = make_project(tmp);
     ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    const std::string home = tmp.sub("factoria-home");  // not what `factoria setup players` installed on this computer
+    ScopedEnv noSetup("FACTORIA_HOME", home.c_str());
     ExportOptions o;
     o.projectDir = proj;
     o.platform = "android";
