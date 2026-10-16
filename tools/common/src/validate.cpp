@@ -11,6 +11,7 @@
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
+#include "fa/runtime/plugins.h"
 #include "fa/runtime/project.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
@@ -275,6 +276,21 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     }
 }
 
+// Native plugins: each one built for every platform it applies to. A missing build for this machine's platform is an
+// error (scripts that use the plugin fail); one for another platform is a warning (only that export fails).
+void check_plugins(Ctx& c) {
+    auto project = load_project(c.dir);
+    if (!project.ok()) return;  // a bad "plugins" value is reported by the schema check
+    for (const PluginSettings& p : project->plugins)
+        for (const std::string& platform : project->plugin_platforms(p))
+            if (auto build = plugin_build(c.dir, p, platform); !build.ok()) {
+                std::string message = build.error().message;
+                message = message.substr(message.find(": ") + 2);  // the file and pointer go in their own fields
+                if (platform == runtime_platform()) c.error(kProjectFileName, "/plugins/" + p.name, message, build.error().hint);
+                else c.warn(kProjectFileName, "/plugins/" + p.name, "exporting for " + platform + " fails: " + message, build.error().hint);
+            }
+}
+
 void check_feedback_file(Ctx& c, const std::string& file) {
     stdfs::path p = stdfs::path(c.dir) / file;
     if (!stdfs::exists(p)) {
@@ -366,6 +382,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
 
     std::string mainScene, feedbackFile = kFeedbackFileName;
     check_project_file(c, mainScene, feedbackFile);
+    check_plugins(c);
     check_feedback_file(c, feedbackFile);
     check_assets_manifest(c);
     assets_detail::check_shipped_assets(c.dir, c.report.warnings);

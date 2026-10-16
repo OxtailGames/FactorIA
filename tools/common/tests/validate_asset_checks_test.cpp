@@ -136,6 +136,13 @@ TEST_CASE("validate: the files that ship are compared with the limits of the sto
         CHECK_MESSAGE(g.warnings("factoria.json").empty(), skipped);
         stdfs::remove(stdfs::path(g.dir) / skipped);
     }
+    // Nor does the folder of a native plugin: the export ships its build, not its sources.
+    auto project = load_json_file(g.dir + "/factoria.json");
+    REQUIRE(project.ok());
+    (*project)["plugins"] = Json::parse(R"({"native": {"path": "plugins/native"}})");
+    REQUIRE(save_json_file(g.dir + "/factoria.json", *project).ok());
+    g.big_file("plugins/native/sdk.bin", 201 * kMiB);
+    CHECK_FALSE(mentions(g.warnings("factoria.json"), "MB for ios"));
 }
 
 TEST_CASE("validate: a Sprite texture whose corners are one opaque colour is probably a background") {

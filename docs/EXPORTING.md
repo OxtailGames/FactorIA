@@ -90,8 +90,9 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
-`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
-project is never modified; the feedback file stays in the repository.
+`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the folder of a native plugin that lives inside the project (its build is
+shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
+repository.
 
 The export adds two files of its own: `.factoria-export` at the top of the export folder (next section) and
 `FACTORIA_NOTICES.txt` ([License notices](#license-notices)). An Android export also leaves out the keystore named by
@@ -379,6 +380,13 @@ The player starts the game found in `game/` next to the executable (inside the
 my-game [projectDir] [--scene scenes/level2.scene.json] [--fullscreen]
 ```
 
+**Native plugins** ([EXTENDING.md](EXTENDING.md), section G). The export copies the build of every plugin declared for
+the platform next to the executable: the contents of the plugin's `windows/` or `linux/` folder (its library and the
+ones it needs), or of `macos/` into `Contents/Frameworks` (the ad hoc signature below covers them, with `--deep`). The
+player loads them from there. An export for a platform the plugin is declared for but not built for fails and says
+which file is missing; `factoria validate` lists those problems for every platform (a warning for each platform other
+than this computer's).
+
 Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 `%APPDATA%\<id>`, `~/Library/Application Support/<id>`).
 
@@ -393,8 +401,8 @@ double-clicked exe shows the error in a message box.
 form of a path that long, so it works whether or not long paths are enabled on the machine. Explorer, zip tools and
 some other programs still cannot open such files: export into a short folder (`--out C:\exports`) when you can.
 
-On macOS the export signs the finished `.app` ad hoc (`codesign --force --sign -`), last, so the signature covers its
-`Info.plist` and the game files. The player of a signed release carries FactorIA's Developer ID signature, which covers
+On macOS the export signs the finished `.app` ad hoc (`codesign --force --deep --sign -`), last, so the signature
+covers its `Info.plist`, the game files and the native plugins in `Contents/Frameworks`. The player of a signed release carries FactorIA's Developer ID signature, which covers
 the executable alone: copied into a bundle unchanged it fails `codesign --verify` ("code has no resources but signature
 indicates they must be present"), and a Mac that downloads such an app calls it damaged. The ad hoc app runs on your
 Mac; a copy someone else downloads is stopped by Gatekeeper like any app that is not notarized (with Open Anyway).
