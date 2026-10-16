@@ -128,6 +128,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
 - [docs/EDITOR.md](docs/EDITOR.md): the AI-first visual editor: viewport, AI chat, picking, audio log.
 - [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): AI providers (Claude Code, Codex, API keys) and roles.
+- [docs/ASSETS.md](docs/ASSETS.md): generating and importing art, sound and models; import settings and provenance.
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.
 - [docs/BUILDING.md](docs/BUILDING.md): platform requirements, presets, CI, tests and troubleshooting.
 - [docs/MOBILE.md](docs/MOBILE.md) and [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android and exporting games.
