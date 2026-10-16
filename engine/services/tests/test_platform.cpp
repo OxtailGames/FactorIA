@@ -492,9 +492,11 @@ TEST_CASE("fake: cloud saves") {
     Game g;
     CHECK(g.ok("cloud.list") == Json::array());
     CHECK(g.ok("cloud.load", Json::parse(R"({"key": "slot1"})")).is_null());
-    CHECK(g.ok("cloud.save", Json::parse(R"({"key": "slot1", "data": "{\"level\":3}"})")) == Json::parse(R"({"key": "slot1", "bytes": 11})"));
+    // Outside CHECK: MSVC's preprocessor mangles a raw string that holds \" when it is a macro argument.
+    const Json saved = Json::parse(R"({"key": "slot1", "data": "{\"level\":3}"})");
+    CHECK(g.ok("cloud.save", saved) == Json::parse(R"({"key": "slot1", "bytes": 11})"));
     g.ok("cloud.save", Json::parse(R"({"key": "a", "data": "x"})"));
-    CHECK(g.ok("cloud.load", Json::parse(R"({"key": "slot1"})")) == Json::parse(R"({"key": "slot1", "data": "{\"level\":3}"})"));
+    CHECK(g.ok("cloud.load", Json::parse(R"({"key": "slot1"})")) == saved);
     CHECK(g.ok("cloud.list") == Json::parse(R"(["a", "slot1"])"));
     g.ok("cloud.remove", Json::parse(R"({"key": "slot1"})"));
     CHECK(g.ok("cloud.list") == Json::parse(R"(["a"])"));
