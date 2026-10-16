@@ -18,6 +18,8 @@
 //              source root of a development build), with that checkout's platforms/ templates.
 // Every export also writes FACTORIA_NOTICES.txt (the licenses of the runtime inside the game, fa/tooling/notices.h):
 // next to the executable (linux, windows), in Contents/Resources (macos), in the APK assets (android), in game/ (ios).
+// A project with assets recorded as made with AI (provenance in assets.json) also gets AI_CONTENT_DISCLOSURE.md at the top
+// of <out>/<slug>-<platform>/ (fa/tooling/ai_disclosure.h), for the AI-generated content questions of store forms.
 // It also writes kExportMarkerFile at the top of <out>/<slug>-<platform>/: an export replaces an existing folder of that
 // name only when it is empty or an export wrote it (the marker, or FACTORIA_NOTICES.txt where that platform's export
 // puts it, for exports older than the marker). Any other folder is an error, so an unrelated one is never deleted.
