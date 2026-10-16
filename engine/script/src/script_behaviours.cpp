@@ -258,7 +258,7 @@ void Impl::sync() {
     inSync = false;
 }
 
-void Impl::run_callbacks(const char* method, float dt, bool) {
+void Impl::run_callbacks(const char* method, float dt, bool pausedOnly) {
     World& W = host->world();
     size_t n = behaviours.size();
     for (size_t i = 0; i < n && i < behaviours.size(); ++i) {
@@ -272,6 +272,12 @@ void Impl::run_callbacks(const char* method, float dt, bool) {
         bool enabled = JS_IsUndefined(en) || JS_ToBool(ctx, en) > 0;
         JS_FreeValue(ctx, en);
         if (!enabled) continue;
+        if (pausedOnly) {
+            JSValue rp = JS_GetPropertyStr(ctx, b.instance.get(), "runWhilePaused");
+            const bool runs = JS_ToBool(ctx, rp) > 0;
+            JS_FreeValue(ctx, rp);
+            if (!runs) continue;
+        }
         bool failed = false;
         std::string label = b.path + "#" + method;
         JSValue r = call_method(label, W.id_of(b.entity), b.instance.get(), method, {JS_NewFloat64(ctx, dt)}, &failed);

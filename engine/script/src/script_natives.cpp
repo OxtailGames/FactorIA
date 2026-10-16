@@ -13,6 +13,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
+#include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
 #include "fa/physics/physics.h"
@@ -312,6 +313,7 @@ NATIVE(timeInfo) {
     JS_SetPropertyUint32(ctx, a, 2, JS_NewFloat64(ctx, W.time()));
     JS_SetPropertyUint32(ctx, a, 3, JS_NewFloat64(ctx, static_cast<double>(W.frame())));
     JS_SetPropertyUint32(ctx, a, 4, JS_NewFloat64(ctx, I->timeScale));
+    JS_SetPropertyUint32(ctx, a, 5, JS_NewFloat64(ctx, I->lastDt));
     return a;
 }
 
@@ -1475,6 +1477,15 @@ NATIVE(screenSize) {
     return array_of(ctx, {s.x, s.y});
 }
 
+// game.notices(): the third-party parts of the runtime inside every game (what FACTORIA_NOTICES.txt holds), for credits.
+NATIVE(notices) {
+    SETUP;
+    Json out = Json::array();
+    for (const ThirdPartyComponent& c : third_party_components())
+        if (c.inGames) out.push_back({{"name", c.name}, {"url", c.url}, {"license", c.license}, {"usedFor", c.usedFor}});
+    return I->from_json(out);
+}
+
 NATIVE(storageGet) {
     SETUP;
     I->load_storage();
@@ -1662,7 +1673,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
