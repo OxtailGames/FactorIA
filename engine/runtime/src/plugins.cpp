@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <system_error>
 
 #include "fa/core/log.h"
 
@@ -35,14 +36,7 @@ namespace {
 
 struct Command {
     CommandInfo info;
-    FaHandler handler = nullptr;
-    void* user = nullptr;
-};
-
-struct Function {
-    std::string name, doc;
-    FaHandler handler = nullptr;
-    void* user = nullptr;
+    CommandHandler call;  // the FaHandler and its user pointer, through invoke()
 };
 
 // A plugin this process opened. Never unloaded: its handlers and the api pointer it keeps stay valid.
@@ -50,7 +44,7 @@ struct Loaded {
     std::string name, library;
     std::string error;  // why it is not loaded ("" = loaded)
     std::vector<Command> commands;
-    std::vector<Function> functions;
+    std::vector<ScriptPlugin::Function> functions;
     bool initializing = false;  // add_command / add_function are accepted only inside the entry point
     FaPluginApi api{};
 };
@@ -77,6 +71,14 @@ bool is_snake(const std::string& s) {
 bool is_js_identifier(const std::string& s) {
     auto start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '$'; };
     return !s.empty() && start(s[0]) && std::all_of(s.begin(), s.end(), [&](char c) { return start(c) || (c >= '0' && c <= '9'); });
+}
+
+Json invoke(FaHandler handler, void* user, const Json& args) {
+    FaCall call;
+    const std::string text = args.dump();
+    handler(&call, text.c_str(), user);
+    if (call.failed) throw CommandError("failed", call.error, call.hint);
+    return call.result;  // null when the handler did not answer
 }
 
 int refuse(const Loaded& p, const char* what, const std::string& why) {
@@ -113,8 +115,7 @@ int add_command(const FaPluginApi* api, const FaCommandDesc* d) {
                                                  ". Example: {\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}");
         c.info.inputSchema = std::move(schema.value());
     }
-    c.handler = d->handler;
-    c.user = d->user;
+    c.call = [handler = d->handler, user = d->user](const Json& args) { return invoke(handler, user, args); };
     p->commands.push_back(std::move(c));
     return 0;
 }
@@ -131,9 +132,9 @@ int add_function(const FaPluginApi* api, const FaFunctionDesc* d) {
         return refuse(*p, "add_function", "'" + name + "' has no doc: say what it does, its arguments and its result; it goes "
                                               "into types/factoria.d.ts, which is what AIs read");
     if (!d->handler) return refuse(*p, "add_function", "'" + name + "' has no handler");
-    if (std::any_of(p->functions.begin(), p->functions.end(), [&](const Function& f) { return f.name == name; }))
+    if (std::any_of(p->functions.begin(), p->functions.end(), [&](const ScriptPlugin::Function& f) { return f.name == name; }))
         return refuse(*p, "add_function", "'" + name + "' is registered twice");
-    p->functions.push_back({name, d->doc, d->handler, d->user});
+    p->functions.push_back({name, d->doc, [handler = d->handler, user = d->user](const Json& args) { return invoke(handler, user, args); }});
     return 0;
 }
 
@@ -173,27 +174,6 @@ void* native_handle(const char* name) {
     return nullptr;
 }
 
-Json invoke(FaHandler handler, void* user, const Json& args) {
-    FaCall call;
-    const std::string text = args.dump();
-    handler(&call, text.c_str(), user);
-    if (call.failed) throw CommandError("failed", call.error, call.hint);
-    return call.result;  // null when the handler did not answer
-}
-
-#if defined(_WIN32)
-std::string last_error_text() {
-    const DWORD code = GetLastError();
-    char* buf = nullptr;
-    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code, 0,
-                   reinterpret_cast<char*>(&buf), 0, nullptr);
-    std::string text = buf ? buf : "error " + std::to_string(code);
-    if (buf) LocalFree(buf);
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == '.')) text.pop_back();
-    return text;
-}
-#endif
-
 // Opens the library (or takes the static entry point) and runs the entry point. Returns false when the library could
 // not be opened, which is not cached: the next engine tries again (a plugin built in the meantime).
 bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
@@ -202,7 +182,7 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
         // LOAD_WITH_ALTERED_SEARCH_PATH: the libraries the plugin needs are found next to it (its SDK's DLLs).
         HMODULE h = LoadLibraryExW(stdfs::path(p.library).wstring().c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         if (!h) {
-            error = "cannot load " + p.library + ": " + last_error_text() +
+            error = "cannot load " + p.library + ": " + std::system_category().message(int(GetLastError())) +
                     ". It must be a 64-bit DLL, and the DLLs it needs must be next to it";
             return false;
         }
@@ -313,18 +293,16 @@ std::vector<std::string> install_plugins(const ProjectSettings& project, const s
         // Load it once per process.
         Loaded* p = nullptr;
         if (error.empty()) {
-            auto& slot = loaded()[ps.name + "\n" + library];
-            if (!slot) {
+            const std::string key = ps.name + "\n" + library;
+            if (auto it = loaded().find(key); it != loaded().end()) {
+                p = it->second.get();
+            } else {
                 auto fresh = std::make_unique<Loaded>();
                 fresh->name = ps.name;
                 fresh->library = library;
-                if (load(*fresh, staticInit, error)) slot = std::move(fresh);
-                else loaded().erase(ps.name + "\n" + library);
+                if (load(*fresh, staticInit, error)) p = loaded().emplace(key, std::move(fresh)).first->second.get();
             }
-            if (slot) {
-                p = slot.get();
-                error = p->error;
-            }
+            if (p) error = p->error;
         }
         if (!error.empty()) {
             const std::string message = "plugin '" + ps.name + "' is not loaded: " + error;
@@ -334,18 +312,8 @@ std::vector<std::string> install_plugins(const ProjectSettings& project, const s
             continue;
         }
 
-        for (const Command& c : p->commands) {
-            const FaHandler handler = c.handler;
-            void* user = c.user;
-            commands.add(c.info, [handler, user](const Json& args) { return invoke(handler, user, args); });
-        }
-        ScriptPlugin s{ps.name, "", {}};
-        for (const Function& f : p->functions) {
-            const FaHandler handler = f.handler;
-            void* user = f.user;
-            s.functions.push_back({f.name, f.doc, [handler, user](const Json& args) { return invoke(handler, user, args); }});
-        }
-        forScripts.push_back(std::move(s));
+        for (const Command& c : p->commands) commands.add(c.info, c.call);
+        forScripts.push_back({ps.name, "", p->functions});
         FA_DEBUG("plugin", "{}: {} command(s), {} function(s) from {}", ps.name, p->commands.size(), p->functions.size(), library);
     }
     scripts.set_plugins(std::move(forScripts));

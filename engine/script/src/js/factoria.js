@@ -906,8 +906,8 @@
   // docs/EXTENDING.md). A plugin not built for this platform is undefined; one that failed to load throws why on use.
   const plugins = {};
   for (const p of N.pluginList()) {
-    const fns = {};
-    for (const f of p.functions) {
+    const fns = {}, names = p.functions.map((f) => f.name);
+    for (const f of names) {
       fns[f] = (...args) => {
         const r = N.pluginCall(p.name, f, plain(args));
         if (r.ok) return r.result;
@@ -921,9 +921,9 @@
         // `then` and `toJSON` are what await and JSON.stringify probe for: absent, not an error.
         if (typeof key === "symbol" || key in target || key === "then" || key === "toJSON") return target[key];
         if (p.error) throw new Error(`plugins.${p.name}.${key}: the native plugin '${p.name}' is not loaded: ${p.error}`);
-        const near = closest(key, p.functions);
+        const near = closest(key, names);
         throw new Error(`plugins.${p.name}.${key}: the plugin '${p.name}' has no function '${key}'.` +
-          (near ? ` Did you mean '${near}'?` : "") + ` It has: ${p.functions.join(", ") || "no functions"}.`);
+          (near ? ` Did you mean '${near}'?` : "") + ` It has: ${names.join(", ") || "no functions"}.`);
       },
     });
   }

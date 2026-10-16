@@ -1533,15 +1533,9 @@ NATIVE(commands) {
 }
 
 // ---- native plugins (ScriptSystem::set_plugins) -------------------------------------------------------------------
-NATIVE(pluginList) {  // [{name, error, functions: [name]}]
+NATIVE(pluginList) {  // [{name, error?, functions: [{name, doc}]}]
     SETUP;
-    Json out = Json::array();
-    for (const ScriptPlugin& p : I->plugins) {
-        Json fns = Json::array();
-        for (const ScriptPlugin::Function& f : p.functions) fns.push_back(f.name);
-        out.push_back(Json::object({{"name", p.name}, {"error", p.error}, {"functions", fns}}));
-    }
-    return I->from_json(out);
+    return I->from_json(I->plugins_json());
 }
 
 NATIVE(pluginCall) {  // (plugin, function, args array) -> {ok, result} | {ok: false, error: {message, hint}}
@@ -1564,9 +1558,7 @@ NATIVE(pluginCall) {  // (plugin, function, args array) -> {ok, result} | {ok: f
             return o;
         }
     }
-    JS_SetPropertyStr(ctx, o, "ok", JS_NewBool(ctx, false));
-    JS_SetPropertyStr(ctx, o, "error", I->from_json(Json::object({{"message", "no function " + name + " in plugin " + plugin}, {"hint", ""}})));
-    return o;
+    return o;  // unreachable: the prelude only calls the functions pluginList returned
 }
 
 // ---- test helpers -------------------------------------------------------------------------------------------------

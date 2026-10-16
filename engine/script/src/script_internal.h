@@ -74,6 +74,7 @@ struct ScriptSystem::Impl {
     JsVal hooks;     // H: hooks the prelude gives to C++
 
     std::vector<ScriptPlugin> plugins;  // set_plugins: the `plugins` object of scripts
+    Json plugins_json() const;          // [{name, error?, functions: [{name, doc}]}] (script_api.cpp)
 
     // ---- errors
     std::vector<ScriptError> errors;
