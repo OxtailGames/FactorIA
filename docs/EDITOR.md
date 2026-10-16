@@ -93,8 +93,61 @@ mobile players or engine checkout, a missing `id`, an output folder that already
 export wrote) and how to fix it; for another OS's desktop export, **Choose
 player...** picks a `factoria_player` built there. Pick the output folder (default `<project>/build/export`), press a
 platform, and the report shows the output folder (**Show in Finder** / Explorer), warnings and next steps. Android and
-iOS exports are a Gradle / Xcode project that you build afterwards: the next steps say how. Details:
-[EXPORTING.md, From the editor](EXPORTING.md#from-the-editor).
+iOS exports are a Gradle / Xcode project (or, with the Android format APK / AAB, a built app) and the next steps say
+how to finish them.
+
+- **Platform settings...** at the top of the window, and a small **Settings...** button on each platform's row, open the
+  Platform settings window (below) on that platform's tab.
+- **Android format**: the Android row has a **Format** menu (APK, Android App Bundle, Gradle project only). It saves
+  `export.android.format` in `factoria.json` right away, like the AI would, and leaves any other unsaved edit of the
+  Platform settings window alone.
+- **While it runs**, the window shows the export's progress line and a **Cancel** button; the build output (Gradle can
+  take minutes) scrolls below it. A cancelled export says so in the report.
+- **The report** names the **Format** and, when the export produced a single file (an APK or AAB), the **Artifact** with
+  **Show in Finder** (the file selected in Finder / Explorer) and **Copy path**.
+- **Release** makes a release build; hover it to see what changes for each platform (for Android, an APK or AAB signed
+  with the keystore of the Android tab).
+
+Details: [EXPORTING.md, From the editor](EXPORTING.md#from-the-editor).
+
+## Platform settings
+
+File > Platform Settings... opens the window that edits what an export needs besides the game: the icon and, per
+platform, the fields of its app (see [EXPORTING.md, Platform settings](EXPORTING.md#platform-settings) for what each
+field does). It is a form over exactly what `factoria.json` holds in `icon` and `export` (and `~/.factoria/export.json`
+for This computer), checked by the same code `factoria validate` and the export use, so what you can enter here is what
+the AI can write in the file and the reverse.
+
+- **Tabs**: **General** (the game icon, and the game's own name, id, version, orientation and resolution, read-only:
+  ask the AI or edit `factoria.json` to change those), **Windows**, **macOS** (category menu, minimum macOS version,
+  copyright), **Linux** (the `.desktop` categories, added from a menu or typed), **Android** (format, version code,
+  minSdk / targetSdk, permissions, adaptive icon, signing, and This computer) and **iOS** (icon background colour,
+  Team ID, build number). A field left empty uses the default, and its box shows what that default is.
+- **Icons** have a preview next to the path, **Choose...** and **Clear**, and a line that says what the file is
+  (`1024 x 1024 px`) or what is wrong with it (not found, not an image, not square, too small, in a folder the export
+  does not ship such as `build/`). A platform's own icon falls back to the game icon and says so. A picture chosen from
+  outside the project is copied into `<project>/assets/` (icons must be inside the project) and the setting names the
+  copy; a different file that already has that name gets `-2`, `-3`... and nothing is overwritten.
+- **Save / Revert**: the window edits a working copy. **Save** writes `factoria.json` (only `icon` and `export`: every
+  other key, the order and the formatting stay as they are) and, if you changed it, `~/.factoria/export.json`. **Revert**
+  reads both files again. Fields with a wrong value are marked in red with the error and the fix; Save waits until they
+  are fixed. Closing the window with unsaved edits asks: **Save and close**, **Discard** or **Keep editing**; opening
+  another project drops them. If `factoria.json` changes on disk (the AI wrote it, or you did), the window reads it again by
+  itself, or, when you have unsaved edits, asks whether to **Reload** or **Keep my edits**. A hand-edited file with wrong
+  values still opens: the errors are listed at the top and the fields show what could be read.
+- **Android signing**: the keystore file (project-relative or absolute) with **Choose...**, the key alias, and the
+  passwords' status (set by the `FACTORIA_ANDROID_KEYSTORE_PASSWORD` / `FACTORIA_ANDROID_KEY_PASSWORD` environment
+  variables, saved on this computer, or not set: the password itself is never shown). A release build without a
+  keystore is signed with the debug key, which is fine for a phone but not for Google Play.
+- **Create keystore...** makes a signing key with the JDK's `keytool` (a PKCS12 keystore with one key valid for about 27
+  years; the password is handed to `keytool` through its environment, never as an argument): choose the file (default
+  `keys/upload.keystore`), alias, password, your name or studio, and optionally organization and country. It can keep
+  the password on this computer and add the keystore to `.gitignore`. The new keystore fills the signing fields (press
+  **Save** to keep them). Back up the file and its password: Google Play needs the same key for every update of the app.
+- **This computer** (Android tab; saved in `~/.factoria/export.json`, never in the project): the JDK and Android SDK
+  folders (empty = look for them), what was found or what is missing and how to install it (**Check again** after
+  installing), and **Remember them on this computer** for the signing passwords. Without it the passwords are not kept
+  anywhere: set the environment variables when you build a release.
 
 ## Selecting things
 
@@ -148,13 +201,17 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed (`tools/editor/src/editor_tools.*`), picking geometry
   (`pick.cpp`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
-  (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread).
+  (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
+  progress lines and cancelling) and the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
+  Revert, validation, icons, the Android toolchain, the keystore command and creation).
 - `editor_autotest` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS; not
   registered on Windows, which has no window read-back for the screenshots yet): the real editor window. The autotest
   clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
   files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
-  tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, and the Export window
-  (it exports the game for the machine it runs on and checks the report). It checks the window title and the result after
+  tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
+  (it exports the game for the machine it runs on and checks the report) and the Platform settings window (tabs, edits,
+  Save / Revert, closing with unsaved changes, the Create keystore window). The autotest keeps this computer's settings in
+  `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`), never in your `~/.factoria/export.json`. It checks the window title and the result after
   every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`).
   Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
   (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; `FA_EDITOR_AUTOTEST=welcome` for the other).
