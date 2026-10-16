@@ -166,14 +166,22 @@ int main(int argc, char** argv) {
         }
     }
 
-    stdfs::path projectDir;
+    // An exported game keeps its native plugins next to the executable (Contents/Frameworks in a macOS .app); a game
+    // folder passed on the command line uses the plugins' own folders, as `factoria run` does.
+    stdfs::path projectDir, pluginDir;
     if (!projectArg.empty()) {
         projectDir = projectArg;
     } else {
         stdfs::path exeDir = executable_dir();
-        if (has_project(exeDir / "game")) projectDir = exeDir / "game";
-        else if (has_project(exeDir.parent_path() / "Resources" / "game")) projectDir = exeDir.parent_path() / "Resources" / "game";
-        else projectDir = stdfs::current_path();
+        if (has_project(exeDir / "game")) {
+            projectDir = exeDir / "game";
+            pluginDir = exeDir;
+        } else if (has_project(exeDir.parent_path() / "Resources" / "game")) {
+            projectDir = exeDir.parent_path() / "Resources" / "game";
+            pluginDir = exeDir.parent_path() / "Frameworks";
+        } else {
+            projectDir = stdfs::current_path();
+        }
     }
     if (!has_project(projectDir)) {
         return startup_error(std::string("error: no ") + fa::kProjectFileName + " in '" + projectDir.string() +
@@ -185,6 +193,7 @@ int main(int argc, char** argv) {
     cfg.projectDir = projectDir.string();
     cfg.scene = scene;
     cfg.hotReload = false;
+    cfg.pluginDir = pluginDir.generic_string();
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
         log_to_file(fa::fs::user_dir());

@@ -140,6 +140,41 @@
       "type": "string",
       "description": "Game icon: the project-relative path of a square PNG or JPG image, e.g. \"assets/icon.png\" (forward slashes, inside the project folder). 1024x1024 recommended; it should be at least 512x512 (smaller or non-square images give a warning, a non-square one is centered on a transparent square). Every export generates what its platform needs from this one image: the .icns of a macOS app, the exe icon on Windows, the launcher icons of Android, the App Store icon of iOS, the PNG of a Linux build. Each platform can use another image through export.<platform>.icon. No icon at all means the platform's default icon plus a warning on export. On Windows and Linux the same image is also the icon of the game window at run time. Edited by the editor's Platform settings window."
     },
+    "plugins": {
+      "type": "object",
+      "description": "Native plugins of the game: libraries in C, C++ or any language with a C ABI that add commands and script functions (plugins.<name>.<function>(...)) through fa_plugin.h, e.g. store and platform SDKs. Each key is a plugin name (lower-case letters, digits and underscores; its commands are <name>.<verb>). `factoria run`, the editor and tests load the build for this computer from the plugin's folder; `factoria export` copies or links the build for the target platform into the game. `factoria validate` checks that every build exists. Created with project.new_plugin. See docs/EXTENDING.md, \"Native plugins\".",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The plugin's folder: project-relative, absolute, or with ${VARIABLE} parts replaced by environment variables, so that a private SDK can live outside the game's repository (\"${STEAMWORKS_PLUGIN}\"). It holds one build per platform: windows/<name>.dll, macos/lib<name>.dylib, linux/lib<name>.so (each next to the libraries it needs), android/ (a Gradle library module with build.gradle, or .aar files) and ios/iphoneos/lib<name>.a plus ios/iphonesimulator/lib<name>.a."
+          },
+          "platforms": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The platforms the plugin is built for (default: the game's `platforms`, or all five). On other platforms the game runs without it and plugins.<name> is undefined.",
+            "items": {
+              "enum": [
+                "windows",
+                "macos",
+                "linux",
+                "ios",
+                "android"
+              ]
+            }
+          }
+        }
+      }
+    },
     "export": {
       "type": "object",
       "description": "Per-platform export settings, committed with the game. Every field is optional and defaults are applied; a field equal to its default is best left out. Unknown keys inside a platform object only give a warning (with a \"did you mean\"). Edited by the editor's Platform settings window; machine-specific settings (Android SDK and JDK folders, keystore passwords) are never stored here but in ~/.factoria/export.json. See docs/EXPORTING.md, \"Platform settings\".",
