@@ -1,14 +1,17 @@
+// Game export: planning, the report, project loading, the helpers the platform files share, and the command.
+// The platform work lives in export_desktop.cpp, export_android.cpp and export_ios.cpp; what they share is declared in
+// export_internal.h (namespace fa::export_detail). The behaviour and the options are described in
+// fa/tooling/export.h and docs/EXPORTING.md.
 #include "fa/tooling/export.h"
 
 #include <algorithm>
 #include <cctype>
-#include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <regex>
 #include <set>
 
+#include "export_internal.h"
 #include "fa/core/json.h"
 #include "fa/core/strings.h"
 #include "fa/tooling/bundle.h"
@@ -22,15 +25,9 @@
 #include <mach-o/dyld.h>
 #endif
 
-namespace fa {
-namespace stdfs = std::filesystem;
-using tooling_detail::read_file;
-using tooling_detail::slugify;
-using tooling_detail::write_file;
+namespace fa::export_detail {
 
-namespace {
-
-Error err(std::string message, std::string hint = {}) { return Error{std::move(message), std::move(hint)}; }
+// ---- helpers shared with the platform files (declared in export_internal.h) ------------------------
 
 std::string host_platform() {
 #if defined(_WIN32)
@@ -52,7 +49,7 @@ std::string replace_all(std::string text, const std::string& from, const std::st
     return text;
 }
 
-std::string xml_escape(const std::string& s, bool androidString = false) {
+std::string xml_escape(const std::string& s, bool androidString) {
     std::string o;
     for (char c : s) {
         switch (c) {
@@ -74,7 +71,91 @@ std::string sh_quote(const std::string& s) {
     return o + "'";
 }
 
-std::string generic(const stdfs::path& p) { return p.generic_string(); }
+Result<void> copy_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& dest) {
+    std::error_code ec;
+    stdfs::create_directories(dest, ec);
+    for (const auto& f : files) {
+        stdfs::path to = dest / f;
+        stdfs::create_directories(to.parent_path(), ec);
+        stdfs::copy_file(p.dir / f, to, stdfs::copy_options::overwrite_existing, ec);
+        if (ec) return err("export: cannot copy '" + f + "' to " + generic(to) + ": " + ec.message());
+    }
+    return {};
+}
+
+Result<void> write_text(const stdfs::path& path, const std::string& text, bool executable) {
+    std::string e;
+    if (!write_file(path, text, &e)) return err("export: " + e);
+    if (executable) {
+        std::error_code ec;
+        stdfs::permissions(path, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+                           stdfs::perm_options::add, ec);
+    }
+    return {};
+}
+
+std::string safe_version_name(const std::string& v) {
+    std::string o;
+    for (char c : v) if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == '+') o += c;
+    return o.empty() ? "0.1.0" : o;
+}
+
+// ---- mobile: templates shared by the Android and iOS exports ----------------------------------------
+
+// The files of the project template platforms/<dir>: from the engine checkout in source mode, from this binary otherwise.
+Result<std::vector<TemplateFile>> load_templates(const MobileSetup& m, const std::string& dir) {
+    std::vector<TemplateFile> out;
+    if (m.prebuilt) {
+        const std::string prefix = "platforms/" + dir + "/";
+        for (const std::string& path : bundled_list(prefix)) {
+            auto data = bundled_read(path);
+            if (!data) return err("export: cannot read the built-in template " + path);
+            out.push_back({path.substr(prefix.size()), std::move(*data)});
+        }
+        if (out.empty())
+            return err("export: this factoria has no built-in " + dir + " project template",
+                       "this is an engine bug; report it, or use --engine-root with a source checkout");
+        return out;
+    }
+    const stdfs::path tpl = m.engine / "platforms" / dir;
+    std::error_code ec;
+    for (stdfs::recursive_directory_iterator it(tpl, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        auto data = read_file(it->path());
+        if (!data) return err("export: cannot read template " + generic(it->path()));
+        out.push_back({generic(stdfs::relative(it->path(), tpl, ec)), std::move(*data)});
+    }
+    return out;
+}
+
+// Template sections: the lines between one that is only "{{#source}}" and one that is only "{{/source}}" are kept in
+// source mode and dropped in prebuilt mode. The marker lines themselves are never written.
+Result<std::string> select_sections(const std::string& text, bool source, const std::string& where) {
+    std::string out;
+    bool inSource = false, bad = false;
+    for (std::size_t pos = 0; pos < text.size();) {
+        const std::size_t nl = text.find('\n', pos);
+        const std::size_t end = nl == std::string::npos ? text.size() : nl + 1;
+        const std::string line = text.substr(pos, end - pos);
+        pos = end;
+        const std::string_view t = trim(line);
+        if (t == "{{#source}}" || t == "{{/source}}") {
+            bad = bad || inSource != (t == "{{/source}}");  // nested, or closed without being open
+            inSource = !inSource;
+        } else if (!inSource || source) {
+            out += line;
+        }
+    }
+    if (bad || inSource) return err("export: bad section markers in template " + where, "this is an engine bug; report it");
+    return out;
+}
+
+}  // namespace fa::export_detail
+
+namespace fa {
+using namespace export_detail;
+
+namespace {
 
 bool is_inside(const stdfs::path& child, const stdfs::path& parent) {
     auto c = child.begin(), p = parent.begin();
@@ -100,14 +181,6 @@ bool is_java_keyword(const std::string& s) {
 }
 
 // ---- project -----------------------------------------------------------------------------------
-
-struct Project {
-    stdfs::path dir;
-    std::string name, id, version = "0.1.0", orientation = "landscape", feedbackFile = "ENGINE_FEEDBACK.json";
-    std::string mainScene = "scenes/main.scene.json";
-    std::vector<std::string> platforms;
-    bool hasPlatformsField = false;
-};
 
 Result<Project> load_and_validate(const ExportOptions& o, const std::string& platform, std::vector<std::string>& warnings) {
     Project p;
@@ -212,29 +285,6 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
     return out;
 }
 
-Result<void> copy_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& dest) {
-    std::error_code ec;
-    stdfs::create_directories(dest, ec);
-    for (const auto& f : files) {
-        stdfs::path to = dest / f;
-        stdfs::create_directories(to.parent_path(), ec);
-        stdfs::copy_file(p.dir / f, to, stdfs::copy_options::overwrite_existing, ec);
-        if (ec) return err("export: cannot copy '" + f + "' to " + generic(to) + ": " + ec.message());
-    }
-    return {};
-}
-
-Result<void> write_text(const stdfs::path& path, const std::string& text, bool executable = false) {
-    std::string e;
-    if (!write_file(path, text, &e)) return err("export: " + e);
-    if (executable) {
-        std::error_code ec;
-        stdfs::permissions(path, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
-                           stdfs::perm_options::add, ec);
-    }
-    return {};
-}
-
 std::vector<std::string> list_files(const stdfs::path& root) {
     std::vector<std::string> out;
     std::error_code ec;
@@ -244,134 +294,7 @@ std::vector<std::string> list_files(const stdfs::path& root) {
     return out;
 }
 
-// ---- desktop ------------------------------------------------------------------------------------
-
-Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platform) {
-    std::error_code ec;
-    const std::string exe = platform == "windows" ? "factoria_player.exe" : "factoria_player";
-    if (!o.playerBinary.empty()) {
-        if (!stdfs::is_regular_file(o.playerBinary, ec))
-            return err("export: player binary '" + o.playerBinary + "' not found",
-                       "build it with `cmake --build <build dir> --target factoria_player`");
-        return stdfs::path(o.playerBinary);
-    }
-    if (platform != host_platform())
-        return err("export: cannot export for " + platform + " from a " + host_platform() +
-                       " machine without a player binary built for " + platform,
-                   "build factoria_player on " + platform + " (see docs/BUILDING.md) and pass it with --player <path>");
-    stdfs::path dir = executable_dir();
-    for (const stdfs::path& c : {dir / exe, dir.parent_path() / "player" / exe, dir.parent_path().parent_path() / "player" / exe})
-        if (stdfs::is_regular_file(c, ec)) return c;
-    return err("export: factoria_player not found next to the factoria binary (" + generic(dir) + ")",
-               "build it with `cmake --build <build dir> --target factoria_player`, or pass --player <path>");
-}
-
-std::string macos_plist(const Project& p, const std::string& exeName) {
-    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-           "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-           "<plist version=\"1.0\">\n<dict>\n"
-           "\t<key>CFBundleExecutable</key><string>" + xml_escape(exeName) + "</string>\n"
-           "\t<key>CFBundleIdentifier</key><string>" + xml_escape(p.id.empty() ? "com.example.game" : p.id) + "</string>\n"
-           "\t<key>CFBundleName</key><string>" + xml_escape(p.name) + "</string>\n"
-           "\t<key>CFBundleDisplayName</key><string>" + xml_escape(p.name) + "</string>\n"
-           "\t<key>CFBundlePackageType</key><string>APPL</string>\n"
-           "\t<key>CFBundleShortVersionString</key><string>" + xml_escape(p.version) + "</string>\n"
-           "\t<key>CFBundleVersion</key><string>" + xml_escape(p.version) + "</string>\n"
-           "\t<key>LSMinimumSystemVersion</key><string>11.0</string>\n"
-           "\t<key>NSHighResolutionCapable</key><true/>\n"
-           "\t<key>LSApplicationCategoryType</key><string>public.app-category.games</string>\n"
-           "</dict>\n</plist>\n";
-}
-
-std::string fs_safe_name(const std::string& s) {
-    std::string o;
-    for (char c : s) o += (std::strchr("/\\:*?\"<>|", c) || static_cast<unsigned char>(c) < 32) ? '_' : c;
-    while (!o.empty() && (o.back() == ' ' || o.back() == '.')) o.pop_back();
-    return o.empty() ? "Game" : o;
-}
-
-// Seals an exported .app with an ad hoc signature; returns "" or what went wrong. The executable inside is a copy of
-// factoria_player, which a release download carries signed with FactorIA's Developer ID. That signature covers the
-// executable alone, so the finished bundle (its Info.plist, the game files) would fail `codesign --verify` ("code has
-// no resources but signature indicates they must be present"), and a Mac that downloads such an app calls it damaged
-// instead of offering Open Anyway. Signed as a whole, ad hoc, the bundle is valid and runs on this Mac; to share the
-// game, its developer signs it with their own Developer ID (nextSteps, docs/EXPORTING.md).
-std::string sign_app_ad_hoc(const stdfs::path& app) {
-#if defined(__APPLE__)
-    const std::string cmd = "/usr/bin/codesign --force --sign - --timestamp=none " + sh_quote(app.string()) + " 2>&1";
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) return "could not run /usr/bin/codesign";
-    std::string out;
-    char buf[512];
-    while (std::fgets(buf, sizeof buf, pipe)) out += buf;
-    const int status = pclose(pipe);
-    if (status == 0) return {};
-    while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
-    return out.empty() ? "codesign failed" : out;
-#else
-    (void)app;
-    return "codesign runs only on macOS";
-#endif
-}
-
-Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player, const stdfs::path& outRoot,
-                            const std::vector<std::string>& files, ExportReport& report) {
-    const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
-    const std::string exeName = slug + (platform == "windows" ? ".exe" : "");
-    std::error_code ec;
-    stdfs::path exeDest, gameDest;
-    if (platform == "macos") {
-        stdfs::path app = outRoot / (fs_safe_name(p.name) + ".app") / "Contents";
-        exeDest = app / "MacOS" / exeName;
-        gameDest = app / "Resources" / "game";
-        if (auto r = write_text(app / "Info.plist", macos_plist(p, exeName)); !r.ok()) return r.error();
-    } else {
-        exeDest = outRoot / exeName;
-        gameDest = outRoot / "game";
-    }
-    stdfs::create_directories(exeDest.parent_path(), ec);
-    stdfs::copy_file(player, exeDest, stdfs::copy_options::overwrite_existing, ec);
-    if (ec) return err("export: cannot copy the player to " + generic(exeDest) + ": " + ec.message());
-    stdfs::permissions(exeDest, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
-                       stdfs::perm_options::add, ec);
-    if (auto r = copy_game(p, files, gameDest); !r.ok()) return r;
-
-    if (platform == "macos") {
-        stdfs::path app = stdfs::path(fs_safe_name(p.name) + ".app");
-        report.nextSteps = {
-            "Run it: open '" + generic(outRoot / app) + "'",
-            "To distribute outside your machine, sign and notarize the app: codesign --force --deep --options runtime "
-            "--timestamp --sign \"Developer ID Application: <you>\" '" + app.string() + "', then xcrun notarytool "
-            "submit and xcrun stapler staple (see docs/EXPORTING.md)",
-            "Zip it for sharing: ditto -c -k --keepParent '" + app.string() + "' " + slug + "-macos.zip"};
-    } else if (platform == "windows") {
-        report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
-                            "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep game/ next to the exe"};
-    } else {
-        report.nextSteps = {"Run it: " + generic(outRoot / exeName),
-                            "Archive to share: tar czf " + outRoot.filename().string() + ".tar.gz -C " +
-                                generic(outRoot.parent_path()) + " " + outRoot.filename().string()};
-    }
-    return {};
-}
-
-// ---- mobile: prebuilt players or the engine source ------------------------------------------------
-//
-// Android and iOS exports run in one of two modes (ExportReport::mode, docs/EXPORTING.md has the rule):
-//   prebuilt : the engine runtime is the ready-made player the FactorIA download carries in <factoria dir>/mobile/
-//              (android/jniLibs/<abi>/libfactoria_player.so, ios/{iphoneos,iphonesimulator}/*.a); the project
-//              templates come from this binary (platforms/ is embedded like docs/ and templates/).
-//   source   : the engine is compiled from a source checkout, with that checkout's templates (engine developers).
-
-constexpr const char* kAndroidAbis[] = {"arm64-v8a", "x86_64"};  // what the release workflow builds (= abiFilters in the template)
-constexpr const char* kIosSlices[] = {"iphoneos", "iphonesimulator"};
-constexpr const char* kIosMarkerLib = "libfactoria_player_main.a";  // the player's own archive, next to the engine ones
-
-struct MobileSetup {
-    bool prebuilt = false;
-    stdfs::path engine;  // source: the engine checkout
-    stdfs::path libs;    // prebuilt: <mobile dir>/<android|ios>
-};
+// ---- mobile: choosing the mode (the modes are described in export_internal.h) ------------------------
 
 bool android_libs_present(const stdfs::path& libs) {
     std::error_code ec;
@@ -442,303 +365,6 @@ Result<MobileSetup> resolve_mobile(const ExportOptions& o, const std::string& pl
                "holds the prebuilt players" + std::string(android ? "" : " (iOS ones ship in the macOS package only: export on a Mac)") +
                    ", or set FACTORIA_ENGINE_DIR (or pass --engine-root) to a FactorIA source checkout to compile the engine "
                    "from source");
-}
-
-struct TemplateFile {
-    std::string rel;  // path inside the template folder, forward slashes
-    std::string data;
-};
-
-// The files of the project template platforms/<dir>: from the engine checkout in source mode, from this binary otherwise.
-Result<std::vector<TemplateFile>> load_templates(const MobileSetup& m, const std::string& dir) {
-    std::vector<TemplateFile> out;
-    if (m.prebuilt) {
-        const std::string prefix = "platforms/" + dir + "/";
-        for (const std::string& path : bundled_list(prefix)) {
-            auto data = bundled_read(path);
-            if (!data) return err("export: cannot read the built-in template " + path);
-            out.push_back({path.substr(prefix.size()), std::move(*data)});
-        }
-        if (out.empty())
-            return err("export: this factoria has no built-in " + dir + " project template",
-                       "this is an engine bug; report it, or use --engine-root with a source checkout");
-        return out;
-    }
-    const stdfs::path tpl = m.engine / "platforms" / dir;
-    std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(tpl, ec), end; !ec && it != end; it.increment(ec)) {
-        if (!it->is_regular_file(ec)) continue;
-        auto data = read_file(it->path());
-        if (!data) return err("export: cannot read template " + generic(it->path()));
-        out.push_back({generic(stdfs::relative(it->path(), tpl, ec)), std::move(*data)});
-    }
-    return out;
-}
-
-// Template sections: the lines between one that is only "{{#source}}" and one that is only "{{/source}}" are kept in
-// source mode and dropped in prebuilt mode. The marker lines themselves are never written.
-Result<std::string> select_sections(const std::string& text, bool source, const std::string& where) {
-    std::string out;
-    bool inSource = false, bad = false;
-    for (std::size_t pos = 0; pos < text.size();) {
-        const std::size_t nl = text.find('\n', pos);
-        const std::size_t end = nl == std::string::npos ? text.size() : nl + 1;
-        const std::string line = text.substr(pos, end - pos);
-        pos = end;
-        const std::string_view t = trim(line);
-        if (t == "{{#source}}" || t == "{{/source}}") {
-            bad = bad || inSource != (t == "{{/source}}");  // nested, or closed without being open
-            inSource = !inSource;
-        } else if (!inSource || source) {
-            out += line;
-        }
-    }
-    if (bad || inSource) return err("export: bad section markers in template " + where, "this is an engine bug; report it");
-    return out;
-}
-
-// ---- android -------------------------------------------------------------------------------------
-
-std::string version_code(const std::string& v) {
-    long parts[3] = {0, 0, 0};
-    int idx = 0;
-    std::size_t i = 0;
-    while (idx < 3 && i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) {
-        long n = 0;
-        while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i]))) n = std::min(n * 10 + (v[i++] - '0'), 99L);
-        parts[idx++] = n;
-        if (i < v.size() && v[i] == '.') ++i; else break;
-    }
-    long code = parts[0] * 10000 + parts[1] * 100 + parts[2];
-    return std::to_string(code < 1 ? 1 : code);
-}
-
-std::string safe_version_name(const std::string& v) {
-    std::string o;
-    for (char c : v) if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == '+') o += c;
-    return o.empty() ? "0.1.0" : o;
-}
-
-bool is_text_template(const stdfs::path& p) {
-    std::string e = p.extension().string();
-    return e == ".gradle" || e == ".properties" || e == ".xml" || e == ".kts" || e == ".txt" || e == ".md";
-}
-
-Result<void> export_android(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
-                            const std::vector<std::string>& files, ExportReport& report) {
-    const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
-    const std::string orient = p.orientation == "portrait" ? "sensorPortrait" : p.orientation == "any" ? "fullSensor" : "sensorLandscape";
-    const std::vector<std::pair<std::string, std::string>> vars = {
-        {"APPLICATION_ID", p.id},
-        {"PROJECT_SLUG", slug},
-        {"APP_NAME_XML", xml_escape(p.name, true)},
-        {"VERSION_NAME", safe_version_name(p.version)},
-        {"VERSION_CODE", version_code(p.version)},
-        {"SCREEN_ORIENTATION", orient},
-        {"ENGINE_ROOT", setup.prebuilt ? std::string() : generic(setup.engine)},
-    };
-    auto templates = load_templates(setup, "android");
-    if (!templates.ok()) return templates.error();
-    for (const TemplateFile& t : *templates) {
-        const stdfs::path to = outRoot / t.rel;
-        if (is_text_template(t.rel)) {
-            auto text = select_sections(t.data, !setup.prebuilt, t.rel);
-            if (!text.ok()) return text.error();
-            for (auto& [k, v] : vars) *text = replace_all(*text, "{{" + k + "}}", v);
-            if (text->find("{{") != std::string::npos)
-                return err("export: unreplaced placeholder in template " + t.rel, "this is an engine bug; report it");
-            if (auto r = write_text(to, *text); !r.ok()) return r;
-        } else if (auto r = write_text(to, t.data); !r.ok()) {
-            return r;
-        }
-    }
-    std::error_code ec;
-    if (setup.prebuilt)
-        for (const char* abi : kAndroidAbis) {
-            const stdfs::path to = outRoot / "app" / "src" / "main" / "jniLibs" / abi / "libfactoria_player.so";
-            stdfs::create_directories(to.parent_path(), ec);
-            stdfs::copy_file(setup.libs / "jniLibs" / abi / "libfactoria_player.so", to, stdfs::copy_options::overwrite_existing, ec);
-            if (ec) return err(std::string("export: cannot copy the prebuilt ") + abi + " player to " + generic(to) + ": " + ec.message());
-        }
-    stdfs::path assets = outRoot / "app" / "src" / "main" / "assets";
-    if (auto r = copy_game(p, files, assets); !r.ok()) return r;
-    std::string index;
-    for (auto& f : files) index += f + "\n";
-    if (auto r = write_text(assets / "assets_index.txt", index); !r.ok()) return r;
-
-    const std::string task = o.release ? "assembleRelease" : "assembleDebug";
-    const std::string apk = o.release ? "app/build/outputs/apk/release/app-release-unsigned.apk" : "app/build/outputs/apk/debug/app-debug.apk";
-    const std::string wrapper = "Create the Gradle wrapper once (needs Gradle 8.7+ installed; Android Studio does this itself): gradle wrapper --gradle-version 8.7";
-    report.nextSteps = {
-        setup.prebuilt ? "Install the prerequisites once: JDK 17 and the Android SDK (set ANDROID_SDK_ROOT) with platform 34: sdkmanager "
-                         "\"platforms;android-34\" \"build-tools;34.0.0\". The engine is prebuilt (mode: prebuilt), so no NDK or CMake is needed"
-                       : "Install the prerequisites once: JDK 17, the Android SDK (set ANDROID_SDK_ROOT) with NDK r27+, CMake 3.31.6 and "
-                         "platform 34: sdkmanager \"ndk;27.2.12479018\" \"cmake;3.31.6\" \"platforms;android-34\" \"build-tools;34.0.0\" "
-                         "(mode: source, the engine is compiled from its checkout)",
-        "cd '" + generic(outRoot) + "'",
-        wrapper,
-        "./gradlew " + task +
-            (setup.prebuilt ? "   (nothing is compiled but the Java glue, so it is quick; the APK is " : "   (first build compiles the whole engine; the APK is ") +
-            apk + ")",
-        "adb install -r " + apk +
-            (setup.prebuilt ? "  (the engine is " + generic(setup.libs / "jniLibs") + " copied to app/src/main/jniLibs)"
-                            : "  (the engine is located via factoria.engineDir in gradle.properties: " + generic(setup.engine) + ")"),
-    };
-    if (o.release) report.nextSteps.push_back("Release builds must be signed: see docs/MOBILE.md (Signing) for the keystore setup, or use ./gradlew bundleRelease for Google Play");
-    return {};
-}
-
-// ---- ios -----------------------------------------------------------------------------------------
-
-// Prebuilt mode: the CMake project (CMakeLists.txt + cmake/) and the engine archives (lib/<sdk>/*.a) of the app.
-Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::path& outRoot) {
-    static const std::pair<const char*, const char*> kFiles[] = {
-        {"platforms/ios/prebuilt/CMakeLists.txt", "CMakeLists.txt"},
-        {"platforms/ios/plist.cmake", "cmake/plist.cmake"},
-        {"platforms/ios/Info.plist.in", "cmake/Info.plist.in"},
-        {"platforms/common/copy_game.cmake", "cmake/copy_game.cmake"}};
-    for (const auto& [from, to] : kFiles) {
-        auto data = bundled_read(from);
-        if (!data)
-            return err(std::string("export: this factoria has no built-in iOS template ") + from, "this is an engine bug; report it");
-        if (auto r = write_text(outRoot / to, *data); !r.ok()) return r;
-    }
-    std::error_code ec;
-    for (const char* slice : kIosSlices) {
-        stdfs::create_directories(outRoot / "lib" / slice, ec);
-        for (stdfs::directory_iterator it(setup.libs / slice, ec), end; !ec && it != end; it.increment(ec)) {
-            if (it->path().extension() != ".a") continue;
-            std::error_code ec2;
-            stdfs::copy_file(it->path(), outRoot / "lib" / slice / it->path().filename(), stdfs::copy_options::overwrite_existing, ec2);
-            if (ec2) return err("export: cannot copy the prebuilt iOS library " + generic(it->path()) + ": " + ec2.message());
-        }
-    }
-    return {};
-}
-
-Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
-                        const std::vector<std::string>& files, ExportReport& report) {
-    if (auto r = copy_game(p, files, outRoot / "game"); !r.ok()) return r;
-    if (setup.prebuilt)
-        if (auto r = write_ios_prebuilt_project(setup, outRoot); !r.ok()) return r;
-    const std::string config = o.release ? "Release" : "Debug";
-    std::string s;
-    s += "#!/usr/bin/env bash\n";
-    s += "# Generated by `factoria export --platform ios` for \"" + replace_all(p.name, "\n", " ") + "\" (mode: " + report.mode + ").\n";
-    s += setup.prebuilt ? "# Configures the Xcode project (CMakeLists.txt) with the game in ./game bundled; the engine is linked from the prebuilt\n"
-                    "# libraries in ./lib, so no engine source is needed.\n"
-                  : "# Configures the Xcode project (same settings as the `ios` CMake preset) with the game in ./game bundled.\n";
-    s += "#   ./build_ios.sh                    Xcode project for a device, then opens it\n";
-    s += "#   ./build_ios.sh --simulator        same for the iOS Simulator\n";
-    s += "#   ./build_ios.sh --build            also compile (" + config + "). A device build needs FA_IOS_DEVELOPMENT_TEAM and\n";
-    s += "#                                     the iPhone/iPad connected (FA_IOS_DEVICE=<udid> picks one): the first build\n";
-    s += "#                                     for a team registers it there. Simulator builds are not signed.\n";
-    s += "#   ./build_ios.sh [--simulator] --run   build, install and start the game, its console in this terminal\n";
-    s += "#   ./build_ios.sh --build -- <args>  everything after -- goes to xcodebuild\n";
-    s += "# Needs macOS, Xcode (full app), CMake 3.24+.\n";
-    s += "set -euo pipefail\n";
-    s += "HERE=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
-    if (!setup.prebuilt) s += "ENGINE_DIR=\"${FACTORIA_ENGINE_DIR:-" + generic(setup.engine) + "}\"\n";
-    s += "SYSROOT=iphoneos\nBUILD=0\nRUN=0\nXCODE_ARGS=()\n";
-    s += "while [ $# -gt 0 ]; do\n  case \"$1\" in\n    --simulator) SYSROOT=iphonesimulator ;;\n    --build) BUILD=1 ;;\n"
-         "    --run) BUILD=1; RUN=1 ;;\n"
-         "    --) shift; XCODE_ARGS=(\"$@\"); break ;;\n"
-         "    *) echo \"unknown option: $1 (options: --simulator, --build, --run, -- <xcodebuild arguments>)\" >&2; exit 2 ;;\n"
-         "  esac\n  shift\ndone\n";
-    if (!setup.prebuilt)
-        s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
-    s += std::string("cmake -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
-         "  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 -DCMAKE_OSX_SYSROOT=\"$SYSROOT\" \\\n" +
-         (setup.prebuilt ? "" : "  -DFA_BUILD_TOOLS=OFF -DFA_BUILD_TESTS=OFF \\\n") +
-         "  -DFA_GAME_PROJECT_DIR=\"$HERE/game\" \\\n"
-         "  -DFA_GAME_BUNDLE_ID=" + sh_quote(p.id) + " \\\n"
-         "  -DFA_GAME_NAME=" + sh_quote(p.name) + " \\\n"
-         "  -DFA_GAME_VERSION=" + sh_quote(safe_version_name(p.version)) + " \\\n"
-         "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n"
-         "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-}\"\n";
-    std::string build = R"SH(if [ "$BUILD" = 0 ]; then
-  echo "Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run."
-  open "$HERE/build/FactorIA.xcodeproj" 2>/dev/null || true
-  exit 0
-fi
-CONFIG=@CONFIG@
-BUNDLE_ID=@BUNDLE_ID@
-# The connected iPhone or iPad (FA_IOS_DEVICE=<udid> picks one).
-device_udid() {
-  if [ -n "${FA_IOS_DEVICE:-}" ]; then echo "$FA_IOS_DEVICE"; return; fi
-  local list; list="$(mktemp)"
-  if xcrun devicectl list devices --json-output "$list" >/dev/null 2>&1; then
-    python3 -c 'import json, sys
-for d in json.load(open(sys.argv[1]))["result"]["devices"]:
-    hw, conn = d.get("hardwareProperties", {}), d.get("connectionProperties", {})
-    if hw.get("reality") == "physical" and hw.get("platform") == "iOS" and conn.get("tunnelState") == "connected":
-        print(hw["udid"]); break' "$list"
-  fi
-  rm -f "$list"
-}
-# A booted simulator, else the first iPhone of the newest iOS runtime.
-simulator_udid() {
-  xcrun simctl list devices available -j | python3 -c 'import json, sys
-data = json.load(sys.stdin)["devices"]
-def version(key): return [int(p) for p in key.rsplit(".", 1)[-1].split("-")[1:] if p.isdigit()]
-runtimes = sorted((k for k in data if ".iOS-" in k), key=version, reverse=True)
-devices = [d for k in runtimes for d in data[k] if d.get("isAvailable", True)]
-pick = [d for d in devices if d["state"] == "Booted"] or [d for d in devices if d["name"].startswith("iPhone")]
-print(pick[0]["udid"] if pick else "")'
-}
-if [ "$SYSROOT" = iphonesimulator ]; then
-  # Simulator apps need no team: build unsigned, then sign ad hoc as Xcode does for the simulator.
-  cmake --build "$HERE/build" --config "$CONFIG" --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO \
-    ${XCODE_ARGS[@]+"${XCODE_ARGS[@]}"}
-else
-  # A scheme build with a destination (not cmake --build, which builds a target and ignores the destination), so that
-  # Xcode can register the connected device with the team and create the provisioning profile on the first build.
-  DEVICE="$(device_udid)"
-  if [ -n "$DEVICE" ]; then
-    DESTINATION="id=$DEVICE"
-  else
-    DESTINATION="generic/platform=iOS"
-    echo "note: no iPhone or iPad connected: building for any device. A team's first build needs the device connected," >&2
-    echo "      unlocked and in Developer Mode (Settings > Privacy & Security), so Xcode can register it." >&2
-  fi
-  xcodebuild -project "$HERE/build/FactorIA.xcodeproj" -scheme factoria_player -configuration "$CONFIG" \
-    -destination "$DESTINATION" -allowProvisioningUpdates -allowProvisioningDeviceRegistration build \
-    ${XCODE_ARGS[@]+"${XCODE_ARGS[@]}"}
-fi
-APP="$(find "$HERE/build" -maxdepth 4 -type d -path "*/$CONFIG-$SYSROOT/factoria_player.app" | head -n 1)"
-[ -n "$APP" ] || { echo "error: the build left no factoria_player.app for $SYSROOT under $HERE/build" >&2; exit 1; }
-echo "Built $APP"
-[ "$RUN" = 1 ] || exit 0
-if [ "$SYSROOT" = iphonesimulator ]; then
-  codesign --force --sign - --timestamp=none "$APP"
-  SIM="$(simulator_udid)"
-  [ -n "$SIM" ] || { echo "error: no iOS simulator; add one in Xcode (Settings > Components)" >&2; exit 1; }
-  xcrun simctl boot "$SIM" 2>/dev/null || true
-  open -a Simulator 2>/dev/null || true
-  xcrun simctl bootstatus "$SIM" -b >/dev/null
-  xcrun simctl install "$SIM" "$APP"
-  echo "Starting $BUNDLE_ID in the simulator; its console follows (Ctrl+C ends the game)."
-  exec xcrun simctl launch --terminate-running-process --console-pty "$SIM" "$BUNDLE_ID"
-fi
-[ -n "$DEVICE" ] || { echo "error: connect an iPhone or iPad (unlocked, Developer Mode on) to run the game on it" >&2; exit 1; }
-xcrun devicectl device install app --device "$DEVICE" "$APP"
-echo "Starting $BUNDLE_ID on the device; its console follows (Ctrl+C ends the game)."
-exec xcrun devicectl device process launch --console --terminate-existing --device "$DEVICE" "$BUNDLE_ID"
-)SH";
-    build = replace_all(build, "@CONFIG@", config);
-    build = replace_all(build, "@BUNDLE_ID@", sh_quote(p.id));
-    s += build;
-    if (auto r = write_text(outRoot / "build_ios.sh", s, true); !r.ok()) return r;
-    report.nextSteps = {
-        "On a Mac with Xcode and CMake 3.24+, copy or open this folder: cd '" + generic(outRoot) + "'",
-        "./build_ios.sh --simulator --run   builds the game, starts it in the iOS Simulator and shows its console",
-        "On an iPhone/iPad (connected, unlocked, Developer Mode on): FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run. "
-            "Or ./build_ios.sh creates build/FactorIA.xcodeproj and opens it: select the 'factoria_player' scheme, set a "
-            "Team under Signing & Capabilities (bundle id " + p.id + "), then Run",
-        std::string(setup.prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " + generic(setup.libs) + " (no engine source needed). "
-                                   : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
-            "Details and App Store notes: docs/MOBILE.md"};
-    return {};
 }
 
 // ---- license notices -----------------------------------------------------------------------------
