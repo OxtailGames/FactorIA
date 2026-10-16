@@ -5,9 +5,12 @@
 #include <cstring>
 #include <filesystem>
 
+#include <cctype>
+
 #include "export_internal.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/pe_icon.h"
+#include "fa/tooling/plugin_manifest.h"
 #include "fa/tooling/setup.h"
 
 namespace fa::export_detail {
@@ -149,6 +152,26 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
 
 }  // namespace
 
+// The entitlements of a signed macOS app, from the plugins' manifests: Xcode's build settings ($(TeamIdentifierPrefix),
+// $(CFBundleIdentifier)) filled in as codesign needs them, plus the two identifiers a provisioning profile ties them to. The
+// Team ID is export.ios.teamId when set (one team signs a developer's apps), else the placeholder TEAMID to replace.
+static Json macos_entitlements(const Json& asked, const Project& p) {
+    if (asked.empty()) return Json::object();
+    std::string team;
+    for (char c : p.settings.ios.teamId) if (std::isalnum(static_cast<unsigned char>(c))) team += c;
+    if (team.empty()) team = "TEAMID";
+    Json out = Json::object();
+    out["com.apple.application-identifier"] = team + "." + p.id;
+    out["com.apple.developer.team-identifier"] = team;
+    for (auto it = asked.begin(); it != asked.end(); ++it) {
+        if (it->is_string())
+            out[it.key()] = replace_all(replace_all(it->get<std::string>(), "$(TeamIdentifierPrefix)", team + "."), "$(CFBundleIdentifier)", p.id);
+        else
+            out[it.key()] = it.value();
+    }
+    return out;
+}
+
 std::string fs_safe_name(const std::string& s) {
     std::string o;
     for (char c : s) o += (std::strchr("/\\:*?\"<>|", c) || static_cast<unsigned char>(c) < 32) ? '_' : c;
@@ -207,12 +230,37 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
     // Native plugins: their build folder (the library and the ones it needs) next to the executable, where the player
     // looks for them; inside a macOS app that is Contents/Frameworks.
     const stdfs::path libDest = platform == "macos" ? exeDest.parent_path().parent_path() / "Frameworks" : exeDest.parent_path();
+    std::vector<NamedManifest> manifests;
     for (const Project::Plugin& plugin : p.plugins) {
         stdfs::create_directories(os_path(libDest), ec);
         stdfs::copy(os_path(plugin.build), os_path(libDest),
                     stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing | stdfs::copy_options::copy_symlinks, ec);
         if (ec) return err("export: cannot copy the plugin '" + plugin.name + "' (" + generic(plugin.build) + ") to " +
                            generic(libDest) + ": " + ec.message());
+        // plugin.json tells the export what the app needs (fa/tooling/plugin_manifest.h); the player never reads it.
+        if (stdfs::exists(os_path(plugin.build / kPluginManifestFile), ec)) {
+            stdfs::remove(os_path(libDest / kPluginManifestFile), ec);
+            if (platform == "macos") {
+                auto manifest = read_plugin_manifest(plugin.build);
+                if (!manifest.ok())
+                    return err("export: the manifest of the plugin '" + plugin.name + "': " + manifest.error().message, manifest.error().hint);
+                manifests.push_back({plugin.name, manifest.value()});
+            }
+        }
+    }
+    // Capabilities the plugins ask for (Game Center, iCloud): they go into the signature, which needs the developer's own
+    // certificate and provisioning profile. The ad hoc signature below cannot carry them (macOS kills an app that claims a
+    // restricted entitlement without a profile), so they are written next to the app for the developer's signing step.
+    std::string entitlementsFile;
+    Json entitlements = Json::object();
+    if (!manifests.empty()) {
+        auto merged = merge_plugin_manifests(manifests);
+        if (!merged.ok()) return err("export: " + merged.error().message, merged.error().hint);
+        entitlements = macos_entitlements(merged->entitlements, p);
+        if (!entitlements.empty()) {
+            entitlementsFile = slug + ".entitlements";
+            if (auto r = write_text(outRoot / entitlementsFile, entitlements_plist(entitlements)); !r.ok()) return r;
+        }
     }
 
     if (platform == "macos") {
@@ -223,6 +271,17 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
             "--timestamp --sign \"Developer ID Application: <you>\" '" + app.string() + "', then xcrun notarytool "
             "submit and xcrun stapler staple (see docs/EXPORTING.md)",
             "Zip it for sharing: ditto -c -k --keepParent '" + app.string() + "' " + slug + "-macos.zip"};
+        if (!entitlementsFile.empty()) {
+            std::vector<std::string> names;
+            for (auto it = entitlements.begin(); it != entitlements.end(); ++it) names.push_back(it.key());
+            report.nextSteps.push_back(
+                "The plugins ask for capabilities (" + join(names, ", ") + "), which only a signature with your Apple developer "
+                "certificate and a provisioning profile can carry: until then the app runs and those services answer 'unavailable' with "
+                "a hint. To turn them on: create a macOS provisioning profile for the App ID " + p.id + " with the same capabilities in the "
+                "Apple Developer portal, copy it to '" + app.string() + "/Contents/embedded.provisionprofile', replace TEAMID in " +
+                entitlementsFile + " with your 10-character Team ID, and sign with codesign --force --deep --options runtime --timestamp "
+                "--entitlements " + entitlementsFile + " --sign \"<your certificate>\" '" + app.string() + "' (docs/PLATFORM.md, section Apple)");
+        }
     } else if (platform == "windows") {
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
                             "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep game/ next to the exe"};

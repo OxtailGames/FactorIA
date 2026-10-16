@@ -12,6 +12,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
+#include "fa/core/json.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/scaffold.h"
 #include "test_helpers.h"
@@ -905,6 +906,147 @@ TEST_CASE("export: a native plugin's static libraries are linked into the iOS ap
     CHECK_FALSE(stdfs::exists(root / "game/plugins"));
     const std::string script = testing::read_all(root / "build_ios.sh");
     CHECK(script.find("-DFA_GAME_PLUGINS='alpha;example' -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\"") != std::string::npos);
+}
+
+// A game with the Apple plugin's manifests (docs/MOBILE.md, "Native plugins (iOS)") and a catalog with products.
+static void add_apple_plugin(const std::string& proj, const char* iosManifest, const char* macosManifest) {
+    const stdfs::path plugin = stdfs::path(proj) / "plugins" / "apple";
+    for (const char* sdk : {"iphoneos", "iphonesimulator"}) testing::write_all(plugin / "ios" / sdk / "libapple.a", sdk);
+    testing::write_all(plugin / "macos" / "libapple.dylib", "dylib");
+    if (iosManifest) testing::write_all(plugin / "ios" / "plugin.json", iosManifest);
+    if (macosManifest) testing::write_all(plugin / "macos" / "plugin.json", macosManifest);
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["plugins"] = Json::parse(R"({"apple": {"path": "plugins/apple", "platforms": ["ios", "macos"]}})");
+    project["platform"] = Json::parse(R"({"products": [
+        {"id": "gems_100", "type": "consumable", "title": "100 gems", "price": 0.99, "ids": {"apple": "com.example.gems100"}},
+        {"id": "no_ads", "type": "nonConsumable", "title": "No ads", "price": 2.99}]})");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+}
+
+static const char* kAppleIosManifest = R"json({
+  "frameworks": ["StoreKit", "GameKit"],
+  "swift": true,
+  "entitlements": {"com.apple.developer.game-center": true,
+                   "com.apple.developer.ubiquity-kvstore-identifier": "$(TeamIdentifierPrefix)$(CFBundleIdentifier)"}
+})json";
+
+TEST_CASE("export: the plugins' manifests give the iOS app frameworks, Swift, entitlements and a StoreKit configuration") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    add_apple_plugin(proj, kAppleIosManifest, nullptr);
+    ScopedEnv noEngine("FACTORIA_ENGINE_DIR", nullptr);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "ios";
+    o.outDir = tmp.sub("out");
+    o.mobileDir = make_fake_mobile(tmp);
+    o.buildSourceRoot = tmp.sub("no-checkout-here");
+
+    SUBCASE("everything the manifest asks for reaches build_ios.sh and the files next to it") {
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const stdfs::path root = r->outputDir;
+        const std::string script = testing::read_all(root / "build_ios.sh");
+        CHECK(script.find("-DFA_GAME_PLUGIN_FRAMEWORKS='StoreKit;GameKit'") != std::string::npos);
+        CHECK(script.find("-DFA_GAME_PLUGIN_SWIFT=ON") != std::string::npos);
+        CHECK(script.find("-DFA_GAME_ENTITLEMENTS=\"$HERE/factoria_player.entitlements\"") != std::string::npos);
+        CHECK(script.find("-DFA_GAME_STOREKIT=ON") != std::string::npos);
+        CHECK(script.find("-DSTOREKIT=\"$HERE/Products.storekit\" -P \"$HERE/storekit_scheme.cmake\"") != std::string::npos);
+        CHECK(script.find("-DPROJECT=\"$HERE/build/FactorIA.xcodeproj\"") != std::string::npos);
+        // The step that wires the file runs after the project is configured, not before.
+        CHECK(script.find("storekit_scheme.cmake") > script.find("-DFA_IOS_DEVELOPMENT_TEAM"));
+
+        const std::string entitlements = testing::read_all(root / "factoria_player.entitlements");
+        CHECK(entitlements.find("<key>com.apple.developer.game-center</key>\n\t<true/>") != std::string::npos);
+        CHECK(entitlements.find("<string>$(TeamIdentifierPrefix)$(CFBundleIdentifier)</string>") != std::string::npos);
+
+        auto config = parse_json(testing::read_all(root / "Products.storekit"), "Products.storekit");
+        REQUIRE(config.ok());
+        REQUIRE((*config)["products"].size() == 2);
+        CHECK((*config)["products"][0]["productID"] == "com.example.gems100");  // ids.apple, else the id
+        CHECK((*config)["products"][1]["productID"] == "no_ads");
+        CHECK(stdfs::exists(root / "storekit_scheme.cmake"));
+        CHECK(stdfs::exists(root / "plugins/apple/ios/plugin.json") == false);  // the ios/ folder is copied as <name>/<sdk>/...
+        CHECK(testing::read_all(root / "plugins/apple/plugin.json").find("StoreKit") != std::string::npos);
+
+        bool capabilities = false, storekit = false;
+        for (const std::string& s : r->nextSteps) {
+            capabilities = capabilities || (s.find("com.apple.developer.game-center") != std::string::npos && s.find("com.example.spacedodge") != std::string::npos);
+            storekit = storekit || (s.find("Products.storekit") != std::string::npos && s.find("simctl launch") != std::string::npos);
+        }
+        CHECK(capabilities);
+        CHECK(storekit);
+    }
+    SUBCASE("a plugin without StoreKit gets no configuration, and no manifest means no extras") {
+        add_apple_plugin(proj, R"({"entitlements": {"com.apple.developer.game-center": true}})", nullptr);
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        CHECK_FALSE(stdfs::exists(stdfs::path(r->outputDir) / "Products.storekit"));
+        const std::string script = testing::read_all(stdfs::path(r->outputDir) / "build_ios.sh");
+        CHECK(script.find("storekit_scheme") == std::string::npos);
+        CHECK(script.find("FA_GAME_PLUGIN_SWIFT") == std::string::npos);
+        CHECK(script.find("FA_GAME_PLUGIN_FRAMEWORKS") == std::string::npos);
+        CHECK(script.find("FA_GAME_ENTITLEMENTS") != std::string::npos);
+
+        add_apple_plugin(proj, nullptr, nullptr);
+        std::error_code ec;
+        stdfs::remove(stdfs::path(proj) / "plugins/apple/ios/plugin.json", ec);
+        auto none = export_project(o);
+        REQUIRE_MESSAGE(none.ok(), (none.ok() ? "" : none.error().to_string()));
+        CHECK_FALSE(stdfs::exists(stdfs::path(none->outputDir) / "factoria_player.entitlements"));
+        CHECK(testing::read_all(stdfs::path(none->outputDir) / "build_ios.sh").find("FA_GAME_ENTITLEMENTS") == std::string::npos);
+    }
+    SUBCASE("a manifest that is wrong stops the export and says where") {
+        add_apple_plugin(proj, R"({"framworks": ["StoreKit"]})", nullptr);
+        auto r = export_project(o);
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("plugin.json#/framworks") != std::string::npos);
+        CHECK(r.error().message.find("apple") != std::string::npos);
+        CHECK(r.error().hint.find("frameworks") != std::string::npos);  // did you mean
+        CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-ios")));
+    }
+}
+
+TEST_CASE("export: macOS keeps plugin.json out of the app and writes the entitlements for the developer's signature") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    add_apple_plugin(proj, kAppleIosManifest,
+                     R"json({"entitlements": {"com.apple.developer.game-center": true,
+                                              "com.apple.developer.ubiquity-kvstore-identifier": "$(TeamIdentifierPrefix)$(CFBundleIdentifier)"}})json");
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "macos";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = make_fake_player(tmp);
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    CHECK(stdfs::exists(root / "Space Dodge.app/Contents/Frameworks/libapple.dylib"));
+    CHECK_FALSE(stdfs::exists(root / "Space Dodge.app/Contents/Frameworks/plugin.json"));
+    // The entitlements are beside the app, with the placeholders codesign cannot expand filled in (the team is still to name).
+    const std::string entitlements = testing::read_all(root / "space-dodge.entitlements");
+    CHECK(entitlements.find("<key>com.apple.developer.game-center</key>") != std::string::npos);
+    CHECK(entitlements.find("<string>TEAMID.com.example.spacedodge</string>") != std::string::npos);
+    CHECK(entitlements.find("com.apple.developer.team-identifier") != std::string::npos);
+    CHECK(entitlements.find("$(") == std::string::npos);
+    bool signing = false;
+    for (const std::string& s : r->nextSteps)
+        signing = signing || (s.find("embedded.provisionprofile") != std::string::npos && s.find("--entitlements space-dodge.entitlements") != std::string::npos);
+    CHECK(signing);
+    // Windows and Linux builds of the same game drop the manifest too, and write nothing else.
+    add_apple_plugin(proj, kAppleIosManifest, "{}");
+    testing::write_all(stdfs::path(proj) / "plugins/apple/linux/libapple.so", "so");
+    testing::write_all(stdfs::path(proj) / "plugins/apple/linux/plugin.json", "{}");
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["plugins"]["apple"]["platforms"] = Json::parse(R"(["linux"])");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+    o.platform = "linux";
+    auto onLinux = export_project(o);
+    REQUIRE_MESSAGE(onLinux.ok(), (onLinux.ok() ? "" : onLinux.error().to_string()));
+    const stdfs::path linuxRoot = onLinux->outputDir;
+    CHECK(stdfs::exists(linuxRoot / "libapple.so"));
+    CHECK_FALSE(stdfs::exists(linuxRoot / "plugin.json"));
+    CHECK_FALSE(stdfs::exists(linuxRoot / "space-dodge.entitlements"));
 }
 
 TEST_CASE("export: ios needs both prebuilt slices, or says what to do") {
