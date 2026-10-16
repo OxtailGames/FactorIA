@@ -33,9 +33,14 @@ TEST_CASE("load_palette: a list of #rrggbb colours") {
     CHECK((*palette)[1] == std::array<std::uint8_t, 3>{255, 255, 255});
     CHECK((*palette)[2] == std::array<std::uint8_t, 3>{0x1a, 0x1c, 0x2c});
 
-    auto bad = load_palette(Json::parse(R"(["#000000","red"])"));
+    auto named = load_palette(Json::parse(R"(["#f00","blue"])"));  // the colour spellings of the rest of the engine
+    REQUIRE(named.ok());
+    CHECK((*named)[0] == std::array<std::uint8_t, 3>{255, 0, 0});
+    CHECK((*named)[1] == std::array<std::uint8_t, 3>{0, 0, 255});
+
+    auto bad = load_palette(Json::parse(R"(["#000000","reddish"])"));
     REQUIRE_FALSE(bad.ok());
-    CHECK(bad.error().message == "palette colour 1 is 'red', not a colour like \"#1a1c2c\"");
+    CHECK(bad.error().message == "palette colour 1 is 'reddish', not a colour like \"#1a1c2c\"");
     CHECK_FALSE(bad.error().hint.empty());
     CHECK_FALSE(load_palette(Json::parse(R"(["#000000","#12345"])")).ok());
     CHECK_FALSE(load_palette(Json::parse(R"(["#000000",5])")).ok());
