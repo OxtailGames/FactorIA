@@ -49,6 +49,9 @@ void status(FaCall* call, const char*, void*) {
     out.set("plugin", b.api->plugin).set("backend", "steam").set("appId", b.appId).set("appIdFrom", s.appIdSource.empty() ? "Steam" : s.appIdSource);
     out.set("player", player_json());
     out.set("library", s.library).set("interfaces", s.accessors);
+    Json newer = Json::array();  // interfaces of an SDK newer than the ones this plugin was checked against (kCheckedSdk)
+    for (const std::string& n : s.newerInterfaces) newer.push(n);
+    out.set("newerInterfaces", newer).set("checkedSdk", kCheckedSdk);
     out.set("overlayEnabled", s.SteamAPI_ISteamUtils_IsOverlayEnabled(s.utils));
     out.set("cloudEnabledForAccount", s.SteamAPI_ISteamRemoteStorage_IsCloudEnabledForAccount(s.remoteStorage));
     out.set("cloudEnabledForApp", s.SteamAPI_ISteamRemoteStorage_IsCloudEnabledForApp(s.remoteStorage));
@@ -89,7 +92,8 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
     const std::string commandName = std::string(api->plugin) + ".status";
     FaCommandDesc command = {commandName.c_str(),
                              "Show what the Steam plugin found: app id, player, library, overlay and cloud.",
-                             "Returns {plugin, backend, appId, appIdFrom, player, library, interfaces, overlayEnabled, "
+                             "Returns {plugin, backend, appId, appIdFrom, player, library, interfaces, newerInterfaces (the "
+                             "ones newer than the SDKs checkedSdk names: used, with a warning), checkedSdk, overlayEnabled, "
                              "cloudEnabledForAccount, cloudEnabledForApp, statsLoaded, dlc}. Example: {}.",
                              nullptr, 1, status, nullptr};
     FaBackendDesc desc = {"steam", "[\"achievements\",\"stats\",\"leaderboards\",\"cloudSave\",\"purchases\",\"overlay\",\"presence\"]",
@@ -100,6 +104,8 @@ FA_PLUGIN_INIT(FA_PLUGIN_NAME) {
         return 1;
     }
     std::atexit(on_exit);
+    const std::string newer = newer_interfaces_warning(s);
+    if (!newer.empty()) api->log(api, 2, newer.c_str());
     const std::string ready = "Steam is ready: app " + std::to_string(b.appId) + ", player " + std::to_string(b.selfId) + " (" + s.library +
                               ", " + s.accessors + (s.appIdSource.empty() ? "" : "; app id from " + s.appIdSource) + ")";
     api->log(api, 1, ready.c_str());

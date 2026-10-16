@@ -21,10 +21,11 @@ if(MSVC)
     set_property(TARGET fa_steam_plugin PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# The mock Steamworks library, in three variants of the same source (each in its own folder: the file name is the real one).
+# The mock Steamworks library, in four variants of the same source (each in its own folder: the file name is the real one).
 #   current  the SDK 1.62 to 1.64 interface versions, SteamAPI_InitFlat
 #   legacy   the SDK 1.58 to 1.60 ones: no InitFlat, older accessors, stats that must be requested
-#   future   interface versions the plugin does not know
+#   next     one interface version above the newest the plugin knows (what SDK 1.65 does to ISteamUtils): used, with a warning
+#   future   interface versions far above the ones the plugin knows: refused
 if(WIN32)
     set(steam_mock_name steam_api64)
     set(steam_mock_prefix "")
@@ -32,7 +33,7 @@ else()
     set(steam_mock_name steam_api)
     set(steam_mock_prefix lib)
 endif()
-foreach(variant current legacy future)
+foreach(variant current legacy next future)
     add_library(fa_steam_mock_${variant} SHARED ${CMAKE_CURRENT_LIST_DIR}/mock_steam_api.cpp)
     target_include_directories(fa_steam_mock_${variant} PRIVATE ${steam_dir}/src)
     target_compile_features(fa_steam_mock_${variant} PRIVATE cxx_std_17)
@@ -46,6 +47,7 @@ foreach(variant current legacy future)
     endif()
 endforeach()
 target_compile_definitions(fa_steam_mock_legacy PRIVATE MOCK_LEGACY=1)
+target_compile_definitions(fa_steam_mock_next PRIVATE MOCK_NEXT=1)
 target_compile_definitions(fa_steam_mock_future PRIVATE MOCK_FUTURE=1)
 
 # The test program: an Engine that runs the plugin.
@@ -55,15 +57,18 @@ target_compile_definitions(fa_test_steam_plugin PRIVATE
     FA_STEAM_PLUGIN_FILE="$<TARGET_FILE:fa_steam_plugin>"
     FA_STEAM_MOCK_CURRENT="$<TARGET_FILE:fa_steam_mock_current>"
     FA_STEAM_MOCK_LEGACY="$<TARGET_FILE:fa_steam_mock_legacy>"
+    FA_STEAM_MOCK_NEXT="$<TARGET_FILE:fa_steam_mock_next>"
     FA_STEAM_MOCK_FUTURE="$<TARGET_FILE:fa_steam_mock_future>"
     FA_STEAM_TEST_EXE="$<TARGET_FILE:fa_test_steam_plugin>")
-add_dependencies(fa_test_steam_plugin fa_steam_plugin fa_steam_mock_current fa_steam_mock_legacy fa_steam_mock_future)
+add_dependencies(fa_test_steam_plugin fa_steam_plugin fa_steam_mock_current fa_steam_mock_legacy fa_steam_mock_next fa_steam_mock_future)
 
-# scenario name -> doctest filter. The working directory is the build folder: the plugin also looks for a steam_appid.txt
-# in the folder the game started in, and the repository root must not decide that.
+# scenario name -> doctest filter. "next" runs the services scenario again on the "next" mock (the test program picks the
+# library from FA_STEAM_TEST_VARIANT) plus the test that checks the warning. The working directory is the build folder: the
+# plugin also looks for a steam_appid.txt in the folder the game started in, and the repository root must not decide that.
 set(steam_scenarios
     "services|steam services*"
     "legacy|steam legacy*"
+    "next|steam services*,steam next*"
     "future|steam future*"
     "no_library|steam without library*"
     "not_running|steam not running*"
@@ -77,3 +82,4 @@ foreach(scenario ${steam_scenarios})
         COMMAND fa_test_steam_plugin "--test-case=${scenario_filter}"
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 endforeach()
+set_tests_properties(steam_plugin_next PROPERTIES ENVIRONMENT "FA_STEAM_TEST_VARIANT=next")

@@ -483,7 +483,16 @@ MOCK_API bool SteamAPI_ManualDispatch_GetAPICallResult(i32, u64 call, void* buff
 }
 
 // Interface accessors: the versions each variant exports.
-#if defined(MOCK_FUTURE)
+#if defined(MOCK_NEXT)
+// What a Steamworks SDK after the newest the plugin knows exports (SDK 1.65 bumped ISteamUtils to v011): one version above
+// each, everything else as in the current variant.
+MOCK_API void* SteamAPI_SteamUser_v024() { return &g_user; }
+MOCK_API void* SteamAPI_SteamFriends_v019() { return &g_friends; }
+MOCK_API void* SteamAPI_SteamUtils_v011() { return &g_utils; }
+MOCK_API void* SteamAPI_SteamApps_v010() { return &g_apps; }
+MOCK_API void* SteamAPI_SteamUserStats_v014() { return &g_userStats; }
+MOCK_API void* SteamAPI_SteamRemoteStorage_v017() { return &g_remoteStorage; }
+#elif defined(MOCK_FUTURE)
 MOCK_API void* SteamAPI_SteamUser_v099() { return &g_user; }
 MOCK_API void* SteamAPI_SteamFriends_v099() { return &g_friends; }
 MOCK_API void* SteamAPI_SteamUtils_v099() { return &g_utils; }

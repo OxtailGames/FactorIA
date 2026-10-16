@@ -81,9 +81,11 @@ struct CallbackMsg;  // steam_types.h
     X(SteamAPI_IsSteamRunning, bool, ())                                                                                    \
     X(SteamAPI_ISteamUserStats_RequestCurrentStats, bool, (void*))
 
-// The interface accessors of the SDK versions the plugin supports, newest first. Each interface is looked up under its
-// candidates in order; the first the library exports wins. Verified against the headers of SDK 1.58a, 1.59, 1.60, 1.62 and
-// 1.64. A library that exports none of the candidates of an interface is a Steamworks version this plugin does not know.
+// The interface accessors of the SDK versions the plugin was checked against, newest first. Each interface is looked up
+// under its candidates in order; the first the library exports wins. Verified against the headers of SDK 1.58a, 1.59, 1.60,
+// 1.62 and 1.64. When none is exported, steam_loader.cpp probes the next kNewerVersionWindow versions above the first
+// (newest) name of the interface: a later SDK that bumped an interface (1.65 did ISteamUtils) is used with a warning, since
+// the flat functions the plugin calls are resolved by name and stay valid across interface versions.
 #define STEAM_ACCESSORS(X)                                                                                                  \
     X(user, "ISteamUser", "SteamAPI_SteamUser_v023")                                                                        \
     X(friends, "ISteamFriends", "SteamAPI_SteamFriends_v018", "SteamAPI_SteamFriends_v017")                                 \
@@ -92,7 +94,11 @@ struct CallbackMsg;  // steam_types.h
     X(userStats, "ISteamUserStats", "SteamAPI_SteamUserStats_v013", "SteamAPI_SteamUserStats_v012")                         \
     X(remoteStorage, "ISteamRemoteStorage", "SteamAPI_SteamRemoteStorage_v016")
 
-// The Steamworks SDK versions whose flat API this plugin was checked against (the text of the errors).
-inline constexpr const char* kSupportedSdk = "Steamworks SDK 1.58 to 1.64";
+// The Steamworks SDK versions whose flat API this plugin was checked against (the text of the errors and warnings).
+inline constexpr const char* kCheckedSdk = "Steamworks SDK 1.58 to 1.64";
+inline constexpr const char* kCheckedSdkRange = "1.58 to 1.64";
+
+// How many interface versions above the newest known one are probed for (SteamAPI_SteamUtils_v010 -> v011 to v015).
+inline constexpr int kNewerVersionWindow = 5;
 
 }  // namespace steam_plugin
