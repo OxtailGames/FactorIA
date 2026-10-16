@@ -415,9 +415,7 @@ Result<ImportOutput> import_aseprite(const ImportRequest& request) {
     const double fps = round2(1000.0 * frames / totalMs);
     out.sheet = sheet_entry(columns, rows, ase.width, ase.height, frames, clips);
     out.files.push_back({request.dest, encode_png(sheet)});
-    out.details = Json::object({{"frames", frames}, {"frameWidth", ase.width}, {"frameHeight", ase.height},
-                                {"columns", columns}, {"rows", rows}, {"layers", ase.layers.size()},
-                                {"colorDepth", ase.depth == 32 ? "rgba" : ase.depth == 16 ? "grayscale" : "indexed"},
+    out.details = Json::object({{"layers", ase.layers.size()}, {"colorDepth", ase.depth == 32 ? "rgba" : ase.depth == 16 ? "grayscale" : "indexed"},
                                 {"frameDurationsMs", durations}, {"fps", fps}});
     out.nextSteps = sheet_next_steps(request.dest, out.sheet, fps);
     return out;
