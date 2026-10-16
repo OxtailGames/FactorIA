@@ -326,8 +326,9 @@ The mobile jobs also RUN the app: `ios` boots an iPhone simulator while `ios-bui
 (`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM, installs the debug APK
 that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process stays alive, the
 player logged `player: 60 frames rendered`, an audio device is open and being pulled, the app survives being sent to the
-background and back and renders again, nothing crashed and the screenshot shows a picture (Android also taps the screen
-and changes the font size), and upload their logs, the screenshot and crash reports as the artifacts `ios-smoke` and
+background and back and renders again, a tap in the middle of the screen reaches the player at the middle of the design
+(on iOS a UI test taps, `platforms/ios/touch-test`), nothing crashed and the screenshot shows a picture (Android also
+changes the font size), and upload their logs, the screenshot and crash reports as the artifacts `ios-smoke` and
 `android-smoke` (look there when one of them fails). What they cover and what not is in [MOBILE.md](MOBILE.md).
 
 ## Troubleshooting

@@ -179,10 +179,14 @@ script runs CMake with the Xcode generator and the same settings as the `ios` pr
 `-DFA_GAME_PROJECT_DIR=game -DFA_GAME_BUNDLE_ID=... -DFA_GAME_NAME=... -DFA_GAME_VERSION=... -DFA_GAME_ORIENTATION=...`:
 
 ```bash
+./build_ios.sh --simulator --run                         # build, start in the iOS Simulator, console in the terminal
+FA_IOS_DEVELOPMENT_TEAM=ABCDE12345 ./build_ios.sh --run  # the same on the connected iPhone or iPad
+./build_ios.sh --simulator --build -- <xcodebuild args>  # only build; everything after -- goes to xcodebuild
 ./build_ios.sh --simulator     # or without flag for a device; opens build/FactorIA.xcodeproj
-FA_IOS_DEVELOPMENT_TEAM=ABCDE12345 ./build_ios.sh --build
-./build_ios.sh --simulator --build -- CODE_SIGNING_ALLOWED=NO   # everything after -- goes to xcodebuild
 ```
+
+A device build registers the connected device with the team on the first build (Developer Mode must be on); see
+[MOBILE.md](MOBILE.md#ios).
 
 ```
 my-game-ios/                        prebuilt mode (the download for macOS)

@@ -31,7 +31,7 @@ its own failure message, and the logs, screenshots and crash reports are uploade
 | Ready | no fixed sleep: `sys.boot_completed`, boot animation stopped, package manager answers, device provisioned, keyguard dismissed, launcher has the window focus; after the install, the broadcast queues are idle (`am wait-for-broadcast-idle`) | `simctl bootstatus -b` |
 | Run | process alive, `player: 60 frames rendered`, same process 5 s later | same |
 | Audio | `audio: output device open` and `audio: stream running` (the platform pulled samples); the warning `no audio output device available` fails | same (the failure prints the host's audio devices) |
-| Touch | `input touchscreen tap` in the middle of the screen reaches the player (`input: first touch`) | not covered: `simctl` cannot inject touches |
+| Touch | `input touchscreen tap` in the middle of the screen reaches the player (`input: first touch`) | `simctl` cannot inject touches, so a UI test (`platforms/ios/touch-test`, XCUITest, built with CMake + `xcodebuild`) taps the middle of the running app's screen: `input: first touch` at the middle of the design (checked for the `fit` and `stretch` scale modes), same process |
 | Suspend / resume | HOME key, then `am start`: `player: suspended`, the process survives, `player: resumed`, `player: 60 frames rendered after resume`, the game has the window focus, a new native window was created (debug sokol_app), the screen shows a picture | launch Settings on top, then launch the app again: same checks, same process |
 | Configuration change | the font scale is changed twice: the process and activity survive | not applicable |
 | No crash | no Java exception, native signal or ANR, no `E factoria` line, the activity was never destroyed or relaunched, the screenshot shows a picture | no `ERROR` line, no crash report, the screenshot shows a picture |
@@ -71,13 +71,24 @@ Not covered by CI, so a green run is not a device certification:
   limitation of Apple's Virtualization Framework" ([GitHub-hosted runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)).
   Not tried: the ARM translation of Google APIs `x86_64` images (`adb install --abi arm64-v8a`), which would run the
   arm64 library through a translator, not on an ARM CPU.
-- **iOS touch** (see the table), **audio you can hear** (only that the stream is pulled), the Android Back button,
-  orientation changes, low memory, phone calls and other interruptions, process death and state restore, gamepads,
-  release (optimised) builds (CI runs the debug APK and the Debug simulator build), other API levels than 34, iPad and
-  older iOS versions.
+- **Audio you can hear** (only that the stream is pulled), the Android Back button, orientation changes, low memory,
+  phone calls and other interruptions, process death and state restore, gamepads, release (optimised) builds (CI runs
+  the debug APK and the Debug simulator build), other API levels than 34, iPad and older iOS versions.
 
-A failing run is therefore a real bug; a green one says the player starts, draws, plays an audio stream, takes a tap
-(Android), survives going to the background and back and does not crash on the emulator or simulator.
+A failing run is therefore a real bug; a green one says the player starts, draws, plays an audio stream, takes a tap at
+the right place, survives going to the background and back and does not crash on the emulator or simulator.
+
+Checked by hand on Apple hardware (October 2026, MacBook Air M5, Xcode 27.1): on an iPhone 16 (A18, iOS 27) the
+examples Block Push (taps), Neon Swarm (music, sound effects, aiming at the finger) and Gem Roller (3D) run, render,
+play audible sound, survive Home and back and a turn to the other landscape side; the same on the iOS 27 Simulator.
+Those runs found that every touch landed 3x too far (the engine scaled sokol_app's positions, which are already in
+framebuffer pixels, by the display scale again; the same put mouse clicks 2x off on a Retina Mac and on a Windows
+display scaled to 200%), which the touch step above now catches.
+
+The console of the app: from the iOS 27 runtime (Xcode 27) on, `simctl launch --stdout=<file> --stderr=<file>` opens
+the paths inside the simulator's own file system (`/tmp/x` lands in `<device>/data/tmp/x`, a path under the home
+folder fails the launch), so the files on the Mac stay empty. `ios-smoke.sh` and `build_ios.sh --run` use
+`simctl launch --console-pty` instead, which works on every Xcode.
 
 Found by the first device runs (all fixed): the emulator has no OpenGL ES 3.1, so the player asks for a 3.0 context
 (`to_sapp_desc`); and its software GLES treats every texture larger than 1x1 as incomplete unless the texture states
@@ -169,12 +180,28 @@ Prerequisites: macOS, the full Xcode app (not only command line tools; run
 `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`), CMake 3.24+,
 an Apple developer team for devices (a free Apple ID works for your own device).
 
-Steps: `factoria export --platform ios`, then on the Mac `./build_ios.sh --simulator`
-(or without flag for a device). Xcode opens `build/FactorIA.xcodeproj`; choose the
+Steps: `factoria export --platform ios`, then on the Mac, in the exported folder:
+
+```bash
+./build_ios.sh --simulator --run                          # build, start in the iOS Simulator, console in the terminal
+FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run     # the same on the connected iPhone or iPad
+./build_ios.sh [--simulator] --build [-- <xcodebuild arguments>]   # only build (the .app path is printed)
+./build_ios.sh [--simulator]                              # create build/FactorIA.xcodeproj and open it in Xcode
+```
+
+`--run` installs the app and starts it with its console (stdout and stderr, so the engine log) in the terminal; Ctrl+C
+ends the game. Simulator builds need no team: they are built unsigned and signed ad hoc. In Xcode instead: choose the
 `factoria_player` scheme, set Team under Signing & Capabilities and press Run.
-Command line build: `FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --build`
-(simulator without signing: `./build_ios.sh --simulator --build -- CODE_SIGNING_ALLOWED=NO`; everything after `--` goes
-to `xcodebuild`).
+
+A device needs, once: a cable (or the same network after the first pairing), "Trust this computer" accepted on it,
+Developer Mode on (Settings > Privacy & Security > Developer Mode; it restarts the device; the switch shows up only after
+the device was connected to Xcode once), and a team. The team id is the `OU` of your "Apple Development" certificate
+(`security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject`) or Xcode > Settings > Accounts; a
+free Apple ID works for your own devices. The first build for a team registers the connected device with it and
+creates the provisioning profile (`xcodebuild -allowProvisioningDeviceRegistration`), which needs the device connected
+during the build: `build_ios.sh` picks the first connected iPhone or iPad (`FA_IOS_DEVICE=<udid>` picks another,
+`xcrun devicectl list devices` lists them). Building for "any device" with no device connected fails on a team's first
+build with "Your team has no devices from which to generate a provisioning profile".
 
 **Prebuilt** (the macOS download): the export holds a small `CMakeLists.txt`, `cmake/` and `lib/<iphoneos|iphonesimulator>/*.a`
 next to `game/`, and `build_ios.sh` configures that folder. No engine source is needed, only Xcode and CMake. The libraries
@@ -216,8 +243,12 @@ The platform layer maps touches to the same `Input` object scripts use:
 - input actions bound to `"Touch"` or `"MouseLeft"` in `factoria.json` fire on touch;
 - there is no on-screen keyboard or on-screen gamepad yet: bind touch to actions
   and build on-screen buttons as entities that read touches.
-- Physical gamepads: iOS reads them through the GameController framework (extended gamepads: MFi, Xbox, PlayStation;
-  written, not yet built or run). The web build has no gamepad support yet. Bindings such as `"GamepadA"` are
+- Physical gamepads: iOS (and macOS) read them through the GameController framework (extended gamepads: MFi, Xbox,
+  PlayStation, Switch Pro). The framework names the buttons by position, like the engine (`A` is the bottom one). A pad
+  keeps its slot while connected, an unplugged pad frees it (logged as `gamepad: pad 0 connected: Controller (Xbox
+  One)`). Run on macOS with an Xbox Wireless Controller over Bluetooth (every button, both sticks with +Y up, triggers
+  0..1, unplug and plug back); on iOS it is the same code, built and run but not yet with a real pad. The iOS Simulator
+  shows a virtual pad of its own (`Gamepad (MFi)`) in slot 0. The web build has no gamepad support yet. Bindings such as `"GamepadA"` are
   accepted everywhere.
 - Android gamepads (Bluetooth or USB pads that Android itself supports: Xbox, DualShock/DualSense, Switch Pro, most
   generic ones) come from the NativeActivity input queue: the button keys (`AKEYCODE_BUTTON_A`..`MODE`, the D-pad
