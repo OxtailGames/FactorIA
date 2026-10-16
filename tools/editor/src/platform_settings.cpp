@@ -121,7 +121,7 @@ std::string project_relative_or_absolute(const std::string& projectDir, const st
     const stdfs::path root = stdfs::weakly_canonical(stdfs::path(projectDir), ec);
     const stdfs::path full = stdfs::weakly_canonical(stdfs::path(path), ec);
     const stdfs::path rel = full.lexically_relative(root);
-    if (!rel.empty() && !rel.is_absolute() && rel.native().rfind("..", 0) != 0) return rel.generic_string();
+    if (!rel.empty() && !rel.is_absolute() && rel.generic_string().rfind("..", 0) != 0) return rel.generic_string();
     return full.generic_string();
 }
 
@@ -280,7 +280,7 @@ Result<IconImport> import_icon_file(const std::string& projectDir, const std::st
     const stdfs::path full = stdfs::weakly_canonical(src, ec);
     const stdfs::path rel = full.lexically_relative(root);
     IconImport out;
-    if (!rel.empty() && rel.native().rfind("..", 0) != 0 && !rel.is_absolute()) {  // inside the project: used where it is
+    if (!rel.empty() && rel.generic_string().rfind("..", 0) != 0 && !rel.is_absolute()) {  // inside the project: used where it is
         out.relPath = rel.generic_string();
         return out;
     }

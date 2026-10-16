@@ -913,10 +913,14 @@ void Editor::at_build_tools_script() {
         open_platform_settings(SettingsTab::General);
     });
     step(4, [this] { at_check(at_visible("setup:open-general"), "Platform settings > General has a Set Up This Computer... button"); });
+    scroll_until("setup:open-general", -6, Vec2{512, 320}, 560);  // at the end of the tab: below the fold on a small display
     click("setup:open-general");
-    step(4, [this] {
+    step(4, [this, inject_setup] {
         at_check(showSetup_, "...that opens the Set Up window");
         showSetup_ = false;
+        // Opening the window read this computer again (a Linux runner has CMake and no Xcode to offer): back to the injected
+        // status, which drops that read if it is still running.
+        inject_setup();
         open_platform_settings(SettingsTab::Android);
     });
     step(4, [this] { at_check(at_visible("setup:tab:android:android"), "the Android tab offers Install Android build tools next to the JDK and SDK status"); });

@@ -162,7 +162,9 @@ TEST_CASE("export macos: export.macos.icon replaces the game icon for this platf
     REQUIRE(save_png(green, (stdfs::path(proj) / "assets" / "mac.png").generic_string()).ok());
     auto r = export_project(options_for(proj, tmp, "macos", script_player(tmp)));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(r->warnings.empty());  // the 1024 px icon of this platform is what is checked, not the 512 px game icon
+    // The 1024 px icon of this platform is what is checked, not the 512 px game icon. (Off a Mac the only warning is that the
+    // app is not sealed: codesign runs only on macOS.)
+    for (const std::string& w : r->warnings) CHECK_MESSAGE(w.find("icon") == std::string::npos, w);
     const Image small = icns_image(testing::read_all(stdfs::path(r->outputDir) / "Space Dodge.app" / "Contents" / "Resources" / "AppIcon.icns"), "icp4");
     CHECK(small.width == 16);
     CHECK(int(small.rgba[(10 * 16 + 12) * 4 + 1]) == 255);  // green, not the red/blue game icon

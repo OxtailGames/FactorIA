@@ -232,7 +232,7 @@ std::string model_tip(const ai::ModelInfo& m) {
 // The menu of the InputText just submitted on `text` (which must pass text_menu_callback with CallbackAlways).
 void Editor::text_menu(const std::string& text, bool readOnly) {
     const ImGuiID id = ImGui::GetItemID();
-    if (!ImGui::BeginPopupContextItem()) return;
+    if (id == 0 || !ImGui::BeginPopupContextItem()) return;  // 0: the box is scrolled out of a small window (no menu to open)
     const ImGuiInputTextState* s = ImGui::GetInputTextState(id);
     // ImGui keeps a box's cursor only while its text is unchanged (an editable box) and no other box was used since.
     const bool fresh = !s || (!readOnly && std::string_view(s->TextA.Data ? s->TextA.Data : "", size_t(s->TextLen)) != text);

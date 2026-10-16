@@ -7,6 +7,7 @@
 // them (Editor::on_frame -> queue.pump()).
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -536,6 +537,12 @@ public:
 
 // Helpers shared across panel files.
 extern Editor* g_editor;
+// The first size of a window that is centred on the main viewport: `wanted`, made smaller to fit its work area so the
+// window's own buttons (Save, Close...) are never off screen on a small display.
+inline ImVec2 fit_work_area(ImVec2 wanted) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    return ImVec2(std::min(wanted.x, vp->WorkSize.x * 0.96f), std::min(wanted.y, vp->WorkSize.y * 0.96f));
+}
 // Status colours of the Export and Platform settings windows.
 inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);
 // The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or

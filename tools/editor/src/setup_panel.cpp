@@ -181,7 +181,7 @@ void Editor::draw_setup_window() {
     draw_setup_license_dialog();
     if (!showSetup_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowSize(ImVec2(800, 700), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(fit_work_area(ImVec2(800, 700)), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (setupFocus_) {
@@ -343,7 +343,7 @@ void Editor::draw_setup_license_dialog() {
         setupLicenseRequest_ = false;
     }
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowSize(ImVec2(780, 600), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(fit_work_area(ImVec2(780, 600)), ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (!ImGui::BeginPopupModal(kPopup, nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
