@@ -529,7 +529,7 @@ Acceptance criteria:
 - `validate` fails on a missing glyph and names the character, the text and the file.
 - Switching language at run time updates every Text that has a `key`.
 
-## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56 and the `m15/providers` PR)
+## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56, #57)
 
 Closes A-01..A-07, H-04 and F-07 (music streaming). Today an AI can only write a PNG through `fs.write`; `assets.list` is
 the only asset command, textures stay uncompressed RGBA8, and music is decoded whole into memory
@@ -554,7 +554,7 @@ Acceptance criteria:
 What was built (docs/ASSETS.md is the reference):
 - `assets.json` at the project root: per-asset import settings (with `defaults` per kind) and provenance; validated by
   `project.validate`; exports ship the import settings and drop provenance and style.
-- Generation (`m15/providers`): an `assets` section in `ai.json` maps image, sound, music, voice and 3D models to
+- Generation (#57): an `assets` section in `ai.json` maps image, sound, music, voice and 3D models to
   providers (OpenAI, ElevenLabs, Meshy, a local `asset-command`, and `fake` for tests); `assets.generate_image`,
   `_sprite_sheet`, `_sound`, `_music`, `_voice`, `_model` write under `assets/` with provenance; house style (prompt,
   reference images, palette lock); `assets.provenance`, `assets.set_provenance`, `assets.disclosure`, and exports write
