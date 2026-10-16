@@ -84,7 +84,12 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
     c.list().begin_item(b.layer, 0, tex, SamplerKind::Nearest, BlendMode::Alpha, c.clip);
     for (int j = 0; j < 3; ++j)
-        for (int i = 0; i < 3; ++i) quad(c, xs[i], ys[j], xs[i + 1], ys[j + 1], us[i], vs[j], us[i + 1], vs[j + 1], pack(tint, c.fade));
+        for (int i = 0; i < 3; ++i) {
+            // Inside the atlas when the texture is packed (an export's `atlas` import setting).
+            const Vec2 lo = tex->uv(us[i] * float(tex->width), vs[j] * float(tex->height));
+            const Vec2 hi = tex->uv(us[i + 1] * float(tex->width), vs[j + 1] * float(tex->height));
+            quad(c, xs[i], ys[j], xs[i + 1], ys[j + 1], lo.x, lo.y, hi.x, hi.y, pack(tint, c.fade));
+        }
     c.list().end_item();
 }
 

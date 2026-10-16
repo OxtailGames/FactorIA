@@ -1157,9 +1157,18 @@ assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"A
   fields. A regular grid you know: `{"path":"assets/walk.png","columns":4,"rows":2}` checks it against the image and
   records it.
 
-<!-- Shipping (compression, atlases): filled by the texture work. -->
+**Shipping textures.** A mobile `factoria export` compresses every texture to a KTX2 twin (`assets/hero.png.ktx2` replaces
+`assets/hero.png`; names in scenes and scripts do not change; import setting `compression`). Set `"atlas": "ui"` in a
+texture's import settings (`assets.json`) to have the export pack that group into one atlas image, for sprites,
+particles and UI widgets only (not tilesets or mesh textures; validate warns). `factoria run` keeps using your PNGs. Details:
+`docs/ASSETS.md` > Textures.
 
-Audio ships with three import settings (`assets.json`, `docs_read {"name":"assets"}` "Import settings > Audio"): `stream` (`auto` streams sounds over 10 seconds; `always`/`never` force it), `normalize` with `targetLufs` (play every sound at the same loudness, default -16 LUFS) and `convert: "qoa"` (the export ships WAV files as `<path>.qoa`, about 5 times smaller; scenes and scripts keep the `.wav` name). Run `assets.analyze_audio` once after adding sounds: it measures their loudness and keeps the result in `assets.json` (needed on mobile, where the engine never measures), and `project_validate` warns about clipped, very loud, very quiet and unevenly loud sounds.
+**Shipping audio.** Audio ships with three import settings (`assets.json`, `docs_read {"name":"assets"}` "Import
+settings > Audio"): `stream` (`auto` streams sounds over 10 seconds; `always`/`never` force it), `normalize` with
+`targetLufs` (play every sound at the same loudness, default -16 LUFS) and `convert: "qoa"` (the export ships WAV files
+as `<path>.qoa`, about 5 times smaller; scenes and scripts keep the `.wav` name). Run `assets.analyze_audio` once after
+adding sounds: it measures their loudness and keeps the result in `assets.json` (needed on mobile, where the engine
+never measures), and `project_validate` warns about clipped, very loud, very quiet and unevenly loud sounds.
 
 ## 10. Tests
 

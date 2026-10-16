@@ -13,6 +13,13 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         {"stb", "https://github.com/nothings/stb", "MIT OR Unlicense", "external/stb/LICENSE",
          "image decoding and encoding, TrueType fonts, rectangle packing, Ogg Vorbis", true},
         {"cgltf", "https://github.com/jkuhlmann/cgltf", "MIT", "external/cgltf/LICENSE", "glTF 2.0 models", true},
+        {"Basis Universal", "https://github.com/BinomialLLC/basis_universal", "Apache-2.0", "external/basis_universal/LICENSE",
+         "GPU texture compression: games decode KTX2 textures, `factoria export` encodes them", true},
+        // Parts of the Basis Universal encoder, which only the developer tools contain.
+        {"tinyexr (in the Basis Universal encoder)", "https://github.com/syoyo/tinyexr", "BSD-3-Clause",
+         "external/basis_universal/LICENSES/BSD-3-clause.txt", "OpenEXR images in the texture encoder", false},
+        {"qoi (in the Basis Universal encoder)", "https://github.com/phoboslab/qoi", "MIT",
+         "external/basis_universal/LICENSES/MIT.txt", "QOI images in the texture encoder", false},
         {"dr_libs", "https://github.com/mackron/dr_libs", "MIT-0 OR Unlicense", "external/dr_libs/LICENSE",
          "WAV and MP3 decoding", true},
         {"qoa", "https://github.com/phoboslab/qoa", "MIT", "external/qoa/LICENSE", "QOA audio files", true},

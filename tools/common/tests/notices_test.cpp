@@ -47,13 +47,16 @@ TEST_CASE("notices: game scope leaves out the editor-only parts, all scope has e
     const std::string all = third_party_notices(NoticeScope::All);
     CHECK(game.find("This game was made with FactorIA") != std::string::npos);
     CHECK(game.find("Copyright (c) 2026 Oxtail Games") != std::string::npos);  // FactorIA's own MIT license
-    for (const char* part : {"sokol", "QuickJS-ng", "Box2D", "stb", "cgltf", "dr_libs", "nlohmann/json",
+    for (const char* part : {"sokol", "QuickJS-ng", "Box2D", "stb", "cgltf", "Basis Universal", "dr_libs", "nlohmann/json",
                              "SDL_GameControllerDB", "DejaVu Sans", "Press Start 2P"}) {
         CAPTURE(part);
         CHECK(game.find(std::string("\n") + part + " (") != std::string::npos);
         CHECK(all.find(std::string("\n") + part + " (") != std::string::npos);
     }
     CHECK(game.find("SIL OPEN FONT LICENSE") != std::string::npos);  // the OFL asks for its text with the font
+    CHECK(game.find("Binomial LLC") != std::string::npos);  // Apache-2.0 4(d): Basis Universal's NOTICE text travels with it
+    CHECK(game.find("tinyexr") == std::string::npos);        // encoder-only parts are not in the game
+    CHECK(all.find("\ntinyexr (") != std::string::npos);
     CHECK(game.find("Dear ImGui") == std::string::npos);
     CHECK(all.find("\nDear ImGui (") != std::string::npos);
     // The Gradle wrapper factoria writes into Android exports is Apache-2.0 code that is not part of the game.

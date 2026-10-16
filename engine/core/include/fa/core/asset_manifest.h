@@ -37,6 +37,17 @@ Json entry(std::string_view path);
 // {stream "auto", normalize false, targetLufs -16, convert "none"}; {} for the other kinds), then manifest
 // "defaults.<kind>", then the entry's "import" (each later one overrides keys of the earlier).
 Json import_settings(std::string_view path);
+// The same, from a manifest document you hold (`factoria export` reads the project's file itself: the VFS root is not
+// necessarily the project then).
+Json import_settings(const Json& manifest, std::string_view path);
+
+// Where `factoria export` packed a texture: the atlas image and the pixel rectangle of the texture in it (the entry's
+// `packed`, written to the shipped manifest only). `atlas` is empty when the texture is not packed.
+struct PackedTexture {
+    std::string atlas;
+    int x = 0, y = 0, w = 0, h = 0;
+};
+PackedTexture packed_texture(std::string_view path);
 
 // Edits (tools; the manifest must be writable, so desktop only). Loads the file from disk (a missing one starts as
 // {"format": ...}), runs `edit` on the entry of `path` (an object, created when missing; an entry left empty is
