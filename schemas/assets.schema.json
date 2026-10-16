@@ -134,6 +134,11 @@
           "type": "boolean",
           "description": "Whether AI made the content. Always true for generated; set it for imported files made with AI elsewhere."
         },
+        "kind": {
+          "type": "string",
+          "enum": ["image", "sound", "music", "voice", "model3d"],
+          "description": "What the asset is, written by the assets.generate_* commands, so the AI disclosure can tell sound effects, music and voice apart."
+        },
         "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
         "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },
         "prompt": { "type": "string", "description": "Prompt (or spoken text) the asset was generated from, style prompt included." },
