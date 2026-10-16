@@ -237,11 +237,12 @@ TEST_CASE("android export: format and artifact in the plan, the report and the c
     FakeToolchain tc(tmp);
     ExportOptions o = options(game, tmp, "");
     o.androidSearch = &tc.search;
-    const std::string out = stdfs::weakly_canonical(tmp.sub("out/space-dodge-android")).string();
+    // Generic strings: on Windows the folders of a path are separated by \, and the expectations below use /.
+    const std::string out = stdfs::weakly_canonical(tmp.sub("out/space-dodge-android")).generic_string();
     auto artifact = [&](const ExportOptions& opts) {
         auto plan = plan_export(opts);
         REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
-        return std::make_pair(plan->format, stdfs::weakly_canonical(plan->artifact).string());
+        return std::make_pair(plan->format, stdfs::weakly_canonical(plan->artifact).generic_string());
     };
 
     SUBCASE("the default is a debug apk") {
@@ -252,7 +253,7 @@ TEST_CASE("android export: format and artifact in the plan, the report and the c
         // A release without a keystore is signed with the debug key, with a warning.
         auto plan = plan_export(o);
         REQUIRE(plan.ok());
-        CHECK(stdfs::weakly_canonical(plan->artifact).string() == out + "/space-dodge.apk");
+        CHECK(stdfs::weakly_canonical(plan->artifact).generic_string() == out + "/space-dodge.apk");
         CHECK(any_contains(plan->warnings, "signed with the debug key"));
     }
     SUBCASE("aab") {

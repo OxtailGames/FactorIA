@@ -685,9 +685,9 @@ TEST_CASE("android toolchain: configured folders win, then the environment, then
 
     auto places = find_android_toolchain(none, search_with({}, jdks, sdks));
     CHECK(places.ok());
-    CHECK(places.jdk == studioJdk);
+    CHECK(stdfs::path(places.jdk) == stdfs::path(studioJdk));  // a candidate comes back with this OS's separators
     CHECK(places.jdkFrom == "Android Studio");
-    CHECK(places.sdk == defaultSdk);
+    CHECK(stdfs::path(places.sdk) == stdfs::path(defaultSdk));
     CHECK(places.sdkFrom == "default location");
     CHECK(places.warnings.empty());
 }
@@ -722,7 +722,7 @@ TEST_CASE("android toolchain: a configured folder that is not usable is skipped 
     cfg.androidJdk = tmp.sub("gone/jdk");
     cfg.sourcePath = "/home/me/.factoria/export.json";
     auto fell = find_android_toolchain(cfg, search_with({}, {{good, "Android Studio"}}));
-    CHECK(fell.jdk == good);
+    CHECK(stdfs::path(fell.jdk) == stdfs::path(good));
     CHECK(fell.jdkFrom == "Android Studio");
     REQUIRE(fell.warnings.size() >= 1);
     CHECK(any_contains(fell.warnings, "The JDK folder in /home/me/.factoria/export.json is not usable"));

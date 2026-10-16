@@ -98,6 +98,13 @@ struct MobileNextToExe {
 
 }  // namespace
 
+// The build command the next steps of an Android export name: the wrapper script of this OS.
+#if defined(_WIN32)
+constexpr const char* kGradlewAssemble = "gradlew.bat assembleDebug";
+#else
+constexpr const char* kGradlewAssemble = "./gradlew assembleDebug";
+#endif
+
 TEST_CASE("export: platform names are normalized") {
     CHECK(normalize_export_platform("Win") == "windows");
     CHECK(normalize_export_platform("OSX") == "macos");
@@ -324,6 +331,7 @@ TEST_CASE("export: only an empty folder or one an export wrote is replaced") {
         CAPTURE(platform);
         ExportOptions l = o;
         l.platform = platform;
+        if (platform == "android") l.format = "gradle";  // the folder is what is checked, not this computer's JDK and SDK
         const stdfs::path dir = tmp.sub("legacy-" + platform + "/space-dodge-" + platform);
         l.outDir = dir.parent_path().string();
         testing::write_all(dir / "old-file.txt", "from an earlier export");
@@ -479,7 +487,7 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     CHECK(sorted == onDisk);
     CHECK(rep.nextSteps.size() >= 3);
     bool mentionsGradlew = false;
-    for (auto& s : rep.nextSteps) mentionsGradlew |= s.find("./gradlew assembleDebug") != std::string::npos;
+    for (auto& s : rep.nextSteps) mentionsGradlew |= s.find(kGradlewAssemble) != std::string::npos;
     CHECK(mentionsGradlew);
 }
 
@@ -604,7 +612,7 @@ TEST_CASE("export: android prebuilt mode packages the downloaded libraries and n
 
     std::string steps;
     for (auto& s : rep.nextSteps) steps += s + "\n";
-    CHECK(steps.find("./gradlew assembleDebug") != std::string::npos);
+    CHECK(steps.find(kGradlewAssemble) != std::string::npos);
     CHECK(steps.find("no NDK or CMake") != std::string::npos);
     CHECK(steps.find("ndk;") == std::string::npos);
 
