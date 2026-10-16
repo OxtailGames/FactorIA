@@ -74,7 +74,8 @@ transcodes it at load time to a format the GPU samples directly, so it also stay
 
 The format is the first of ASTC 4x4, BC7, ETC2 that the GPU reports as sampleable, else RGBA8. In practice: ASTC on
 phones, tablets and Apple Silicon Macs, BC7 on Windows and Linux desktop GPUs, ETC2 where a GLES3 device has nothing else
-(every GLES3 device samples it). A texture never fails because of its format: when the GPU takes none of them, or
+(every GLES3 device samples it; it keeps less colour detail, since a texel's red, green and blue share one brightness
+offset). A texture never fails because of its format: when the GPU takes none of them, or
 creating the compressed image fails, the engine transcodes to RGBA8, which is what the PNG would have been.
 `FA_TEXTURE_FORMAT=astc|bc7|etc2|rgba8` forces one (for testing; a format the GPU does not sample falls through to the
 next, and `rgba8` turns GPU compression off).
