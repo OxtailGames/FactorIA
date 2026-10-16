@@ -40,10 +40,14 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
    - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. Windows
      SmartScreen may show "Windows protected your PC": it always does for an unsigned release, and for a signed one
      until enough people have downloaded it. Click **More info**, then **Run anyway**.
-   - **macOS:** open Terminal in the folder and run `./factoria editor`. Gatekeeper blocks a release that is not
-     notarized the first time: in Finder, right-click `factoria` > **Open** and confirm. On macOS 15 and later, go to
-     System Settings > Privacy & Security and click **Open Anyway** instead. Or remove the download quarantine
-     from the whole folder: `xattr -dr com.apple.quarantine ~/FactorIA`.
+   - **macOS:** open Terminal in the folder and run `./factoria editor`. A release that is not notarized is quarantined
+     when your browser downloads it (unpacking it in Finder or with `tar` keeps the quarantine), so Gatekeeper stops
+     each of its programs the first time. Quickest: remove the quarantine from the whole folder once, before the first
+     run: `xattr -dr com.apple.quarantine ~/FactorIA`. Or allow `factoria` alone: when macOS says it could not verify
+     it, click **Done**, open System Settings > Privacy & Security, click **Open Anyway** next to the message about
+     `factoria`, run it again and confirm **Open Anyway** (macOS 14 and earlier: right-click `factoria` in Finder >
+     **Open**). The games `factoria` exports then run without asking; `factoria_player` itself would need the same
+     approval, but you never run it directly.
    - **Linux:** run `./factoria editor` in the folder. It needs X11 and OpenGL, which desktop distributions include.
    - **Linux AppImage:** run `./FactorIA-linux-x64.AppImage`. Without arguments it opens the editor; with arguments it
      is the `factoria` command (`./FactorIA-linux-x64.AppImage new my-game`; `editor my-game` opens that project).

@@ -74,9 +74,12 @@ Key map_key(sapp_keycode k) {
     }
 }
 
-// Window-pixel position (logical, as reported by sokol events) -> design coords.
+// Event position -> design coords. sokol_app reports mouse and touch positions in framebuffer pixels on every platform
+// (it already multiplies by sapp_dpi_scale() where the system gives points: macOS, iOS, the web), so they go to
+// to_design_coords as they are. Scaling them again put every click and tap off by the display scale (3x on an iPhone,
+// 2x on a Retina Mac or a 200% Windows display).
 Vec2 to_design(float x, float y) {
-    Vec2 fb{x * sapp_dpi_scale(), y * sapp_dpi_scale()};
+    Vec2 fb{x, y};
     return g.desc.to_design_coords ? g.desc.to_design_coords(fb) : fb;
 }
 

@@ -604,18 +604,23 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     s += setup.prebuilt ? "# Configures the Xcode project (CMakeLists.txt) with the game in ./game bundled; the engine is linked from the prebuilt\n"
                     "# libraries in ./lib, so no engine source is needed.\n"
                   : "# Configures the Xcode project (same settings as the `ios` CMake preset) with the game in ./game bundled.\n";
-    s += "#   ./build_ios.sh              Xcode project for a device, then opens it\n";
-    s += "#   ./build_ios.sh --simulator  same for the iOS Simulator\n";
-    s += "#   ./build_ios.sh --build      also compile (" + config + ", set FA_IOS_DEVELOPMENT_TEAM for device signing)\n";
-    s += "#   ./build_ios.sh --simulator --build -- CODE_SIGNING_ALLOWED=NO   everything after -- goes to xcodebuild\n";
+    s += "#   ./build_ios.sh                    Xcode project for a device, then opens it\n";
+    s += "#   ./build_ios.sh --simulator        same for the iOS Simulator\n";
+    s += "#   ./build_ios.sh --build            also compile (" + config + "). A device build needs FA_IOS_DEVELOPMENT_TEAM and\n";
+    s += "#                                     the iPhone/iPad connected (FA_IOS_DEVICE=<udid> picks one): the first build\n";
+    s += "#                                     for a team registers it there. Simulator builds are not signed.\n";
+    s += "#   ./build_ios.sh [--simulator] --run   build, install and start the game, its console in this terminal\n";
+    s += "#   ./build_ios.sh --build -- <args>  everything after -- goes to xcodebuild\n";
     s += "# Needs macOS, Xcode (full app), CMake 3.24+.\n";
     s += "set -euo pipefail\n";
     s += "HERE=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
     if (!setup.prebuilt) s += "ENGINE_DIR=\"${FACTORIA_ENGINE_DIR:-" + generic(setup.engine) + "}\"\n";
-    s += "SYSROOT=iphoneos\nBUILD=0\nXCODE_ARGS=\"\"\n";
+    s += "SYSROOT=iphoneos\nBUILD=0\nRUN=0\nXCODE_ARGS=()\n";
     s += "while [ $# -gt 0 ]; do\n  case \"$1\" in\n    --simulator) SYSROOT=iphonesimulator ;;\n    --build) BUILD=1 ;;\n"
-         "    --) shift; XCODE_ARGS=\"$*\"; break ;;\n"
-         "    *) echo \"unknown option: $1\" >&2; exit 2 ;;\n  esac\n  shift\ndone\n";
+         "    --run) BUILD=1; RUN=1 ;;\n"
+         "    --) shift; XCODE_ARGS=(\"$@\"); break ;;\n"
+         "    *) echo \"unknown option: $1 (options: --simulator, --build, --run, -- <xcodebuild arguments>)\" >&2; exit 2 ;;\n"
+         "  esac\n  shift\ndone\n";
     if (!setup.prebuilt)
         s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
     s += std::string("cmake -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
@@ -627,16 +632,85 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          "  -DFA_GAME_VERSION=" + sh_quote(safe_version_name(p.version)) + " \\\n"
          "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n"
          "  -DFA_IOS_DEVELOPMENT_TEAM=\"${FA_IOS_DEVELOPMENT_TEAM:-}\"\n";
-    s += "if [ \"$BUILD\" = 1 ]; then\n  cmake --build \"$HERE/build\" --config " + config +
-         " --target factoria_player -- -sdk \"$SYSROOT\" -allowProvisioningUpdates $XCODE_ARGS\n"
-         "else\n  echo \"Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run.\"\n"
-         "  open \"$HERE/build/FactorIA.xcodeproj\" 2>/dev/null || true\nfi\n";
+    std::string build = R"SH(if [ "$BUILD" = 0 ]; then
+  echo "Open $HERE/build/FactorIA.xcodeproj, pick the 'factoria_player' scheme, set Signing & Capabilities > Team, press Run."
+  open "$HERE/build/FactorIA.xcodeproj" 2>/dev/null || true
+  exit 0
+fi
+CONFIG=@CONFIG@
+BUNDLE_ID=@BUNDLE_ID@
+# The connected iPhone or iPad (FA_IOS_DEVICE=<udid> picks one).
+device_udid() {
+  if [ -n "${FA_IOS_DEVICE:-}" ]; then echo "$FA_IOS_DEVICE"; return; fi
+  local list; list="$(mktemp)"
+  if xcrun devicectl list devices --json-output "$list" >/dev/null 2>&1; then
+    python3 -c 'import json, sys
+for d in json.load(open(sys.argv[1]))["result"]["devices"]:
+    hw, conn = d.get("hardwareProperties", {}), d.get("connectionProperties", {})
+    if hw.get("reality") == "physical" and hw.get("platform") == "iOS" and conn.get("tunnelState") == "connected":
+        print(hw["udid"]); break' "$list"
+  fi
+  rm -f "$list"
+}
+# A booted simulator, else the first iPhone of the newest iOS runtime.
+simulator_udid() {
+  xcrun simctl list devices available -j | python3 -c 'import json, sys
+data = json.load(sys.stdin)["devices"]
+def version(key): return [int(p) for p in key.rsplit(".", 1)[-1].split("-")[1:] if p.isdigit()]
+runtimes = sorted((k for k in data if ".iOS-" in k), key=version, reverse=True)
+devices = [d for k in runtimes for d in data[k] if d.get("isAvailable", True)]
+pick = [d for d in devices if d["state"] == "Booted"] or [d for d in devices if d["name"].startswith("iPhone")]
+print(pick[0]["udid"] if pick else "")'
+}
+if [ "$SYSROOT" = iphonesimulator ]; then
+  # Simulator apps need no team: build unsigned, then sign ad hoc as Xcode does for the simulator.
+  cmake --build "$HERE/build" --config "$CONFIG" --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO \
+    ${XCODE_ARGS[@]+"${XCODE_ARGS[@]}"}
+else
+  # A scheme build with a destination (not cmake --build, which builds a target and ignores the destination), so that
+  # Xcode can register the connected device with the team and create the provisioning profile on the first build.
+  DEVICE="$(device_udid)"
+  if [ -n "$DEVICE" ]; then
+    DESTINATION="id=$DEVICE"
+  else
+    DESTINATION="generic/platform=iOS"
+    echo "note: no iPhone or iPad connected: building for any device. A team's first build needs the device connected," >&2
+    echo "      unlocked and in Developer Mode (Settings > Privacy & Security), so Xcode can register it." >&2
+  fi
+  xcodebuild -project "$HERE/build/FactorIA.xcodeproj" -scheme factoria_player -configuration "$CONFIG" \
+    -destination "$DESTINATION" -allowProvisioningUpdates -allowProvisioningDeviceRegistration build \
+    ${XCODE_ARGS[@]+"${XCODE_ARGS[@]}"}
+fi
+APP="$(find "$HERE/build" -maxdepth 4 -type d -path "*/$CONFIG-$SYSROOT/factoria_player.app" | head -n 1)"
+[ -n "$APP" ] || { echo "error: the build left no factoria_player.app for $SYSROOT under $HERE/build" >&2; exit 1; }
+echo "Built $APP"
+[ "$RUN" = 1 ] || exit 0
+if [ "$SYSROOT" = iphonesimulator ]; then
+  codesign --force --sign - --timestamp=none "$APP"
+  SIM="$(simulator_udid)"
+  [ -n "$SIM" ] || { echo "error: no iOS simulator; add one in Xcode (Settings > Components)" >&2; exit 1; }
+  xcrun simctl boot "$SIM" 2>/dev/null || true
+  open -a Simulator 2>/dev/null || true
+  xcrun simctl bootstatus "$SIM" -b >/dev/null
+  xcrun simctl install "$SIM" "$APP"
+  echo "Starting $BUNDLE_ID in the simulator; its console follows (Ctrl+C ends the game)."
+  exec xcrun simctl launch --terminate-running-process --console-pty "$SIM" "$BUNDLE_ID"
+fi
+[ -n "$DEVICE" ] || { echo "error: connect an iPhone or iPad (unlocked, Developer Mode on) to run the game on it" >&2; exit 1; }
+xcrun devicectl device install app --device "$DEVICE" "$APP"
+echo "Starting $BUNDLE_ID on the device; its console follows (Ctrl+C ends the game)."
+exec xcrun devicectl device process launch --console --terminate-existing --device "$DEVICE" "$BUNDLE_ID"
+)SH";
+    build = replace_all(build, "@CONFIG@", config);
+    build = replace_all(build, "@BUNDLE_ID@", sh_quote(p.id));
+    s += build;
     if (auto r = write_text(outRoot / "build_ios.sh", s, true); !r.ok()) return r;
     report.nextSteps = {
         "On a Mac with Xcode and CMake 3.24+, copy or open this folder: cd '" + generic(outRoot) + "'",
-        "./build_ios.sh --simulator   (or ./build_ios.sh for a device) creates build/FactorIA.xcodeproj and opens it",
-        "In Xcode: select the 'factoria_player' scheme, set a Team under Signing & Capabilities (bundle id " + p.id +
-            "), then Run. Or: FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --build",
+        "./build_ios.sh --simulator --run   builds the game, starts it in the iOS Simulator and shows its console",
+        "On an iPhone/iPad (connected, unlocked, Developer Mode on): FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run. "
+            "Or ./build_ios.sh creates build/FactorIA.xcodeproj and opens it: select the 'factoria_player' scheme, set a "
+            "Team under Signing & Capabilities (bundle id " + p.id + "), then Run",
         std::string(setup.prebuilt ? "Mode prebuilt: the engine is linked from lib/, copied from " + generic(setup.libs) + " (no engine source needed). "
                                    : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
             "Details and App Store notes: docs/MOBILE.md"};
