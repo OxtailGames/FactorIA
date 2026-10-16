@@ -69,6 +69,7 @@
       },
       "children": [
         {
+          "id": "pause_box",
           "name": "Pause Box",
           "components": {
             "Panel": {
@@ -81,13 +82,14 @@
           },
           "children": [
             {
+              "id": "pause_title",
               "name": "Paused",
               "components": {
                 "Text": {
                   "text": "Paused",
                   "fontSize": 40.0,
-                  "space": "screen",
-                  "layer": 301
+                  "layer": 301,
+                  "space": "screen"
                 }
               }
             },
