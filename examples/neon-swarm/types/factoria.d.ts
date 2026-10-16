@@ -633,7 +633,14 @@ declare module "factoria" {
      */
     music(path: string, opts?: { volume?: number; fade?: number }): void;
     stopMusic(fade?: number): void;
+    /**
+     * Volume multiplier of a bus (0 = silent, 1 = as recorded; default 1 for every bus). Plays go to "sfx" unless their `bus` option says otherwise; "master" scales everything. The setting is not saved: an options menu stores it (storage) and sets it again at start.
+     */
     setVolume(bus: "master" | "sfx" | "music" | "ui", volume: number): void;
+    /**
+     * The volume last set for a bus with setVolume (1 when never set). Throws for an unknown bus name.
+     */
+    getVolume(bus: "master" | "sfx" | "music" | "ui"): number;
   }
 
   /**
@@ -780,6 +787,10 @@ declare module "factoria" {
      * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
      */
     notices(): { name: string; url: string; license: string; usedFor: string }[];
+    /**
+     * The platform this runtime was built for. Menus use it for platform rules, e.g. phone and tablet apps have no Quit button (the system closes them).
+     */
+    readonly platform: "windows" | "macos" | "linux" | "ios" | "android" | "web";
   }
 
   /**
