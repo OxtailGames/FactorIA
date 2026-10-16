@@ -47,6 +47,7 @@
 #include "export_job.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include "platform_settings.h"
 #include "play_recorder.h"
 
 struct sapp_event;
@@ -228,6 +229,19 @@ public:
     void refresh_export_status();   // plan_export for every platform
     void reset_export_state();      // project switch: waits for a running export, forgets settings and report
 
+    // Platform settings window (platform_settings_panel.cpp; File > Platform Settings..., the Export window's Settings...
+    // buttons): the game icon and what each platform's export needs, as a working copy that Save writes with
+    // fa::save_export_settings (platform_settings.h has the logic).
+    void open_platform_settings(SettingsTab tab = SettingsTab::General);
+    void draw_platform_settings_window();
+    void poll_platform_settings();          // every frame: factoria.json changed on disk, icon pictures, a keystore being created
+    void reset_platform_settings_state();   // project switch: forgets the working copy
+    void request_close_platform_settings(); // closes now, or asks first when there are unsaved changes
+    void set_android_format(const std::string& format);  // the Export window's format combo: saves export.android.format
+    // A project picture scaled down for a preview (<project>/<relPath>, at most 256 px a side), loaded again when the file
+    // changes; nullptr when it cannot be read.
+    const TextureEntry* icon_preview(const std::string& relPath);
+
     // AI
     void ai_refresh_providers();
     void ai_start(const std::string& task);   // sends `task` (+ the pending pictures) in the active chat
@@ -325,6 +339,30 @@ public:
     double exportChecked_ = -100;
     ExportJob exportJob_;
     std::optional<ExportOutcome> exportLast_;  // the last export's report (or error), shown under the buttons
+    ProjectExportSettings exportSaved_;        // what factoria.json says now (the Android row's format), read with the rows
+    std::string exportSavedError_;             // why it could not be read ("" = fine)
+
+    // Platform settings window
+    bool showPlatformSettings_ = false, platformFocus_ = false, platformCloseAsk_ = false, platformDiskChanged_ = false;
+    PlatformSettings platformSettings_;
+    SettingsTab platformTab_ = SettingsTab::General;  // the tab shown (platformTabSet_: select it next frame)
+    bool platformTabSet_ = false;
+    int platformBgMode_ = -1;                         // Android adaptive background: -1 = by its value, 0 colour, 1 image
+    std::string platformMessage_;                     // what the last Save said when it failed
+    double platformPolled_ = -10;
+    IconChecks iconChecks_;                           // the icon files the window shows, checked when they change
+    struct IconPreview {
+        TextureEntry tex;
+        std::int64_t mtime = -2;
+        double checkedAt = -1e9;
+    };
+    std::map<std::string, IconPreview> iconPreviews_;  // the pictures the window shows (icon_preview)
+    bool keystoreOpen_ = false, keystoreOpenRequest_ = false;  // the Create keystore... popup
+    KeystoreForm keystoreForm_;
+    std::string keystoreError_;
+    KeystoreJob keystoreJob_;
+    KeystoreRequest keystoreRunning_;                 // what the job in flight creates
+    KeystoreForm keystoreRunningForm_;
 
     // textures for ImGui (texture_for, viewport.cpp), and image sizes for the selection bounds
     std::unordered_map<std::string, TextureEntry> textures_;
@@ -459,6 +497,8 @@ public:
 
 // Helpers shared across panel files.
 extern Editor* g_editor;
+// Status colours of the Export and Platform settings windows.
+inline const ImVec4 kStatusReady(0.5f, 0.9f, 0.55f, 1), kStatusFailed(1, 0.45f, 0.4f, 1), kStatusWarn(1, 0.8f, 0.35f, 1);
 // The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or
 // create a project dialog). `version` is the engine's, FA_ENGINE_VERSION: what `factoria version` prints.
 std::string editor_window_title(std::string_view version, std::string_view projectName);
@@ -481,6 +521,8 @@ void maximize_window();
 // Opens `dir` in the system's file manager (Finder, Explorer, xdg-open on Linux) without waiting for it. Returns "" or
 // what went wrong. file_manager_name() is what the button says: "Finder", "Explorer" or "file manager".
 std::string open_in_file_manager(const std::string& dir);
+// Shows one file in the file manager, selected where the system can (Finder, Explorer); on Linux its folder opens.
+std::string reveal_in_file_manager(const std::string& path);
 const char* file_manager_name();
 
 }  // namespace fa::editor
