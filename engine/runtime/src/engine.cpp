@@ -5,6 +5,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/runtime/plugins.h"
 #include "fa/scene/serialize.h"
 
 namespace fa {
@@ -367,6 +368,9 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     }
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
+    // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
+    for (std::string& problem : install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts))
+        I.startupProblems.push_back(std::move(problem));
     std::string serr;
     if (!I.scripts.init(*this, &serr)) {
         FA_ERROR("script", "Script system init failed: {}", serr);

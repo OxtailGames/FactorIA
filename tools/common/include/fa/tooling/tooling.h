@@ -25,8 +25,12 @@ class Engine;
 
 // Registers every tooling command for the project at `projectDir`:
 // feedback.{report,list,update}, docs.{list,read,search,components,commands},
-// fs.{list,read,write,edit,search,delete}, assets.{import,slice_sheet,analyze_audio}, project.validate, project.export, setup.{status,install}.
+// fs.{list,read,write,edit,search,delete}, assets.{import,slice_sheet,analyze_audio}, project.validate, project.export,
+// project.new_plugin, setup.{status,install}.
 void register_tooling_commands(CommandRegistry& registry, const std::string& projectDir);
+
+// project.new_plugin: writes a native plugin from platforms/plugin/ and declares it in factoria.json (plugin_scaffold.cpp).
+void register_plugin_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa
 
