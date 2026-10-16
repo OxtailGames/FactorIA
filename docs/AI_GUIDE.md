@@ -139,6 +139,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `physics_shape_cast` | `physics.shape_cast` | First collider a shape with size touches while its centre moves from `from` to `to`: `{"shape":{"shape":"box","size":[32,48]},"from":[0,100],"to":[0,-300],"ignore":"player"}`. 2 numbers in `from`/`to` = 2D (`circle` with `radius`, `box` with `size:[w,h]`), 3 numbers = 3D (`sphere`, `box` with `size:[x,y,z]`). Also takes `mask` and `ignoreTriggers`. Returns `{"hit":false}` or `{hit, entity, point, normal, distance}` (section 9.21). |
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
+| `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 
@@ -1092,14 +1093,45 @@ export default class Menu extends Behaviour {
   texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
   `size`, `padding` and `spacing` do not change with the window size; use `anchor` and `pivot` to pin a panel to a corner
   or the centre.
-- **Pause menu.** The UI keeps working while `game.paused` (`time.scale` 0); section 9.23 has the pause menu.
+- **Pause menu.** The UI keeps working while `game.paused` (`time.scale` 0); section 9.24 has the pause menu.
 - **Find and click things from outside.** `ui.state` lists every widget with its `rect` (so `game.input` can click its
   centre), `focused` and `value`. To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,
   `.tap("A")`, then assert on `ui.focused`, widget values or `ui.on` events (see `SCRIPTING.md`, UI).
 - **Long lists** go in a `ScrollList`: the wheel scrolls it, moving the focus to an item scrolls it into view, and
   everything inside is clipped to its rectangle.
 
-### 9.23 Game menus: main menu, options, credits, loading screen, pause
+### 9.23 Art, sounds and models: generate, import, ship
+
+Never hand-draw placeholder art pixel by pixel through `fs.write`: generate it, import it, and let the export compress
+it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
+
+<!-- Generating: filled by the asset-providers work. -->
+
+**Importing.** A file made elsewhere (downloaded, from an artist, exported from a tool) comes in with `assets.import`
+(MCP tool `assets_import`). It copies or converts the file into `assets/` and records the provenance in `assets.json`:
+
+```
+assets_import {"source":"C:/art/hero.aseprite","license":"CC-BY 4.0","author":"Ana Lopez"}
+```
+
+- **Say where it came from.** Pass `license` and `author` for anything you did not make (the credits and the store
+  disclosures read them), `ai: true` for what an AI made, and `sourceUrl` for the page you downloaded it from. A URL is
+  not read: download the file first. `path` picks the destination (a path under `assets/`, or a folder ending in `/`).
+- **Formats.** Aseprite becomes a PNG sheet with its tags as clips, PSD a PNG, OBJ (with its MTL and textures) a `.gltf`,
+  FBX a `.glb` (through FBX2glTF or Blender; the error says where to get one). Images, sounds, fonts, GLB and glTF are
+  copied. Not read: `.blend`, WebP, GIF, SVG, video. The full list is in `docs_read {"name":"assets"}`.
+- **Read `nextSteps` and `warnings`.** They hold the `Sprite` and `SpriteAnimator` fields to use for a sheet (columns,
+  rows, first and last frame, fps), the size of a model, and what could not be carried over (ping-pong tags, blend
+  modes, a missing texture).
+- **A sheet that is not a clean grid** (frames of different sizes, a solid background, as generated and downloaded
+  sheets often are): `assets_slice_sheet {"path":"assets/walk_raw.png","auto":true,"frames":8,"align":"bottom","background":"auto"}`
+  finds the sprites, repacks them into a uniform grid, writes `walk_raw_sheet.png` and returns the SpriteAnimator
+  fields. A regular grid you know: `{"path":"assets/walk.png","columns":4,"rows":2}` checks it against the image and
+  records it.
+
+<!-- Shipping (compression, atlases, streamed music, loudness): filled by the texture and audio work. -->
+
+### 9.24 Game menus: main menu, options, credits, loading screen, pause
 
 New projects have no menus. `factoria docs read menus` (MCP `docs_read {"name":"menus"}`) has a complete set to copy,
 which FactorIA's own tests drive with a gamepad only: a main menu, options (video, audio per bus, controls, a language

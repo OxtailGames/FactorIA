@@ -4,7 +4,9 @@
 // bindings valid), ENGINE_FEEDBACK.json present and valid, every scene/prefab in
 // the project loads (messages from fa::load_scene_file are forwarded), asset
 // paths referenced by reflected Asset fields exist, scenes and prefabs are in the canonical layout (warning), the
-// `icon` / `export` settings of factoria.json (fa/tooling/export_settings.h) and the icon files they name, scripts
+// `icon` / `export` settings of factoria.json (fa/tooling/export_settings.h) and the icon files they name, the files an
+// export ships (texture size, a file over 20 MB, the total against the store limits) and the textures Sprites draw (fully
+// transparent images, a background that should be transparent; docs/ASSETS.md, "Checks"), scripts
 // (via optional hooks installed by the CLI once the script module exists: syntax, Script.props, misspelled hooks).
 #pragma once
 

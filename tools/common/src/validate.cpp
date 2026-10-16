@@ -5,6 +5,7 @@
 #include <set>
 #include <sstream>
 
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/reflect.h"
@@ -18,6 +19,7 @@
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
+#include "assets_internal.h"
 #include "util.h"
 
 namespace fa {
@@ -33,6 +35,7 @@ struct PropsCheck {
 struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
+    std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -145,6 +148,9 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
     if (entity.contains("components") && entity["components"].is_object()) {
         for (auto it = entity["components"].begin(); it != entity["components"].end(); ++it) {
             check_component_assets(c, file, pointer + "/components/" + it.key(), it.key(), it.value());
+            if (it.key() == "Sprite" && it.value().is_object() && it.value().contains("texture") && it.value()["texture"].is_string() &&
+                !it.value()["texture"].get<std::string>().empty())
+                c.spriteTextures.insert(it.value()["texture"].get<std::string>());
             if (it.key() == "Tilemap") check_tilemap_tileset(c, file, pointer + "/components/Tilemap", it.value());
             if (it.key() == "Script" && it.value().is_object() && it.value().contains("path") && it.value()["path"].is_string()) {
                 scripts.insert(it.value()["path"].get<std::string>());
@@ -300,6 +306,35 @@ void check_feedback_file(Ctx& c, const std::string& file) {
     for (const auto& e : validate_feedback(doc.value())) c.error(file, e.pointer, e.message, e.hint);
 }
 
+// assets.json (optional): the schema, and entries whose file no longer exists (renamed or deleted asset).
+void check_assets_manifest(Ctx& c) {
+    const char* file = assets::kManifestFile;
+    auto text = tooling_detail::read_file(stdfs::path(c.dir) / file);
+    if (!text) return;
+    auto parsed = parse_json(*text, file);
+    if (!parsed.ok()) {
+        c.error(file, "", parsed.error().message, "Fix the JSON syntax (schemas/assets.schema.json).");
+        return;
+    }
+    const Json& doc = parsed.value();
+    Json schema = tooling_detail::load_schema("schemas/assets.schema.json");
+    if (!schema.is_null())
+        for (const auto& e : validate_json(schema, doc)) c.error(file, e.pointer, e.message, e.hint);
+    if (!doc.is_object() || !doc.contains("assets") || !doc["assets"].is_object()) return;
+    for (auto it = doc["assets"].begin(); it != doc["assets"].end(); ++it) {
+        const stdfs::path path = stdfs::path(c.dir) / it.key();
+        if (stdfs::exists(path)) continue;
+        std::vector<std::string> siblings;  // a renamed file usually stays in its folder
+        std::error_code ec;
+        for (const auto& d : stdfs::directory_iterator(path.parent_path(), ec))
+            if (d.is_regular_file(ec)) siblings.push_back(stdfs::relative(d.path(), c.dir, ec).generic_string());
+        std::string m = closest_match(it.key(), siblings);
+        c.warn(file, (Json::json_pointer("/assets") / it.key()).to_string(),
+               "Entry for '" + it.key() + "', which does not exist (renamed or deleted?).",
+               m.empty() ? "Remove the entry, or restore the file." : "Did you mean '" + m + "'? Rename the key, or remove the entry.");
+    }
+}
+
 }  // namespace
 
 Json ValidationIssue::to_json() const {
@@ -349,6 +384,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     check_project_file(c, mainScene, feedbackFile);
     check_plugins(c);
     check_feedback_file(c, feedbackFile);
+    check_assets_manifest(c);
+    assets_detail::check_shipped_assets(c.dir, c.report.warnings);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
@@ -390,6 +427,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
             if (parsed.value().is_object() && parsed.value().contains("entity"))
                 check_entity_assets(c, rel, "/entity", parsed.value()["entity"], scripts);
         }
+        assets_detail::check_sprite_textures(c.dir, c.spriteTextures, c.report.warnings);
         if (sceneFiles.empty())
             c.warn("scenes", "", "No scenes found (scenes/*.scene.json).", "Create scenes/main.scene.json.");
         else if (!mainScene.empty() && std::find(sceneFiles.begin(), sceneFiles.end(), mainScene) == sceneFiles.end() &&
