@@ -39,6 +39,7 @@ namespace {
 struct Slot {
     int fd = -1;
     std::optional<GamepadMapper> mapper;  // present while the pad is open
+    GamepadType type = GamepadType::Generic;  // from the pad's vendor id and name
     std::vector<EvdevAxisRoute> routes;   // raw axis number -> mapping axis or hat
 };
 Slot g_slots[kMaxGamepads];
@@ -121,6 +122,7 @@ bool open_pad(int index, Slot& s) {
                            "SDL_GAMECONTROLLERCONFIG or to {} in the game's folder.",
                 index, id.name, gamepad_guid(id), mapping.name, mapping.guid, kGamepadUserDbFile);
     s.mapper.emplace(std::move(mapping));
+    s.type = gamepad_type_from_ids(id.vendor, id.name);
     s.fd = fd;
     return true;
 }
@@ -172,6 +174,7 @@ void poll_gamepads(Input& in) {
             in.on_gamepad_connected(i, false);
             continue;
         }
+        in.set_gamepad_type(i, s.type);
         s.mapper->state().feed(in, i);  // all of it, every poll: also reconnects the pad after a focus loss
     }
 }
