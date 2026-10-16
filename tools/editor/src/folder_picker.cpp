@@ -163,6 +163,13 @@ std::string open_in_file_manager(const std::string& dir) {
     const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     return r > 32 ? std::string() : "Explorer could not open " + dir + " (error " + std::to_string(r) + ")";
 }
+std::string reveal_in_file_manager(const std::string& path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(utf8_path(path), ec)) return "the file " + path + " does not exist";
+    const std::wstring args = L"/select,\"" + utf8_path(path).make_preferred().wstring() + L"\"";
+    const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
+    return r > 32 ? std::string() : "Explorer could not show " + path + " (error " + std::to_string(r) + ")";
+}
 #else
 const char* file_manager_name() {
 #ifdef __APPLE__
@@ -190,6 +197,23 @@ std::string open_in_file_manager(const std::string& dir) {
             FA_WARN("editor", "{} {} failed: {}", argv[0], argv[1], r ? r->stderrText : r.error().to_string());
     }).detach();
     return {};
+}
+std::string reveal_in_file_manager(const std::string& path) {
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec)) return "the file " + path + " does not exist";
+#ifdef __APPLE__
+    // Finder selects the file in its folder (open -R); detached like open_in_file_manager.
+    std::thread([argv = std::vector<std::string>{"open", "-R", path}] {
+        ProcessOptions po;
+        po.argv = argv;
+        po.timeoutSeconds = 30;
+        auto r = run_process(po);
+        if (!r || r->exitCode != 0) FA_WARN("editor", "open -R {} failed: {}", argv[2], r ? r->stderrText : r.error().to_string());
+    }).detach();
+    return {};
+#else
+    return open_in_file_manager(std::filesystem::path(path).parent_path().string());  // no standard "select this file" on Linux
+#endif
 }
 #endif
 

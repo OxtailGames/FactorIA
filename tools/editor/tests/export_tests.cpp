@@ -71,8 +71,19 @@ TEST_CASE("export window: a button per platform, desktop first") {
     }
     CHECK(std::string(find_export_target("Win")->label) == "Windows");
     CHECK(find_export_target("amiga") == nullptr);
-    CHECK(export_target_note(*find_export_target("android")).find("Gradle") != std::string::npos);
     CHECK(export_target_note(*find_export_target("ios")).find("Xcode") != std::string::npos);
+
+    // Android's note says what the project's format builds.
+    const ExportTarget& android = *find_export_target("android");
+    CHECK(export_target_note(android, "apk").find("APK") != std::string::npos);
+    CHECK(export_target_note(android).find("APK") != std::string::npos);  // no format: the default one
+    CHECK(export_target_note(android, "aab").find("bundle") != std::string::npos);
+    CHECK(export_target_note(android, "gradle").find("nothing is built") != std::string::npos);
+    CHECK(export_format_label("apk") == "APK");
+    CHECK(export_format_label("aab") == "AAB");
+    CHECK(export_format_label("gradle") == "Gradle project");
+    CHECK(export_format_label("").empty());
+    CHECK(export_format_label("zip").empty());
 
     // Only another OS's desktop export needs a player chosen by hand.
     CHECK_FALSE(export_needs_player(kHost));
@@ -196,6 +207,8 @@ TEST_CASE("export window: a button press exports on a worker thread and reports 
 
 TEST_CASE("export window: Android writes a Gradle project whose next steps say how to build it") {
     TempProject p("android");
+    // The project's own format decides (ExportOptions::format stays empty): Gradle project only, so no Gradle build runs here.
+    REQUIRE(save_android_format(p.dir.string(), "gradle").ok());
     ExportSettings s;
     s.outDir = (p.root / "out").string();
     const ExportOptions o = export_options(p.dir.string(), "android", s);
@@ -212,4 +225,92 @@ TEST_CASE("export window: Android writes a Gradle project whose next steps say h
     bool gradle = false;
     for (const std::string& step : out.report.nextSteps) gradle = gradle || step.find("gradle") != std::string::npos;
     CHECK(gradle);
+}
+
+TEST_CASE("export window: the progress lines of a long step are kept for the window") {
+    ExportJob job;
+    CHECK(job.progress_line().empty());
+    CHECK(job.recent_lines().empty());
+    job.add_line("> Task :app:preBuild UP-TO-DATE\r\n");  // a Gradle line as the process reader hands it over
+    job.add_line("");                                       // blank lines are not lines
+    job.add_line("   ");
+    job.add_line("  > Task :app:compileDebugKotlin  ");
+    CHECK(job.progress_line() == "> Task :app:compileDebugKotlin");
+    const std::vector<std::string> lines = job.recent_lines();
+    REQUIRE(lines.size() == 2);
+    CHECK(lines[0] == "> Task :app:preBuild UP-TO-DATE");
+    CHECK(lines[1] == "> Task :app:compileDebugKotlin");
+
+    // Only the last lines are kept, oldest first.
+    for (size_t i = 0; i < ExportJob::kMaxLines + 50; ++i) job.add_line("line " + std::to_string(i));
+    const std::vector<std::string> kept = job.recent_lines();
+    REQUIRE(kept.size() == ExportJob::kMaxLines);
+    CHECK(kept.back() == "line " + std::to_string(ExportJob::kMaxLines + 49));
+    CHECK(kept.front() == "line 50");
+    CHECK(job.progress_line() == kept.back());
+}
+
+TEST_CASE("export window: a new export starts with a clean log and no cancel request") {
+    TempProject p("joblog");
+    ExportSettings s;
+    s.outDir = (p.root / "out").string();
+    s.players[kHost] = p.player();
+    ExportJob job;
+    job.add_line("left over from an earlier export");
+    job.cancel();  // pressed after the last export finished: must not stop the next one
+    CHECK_FALSE(job.cancelling());  // nothing is running
+    ExportOptions o = export_options(p.dir.string(), kHost, s);
+    std::vector<std::string> seen;
+    o.progress = [&](const std::string& line) { seen.push_back(line); };  // a caller's own callback still gets the lines
+    REQUIRE(job.start(o));
+    job.wait();
+    const std::optional<ExportOutcome> done = job.take_result();
+    REQUIRE(done.has_value());
+    CHECK_MESSAGE(done->ok, done->error);
+    CHECK_FALSE(done->cancelled);
+    CHECK(job.recent_lines().empty());  // the old line is gone (a desktop export reports no lines)
+}
+
+TEST_CASE("export window: only an export that stopped because of Cancel is reported as cancelled") {
+    TempProject p("cancel");
+    ExportSettings s;
+    s.outDir = (p.root / "out").string();
+    ExportOptions bad = export_options(p.dir.string(), kOtherDesktop, s);  // fails: no player built for that OS
+    CancelFlag flag{true};
+    bad.cancel = &flag;
+    const ExportOutcome out = run_export(bad);
+    CHECK_FALSE(out.ok);
+    CHECK_FALSE(out.cancelled);  // it failed for its own reason, which the window must show
+    CHECK(export_summary(out).find("failed") != std::string::npos);
+
+    ExportOutcome cancelled;
+    cancelled.platform = "android";
+    cancelled.cancelled = true;
+    cancelled.error = "export: cancelled";
+    CHECK(export_summary(cancelled) == "Export for Android cancelled");
+    CHECK(export_report_text(cancelled).find("cancelled") != std::string::npos);
+}
+
+TEST_CASE("export window: the summary and the report name the format and the artifact") {
+    ExportOutcome out;
+    out.platform = "android";
+    out.ok = true;
+    out.report.outputDir = "/out/game-android";
+    out.report.format = "apk";
+    out.report.artifact = "/out/game-android/game-debug.apk";
+    out.report.mode = "prebuilt";
+    out.report.nextSteps = {"adb install -r game-debug.apk"};
+    const std::string summary = export_summary(out);
+    CHECK(summary.find("Android APK") != std::string::npos);
+    CHECK(summary.find("/out/game-android") != std::string::npos);
+    const std::string text = export_report_text(out);
+    CHECK(text.find("Format: APK") != std::string::npos);
+    CHECK(text.find("Artifact: /out/game-android/game-debug.apk") != std::string::npos);
+    CHECK(text.find("1. adb install") != std::string::npos);
+
+    out.report.format.clear();  // a desktop export has neither
+    out.report.artifact.clear();
+    CHECK(export_summary(out) == "Exported Android to /out/game-android");
+    CHECK(export_report_text(out).find("Artifact") == std::string::npos);
+    CHECK(export_report_text(out).find("Format") == std::string::npos);
 }

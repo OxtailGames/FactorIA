@@ -46,17 +46,29 @@ button per platform (Windows, macOS, Linux, Android, iOS), each running this sam
 - **Output folder**: the parent folder of the exports, `<project>/build/export` by default. Type a path (relative to
   the project), press **Choose...** for the system's folder dialog or **Default** to go back; **Show in Finder** (Explorer
   on Windows, the file manager on Linux) opens it. An export replaces `<output folder>/<game>-<platform>` and nothing
-  else. **Release** changes the build commands in the next steps, as `--release` does.
+  else. **Release** makes a release build, as `--release` does (for Android a release APK or AAB, signed with the keystore
+  of the Android settings; hover it for what it changes on each platform).
+- **Platform settings...** (top of the window, also File > Platform Settings...) and the **Settings...** button of each
+  row open the [Platform settings window](EDITOR.md#platform-settings): the icon and the fields of
+  [Platform settings](#platform-settings) below, with Save / Revert, previews of the icons, a Create keystore... button for
+  the Android signing key and the JDK / SDK folders of this computer. It edits `factoria.json` (and
+  `~/.factoria/export.json`) through the same code `factoria validate` and the export read them with.
+- **Android format**: the Android row's **Format** menu picks `apk`, `aab` or `gradle` (`export.android.format`) and saves
+  it in `factoria.json` at once, without waiting for Save in the settings window.
 - **Each platform's row** says what an export there writes (hover **Ready** for the folder and the player), or why it
   cannot run here, with the error and hint `factoria export` would print: a desktop player missing for another OS, no
   prebuilt mobile players and no engine checkout, a missing reverse-DNS `id` for Android and iOS... Its button stays
   disabled until that is fixed; the rows are checked again every few seconds (`fa::plan_export`, which writes nothing).
   For another OS's desktop export, **Choose player...** picks the `factoria_player` built there (the one next to
   `factoria` in the FactorIA download for that OS), like `--player`.
-- **The report** shows under the buttons when the export finishes (it runs in the background; the editor keeps working):
-  the output folder with **Show in Finder** / **Copy path**, the mode, the warnings and the numbered **next steps**,
-  or the error and how to fix it. **Copy report** copies it as text. Android and iOS exports are projects, not
-  finished apps: the next steps say how to build them (Gradle for the APK, `build_ios.sh` / Xcode on a Mac).
+- **While it runs** (in the background; the editor keeps working) the window shows the export's current step, the
+  build output as it scrolls by and a **Cancel** button (it stops the running build; the export reports that it was
+  cancelled).
+- **The report** shows under the buttons when the export finishes: the output folder with **Show in Finder** /
+  **Copy path**, the format and, when the export made one file (an APK or an AAB), the **artifact** with its own
+  **Show in Finder** (selects the file) and **Copy file path**, the mode, the warnings and the numbered **next steps**,
+  or the error and how to fix it. **Copy report** copies it as text. A `gradle` Android export and an iOS export are
+  projects, not finished apps: the next steps say how to build them (Gradle, `build_ios.sh` / Xcode on a Mac).
 
 The export packages the files on disk: when the scene has unsaved changes the window says so and offers **Save scene**.
 
@@ -99,7 +111,7 @@ is set in two places:
 - **`factoria.json`** (committed with the game): a top-level `icon` and an `export` object with one object per
   platform. Everything is optional and every field has a default; the file is documented field by field in
   `schemas/project.schema.json` (`factoria api --schema project` prints it; its descriptions are the reference for AIs).
-  The editor's Platform settings window edits exactly these keys.
+  The editor's [Platform settings window](EDITOR.md#platform-settings) edits exactly these keys.
 - **`~/.factoria/export.json`** (this computer only, never in a project): where the Android SDK and JDK are, and the
   keystore passwords.
 

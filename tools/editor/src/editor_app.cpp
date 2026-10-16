@@ -221,7 +221,20 @@ void Editor::on_init() {
         std::error_code ec;
         stdfs::create_directories(base, ec);
         atOutDir_ = base.string();
-        stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_autotest_project_" + std::to_string(std::rand()));
+        // The Platform settings window saves this computer's settings: never into the user's real ~/.factoria/export.json.
+        {
+            const std::string machineConfig = (base / "export_config.json").string();
+            stdfs::remove(machineConfig, ec);
+#ifdef _WIN32
+            _putenv_s("FACTORIA_EXPORT_CONFIG", machineConfig.c_str());
+#else
+            setenv("FACTORIA_EXPORT_CONFIG", machineConfig.c_str(), 1);
+#endif
+        }
+        // Unique per run (an unseeded std::rand() always gave the same name, and two autotests running at once, from two
+        // checkouts, deleted each other's project).
+        const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+        stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_autotest_project_" + std::to_string(stamp));
         stdfs::remove_all(proj, ec);
         auto r = atWelcome_ ? Result<ScaffoldResult>(Error{"welcome mode"}) : create_project(proj.string(), "2d-platformer", ScaffoldOptions{"Autotest Platformer"});
         if (atWelcome_) {
@@ -305,6 +318,7 @@ bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
     ai_stop();
     reset_export_state();  // an export of the previous project finishes first
+    reset_platform_settings_state();  // so does a keystore being created; the unsaved settings of the old project are dropped
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
         ui::shutdown();
@@ -315,6 +329,11 @@ bool Editor::boot(const std::string& dirIn) {
             (void)path;
             if (t.view || t.image) ui::destroy_texture(t.image, t.view);
         }
+        for (auto& [path, p] : iconPreviews_) {
+            (void)path;
+            if (p.tex.view || p.tex.image) ui::destroy_texture(p.tex.image, p.tex.view);
+        }
+        iconPreviews_.clear();
         engine_->shutdown();
         engine_.reset();
     } else if (gfxUp_) {
@@ -923,6 +942,7 @@ void Editor::build_ui() {
     ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
     poll_export();
+    poll_platform_settings();
     draw_main_menu();
 
     const float statusH = ImGui::GetFrameHeight() + 6;
@@ -993,6 +1013,7 @@ void Editor::build_ui() {
     draw_project_dialog();
     draw_validation_window();
     draw_export_window();
+    draw_platform_settings_window();
     draw_docs_window();
     draw_toasts();
     draw_mark_popup();
@@ -1071,6 +1092,9 @@ void Editor::draw_main_menu() {
         ImGui::Separator();
         if (ImGui::MenuItem("Export Game...", nullptr, false, have)) open_export_window();
         ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS");
+        if (ImGui::MenuItem("Platform Settings...", nullptr, false, have)) open_platform_settings();
+        at_track("menu:platform-settings");
+        ImGui::SetItemTooltip("The game icon and what each platform's export needs: Android version and signing key, macOS category, iOS team...");
         ImGui::Separator();
         if (ImGui::MenuItem("Quit")) sapp_request_quit();
         ImGui::EndMenu();

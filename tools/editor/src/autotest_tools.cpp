@@ -496,6 +496,143 @@ void Editor::at_build_tools_script() {
     snap("editor_export_report.png");
     step(2, [this] { showExport_ = false; });
 
+    // ------------------------------------------------- I. Platform settings window
+    // Opened from the Settings... button of the Android row in the Export window, then through the tabs. Edits make it dirty,
+    // the Export window's format menu keeps working next to pending edits, Save writes factoria.json (and only that: this
+    // computer's file is untouched), closing with unsaved changes asks, and File > Platform Settings... opens it again.
+    // This computer's settings live in a scratch file (FACTORIA_EXPORT_CONFIG, set by on_init): never the user's own.
+    const std::string machineFile = machine_export_config_path();
+    auto scroll_body = [this, &step](float dy) {  // the wheel over the tab's body
+        step(2, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{800, 420}); });
+        for (int i = 0; i < 12; ++i)
+            step(1, [this, dy] {
+                sapp_event ev{};
+                ev.type = SAPP_EVENTTYPE_MOUSE_SCROLL;
+                ev.mouse_x = 800 * dpi_;
+                ev.mouse_y = 420 * dpi_;
+                ev.scroll_y = dy;
+                on_event(&ev);
+            });
+    };
+    step(2, [this, project_file] {
+        // A game icon with a transparent corner, as the AI would make one.
+        Image icon;
+        icon.width = icon.height = 1024;
+        icon.rgba.resize(size_t(icon.width) * size_t(icon.height) * 4);
+        for (int y = 0; y < icon.height; ++y)
+            for (int x = 0; x < icon.width; ++x) {
+                std::uint8_t* px = &icon.rgba[(size_t(y) * size_t(icon.width) + size_t(x)) * 4];
+                px[0] = std::uint8_t(x / 4);
+                px[1] = std::uint8_t(y / 4);
+                px[2] = 200;
+                px[3] = (x < 200 && y < 200) ? 0 : 255;
+            }
+        at_check(save_png(icon, project_file("assets/icon.png")).ok(), "a game icon was written to assets/icon.png");
+    });
+    click("toolbar:export");
+    step(4, [this] { at_check(at_visible("export:settings:android"), "the Export window has a Settings... button on the Android row"); });
+    click("export:settings:android");
+    step(4, [this] {
+        at_check(showPlatformSettings_, "the Android row's Settings... button opens the Platform settings window");
+        at_check(platformTab_ == SettingsTab::Android, "...on the Android tab");
+        at_check(platformSettings_.loaded() && !platformSettings_.dirty(), "...with nothing to save yet");
+        at_check(platformSettings_.info.name == "Autotest Platformer", "it shows the game's own name (" + platformSettings_.info.name + ")");
+        at_check(platformSettings_.parseErrors.empty() && platformSettings_.fileError.empty(), "the project's export settings read without errors");
+        // What a person types in the fields.
+        PlatformSettings& ps = platformSettings_;
+        ps.project.icon = "assets/icon.png";
+        ps.project.android.versionCode = 12;
+        ps.project.android.permissions = {"android.permission.VIBRATE"};
+        ps.project.android.signing.keystore = "keys/upload.keystore";
+        ps.project.macos.copyright = "Copyright 2026 Autotest";
+        ps.project.ios.teamId = "ABCDE12345";
+        at_check(ps.dirty(), "typing in a field makes the settings dirty");
+        at_check(ps.validate().errors.empty(), "the edits are valid");
+        at_check(ps.validate().warning_for("/export/android/signing/alias") != nullptr, "a keystore without an alias is a warning next to the alias field");
+    });
+    snap("editor_platform_android.png");
+    scroll_body(-40);
+    snap("editor_platform_android_signing.png");
+    click("platform:keystore-create");
+    step(4, [this] {
+        at_check(keystoreOpen_, "Create keystore... opens its window");
+        at_check(!keystoreForm_.path.empty() && keystoreForm_.alias == "upload", "...with a keystore path and the alias upload filled in");
+    });
+    snap("editor_platform_keystore.png");
+    click("platform:keystore-cancel");
+    step(4, [this] { at_check(!keystoreOpen_, "Cancel closes the keystore window"); });
+    click("platform:tab:general");
+    step(4, [this] { at_check(platformTab_ == SettingsTab::General, "clicking the General tab shows it"); });
+    snap("editor_platform_general.png");
+    click("platform:tab:macos");
+    step(4, [this] { at_check(platformTab_ == SettingsTab::Macos, "clicking the macOS tab shows it"); });
+    snap("editor_platform_macos.png");
+    click("platform:tab:ios");
+    step(4, [this] { at_check(platformTab_ == SettingsTab::Ios, "clicking the iOS tab shows it"); });
+    snap("editor_platform_ios.png");
+    click("platform:tab:linux");
+    step(4, [this] { at_check(platformTab_ == SettingsTab::Linux, "clicking the Linux tab shows it"); });
+    snap("editor_platform_linux.png");
+    click("platform:tab:windows");
+    step(4, [this] { at_check(platformTab_ == SettingsTab::Windows, "clicking the Windows tab shows it"); });
+    snap("editor_platform_windows.png");
+
+    // The Export window's format menu, with edits pending here: the format is saved at once and the working copy follows.
+    step(2, [this] {
+        set_android_format("aab");
+        auto saved = load_export_settings(projectDir_);
+        at_check(saved.ok() && saved->android.format == "aab", "the Export window's format menu saves export.android.format in factoria.json");
+        at_check(saved.ok() && saved->android.versionCode == 0, "...and nothing else of the pending edits");
+        at_check(platformSettings_.project.android.format == "aab" && platformSettings_.project.android.versionCode == 12,
+                 "...while the Platform settings window keeps its other edits");
+        at_check(platformSettings_.dirty(), "...which are still unsaved");
+        at_check(!platformSettings_.project_file_changed(), "factoria.json written by the editor itself is not reported as changed behind its back");
+    });
+    click("platform:tab:android");
+    step(3, [this] { platformSettings_.project.android.signing.alias = "upload"; });
+    click("platform:save");
+    step(4, [this, machineFile] {
+        at_check(!platformSettings_.dirty(), "Save leaves nothing unsaved");
+        auto saved = load_export_settings(projectDir_);
+        at_check(saved.ok(), "factoria.json still reads after Save");
+        if (saved.ok()) {
+            at_check(saved->icon == "assets/icon.png", "Save wrote the game icon");
+            at_check(saved->android.versionCode == 12 && saved->android.format == "aab", "Save wrote the Android settings");
+            at_check(saved->android.permissions == std::vector<std::string>{"android.permission.VIBRATE"}, "Save wrote the permissions");
+            at_check(saved->android.signing.keystore == "keys/upload.keystore" && saved->android.signing.alias == "upload", "Save wrote the signing key");
+            at_check(saved->macos.copyright == "Copyright 2026 Autotest" && saved->ios.teamId == "ABCDE12345", "Save wrote the macOS and iOS settings");
+        }
+        auto project = load_project(projectDir_);
+        at_check(project.ok() && project->name == "Autotest Platformer", "Save kept the game's own keys");
+        at_check(!std::filesystem::exists(machineFile), "Save did not write this computer's file (nothing of it was edited)");
+    });
+
+    // Closing with unsaved changes asks first.
+    step(2, [this] { platformSettings_.project.windows.icon = "assets/icon.png"; });
+    click("platform:close");
+    step(4, [this] {
+        at_check(platformCloseAsk_ && showPlatformSettings_, "Close with unsaved changes asks instead of closing");
+    });
+    snap("editor_platform_unsaved.png");
+    click("platform:close-discard");
+    step(4, [this] {
+        at_check(!showPlatformSettings_ && !platformCloseAsk_, "Discard closes the window");
+        auto saved = load_export_settings(projectDir_);
+        at_check(saved.ok() && saved->windows.icon.empty(), "...without saving the edit");
+    });
+    click("menu:file");
+    step(3, [] {});
+    click("menu:platform-settings");
+    step(4, [this] {
+        at_check(showPlatformSettings_ && platformTab_ == SettingsTab::General, "File > Platform Settings... opens the window on General");
+        at_check(platformSettings_.loaded() && !platformSettings_.dirty() && platformSettings_.project.icon == "assets/icon.png",
+                 "...with what was saved");
+    });
+    snap("editor_platform_reopened.png");
+    click("platform:close");
+    step(4, [this] { at_check(!showPlatformSettings_, "Close with nothing unsaved just closes"); });
+    step(2, [this] { showExport_ = false; });
+
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
