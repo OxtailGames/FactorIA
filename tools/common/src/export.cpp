@@ -79,7 +79,9 @@ Result<void> copy_game(const Project& p, const std::vector<std::string>& files, 
     for (const auto& f : files) {
         stdfs::path to = dest / f;
         stdfs::create_directories(os_path(to.parent_path()), ec);
-        stdfs::copy_file(os_path(p.dir / f), os_path(to), stdfs::copy_options::overwrite_existing, ec);
+        const auto staged = p.staged.find(f);
+        const stdfs::path from = staged != p.staged.end() ? staged->second : p.dir / f;
+        stdfs::copy_file(os_path(from), os_path(to), stdfs::copy_options::overwrite_existing, ec);
         if (ec) return err("export: cannot copy '" + f + "' to " + generic(to) + ": " + ec.message());
     }
     return {};
@@ -612,7 +614,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     auto planned = make_plan(options, true);  // every check first: a failed one leaves the previous export in place
     if (!planned.ok()) return planned.error();
     const Plan& plan = planned.value();
-    const Project& p = plan.project;
+    Project p = plan.project;  // the asset steps fill p.staged
     const std::string& platform = plan.platform;
     const stdfs::path& outRoot = plan.outRoot;
     ExportReport report;
@@ -638,6 +640,11 @@ Result<ExportReport> export_project(const ExportOptions& options) {
                                           "your repository too (add it to .gitignore, or move it outside the project and use an absolute path in "
                                           "export.android.signing.keystore): anyone who gets it can sign apps as you");
         }
+    }
+
+    if (auto assetsReady = prepare_game_assets(p, platform, files, report); !assetsReady.ok()) {
+        stdfs::remove_all(os_path(outRoot), ec);
+        return assetsReady.error();
     }
 
     Result<void> r;

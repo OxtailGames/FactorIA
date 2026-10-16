@@ -4,11 +4,15 @@
 //   export_desktop.cpp  linux / windows / macos
 //   export_android.cpp  the Android Gradle project
 //   export_ios.cpp      the iOS project and build_ios.sh
+//   export_assets.cpp   the asset steps every export runs before copying the game (assets.json import settings):
+//   export_textures.cpp   texture compression and atlases
+//   export_audio.cpp      audio conversion and loudness
 //
 // Nothing here is part of the fa_tooling API (that is fa/tooling/export.h).
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,6 +49,8 @@ struct Project {
     std::vector<std::string> platforms;
     bool hasPlatformsField = false;
     ProjectExportSettings settings;  // `icon` and `export` of factoria.json (load_export_settings), defaults filled in
+    // Shipped path -> the file copy_game copies instead of <dir>/<path>: what the asset steps converted (export_assets.cpp).
+    std::map<std::string, stdfs::path> staged;
 };
 
 // ---- helpers (export.cpp) -----------------------------------------------------------------------------
@@ -57,7 +63,8 @@ std::string host_platform();  // linux | windows | macos: the machine running fa
 std::string xml_escape(const std::string& s, bool androidString = false);
 std::string sh_quote(const std::string& s);
 
-// Copies the project files `files` (project-relative) into `dest`, keeping their paths.
+// Copies the project files `files` (project-relative) into `dest`, keeping their paths. A file in p.staged is copied from
+// there instead.
 Result<void> copy_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& dest);
 // Writes a text file (creating its folders); `executable` also sets the exec bits.
 Result<void> write_text(const stdfs::path& path, const std::string& text, bool executable = false);
@@ -151,5 +158,29 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
 // `icon` is the iOS icon (load_platform_icon), empty when none is set: it becomes Assets.xcassets next to build_ios.sh.
 Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSetup& setup, const stdfs::path& outRoot,
                         const std::vector<std::string>& files, const Image& icon, ExportReport& report);
+
+// ---- assets (export_assets.cpp, export_textures.cpp, export_audio.cpp) -------------------------------
+
+// What the asset steps work on. A step may replace a shipped file by a converted one (assets/hero.png ->
+// assets/hero.png.ktx2: the engine loads such a twin in place of the original), add files or drop them.
+struct ExportAssets {
+    Project& project;
+    const std::string& platform;       // linux | windows | macos | android | ios
+    std::vector<std::string>& files;   // shipped project-relative paths (sorted again after the steps)
+    stdfs::path cacheDir;              // <project>/.factoria/export-cache/<platform>: converted files, kept between exports
+    Json manifest;                     // the assets.json that ships: import settings, no provenance; steps may add to it
+    ExportReport& report;              // warnings
+    bool mobile() const { return platform == "android" || platform == "ios"; }
+    // Ships `source` (an absolute file, usually under cacheDir) as `shipped`, in place of `original` ("" = an added file).
+    void replace(const std::string& original, const std::string& shipped, const stdfs::path& source);
+};
+
+// Runs the asset steps on `files` (what collect_game_files found) and records the converted files in p.staged.
+Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report);
+
+// Texture compression (KTX2 / Basis Universal) and atlas packing by the import settings (export_textures.cpp).
+Result<void> convert_textures(ExportAssets& ea);
+// Audio conversion and loudness by the import settings (export_audio.cpp).
+Result<void> convert_audio(ExportAssets& ea);
 
 }  // namespace fa::export_detail

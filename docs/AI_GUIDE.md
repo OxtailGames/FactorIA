@@ -1031,6 +1031,17 @@ export default class Dash extends Behaviour {
 - From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
 - A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
 
+### 9.22 Art, sounds and models: generate, import, ship
+
+Never hand-draw placeholder art pixel by pixel through `fs.write`: generate it, import it, and let the export compress
+it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
+
+<!-- Generating: filled by the asset-providers work. -->
+
+<!-- Importing: filled by the importers work. -->
+
+<!-- Shipping (compression, atlases, streamed music, loudness): filled by the texture and audio work. -->
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:

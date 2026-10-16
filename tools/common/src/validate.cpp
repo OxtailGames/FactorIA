@@ -5,6 +5,7 @@
 #include <set>
 #include <sstream>
 
+#include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/reflect.h"
@@ -284,6 +285,35 @@ void check_feedback_file(Ctx& c, const std::string& file) {
     for (const auto& e : validate_feedback(doc.value())) c.error(file, e.pointer, e.message, e.hint);
 }
 
+// assets.json (optional): the schema, and entries whose file no longer exists (renamed or deleted asset).
+void check_assets_manifest(Ctx& c) {
+    const char* file = assets::kManifestFile;
+    auto text = tooling_detail::read_file(stdfs::path(c.dir) / file);
+    if (!text) return;
+    auto parsed = parse_json(*text, file);
+    if (!parsed.ok()) {
+        c.error(file, "", parsed.error().message, "Fix the JSON syntax (schemas/assets.schema.json).");
+        return;
+    }
+    const Json& doc = parsed.value();
+    Json schema = tooling_detail::load_schema("schemas/assets.schema.json");
+    if (!schema.is_null())
+        for (const auto& e : validate_json(schema, doc)) c.error(file, e.pointer, e.message, e.hint);
+    if (!doc.is_object() || !doc.contains("assets") || !doc["assets"].is_object()) return;
+    for (auto it = doc["assets"].begin(); it != doc["assets"].end(); ++it) {
+        const stdfs::path path = stdfs::path(c.dir) / it.key();
+        if (stdfs::exists(path)) continue;
+        std::vector<std::string> siblings;  // a renamed file usually stays in its folder
+        std::error_code ec;
+        for (const auto& d : stdfs::directory_iterator(path.parent_path(), ec))
+            if (d.is_regular_file(ec)) siblings.push_back(stdfs::relative(d.path(), c.dir, ec).generic_string());
+        std::string m = closest_match(it.key(), siblings);
+        c.warn(file, (Json::json_pointer("/assets") / it.key()).to_string(),
+               "Entry for '" + it.key() + "', which does not exist (renamed or deleted?).",
+               m.empty() ? "Remove the entry, or restore the file." : "Did you mean '" + m + "'? Rename the key, or remove the entry.");
+    }
+}
+
 }  // namespace
 
 Json ValidationIssue::to_json() const {
@@ -332,6 +362,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     std::string mainScene, feedbackFile = kFeedbackFileName;
     check_project_file(c, mainScene, feedbackFile);
     check_feedback_file(c, feedbackFile);
+    check_assets_manifest(c);
 
     std::set<std::string> scripts;
     if (options.checkScenes) {
