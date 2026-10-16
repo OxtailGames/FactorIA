@@ -322,6 +322,7 @@ jobs:
     timeout-minutes: 90
     env:
       CCACHE_COMPILERCHECK: content  # sdkmanager unpacks the NDK anew each run, so its compilers' mtime changes
+      FA_CI_PLUGINS: /tmp/ci-plugins  # where the game's native plugin lives: "${FA_CI_PLUGINS}/example" in its factoria.json
     steps:
       - uses: actions/checkout@v4
 
@@ -355,21 +356,56 @@ jobs:
           yes | "$sdk/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$sdk/cmdline-tools/latest/bin/sdkmanager" "cmake;3.31.6" "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018"
 
-      # Writes the Gradle project and runs ./gradlew assembleDebug in it (source mode: the engine is compiled from this
-      # checkout for both ABIs); the APK lands next to the project as <slug>-debug.apk.
-      - name: Create a game, export it and build the debug APK
+      # A native plugin (docs/EXTENDING.md, section G; docs/MOBILE.md, "Native plugins on Android") outside the game, as a private SDK
+      # would be: factoria.json says "${FA_CI_PLUGINS}/example". Its android/ folder is a Gradle module with a Java class;
+      # its libexample.so is built here with the NDK's toolchain, once per ABI the APK carries. The game's script calls the
+      # plugin when it starts (tools/cli/tests/plugin_probe.js) and the emulator job checks the log for the answers.
+      - name: Create a game with a native plugin, built for both ABIs
         run: |
-          build/tools/tools/cli/factoria new /tmp/ci-game --template 2d-platformer --name "CI Game" --id dev.factoria.cigame
+          factoria=build/tools/tools/cli/factoria
+          $factoria new /tmp/ci-game --template 2d-platformer --name "CI Game" --id dev.factoria.cigame
+          $factoria call project.new_plugin '{"name":"example","path":"${FA_CI_PLUGINS}/example","platforms":["android"]}' --project /tmp/ci-game
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          for abi in arm64-v8a x86_64; do
+            "$sdk/cmake/3.31.6/bin/cmake" -S "$FA_CI_PLUGINS/example" -B "$FA_CI_PLUGINS/example/build/$abi" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release -DANDROID_ABI=$abi -DANDROID_PLATFORM=android-26 \
+              -DCMAKE_TOOLCHAIN_FILE="$sdk/ndk/27.2.12479018/build/cmake/android.toolchain.cmake"
+            "$sdk/cmake/3.31.6/bin/cmake" --build "$FA_CI_PLUGINS/example/build/$abi"
+          done
+          ls -l "$FA_CI_PLUGINS"/example/android/src/main/jniLibs/*/
+          mkdir -p /tmp/ci-game/scripts
+          cp tools/cli/tests/plugin_probe.js /tmp/ci-game/scripts/probe.js
+          python3 - <<'PY'
+          import json
+          path = "/tmp/ci-game/scenes/main.scene.json"
+          with open(path) as f:
+              scene = json.load(f)
+          scene["entities"].append({"id": "probe", "name": "Probe", "components": {"Script": {"path": "scripts/probe.js"}}})
+          with open(path, "w") as f:
+              json.dump(scene, f, indent=2)
+          PY
+
+      # Writes the Gradle project and runs ./gradlew assembleDebug in it (source mode: the engine is compiled from this
+      # checkout for both ABIs); the APK lands next to the project as <slug>-debug.apk. FA_CI_PLUGINS (job env) is still
+      # set: the export copies the plugin's android/ module into the project (plugins/example).
+      - name: Export the game and build the debug APK
+        run: |
           build/tools/tools/cli/factoria export /tmp/ci-game --platform android --out /tmp/ci-out
           ls -la /tmp/ci-out/ci-game-android
 
-      # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md).
-      - name: Check the APK contains the native library for both ABIs
+      # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md). The
+      # plugin's libraries are in the APK for both, and its Java class is in the dex (the manifest has hasCode="true").
+      - name: Check the APK contains the native libraries for both ABIs and the plugin's Java class
         run: |
           unzip -l /tmp/ci-out/ci-game-android/ci-game-debug.apk | tee /tmp/apk-contents.txt
           grep -q 'lib/arm64-v8a/libfactoria_player.so' /tmp/apk-contents.txt
           grep -q 'lib/x86_64/libfactoria_player.so' /tmp/apk-contents.txt
           grep -q 'assets/factoria.json' /tmp/apk-contents.txt
+          grep -q 'lib/arm64-v8a/libexample.so' /tmp/apk-contents.txt
+          grep -q 'lib/x86_64/libexample.so' /tmp/apk-contents.txt
+          grep -q 'android:hasCode="true"' /tmp/ci-out/ci-game-android/app/src/main/AndroidManifest.xml
+          unzip -p /tmp/ci-out/ci-game-android/ci-game-debug.apk 'classes*.dex' > /tmp/apk-classes.dex
+          grep -aq 'Lfactoria/plugin/example/Plugin;' /tmp/apk-classes.dex
 
       - name: Upload the debug APK for the emulator job
         uses: actions/upload-artifact@v4
@@ -405,8 +441,14 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # FA_SMOKE_EXPECT: what the game's script logs when it calls its native plugin (tools/cli/tests/plugin_probe.js):
+      # the sum computed by the plugin's Java class through JNI, and the plugin's command.
       - name: Run the APK in the emulator (smoke test)
         uses: reactivecircus/android-emulator-runner@v2.38.0
+        env:
+          FA_SMOKE_EXPECT: |
+            probe add=3
+            probe info=.*"plugin":"example"
         with:
           api-level: 34
           arch: x86_64
