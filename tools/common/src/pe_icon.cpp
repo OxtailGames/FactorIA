@@ -25,12 +25,10 @@ struct View {
 };
 
 void put_u16(std::vector<std::uint8_t>& d, std::uint64_t off, std::uint32_t x) {
-    d[off] = std::uint8_t(x & 0xff);
-    d[off + 1] = std::uint8_t((x >> 8) & 0xff);
+    for (int i = 0; i < 2; ++i) d[off + i] = std::uint8_t(x >> (8 * i));
 }
 void put_u32(std::vector<std::uint8_t>& d, std::uint64_t off, std::uint32_t x) {
-    put_u16(d, off, x & 0xffff);
-    put_u16(d, off + 2, x >> 16);
+    for (int i = 0; i < 4; ++i) d[off + i] = std::uint8_t(x >> (8 * i));
 }
 
 struct Section {
@@ -278,6 +276,9 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
     PeVersionPatch result;
     const View v{exe};
     for (const ResourceData& res : found) {
+        std::vector<Edit> resEdits;
+        std::uint64_t resFixedInfo = 0;
+        std::vector<std::string> truncated;
         const std::uint64_t resEnd = res.offset + res.size;
         int blocks = 0;
         auto walk = [&](auto&& self, std::uint64_t at, std::uint64_t end, int depth) -> bool {
@@ -291,23 +292,21 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
             const std::uint64_t value = (k + 2 + 3) & ~std::uint64_t(3);
             if (depth == 0) {
                 if (key != "VS_VERSION_INFO") return false;
-                if (valueLen >= 52 && value + 52 <= blockEnd && v.u32(value) == kFixedFileInfoSignature) fixedInfo = value;
+                if (valueLen >= 52 && value + 52 <= blockEnd && v.u32(value) == kFixedFileInfoSignature) resFixedInfo = value;
             }
             if (depth == 3) {  // a string of a string table
                 if (type != 1 || value + 2 > blockEnd) return true;
-                const std::string& name = key;
-                const auto want = info.strings.find(name);
+                const auto want = info.strings.find(key);
                 if (want == info.strings.end()) return true;
                 const std::size_t room = std::size_t((blockEnd - value) / 2) - 1;
                 std::u16string text = utf16(want->second);
                 if (text.size() > room) {
                     text.resize(room);
                     if (room > 0 && text.back() >= 0xD800 && text.back() < 0xDC00) text.back() = 0;  // half a surrogate pair
-                    result.truncated.push_back(name);
+                    truncated.push_back(key);
                 }
                 text.resize(room + 1, u'\0');
-                edits.push_back({value, text});
-                result.set.push_back(name);
+                resEdits.push_back({value, text});
                 return true;
             }
             const std::uint64_t valueBytes = type == 1 ? valueLen * 2 : valueLen;
@@ -319,10 +318,8 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
             return true;
         };
         // A resource that is not a well-formed VS_VERSIONINFO is not the placeholder: it is left alone.
-        if (!walk(walk, res.offset, resEnd, 0)) {
-            edits.clear(), fixedInfo = 0, result.set.clear(), result.truncated.clear();
-            continue;
-        }
+        if (!walk(walk, res.offset, resEnd, 0)) continue;
+        edits = std::move(resEdits), fixedInfo = resFixedInfo, result.truncated = std::move(truncated);
         result.found = true;
         break;
     }
@@ -339,7 +336,8 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
             put_u32(exe, at + 4, (n[2] << 16) | n[3]);
         }
     }
-    finish_patch(exe, *pe, result.signatureRemoved, result.truncatedFile);
+    bool truncatedFile = false;
+    finish_patch(exe, *pe, result.signatureRemoved, truncatedFile);
     return result;
 }
 
