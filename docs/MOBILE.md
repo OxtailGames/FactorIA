@@ -28,13 +28,14 @@ its own failure message, and the logs, screenshots and crash reports are uploade
 
 | Step | Android emulator | iOS Simulator |
 |---|---|---|
-| Ready | no fixed sleep: `sys.boot_completed`, boot animation stopped, package manager answers, device provisioned, keyguard dismissed, launcher has the window focus | `simctl bootstatus -b` |
+| Ready | no fixed sleep: `sys.boot_completed`, boot animation stopped, package manager answers, device provisioned, keyguard dismissed, launcher has the window focus; after the install, the broadcast queues are idle (`am wait-for-broadcast-idle`) | `simctl bootstatus -b` |
 | Run | process alive, `player: 60 frames rendered`, same process 5 s later | same |
 | Audio | `audio: output device open` and `audio: stream running` (the platform pulled samples); the warning `no audio output device available` fails | same (the failure prints the host's audio devices) |
 | Touch | `input touchscreen tap` in the middle of the screen reaches the player (`input: first touch`) | not covered: `simctl` cannot inject touches |
 | Suspend / resume | HOME key, then `am start`: `player: suspended`, the process survives, `player: resumed`, `player: 60 frames rendered after resume`, the game has the window focus, a new native window was created (debug sokol_app), the screen shows a picture | launch Settings on top, then launch the app again: same checks, same process |
 | Configuration change | the font scale is changed twice: the process and activity survive | not applicable |
 | No crash | no Java exception, native signal or ANR, no `E factoria` line, the activity was never destroyed or relaunched, the screenshot shows a picture | no `ERROR` line, no crash report, the screenshot shows a picture |
+| Relaunch | `am update-appinfo` (the update an overlay or a wallpaper-colour change sends) relaunches the activity: the old process ends with no native signal and no GL call without a context, the system starts the game again in a new process, which renders 60 frames, has the window focus and shows a picture, and logs no `E factoria` line | not applicable |
 
 The lines the scripts wait for are part of the player: `player: 60 frames rendered` (`engine/runtime/src/runners.cpp`),
 `player: suspended`, `player: resumed`, `player: 60 frames rendered after resume` (same file), `audio: output device open`
@@ -48,7 +49,11 @@ a restarted `NativeActivity` ends the whole process (sokol_app calls `exit(0)` i
 virtual SIM loads some seconds after `sys.boot_completed`, which changes `mcc`/`mnc`. The manifest now lists every change
 the player can ignore (`mcc`, `mnc`, `locale`, `layoutDirection`, `fontScale`, `fontWeightAdjustment`, `colorMode` next
 to the ones that were there), which also keeps a real phone from killing the game when the user changes the language or
-the font size; the font-scale step keeps that fixed. If a run still loses the process, `android-smoke.sh` prints the
+the font size; the font-scale step keeps that fixed. One restart cannot be listed: a change of the app's assets paths
+(`CONFIG_ASSETS_PATHS`, logged as `wm_relaunch_resume_activity ... 80000000`). A run started right after the install was
+relaunched that way while ActivityManager was still delivering `BOOT_COMPLETED` and the install's broadcasts, so the
+script now waits until every broadcast queue is idle before it starts the game; the relaunch step covers the same
+relaunch on purpose (see "Lifecycle" under Android). If a run still loses the process, `android-smoke.sh` prints the
 activity lifecycle events (`wm_*_activity`), `configuration_changed` events, the window focus and the SIM state.
 
 Not covered by CI, so a green run is not a device certification:
@@ -141,6 +146,22 @@ Never commit the keystore or passwords.
 `portrait` -> `sensorPortrait`, `any` -> `fullSensor` in `AndroidManifest.xml`.
 The app is full screen; the game renders at its design resolution with the
 project's `scaleMode`.
+
+### Lifecycle
+
+- Going to the background and back keeps the process: the game gets `Suspended`/`Resumed` (`player: suspended`,
+  `player: resumed` in the log) and the GL surface is rebuilt.
+- Configuration changes the manifest lists (orientation, screen size, density, dark mode, locale, font size, the SIM's
+  `mcc`/`mnc` and the others in `android:configChanges`) are handled in place: the game keeps running.
+- A change of the app's assets paths cannot be listed: a new wallpaper colour palette or theme (Android 12+), a system
+  overlay turned on or off (e.g. the display-cutout emulation of the developer options). Android then relaunches every
+  activity. A destroyed NativeActivity ends the process (sokol_app exits so that the next start has fresh globals), and
+  the activity is `stateNotNeeded`, so Android starts the game again in a new process: it restarts from its first
+  scene, as after a cold start.
+- Back and closing the game destroy the activity too; the process ends and the game is not started again.
+- When the process ends this way it ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`): the engine is not
+  shut down and no script callback runs. Save progress while the game runs: `storage` writes go to `storage.json` in the
+  app's internal folder immediately.
 
 ## iOS
 

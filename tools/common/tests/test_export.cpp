@@ -225,6 +225,8 @@ TEST_CASE("export: android source mode produces a Gradle project that compiles t
     const std::string changes = "|" + manifest.substr(from, manifest.find('"', from) - from) + "|";
     for (const char* change : {"mcc", "mnc", "locale", "fontScale", "layoutDirection", "orientation", "uiMode"})
         CHECK(changes.find(std::string("|") + change + "|") != std::string::npos);
+    // The one restart it cannot list (assets paths) ends the process: without stateNotNeeded Android drops the activity.
+    CHECK(manifest.find("android:stateNotNeeded=\"true\"") != std::string::npos);
     std::string strings = testing::read_all(root / "app/src/main/res/values/strings.xml");
     CHECK(strings.find("Space Dodge\\'s") != std::string::npos);
     CHECK(strings.find("&quot;") != std::string::npos);
