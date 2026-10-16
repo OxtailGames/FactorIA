@@ -348,10 +348,11 @@ std::string gradle_failure_hint(const std::deque<std::string>& tail, const std::
     std::string text = lower(failure);
     for (const std::string& l : tail) text += "\n" + lower(l);
     const std::string sdkTool = a.toolchain.sdk.empty() ? std::string("sdkmanager")
-                                                        : generic(stdfs::path(a.toolchain.sdk) / "cmdline-tools" / "latest" / "bin" / "sdkmanager");
+                                                        : generic(stdfs::path(a.toolchain.sdk) / "cmdline-tools" / "<revision>" / "bin" / "sdkmanager");
     if (mentions(text, {"licences have not been accepted", "licenses have not been accepted", "have not accepted the license",
                         "not accepted the licenses"}))
-        return "The Android SDK licenses are not accepted yet, so Gradle cannot download the SDK package it needs (a platform or the build tools). Accept them once: " +
+        return "The Android SDK licenses are not accepted yet, so Gradle cannot download the SDK package it needs (a platform or the build tools). Accept them once: "
+               "factoria setup android (it shows the license and records it once you agree; the editor's Install Android build tools does the same), " +
                sdkTool + " --licenses (answer y), or Android Studio > Settings > Android SDK > SDK Tools, then export again.";
     if (mentions(text, {"unsupported class file major version", "unsupportedclassversionerror", "unsupported java", "incompatible java",
                         "requires java 17", "requires jdk 17", "could not determine java version", "invalid source release"}))
