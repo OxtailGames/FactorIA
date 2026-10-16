@@ -366,6 +366,14 @@ Found and fixed while implementing M9 (Apple hardware):
   updater swapped files only (folders came in 0.1.3); the next update fills it in. `FA_UPDATE_LIVE=1 fa_test_editor`
   runs the current `install_update` against the newest real release (download, unpack, `mobile/`, the new `factoria`
   runs); it passes on macOS.
+- A Debug APK aborted in `sg_setup` on an arm64 API 35 emulator started with `-gpu swiftshader_indirect`
+  (sokol_gfx asserts `glGetError() == 0` in `_sg_gl_init_limits`). The player asks for an ES 3.0 context; that
+  emulator's GL stack (gfxstream over ANGLE/SwiftShader) answers `GL_MAJOR_VERSION`/`GL_MINOR_VERSION` with its highest
+  version, 3.1, so sokol_gfx turned on compute and queried `GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS`, which gfxstream
+  rejects on a 3.0 context (`GL error 0x500`). `engine/platform/src/sokol_impl.c` now gives sokol_gfx the version the
+  player asked for whenever the driver reports a newer one (the engine uses no ES 3.1 feature, and every device runs
+  the same sokol_gfx code). `android-smoke.sh` passes on that emulator with `-gpu swiftshader_indirect` (ES 3.1) and
+  `-gpu host` (ES 3.0 on Metal); CI's x86_64 emulator reports 3.0 and is unchanged.
 
 Left open after M9:
 - An Apple pad on iOS: same code as macOS, built and run, but not with a real pad. The iOS Simulator shows a virtual
@@ -377,9 +385,6 @@ Found while implementing M9, not fixed:
 - Android: when the activity is destroyed the engine is not shut down (sokol_app calls `cleanup` only while a surface
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
-- A Debug APK aborts in `sg_setup` on an arm64 API 35 emulator started with `-gpu swiftshader_indirect`: sokol_gfx
-  asserts `glGetError() == 0` in `_sg_gl_init_limits` (which query fails is not known yet). `-gpu host` runs, and so
-  does CI's x86_64 API 34 software GPU.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 

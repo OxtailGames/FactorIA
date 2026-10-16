@@ -23,7 +23,36 @@
 #if defined(__ANDROID__)
 #undef ANativeActivity_onCreate
 #endif
+
+#if defined(__ANDROID__)
+// The OpenGL ES version sokol_gfx sees.
+//
+// sokol_gfx reads the version with glGetIntegerv(GL_MAJOR_VERSION / GL_MINOR_VERSION) and turns on the ES 3.1
+// features from it (compute, storage buffers), whose limits sg_setup() then queries. The player asks for a 3.0 context
+// (to_sapp_desc in app.cpp). The Android emulator's GL stack (gfxstream) answers those two queries with the highest
+// version of its GPU (3.1 with -gpu swiftshader_indirect) but rejects every ES 3.1 query on a 3.0 context with
+// GL_INVALID_ENUM, so sg_setup() hit an error (a Debug build aborts: "_sg_gl_init_limits: assertion glGetError() == 0
+// failed"). sokol_gfx is told the version the player asked for whenever the driver reports a newer one: the engine uses
+// no ES 3.1 feature, and every device then runs the same sokol_gfx code.
+#include <GLES3/gl3.h>
+
+static void fa_gl_get_integerv(GLenum pname, GLint* data) {
+    glGetIntegerv(pname, data);
+    if (pname != GL_MAJOR_VERSION && pname != GL_MINOR_VERSION) return;
+    GLint major = 0, minor = 0;
+    glGetIntegerv(GL_MAJOR_VERSION, &major);
+    glGetIntegerv(GL_MINOR_VERSION, &minor);
+    const int asked_major = sapp_gl_get_major_version(), asked_minor = sapp_gl_get_minor_version();
+    if (major > asked_major || (major == asked_major && minor > asked_minor)) {
+        *data = pname == GL_MAJOR_VERSION ? asked_major : asked_minor;
+    }
+}
+#define glGetIntegerv fa_gl_get_integerv
+#endif
 #include "sokol_gfx.h"
+#if defined(__ANDROID__)
+#undef glGetIntegerv
+#endif
 #include "sokol_glue.h"
 #include "sokol_log.h"
 #include "sokol_time.h"
