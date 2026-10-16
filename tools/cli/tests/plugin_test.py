@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end test of native plugins (docs/EXTENDING.md, "Native plugins").
 
-usage: plugin_test.py <path-to-factoria> <path-to-the-example-plugin-library>
+usage: plugin_test.py <path-to-factoria> <path-to-the-example-plugin-library> <path-to-factoria_player>
 
 The library is platforms/plugin/src/plugin.c (the template project.new_plugin writes) built by the engine's build as
 the plugin "example". The test makes a game, scaffolds the plugin in a private folder outside it (${VARIABLE} path),
@@ -19,6 +19,7 @@ import tempfile
 
 FACTORIA = os.path.abspath(sys.argv[1])
 LIBRARY = os.path.abspath(sys.argv[2])
+PLAYER = os.path.abspath(sys.argv[3])  # multi-config builds keep it in player/<config>/, where export does not look
 HOST = {"Windows": "windows", "Darwin": "macos"}.get(platform.system(), "linux")
 failures = []
 
@@ -95,7 +96,7 @@ def main():
 
         # factoria export, then the exported game alone (no environment variable: the library ships with it).
         exports = os.path.join(tmp, "export")
-        code, out, err = run(["export", game, "--out", exports], env=env)
+        code, out, err = run(["export", game, "--out", exports, "--player", PLAYER], env=env)
         if not check(code == 0, "factoria export", out + err):
             return
         root = os.path.join(exports, "plugin-game-" + HOST)

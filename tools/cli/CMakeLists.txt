@@ -53,7 +53,7 @@ if(FA_BUILD_TESTS)
         set_target_properties(fa_test_plugin_example PROPERTIES OUTPUT_NAME example C_VISIBILITY_PRESET hidden)
         add_test(NAME cli_plugin
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/plugin_test.py $<TARGET_FILE:factoria>
-                    $<TARGET_FILE:fa_test_plugin_example>
+                    $<TARGET_FILE:fa_test_plugin_example> $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu")
     endif()
