@@ -1494,6 +1494,10 @@ NATIVE(notices) {
     return I->from_json(out);
 }
 
+NATIVE(platform) {
+    return JS_NewString(ctx, FA_PLATFORM_NAME);
+}
+
 NATIVE(storageGet) {
     SETUP;
     I->load_storage();
@@ -1681,7 +1685,7 @@ const Reg kRegs[] = {
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
+    R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
