@@ -290,6 +290,93 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
 - `ui.measureText(text, { fontSize, font, maxWidth })` → `{ width, height }` laid out like `Text` rendering.
   Headless runs approximate (0.6 × fontSize per character) and warn once.
+- `ui.on`, `ui.focus`, `ui.focused` and `ui.hovered` belong to the widgets: see the next section.
+
+### UI: menus, settings screens and HUD widgets
+The widgets are components: `Panel` (a background that can lay out its children), `Button`, `Toggle`, `Slider`,
+`TextField` and `ScrollList` (a Panel that scrolls and clips its children). They are drawn and hit-tested in SCREEN
+SPACE only (design pixels, origin top-left, +Y down; there is no `space` field). `Transform.position` is the offset from
+`anchor` (a fraction of the design size: `[0, 0]` top-left, `[1, 1]` bottom-right) and `pivot` says which point of the
+widget sits there (`[0.5, 0.5]` centres it, `[0, 1]` puts its top-left corner on the position). Rotation and scale of UI
+entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the ones that matter:
+
+- Style, on every widget: `size`, `pivot`, `anchor`, `layer` (draw order, default 200: above `Text`'s 100; a widget's
+  label is drawn at `layer + 1` and its focus ring at `layer + 2`), `color` (background tint), `texture` + `slice`.
+  With a `texture`, the background is drawn 9-slice: `slice` = `[left, top, right, bottom]` borders in texture pixels
+  that keep their size (1 texture pixel = 1 design pixel) while the edges and the centre stretch, so one small PNG
+  gives a button or panel of any size. `slice: [0, 0, 0, 0]` stretches the whole image.
+- Button, Toggle, Slider and TextField also have `font`, `fontSize`, `textColor`, `accentColor` (focus ring, slider fill
+  and knob, toggle check, caret), `interactable` (false: drawn at half alpha, never focused or clicked) and
+  `autoFocus`. Read-only runtime flags: `focused`, `hovered`, `pressed` (a script may read them to restyle).
+  Button has `text`; Toggle `label` + `value`; Slider `label`, `value`, `min`, `max`, `step`, `showValue`; TextField
+  `text`, `placeholder`, `maxLength`.
+- **Layout.** A `Panel` with `layout: "column" | "row" | "grid"` places its active children (widgets, and screen-space
+  `Text`, `Sprite` and `Shape2D`) inside its rectangle minus `padding`: `spacing` between them, `align` (the cross axis:
+  `start`, `center`, `end`; default center), `justify` (where the run sits along the main axis), `columns` for a grid, and
+  `fit: true` makes the Panel as big as its content plus padding. Layout moves the children's `Transform.position`
+  every frame, so a child's own position is only a starting point inside a laid-out Panel. `layout: "none"` (the default)
+  leaves them where they are. Give a `Sprite` inside a container an explicit `size` (it is measured as 32 x 32 until
+  the texture size is known to the layout); a `Text` is measured with the real font.
+- **ScrollList.** Lays its children out as a column and shows the part inside its rectangle: everything drawn by its
+  descendants (widgets, `Text`, `Sprite`, `Shape2D`) is clipped to it, and hits outside it do nothing. The mouse wheel
+  over it scrolls (`scrollSpeed` pixels per notch) and moving the focus to a child scrolls it into view. `scroll` is
+  the offset in pixels (scripts may write it; it is clamped).
+
+**Focus and navigation.** A widget can have keyboard / gamepad focus when it is a Button, Toggle, Slider or TextField,
+active and `interactable`. Nothing takes focus by itself except one thing: when no widget is focused, the first
+focusable widget (top to bottom, then left to right) with `autoFocus: true` takes it. So a HUD button never reacts to the
+gameplay keys; a menu marks its first item `autoFocus` (or calls `ui.focus(...)` when it opens). A focused widget that is
+destroyed, deactivated or made not interactable loses focus, and `autoFocus` applies again. The actions below move
+the focus to the nearest focusable widget in that direction (holding repeats after 0.4 s, then every 0.1 s; it does not
+wrap):
+
+| action | default bindings | does |
+|---|---|---|
+| `ui_up` `ui_down` `ui_left` `ui_right` | arrows, d-pad, left stick | move the focus; on a focused Slider, left / right change the value by `step` |
+| `ui_submit` | Enter, Space, `GamepadA` | click the focused Button, flip the focused Toggle (a TextField ignores it) |
+| `ui_cancel` | Escape, `GamepadB` | send `ui.cancel` (also with nothing focused) |
+
+The engine installs these six unless `input.actions` in `factoria.json` defines an action of the same name, so to rebind
+a key, add the action there: `"ui_submit": ["Enter", "GamepadA"]` (the project's list replaces the default one).
+A focused TextField takes typed characters (`maxLength` code points, UTF-8), Backspace deletes (it repeats) and the
+Enter key sends `ui.submit`. The mouse (and the first touch) hovers, presses and focuses; a Button or Toggle acts when
+the press is released over the same widget; a Slider follows the pointer while pressed.
+
+**The UI works while the game is paused** (`time.scale = 0`): it runs on real time, which is what a pause menu needs.
+
+**Events.** The UI sends game events (`world.on(name, (data, source) => ...)`, `Behaviour.onEvent`), with the widget as
+`source` and `data.id` its entity id:
+
+| event | when | `data` |
+|---|---|---|
+| `ui.click` | a Button was clicked (mouse, or `ui_submit` while focused) | `{ id }` |
+| `ui.change` | a Toggle flipped, a Slider moved, a TextField was edited | `{ id, value }` (boolean, number, string) |
+| `ui.submit` | Enter in a TextField | `{ id, value }` |
+| `ui.focus` | a widget took the focus | `{ id }` |
+| `ui.cancel` | `ui_cancel` was pressed | `{ id }` (`null` when nothing is focused) |
+
+- `ui.on(type, fn)` / `ui.on(type, target, fn)` → unsubscribe function. `type` is `"click"`, `"change"`, `"submit"`, `"focus"`
+  or `"cancel"`; `target` (an Entity or an entity id) limits it to one widget; `fn` gets `{ type, id, entity, value }`.
+  A wrong `type` throws with a "did you mean". Inside a behaviour prefer `this.on("ui.click", (data, source) => ...)`:
+  it is removed with the behaviour. Scripts do not need to poll the widgets:
+  ```js
+  ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json"));
+  ui.on("change", "music_volume", (e) => audio.setVolume("music", e.value));
+  ```
+- `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it throws, saying why, when
+  the entity is not a focusable widget, is inactive or has `interactable: false`. `ui.focused` and `ui.hovered`
+  are the focused widget and the one under the pointer (Entity or `null`): check `ui.hovered` so a click meant for a
+  button does not also fire the gun.
+- The command `ui.state` returns what is on screen: every widget with its `id`, `kind`, `rect` `[x, y, w, h]`,
+  `focused`, `hovered`, `pressed`, `interactable`, `visible` and `value` / `text`, in reading order. Use it to find what
+  to click (`game.input` with `mouse.position`) or which widget has the focus.
+- Tests: drive a menu with pad taps and assert on events and values, no mouse needed:
+  ```js
+  game.loadJson(menuScene); game.step(1);
+  const pad = game.gamepad();
+  pad.tap("DpadDown"); pad.tap("DpadRight");   // focus the slider below, +1 step
+  pad.tap("A");                                // ui_submit on the focused widget
+  ```
 
 ### assets
 - `assets.textureSize(path)` → `{ width, height }` (same shape as `ui.measureText`): the pixel size of the texture file at
