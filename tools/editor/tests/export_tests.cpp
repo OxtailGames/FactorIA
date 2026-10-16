@@ -119,6 +119,18 @@ TEST_CASE("export window: each row says what an export writes, or why it cannot 
     CHECK(same_path(host.plan.player, s.players[kHost]));
     CHECK_FALSE(stdfs::exists(p.root / "out"));  // a check writes nothing
 
+    // A chosen output folder that already holds a folder of the export's name, not written by an export: the row says
+    // so (its button stays disabled) and the folder is left alone.
+    const stdfs::path taken = p.root / "out" / ("export-test-" + kHost);
+    stdfs::create_directories(taken);
+    std::ofstream(taken / "mine.txt") << "keep";
+    ExportStatus busy = check_export(export_options(p.dir.string(), kHost, s));
+    CHECK_FALSE(busy.ready);
+    CHECK(busy.error.find("not written by an export") != std::string::npos);
+    CHECK(busy.hint.find("Choose...") != std::string::npos);
+    CHECK(stdfs::exists(taken / "mine.txt"));
+    stdfs::remove_all(p.root / "out");
+
     // Another OS without a player built there: the engine's teaching error, and the window offers Choose player...
     ExportStatus other = check_export(export_options(p.dir.string(), kOtherDesktop, s));
     CHECK_FALSE(other.ready);
