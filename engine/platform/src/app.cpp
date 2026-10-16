@@ -300,7 +300,6 @@ void app_request_quit() { sapp_request_quit(); }
 void app_set_title(const std::string& title) { sapp_set_window_title(title.c_str()); }
 void app_show_mouse(bool show) { sapp_show_mouse(show); }
 void app_lock_mouse(bool lock) { sapp_lock_mouse(lock); }
-bool app_mouse_locked() { return sapp_mouse_locked(); }
 void app_show_keyboard(bool show) { sapp_show_keyboard(show); }
 
 bool app_is_fullscreen() { return app_is_mobile() || sapp_is_fullscreen(); }

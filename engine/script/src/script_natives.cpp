@@ -1207,19 +1207,6 @@ NATIVE(inWheel) {
 }
 
 // ---- input settings: rebinding, last input, button names, text, cursor, keyboard ------------------------------------
-JSValue string_array(JSContext* ctx, const std::vector<std::string>& list) {
-    JSValue a = JS_NewArray(ctx);
-    uint32_t i = 0;
-    for (const std::string& s : list) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, s.c_str()));
-    return a;
-}
-
-std::string join_problems(const std::vector<std::string>& problems) {
-    std::string out;
-    for (const std::string& p : problems) out += (out.empty() ? "" : "\n") + p;
-    return out;
-}
-
 NATIVE(inText) {
     SETUP;
     return JS_NewString(ctx, I->host->input().text_utf8().c_str());
@@ -1227,7 +1214,7 @@ NATIVE(inText) {
 
 NATIVE(inActions) {
     SETUP;
-    return string_array(ctx, I->host->input().action_names());
+    return I->from_json(Json(I->host->input().action_names()));
 }
 
 NATIVE(inBindings) {
@@ -1235,7 +1222,7 @@ NATIVE(inBindings) {
     std::string a = arg_str(ctx, argc, argv, 0);
     JSValue exc = JS_UNDEFINED;
     if (!check_action(I, ctx, a, exc)) return exc;
-    return string_array(ctx, I->host->input().bindings(a));
+    return I->from_json(Json(I->host->input().bindings(a)));
 }
 
 NATIVE(inRebind) {  // (action, bindings[])
@@ -1255,7 +1242,7 @@ NATIVE(inRebind) {  // (action, bindings[])
         return throw_err(ctx, "input.rebind(action, bindings) expects an array of binding names, e.g. "
                               "input.rebind(\"" + a + "\", [\"Space\", \"GamepadA\"]); got " + (list.is_null() ? "nothing" : describe_json_value(list)));
     std::vector<std::string> problems = I->host->input().rebind(a, names);
-    if (!problems.empty()) return throw_err(ctx, join_problems(problems));
+    if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
     return JS_UNDEFINED;
 }
 
