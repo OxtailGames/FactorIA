@@ -18,7 +18,8 @@ the fix.
 
 The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
-export. `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
+export, but only when it is empty or an export wrote it: a folder of yours that happens to have that name is never
+deleted ([Replacing an earlier export](#replacing-an-earlier-export)). `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
 `notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`.
 
 ## From an AI: `project.export`
@@ -46,7 +47,9 @@ button per platform (Windows, macOS, Linux, Android, iOS), each running this sam
 - **Output folder**: the parent folder of the exports, `<project>/build/export` by default. Type a path (relative to
   the project), press **Choose...** for the system's folder dialog or **Default** to go back; **Show in Finder** (Explorer
   on Windows, the file manager on Linux) opens it. An export replaces `<output folder>/<game>-<platform>` and nothing
-  else. **Release** changes the build commands in the next steps, as `--release` does.
+  else, and only a folder an earlier export wrote ([Replacing an earlier export](#replacing-an-earlier-export)): when
+  the chosen folder already holds another folder of that name, each platform's row says so and nothing is deleted.
+  **Release** changes the build commands in the next steps, as `--release` does.
 - **Each platform's row** says what an export there writes (hover **Ready** for the folder and the player), or why it
   cannot run here, with the error and hint `factoria export` would print: a desktop player missing for another OS, no
   prebuilt mobile players and no engine checkout, a missing reverse-DNS `id` for Android and iOS... Its button stays
@@ -68,7 +71,26 @@ Everything in the project except: `.factoria/`, every dot-file or dot-folder
 `AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
 project is never modified; the feedback file stays in the repository.
 
-The export adds one file of its own, `FACTORIA_NOTICES.txt` (next section).
+The export adds two files of its own: `.factoria-export` at the top of the export folder (next section) and
+`FACTORIA_NOTICES.txt` ([License notices](#license-notices)).
+
+## Replacing an earlier export
+
+Every export starts by deleting `<out>/<game-slug>-<platform>/` and writing it again, so files you add there do not
+survive the next export. So that a folder of yours is never deleted just because it has that name (easy to hit with
+`--out` or the editor's **Choose...**), the export replaces a folder only when it:
+
+- holds `.factoria-export`, the short text file every export writes at its top (the game does not need it: leave it
+  out of what you ship if you like);
+- holds `FACTORIA_NOTICES.txt` where that platform's export puts it (the table in [License notices](#license-notices)),
+  which is how exports made before the marker existed are recognized; or
+- is empty.
+
+Any other file or folder of that name stops the export before anything is written. The error names the folder and the
+hint says how to go on: choose another output folder, or move or delete that folder yourself if nothing in it is
+needed. A folder exported by a factoria older than the license notices has neither file: delete it once and export
+again; from then on every export replaces it on its own. The check is part of the plan (`fa::plan_export`), so the
+editor's Export window shows it on each platform's row and `project_export {"dryRun":true}` returns it as its error.
 
 ## License notices
 

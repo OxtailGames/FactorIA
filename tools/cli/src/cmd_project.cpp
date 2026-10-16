@@ -163,7 +163,7 @@ Command make_export_command() {
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
-               {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/ (default out: <project>/build/export)."},
+               {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/, replaced only when an export wrote it (default out: <project>/build/export)."},
                {"release", "", "Release build (assets packed, no dev tools)."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
