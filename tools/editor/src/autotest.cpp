@@ -148,6 +148,13 @@ void Editor::autotest_pre_frame() {
         }
         atWaitAi_ = false;
     }
+    if (atWaitUntil_) {  // hold the script until a step's condition holds (an export on its worker thread)
+        if (!atWaitUntil_() && ++atWaitCount_ < 4000) {
+            --atFrame_;
+            return;
+        }
+        atWaitUntil_ = nullptr;
+    }
     const int f = atFrame_;
     if (atWelcome_) {
         namespace stdfs = std::filesystem;
@@ -169,7 +176,11 @@ void Editor::autotest_pre_frame() {
         } else if (f == 11) {
             at_check(updateStage_ == UpdateStage::Idle && !restartAfterQuit_, "Not now closes the update popup and keeps this version");
         }
-        if (f == 12) atPendingShots_.push_back(atOutDir_ + "/editor_welcome.png");
+        if (f == 12) {
+            atPendingShots_.push_back(atOutDir_ + "/editor_welcome.png");
+            at_check(windowTitle_ == std::string("FactorIA ") + FA_ENGINE_VERSION,
+                     "the window title names the engine version without a project (" + windowTitle_ + ")");
+        }
         if (f == 16) {
             at_check(showProjectDialog_ && !engine_, "welcome dialog is shown without a project");
             stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_welcome_project_" + std::to_string(std::rand()));
@@ -181,6 +192,8 @@ void Editor::autotest_pre_frame() {
             }
         } else if (f == 22) {
             at_check(engine_ != nullptr && projectName_ == "Welcome Test", "opening a project from the no-project state boots the engine");
+            at_check(windowTitle_ == std::string("FactorIA ") + FA_ENGINE_VERSION + " \xE2\x80\x94 Welcome Test",
+                     "the window title names the engine version and the open project (" + windowTitle_ + ")");
             atPendingShots_.push_back(atOutDir_ + "/editor_after_open.png");
         } else if (f == 28) {
             open_project(atTempProject_);  // re-open: full teardown with a live engine + UI

@@ -40,9 +40,10 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
    - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. Windows
      SmartScreen may show "Windows protected your PC": it always does for an unsigned release, and for a signed one
      until enough people have downloaded it. Click **More info**, then **Run anyway**.
-   - **macOS:** open Terminal in the folder and run `./factoria editor`. A release that is not notarized is quarantined
-     when your browser downloads it (unpacking it in Finder or with `tar` keeps the quarantine), so Gatekeeper stops
-     each of its programs the first time. Quickest: remove the quarantine from the whole folder once, before the first
+   - **macOS:** open Terminal in the folder and run `./factoria editor`. Releases after 0.1.3 are signed and notarized
+     by Apple and open without a warning (the very first run needs internet: Gatekeeper looks the notarization up).
+     0.1.3 and earlier are not notarized: your browser quarantines the download (unpacking it in Finder or with `tar`
+     keeps the quarantine), so Gatekeeper stops each of its programs the first time. Quickest: remove the quarantine from the whole folder once, before the first
      run: `xattr -dr com.apple.quarantine ~/FactorIA`. Or allow `factoria` alone: when macOS says it could not verify
      it, click **Done**, open System Settings > Privacy & Security, click **Open Anyway** next to the message about
      `factoria`, run it again and confirm **Open Anyway** (macOS 14 and earlier: right-click `factoria` in Finder >
