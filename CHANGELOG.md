@@ -2,6 +2,37 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## 0.1.6
+
+Menus and on-screen interface
+
+- New interface pieces for your game: buttons, toggles, sliders, text fields, scrolling lists and panels with
+  stretchable backgrounds, laid out in rows, columns or grids. Players use them with the mouse, the keyboard or a
+  gamepad.
+- Scripts can switch to full screen, change the window size, vsync and frame-rate cap, let players remap the controls,
+  show the right button names for their gamepad, take typed text, and show or hide the cursor.
+- A menus guide your AI follows to build a main menu, options, a pause menu, credits and a loading screen when your game
+  needs them. New projects still start empty.
+- Pausing really pauses now: physics, particles and animations stop too, while a pause menu keeps working.
+
+Art, sound and music made by AI
+
+- Your AI can generate images, sprite sheets, sound effects, music, voices and 3D models with the providers you set up
+  (OpenAI, ElevenLabs, Meshy), keeping one style and colour palette across a game.
+- Every generated or imported file remembers where it came from, and exports include `AI_CONTENT_DISCLOSURE.md` with
+  the answers Steam asks about AI-generated content.
+- Import Aseprite, Photoshop (PSD), OBJ and FBX files (FBX needs Blender or FBX2glTF installed), and cut sprite sheets
+  into frames automatically.
+- Lighter games: textures are compressed for each platform and packed into atlases, long music streams instead of
+  loading whole into memory, and sounds can be evened out to the same loudness.
+- `factoria validate` warns about images that are too big, sounds that clip or are too quiet, and games over a store's
+  size limit.
+
+Native plugins
+
+- A game can bring its own native code as a plugin (C or C++ on desktop, Java or Kotlin on Android, libraries on iOS)
+  without changing the engine. Plugins can live outside the game's folder, for SDKs you are not allowed to share.
+
 ## 0.1.5
 
 - Exported Windows games open without a black console window, and the `.exe` carries your game's name and version
