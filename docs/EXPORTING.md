@@ -103,8 +103,9 @@ is set in two places:
 - **`~/.factoria/export.json`** (this computer only, never in a project): where the Android SDK and JDK are, and the
   keystore passwords.
 
-Until a platform's export reads a field, setting it changes nothing in that export; `factoria validate` already checks all of
-them and the C++ API (`fa/tooling/export_settings.h`, `fa/tooling/icons.h`) reads, writes and applies them.
+The desktop and iOS exports read every field that concerns them (the Desktop and iOS sections below say where each one
+goes). Until another platform's export reads a field, setting it changes nothing in that export. `factoria validate`
+checks all of them, and the C++ API (`fa/tooling/export_settings.h`, `fa/tooling/icons.h`) reads, writes and applies them.
 
 ### Icon
 
@@ -114,6 +115,11 @@ of a macOS app (16 to 1024 px and the @2x sizes), the icon resource of the Windo
 of Android (mipmaps from 48 to 192 px, a round variant and the adaptive icon), the App Store icon of iOS (1024x1024 with
 no transparency) and the PNG of a Linux build. `export.<platform>.icon` replaces it for one platform. No icon at all
 means the platform's default icon (and a warning from the export).
+
+The same image is the window icon of the running game on Windows and Linux (title bar and taskbar, also when the game
+is started from `factoria run`): the player reads `icon`, or `export.<this platform>.icon`, from `factoria.json` and hands
+it to the window in 16 to 256 px. On macOS the Dock icon comes from the `.app`; mobile has no window. A missing or
+unreadable icon is a warning in the log, never an error at run time (the export and `factoria validate` do report it).
 
 A smaller or non-square image is accepted with a warning (`factoria validate` shows it); a non-square one is centered on a
 transparent square of its longer side. Scaling averages the pixels (premultiplied by alpha, so transparent edges do not
@@ -152,8 +158,8 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | Android | `permissions` | none | Extra `<uses-permission>` names such as `android.permission.VIBRATE`. |
 | Android | `signing.keystore` / `signing.alias` | none | Release signing key: the keystore file (project-relative or absolute; keystores are better kept outside the repository) and the key's alias. The passwords are never in the project (below). |
 | iOS | `iconBackground` | `#FFFFFF` | The App Store icon cannot be transparent: transparent pixels take this colour, and the PNG is written without an alpha channel. |
-| iOS | `teamId` | none (`FA_IOS_DEVELOPMENT_TEAM`) | 10-character Apple Team ID for device builds. |
-| iOS | `buildNumber` | the project's `version` | `CFBundleVersion`: up to three whole numbers separated by dots. |
+| iOS | `teamId` | none | 10-character Apple Team ID for device builds. It is the default of `FA_IOS_DEVELOPMENT_TEAM`: that environment variable, when set, wins. |
+| iOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload. |
 
 `windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
 (`factoria.json#/export/android/minSdk: minSdk (34) is higher than targetSdk (30) ...`). An unknown key inside
@@ -211,10 +217,11 @@ player built there: pass `--player path/to/factoria_player[.exe]`.
 ```
 linux/windows:  my-game-linux/
                   my-game            (my-game.exe on Windows)
+                  my-game.png  my-game.desktop      (Linux only: the icon and the application-menu entry)
                   FACTORIA_NOTICES.txt
                   game/              factoria.json, scenes/, scripts/, assets/ ...
 macOS:          my-game-macos/My Game.app/Contents/
-                  Info.plist  MacOS/my-game  Resources/game/...  Resources/FACTORIA_NOTICES.txt
+                  Info.plist  MacOS/my-game  Resources/AppIcon.icns  Resources/game/...  Resources/FACTORIA_NOTICES.txt
 ```
 
 The player starts the game found in `game/` next to the executable (inside the
@@ -245,10 +252,36 @@ xcrun stapler staple "My Game.app"
 `--force` replaces the ad hoc signature; `xcrun notarytool store-credentials <profile>` saves your Apple ID, team ID and
 app-specific password once. Zip the stapled app again to share it. The player of the macOS download is universal
 (Apple Silicon and Intel).
-Windows: the exported exe is a copy of `factoria_player.exe`. From a release download it carries FactorIA's signature
-once the release is signed ([BUILDING.md](BUILDING.md), "Releasing"), and from a build from source it is not signed.
-SmartScreen may still warn, and shows FactorIA's name as the publisher; sign the exe with `signtool` to publish under
-your own.
+### Icon and settings per platform
+
+What each desktop export takes from [Platform settings](#platform-settings):
+
+- **macOS.** `Contents/Resources/AppIcon.icns` is generated from the icon (16 to 1024 px, PNG payloads, plus the @2x
+  sizes) and `Info.plist` names it with `CFBundleIconFile`. `category`, `minimumSystemVersion` and `copyright` become
+  `LSApplicationCategoryType`, `LSMinimumSystemVersion` and `NSHumanReadableCopyright` (the last only when set). All of
+  it is written before the ad hoc signature, so `codesign --verify --deep --strict` passes.
+- **Windows.** The exe is a copy of `factoria_player.exe`, whose icon resource is a neutral placeholder
+  (`player/windows/factoria_player.ico`, compiled in by `factoria_player.rc`). The export replaces the placeholder's
+  images (16, 24, 32, 48, 64, 128 and 256 px) with the game's icon in place, so the exe keeps its size and its
+  structure, and recomputes the PE checksum. This works on any host: no Windows tools are needed to export for Windows
+  from a Mac or Linux. A player without the placeholder (an older player, or another binary passed to `--player`) is copied
+  unchanged and the report says so: the exe shows the player's own icon, and the game window still shows the game's
+  icon at run time (above).
+- **Linux.** `<name>.png` (256 px) and `<name>.desktop` are written next to the game, with `Name`, `Exec`, `Icon`,
+  `Type=Application`, `Terminal=false` and `Categories` (from `categories`; the default is `Game;`). Both
+  `Exec=` and `Icon=` are bare names: the report prints the one command that installs the entry for the folder
+  the game lives in (it rewrites them to absolute paths and copies the file to `~/.local/share/applications`).
+
+Windows: the player of a release download carries FactorIA's signature once the release is signed
+([BUILDING.md](BUILDING.md), "Releasing"), and one built from source is not signed. Changing the icon edits the exe,
+which invalidates a signature, so the export removes it (the certificate table at the end of the file) and says so in the
+report: an exe with the wrong signature is worse than an unsigned one. Without a game icon the exe is copied
+byte for byte, signature included. SmartScreen may warn about an unsigned exe, and shows FactorIA's name as the
+publisher of a signed one; sign the exported exe with `signtool` to publish under your own name:
+
+```
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a my-game.exe
+```
 
 ## Mobile exports: prebuilt or source
 
@@ -325,7 +358,8 @@ Prerequisites, signing and troubleshooting: [MOBILE.md](MOBILE.md).
 
 `factoria export --platform ios` (macOS with Xcode only for the next step) writes the game and a `build_ios.sh`. The
 script runs CMake with the Xcode generator and the same settings as the `ios` preset, adding
-`-DFA_GAME_PROJECT_DIR=game -DFA_GAME_BUNDLE_ID=... -DFA_GAME_NAME=... -DFA_GAME_VERSION=... -DFA_GAME_ORIENTATION=...`:
+`-DFA_GAME_PROJECT_DIR=game -DFA_GAME_BUNDLE_ID=... -DFA_GAME_NAME=... -DFA_GAME_VERSION=... -DFA_GAME_BUILD=...
+-DFA_GAME_ORIENTATION=... -DFA_GAME_ASSET_CATALOG=Assets.xcassets -DFA_IOS_DEVELOPMENT_TEAM=...`:
 
 ```bash
 ./build_ios.sh --simulator --run                         # build, start in the iOS Simulator, console in the terminal
@@ -336,6 +370,16 @@ FA_IOS_DEVELOPMENT_TEAM=ABCDE12345 ./build_ios.sh --run  # the same on the conne
 
 A device build registers the connected device with the team on the first build (Developer Mode must be on); see
 [MOBILE.md](MOBILE.md#ios).
+
+From the project's [platform settings](#platform-settings) the export takes:
+
+- **The app icon.** `Assets.xcassets/AppIcon.appiconset` is written next to `build_ios.sh`: one 1024x1024 PNG
+  (Xcode 14 or newer derives every iPhone and iPad size from it), composed opaquely over `iconBackground` because
+  iOS rejects transparency. The script passes the catalog to CMake as `FA_GAME_ASSET_CATALOG`; Xcode compiles it into
+  `Assets.car` and fills `CFBundleIcons` and `CFBundleIconName` of the app. Without an icon the export warns and the app has the default icon.
+- **`teamId`** becomes the default of `FA_IOS_DEVELOPMENT_TEAM` in the script, so `./build_ios.sh --run` signs for the
+  device without the variable. Setting `FA_IOS_DEVELOPMENT_TEAM` yourself still wins.
+- **`buildNumber`** becomes `CFBundleVersion` (`FA_GAME_BUILD`); when absent, the `version` is used as before.
 
 ```
 my-game-ios/                        prebuilt mode (the download for macOS)
@@ -357,4 +401,5 @@ Details in [MOBILE.md](MOBILE.md).
 - Run `factoria validate` first; export only checks what packaging needs.
 - Add the platform to `"platforms"` in `factoria.json` or export prints a warning.
 - Orientation comes from `display.orientation` (`landscape`, `portrait`, `any`).
-- Version `1.2.3` becomes Android `versionCode` 10203 and iOS `CFBundleVersion` 1.2.3.
+- Version `1.2.3` becomes Android `versionCode` 10203 and iOS `CFBundleShortVersionString` 1.2.3; the iOS `CFBundleVersion` is
+  the same unless `export.ios.buildNumber` says otherwise.

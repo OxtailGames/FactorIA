@@ -186,7 +186,7 @@ Steps: `factoria export --platform ios`, then on the Mac, in the exported folder
 
 ```bash
 ./build_ios.sh --simulator --run                          # build, start in the iOS Simulator, console in the terminal
-FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run     # the same on the connected iPhone or iPad
+FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run     # the same on the connected iPhone or iPad (see teamId below)
 ./build_ios.sh [--simulator] --build [-- <xcodebuild arguments>]   # only build (the .app path is printed)
 ./build_ios.sh [--simulator]                              # create build/FactorIA.xcodeproj and open it in Xcode
 ```
@@ -194,6 +194,12 @@ FA_IOS_DEVELOPMENT_TEAM=<TEAMID> ./build_ios.sh --run     # the same on the conn
 `--run` installs the app and starts it with its console (stdout and stderr, so the engine log) in the terminal; Ctrl+C
 ends the game. Simulator builds need no team: they are built unsigned and signed ad hoc. In Xcode instead: choose the
 `factoria_player` scheme, set Team under Signing & Capabilities and press Run.
+
+The export fills in what `factoria.json` says (`icon`, `export.ios`; [EXPORTING.md](EXPORTING.md#platform-settings)):
+`export.ios.teamId` is the default of `FA_IOS_DEVELOPMENT_TEAM` inside `build_ios.sh` (the environment variable still
+wins, so one script serves several developers), `export.ios.buildNumber` is the app's `CFBundleVersion` (the `version` is
+`CFBundleShortVersionString`), and the icon is the `Assets.xcassets` next to the script (an opaque 1024x1024 `AppIcon`
+over `export.ios.iconBackground`).
 
 A device needs, once: a cable (or the same network after the first pairing), "Trust this computer" accepted on it,
 Developer Mode on (Settings > Privacy & Security > Developer Mode; it restarts the device; the switch shows up only after
@@ -223,16 +229,20 @@ cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimu
 ```
 
 CMake variables: `FA_GAME_PROJECT_DIR`, `FA_GAME_BUNDLE_ID`, `FA_GAME_NAME`,
-`FA_GAME_VERSION`, `FA_GAME_ORIENTATION`, `FA_IOS_DEVELOPMENT_TEAM`. They feed
+`FA_GAME_VERSION`, `FA_GAME_BUILD` (`CFBundleVersion`; default `FA_GAME_VERSION`), `FA_GAME_ORIENTATION`,
+`FA_GAME_ASSET_CATALOG` (path of an `.xcassets` folder with an `AppIcon` set; no icon when empty) and
+`FA_IOS_DEVELOPMENT_TEAM`. They feed
 `platforms/ios/Info.plist.in` (full screen, MetalKit, orientation lists for
-iPhone and iPad, launch screen via `UILaunchScreen`). The game folder is copied
+iPhone and iPad, launch screen via `UILaunchScreen`) and the Xcode target (the catalog is compiled into `Assets.car`,
+`ASSETCATALOG_COMPILER_APPICON_NAME` is `AppIcon`). The game folder is copied
 into the bundle after linking with the same exclude rules as `factoria export`
 (`platforms/common/copy_game.cmake`). Without `FA_GAME_PROJECT_DIR` the app
 starts with a red screen and logs why.
 
 App Store: archive from Xcode (Product > Archive) with a distribution
-certificate and provisioning profile; set the real app icon and launch screen
-in Xcode (the template ships none).
+certificate and provisioning profile. The icon comes from the game's `icon` (without one the app has the default
+icon and the export warns); the launch screen is the plain `UILaunchScreen` of `Info.plist.in`, change it in Xcode
+if you want a branded one. Raise `export.ios.buildNumber` for every upload.
 
 ## Touch input
 
