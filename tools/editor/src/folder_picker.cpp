@@ -1,7 +1,7 @@
 // The system's file and folder dialogs: IFileOpenDialog on Windows, AppleScript's `choose folder` / `choose file` on macOS,
 // zenity or kdialog on Linux. The external programs run without a shell (fa::ai::run_process), so paths need no quoting.
-// Also reads a picture from the system clipboard (the AI Assistant's Ctrl+V), and maximize_window: sokol_app has no
-// "start maximized" option.
+// Also reads a picture from the system clipboard (the AI Assistant's Ctrl+V), maximize_window (sokol_app has no
+// "start maximized" option), and open_in_file_manager (the Export window's Show in Finder / Explorer).
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -13,6 +13,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
 #include <shobjidl.h>
 
 #include "sokol_app.h"
@@ -96,8 +97,9 @@ std::string pick_path(const PickSpec& spec) {
 #ifdef __APPLE__
     std::string types;  // {"png", "jpg"}
     for (const std::string& e : spec.extensions) types += std::string(types.empty() ? "" : ", ") + "\"" + e + "\"";
-    const std::string choose = spec.folder ? "choose folder with prompt (item 1 of argv)"
-                                           : "choose file with prompt (item 1 of argv) of type {" + types + "}";
+    const std::string choose = spec.folder           ? "choose folder with prompt (item 1 of argv)"
+                               : types.empty()       ? "choose file with prompt (item 1 of argv)"  // any file
+                                                     : "choose file with prompt (item 1 of argv) of type {" + types + "}";
     po.argv = {"osascript", "-e", "on run argv", "-e",
                "POSIX path of (" + choose + " default location (POSIX file (item 2 of argv)))", "-e", "end run", spec.title, dir};
 #else
@@ -152,6 +154,43 @@ std::string pick_file(const std::string& title, const std::string& start, const 
 void maximize_window() { ShowWindow(static_cast<HWND>(const_cast<void*>(sapp_win32_get_hwnd())), SW_MAXIMIZE); }
 #else
 void maximize_window() {}  // ponytail: Windows only, where a 1440x860 window at 125% DPI is taller than a 1080p screen
+#endif
+
+#ifdef _WIN32
+const char* file_manager_name() { return "Explorer"; }
+std::string open_in_file_manager(const std::string& dir) {
+    const std::wstring path = utf8_path(dir).make_preferred().wstring();
+    const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    return r > 32 ? std::string() : "Explorer could not open " + dir + " (error " + std::to_string(r) + ")";
+}
+#else
+const char* file_manager_name() {
+#ifdef __APPLE__
+    return "Finder";
+#else
+    return "file manager";
+#endif
+}
+std::string open_in_file_manager(const std::string& dir) {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec)) return "the folder " + dir + " does not exist (yet)";
+#ifdef __APPLE__
+    const char* opener = "open";
+#else
+    const char* opener = "xdg-open";
+    if (ai::which(opener).empty()) return "xdg-open is not installed: open " + dir + " yourself";
+#endif
+    // Detached: xdg-open can wait for the file manager it starts.
+    std::thread([argv = std::vector<std::string>{opener, dir}] {
+        ai::ProcessOptions po;
+        po.argv = argv;
+        po.timeoutSeconds = 30;
+        auto r = ai::run_process(po);
+        if (!r || r->exitCode != 0)
+            FA_WARN("editor", "{} {} failed: {}", argv[0], argv[1], r ? r->stderrText : r.error().to_string());
+    }).detach();
+    return {};
+}
 #endif
 
 // ---------------------------------------------------------------------------------------------------------------------

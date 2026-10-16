@@ -57,11 +57,26 @@ struct ExportReport {
 
 Result<ExportReport> export_project(const ExportOptions& options);
 
+// What export_project would do, checked without writing anything: the same validation (platform, factoria.json, name,
+// mainScene, reverse-DNS id), the desktop player or the mobile mode, and the output folder. An error is the one
+// export_project would return. The editor's Export window shows it for each platform before an export.
+struct ExportPlan {
+    std::string platform;               // normalized: linux | windows | macos | android | ios
+    std::string outputDir;              // absolute folder the export replaces: <out>/<game-slug>-<platform>
+    std::string mode;                   // android/ios: "prebuilt" or "source"; empty for desktop exports
+    std::string player;                 // desktop: the factoria_player that is copied into the export
+    std::vector<std::string> warnings;  // non-fatal problems found so far (the export's report repeats them)
+    Json to_json() const;
+};
+
+Result<ExportPlan> plan_export(const ExportOptions& options);
+
 // Normalizes "win"/"mac"/"osx"/"Linux" -> "windows"/"macos"/"linux"; "" if unknown.
 std::string normalize_export_platform(const std::string& name);
 
 // Registers command "project.export" (-> MCP tool project_export, `factoria call`, editor console, fa.call) for the
-// project at `projectDir`. It runs export_project() and returns ExportReport::to_json().
+// project at `projectDir`. It runs export_project() and returns ExportReport::to_json(); with dryRun it runs
+// plan_export() and returns ExportPlan::to_json().
 void register_export_commands(CommandRegistry& registry, const std::string& projectDir);
 
 // Folder of the running executable (factoria finds factoria_player there; the editor updates its files).

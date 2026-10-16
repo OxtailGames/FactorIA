@@ -123,6 +123,12 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
             exe = root + "/Space Dodge.app/Contents/MacOS/space-dodge";
             notices = "Space Dodge.app/Contents/Resources/FACTORIA_NOTICES.txt";
             CHECK(testing::read_all(root + "/Space Dodge.app/Contents/Info.plist").find("com.example.spacedodge") != std::string::npos);
+#if !defined(__APPLE__)
+            // codesign runs only on macOS: the report says how to seal the bundle on a Mac (macOS: next test case).
+            bool warned = false;
+            for (const auto& w : rep.warnings) warned = warned || w.find("codesign --force --sign -") != std::string::npos;
+            CHECK(warned);
+#endif
         }
         CHECK(stdfs::exists(exe));
         CHECK(stdfs::exists(game + "/factoria.json"));
@@ -143,6 +149,79 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
     }
     // The project itself is untouched.
     CHECK(stdfs::exists(stdfs::path(proj) / "ENGINE_FEEDBACK.json"));
+}
+
+#if defined(__APPLE__)
+TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify accepts it") {
+    // A real executable signed on its own, as factoria_player is in a signed release download. Copied into the bundle
+    // unchanged, its signature does not cover the Info.plist and the game files: `codesign --verify` rejects the app
+    // ("code has no resources but signature indicates they must be present") and a Mac that downloads it calls it damaged.
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    std::string player = tmp.sub("signed_player/factoria_player");
+    stdfs::create_directories(stdfs::path(player).parent_path());
+    stdfs::copy_file("/usr/bin/true", player);
+    REQUIRE(std::system(("/usr/bin/codesign --force --sign - --options runtime '" + player + "' 2>/dev/null").c_str()) == 0);
+
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "macos";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = player;
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r.value().warnings.empty());
+    const std::string app = tmp.sub("out/space-dodge-macos/Space Dodge.app");
+    CHECK(std::system(("/usr/bin/codesign --verify --strict '" + app + "' 2>/dev/null").c_str()) == 0);
+    bool forceInSteps = false;
+    for (const auto& s : r.value().nextSteps) forceInSteps = forceInSteps || s.find("codesign --force") != std::string::npos;
+    CHECK(forceInSteps);  // re-signing a signed app needs --force
+}
+#endif
+
+TEST_CASE("export: plan_export checks what export_project would, and writes nothing") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "Win";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = make_fake_player(tmp);
+    auto plan = plan_export(o);
+    REQUIRE_MESSAGE(plan.ok(), (plan.ok() ? "" : plan.error().to_string()));
+    CHECK(plan->platform == "windows");
+    CHECK(stdfs::weakly_canonical(plan->outputDir) == stdfs::weakly_canonical(tmp.sub("out/space-dodge-windows")));
+    CHECK(stdfs::weakly_canonical(plan->player) == stdfs::weakly_canonical(o.playerBinary));
+    CHECK(plan->mode.empty());
+    CHECK_FALSE(stdfs::exists(tmp.sub("out")));  // not even the parent folder
+    CHECK(plan->to_json()["outputDir"] == plan->outputDir);
+
+    // The export writes exactly the folder the plan named.
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(r->outputDir == plan->outputDir);
+
+    // A failed check is export_project's error, and a previous export stays where it is.
+    o.playerBinary = tmp.sub("no/such/player.exe");
+    auto bad = plan_export(o);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("player binary") != std::string::npos);
+    auto failed = export_project(o);
+    REQUIRE_FALSE(failed.ok());
+    CHECK(failed.error().message == bad.error().message);
+    CHECK(stdfs::exists(stdfs::path(plan->outputDir) / "space-dodge.exe"));
+
+    // Mobile: the mode, or why there is none; a missing id is reported before anything else.
+    ExportOptions m;
+    m.projectDir = proj;
+    m.platform = "android";
+    m.outDir = tmp.sub("out");
+    m.mobileDir = make_fake_mobile(tmp);
+    auto mobile = plan_export(m);
+    REQUIRE_MESSAGE(mobile.ok(), (mobile.ok() ? "" : mobile.error().to_string()));
+    CHECK(mobile->mode == "prebuilt");
+    CHECK(mobile->player.empty());
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-android")));
 }
 
 TEST_CASE("export: validation errors are clear") {
@@ -574,8 +653,18 @@ TEST_CASE("export: command project.export (MCP tool project_export)") {
     REQUIRE(reg.has("project.export"));
     const CommandInfo* info = reg.info("project.export");
     CHECK_FALSE(info->readOnly);
-    for (const char* field : {"platform", "out", "release"})
+    for (const char* field : {"platform", "out", "release", "dryRun"})
         CHECK_FALSE(info->inputSchema["properties"][field].value("description", std::string()).empty());
+
+    // dryRun: the plan, nothing written; a check that fails is the same error a real export gives.
+    auto dry = reg.call("project.export", {{"platform", "ios"}, {"dryRun", true}});
+    REQUIRE_MESSAGE(dry.ok, dry.error.dump());
+    CHECK(dry.result["platform"] == "ios");
+    CHECK(stdfs::weakly_canonical(dry.result["outputDir"].get<std::string>()) ==
+          stdfs::weakly_canonical(stdfs::path(proj) / "build" / "export" / "space-dodge-ios"));
+    CHECK(dry.result.contains("mode"));
+    CHECK_FALSE(dry.result.contains("files"));
+    CHECK_FALSE(stdfs::exists(stdfs::path(proj) / "build" / "export"));
 
     // ios needs no player binary; a relative `out` is relative to the project; "iphone" is an alias. A first export to the
     // default build/export must not be shipped inside the second one.

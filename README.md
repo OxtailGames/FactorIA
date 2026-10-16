@@ -50,8 +50,9 @@ editor:
 
 - **Windows:** Start menu > **FactorIA Editor** (installer), or double-click `FactorIA-Editor.exe`. SmartScreen may
   stop it (always for an unsigned release): click **More info > Run anyway**.
-- **macOS:** run `./factoria editor` in Terminal from the unzipped folder. Gatekeeper blocks a release that is not
-  notarized the first time: remove the download quarantine once, `xattr -dr com.apple.quarantine <folder>`, or allow
+- **macOS:** run `./factoria editor` in Terminal from the unzipped folder. Releases after 0.1.3 are signed and
+  notarized and open without a warning. Gatekeeper blocks 0.1.3 and earlier the first time: remove the download
+  quarantine once, `xattr -dr com.apple.quarantine <folder>`, or allow
   `factoria` in System Settings > Privacy & Security > **Open Anyway** (details in docs/GETTING_STARTED.md).
 - **Linux:** run `./factoria editor` from the unpacked folder, or `./FactorIA-linux-x64.AppImage` (after
   `chmod +x`; with arguments it is the `factoria` command).

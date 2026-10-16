@@ -76,6 +76,12 @@ bool contains_ci(const std::string& hay, const std::string& needle) {
     if (needle.empty()) return true;
     return lower_str(hay).find(lower_str(needle)) != std::string::npos;
 }
+std::string editor_window_title(std::string_view version, std::string_view projectName) {
+    std::string title = "FactorIA " + std::string(version);
+    if (!projectName.empty()) title += " \xE2\x80\x94 " + std::string(projectName);  // U+2014 EM DASH, UTF-8
+    return title;
+}
+
 ImVec4 level_color(LogLevel l) {
     switch (l) {
         case LogLevel::Trace: return ImVec4(0.5f, 0.5f, 0.55f, 1);
@@ -184,7 +190,8 @@ int Editor::run() {
     autotest_ = at && *at && std::string(at) != "0";
     atWelcome_ = autotest_ && std::string(at) == "welcome";  // no project: screenshot the Open/New dialog
     AppDesc d;
-    d.title = "FactorIA Editor";
+    windowTitle_ = editor_window_title(FA_ENGINE_VERSION, "");
+    d.title = windowTitle_;
     d.width = autotest_ ? 1600 : 1440;
     d.height = autotest_ ? 900 : 860;
     d.vsync = !autotest_;
@@ -297,6 +304,7 @@ bool Editor::open_project(const std::string& dir) {
 bool Editor::boot(const std::string& dirIn) {
     std::string dir = dirIn;
     ai_stop();
+    reset_export_state();  // an export of the previous project finishes first
     // Tear down: UI first (it owns GPU resources), then the engine (owns sg_setup).
     if (uiUp_) {
         ui::shutdown();
@@ -380,11 +388,11 @@ bool Editor::boot(const std::string& dirIn) {
         recentProjects_.insert(recentProjects_.begin(), projectDir_);
         if (recentProjects_.size() > 8) recentProjects_.resize(8);
         save_recent_projects();
-        app_set_title("FactorIA Editor - " + projectName_);
+        set_window_title(editor_window_title(FA_ENGINE_VERSION, projectName_));
         FA_INFO("editor", "opened project '{}' ({})", projectName_, projectDir_);
         if (!aiDetected_.load() && !aiDetecting_.load()) ai_refresh_providers();
     } else {
-        app_set_title("FactorIA Editor");
+        set_window_title(editor_window_title(FA_ENGINE_VERSION, ""));  // the Open or create a project dialog
     }
     return engine_ != nullptr;
 }
@@ -880,6 +888,11 @@ void Editor::redo() {
     lastEditKey_.clear();
 }
 
+void Editor::set_window_title(const std::string& title) {
+    windowTitle_ = title;
+    app_set_title(title);
+}
+
 void Editor::notify(const std::string& text, int level) {
     toasts_.push_back(Toast{text, level, time_ + (level >= 2 ? 6.0 : 3.5)});
     if (toasts_.size() > 6) toasts_.erase(toasts_.begin());
@@ -909,6 +922,7 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
 void Editor::build_ui() {
     ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* vp = ImGui::GetMainViewport();
+    poll_export();
     draw_main_menu();
 
     const float statusH = ImGui::GetFrameHeight() + 6;
@@ -978,6 +992,7 @@ void Editor::build_ui() {
     if (showDemo_) ImGui::ShowDemoWindow(&showDemo_);
     draw_project_dialog();
     draw_validation_window();
+    draw_export_window();
     draw_docs_window();
     draw_toasts();
     draw_mark_popup();
@@ -1053,6 +1068,9 @@ void Editor::draw_main_menu() {
                     if (ImGui::MenuItem(f.c_str(), nullptr, f == scenePath_)) { if (dirty_) pendingScene_ = f; else open_scene(f); }
             ImGui::EndMenu();
         }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Export Game...", nullptr, false, have)) open_export_window();
+        ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS");
         ImGui::Separator();
         if (ImGui::MenuItem("Quit")) sapp_request_quit();
         ImGui::EndMenu();
@@ -1161,6 +1179,10 @@ void Editor::draw_toolbar() {
         else notify("Screenshot failed: " + err, 2);
     }
     ImGui::SetItemTooltip("Save the game view as PNG into .factoria/screenshots");
+    ImGui::SameLine();
+    if (ImGui::Button("Export")) open_export_window();
+    at_track("toolbar:export");
+    ImGui::SetItemTooltip("Package the game for Windows, macOS, Linux, Android or iOS (File > Export Game...)");
     ImGui::SameLine();
     ImGui::TextDisabled("|");
     ImGui::SameLine();

@@ -284,9 +284,9 @@ Outcome:
   exist (docs/BUILDING.md, "Releasing"); without them the packages stay unsigned.
 
 Left open, not fixable in this repository alone:
-- Certificates: an Authenticode certificate or Azure Trusted Signing, and the Apple Developer Program, are needed before
-  the signing steps do anything. New Authenticode certificates come on a token or a cloud HSM, so the `.pfx` path in
-  `scripts/sign-windows.sh` may have to become that service's signing action.
+- Certificates: an Authenticode certificate or Azure Trusted Signing is needed before the Windows signing step does
+  anything (macOS signing is set up since M9). New Authenticode certificates come on a token or a cloud HSM, so the
+  `.pfx` path in `scripts/sign-windows.sh` may have to become that service's signing action.
 - GitHub-hosted runners cannot run an arm64 Android emulator (no KVM on `ubuntu-24.04-arm`, no nested virtualization on
   macOS) and have no real GPUs; that needs a device farm with an account. `simctl` cannot tap, so iOS touch is not run.
 - No real gamepad has been used on Linux or Android; the Android Z/RZ trigger scaling is taken from Android's docs.
@@ -374,11 +374,21 @@ Found and fixed while implementing M9 (Apple hardware):
   player asked for whenever the driver reports a newer one (the engine uses no ES 3.1 feature, and every device runs
   the same sokol_gfx code). `android-smoke.sh` passes on that emulator with `-gpu swiftshader_indirect` (ES 3.1) and
   `-gpu host` (ES 3.0 on Metal); CI's x86_64 emulator reports 3.0 and is unchanged.
+- macOS signing is set up (Apple Developer Program, individual): a Developer ID Application certificate and the five
+  `APPLE_*` repository secrets of docs/BUILDING.md. A release run started by hand (nothing published) signed `factoria`
+  and `factoria_player` (hardened runtime, timestamp) and Apple accepted the notarization in under half a minute; the
+  package, downloaded and unpacked with a browser's quarantine, ran `factoria version`, `new`, `test`, `run --headless`
+  and the editor with no Gatekeeper prompt (the unsigned 0.1.3 was blocked in the same test). The first signed release
+  is the next tag after v0.1.3.
+- With the player signed, every game exported for macOS had a broken seal: the export copies `factoria_player` into the
+  `.app` and adds `Info.plist` and the game files, which the player's own signature does not cover (`codesign --verify`:
+  "code has no resources but signature indicates they must be present"), so a downloaded copy would be called damaged,
+  with no Open Anyway. The export now signs the finished bundle ad hoc, after every file is written (the notices too),
+  and its next steps add `--force` to the Developer ID command (a signed app is not re-signed without it).
 
 Left open after M9:
 - An Apple pad on iOS: same code as macOS, built and run, but not with a real pad. The iOS Simulator shows a virtual
   `Gamepad (MFi)` in slot 0.
-- Signing and notarization still need the Apple Developer Program (M8, "Left open").
 - Windows with the display scaled above 100% (Settings > System > Display > Scale): the `to_design()` fix above also
   applies there (sokol_app's mouse positions are framebuffer pixels on Win32 too) but was not tried on Windows. Check
   that a click in a running game (`factoria run`, an exported game) lands under the cursor (examples/block-push:
