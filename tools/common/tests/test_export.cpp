@@ -195,6 +195,50 @@ TEST_CASE("export: desktop layout (linux, windows, macos)") {
     CHECK(stdfs::exists(stdfs::path(proj) / "ENGINE_FEEDBACK.json"));
 }
 
+TEST_CASE("export: a native plugin's build ships next to the executable, its folder does not") {
+    testing::TempDir tmp;
+    std::string proj = make_project(tmp);
+    const stdfs::path plugin = stdfs::path(proj) / "plugins" / "example";
+    testing::write_all(plugin / "src" / "plugin.c", "/* source */");
+    testing::write_all(plugin / "windows" / "example.dll", "dll");
+    testing::write_all(plugin / "linux" / "libexample.so", "so");
+    testing::write_all(plugin / "linux" / "libdependency.so", "so");  // a library the plugin needs goes with it
+    Json project = Json::parse(testing::read_all(stdfs::path(proj) / "factoria.json"));
+    project["plugins"] = Json::parse(R"({"example": {"path": "plugins/example", "platforms": ["windows", "linux", "macos"]}})");
+    testing::write_all(stdfs::path(proj) / "factoria.json", project.dump(2));
+
+    for (const char* platform : {"linux", "windows"}) {
+        CAPTURE(platform);
+        ExportOptions o;
+        o.projectDir = proj;
+        o.platform = platform;
+        o.outDir = tmp.sub("out");
+        o.playerBinary = make_fake_player(tmp);
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const std::string root = tmp.sub("out/space-dodge-") + platform;
+        if (std::string(platform) == "windows") {
+            CHECK(testing::read_all(root + "/example.dll") == "dll");
+        } else {
+            CHECK(testing::read_all(root + "/libexample.so") == "so");
+            CHECK(stdfs::exists(root + "/libdependency.so"));
+        }
+        CHECK_FALSE(stdfs::exists(root + "/game/plugins"));
+        CHECK(stdfs::exists(root + "/game/scenes/main.scene.json"));
+    }
+
+    // Declared for macOS but not built for it: the export says which file is missing.
+    ExportOptions o;
+    o.projectDir = proj;
+    o.platform = "macos";
+    o.outDir = tmp.sub("out");
+    o.playerBinary = make_fake_player(tmp);
+    auto r = export_project(o);
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("factoria.json#/plugins/example: the macos build is missing: macos/libexample.dylib") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(tmp.sub("out/space-dodge-macos")));
+}
+
 // A macOS app nests four folders, so on Windows its files easily pass MAX_PATH (260 characters): the export reaches them
 // through fs::os_path whether or not long paths are enabled on the machine.
 TEST_CASE("export: an output folder deeper than Windows' MAX_PATH works") {

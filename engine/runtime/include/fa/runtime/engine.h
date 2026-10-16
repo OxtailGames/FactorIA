@@ -63,6 +63,9 @@ struct EngineConfig {
     // Isolate script storage (the `storage` module) in memory: nothing is read from or written to disk. Headless
     // runs and tests set this so runs do not leak state into each other (needs ScriptSystem::set_storage_mode).
     bool memoryStorage = false;
+    // Where the native plugins' libraries are (fa/runtime/plugins.h): an exported game keeps them next to its executable.
+    // "" = in each plugin's folder (factoria.json "plugins"), as `factoria run`, the editor and tests use them.
+    std::string pluginDir;
 };
 
 class Engine final : public ScriptHost {

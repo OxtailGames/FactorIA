@@ -1711,6 +1711,35 @@ NATIVE(commands) {
     return I->from_json(I->host->commands().describe());
 }
 
+// ---- native plugins (ScriptSystem::set_plugins) -------------------------------------------------------------------
+NATIVE(pluginList) {  // [{name, error?, functions: [{name, doc}]}]
+    SETUP;
+    return I->from_json(I->plugins_json());
+}
+
+NATIVE(pluginCall) {  // (plugin, function, args array) -> {ok, result} | {ok: false, error: {message, hint}}
+    SETUP;
+    const std::string plugin = arg_str(ctx, argc, argv, 0), name = arg_str(ctx, argc, argv, 1);
+    Json args = argc > 2 ? I->to_json(argv[2]) : Json::array();
+    JSValue o = JS_NewObject(ctx);
+    for (const ScriptPlugin& p : I->plugins) {
+        if (p.name != plugin) continue;
+        for (const ScriptPlugin::Function& f : p.functions) {
+            if (f.name != name) continue;
+            try {
+                Json result = f.call(args);
+                JS_SetPropertyStr(ctx, o, "ok", JS_NewBool(ctx, true));
+                JS_SetPropertyStr(ctx, o, "result", I->from_json(result));
+            } catch (const CommandError& e) {
+                JS_SetPropertyStr(ctx, o, "ok", JS_NewBool(ctx, false));
+                JS_SetPropertyStr(ctx, o, "error", I->from_json(Json::object({{"message", e.what()}, {"hint", e.hint}})));
+            }
+            return o;
+        }
+    }
+    return o;  // unreachable: the prelude only calls the functions pluginList returned
+}
+
 // ---- test helpers -------------------------------------------------------------------------------------------------
 NATIVE(testLoad) {
     SETUP;
@@ -1858,7 +1887,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
+    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R
