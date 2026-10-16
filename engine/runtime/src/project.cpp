@@ -72,18 +72,33 @@ Json ProjectSettings::to_json() const {
     return j;
 }
 
-std::string ProjectSettings::window_icon() const {
+const char* runtime_platform() {
 #if defined(__ANDROID__)
-    const char* platform = "android";
+    return "android";
 #elif defined(__APPLE__) && TARGET_OS_IPHONE
-    const char* platform = "ios";
+    return "ios";
 #elif defined(__APPLE__)
-    const char* platform = "macos";
+    return "macos";
 #elif defined(_WIN32)
-    const char* platform = "windows";
+    return "windows";
 #else
-    const char* platform = "linux";
+    return "linux";
 #endif
+}
+
+const std::vector<std::string>& platform_names() {
+    static const std::vector<std::string> names = {"windows", "macos", "linux", "ios", "android"};
+    return names;
+}
+
+std::vector<std::string> ProjectSettings::plugin_platforms(const PluginSettings& plugin) const {
+    if (!plugin.platforms.empty()) return plugin.platforms;
+    if (!platforms.empty()) return platforms;
+    return platform_names();
+}
+
+std::string ProjectSettings::window_icon() const {
+    const char* platform = runtime_platform();
     if (auto exp = raw.find("export"); exp != raw.end() && exp->is_object())
         if (auto plat = exp->find(platform); plat != exp->end() && plat->is_object())
             if (auto own = plat->find("icon"); own != plat->end() && own->is_string() && !own->get<std::string>().empty())
@@ -151,6 +166,60 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
         Result<void> r_ = (expr);       \
         if (!r_.ok()) return r_.error(); \
     } while (0)
+
+// Names a plugin cannot take: the areas of the built-in commands (a plugin's commands are "<name>.<verb>") and the
+// names scripts already use.
+const std::vector<std::string>& reserved_plugin_names() {
+    static const std::vector<std::string> names = {
+        "ai",   "api",     "app",    "assets",  "audio",   "debug",   "docs",    "editor", "engine", "fa",    "factoria",
+        "feedback", "fs",  "game",   "input",   "level",   "math",    "mcp",     "physics", "play",  "plugin", "plugins",
+        "prefab", "project", "scene", "script", "session", "settings", "setup",  "test",   "ui",     "world"};
+    return names;
+}
+
+bool is_plugin_name(const std::string& n) {
+    if (n.empty() || n.size() > 64 || !(n[0] >= 'a' && n[0] <= 'z')) return false;
+    return std::all_of(n.begin(), n.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+}
+
+// One entry of "plugins": {"path": "...", "platforms": [...]}.
+Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
+    const std::string ptr = "/plugins/" + name;
+    if (!is_plugin_name(name))
+        return make_error(at(ptr) + ": '" + name + "' is not a plugin name",
+                          "Use lower-case letters, digits and underscores, starting with a letter (at most 64), e.g. \"steam\" or "
+                          "\"play_billing\": scripts call plugins." + name + ".<function>() and its commands are <name>.<verb>.");
+    const auto& reserved = reserved_plugin_names();
+    if (std::find(reserved.begin(), reserved.end(), name) != reserved.end())
+        return make_error(at(ptr) + ": '" + name + "' is a name the engine uses (its commands are " + name + ".*)",
+                          "Give the plugin another name, e.g. \"" + name + "_plugin\" or the name of the SDK it wraps.");
+    if (!v.is_object())
+        return field_error(ptr, "an object like {\"path\": \"plugins/" + name + "\"}", v,
+                           "\"path\" is the plugin's folder: project-relative, absolute, or with ${VARIABLE} parts.");
+    PluginSettings p;
+    p.name = name;
+    FA_TRY(read_string(v, "path", ptr, p.path));
+    if (p.path.empty())
+        return make_error(at(ptr + "/path") + ": missing or empty",
+                          "Set the folder that holds the plugin's builds (windows/, macos/, linux/, android/, ios/), e.g. \"path\": "
+                          "\"plugins/" + name + "\" or \"${MY_SDK_PLUGINS}/" + name + "\" for a private folder outside the repository.");
+    if (auto it = v.find("platforms"); it != v.end() && !it->is_null()) {
+        if (!it->is_array() || it->empty())
+            return field_error(ptr + "/platforms", "a non-empty array of platform names", *it,
+                               "List the platforms the plugin is built for, e.g. [\"windows\", \"android\"], or leave it out "
+                               "for every platform of the game.");
+        for (std::size_t k = 0; k < it->size(); ++k) {
+            const Json& e = (*it)[k];
+            const std::string name_k = e.is_string() ? e.get<std::string>() : std::string();
+            const auto& all = platform_names();
+            if (std::find(all.begin(), all.end(), name_k) == all.end())
+                return make_error(at(ptr + "/platforms/" + std::to_string(k)) + ": " + describe_json_value(e) + " is not a platform",
+                                  "Use windows, macos, linux, ios or android. " + did_you_mean(name_k, all));
+            p.platforms.push_back(name_k);
+        }
+    }
+    return p;
+}
 
 Result<std::string> read_project_text(std::string_view projectDir) {
     if (!projectDir.empty()) {
@@ -261,6 +330,17 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             if (!(*it)[k].is_string()) return field_error("/platforms/" + std::to_string(k), "a string", (*it)[k]);
             s.platforms.push_back((*it)[k].get<std::string>());
         }
+    }
+    if (auto it = j.find("plugins"); it != j.end() && !it->is_null()) {
+        if (!it->is_object())
+            return field_error("/plugins", "an object mapping plugin names to their folders", *it,
+                               "Example: \"plugins\": {\"example\": {\"path\": \"plugins/example\"}}");
+        for (auto pi = it->begin(); pi != it->end(); ++pi) {
+            auto plugin = read_plugin(pi.key(), *pi);
+            if (!plugin.ok()) return plugin.error();
+            s.plugins.push_back(std::move(plugin.value()));
+        }
+        std::sort(s.plugins.begin(), s.plugins.end(), [](const PluginSettings& a, const PluginSettings& b) { return a.name < b.name; });
     }
     return s;
 }
@@ -436,6 +516,41 @@ constexpr const char* kSchemaText =
     "icon": {
       "type": "string",
       "description": "Game icon: the project-relative path of a square PNG or JPG image, e.g. \"assets/icon.png\" (forward slashes, inside the project folder). 1024x1024 recommended; it should be at least 512x512 (smaller or non-square images give a warning, a non-square one is centered on a transparent square). Every export generates what its platform needs from this one image: the .icns of a macOS app, the exe icon on Windows, the launcher icons of Android, the App Store icon of iOS, the PNG of a Linux build. Each platform can use another image through export.<platform>.icon. No icon at all means the platform's default icon plus a warning on export. On Windows and Linux the same image is also the icon of the game window at run time. Edited by the editor's Platform settings window."
+    },
+    "plugins": {
+      "type": "object",
+      "description": "Native plugins of the game: libraries in C, C++ or any language with a C ABI that add commands and script functions (plugins.<name>.<function>(...)) through fa_plugin.h, e.g. store and platform SDKs. Each key is a plugin name (lower-case letters, digits and underscores; its commands are <name>.<verb>). `factoria run`, the editor and tests load the build for this computer from the plugin's folder; `factoria export` copies or links the build for the target platform into the game. `factoria validate` checks that every build exists. Created with project.new_plugin. See docs/EXTENDING.md, \"Native plugins\".",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The plugin's folder: project-relative, absolute, or with ${VARIABLE} parts replaced by environment variables, so that a private SDK can live outside the game's repository (\"${STEAMWORKS_PLUGIN}\"). It holds one build per platform: windows/<name>.dll, macos/lib<name>.dylib, linux/lib<name>.so (each next to the libraries it needs), android/ (a Gradle library module with build.gradle, or .aar files) and ios/iphoneos/lib<name>.a plus ios/iphonesimulator/lib<name>.a."
+          },
+          "platforms": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The platforms the plugin is built for (default: the game's `platforms`, or all five). On other platforms the game runs without it and plugins.<name> is undefined.",
+            "items": {
+              "enum": [
+                "windows",
+                "macos",
+                "linux",
+                "ios",
+                "android"
+              ]
+            }
+          }
+        }
+      }
     },
     "export": {
       "type": "object",
