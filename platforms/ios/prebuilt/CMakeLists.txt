@@ -15,9 +15,11 @@ endif()
 set(FA_GAME_BUNDLE_ID "com.factoria.player" CACHE STRING "iOS bundle identifier (reverse DNS)")
 set(FA_GAME_NAME "FactorIA Player" CACHE STRING "Game display name")
 set(FA_GAME_VERSION "0.1.0" CACHE STRING "Game version (x.y.z)")
+set(FA_GAME_BUILD "" CACHE STRING "Build number, CFBundleVersion (empty = the version)")
 set(FA_GAME_ORIENTATION "landscape" CACHE STRING "landscape | portrait | any")
 set(FA_GAME_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/game" CACHE PATH "Game folder (contains factoria.json) copied into the app bundle")
 set(FA_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple developer team id used for signing")
+set(FA_GAME_ASSET_CATALOG "" CACHE PATH "Assets.xcassets folder with an AppIcon set, compiled into the app (optional)")
 
 # Info.plist: the same template and orientation rules as the app built from the engine source.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/plist.cmake)
@@ -54,6 +56,17 @@ set_target_properties(factoria_player PROPERTIES
     XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
 if(FA_IOS_DEVELOPMENT_TEAM)
     set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${FA_IOS_DEVELOPMENT_TEAM}")
+endif()
+# The app icon: the Assets.xcassets that `factoria export --platform ios` writes next to build_ios.sh (an AppIcon set). Xcode
+# compiles it into Assets.car and adds CFBundleIcons / CFBundleIconName to the app's Info.plist.
+if(FA_GAME_ASSET_CATALOG)
+    if(NOT IS_DIRECTORY "${FA_GAME_ASSET_CATALOG}")
+        message(FATAL_ERROR "FA_GAME_ASSET_CATALOG='${FA_GAME_ASSET_CATALOG}' is not a folder. "
+            "Export the game again with `factoria export --platform ios` (it writes Assets.xcassets next to build_ios.sh).")
+    endif()
+    target_sources(factoria_player PRIVATE "${FA_GAME_ASSET_CATALOG}")
+    set_source_files_properties("${FA_GAME_ASSET_CATALOG}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
 endif()
 # The archives are linked by path, in any order (the linker resolves symbols across all of them; `main` comes from
 # sokol_app inside the platform archive). The frameworks are those of engine/platform/CMakeLists.txt (iOS) and

@@ -9,8 +9,10 @@
 #   FA_GAME_BUNDLE_ID    CFBundleIdentifier      (default com.factoria.player)
 #   FA_GAME_NAME         display name            (default FactorIA Player)
 #   FA_GAME_VERSION      version, e.g. 1.2.3     (default 0.1.0)
+#   FA_GAME_BUILD        CFBundleVersion         (default: FA_GAME_VERSION)
 #   FA_GAME_ORIENTATION  landscape|portrait|any  (default landscape)
 #   FA_IOS_DEVELOPMENT_TEAM  Apple team id for signing (optional; can be set in Xcode)
+#   FA_GAME_ASSET_CATALOG    an Assets.xcassets folder with an AppIcon set (optional), compiled into the app
 file(GLOB player_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
 if(FA_PLATFORM STREQUAL "android")
@@ -23,9 +25,11 @@ elseif(FA_PLATFORM STREQUAL "ios")
     set(FA_GAME_BUNDLE_ID "com.factoria.player" CACHE STRING "iOS bundle identifier (reverse DNS)")
     set(FA_GAME_NAME "FactorIA Player" CACHE STRING "Game display name")
     set(FA_GAME_VERSION "0.1.0" CACHE STRING "Game version (x.y.z)")
+    set(FA_GAME_BUILD "" CACHE STRING "Build number, CFBundleVersion (empty = the version)")
     set(FA_GAME_ORIENTATION "landscape" CACHE STRING "landscape | portrait | any")
     set(FA_GAME_PROJECT_DIR "" CACHE PATH "Game folder (contains factoria.json) to copy into the app bundle")
     set(FA_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple developer team id used for signing")
+    set(FA_GAME_ASSET_CATALOG "" CACHE PATH "Assets.xcassets folder with an AppIcon set, compiled into the app (optional)")
 
     set(FA_PLIST_OUT ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     include(${FA_ROOT}/platforms/ios/plist.cmake)  # fa_ios_configure_plist(): orientations + XML-escaped name -> Info.plist.in
@@ -41,6 +45,17 @@ elseif(FA_PLATFORM STREQUAL "ios")
         XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic")
     if(FA_IOS_DEVELOPMENT_TEAM)
         set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${FA_IOS_DEVELOPMENT_TEAM}")
+    endif()
+    if(FA_GAME_ASSET_CATALOG)
+        # `factoria export --platform ios` writes <export>/Assets.xcassets (AppIcon set) and build_ios.sh passes it here.
+        # Xcode compiles it into Assets.car and adds CFBundleIcons / CFBundleIconName to the app's Info.plist.
+        if(NOT IS_DIRECTORY "${FA_GAME_ASSET_CATALOG}")
+            message(FATAL_ERROR "FA_GAME_ASSET_CATALOG='${FA_GAME_ASSET_CATALOG}' is not a folder. "
+                "Point it at the Assets.xcassets folder that `factoria export --platform ios` writes next to build_ios.sh.")
+        endif()
+        target_sources(factoria_player PRIVATE "${FA_GAME_ASSET_CATALOG}")
+        set_source_files_properties("${FA_GAME_ASSET_CATALOG}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
     endif()
     target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit"
         "-framework QuartzCore" "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation")
