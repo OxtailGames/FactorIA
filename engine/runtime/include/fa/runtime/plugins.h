@@ -34,6 +34,11 @@ Result<std::string> plugin_folder(const std::string& projectDir, const PluginSet
 // "linux/libexample.so", "android" (the folder), "ios/iphoneos/libexample.a".
 std::string plugin_library(const std::string& name, const std::string& platform);
 
+// The folder of the plugin's build for `platform` (<folder>/<platform>), once it holds what that build needs: the library
+// on desktop, both static libraries on iOS (iphoneos, iphonesimulator), a Gradle module (build.gradle or .kts) or .aar /
+// .jar files on Android. The error says what is missing and how to make it. `factoria validate` and the export use it.
+Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin, const std::string& platform);
+
 // What Engine::init does: loads (once per process) the plugins `project` declares for this platform and installs what
 // they registered into `commands` and `scripts` (ScriptSystem::set_plugins, before its init). `libraryDir` is where an
 // exported game keeps the libraries (next to the executable; "" = each plugin's folder, for development runs). Returns

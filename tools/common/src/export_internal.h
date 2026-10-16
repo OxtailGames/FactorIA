@@ -17,6 +17,7 @@
 #include "fa/core/image.h"
 #include "fa/core/strings.h"  // replace_all
 #include "fa/core/types.h"
+#include "fa/runtime/plugins.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/icons.h"
@@ -45,6 +46,12 @@ struct Project {
     std::vector<std::string> platforms;
     bool hasPlatformsField = false;
     ProjectExportSettings settings;  // `icon` and `export` of factoria.json (load_export_settings), defaults filled in
+    struct Plugin {
+        std::string name;
+        stdfs::path build;  // <plugin folder>/<platform> (plugin_build): what the export copies or links
+    };
+    std::vector<Plugin> plugins;             // the native plugins of the platform being exported
+    std::vector<stdfs::path> pluginFolders;  // every plugin's folder: the ones inside the project stay out of game/
 };
 
 // ---- helpers (export.cpp) -----------------------------------------------------------------------------

@@ -253,6 +253,39 @@ std::string plugin_library(const std::string& name, const std::string& platform)
     return "android";
 }
 
+Result<std::string> plugin_build(const std::string& projectDir, const PluginSettings& plugin, const std::string& platform) {
+    auto folder = plugin_folder(projectDir, plugin);
+    if (!folder.ok()) return folder.error();
+    const stdfs::path dir = stdfs::path(folder.value()) / platform;
+    const std::string where = std::string(kProjectFileName) + "#/plugins/" + plugin.name + ": ";
+    const std::string notFor = "or, when it is not made for " + platform + ", list the platforms it is made for in \"platforms\"";
+    std::error_code ec;
+    std::vector<std::string> missing;
+    if (platform == "android") {
+        bool found = stdfs::is_regular_file(dir / "build.gradle", ec) || stdfs::is_regular_file(dir / "build.gradle.kts", ec);
+        for (stdfs::directory_iterator it(dir, ec), end; !found && !ec && it != end; it.increment(ec))
+            found = it->path().extension() == ".aar" || it->path().extension() == ".jar";
+        if (!found)
+            return make_error(where + dir.generic_string() + " has no Android build: no build.gradle(.kts), .aar or .jar",
+                              "Put a Gradle library module there (the one `factoria call project.new_plugin` writes builds "
+                              "lib" + plugin.name + ".so into src/main/jniLibs/<abi>/), or the plugin's .aar files; " + notFor + ".");
+    } else if (platform == "ios") {
+        for (const char* sdk : {"iphoneos", "iphonesimulator"})
+            if (!stdfs::is_regular_file(dir / sdk / ("lib" + plugin.name + ".a"), ec))
+                missing.push_back(std::string("ios/") + sdk + "/lib" + plugin.name + ".a");
+    } else if (!stdfs::is_regular_file(stdfs::path(folder.value()) / plugin_library(plugin.name, platform), ec)) {
+        missing.push_back(plugin_library(plugin.name, platform));
+    }
+    if (!missing.empty()) {
+        std::string list;
+        for (const std::string& m : missing) list += (list.empty() ? "" : ", ") + m;
+        return make_error(where + "the " + platform + " build is missing: " + list + " not found in " + folder.value(),
+                          "Build the plugin for " + platform + " into its folder (its CMakeLists.txt copies the build there, "
+                          "docs/EXTENDING.md \"Native plugins\"), " + notFor + ".");
+    }
+    return dir.generic_string();
+}
+
 std::vector<std::string> install_plugins(const ProjectSettings& project, const std::string& projectDir,
                                          const std::string& libraryDir, CommandRegistry& commands, ScriptSystem& scripts) {
     std::vector<std::string> problems;
@@ -275,19 +308,16 @@ std::vector<std::string> install_plugins(const ProjectSettings& project, const s
             error = "it is not linked into the app (an iOS plugin is a static library that `factoria export --platform ios` "
                     "links into the Xcode project: export the game again)";
         } else {
-            const std::string file = plugin_library(ps.name, platform);
-            if (!libraryDir.empty()) {
-                library = (stdfs::path(libraryDir) / stdfs::path(file).filename()).generic_string();
-            } else if (auto folder = plugin_folder(projectDir, ps); folder.ok()) {
-                library = folder.value() + "/" + file;
-            } else {
-                error = folder.error().message + " " + folder.error().hint;
-            }
+            const std::string file = stdfs::path(plugin_library(ps.name, platform)).filename().string();
             std::error_code ec;
-            if (error.empty() && !stdfs::is_regular_file(library, ec))
-                error = library + " not found: build the plugin for " + platform + " into its folder (" + file +
-                        ", docs/EXTENDING.md \"Native plugins\"), or list the platforms it is built for in factoria.json#/plugins/" +
-                        ps.name + "/platforms. `factoria validate` lists every missing build";
+            if (libraryDir.empty()) {
+                auto dir = plugin_build(projectDir, ps, platform);
+                if (dir.ok()) library = dir.value() + "/" + file;
+                else error = dir.error().message + " " + dir.error().hint;
+            } else if (library = libraryDir + "/" + file; !stdfs::is_regular_file(library, ec)) {
+                error = library + " not found next to the game: export it again (`factoria export` copies the plugin's " +
+                        platform + " build there)";
+            }
         }
 
         // Load it once per process.

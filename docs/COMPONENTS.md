@@ -782,6 +782,18 @@ Show the project settings, input actions, current scene, scenes and scripts.
 
 Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefabs[], sceneErrors}. Example: project.info {}
 
+### `project.new_plugin` (modifies state)
+
+Create a native plugin (C/C++) for this game and declare it in factoria.json.
+
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt and README.md, and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Returns {folder, files[], plugin, nextSteps[]}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>. |
+| `path` | string | no | Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts. |
+| `platforms` | array | no | The platforms it will be built for (default: this computer's). |
+
 ### `project.templates`
 
 List the project templates `project.create` can start from.
@@ -1950,6 +1962,11 @@ declare module "factoria" {
   export const assets: AssetsAPI;
 
   /**
+   * Functions of the game's native plugins (factoria.json "plugins", docs/EXTENDING.md "Native plugins"): plugins.<plugin>.<function>(...args) passes the arguments as JSON and returns the plugin's JSON result; a failure throws an Error with the plugin's message and hint. A plugin that is not built for this platform is undefined (test with `if (plugins.steam)`); one that failed to load throws why on first use.
+   */
+  export const plugins: PluginsAPI;
+
+  /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
    */
   export function vec2(x?: number | Vec2Like, y?: number): Vec2;
@@ -2864,6 +2881,12 @@ declare module "factoria" {
     AudioListener: { volume?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
+  }
+  /**
+   * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).
+   */
+  export interface PluginsAPI {
+    readonly [plugin: string]: Record<string, (...args: any[]) => any> | undefined;
   }
 }
 
