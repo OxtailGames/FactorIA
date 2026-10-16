@@ -141,7 +141,7 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
 // only 2D sprites and particles do: any other texture field (a tileset, a mesh texture) would show the whole atlas.
 // The VFS root is the project (its assets.json is the one asked).
 void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer, const std::string& typeName, const Json& fields) {
-    if (typeName == "Sprite" || typeName == "ParticleEmitter") return;
+    if (typeName != "Tilemap" && typeName != "MeshRenderer") return;  // the others draw through the atlas rectangle
     const TypeInfo* t = TypeRegistry::global().find(typeName);
     if (!t || !fields.is_object()) return;
     for (const FieldInfo& f : t->fields) {
@@ -155,7 +155,7 @@ void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer
                "Texture '" + path + "' is in atlas group \"" + group->get<std::string>() + "\" (assets.json), but " + typeName + "." + f.name +
                    " cannot draw from an atlas: an exported game would show the whole atlas image here.",
                "Set the \"atlas\" import setting of '" + path + "' to \"\" in assets.json, or point " + f.name +
-                   " at a copy of the image that is not in a group. Only Sprite and ParticleEmitter textures can be packed.");
+                   " at a copy of the image that is not in a group. Tilemap tilesets and MeshRenderer textures cannot be packed.");
     }
 }
 

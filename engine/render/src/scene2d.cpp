@@ -127,9 +127,11 @@ void gather_2d(World& world, Frame& f) {
         }
         Mat4 m = world.world_matrix(e);
         bool screen = s.space == RenderSpace::Screen;
+        Rect clip;
+        if (screen && !screen_clip(world, e, f, clip)) return;
         if (screen) apply_anchor(m, s.anchor, f);
         QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend);
+        list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
         const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);  // inside the atlas when packed
         float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
@@ -146,9 +148,11 @@ void gather_2d(World& world, Frame& f) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
         Mat4 m = world.world_matrix(e);
         bool screen = s.space == RenderSpace::Screen;
+        Rect clip;
+        if (screen && !screen_clip(world, e, f, clip)) return;
         if (screen) apply_anchor(m, s.anchor, f);
         QuadList& list = pick(s.space);
-        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend);
+        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
         // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
         float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
@@ -255,6 +259,8 @@ void gather_2d(World& world, Frame& f) {
         if (!entity_active(world, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
         Mat4 m = world.world_matrix(e);
         bool screen = t.space == RenderSpace::Screen;
+        Rect clip;
+        if (screen && !screen_clip(world, e, f, clip)) return;
         float scale = matrix_scale_x(m);
         float ppu;
         if (screen) ppu = 1.0f;
@@ -277,7 +283,7 @@ void gather_2d(World& world, Frame& f) {
             m.at(3, 1) = std::round((m.at(3, 1) - oy) * k) / k + oy;
         }
         QuadList& list = pick(t.space);
-        list.begin_item(t.layer, secondary_key(f, m, false), f.fonts->atlas(), SamplerKind::Linear);
+        list.begin_item(t.layer, secondary_key(f, m, false), f.fonts->atlas(), SamplerKind::Linear, BlendMode::Alpha, clip);
         QuadEmitter em{list, m, screen, pack_color(t.color), kModeGlyph, 0};
         for (const auto& q : lay.quads) em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);
         list.end_item();

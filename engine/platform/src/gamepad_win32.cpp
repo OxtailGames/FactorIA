@@ -43,6 +43,7 @@ void poll_gamepads(Input& in) {
         if (ok != present[i]) in.on_gamepad_connected(i, ok);
         present[i] = ok;
         if (!ok) continue;
+        in.set_gamepad_type(i, GamepadType::Xbox);  // XInput only serves Xbox-style pads
         const XINPUT_GAMEPAD& g = st.Gamepad;
         const struct { WORD mask; GamepadButton button; } map[] = {
             {XINPUT_GAMEPAD_A, GamepadButton::A}, {XINPUT_GAMEPAD_B, GamepadButton::B},

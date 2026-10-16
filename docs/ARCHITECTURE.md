@@ -42,6 +42,7 @@ engine/            runtime modules (ship inside every game)
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture, KTX2 textures (Basis Universal transcoder)
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes with rigid-body rotation, continuous collision, shape casts)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
+  ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
@@ -62,7 +63,7 @@ external/          vendored third-party code (do not edit)
 Module dependency order (a module may only include modules above it):
 
 ```
-core -> scene -> platform -> render, physics, audio -> script -> runtime -> tooling -> mcp, ai -> editor -> cli
+core -> scene -> platform -> render, physics, audio, ui -> script -> runtime -> tooling -> mcp, ai -> editor -> cli
 ```
 
 ## Core concepts
@@ -144,6 +145,20 @@ this picture" whatever form it ships in.
 Where a 2D entity is and how big it is has ONE definition, `fa/scene/bounds.h` (`visual_footprints`, `entity_world_rect`): Tilemap, Sprite,
 Shape2D and Text from size, pivot and the world matrix. `entity.bounds()` in scripts and the editor's picking and selection outline
 both call it, so what a script measures is what the editor outlines. File sizes and font layout are injected (`VisualMeasure`).
+
+### UI
+Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`, `TextField`, `ScrollList` in
+`scene/components.h`, category "UI"), screen space only. The work is split three ways so nobody depends on a sibling:
+- **Where a widget is** has ONE definition, `fa/scene/ui_rect.h` (`ui_rect`, `ui_clip_rect`, `ui_slider_track`); layout, hit-testing, drawing and
+  the editor's picking (`bounds.h`) all call it.
+- **How it behaves** is `fa_ui` (`UiSystem`, `fa/ui/ui.h`): layout of Panel and ScrollList children, focus rules
+  (nothing takes focus except `autoFocus`), navigation and auto-repeat over the `ui_*` actions, pointer hover / press /
+  drag / wheel, widget values, and the `ui.*` game events (`world.events().game`, which scripts receive through
+  `world.on` and `ui.on`). It reads `Input`, writes components and events, never draws. The runtime calls `update`
+  every frame before `scripts.update` and `layout` before drawing; `ui.state` is its read-only command.
+- **How it looks** is `fa_render` (`render/src/ui2d.cpp`): 9-slice backgrounds, labels, focus ring, drawn into the screen quad
+  list. A ScrollList's descendants (widgets and every other screen-space item) carry a clip rectangle that `draw_group` applies as a scissor;
+  batches only merge with an equal clip.
 
 ### Headless
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works

@@ -168,11 +168,13 @@ void gather_particles(World& world, Frame& f) {
 
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
         QuadList& list = screen ? f.screen : f.world;
+        Rect clip;
+        if (screen && !screen_clip(world, e, f, clip)) return;
         // The whole texture (inside its atlas when packed); the soft dot of a texture-less emitter spans -1..1.
         const Vec2 uvMin = em.texture.empty() ? Vec2{-1.0f, -1.0f} : tex->uv(0.0f, 0.0f);
         const Vec2 uvMax = em.texture.empty() ? Vec2{1.0f, 1.0f} : tex->uv(float(tex->width), float(tex->height));
         list.begin_item(em.layer, f.cam.perspective && !screen ? length(m.translation() - f.cam.position) : 0.0f, tex,
-                        SamplerKind::Linear, em.blend);
+                        SamplerKind::Linear, em.blend, clip);
         for (const auto& p : st.particles) {
             float t = p.age / p.life;
             float size = lerp(em.startSize, em.endSize, t);

@@ -9,6 +9,7 @@
 #include "fa/platform/app.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/sokol_entry.h"
+#include "sokol_window.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 
@@ -25,6 +26,7 @@ struct AppState {
     AppDesc desc;
     bool active = false;
     bool focused = true;  // pads are not polled while the window is in the background
+    bool vsync = true;  // as asked for: AppDesc::vsync, then app_set_vsync
     bool touchLogged = false;  // the first touch is logged once (the mobile smoke tests wait for it)
     int fbW = 0, fbH = 0;
 };
@@ -130,7 +132,10 @@ void on_event(const sapp_event* e) {
             if (in && e->char_code >= 32 && e->char_code != 127) in->on_text(e->char_code);
             break;
         case SAPP_EVENTTYPE_MOUSE_MOVE:
-            if (in) in->on_mouse_move(to_design(e->mouse_x, e->mouse_y));
+            if (in) {
+                in->on_mouse_move(to_design(e->mouse_x, e->mouse_y));
+                if (sapp_mouse_locked()) in->on_mouse_delta({e->mouse_dx, e->mouse_dy});  // the position is frozen then
+            }
             break;
         case SAPP_EVENTTYPE_MOUSE_DOWN:
         case SAPP_EVENTTYPE_MOUSE_UP:
@@ -227,6 +232,7 @@ int fill_sapp_icon(sapp_icon_desc& out, const std::vector<AppIconImage>& images)
 sapp_desc to_sapp_desc(const AppDesc& desc) {
     g.desc = desc;
     g.focused = true;
+    g.vsync = desc.vsync;
     sapp_desc s{};
     s.init_cb = on_init;
     s.frame_cb = on_frame;
@@ -235,7 +241,9 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     s.width = desc.width;
     s.height = desc.height;
     s.sample_count = std::max(1, desc.sampleCount);
-    s.swap_interval = desc.vsync ? 1 : 0;
+    // swap_interval 0 means "default" (1) to sokol_app, so vsync off has to be asked for with these two.
+    s.disable_vsync = !desc.vsync;
+    s.metal.disable_display_sync = !desc.vsync;
     s.high_dpi = desc.highDpi;
     s.fullscreen = desc.fullscreen;
     s.window_title = g.desc.title.c_str();  // owned by g.desc, which outlives sapp_run
@@ -291,6 +299,26 @@ float app_dpi_scale() { return sapp_isvalid() ? sapp_dpi_scale() : 1.0f; }
 void app_request_quit() { sapp_request_quit(); }
 void app_set_title(const std::string& title) { sapp_set_window_title(title.c_str()); }
 void app_show_mouse(bool show) { sapp_show_mouse(show); }
+void app_lock_mouse(bool lock) { sapp_lock_mouse(lock); }
+void app_show_keyboard(bool show) { sapp_show_keyboard(show); }
+
+bool app_is_fullscreen() { return app_is_mobile() || sapp_is_fullscreen(); }
+void app_set_fullscreen(bool on) {
+    if (!app_is_mobile() && sapp_is_fullscreen() != on) sapp_toggle_fullscreen();
+}
+
+void app_window_size(int& width, int& height) { fa_sapp_window_size(&width, &height); }
+bool app_display_size(int& width, int& height) { return fa_sapp_display_size(&width, &height); }
+bool app_set_window_size(int width, int height) {
+    return !app_is_mobile() && fa_sapp_set_window_size(std::max(width, 1), std::max(height, 1));
+}
+
+bool app_vsync() { return app_is_mobile() || g.vsync; }  // a phone's display always syncs
+bool app_set_vsync(bool on) {
+    if (app_is_mobile() || !fa_sapp_set_vsync(on)) return false;
+    g.vsync = on;
+    return true;
+}
 
 bool app_is_mobile() {
 #if defined(__ANDROID__)

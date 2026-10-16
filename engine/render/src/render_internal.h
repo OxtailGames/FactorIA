@@ -150,6 +150,7 @@ struct QuadItem {
     TextureAsset* tex = nullptr;
     SamplerKind smp = SamplerKind::Nearest;
     BlendMode blend = BlendMode::Alpha;
+    Rect clip{};  // screen-space scissor rectangle in target pixels; w <= 0 = none (ScrollList content)
 };
 
 struct QuadBatch {
@@ -158,6 +159,7 @@ struct QuadBatch {
     TextureAsset* tex = nullptr;
     SamplerKind smp = SamplerKind::Nearest;
     BlendMode blend = BlendMode::Alpha;
+    Rect clip{};  // batches only merge with an equal clip
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -166,7 +168,8 @@ public:
     std::vector<Vertex2D> raw;
     std::vector<QuadItem> items;
 
-    void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha);
+    void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha,
+                    const Rect& clip = Rect{});
     void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
     void end_item();
     bool empty() const { return items.empty(); }

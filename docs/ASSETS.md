@@ -112,8 +112,9 @@ scenes and scripts still name `assets/ui/play.png` and the sprite keeps the size
 - The atlas image is compressed like any texture, by its own entry in `assets.json` (`assets/atlases/ui.png`), not by
   the entries of the textures inside it: with the `auto` default it is UASTC on mobile and a PNG on desktop. Give the
   page an entry in `assets.json` to change that.
-- Only textures drawn by `Sprite` (with or without `region`), `SpriteAnimator` and `ParticleEmitter` can be packed. A
-  `Tilemap` tileset or a `MeshRenderer` texture in a group would draw the whole atlas, so `factoria validate` warns.
+- Only textures drawn by `Sprite` (with or without `region`), `SpriteAnimator`, `ParticleEmitter` and UI widgets can be
+  packed. A `Tilemap` tileset or a `MeshRenderer` texture in a group would draw the whole atlas, so `factoria validate`
+  warns.
 
 ### Audio
 
