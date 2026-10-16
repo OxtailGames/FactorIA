@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { ui, storage } from "factoria";
+import { ui, storage, audio } from "factoria";
 
 // Each test file starts on the project's mainScene (the main menu) with empty storage.
 test("gamepad only: main menu -> options -> music volume -> back, and the volume is saved", () => {
@@ -14,5 +14,6 @@ test("gamepad only: main menu -> options -> music volume -> back, and the volume
   pad.tap("DpadRight"); // 0.6 -> 0.7
   pad.tap("B"); // back to the main menu
   expect(ui.focused.id).toBe("options_button");
+  expect(audio.getVolume("music")).toBeCloseTo(0.7);
   expect(storage.get("settings").volume.music).toBeCloseTo(0.7);
 });

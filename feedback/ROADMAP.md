@@ -467,9 +467,9 @@ What was built:
   (Quit hidden on phones), a loading screen, a pause menu, options (video, audio per bus, controls rebinding, a language
   slot for M14) saved in `storage` and applied at start, and credits from `game.notices()`; AI_GUIDE 9.22 (widgets) and
   9.23 (the steps) lead to it. `tools/cli/tests/fixtures/menus` is the same files as a project (`fixture_menus_validate`,
-  `fixture_menus_test`): `tests/menus.test.js` drives it with gamepad presses only (main menu -> options -> music volume
-  -> back -> saved setting; rebinding; pause; credits; loading), and a `cli` test fails when a file in the doc differs
-  from the fixture's.
+  `fixture_menus_test`), driven with gamepad presses only: `tests/recipe.test.js` (main menu -> options -> music volume
+  -> back -> saved setting, the doc's sample) and `tests/menus.test.js` (rebinding, pause, credits, loading). A `cli`
+  test fails when a file in the doc differs from the fixture's.
 
 Left open:
 - `TextField`: the caret stays at the end (no caret movement, selection or IME composition). The Steam Deck floating
