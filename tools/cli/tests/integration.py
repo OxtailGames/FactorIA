@@ -281,11 +281,12 @@ def test_template(tmp, template):
     with open(os.path.join(proj, "prefabs", "probe_gem.prefab.json"), "w") as f:
         json.dump({"format": "factoria.prefab/1", "entity": {"name": "Coin", "tags": ["coin"],
                    "components": {"Shape2D": {"shape": "circle", "size": [12, 12]}}}}, f)
-    main_scene = os.path.join(proj, "scenes", "main.scene.json")
+    main_rel = json.load(open(os.path.join(proj, "factoria.json")))["mainScene"]  # 2d-platformer starts on its menu
+    main_scene = os.path.join(proj, main_rel)
     main_before = open(main_scene).read()
     unsafe = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}}, "save": True}
     code, out, err = run(["call", "scene.import_ascii", json.dumps(unsafe), "--project", proj])
-    check(code == 1 and "unsafe_save" in err and "scenes/main.scene.json" in err and '"path"' in err and open(main_scene).read() == main_before,
+    check(code == 1 and "unsafe_save" in err and main_rel in err and '"path"' in err and open(main_scene).read() == main_before,
           "scene.import_ascii save:true without path on the default main scene is refused and changes nothing")
     level = {"rows": ["....", ".o.o", "####"], "legend": {"#": 0, "o": {"prefab": "prefabs/probe_gem.prefab.json"}},
              "path": "scenes/main.scene.json"}
