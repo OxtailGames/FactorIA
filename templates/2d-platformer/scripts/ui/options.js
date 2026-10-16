@@ -44,29 +44,28 @@ export default class Options extends Behaviour {
     const vsync = world.find("vsync").get("Toggle");
     fullscreen.value = window.fullscreen;
     vsync.value = window.vsync;
-    for (const id of ["fullscreen", "resolution", "vsync", "frame_cap"]) world.find(id).get(id === "resolution" || id === "frame_cap" ? "Button" : "Toggle").interactable = has;
+    fullscreen.interactable = vsync.interactable = world.find("frame_cap").get("Button").interactable = has;
     this.refreshVideo();
 
-    ui.on("change", "fullscreen", (e) => this.video("full screen", () => window.setFullscreen(e.value), () => (s.fullscreen = e.value)));
-    ui.on("change", "vsync", (e) => this.video("vsync", () => window.setVsync(e.value), () => (s.vsync = e.value)));
+    ui.on("change", "fullscreen", (e) => this.video("full screen", () => { window.setFullscreen(e.value); s.fullscreen = e.value; }));
+    ui.on("change", "vsync", (e) => this.video("vsync", () => { window.setVsync(e.value); s.vsync = e.value; }));
     ui.on("click", "resolution", () => {
       const sizes = window.resolutions();
       const now = window.size;
       const i = sizes.findIndex((r) => r.width === Math.round(now.x) && r.height === Math.round(now.y));
       const next = sizes[(i + 1) % sizes.length];
-      this.video("window size", () => window.setSize(next.width, next.height), () => (s.resolution = [next.width, next.height]));
+      this.video("window size", () => { window.setSize(next.width, next.height); s.resolution = [next.width, next.height]; });
     });
     ui.on("click", "frame_cap", () => {
       const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
-      this.video("frame cap", () => (window.frameCap = next), () => (s.frameCap = next));
+      this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
   }
 
-  /** Runs a window change; saves it when it worked, shows why when it did not. */
-  video(what, change, remember) {
+  /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
+  video(what, change) {
     try {
       change();
-      remember();
       settings.save(this.s);
     } catch (e) {
       console.warn(`options: ${what} could not be changed: ${e.message}`);

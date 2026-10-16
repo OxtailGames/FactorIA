@@ -18,11 +18,7 @@ const DEFAULTS = {
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
-  const s = JSON.parse(JSON.stringify(DEFAULTS));
-  Object.assign(s, saved);
-  s.volume = { ...DEFAULTS.volume, ...(saved.volume || {}) };
-  s.bindings = { ...(saved.bindings || {}) };
-  return s;
+  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings } };
 }
 
 export function save(s) {
