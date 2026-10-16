@@ -90,6 +90,13 @@ The default preset is `windows-debug` or `windows-release` (Visual Studio 2022,
 x64). Use `-Preset windows-ninja-debug` from "Developer PowerShell for VS 2022",
 which puts `cl.exe` on the path.
 
+`factoria_player.exe` carries a placeholder icon (`player/windows/factoria_player.rc` and `.ico`, compiled in by MSVC's
+`rc` or MinGW's `windres`, both found by CMake with no setup). A game export overwrites its images with the game's icon
+([EXPORTING.md](EXPORTING.md#icon-and-settings-per-platform)), so the file must keep its seven BMP images (16, 24, 32, 48,
+64, 128 and 256 px). To change the drawing, edit `draw_placeholder_icon` in `tools/common/tests/placeholder_icon_test.cpp`
+and regenerate the committed file on any OS:
+`FA_REGEN_PLACEHOLDER_ICON=1 build/<preset>/tools/common/fa_test_tooling -tc="placeholder icon*"`.
+
 ### iOS: `scripts/build-ios.sh`
 
 ```bash

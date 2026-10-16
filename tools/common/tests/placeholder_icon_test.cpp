@@ -1,0 +1,145 @@
+// The placeholder icon of factoria_player.exe (player/windows/factoria_player.ico): the drawing that generated it, a check
+// that the committed file is a valid .ico of the shape the export's PE patcher needs, and the way to regenerate it:
+//   FA_REGEN_PLACEHOLDER_ICON=1 <build dir>/tools/common/fa_test_tooling -tc="placeholder icon*"
+#include <doctest.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+
+#include "fa/tooling/icons.h"
+#include "test_helpers.h"
+
+using namespace fa;
+namespace stdfs = std::filesystem;
+
+namespace {
+
+// Signed distance (in unit coordinates) from p to a rounded square: negative inside.
+double rounded_box(double px, double py, double lo, double hi, double radius) {
+    const double c = (lo + hi) / 2, half = (hi - lo) / 2 - radius;
+    const double dx = std::fabs(px - c) - half, dy = std::fabs(py - c) - half;
+    return std::hypot(std::max(dx, 0.0), std::max(dy, 0.0)) + std::min(std::max(dx, dy), 0.0) - radius;
+}
+
+// Distance from p to the convex triangle abc: negative inside (the largest signed distance to its three edges).
+double triangle(double px, double py, const double (&a)[2], const double (&b)[2], const double (&c)[2]) {
+    const double* v[3] = {a, b, c};
+    double d = -1e9;
+    for (int i = 0; i < 3; ++i) {
+        const double* p0 = v[i];
+        const double* p1 = v[(i + 1) % 3];
+        const double ex = p1[0] - p0[0], ey = p1[1] - p0[1], len = std::hypot(ex, ey);
+        d = std::max(d, ((px - p0[0]) * ey - (py - p0[1]) * ex) / len);  // the triangle is clockwise in image space
+    }
+    return d;
+}
+
+// The default icon: a dark rounded square with a light border and a light "play" triangle. Neutral on purpose: a game
+// that shows it has no icon of its own yet.
+Image draw_placeholder_icon(int size) {
+    Image img;
+    img.width = img.height = size;
+    img.rgba.assign(std::size_t(size) * size * 4, 0);
+    const double px = 1.0 / size;  // one pixel in unit coordinates
+    const double A[2] = {0.40, 0.29}, B[2] = {0.73, 0.50}, C[2] = {0.40, 0.71};
+    static const double kGlyph[3] = {0.90, 0.92, 0.96}, kBody[3] = {0.122, 0.149, 0.200}, kBorder[3] = {0.28, 0.33, 0.45};
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x) {
+            double r = 0, g = 0, b = 0, a = 0;
+            constexpr int kSamples = 4;
+            for (int sy = 0; sy < kSamples; ++sy)
+                for (int sx = 0; sx < kSamples; ++sx) {
+                    const double u = (x + (sx + 0.5) / kSamples) * px, v = (y + (sy + 0.5) / kSamples) * px;
+                    const bool outer = rounded_box(u, v, 0.04, 0.96, 0.20) < 0;
+                    if (!outer) continue;
+                    const bool inner = rounded_box(u, v, 0.065, 0.935, 0.175) < 0;
+                    const bool glyph = triangle(u, v, A, B, C) < 0;
+                    const double* col = glyph ? kGlyph : inner ? kBody : kBorder;
+                    r += col[0], g += col[1], b += col[2], a += 1;
+                }
+            std::uint8_t* p = &img.rgba[(std::size_t(y) * size + x) * 4];
+            const double n = kSamples * kSamples;
+            if (a > 0) {
+                p[0] = std::uint8_t(std::lround(255 * r / a));
+                p[1] = std::uint8_t(std::lround(255 * g / a));
+                p[2] = std::uint8_t(std::lround(255 * b / a));
+            }
+            p[3] = std::uint8_t(std::lround(255 * a / n));
+        }
+    return img;
+}
+
+std::uint32_t le16(const std::string& s, std::size_t o) { return std::uint8_t(s[o]) | (std::uint32_t(std::uint8_t(s[o + 1])) << 8); }
+std::uint32_t le32(const std::string& s, std::size_t o) { return le16(s, o) | (le16(s, o + 2) << 16); }
+
+// The BGRA pixels of one 32-bit BMP icon image as an Image.
+Image decode_bmp_image(const std::string& file, std::size_t offset, int size) {
+    Image img;
+    img.width = img.height = size;
+    img.rgba.assign(std::size_t(size) * size * 4, 0);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x) {
+            const std::size_t src = offset + 40 + (std::size_t(size - 1 - y) * size + x) * 4;
+            std::uint8_t* p = &img.rgba[(std::size_t(y) * size + x) * 4];
+            p[0] = std::uint8_t(file[src + 2]), p[1] = std::uint8_t(file[src + 1]), p[2] = std::uint8_t(file[src]), p[3] = std::uint8_t(file[src + 3]);
+        }
+    return img;
+}
+
+}  // namespace
+
+TEST_CASE("placeholder icon: the committed factoria_player.ico is made of the BMP images the exe patcher replaces") {
+    const stdfs::path path = stdfs::path(FA_REPO_ROOT) / "player" / "windows" / "factoria_player.ico";
+    const Image master = draw_placeholder_icon(512);
+    const std::vector<std::uint8_t> generated = make_ico_bmp(master, windows_icon_sizes());
+
+    if (std::getenv("FA_REGEN_PLACEHOLDER_ICON")) {
+        std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(generated.data()), std::streamsize(generated.size()));
+        MESSAGE("regenerated " << path.string());
+    }
+
+    REQUIRE_MESSAGE(stdfs::exists(path), path.string() << " is missing: run with FA_REGEN_PLACEHOLDER_ICON=1");
+    const std::string file = testing::read_all(path);
+    REQUIRE(file.size() > 6);
+    CHECK(le16(file, 0) == 0);  // reserved
+    CHECK(le16(file, 2) == 1);  // type: icon
+    const std::size_t count = le16(file, 4);
+    REQUIRE(count == windows_icon_sizes().size());
+    for (std::size_t i = 0; i < count; ++i) {
+        const int size = windows_icon_sizes()[i];
+        CAPTURE(size);
+        const std::size_t e = 6 + 16 * i;
+        REQUIRE(file.size() >= e + 16);
+        CHECK(int(std::uint8_t(file[e])) == (size >= 256 ? 0 : size));  // width, 0 = 256
+        CHECK(le16(file, e + 6) == 32);                                 // bits per pixel
+        const std::size_t bytes = le32(file, e + 8), offset = le32(file, e + 12);
+        const std::size_t expected = 40 + std::size_t(size) * size * 4 + std::size_t((size + 31) / 32) * 4 * size;
+        CHECK(bytes == expected);
+        REQUIRE(offset + bytes <= file.size());
+        CHECK(le32(file, offset) == 40);                                // BITMAPINFOHEADER
+        CHECK(le32(file, offset + 4) == std::uint32_t(size));
+        CHECK(le32(file, offset + 8) == std::uint32_t(size) * 2);       // pixels + AND mask
+        CHECK(le16(file, offset + 14) == 32);
+        CHECK(le32(file, offset + 16) == 0);                            // BI_RGB: not compressed
+
+        // What is committed is what the drawing renders: a different drawing needs the regeneration above. The
+        // comparison is loose because the float math may round differently from one compiler to the next.
+        const Image committed = decode_bmp_image(file, offset, size);
+        const Image drawn = decode_bmp_image(std::string(generated.begin(), generated.end()), offset, size);
+        const ImageDiff diff = diff_images(committed, drawn, 6.0f / 255.0f);
+        CHECK_MESSAGE(diff.meanError < 0.01, "mean error " << diff.meanError << " at " << size << " px: regenerate the icon");
+    }
+}
+
+TEST_CASE("placeholder icon: the drawing is a recognisable glyph on a transparent-cornered rounded square") {
+    const Image img = draw_placeholder_icon(128);
+    auto px = [&](int x, int y) { return &img.rgba[(std::size_t(y) * img.width + x) * 4]; };
+    CHECK(px(0, 0)[3] == 0);                 // the corner is transparent
+    CHECK(px(64, 20)[3] == 255);             // the body is opaque
+    CHECK(px(64, 20)[0] < 80);               // ... and dark
+    CHECK(px(60, 64)[0] > 200);              // the triangle is light
+    CHECK(px(126, 64)[3] == 0);              // the margin outside the square
+}
