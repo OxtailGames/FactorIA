@@ -40,6 +40,7 @@ class Input;
 class Audio;
 class Physics;
 class Renderer;
+class UiSystem;
 
 // Implemented by fa_runtime's Engine. Everything scripts can reach.
 class ScriptHost {
@@ -50,6 +51,7 @@ public:
     virtual Audio& audio() = 0;
     virtual Physics& physics() = 0;
     virtual Renderer* renderer() = 0;  // nullptr when running without graphics
+    virtual UiSystem* ui() { return nullptr; }  // the game UI (ui.focus, ui.focused, ui.hovered); nullptr without one
     virtual CommandRegistry& commands() = 0;
     virtual Json project_settings() const = 0;
     virtual double fixed_dt() const = 0;

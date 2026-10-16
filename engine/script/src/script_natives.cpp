@@ -20,6 +20,7 @@
 #include "fa/scene/bounds.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
+#include "fa/ui/ui.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -610,6 +611,37 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
     Vec2 m = measure_text_size(I, arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 16)),
                                arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0)), "ui.measureText");
     return array_of(ctx, {m.x, m.y});
+}
+
+// ---- ui ---------------------------------------------------------------------------------------------------------------------
+NATIVE(uiState) {  // () -> [focused, hovered]: entity handles, null for none (or when the host has no UI)
+    SETUP;
+    UiSystem* U = I->host->ui();
+    auto live = [&](Entity e) { return U && W.alive(e) ? ent_val(ctx, e) : JS_NULL; };
+    JSValue a = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, a, 0, live(U ? U->focused() : kNullEntity));
+    JS_SetPropertyUint32(ctx, a, 1, live(U ? U->hovered() : kNullEntity));
+    return a;
+}
+
+NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot take focus
+    SETUP;
+    UiSystem* U = I->host->ui();
+    if (!U) return throw_err(ctx, "ui.focus: this run has no UI system");
+    Entity e;
+    if (argc > 0 && !JS_IsNull(argv[0]) && !JS_IsUndefined(argv[0])) {
+        JSValue exc = JS_UNDEFINED;
+        if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
+    }
+    if (U->set_focus(W, e)) return JS_UNDEFINED;
+    const UiKind kind = ui_kind(W, e);
+    std::string why;
+    if (!ui_is_control(kind))
+        why = kind == UiKind::None ? "it has no Button, Toggle, Slider or TextField component"
+                                   : std::string("a ") + ui_kind_name(kind) + " is a container and cannot be focused; focus a Button, Toggle, Slider or TextField";
+    else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
+    else why = "its interactable is false; set interactable = true first";
+    return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);
 }
 
 // ---- entity.bounds() ----------------------------------------------------------------------------------------------
@@ -1660,7 +1692,7 @@ const Reg kRegs[] = {
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

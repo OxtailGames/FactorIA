@@ -702,7 +702,7 @@
       },
       {
        "sig": "on(name: string, fn: (data: any, source: Entity | null) => void): () => void",
-       "doc": "Subscribe to an event; returns unsubscribe."
+       "doc": "Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them)."
       },
       {
        "sig": "readonly settings: Components[\"SceneSettings\"]",
@@ -1339,12 +1339,55 @@
     },
     {
      "kind": "interface",
+     "name": "UiEvent",
+     "doc": "What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField).",
+     "members": [
+      {
+       "sig": "readonly type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\"",
+       "doc": "Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B)."
+      },
+      {
+       "sig": "readonly id: string | null",
+       "doc": "Id of the widget entity (the \"id\" of the scene entity). null for a cancel with nothing focused."
+      },
+      {
+       "sig": "readonly entity: Entity | null",
+       "doc": "The widget entity; null for a cancel with nothing focused."
+      },
+      {
+       "sig": "readonly value?: boolean | number | string",
+       "doc": "change and submit only: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "UIAPI",
-     "doc": "Text/UI helpers.",
+     "doc": "Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI). The UI keeps working while time.scale is 0.",
      "members": [
       {
        "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number }",
        "doc": "Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning)."
+      },
+      {
+       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", fn: (e: UiEvent) => void): () => void",
+       "doc": "Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on(\"ui.click\", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion."
+      },
+      {
+       "sig": "on(type: \"click\" | \"change\" | \"submit\" | \"focus\" | \"cancel\", target: Entity | string, fn: (e: UiEvent) => void): () => void",
+       "doc": "Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on(\"click\", \"play_button\", () => scene.load(\"scenes/level1.scene.json\"))."
+      },
+      {
+       "sig": "focus(target: Entity | string | null): void",
+       "doc": "Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false)."
+      },
+      {
+       "sig": "readonly focused: Entity | null",
+       "doc": "The widget that has keyboard / gamepad focus, or null."
+      },
+      {
+       "sig": "readonly hovered: Entity | null",
+       "doc": "The widget under the mouse pointer (the top-most visible interactable one), or null. Check it in game code so a click meant for a button does not also shoot."
       }
      ]
     },
@@ -1453,7 +1496,7 @@
      "kind": "const",
      "name": "ui",
      "type": "UIAPI",
-     "doc": "Text measurement."
+     "doc": "Game UI events and focus, text measurement."
     },
     {
      "kind": "const",
