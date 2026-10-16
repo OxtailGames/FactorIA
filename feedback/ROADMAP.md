@@ -423,7 +423,7 @@ Found while implementing M9, not fixed:
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
 
-## M10. Game UI and a complete-game template (L, blocker for every store) — DONE (PRs #47, #50, #51 and the `m10/template-menus` PR)
+## M10. Game UI and a complete-game template (L, blocker for every store) — DONE (PRs #47, #50, #51, #53)
 
 Closes F-01, F-12, U-01..U-04, U-07, U-09 and the script half of F-08. Today the scripting API has `ui.measureText` and no
 widget component, so no game can have a main menu, options or an in-game shop; the window cannot go full screen from a
