@@ -556,6 +556,13 @@ void Audio::set_bus_volume(std::string_view bus, float volume) {
     impl_->busVol[b] = volume;
 }
 
+float Audio::bus_volume(std::string_view bus) const {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    if (bus == "master") return impl_->master;
+    const int b = Impl::bus_index(bus);
+    return b < 0 ? -1.0f : impl_->busVol[b];
+}
+
 void Audio::set_master_volume(float volume) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->master = std::max(volume, 0.0f);
