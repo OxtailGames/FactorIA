@@ -10,8 +10,10 @@
 // Both produce a GfxEnvironment for fa_render, which owns sg_setup().
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "fa/platform/input.h"
 
@@ -38,6 +40,13 @@ struct AppEvent {
     int width = 0, height = 0;  // Resized: framebuffer pixels
 };
 
+// One candidate image of the window icon: width * height RGBA8 pixels, row 0 = top.
+struct AppIconImage {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgba;
+};
+
 struct AppDesc {
     std::string title = "FactorIA";
     int width = 1280;           // initial window size (logical pixels)
@@ -46,6 +55,11 @@ struct AppDesc {
     bool vsync = true;
     bool highDpi = true;
     int sampleCount = 1;        // MSAA of the window swapchain
+    // The window icon (the title bar and the taskbar): the same icon in several sizes, the platform picks the closest to
+    // what it shows. Used on Windows and Linux; macOS shows the icon of the app bundle (the Dock) and mobile apps have
+    // none here. Empty = the platform's default icon. At most 8 images are used. to_sapp_desc keeps the pixels alive in
+    // the copy of this AppDesc it owns, like `title`.
+    std::vector<AppIconImage> icon;
     // Input is fed into this object; positions are converted with to_design_coords. Physical gamepads are polled into
     // it once per frame, before `frame` runs (fa/platform/gamepad.h; not while the window is unfocused).
     Input* input = nullptr;

@@ -13,7 +13,9 @@
 //   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
 //   "input": { "actions": { "jump": ["Space", "W"] }, "deadzone": 0.2 },   // deadzone: gamepad sticks and triggers
 //   "platforms": ["windows", "macos", "linux", "ios", "android"],
-//   "feedbackFile": "ENGINE_FEEDBACK.json"
+//   "feedbackFile": "ENGINE_FEEDBACK.json",
+//   "icon": "assets/icon.png",                // the game icon; export.<platform>.icon replaces it for one platform
+//   "export": { ... }                         // per-platform export settings: fa/tooling/export_settings.h, docs/EXPORTING.md
 // }
 #pragma once
 
@@ -49,7 +51,13 @@ struct ProjectSettings {
     double inputDeadzone = 0.2;  // gamepad sticks (radial) and triggers; 0 <= value < 1 (see Input::set_gamepad_deadzone)
     std::vector<std::string> platforms;
     std::string feedbackFile = kFeedbackFileName;
+    std::string icon;  // "icon": project-relative path of the game icon (a square PNG/JPG); "" = none
     Json raw;  // the whole file, for fields the engine does not model yet
+
+    // The icon file the window of THIS platform shows: `export.<platform>.icon` of the file (windows | macos | linux |
+    // android | ios, the platform the engine was built for), else `icon`. "" = none. Lenient: a value of the wrong type
+    // counts as unset (`factoria validate` reports it).
+    std::string window_icon() const;
 
     Json to_json() const;
 };
