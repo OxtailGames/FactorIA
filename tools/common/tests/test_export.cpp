@@ -543,7 +543,7 @@ TEST_CASE("export: ios source mode produces a script and the game folder") {
     CHECK(script.find("--run) BUILD=1; RUN=1") != std::string::npos);
     CHECK(script.find("xcrun devicectl device install app") != std::string::npos);
     CHECK(script.find("xcrun simctl launch --terminate-running-process --console-pty") != std::string::npos);
-    CHECK(script.find("cmake -S \"$ENGINE_DIR\"") != std::string::npos);
+    CHECK(script.find("\"$CMAKE\" -S \"$ENGINE_DIR\"") != std::string::npos);
     CHECK(script.find("-DFA_BUILD_TOOLS=OFF") != std::string::npos);
     CHECK(script.find("XCODE_ARGS") != std::string::npos);  // everything after `--` goes to xcodebuild
     CHECK_FALSE(stdfs::exists(root / "CMakeLists.txt"));
@@ -743,7 +743,9 @@ TEST_CASE("export: ios prebuilt mode writes a project that links the downloaded 
 
     std::string script = testing::read_all(root / "build_ios.sh");
     CHECK(script.find("mode: prebuilt") != std::string::npos);
-    CHECK(script.find("cmake -S \"$HERE\" -B \"$HERE/build\" -G Xcode") != std::string::npos);
+    CHECK(script.find("\"$CMAKE\" -S \"$HERE\" -B \"$HERE/build\" -G Xcode") != std::string::npos);
+    CHECK(script.find("CMAKE=\"${FACTORIA_CMAKE:-}\"") != std::string::npos);  // CMake: FACTORIA_CMAKE, the found one, PATH
+    CHECK(script.find("factoria setup cmake") != std::string::npos);
     CHECK(script.find("-DCMAKE_SYSTEM_NAME=iOS") != std::string::npos);
     CHECK(script.find("-DFA_GAME_BUNDLE_ID='com.example.spacedodge'") != std::string::npos);
     CHECK(script.find("-DFA_GAME_PROJECT_DIR=\"$HERE/game\"") != std::string::npos);

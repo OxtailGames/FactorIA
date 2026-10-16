@@ -8,6 +8,7 @@
 #include "export_internal.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/pe_icon.h"
+#include "fa/tooling/setup.h"
 
 namespace fa::export_detail {
 
@@ -20,10 +21,15 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
                        "build it with `cmake --build <build dir> --target factoria_player`");
         return stdfs::path(o.playerBinary);
     }
-    if (platform != host_platform())
+    if (platform != host_platform()) {
+        // The player `factoria setup players` downloaded for this factoria version (<home>/players/<version>/<os>/).
+        if (const std::string installed = installed_player(platform); !installed.empty()) return stdfs::path(installed);
         return err("export: cannot export for " + platform + " from a " + host_platform() +
                        " machine without a player binary built for " + platform,
-                   "build factoria_player on " + platform + " (see docs/BUILDING.md) and pass it with --player <path>");
+                   "run `factoria setup players` (the editor: Set up in the Export window) to download the " + platform +
+                       " player of this FactorIA version, or build factoria_player on " + platform +
+                       " (see docs/BUILDING.md) and pass it with --player <path>");
+    }
     stdfs::path dir = executable_dir();
     for (const stdfs::path& c : {dir / exe, dir.parent_path() / "player" / exe, dir.parent_path().parent_path() / "player" / exe})
         if (stdfs::is_regular_file(c, ec)) return c;
