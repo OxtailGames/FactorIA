@@ -185,7 +185,9 @@ cd my-game
 Available templates:
 
 - `2d-empty`: an empty 2D scene with only a camera. Start from scratch.
-- `2d-platformer`: platforms with physics, coins, a score counter and a camera that follows the player.
+- `2d-platformer`: a small complete game: platforms with physics, coins, a score counter and a camera that follows the
+  player, plus a main menu, a pause menu, options (video, audio, controls) saved between runs, credits and a loading
+  screen.
 - `3d-empty`: an empty 3D scene with only a perspective camera.
 
 `factoria templates` lists the available templates with their descriptions.
@@ -212,7 +214,8 @@ factoria run
 A window opens with the game. The controls are defined in `factoria.json`, under `input.actions`:
 
 - `2d-empty`: nothing moves yet; the actions `move_left/right/up/down` (A, D, W, S or the arrows) and `action` are ready.
-- `2d-platformer`: A and D or the arrow keys to move; Space, W or the up arrow to jump.
+- `2d-platformer`: A and D, the arrow keys or the D-pad to move; Space, W, the up arrow or pad A to jump; Escape, P or
+  Start to pause. The menus work with the arrow keys and Enter, the mouse, or a gamepad.
 - `3d-empty`: nothing moves yet; the actions for W/S, A/D, E/Space and Q/LeftShift (`move_forward`, `move_back`, `move_left`, `move_right`, `move_up`, `move_down`) are ready.
 
 ## 4. Headless mode and screenshots
