@@ -584,6 +584,8 @@ export default class Jumper extends Behaviour {
 
 Background music: set `"music": "assets/music/theme.ogg"` and `"musicVolume"` in the scene `settings`, or call `audio.music(path, {volume, fade})` from a script. Buses are `master`, `sfx`, `music` and `ui`.
 
+Long sounds (over 10 seconds, so music) stream by themselves: a 3-minute track costs about 40 KB of decoded audio instead of 60 MB, so do not split music into pieces to save memory. To make every sound equally loud, put `"audio": {"normalize": true}` under `defaults` in `assets.json` (section 9.22).
+
 `project_validate` checks the asset fields of the scene (for example `Sprite.texture`, `AudioSource.clip` and `Script.path`), but not paths written in code. A missing file passed to `audio.play` shows up in `game_logs`.
 
 To check that a sound really fires, read the play log: in a test, `expect(game.audioLog()).toContainPlayed("jump.wav")` (section 10); from MCP or the CLI, `audio_log` after `game_step`. A play whose clip failed to load is in the log with `ok: false` and does not count as played.
@@ -1040,7 +1042,9 @@ it. The full reference is `docs/ASSETS.md` (`docs_read {"name":"assets"}`).
 
 <!-- Importing: filled by the importers work. -->
 
-<!-- Shipping (compression, atlases, streamed music, loudness): filled by the texture and audio work. -->
+<!-- Shipping (compression, atlases): filled by the texture work. -->
+
+Audio ships with three import settings (`assets.json`, `docs_read {"name":"assets"}` "Import settings > Audio"): `stream` (`auto` streams sounds over 10 seconds; `always`/`never` force it), `normalize` with `targetLufs` (play every sound at the same loudness, default -16 LUFS) and `convert: "qoa"` (the export ships WAV files as `<path>.qoa`, about 5 times smaller; scenes and scripts keep the `.wav` name). Run `assets.analyze_audio` once after adding sounds: it measures their loudness and keeps the result in `assets.json` (needed on mobile, where the engine never measures), and `project_validate` warns about clipped, very loud, very quiet and unevenly loud sounds.
 
 ## 10. Tests
 
