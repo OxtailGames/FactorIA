@@ -26,6 +26,10 @@ const char* provider_kind_name(ProviderKind k) {
         case ProviderKind::ClaudeCode: return "claude-code";
         case ProviderKind::Codex: return "codex";
         case ProviderKind::GenericCli: return "generic-cli";
+        case ProviderKind::ElevenLabs: return "elevenlabs";
+        case ProviderKind::Meshy: return "meshy";
+        case ProviderKind::Fake: return "fake";
+        case ProviderKind::AssetCommand: return "asset-command";
     }
     return "?";
 }
@@ -34,9 +38,53 @@ bool is_cli_kind(ProviderKind k) {
     return k == ProviderKind::ClaudeCode || k == ProviderKind::Codex || k == ProviderKind::GenericCli;
 }
 
+bool is_asset_only_kind(ProviderKind k) {
+    return k == ProviderKind::ElevenLabs || k == ProviderKind::Meshy || k == ProviderKind::Fake ||
+           k == ProviderKind::AssetCommand;
+}
+
+const char* media_kind_name(MediaKind k) {
+    switch (k) {
+        case MediaKind::Image: return "image";
+        case MediaKind::Sound: return "sound";
+        case MediaKind::Music: return "music";
+        case MediaKind::Voice: return "voice";
+        case MediaKind::Model3d: return "model3d";
+    }
+    return "?";
+}
+
+std::string providers_that_make(const AiConfig& cfg, MediaKind m) {
+    std::vector<std::string> names;
+    for (const auto& [name, p] : cfg.providers) {
+        if (provider_makes(p.kind, m)) names.push_back(name);
+    }
+    return fa::join(names, ", ");
+}
+
+namespace {
+
+std::string default_asset_base_url(ProviderKind k) {
+    return k == ProviderKind::ElevenLabs ? "https://api.elevenlabs.io" : k == ProviderKind::Meshy ? "https://api.meshy.ai" : std::string();
+}
+
+}  // namespace
+
+bool provider_makes(ProviderKind k, MediaKind m) {
+    switch (k) {
+        case ProviderKind::OpenAICompatible: return m == MediaKind::Image || m == MediaKind::Voice;
+        case ProviderKind::ElevenLabs: return m == MediaKind::Sound || m == MediaKind::Music || m == MediaKind::Voice;
+        case ProviderKind::Meshy: return m == MediaKind::Model3d;
+        case ProviderKind::Fake:
+        case ProviderKind::AssetCommand: return true;
+        default: return false;
+    }
+}
+
 static bool parse_kind(std::string_view s, ProviderKind& out) {
     for (auto k : {ProviderKind::Anthropic, ProviderKind::OpenAICompatible, ProviderKind::ClaudeCode,
-                   ProviderKind::Codex, ProviderKind::GenericCli}) {
+                   ProviderKind::Codex, ProviderKind::GenericCli, ProviderKind::ElevenLabs, ProviderKind::Meshy,
+                   ProviderKind::Fake, ProviderKind::AssetCommand}) {
         if (s == provider_kind_name(k)) { out = k; return true; }
     }
     return false;
@@ -126,6 +174,8 @@ constexpr RoleDefault kAnthropicRoles[] = {
 std::string default_key_env(const ProviderConfig& p) {
     if (!p.apiKeyEnv.empty()) return p.apiKeyEnv;
     if (p.kind == ProviderKind::Anthropic) return "ANTHROPIC_API_KEY";
+    if (p.kind == ProviderKind::ElevenLabs) return "ELEVENLABS_API_KEY";
+    if (p.kind == ProviderKind::Meshy) return "MESHY_API_KEY";
     if (auto* pr = find_preset(p.preset)) return pr->keyEnv;
     return {};
 }
@@ -191,6 +241,23 @@ AiConfig default_config() {
         c.command = default_cli_command(kind);
         c.defaultModel = kind == ProviderKind::ClaudeCode ? "sonnet" : "";
         cfg.providers[c.name] = c;
+    }
+    // Asset providers (docs/AI_PROVIDERS.md, "Asset providers"); `openai` above makes images and voice too.
+    {
+        ProviderConfig e;
+        e.name = "elevenlabs";
+        e.kind = ProviderKind::ElevenLabs;
+        e.baseUrl = default_asset_base_url(e.kind);
+        cfg.providers[e.name] = e;
+        ProviderConfig m;
+        m.name = "meshy";
+        m.kind = ProviderKind::Meshy;
+        m.baseUrl = default_asset_base_url(m.kind);
+        cfg.providers[m.name] = m;
+        ProviderConfig f;
+        f.name = "fake";
+        f.kind = ProviderKind::Fake;
+        cfg.providers[f.name] = f;
     }
     cfg.roles = default_roles_for(cfg);
     return cfg;
@@ -299,6 +366,7 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 for (const auto& e : *u) c.unsetEnv.push_back(e.get<std::string>());
             }
             if (pj.contains("factoriaCommand")) c.factoriaCommand = str(pj, "factoriaCommand");
+            if (pj.contains("license")) c.license = str(pj, "license");
             if (const Json* pr = child(pj, "pricing")) read_pricing(*pr, c.pricing);
             c.maxRetries = static_cast<int>(num(pj, "maxRetries", c.maxRetries));
             c.timeoutSeconds = num(pj, "timeoutSeconds", c.timeoutSeconds);
@@ -309,6 +377,12 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                                       "Set \"command\" and \"argv\" (placeholders {prompt} {model} {project} {mcp_config}).");
                 }
             }
+            if (c.kind == ProviderKind::AssetCommand && c.command.empty()) {
+                return make_error(std::string(sourceName) + ": /providers/" + name + "/command: required for asset-command",
+                                  "Set \"command\" and \"argv\" (placeholders {prompt} {output} {width} {height} {seconds} "
+                                  "{kind} {model} {seed}).");
+            }
+            if (c.baseUrl.empty()) c.baseUrl = default_asset_base_url(c.kind);
             if (c.kind == ProviderKind::OpenAICompatible && c.baseUrl.empty()) {
                 return make_error(std::string(sourceName) + ": /providers/" + name + "/baseUrl: missing",
                                   "Set \"baseUrl\" (e.g. https://openrouter.ai/api/v1) or a \"preset\".");
@@ -321,6 +395,35 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         for (const auto& [n, _] : cfg.providers) names.push_back(n);
         return make_error(std::string(sourceName) + ": /defaultProvider: unknown provider '" + cfg.defaultProvider + "'",
                           fa::did_you_mean(cfg.defaultProvider, names));
+    }
+
+    if (is_asset_only_kind(cfg.provider(cfg.defaultProvider)->kind)) {
+        return make_error(std::string(sourceName) + ": /defaultProvider: '" + cfg.defaultProvider + "' only generates assets",
+                          "defaultProvider runs the agent roles: use a chat provider (anthropic, claude-code, openai...). "
+                          "Asset providers go under \"assets\".");
+    }
+    if (const Json* assets = child(j, "assets")) {
+        for (auto it = assets->begin(); it != assets->end(); ++it) {
+            const MediaKind* kind = nullptr;
+            for (const MediaKind& k : kMediaKinds) {
+                if (it.key() == media_kind_name(k)) kind = &k;
+            }
+            if (!kind) continue;  // the schema already rejected other keys
+            AssetRoute r;
+            r.provider = str(it.value(), "provider");
+            r.model = str(it.value(), "model");
+            r.voice = str(it.value(), "voice");
+            const std::string at = std::string(sourceName) + ": /assets/" + it.key() + "/provider: ";
+            const ProviderConfig* p = cfg.provider(r.provider);
+            std::vector<std::string> names;
+            for (const auto& [n, pc] : cfg.providers) names.push_back(n);
+            if (!p) return make_error(at + "unknown provider '" + r.provider + "'", fa::did_you_mean(r.provider, names));
+            if (!provider_makes(p->kind, *kind)) {
+                return make_error(at + "'" + r.provider + "' (" + provider_kind_name(p->kind) + ") cannot generate " + it.key(),
+                                  "Providers that can: " + providers_that_make(cfg, *kind) + ".");
+            }
+            cfg.assets[it.key()] = std::move(r);
+        }
     }
 
     // Roles: defaults first, then overrides.
@@ -339,6 +442,12 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 return make_error(std::string(sourceName) + ": /roles/" + it.key() + "/provider: unknown provider '" +
                                       r.provider + "'",
                                   fa::did_you_mean(r.provider, names));
+            }
+            if (is_asset_only_kind(p->kind)) {
+                return make_error(std::string(sourceName) + ": /roles/" + it.key() + "/provider: '" + r.provider +
+                                      "' only generates assets, it cannot play a role",
+                                  "Roles need a chat provider (anthropic, claude-code, openai...). Asset providers go under "
+                                  "\"assets\".");
             }
             // Provider changed => model/effort defaults come from the new provider.
             if (setProvider) {
@@ -408,6 +517,7 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
             pj["headers"] = h;
         }
         if (!p.defaultModel.empty()) pj["defaultModel"] = p.defaultModel;
+        if (!p.license.empty()) pj["license"] = p.license;
         if (!p.command.empty()) pj["command"] = p.command;
         if (!p.argv.empty()) pj["argv"] = p.argv;
         if (!p.env.empty()) {
@@ -418,6 +528,16 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         provs[name] = pj;
     }
     out["providers"] = provs;
+    if (!cfg.assets.empty()) {
+        Json assets = Json::object();
+        for (const auto& [kind, r] : cfg.assets) {
+            Json rj = Json::object({{"provider", r.provider}});
+            if (!r.model.empty()) rj["model"] = r.model;
+            if (!r.voice.empty()) rj["voice"] = r.voice;
+            assets[kind] = rj;
+        }
+        out["assets"] = assets;
+    }
     Json roles = Json::object();
     for (const auto& [name, r] : cfg.roles) {
         Json rj = Json::object();
