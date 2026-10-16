@@ -319,8 +319,7 @@ Json generate_sprite_sheet(const Ctx& ctx, const Json& args) {
     job.path = asset_path(args);
     const std::string prompt = required_text(args, "prompt");
     const int frames = static_cast<int>(num(args, "frames", 1));
-    const int columns = args.contains("columns") ? static_cast<int>(num(args, "columns", 1))
-                                                  : static_cast<int>(std::ceil(std::sqrt(static_cast<double>(frames))));
+    const int columns = static_cast<int>(num(args, "columns", std::ceil(std::sqrt(static_cast<double>(frames)))));
     const int rows = (frames + columns - 1) / columns;
     const int frameWidth = static_cast<int>(num(args, "frameWidth", 64));
     const int frameHeight = static_cast<int>(num(args, "frameHeight", 64));
@@ -468,7 +467,6 @@ Json disclosure(const Ctx&, const Json&) {
     return Json::object({{"markdown", ai_content_disclosure(manifest, files)},
                          {"hasAiContent", has_ai_content(manifest)},
                          {"withoutProvenance", assets_without_provenance(manifest, files)},
-                         {"file", kAiDisclosureFile},
                          {"next", "Answer the store's AI questions from `markdown`. `factoria export` writes the same text as "
                                   "AI_CONTENT_DISCLOSURE.md next to the game when any asset is made with AI."}});
 }

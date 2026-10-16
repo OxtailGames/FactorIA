@@ -370,7 +370,6 @@ TEST_CASE("assets.disclosure answers the store survey from the provenance record
 
     const Json d = game.ok("assets.disclosure", Json::object());
     CHECK(d["hasAiContent"] == true);
-    CHECK(d["file"] == "AI_CONTENT_DISCLOSURE.md");
     CHECK(d["withoutProvenance"] == Json::array({"assets/unknown.png"}));
     const std::string md = d["markdown"];
     CHECK(md.find("6 assets were made with AI tools.") != std::string::npos);
