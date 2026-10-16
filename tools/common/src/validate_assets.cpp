@@ -43,11 +43,6 @@ constexpr StoreLimit kStoreLimits[] = {
 
 std::string megabytes(std::uint64_t bytes) { return std::format("{:.1f} MB", double(bytes) / double(kMiB)); }
 
-bool measurable_texture(const std::string& rel) {
-    const std::string ext = fs::extension(rel);
-    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp";
-}
-
 // The pixel size of an image file from its first bytes (a PNG header is 33 bytes, a JPEG's start rarely passes a few KB).
 bool image_size(const stdfs::path& file, int& width, int& height) {
     std::ifstream in(fs::os_path(file), std::ios::binary);
@@ -80,15 +75,16 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
         const std::uint64_t bytes = stdfs::file_size(stdfs::path(projectDir) / rel, ec);
         if (ec) continue;
         total += bytes;
+        const auto kind = assets::kind_of(rel);
         if (bytes > kBigFile) {
-            const bool audio = assets::kind_of(rel) == assets::AssetKind::Audio, texture = assets::kind_of(rel) == assets::AssetKind::Texture;
+            const bool audio = kind == assets::AssetKind::Audio, texture = kind == assets::AssetKind::Texture;
             warnings.push_back({rel, "", std::format("This file is {} and ships in the game.", megabytes(bytes)),
                                 audio     ? "Convert it to OGG (or QOA, import setting \"convert\"), or stream it if it is music; docs/ASSETS.md, \"Import settings\"."
                                 : texture ? "Scale it down, and compress it (import setting \"compression\"); docs/ASSETS.md, \"Import settings\"."
                                           : "Leave it out of the game, or make it smaller; every shipped file adds to the download (docs/ASSETS.md)."});
         }
         int width = 0, height = 0;
-        if (!measurable_texture(rel) || !image_size(stdfs::path(projectDir) / rel, width, height)) continue;
+        if (kind != assets::AssetKind::Texture || !image_size(stdfs::path(projectDir) / rel, width, height)) continue;
         const int side = std::max(width, height);
         if (side > kMaxTextureSide)
             warnings.push_back({rel, "", std::format("This texture is {}x{} px: many mobile GPUs cannot sample a texture over {} px on a side.", width, height, kMaxTextureSide),

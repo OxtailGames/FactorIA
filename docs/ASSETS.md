@@ -141,8 +141,8 @@ FBX is a closed format, so FactorIA converts it with a program that reads it. Ne
 
 - **FBX2glTF** (<https://github.com/godotengine/FBX2glTF/releases>): put it in `PATH` or set `FACTORIA_FBX2GLTF` to its
   path. Tried first.
-- **Blender** (<https://www.blender.org/download/>): found in `PATH` or in its standard install folder. It runs in the
-  background (`blender -b --factory-startup --python ...`), imports the FBX into an empty scene and exports a `.glb`.
+- **Blender** (<https://www.blender.org/download/>): found in `PATH` or in its standard install folder; it runs in the
+  background.
 
 When neither is found the error says so and links both. The converted `.glb` has meshes and materials; skins and
 animations are not used by the engine yet. Check scale and orientation with `game.screenshot`.
@@ -183,12 +183,9 @@ with warnings still runs and exports):
 - **Weight.** One shipped file over 20 MB, with a hint by kind (convert audio to OGG, compress a texture). The total of
   the shipped files against the limit of each store the game targets: Google Play's 500 MB for the base module of an app
   (`android`), and for `ios` 200 MB, above which an iPhone asks the player before downloading over cellular data, and 4 GB,
-  the App Store's limit for an uncompressed app. The numbers are in one table in `tools/common/src/validate_assets.cpp`
-  with their sources and the date they were checked. The total is before the export's texture compression and audio
+  the App Store's limit for an uncompressed app. The total is before the export's texture compression and audio
   conversion, so a game just over a limit may fit once exported (`factoria export` reports the real size).
 
-The shipped files are the ones the export includes: `build/`, `tests/`, `tools/`, `types/`, `node_modules/`, hidden files
-and folders, `AGENTS.md`, `CLAUDE.md`, `jsconfig.json` and the feedback file are left out of the count, as they are from the
-export.
+The shipped files are the ones the export includes ([EXPORTING.md](EXPORTING.md), "What is shipped").
 
 <!-- Filled by the audio and texture work: the loudness and atlas-usage checks. -->
