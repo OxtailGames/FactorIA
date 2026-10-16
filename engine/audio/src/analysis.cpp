@@ -13,7 +13,6 @@ namespace fa {
 
 namespace {
 
-constexpr double kPi = std::numbers::pi;
 constexpr double kStreamAutoSeconds = 10.0;      // `stream: "auto"` streams clips longer than this
 constexpr double kMaxNormalizeGainDb = 24.0;     // normalization never moves a clip further than this ...
 constexpr double kNormalizePeakDb = -1.0;        // ... nor past this sample peak (there is no limiter)
@@ -38,7 +37,7 @@ struct KWeighting {
     Biquad shelf, highpass;
     explicit KWeighting(double fs) {
         constexpr double shelfHz = 1681.974450955533, shelfGainDb = 3.999843853973347, shelfQ = 0.7071752369554196;
-        double k = std::tan(kPi * shelfHz / fs);
+        double k = std::tan(std::numbers::pi * shelfHz / fs);
         const double vh = std::pow(10.0, shelfGainDb / 20.0), vb = std::pow(vh, 0.4996667741545416);
         double a0 = 1.0 + k / shelfQ + k * k;
         shelf.b0 = (vh + vb * k / shelfQ + k * k) / a0;
@@ -48,7 +47,7 @@ struct KWeighting {
         shelf.a2 = (1.0 - k / shelfQ + k * k) / a0;
 
         constexpr double highpassHz = 38.13547087602444, highpassQ = 0.5003270373238773;
-        k = std::tan(kPi * highpassHz / fs);
+        k = std::tan(std::numbers::pi * highpassHz / fs);
         a0 = 1.0 + k / highpassQ + k * k;
         highpass.b0 = 1.0;
         highpass.b1 = -2.0;
