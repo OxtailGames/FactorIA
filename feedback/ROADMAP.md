@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; none is started.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and the complete-game template) is done, the rest is not started.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -423,7 +423,7 @@ Found while implementing M9, not fixed:
   exists, and the surface is always gone by `onDestroy`; the process now ends with `_exit`), so a game gets no callback
   when it closes or restarts. `storage` saves on every write, so nothing is lost today.
 
-## M10. Game UI and a complete-game template (L, blocker for every store)
+## M10. Game UI and a complete-game template (L, blocker for every store) — DONE (PRs #47, #50, #51 and the `m10/template-menus` PR)
 
 Closes F-01, F-12, U-01..U-04, U-07, U-09 and the script half of F-08. Today the scripting API has `ui.measureText` and no
 widget component, so no game can have a main menu, options or an in-game shop; the window cannot go full screen from a
@@ -443,6 +443,36 @@ Acceptance criteria:
 - A 9-slice panel drawn at three sizes keeps its corners unscaled (golden image).
 - `window.setFullscreen(true)` toggles a windowed run; headless runs return a teaching error instead of doing nothing.
 - Every widget field and command has a doc string; COMPONENTS.md and the typings are regenerated.
+
+What was built:
+- **Widgets** (#51): `Panel` (9-slice, row/column/grid layout with `spacing`, `padding`, `align`, `justify`, `fit`),
+  `Button`, `Toggle`, `Slider`, `TextField`, `ScrollList` (scrolls with the wheel and the focus, clips its children), in
+  a new `fa_ui` module. Focus only through `autoFocus` or `ui.focus`, so Space/A never clicks a HUD button; keyboard,
+  gamepad and mouse navigation with auto-repeat; default `ui_*` actions; `ui.on`, `ui.focus`, `ui.focused`,
+  `ui.hovered`; the `ui.state` command. Goldens `2d_nine_slice` (the acceptance criterion: corners compared pixel by
+  pixel at three sizes) and `2d_widgets`.
+- **Settings in JS** (#50): `window.*` (full screen, size, resolutions, vsync, frame cap; teaching errors without a
+  window), `input.rebind` / `bindings` / `resetBindings`, `input.lastPressed()`, `lastDevice`, `buttonName` and
+  `gamepad(i).type` per pad family, `input.text`, `showKeyboard`, `mouse.visible` / `locked`; a real-window full screen
+  test (`runtime_windowed_fullscreen`, Linux CI under xvfb). `display.vsync: false` now works (it was ignored).
+- **Pause that pauses** (#47): `game.paused` freezes physics, particles, animators, timers and `onUpdate`;
+  `runWhilePaused` behaviours keep running with the real `dt`; `game.notices()` for credits; `audio.getVolume(bus)`,
+  `game.platform`.
+- **The 2d-platformer template** is a complete game shell: main menu (Quit hidden on phones), loading screen, pause
+  overlay, options (video, audio per bus, controls rebinding, an empty language tab for M14) saved in `storage` and
+  applied at start, credits from `game.notices()`. `tests/menus.test.js` drives it with gamepad presses only (main menu
+  -> options -> music volume -> back -> saved setting; rebinding; pause; credits; loading). AI_GUIDE recipes 9.22-9.24.
+
+Left open:
+- The empty templates (`2d-empty`, `3d-empty`) stay empty on purpose; the menus live in `2d-platformer`.
+- `TextField`: the caret stays at the end (no caret movement, selection or IME composition). The Steam Deck floating
+  keyboard is M12; mobile on-screen keyboard polish is M16.
+- Layout and hit-tests ignore the rotation and scale of UI entities; a `Sprite` inside a container needs an explicit
+  `size` (texture sizes are not measured by the layout). 9-slice for `Sprite` is M18.
+- Window control on macOS, iOS, Android and a real Linux desktop is compiled in CI but was not run on those systems
+  (Windows was). Android pads always report `generic`; X11 `displaySize` is the whole screen, not the usable area; on
+  macOS vsync off tears but keeps the display's frame rate (sokol paces frames with a display link).
+- Save slots with their menu are M19; a GDPR/COPPA consent screen on these menus is M22.
 
 ## M11. Native plugins per game (L, blocker for M12 and the consoles)
 
