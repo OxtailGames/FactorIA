@@ -442,9 +442,8 @@ Result<void> write_ai_disclosure(const Project& p, const std::vector<std::string
     auto manifest = parse_json(*text, assets::kManifestFile);
     if (!manifest.ok() || !has_ai_content(*manifest)) return {};
     if (auto r = write_text(outRoot / kAiDisclosureFile, ai_content_disclosure(*manifest, projectFiles)); !r.ok()) return r;
-    report.nextSteps.push_back(std::string(kAiDisclosureFile) + " lists the assets of this game made with AI: use it to answer the "
-                               "AI-generated content questions of Steam's content survey and similar store forms; check its last "
-                               "section for assets without provenance first (docs/ASSETS.md, \"Provenance and store disclosure\")");
+    report.nextSteps.push_back(std::string(kAiDisclosureFile) + " answers the AI-generated content questions of store forms (Steam); "
+                               "check its section on assets without provenance first");
     return {};
 }
 
