@@ -152,12 +152,8 @@ alive || fail "the app process $PID is gone 5s after the marker"
 if [ -n "${FA_IOS_PLUGIN_PROBE:-}" ]; then
     wait_for_log "probe add=3" 10 ||
         fail "plugin: no 'probe add=3' in the console: plugins.example.add(1, 2) was not answered by the native plugin (is it linked into the app and registered before main? a 'plugin' warning above says why it did not load)"
-    first_line 'probe add=3' | tee -a "$OUT/summary.txt"
-    PROBE_INFO="$(first_line 'probe info=')"
-    case "$PROBE_INFO" in
-        *'"plugin":"example"'*) echo "$PROBE_INFO" | tee -a "$OUT/summary.txt" ;;
-        *) fail "plugin: the 'probe info=' line is missing or does not name the plugin \"example\": '$PROBE_INFO'" ;;
-    esac
+    wait_for_log 'probe info={"plugin":"example"' 10 ||
+        fail "plugin: no 'probe info=' line naming the plugin \"example\" in the console: fa.call('example.info') failed"
 fi
 
 # ---- 2. audio -------------------------------------------------------------------------------------------------------
