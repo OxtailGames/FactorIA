@@ -444,7 +444,7 @@ Acceptance criteria:
 - `window.setFullscreen(true)` toggles a windowed run; headless runs return a teaching error instead of doing nothing.
 - Every widget field and command has a doc string; COMPONENTS.md and the typings are regenerated.
 
-## M11. Native plugins per game (L, blocker for M12 and the consoles)
+## M11. Native plugins per game (L, blocker for M12 and the consoles) — DONE (PR #49 and the `m11/plugins-mobile` PR)
 
 Closes F-13. Adding C++ means changing the engine and rebuilding the players (docs/EXTENDING.md), and the exported
 Android manifest says `android:hasCode="false"`, so no store SDK (all of them native, Java or Swift) can be used, and
@@ -460,6 +460,26 @@ Acceptance criteria:
 - A test plugin adds `plugins.example.add(1, 2)` and a command; both work in `factoria run`, in the exported Windows,
   Linux and macOS games, and in the Android project CI builds and runs on the emulator (with a Java class from the
   plugin).
+
+Done: the C ABI `engine/runtime/include/fa/runtime/fa_plugin.h` (commands and `plugins.<name>.<fn>()` with doc
+strings), `"plugins"` in `factoria.json` (paths with `${VAR}`, so a plugin can live in a private folder), the loader in
+`engine/runtime` (a plugin that does not load is a warning, and its reason is the script's error), `factoria validate`
+(the missing file of each declared platform, teaching), the export (desktop: next to the exe or in
+`Contents/Frameworks`; Android: the plugin's Gradle module or `.aar` / `.jar`, `hasCode` true when it brings code; iOS:
+two static libraries linked by `platforms/ios/plugins.cmake`) and `factoria call project.new_plugin`, which writes a
+plugin that builds for every platform (`platforms/plugin`). CI: ctest `cli_plugin` runs `factoria run` and an exported
+game on Linux, Windows and macOS; `android-apk` builds the plugin with the NDK and `android-emulator` checks that the
+sum came from the plugin's Java class; `ios-build` / `ios` link it into the simulator app and check the same log.
+
+Left open:
+- iOS takes static libraries only: no Swift packages or XCFrameworks, and no extra system frameworks or linker flags
+  per plugin (a plugin that needs StoreKit has to be linked by hand in the generated project).
+- An Android plugin that is only a Maven dependency in its `build.gradle` (no Java/Kotlin sources, no `.aar` / `.jar`)
+  keeps `hasCode="false"`; the export cannot see that it brings code.
+- A missing ABI's `.so` on Android is not a warning (the module may build it itself); on a device of that ABI the
+  plugin just does not load.
+- The desktop export copies plugin folders with `std::filesystem::copy`: very deep plugin folders can hit MAX_PATH on
+  Windows.
 
 ## M12. Platform services API (L, blocker for Steam and for any monetization)
 
