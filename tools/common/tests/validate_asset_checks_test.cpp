@@ -96,20 +96,15 @@ TEST_CASE("validate: a file over 20 MB is a warning with a hint for its kind") {
     g.big_file("assets/data.bin", 22 * kMiB);
     g.big_file("assets/small.wav", 19 * kMiB);
 
-    // The fake sounds also get the loudness check's "cannot be decoded" warning: look at the size warnings only.
-    const auto size_warnings = [&](const std::string& file) {
-        std::vector<ValidationIssue> out;
-        for (const ValidationIssue& w : g.warnings(file))
-            if (w.message.find(" MB") != std::string::npos) out.push_back(w);
-        return out;
-    };
-    const auto wav = size_warnings("assets/theme.wav");
+    // The fake sounds also get the loudness check's "cannot be decoded" warning: keep the size warnings only.
+    auto wav = g.warnings("assets/theme.wav");
+    std::erase_if(wav, [](const ValidationIssue& w) { return w.message.find(" MB") == std::string::npos; });
     REQUIRE(wav.size() == 1);
     CHECK(wav[0].message.find("21.0 MB") != std::string::npos);
     CHECK(wav[0].hint.find("OGG") != std::string::npos);
     CHECK(mentions(g.warnings("assets/scan.png"), "compress"));
     CHECK(mentions(g.warnings("assets/data.bin"), "Leave it out"));
-    CHECK(size_warnings("assets/small.wav").empty());
+    CHECK_FALSE(mentions(g.warnings("assets/small.wav"), " MB"));
 }
 
 TEST_CASE("validate: the files that ship are compared with the limits of the stores the game targets") {
