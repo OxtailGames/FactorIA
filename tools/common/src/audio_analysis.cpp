@@ -181,7 +181,7 @@ void register_audio_commands(CommandRegistry& registry, const std::string& proje
             files.push_back(std::move(item));
         }
         Json result = Json::object({{"files", files}, {"measured", measured}, {"cached", cached}, {"failed", failed}});
-        if (paths.empty()) result["note"] = "No sounds found: put .wav, .ogg or .mp3 files under assets/.";
+        if (paths.empty()) result["note"] = "No sounds found: put .wav, .ogg, .mp3 or .qoa files under assets/.";
         return result;
     });
 }
