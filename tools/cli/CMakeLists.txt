@@ -44,6 +44,18 @@ if(FA_BUILD_TESTS)
             WORKING_DIRECTORY ${FA_ROOT})
         # Template JS tests must pass (strict): templates are what every new game starts from.
         set_tests_properties(cli_integration PROPERTIES TIMEOUT 600 ENVIRONMENT "FA_CLI_STRICT_TESTS=1" LABELS "gpu")
+
+        # Native plugins end to end: the template plugin (platforms/plugin) built as the plugin "example", loaded by
+        # `factoria run` and by the game `factoria export` makes (which opens a window: label gpu).
+        add_library(fa_test_plugin_example SHARED ${FA_ROOT}/platforms/plugin/src/plugin.c)
+        target_include_directories(fa_test_plugin_example PRIVATE ${FA_ROOT}/engine/runtime/include/fa/runtime)
+        target_compile_definitions(fa_test_plugin_example PRIVATE FA_PLUGIN_NAME=example)
+        set_target_properties(fa_test_plugin_example PROPERTIES OUTPUT_NAME example C_VISIBILITY_PRESET hidden)
+        add_test(NAME cli_plugin
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/plugin_test.py $<TARGET_FILE:factoria>
+                    $<TARGET_FILE:fa_test_plugin_example>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu")
     endif()
 endif()
 
