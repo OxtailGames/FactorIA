@@ -203,9 +203,12 @@ FactorIA renders into an offscreen target, so the tests can run without a window
 
 ## Releasing
 
-1. Bump `project(VERSION)` in `CMakeLists.txt`, merge it, then tag that commit `v<version>` and push the tag.
-2. `.github/workflows/release.yml` builds and smoke-tests the packages and publishes them as a GitHub Release. Edit the
-   release notes on the release page: the editors that update themselves show them.
+1. Bump `project(VERSION)` in `CMakeLists.txt` and add a `## <version>` section at the top of `CHANGELOG.md`, merge
+   both, then tag that commit `v<version>` and push the tag. The section is the release notes: editors that update
+   themselves show them, so write them for people who make games (what they can do now, what was fixed), not for
+   engine developers (no pull request numbers, authors, CI or internal names).
+2. `.github/workflows/release.yml` builds and smoke-tests the packages and publishes them as a GitHub Release with that
+   section as its notes; without the section it fails before publishing.
    The same workflow runs, without publishing, on a pull request that changes it and on "Run workflow".
 
 A release holds these files (the header of `release.yml` says the same):
