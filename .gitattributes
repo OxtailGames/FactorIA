@@ -15,3 +15,6 @@ tools/ai/tests/fixtures/*.cmd text eol=crlf
 platforms/android/gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+
+# KTX2 textures (an export writes them, tests/data holds a few): never touch their bytes.
+*.ktx2 binary

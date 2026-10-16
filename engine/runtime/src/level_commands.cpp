@@ -501,7 +501,7 @@ void check_tileset(Tilemap& tm, const Request& q, const std::vector<LegendEntry>
                       "{\"tileset\": \"assets/tiles.png\", \"tileSize\": [32, 32]}.");
         return;
     }
-    auto img = load_image(tm.tileset);
+    auto img = texture_size(tm.tileset);  // the size only: the file may be an export's .ktx2 twin
     if (!img.ok()) {
         diag.warn("Tilemap.tileset '" + tm.tileset + "' could not be loaded (" + img.error().message +
                   "), so tile indices were not range-checked.");

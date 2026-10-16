@@ -168,6 +168,9 @@ void gather_particles(World& world, Frame& f) {
 
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
         QuadList& list = screen ? f.screen : f.world;
+        // The whole texture (inside its atlas when packed); the soft dot of a texture-less emitter spans -1..1.
+        const Vec2 uvMin = em.texture.empty() ? Vec2{-1.0f, -1.0f} : tex->uv(0.0f, 0.0f);
+        const Vec2 uvMax = em.texture.empty() ? Vec2{1.0f, 1.0f} : tex->uv(float(tex->width), float(tex->height));
         list.begin_item(em.layer, f.cam.perspective && !screen ? length(m.translation() - f.cam.position) : 0.0f, tex,
                         SamplerKind::Linear, em.blend);
         for (const auto& p : st.particles) {
@@ -184,12 +187,11 @@ void gather_particles(World& world, Frame& f) {
             float h = size * 0.5f;
             std::uint32_t col = pack_color(c);
             float mode = em.texture.empty() ? float(kModeSoft) : float(kModeTextured);
-            float u0 = em.texture.empty() ? -1.0f : 0.0f, u1 = 1.0f, v0 = em.texture.empty() ? -1.0f : 0.0f, v1 = 1.0f;
             auto v = [&](float sx, float sy, float uu, float vv) {
                 Vec3 q = pos + r * (sx * h) + u * (sy * h);
                 return Vertex2D{q.x, q.y, q.z, uu, vv, col, mode, 0};
             };
-            list.quad(v(-1, 1, u0, v0), v(-1, -1, u0, v1), v(1, -1, u1, v1), v(1, 1, u1, v0));
+            list.quad(v(-1, 1, uvMin.x, uvMin.y), v(-1, -1, uvMin.x, uvMax.y), v(1, -1, uvMax.x, uvMax.y), v(1, 1, uvMax.x, uvMin.y));
         }
         list.end_item();
         f.stats->particles += int(st.particles.size());

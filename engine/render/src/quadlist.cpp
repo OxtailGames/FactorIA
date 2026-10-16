@@ -42,7 +42,8 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
         out.insert(out.end(), raw.begin() + it.firstVert, raw.begin() + it.firstVert + std::size_t(it.quadCount) * 4);
         if (it.blend == BlendMode::Multiply)  // shader variant: output mix(1, rgb, a) for the multiply blend
             for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) out[i].mode += 8.0f;
-        if (!batches.empty() && batches.back().tex == it.tex && batches.back().smp == it.smp && batches.back().blend == it.blend &&
+        // Textures packed into one atlas share its GPU image, so their quads batch together.
+        if (!batches.empty() && batches.back().tex->gpu_view().id == it.tex->gpu_view().id && batches.back().smp == it.smp && batches.back().blend == it.blend &&
             batches.back().firstQuad + batches.back().quadCount == firstQuad) {
             batches.back().quadCount += it.quadCount;
         } else {

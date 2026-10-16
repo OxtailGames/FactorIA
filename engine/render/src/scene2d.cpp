@@ -131,8 +131,8 @@ void gather_2d(World& world, Frame& f) {
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
-        float tw = float(std::max(1, tex->width)), th = float(std::max(1, tex->height));
-        float u0 = r.x / tw, u1 = (r.x + r.w) / tw, v0 = r.y / th, v1 = (r.y + r.h) / th;
+        const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);  // inside the atlas when packed
+        float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
         if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
         if (s.flipX) std::swap(u0, u1);
         if (s.flipY) std::swap(v0, v1);

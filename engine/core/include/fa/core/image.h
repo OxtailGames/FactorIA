@@ -23,6 +23,25 @@ struct Image {
 
 Result<Image> load_image(std::string_view path);                       // png/jpg/tga/bmp via fs
 Result<Image> decode_image(const std::uint8_t* data, std::size_t size);  // from memory
+
+// The mip chain of a texture: level 0 is `base`, each next level averages 2x2 pixels (edge pixels repeated) and halves
+// the size (never below 1), down to 1x1 or 16 levels. The renderer uploads these and the export compresses them, so a
+// compressed texture has the same mips as an uncompressed one.
+std::vector<Image> mip_chain(Image base);
+
+// GPU-compressed twin of a texture: an export replaces assets/hero.png by assets/hero.png.ktx2 (KTX2, Basis Universal),
+// and the engine loads the twin when it exists, so nothing that names the texture changes.
+inline constexpr const char* kTextureTwinExtension = ".ktx2";
+
+struct ImageSize {
+    int width = 0, height = 0;
+};
+// Width and height of the first level of a KTX2 file, from its header.
+Result<ImageSize> ktx2_size(const std::uint8_t* data, std::size_t size);
+// Pixel size of the texture a project path names, without decoding it: the file itself (PNG, JPG... or .ktx2), else the
+// size recorded for a texture an export packed into an atlas (assets.json `packed`), else the header of its `.ktx2`
+// twin. Scene bounds, scripts and tileset checks all ask this, so an export does not change what they measure.
+Result<ImageSize> texture_size(std::string_view path);
 Result<void> save_png(const Image& img, std::string_view path);        // via fs (creates dirs)
 std::vector<std::uint8_t> encode_png(const Image& img);
 // PNG without an alpha channel (colour type 2, RGB): the alpha of `img` is dropped, so compose it over a background

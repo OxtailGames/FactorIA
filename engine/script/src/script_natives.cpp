@@ -626,10 +626,7 @@ Vec2 texture_pixel_size(Impl* I, const std::string& path) {
     auto it = I->texSizes.find(key);
     if (it == I->texSizes.end() || it->second.mtime != mtime) {
         Impl::TexSize ts{32, 32, mtime};
-        if (fs::exists(key)) {
-            auto img = load_image(key);
-            if (img && !img->empty()) { ts.w = img->width; ts.h = img->height; }
-        }
+        if (auto size = texture_size(key); size.ok()) { ts.w = size->width; ts.h = size->height; }  // also an exported twin or atlas rect
         it = I->texSizes.insert_or_assign(key, ts).first;
     }
     return {static_cast<float>(it->second.w), static_cast<float>(it->second.h)};
