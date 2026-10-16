@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/assets.schema.json",
+  "title": "FactorIA assets.json",
+  "description": "Per-asset import settings and provenance of a game project (the file assets.json at the project root, optional). Keys of `assets` are project-relative paths (\"assets/hero.png\"). The assets.* commands (assets.generate_image, assets.import, assets.set_import, assets.set_provenance...) write it; edit it by hand only for import settings. `factoria validate` checks it. Exports ship the import settings and drop the provenance.",
+  "type": "object",
+  "required": ["format"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference for editors."
+    },
+    "format": {
+      "const": "factoria.assets/1",
+      "description": "File format identifier. Always \"factoria.assets/1\"."
+    },
+    "style": {
+      "$ref": "#/$defs/style"
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Import settings every asset of a kind gets unless its own entry overrides them.",
+      "additionalProperties": false,
+      "properties": {
+        "texture": { "$ref": "#/$defs/textureImport" },
+        "audio": { "$ref": "#/$defs/audioImport" }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "description": "One entry per asset, keyed by its project-relative path (forward slashes, e.g. \"assets/music/theme.ogg\").",
+      "additionalProperties": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "import": {
+          "type": "object",
+          "description": "Import settings of this asset: the texture keys for images, the audio keys for sounds. They override `defaults`."
+        },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "sheet": { "$ref": "#/$defs/sheet" },
+        "analysis": {
+          "type": "object",
+          "description": "Measurements the tools cache (loudness of a sound, image facts). Written by the tools; do not edit."
+        }
+      }
+    },
+    "textureImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "compression": {
+          "type": "string",
+          "enum": ["auto", "none", "uastc", "etc1s"],
+          "default": "auto",
+          "description": "GPU texture compression applied by `factoria export` (KTX2 with Basis Universal, transcoded at load time to BC7 on desktop and ASTC or ETC2 on mobile). auto: uastc for Android and iOS exports, none for desktop exports. none: ship the PNG. uastc: high quality, about 1 byte per pixel in GPU memory (4x less than RGBA8). etc1s: smaller files, lower quality (not for pixel art)."
+        },
+        "atlas": {
+          "type": "string",
+          "description": "Name of an atlas group. `factoria export` packs every texture of the same group into one texture (fewer draw calls); sprites keep referencing the original path. Only for Sprite and ParticleEmitter textures. Empty (default): not packed."
+        }
+      }
+    },
+    "audioImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stream": {
+          "type": "string",
+          "enum": ["auto", "always", "never"],
+          "default": "auto",
+          "description": "Streamed sounds are decoded a little at a time while they play instead of all at once when loaded (a 3-minute track then keeps under 2 MB of decoded audio in memory instead of about 60 MB). auto: stream sounds longer than 10 seconds. always / never: force it."
+        },
+        "normalize": {
+          "type": "boolean",
+          "default": false,
+          "description": "Play the sound at targetLufs integrated loudness (ITU-R BS.1770), so tracks and effects from different sources sound equally loud. Needs the measured loudness, which `assets.import` and `factoria validate` cache in `analysis`."
+        },
+        "targetLufs": {
+          "type": "number",
+          "minimum": -60,
+          "maximum": 0,
+          "default": -16,
+          "description": "Loudness (LUFS) that normalize aims at. -16 suits music and voice on any device; effects are often -18..-12."
+        },
+        "convert": {
+          "type": "string",
+          "enum": ["none", "qoa"],
+          "default": "none",
+          "description": "Conversion applied by `factoria export`. qoa: WAV files become QOA (lossy, about 5x smaller than 16-bit WAV, cheap to decode). none: ship the file as it is."
+        }
+      }
+    },
+    "style": {
+      "type": "object",
+      "description": "House style that assets.generate_image applies to every image, so generated art stays consistent.",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Text appended to every image prompt, e.g. \"16-bit pixel art, black outline, flat shading\"."
+        },
+        "palette": {
+          "description": "Palette lock: generated images are reduced to these colours. Either a list of \"#rrggbb\" colours or the path of an image whose pixels are the palette.",
+          "oneOf": [
+            { "type": "array", "items": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }, "minItems": 2 },
+            { "type": "string" }
+          ]
+        },
+        "references": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Project-relative images passed to the provider as style references with every image request (providers that accept them)."
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Where the asset came from. Required by store disclosures (Steam's AI-generated content survey) and credits.",
+      "required": ["origin", "date"],
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "type": "string",
+          "enum": ["generated", "imported", "original"],
+          "description": "generated: made by an asset provider through the assets.generate_* commands. imported: brought in from a file (assets.import). original: made by hand for this game."
+        },
+        "ai": {
+          "type": "boolean",
+          "description": "Whether AI made the content. Always true for generated; set it for imported files made with AI elsewhere."
+        },
+        "provider": { "type": "string", "description": "Asset provider name from ai.json (\"openai\", \"elevenlabs\", \"fake\"...)." },
+        "model": { "type": "string", "description": "Model the provider used (\"gpt-image-1\"...)." },
+        "prompt": { "type": "string", "description": "Prompt (or spoken text) the asset was generated from, style prompt included." },
+        "references": { "type": "array", "items": { "type": "string" }, "description": "Reference images sent with the request." },
+        "seed": { "type": "integer", "description": "Seed, when the provider takes one." },
+        "license": { "type": "string", "description": "License or terms of the asset (\"CC0\", \"OpenAI terms: output owned by the user\"...)." },
+        "author": { "type": "string", "description": "Person, studio or AI agent that made or chose the asset." },
+        "source": { "type": "string", "description": "Where an imported asset came from: a URL or the original file path." },
+        "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Date the asset was generated or imported (YYYY-MM-DD)." },
+        "notes": { "type": "string", "description": "Anything else (post-processing applied, edits made by hand)." }
+      }
+    },
+    "sheet": {
+      "type": "object",
+      "description": "Sprite-sheet layout of an image: a grid SpriteAnimator can play (columns, rows) and its named clips. Written by assets.slice_sheet and the Aseprite importer.",
+      "additionalProperties": false,
+      "required": ["columns", "rows"],
+      "properties": {
+        "columns": { "type": "integer", "minimum": 1 },
+        "rows": { "type": "integer", "minimum": 1 },
+        "frameWidth": { "type": "integer", "minimum": 1 },
+        "frameHeight": { "type": "integer", "minimum": 1 },
+        "frames": { "type": "integer", "minimum": 1, "description": "Number of frames used (row-major from the top-left); the last row may be partly empty." },
+        "clips": {
+          "type": "array",
+          "description": "Named animations for SpriteAnimator (firstFrame, lastFrame, fps).",
+          "items": {
+            "type": "object",
+            "required": ["name", "firstFrame", "lastFrame"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "firstFrame": { "type": "integer", "minimum": 0 },
+              "lastFrame": { "type": "integer", "minimum": 0 },
+              "fps": { "type": "number", "minimum": 0 },
+              "loop": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
