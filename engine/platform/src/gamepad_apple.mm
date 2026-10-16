@@ -23,8 +23,20 @@ std::string describe(GCController* c) {
     return name;
 }
 
-void feed(Input& in, int i, GCExtendedGamepad* g) {
+// The family shown on the pad's buttons, from the framework's names (it gives no vendor id): "DualSense", "DualShock 4",
+// "Xbox One"... UNTESTED without a Mac.
+GamepadType type_of(GCController* c) {
+    std::string name = c.vendorName ? c.vendorName.UTF8String : "";
+    if (@available(macOS 10.15, iOS 13.0, *)) {
+        if (c.productCategory) name += std::string(" ") + c.productCategory.UTF8String;
+    }
+    return gamepad_type_from_ids(0, name);
+}
+
+void feed(Input& in, int i, GCController* c) {
+    GCExtendedGamepad* g = c.extendedGamepad;
     in.on_gamepad_connected(i, true);
+    in.set_gamepad_type(i, type_of(c));
     in.on_gamepad_button(i, GamepadButton::A, g.buttonA.isPressed);
     in.on_gamepad_button(i, GamepadButton::B, g.buttonB.isPressed);
     in.on_gamepad_button(i, GamepadButton::X, g.buttonX.isPressed);
@@ -80,7 +92,7 @@ void poll_gamepads(Input& in) {
         FA_INFO("gamepad", "pad {} connected: {}", free, describe(c));
     }
     for (int i = 0; i < kMaxGamepads; ++i) {
-        if (g_slots[i] != nil) feed(in, i, g_slots[i].extendedGamepad);
+        if (g_slots[i] != nil) feed(in, i, g_slots[i]);
         else in.on_gamepad_connected(i, false);
     }
 }
