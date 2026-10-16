@@ -334,8 +334,8 @@ and SDK it found (`JAVA_HOME`, `ANDROID_HOME`; `ANDROID_SDK_ROOT` is unset so th
 path to `local.properties`.
 
 **Progress and logs**: the CLI prints Gradle's output on stderr as it runs (not with `--json`; C++ callers get the lines through
-`ExportOptions::progress`). Everything is also in `build.log` of the export folder. Times, on an M-series Mac with the prebuilt engine, a warm
-machine: a few seconds to a minute; the very first build adds the Gradle and plugin downloads. **Source** mode compiles the
+`ExportOptions::progress`). Everything is also in `build.log` of the export folder. Prebuilt mode on an Apple-silicon Mac: about 45 seconds the
+first time (Gradle and the Android Gradle plugin are downloaded), a few seconds from then on. **Source** mode compiles the
 whole engine for two ABIs the first time (minutes, less with ccache).
 
 **When the build fails** the error says what Gradle said ("What went wrong") and the export folder stays, so you can open the
