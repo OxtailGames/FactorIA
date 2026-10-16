@@ -290,6 +290,8 @@ public:
         committed_ = false;
     }
     void note_commit() { committed_ = true; }
+    // False while the frame drawn last has not been submitted to the GPU by an sg_commit().
+    bool committed() const { return committed_; }
 
     bool depth_zero_to_one() const { return zeroToOne_; }
     bool is_gl() const { return isGl_; }

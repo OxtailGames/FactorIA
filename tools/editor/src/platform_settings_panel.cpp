@@ -263,6 +263,13 @@ void general_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& probl
     line("Design resolution", ps.info.width > 0 ? std::to_string(ps.info.width) + " x " + std::to_string(ps.info.height) : std::string(),
          "factoria.json: display.width and display.height.");
     note("These come from factoria.json and are not edited here: ask the AI Assistant (\"set the game version to 1.2.0\") or edit the file.");
+
+    ImGui::SeparatorText("This computer");
+    note("Exporting needs a few things that are not part of the game: the Android build tools, the players of the other platforms, CMake and Xcode. "
+         "FactorIA can install them for you.");
+    if (ImGui::Button("Set Up This Computer...")) ed.open_setup_window();
+    ed.at_track("setup:open-general");
+    tip("Shows what this computer has and what is missing, with a button that installs each part (File > Set Up This Computer...).");
 }
 
 void windows_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problems) {
@@ -271,6 +278,7 @@ void windows_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& probl
     form.row("Icon", "factoria.json: export.windows.icon. The icon of the .exe and of the game window. Empty: the game icon.");
     icon_field(ed, "windows-icon", ps.project.windows.icon, ps.project.icon, kRecommendedIconSize, "No icon: the .exe keeps the engine's default icon and the export warns.",
                problems, "/export/windows/icon", "A square PNG or JPG inside the project. Empty: the game icon (General tab).");
+    ed.draw_setup_buttons("windows", "tab", true);  // a Windows player, when this computer is not a Windows one and has none
 }
 
 void macos_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problems) {
@@ -301,6 +309,7 @@ void macos_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problem
              "##minmac", m.minimumSystemVersion, "11.0", problems, "/export/macos/minimumSystemVersion");
     text_row(form, "Copyright", "factoria.json: export.macos.copyright (NSHumanReadableCopyright). The notice shown in the app's About information. Empty: none.",
              "##copyright", m.copyright, "Copyright 2026 My Studio", problems, "/export/macos/copyright");
+    ed.draw_setup_buttons("macos", "tab", true);
 }
 
 void linux_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problems) {
@@ -314,6 +323,7 @@ void linux_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problem
                            "entries are joined with ';'). Default: Game.");
     string_list(ed, "linux-categories", l.categories, linux_game_categories(), "Add a category...", problems, "/export/linux/categories",
                 ImGui::GetFontSize() * 14.0f);
+    ed.draw_setup_buttons("linux", "tab", true);
 }
 
 void android_this_computer(Editor& ed, PlatformSettings& ps);
@@ -501,6 +511,7 @@ void android_this_computer(Editor& ed, PlatformSettings& ps) {
     if (ImGui::SmallButton("Check again")) (void)ps.toolchain(true);
     ed.at_track("platform:toolchain-refresh");
     tip("Looks at the folders again (after installing a JDK or the Android SDK).");
+    ed.draw_setup_buttons("android", "tab");  // no JDK or SDK found: FactorIA installs them
 
     form.row("Signing passwords", "~/.factoria/export.json: android.keystorePassword / android.keyPassword. The FACTORIA_ANDROID_KEYSTORE_PASSWORD and "
                                   "FACTORIA_ANDROID_KEY_PASSWORD environment variables win over them. Without a key password the keystore password is used.");
@@ -540,6 +551,7 @@ void ios_tab(Editor& ed, PlatformSettings& ps, const SettingsProblems& problems)
     text_row(form, "Build number", "factoria.json: export.ios.buildNumber (CFBundleVersion). Up to three whole numbers separated by dots, e.g. 42 or 1.2.3; it "
                                    "must grow with every App Store upload of the same version. Empty: the game's version.",
              "##build", s.buildNumber, buildHint.c_str(), problems, "/export/ios/buildNumber");
+    ed.draw_setup_buttons("ios", "tab", true);  // mobile libraries, CMake and Xcode, what building the iOS app needs
 }
 
 // ---- the Create keystore popup ------------------------------------------------------------------------------------
@@ -781,6 +793,8 @@ void Editor::draw_platform_settings_window() {
     }
     ImGui::PushTextWrapPos(0);
     const SettingsProblems problems = ps.validate();
+    // The tabs' "Set up" buttons follow the Export rows, which are only kept fresh while the Export window is open.
+    if (!showExport_ && time_ - exportChecked_ > 2.0) refresh_export_status();
 
     note("What an export needs besides the game: its icon, and for each platform the fields of its app. They are saved in factoria.json (committed with "
          "the game) except This computer, which lives in your user folder. Hover a label to see what it changes.");

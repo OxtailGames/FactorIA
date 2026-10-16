@@ -65,6 +65,9 @@ button per platform (Windows, macOS, Linux, Android, iOS), each running this sam
   `~/.factoria/export.json`) through the same code `factoria validate` and the export read them with.
 - **Android format**: the Android row's **Format** menu picks `apk`, `aab` or `gradle` (`export.android.format`) and saves
   it in `factoria.json` at once, without waiting for Save in the settings window.
+- **Set up buttons**: a row that cannot run because this computer lacks something FactorIA installs shows the button that
+  installs it (**Install Android build tools**, **Download Windows player**, **Download mobile libraries**, **Install CMake**,
+  **Open App Store (Xcode)**): the editor's front for [`factoria setup`](#setting-up-this-computer).
 - **Each platform's row** says what an export there writes (hover **Ready** for the folder and the player), or why it
   cannot run here, with the error and hint `factoria export` would print: a desktop player missing for another OS, no
   prebuilt mobile players and no engine checkout, a missing reverse-DNS `id` for Android and iOS... Its button stays
@@ -175,9 +178,17 @@ Nothing else on the computer changes: no `sudo`, no `PATH`, no registry. A JDK o
 belongs to Unity and is never touched (FactorIA sets up its own next to it). Only what was installed here is written to
 `export.json`. Running a setup again is safe: it skips what is there and says so.
 
+**From the editor.** File > Set Up This Computer... opens a window with the four components, their state, what is missing
+and an **Install** button each, with a progress bar, **Cancel** and a log while it runs and the report (steps, warnings, next
+steps) when it finishes. The Export window and the Platform settings tabs show the button that fixes what their row
+lacks, in plain words (**Install Android build tools**, **Download Windows player**, **Download mobile libraries**, **Install CMake**,
+**Open App Store (Xcode)**). A button calls `fa::setup_install`, the function behind `factoria setup` and `setup.install`, on a
+worker thread: nothing is installed any other way. See [the editor](EDITOR.md#setting-up-this-computer).
+
 **The Android SDK license** is a legal agreement between you and Google. In a terminal `factoria setup android` prints the
 text and asks `[y/N]`; without a terminal it refuses (code `license_required`) until `--accept-licenses` says you have read
-it (`factoria setup --json` prints the text). The refusal comes before anything is downloaded. The newest command-line tools
+it (`factoria setup --json` prints the text). In the editor, **Install Android build tools** shows the full text in a dialog
+whose **I accept** button stays disabled until you tick that you have read it and accept. The refusal comes before anything is downloaded. The newest command-line tools
 (revision 23) are a front for Google's "Android CLI": it records the agreement while it installs the first package,
 unpacks itself into `android/user` (about 250 MB), shows Google's terms and sends Google usage statistics under Google's
 privacy policy. `sdkmanager` has no switch for that (the `android` program next to it has `--no-metrics`).

@@ -565,6 +565,10 @@ void PlatformSettings::load(const std::string& projectDir, const std::string& ma
     projectDir_ = projectDir;
     machinePath_ = machineConfigPath.empty() ? machine_export_config_path(env) : machineConfigPath;
     read_project();
+    read_machine();
+}
+
+void PlatformSettings::read_machine() {
     machineError.clear();
     auto m = load_machine_export_config(machinePath_);
     if (m.ok()) {
@@ -575,6 +579,10 @@ void PlatformSettings::load(const std::string& projectDir, const std::string& ma
     }
     rememberPasswords = !machine.androidKeystorePassword.empty() || !machine.androidKeyPassword.empty();
     toolchain_.reset();
+}
+
+void PlatformSettings::reload_machine() {
+    if (loaded()) read_machine();
 }
 
 ProjectExportSettings PlatformSettings::effective_project() const {

@@ -202,6 +202,7 @@ void Editor::draw_export_window() {
                 ImGui::TextColored(kFailed, "Not available here: %s", export_error_text(st->error).c_str());
                 if (!st->hint.empty()) ImGui::TextDisabled("How to fix it: %s", st->hint.c_str());
             }
+            if (st) draw_setup_buttons(t.platform, "export");  // what setup can install to fix the row (or the iOS tools)
             if (android) {  // what the Android export produces: the project's export.android.format, saved when changed here
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Format");
