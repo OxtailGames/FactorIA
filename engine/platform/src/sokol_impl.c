@@ -64,6 +64,77 @@ static void fa_gl_get_integerv(GLenum pname, GLint* data) {
 #endif
 #include "sokol_audio.h"
 
+// ---- window operations sokol_app has no API for (sokol_window.h) ----------------------------------------------------------
+// They read and change sokol_app's private state, so they must live in this translation unit. Sizes are logical pixels:
+// what the window system calls the client size before the display scale (Windows: dpi / 96, X11: Xft dpi / 96).
+#include "sokol_window.h"
+
+void fa_sapp_window_size(int* w, int* h) {
+    *w = _sapp.window_width;
+    *h = _sapp.window_height;
+}
+
+bool fa_sapp_display_size(int* w, int* h) {
+#if defined(_SAPP_WIN32)
+    MONITORINFO info;
+    memset(&info, 0, sizeof(info));
+    info.cbSize = sizeof(info);
+    if (!GetMonitorInfo(MonitorFromWindow(_sapp.win32.hwnd, MONITOR_DEFAULTTONEAREST), &info)) return false;
+    *w = (int)((info.rcMonitor.right - info.rcMonitor.left) / _sapp.win32.dpi.window_scale + 0.5f);
+    *h = (int)((info.rcMonitor.bottom - info.rcMonitor.top) / _sapp.win32.dpi.window_scale + 0.5f);
+    return true;
+#elif defined(_SAPP_LINUX)
+    // The whole X screen: with several monitors it spans all of them (no XRandR here).
+    const float scale = _sapp.x11.dpi / 96.0f;
+    *w = (int)(DisplayWidth(_sapp.x11.display, _sapp.x11.screen) / scale + 0.5f);
+    *h = (int)(DisplayHeight(_sapp.x11.display, _sapp.x11.screen) / scale + 0.5f);
+    return true;
+#else
+    (void)w;
+    (void)h;
+    return false;
+#endif
+}
+
+bool fa_sapp_set_window_size(int w, int h) {
+#if defined(_SAPP_WIN32)
+    const float scale = _sapp.win32.dpi.window_scale;
+    RECT rect = {0, 0, (LONG)(w * scale + 0.5f), (LONG)(h * scale + 0.5f)};
+    AdjustWindowRectEx(&rect, (DWORD)GetWindowLongPtr(_sapp.win32.hwnd, GWL_STYLE), FALSE,
+                       (DWORD)GetWindowLongPtr(_sapp.win32.hwnd, GWL_EXSTYLE));
+    if (IsZoomed(_sapp.win32.hwnd)) ShowWindow(_sapp.win32.hwnd, SW_RESTORE);
+    SetWindowPos(_sapp.win32.hwnd, NULL, 0, 0, rect.right - rect.left, rect.bottom - rect.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return true;
+#elif defined(_SAPP_LINUX)
+    const float scale = _sapp.x11.dpi / 96.0f;
+    XResizeWindow(_sapp.x11.display, _sapp.x11.window, (unsigned)(w * scale + 0.5f), (unsigned)(h * scale + 0.5f));
+    XFlush(_sapp.x11.display);
+    return true;
+#else
+    (void)w;
+    (void)h;
+    return false;
+#endif
+}
+
+bool fa_sapp_set_vsync(bool on) {
+#if defined(SOKOL_D3D11)
+    // _sapp_d3d11_present() reads disable_vsync at every present (Windows 10 and later).
+    if (!_sapp.win32.is_win10_or_greater) return false;
+    _sapp.desc.disable_vsync = !on;
+    return true;
+#elif defined(_SAPP_GLX)
+    if (!_sapp.glx.EXT_swap_control && !_sapp.glx.MESA_swap_control) return false;  // the driver offers no swap control
+    _sapp_glx_swapinterval(on ? 1 : 0);
+    _sapp.desc.disable_vsync = !on;
+    return true;
+#else
+    (void)on;
+    return false;
+#endif
+}
+
 #if defined(__ANDROID__)
 // Ending the process when the activity is destroyed.
 //
