@@ -379,6 +379,10 @@ Left open after M9:
 - An Apple pad on iOS: same code as macOS, built and run, but not with a real pad. The iOS Simulator shows a virtual
   `Gamepad (MFi)` in slot 0.
 - Signing and notarization still need the Apple Developer Program (M8, "Left open").
+- Windows with the display scaled above 100% (Settings > System > Display > Scale): the `to_design()` fix above also
+  applies there (sokol_app's mouse positions are framebuffer pixels on Win32 too) but was not tried on Windows. Check
+  that a click in a running game (`factoria run`, an exported game) lands under the cursor (examples/block-push:
+  clicking a cell next to the player moves it there), and that the editor's game view still does.
 
 Found while implementing M9, not fixed:
 - Windows has no window read-back for the editor (D3D11), so the editor autotests are not registered there.
