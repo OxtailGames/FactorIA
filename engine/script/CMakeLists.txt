@@ -1,5 +1,5 @@
 fa_add_module(script
-    DEPS fa_core fa_scene fa_platform fa_render fa_physics fa_audio
+    DEPS fa_core fa_scene fa_platform fa_render fa_physics fa_audio fa_ui
     PRIVATE_DEPS fa_ext_quickjs)
 
 # JavaScript preludes + API description are baked into the binary.

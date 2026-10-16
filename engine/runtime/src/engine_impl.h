@@ -1,6 +1,7 @@
 // Private state of fa::Engine, shared by engine.cpp, commands.cpp and runners.cpp.
 #pragma once
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <string>
@@ -8,10 +9,34 @@
 
 #include "fa/runtime/engine.h"
 #include "fa/scene/serialize.h"
+#include "fa/ui/ui.h"
 
 namespace fa {
 
 constexpr double kMaxFrameDt = 0.25;  // Engine::frame clamps dt to this (a replayed frame too)
+
+// The game window as scripts see it (`window.*`): fa/platform/app.h plus the frame cap. Engine::window() hands it out only
+// for a game that owns a window (not headless, not the editor's game view); window_control.cpp.
+class AppWindowControl final : public WindowControl {
+public:
+    bool fullscreen() const override;
+    void size(int& width, int& height) const override;
+    void display_size(int& width, int& height) const override;
+    bool vsync() const override;
+    int frame_cap() const override { return cap_; }
+    std::string set_fullscreen(bool on) override;
+    std::string set_size(int width, int height) override;
+    std::string set_vsync(bool on) override;
+    std::string set_frame_cap(int fps) override;
+
+    // Called at the start of every frame of the window: waits until 1 / frame_cap() seconds passed since the previous
+    // frame started (nothing when the cap is 0). Only the real-time pacing changes, never the simulation.
+    void throttle();
+
+private:
+    int cap_ = 0;
+    std::chrono::steady_clock::time_point last_{};
+};
 
 struct Engine::Impl {
     Engine* self = nullptr;
@@ -26,9 +51,11 @@ struct Engine::Impl {
     Physics physics;
     Audio audio;
     ScriptSystem scripts;
+    UiSystem ui;
     CommandRegistry commands;
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
+    std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
 
     bool renderStale = false;       // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
@@ -66,6 +93,8 @@ struct Engine::Impl {
     bool load_scene_impl(const std::string& path, std::string* error);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
+    Vec2 design_size() const;       // the renderer's target size (UI anchors are fractions of it); without one the project's
+    VisualMeasure measure() const;  // text sizes from the renderer, else the approximation
     void poll_hot_reload(bool force = false);
     void apply_scene_change();
 
