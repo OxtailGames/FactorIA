@@ -7,6 +7,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/serialize.h"
+#include "fa/services/platform_commands.h"
 
 namespace fa {
 
@@ -447,6 +448,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_level_commands(engine, I);       // scene.import_ascii
     register_scene_file_commands(engine, I);  // prefab.save, scene.format
     register_play_session_commands(engine, I);  // play.sessions, play.report
+    register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 
     // --------------------------------------------------------------------- game
     I.commands.add({"game.step", "Advance the simulation by N fixed frames (deterministic) and return a state summary.",

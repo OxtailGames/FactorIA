@@ -91,6 +91,7 @@ Command make_run_command() {
         cfg.audioDevice = false;
         cfg.renderMode = a.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
         cfg.memoryStorage = !a.has("persist-storage");
+        cfg.platformBackend = "fake";  // headless runs never talk to a real store (docs/PLATFORM.md)
         HeadlessRunOptions ho;
         ho.frames = a.integer("frames", 60);
         if (ho.frames < 0) throw UsageError("--frames must be >= 0.");

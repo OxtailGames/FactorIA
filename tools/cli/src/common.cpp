@@ -170,6 +170,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
     cfg.hotReload = opt.hotReload;
     cfg.renderMode = opt.renderMode;
     cfg.memoryStorage = opt.memoryStorage;
+    cfg.platformBackend = "fake";  // call, session, test and the MCP server never talk to a real store (docs/PLATFORM.md)
 
     std::string firstError;
     if (opt.gfx != Gfx::None) {
