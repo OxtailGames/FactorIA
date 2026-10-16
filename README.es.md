@@ -140,3 +140,19 @@ página y de la guía de primeros pasos.
 
 Si vas a modificar el motor, lee primero [CLAUDE.md](CLAUDE.md) y
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Licencia
+
+FactorIA es código abierto bajo la [licencia MIT](LICENSE): puedes usarlo, modificarlo y publicar juegos con él,
+gratuitos o comerciales, siempre que el aviso de copyright y la licencia acompañen al código del motor.
+
+- **Tus juegos son tuyos.** Los archivos que `factoria new` pone en un proyecto son [MIT-0](templates/LICENSE) (no
+  hace falta ningún aviso). Un juego exportado contiene el runtime de FactorIA, así que `factoria export` escribe
+  `FACTORIA_NOTICES.txt` con las licencias del motor y del código de terceros que lleva dentro; inclúyelo en lo que
+  distribuyas ([docs/EXPORTING.md](docs/EXPORTING.md#license-notices), en inglés).
+- **Código de terceros**: lo que hay en `external/` mantiene su propia licencia ([external/VERSIONS.md](external/VERSIONS.md);
+  todas MIT, zlib o dominio público). `factoria docs licenses` muestra todos los avisos; las descargas los incluyen
+  en `THIRD_PARTY_NOTICES.txt`.
+- **El nombre.** La licencia cubre el código, no el nombre ni el logo de FactorIA. Puedes decir que tu juego está
+  "hecho con FactorIA"; un motor modificado o redistribuido no debe presentarse como FactorIA, ni como respaldado por
+  FactorIA, sin permiso.

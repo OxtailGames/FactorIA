@@ -256,8 +256,9 @@ jobs:
           name="FactorIA-${{ matrix.os }}"
           bin="build/${{ matrix.preset }}/tools/cli${{ matrix.cfg }}"
           mkdir -p dist/FactorIA
-          cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md dist/FactorIA/
-          if [[ -f LICENSE ]]; then cp LICENSE dist/FactorIA/; fi
+          cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md LICENSE dist/FactorIA/
+          # FactorIA's MIT license plus every third-party license inside the binaries (fa/tooling/notices.h).
+          "$bin/factoria${{ matrix.exe }}" docs licenses > dist/FactorIA/THIRD_PARTY_NOTICES.txt
           cd dist
           if [[ "$RUNNER_OS" == Windows ]]; then
             cp "../$bin/FactorIA-Editor.exe" FactorIA/
@@ -287,6 +288,11 @@ jobs:
           ${{ matrix.wrap }} "$fa" test "$tmp/g"
           "$fa" export "$tmp/g" --out "$tmp/export"
           ls "$tmp/export"/*
+          # Licenses: in the package, and next to every exported game.
+          grep -q "Permission is hereby granted" "$tmp/FactorIA/LICENSE"
+          grep -q "SIL OPEN FONT LICENSE" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"
+          if grep -q "license text missing" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"; then echo "::error::THIRD_PARTY_NOTICES.txt lacks a license text"; exit 1; fi
+          find "$tmp/export" -name FACTORIA_NOTICES.txt | grep -q .
 
       # The runner is Apple Silicon: the Intel half runs through Rosetta, installed here when the image lacks it.
       - name: Smoke-test the Intel half (macOS)

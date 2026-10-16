@@ -18,7 +18,7 @@ the fix.
 The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
 export. `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
-`files`, `nextSteps`, `warnings`.
+`notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`.
 
 ## From an AI: `project.export`
 
@@ -26,7 +26,7 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 Gradle project without a shell. Arguments are all optional: `platform` (default: this machine), `out` (parent folder,
 relative to the project and inside it like the `fs.*` commands, default `build/export`) and `release`. It returns the report
-(`outputDir`, `mode`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
+(`outputDir`, `mode`, `notices`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
 `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
 folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
 
@@ -42,6 +42,29 @@ Everything in the project except: `.factoria/`, every dot-file or dot-folder
 `AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, and the output folder itself. Your
 project is never modified; the feedback file stays in the repository.
 
+The export adds one file of its own, `FACTORIA_NOTICES.txt` (next section).
+
+## License notices
+
+Your game is yours. FactorIA is open source under the MIT License, and the files `factoria new` puts in a project
+(the templates) are MIT-0: use, change and sell them with no notice at all.
+
+What an exported game does carry is the FactorIA runtime (`factoria_player`), which is FactorIA's MIT-licensed code
+plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, dr_libs, nlohmann/json,
+SDL_GameControllerDB, DejaVu Sans, Press Start 2P). Their licenses only ask that their notices travel with every copy,
+so every export writes `FACTORIA_NOTICES.txt` with all of them where it ships with the game:
+
+| Platform | `FACTORIA_NOTICES.txt` |
+|---|---|
+| Linux, Windows | next to the executable |
+| macOS | `My Game.app/Contents/Resources/` |
+| Android | `app/src/main/assets/` (inside the APK) |
+| iOS | `game/` (inside the app bundle) |
+
+Keep it in what you distribute (zip, installer, store build). You may also show it on a credits or licenses screen;
+nothing else is required. `factoria docs licenses` prints the full list, including what only the developer tools
+contain (Dear ImGui, in the editor).
+
 ## Desktop (Linux, Windows, macOS)
 
 The `factoria_player` binary is copied next to the game. By default it is taken
@@ -52,9 +75,10 @@ player built there: pass `--player path/to/factoria_player[.exe]`.
 ```
 linux/windows:  my-game-linux/
                   my-game            (my-game.exe on Windows)
+                  FACTORIA_NOTICES.txt
                   game/              factoria.json, scenes/, scripts/, assets/ ...
 macOS:          my-game-macos/My Game.app/Contents/
-                  Info.plist  MacOS/my-game  Resources/game/...
+                  Info.plist  MacOS/my-game  Resources/game/...  Resources/FACTORIA_NOTICES.txt
 ```
 
 The player starts the game found in `game/` next to the executable (inside the
