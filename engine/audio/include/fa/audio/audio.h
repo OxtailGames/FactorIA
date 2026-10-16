@@ -1,10 +1,15 @@
-// Audio: software mixer (sokol_audio output) with WAV / OGG / MP3 clips.
+// Audio: software mixer (sokol_audio output) with WAV / OGG / MP3 / QOA clips.
 //
 // Headless runs use a null device: the mixer still runs deterministically and
 // can record the mixed output to a WAV file, so AIs can verify that sounds
 // play (`factoria run --headless --record-audio out.wav`). Every play request
 // is also kept in a play log (play_log()) that tests and the `audio.log`
 // command read to assert which sounds played, when, and on which bus.
+//
+// Memory: a clip is decoded whole to 44.1 kHz stereo float when it loads, except the long ones. A clip streams when its
+// import setting `stream` (assets.json) is "always", or "auto" and it lasts more than 10 seconds: it keeps its encoded
+// file and every voice playing it decodes a few thousand frames at a time, so a 3-minute track holds about 100 KB of
+// PCM instead of 63 MB. `normalize` plays a clip at the loudness the import settings ask for (fa/audio/analysis.h).
 #pragma once
 
 #include <cstdint>
@@ -54,7 +59,8 @@ public:
     void shutdown();
 
     // Preload (optional; play() loads on demand). Returns false + logs a
-    // helpful error if the file is missing or unsupported.
+    // helpful error if the file is missing or unsupported. When the file is missing but `<clipPath>.qoa` exists (the
+    // twin an export makes of a WAV) that is the clip.
     bool load(std::string_view clipPath);
     VoiceId play(std::string_view clipPath, const PlayParams& params = {});
     void stop(VoiceId voice);
@@ -82,7 +88,9 @@ public:
     void start_recording();
     bool stop_recording(std::string_view wavPath, std::string* error);
 
-    Json stats() const;  // active voices, loaded clips, peak level of last frame
+    // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers
+    // of the voices that stream) and streamedClips (the loaded clips that stream).
+    Json stats() const;
 
     void reload_clip(std::string_view path);  // hot reload
 

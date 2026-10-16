@@ -275,7 +275,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `clip` | asset (audio) | `""` | Project-relative path of the sound (.wav, .ogg or .mp3). |
+| `clip` | asset (audio) | `""` | Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa). |
 | `volume` | float | `1.0` | Loudness multiplier, 0 (silent) to 1 (full). Range 0.0..1.0. |
 | `pitch` | float | `1.0` | Playback speed multiplier; 2 = one octave higher and twice as fast. Range 0.05..8.0. |
 | `loop` | bool | `false` | Restart the clip when it ends. |
@@ -533,12 +533,22 @@ Example: api.scripting {}
 
 ## assets
 
+### `assets.analyze_audio` (modifies state)
+
+Measure the loudness of a sound (or of every sound) and keep the result in assets.json.
+
+Measures integrated loudness (LUFS, ITU-R BS.1770-4 / EBU R128) and sample peak (dBFS) of .wav, .ogg, .mp3 and .qoa files, and stores them under the sound's `analysis` in assets.json together with the size and SHA-256 of the file, so editing the sound later makes the record stale instead of wrong. Sounds with import "normalize": true play at `targetLufs` using that record; without one the desktop engine measures the sound when it loads it, and mobile builds cannot, so run this (or export, which stores it) before shipping. A sound whose record is still fresh is not measured again. Without `path` every sound under assets/ and every sound a scene or prefab names is analyzed. Returns {files: [{path, loudnessLufs, peakDb, seconds, streams, normalize, gainDb, cached, stored}], measured, cached, failed}: `streams` says whether the sound is decoded while it plays (import stream), `gainDb` is the gain normalize would apply (only when normalize is on). A sound that cannot be decoded is listed with `error` and `hint` when no path is given. Example: {"path": "assets/music/theme.ogg"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Project-relative sound file, e.g. assets/sfx/jump.wav. Omit to analyze every sound of the project. |
+
 ### `assets.import` (modifies state)
 
 Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF...) into the project's assets/ folder and record where it came from.
 
 Copies or converts `source` (an absolute path on this machine, or relative to the project) into assets/ and writes its provenance (origin imported, source, license, author, ai, date) in assets.json, so credits and store disclosures can be made later. The importer is chosen by the extension:
-- .png .jpg .tga .bmp, .wav .ogg .mp3, .ttf .otf, .glb: copied as they are (images are checked to decode).
+- .png .jpg .tga .bmp, .wav .ogg .mp3 .qoa, .ttf .otf, .glb: copied as they are (images are checked to decode).
 - .gltf: copied with the .bin buffers and images it refers to, which must sit next to it or below it.
 - .aseprite .ase: becomes ONE PNG sprite sheet (frames in a grid, `columns` per row, default ceil(sqrt(frames))) and the `sheet` entry of assets.json: columns, rows, frameWidth, frameHeight, frames and a clip per tag (firstFrame, lastFrame, fps from the frame durations). Hidden layers are left out, layer and cel opacity apply, RGBA, grayscale and indexed colors work. Blend modes other than normal are drawn as normal, and ping-pong or reverse tags become forward clips; the result says so. The result lists the Sprite and SpriteAnimator settings that play it.
 - .psd: the merged image becomes a PNG (layers are flattened).
@@ -3103,7 +3113,7 @@ declare module "factoria" {
    */
   export interface AudioSourceComponent {
     /**
-     * Project-relative path of the sound (.wav, .ogg or .mp3). (asset path: audio)
+     * Project-relative path of the sound (.wav, .ogg, .mp3 or .qoa). (asset path: audio)
      */
     clip: string;
     /**

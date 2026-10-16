@@ -238,7 +238,7 @@ void Engine::Impl::poll_hot_reload(bool force) {
             }
         } else if (has_ext(p, {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})) {
             if (renderer) renderer->reload_asset(p);
-        } else if (has_ext(p, {".wav", ".ogg", ".mp3"})) {
+        } else if (has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) {
             audio.reload_clip(p);
         }
     }

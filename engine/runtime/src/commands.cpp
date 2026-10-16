@@ -800,7 +800,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   std::string ext = fs::extension(f);
                   const char* type = "other";
                   if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") type = "texture";
-                  else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3") type = "audio";
+                  else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa") type = "audio";
                   else if (ext == ".ttf" || ext == ".otf") type = "font";
                   else if (ext == ".obj" || ext == ".gltf" || ext == ".glb") type = "mesh";
                   else if (ext == ".js") type = "script";
