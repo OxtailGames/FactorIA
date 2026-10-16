@@ -11,6 +11,7 @@
 #include <system_error>
 
 #include "fa/core/log.h"
+#include "fa/core/strings.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -277,9 +278,7 @@ Result<std::string> plugin_build(const std::string& projectDir, const PluginSett
         missing.push_back(plugin_library(plugin.name, platform));
     }
     if (!missing.empty()) {
-        std::string list;
-        for (const std::string& m : missing) list += (list.empty() ? "" : ", ") + m;
-        return make_error(where + "the " + platform + " build is missing: " + list + " not found in " + folder.value(),
+        return make_error(where + "the " + platform + " build is missing: " + join(missing, ", ") + " not found in " + folder.value(),
                           "Build the plugin for " + platform + " into its folder (its CMakeLists.txt copies the build there, "
                           "docs/EXTENDING.md \"Native plugins\"), " + notFor + ".");
     }
