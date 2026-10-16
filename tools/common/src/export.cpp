@@ -314,10 +314,8 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 #endif
 }
 
-Result<void> export_desktop(const ExportOptions& o, const Project& p, const std::string& platform, const stdfs::path& outRoot,
+Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player, const stdfs::path& outRoot,
                             const std::vector<std::string>& files, ExportReport& report) {
-    auto player = find_player(o, platform);
-    if (!player.ok()) return player.error();
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string exeName = slug + (platform == "windows" ? ".exe" : "");
     std::error_code ec;
@@ -332,7 +330,7 @@ Result<void> export_desktop(const ExportOptions& o, const Project& p, const std:
         gameDest = outRoot / "game";
     }
     stdfs::create_directories(exeDest.parent_path(), ec);
-    stdfs::copy_file(*player, exeDest, stdfs::copy_options::overwrite_existing, ec);
+    stdfs::copy_file(player, exeDest, stdfs::copy_options::overwrite_existing, ec);
     if (ec) return err("export: cannot copy the player to " + generic(exeDest) + ": " + ec.message());
     stdfs::permissions(exeDest, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                        stdfs::perm_options::add, ec);
@@ -759,6 +757,47 @@ Result<void> write_notices(const Project& p, const std::string& platform, const 
     return {};
 }
 
+// ---- plan: every check, before anything is written ------------------------------------------------
+
+struct Plan {
+    std::string platform;
+    Project project;
+    stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export
+    stdfs::path player;              // desktop
+    MobileSetup mobile;              // android/ios
+    std::vector<std::string> warnings;
+};
+
+Result<Plan> make_plan(const ExportOptions& options) {
+    Plan plan;
+    plan.platform = normalize_export_platform(options.platform);
+    if (plan.platform.empty())
+        return err("export: unknown platform '" + options.platform + "'", "use one of: linux, windows, macos, android, ios");
+    auto project = load_and_validate(options, plan.platform, plan.warnings);
+    if (!project.ok()) return project.error();
+    plan.project = std::move(project.value());
+    const Project& p = plan.project;
+
+    std::error_code ec;
+    const stdfs::path outParent = options.outDir.empty() ? p.dir / "build" / "export" : stdfs::path(options.outDir);
+    plan.outParent = stdfs::weakly_canonical(stdfs::absolute(outParent, ec), ec);
+    const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
+    plan.outRoot = plan.outParent / (slug + "-" + plan.platform);
+    if (is_inside(p.dir, plan.outRoot) || plan.outRoot == p.dir)
+        return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project", "choose another --out folder");
+
+    if (plan.platform == "android" || plan.platform == "ios") {
+        auto setup = resolve_mobile(options, plan.platform);
+        if (!setup.ok()) return setup.error();
+        plan.mobile = std::move(setup.value());
+    } else {
+        auto player = find_player(options, plan.platform);
+        if (!player.ok()) return player.error();
+        plan.player = std::move(player.value());
+    }
+    return plan;
+}
+
 }  // namespace
 
 stdfs::path executable_dir() {
@@ -801,43 +840,55 @@ Json ExportReport::to_json() const {
     return j;
 }
 
+Json ExportPlan::to_json() const {
+    Json j = Json::object();
+    j["platform"] = platform;
+    j["outputDir"] = outputDir;
+    if (!mode.empty()) j["mode"] = mode;
+    if (!player.empty()) j["player"] = player;
+    j["warnings"] = warnings;
+    return j;
+}
+
+Result<ExportPlan> plan_export(const ExportOptions& options) {
+    auto planned = make_plan(options);
+    if (!planned.ok()) return planned.error();
+    const Plan& plan = planned.value();
+    ExportPlan out;
+    out.platform = plan.platform;
+    out.outputDir = generic(plan.outRoot);
+    if (plan.platform == "android" || plan.platform == "ios") out.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
+    else out.player = generic(plan.player);
+    out.warnings = plan.warnings;
+    return out;
+}
+
 Result<ExportReport> export_project(const ExportOptions& options) {
-    const std::string platform = normalize_export_platform(options.platform);
-    if (platform.empty())
-        return err("export: unknown platform '" + options.platform + "'", "use one of: linux, windows, macos, android, ios");
+    auto planned = make_plan(options);  // every check first: a failed one leaves the previous export in place
+    if (!planned.ok()) return planned.error();
+    const Plan& plan = planned.value();
+    const Project& p = plan.project;
+    const std::string& platform = plan.platform;
+    const stdfs::path& outRoot = plan.outRoot;
     ExportReport report;
-    auto project = load_and_validate(options, platform, report.warnings);
-    if (!project.ok()) return project.error();
-    const Project& p = project.value();
+    report.warnings = plan.warnings;
 
     std::error_code ec;
-    stdfs::path outParent = options.outDir.empty() ? p.dir / "build" / "export" : stdfs::path(options.outDir);
-    stdfs::create_directories(outParent, ec);
-    if (ec) return err("export: cannot create output directory '" + outParent.string() + "': " + ec.message());
-    outParent = stdfs::weakly_canonical(outParent, ec);
-
-    const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
-    stdfs::path outRoot = outParent / (slug + "-" + platform);
-    if (is_inside(p.dir, outRoot) || outRoot == p.dir)
-        return err("export: output folder '" + generic(outRoot) + "' would contain the project", "choose another --out folder");
+    stdfs::create_directories(plan.outParent, ec);
+    if (ec) return err("export: cannot create output directory '" + generic(plan.outParent) + "': " + ec.message());
     stdfs::remove_all(outRoot, ec);  // always a fresh <slug>-<platform> folder
     stdfs::create_directories(outRoot, ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
 
-    std::vector<std::string> files = collect_game_files(p, outParent == p.dir ? outRoot : outParent);
+    std::vector<std::string> files = collect_game_files(p, plan.outParent == p.dir ? outRoot : plan.outParent);
 
     Result<void> r;
     if (platform == "android" || platform == "ios") {
-        auto setup = resolve_mobile(options, platform);
-        if (!setup.ok()) {
-            stdfs::remove_all(outRoot, ec);
-            return setup.error();
-        }
-        report.mode = setup->prebuilt ? "prebuilt" : "source";
-        r = platform == "android" ? export_android(options, p, *setup, outRoot, files, report)
-                                  : export_ios(options, p, *setup, outRoot, files, report);
+        report.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
+        r = platform == "android" ? export_android(options, p, plan.mobile, outRoot, files, report)
+                                  : export_ios(options, p, plan.mobile, outRoot, files, report);
     } else {
-        r = export_desktop(options, p, platform, outRoot, files, report);
+        r = export_desktop(p, platform, plan.player, outRoot, files, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);
     if (!r.ok()) {
@@ -875,14 +926,17 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "says what to do. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, "
         "where it ships with it (`notices`). Returns {outputDir, mode (android/ios), notices, files[], nextSteps[], "
         "warnings[]}; nextSteps lists what to "
-        "do next (e.g. the Gradle build command). Nothing is built or signed here. Details: docs_read "
+        "do next (e.g. the Gradle build command). Nothing is built here (a macOS app is only sealed with an ad hoc "
+        "signature). dryRun: true runs every check and writes nothing: it returns {platform, outputDir (the folder an "
+        "export would replace), mode, player (desktop), warnings[]} or the error the export would give. Details: docs_read "
         "{\"name\":\"exporting\"}. Example: {\"platform\":\"windows\",\"release\":true}.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
         "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
-        "release":{"type":"boolean","description":"Release build: only changes the build commands in nextSteps (and the iOS script).","default":false}
+        "release":{"type":"boolean","description":"Release build: only changes the build commands in nextSteps (and the iOS script).","default":false},
+        "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {
         ExportOptions o;
@@ -899,6 +953,11 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
             o.outDir = dir->string();
         }
         o.release = tooling_detail::arg_bool(args, "release", false);
+        if (tooling_detail::arg_bool(args, "dryRun", false)) {
+            auto plan = plan_export(o);
+            if (!plan.ok()) throw CommandError("failed", plan.error().message, plan.error().hint);
+            return plan->to_json();
+        }
         auto r = export_project(o);
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();

@@ -20,6 +20,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -43,6 +44,7 @@
 #include "ai_chat.h"
 #include "ai_usage.h"
 #include "editor_tools.h"
+#include "export_job.h"
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include "play_recorder.h"
@@ -180,6 +182,7 @@ public:
 
     // ---------------------------------------------------------------- UI helpers
     void notify(const std::string& text, int level = 0);
+    void set_window_title(const std::string& title);  // the OS window's title (editor_window_title); windowTitle_ keeps it
     void focus_window(const char* name) { pendingFocus_ = name; }
     void run_console_line(const std::string& line);
     // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
@@ -216,6 +219,14 @@ public:
     void draw_docs_window();
     void draw_toasts();
     void draw_update_popup();  // dialogs.cpp
+
+    // Export window (export_panel.cpp): one button per platform. Each row is checked with fa::plan_export and a button
+    // runs fa::export_project on a worker thread (export_job.h); the window shows the report it returns.
+    void open_export_window();
+    void draw_export_window();
+    void poll_export();             // every frame, window open or not: takes a finished export's report
+    void refresh_export_status();   // plan_export for every platform
+    void reset_export_state();      // project switch: waits for a running export, forgets settings and report
 
     // AI
     void ai_refresh_providers();
@@ -305,6 +316,15 @@ public:
     std::thread updateThread_;
     bool restartAfterQuit_ = false;  // on_cleanup starts the updated editor
     std::string pendingScene_;  // open-scene request waiting for the unsaved-changes dialog
+    std::string windowTitle_;   // what set_window_title last set ("FactorIA <version> — <project>")
+
+    // Export window
+    bool showExport_ = false, exportFocus_ = false, exportScroll_ = false;
+    ExportSettings exportSettings_;
+    std::vector<ExportStatus> exportStatus_;  // one per export_targets() entry, refreshed every few seconds while shown
+    double exportChecked_ = -100;
+    ExportJob exportJob_;
+    std::optional<ExportOutcome> exportLast_;  // the last export's report (or error), shown under the buttons
 
     // textures for ImGui (texture_for, viewport.cpp), and image sizes for the selection bounds
     std::unordered_map<std::string, TextureEntry> textures_;
@@ -433,11 +453,15 @@ public:
     std::vector<ai::ProviderStatus> atSavedStatus_;
     std::optional<ai::AiConfig> atSavedConfig_;  // the AI config while the CLI-agent check swaps in the fake Claude Code
     int atWaitCount_ = 0;
+    std::function<bool()> atWaitUntil_;  // holds the script (like atWaitAi_) until it returns true
     void save_screenshot_now(const std::string& path);
 };
 
 // Helpers shared across panel files.
 extern Editor* g_editor;
+// The window title: "FactorIA <version> — <project name>", or "FactorIA <version>" with no project open (the Open or
+// create a project dialog). `version` is the engine's, FA_ENGINE_VERSION: what `factoria version` prints.
+std::string editor_window_title(std::string_view version, std::string_view projectName);
 std::string lower_str(std::string s);
 std::string home_dir();  // HOME, else USERPROFILE (Windows sets no HOME), else ""
 bool contains_ci(const std::string& hay, const std::string& needle);
@@ -454,5 +478,9 @@ std::vector<std::uint8_t> clipboard_image_png();
 // Whether the system clipboard holds text (what Ctrl+V pastes into a text box).
 bool clipboard_has_text();
 void maximize_window();
+// Opens `dir` in the system's file manager (Finder, Explorer, xdg-open on Linux) without waiting for it. Returns "" or
+// what went wrong. file_manager_name() is what the button says: "Finder", "Explorer" or "file manager".
+std::string open_in_file_manager(const std::string& dir);
+const char* file_manager_name();
 
 }  // namespace fa::editor

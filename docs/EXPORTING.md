@@ -1,7 +1,8 @@
 # Exporting a game
 
 `factoria export` turns a game project into something you can ship. The same
-function is available to tools as `fa::export_project` (`fa/tooling/export.h`).
+function is available to tools as `fa::export_project` (`fa/tooling/export.h`), to AIs as the command
+`project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
 
 ```bash
 factoria export [project] --platform <linux|windows|macos|android|ios> [--out DIR] [--release] [--player PATH]
@@ -27,12 +28,37 @@ editor console and `fa.call` in scripts), so an AI connected over MCP can build 
 Gradle project without a shell. Arguments are all optional: `platform` (default: this machine), `out` (parent folder,
 relative to the project and inside it like the `fs.*` commands, default `build/export`) and `release`. It returns the report
 (`outputDir`, `mode`, `notices`, `files`, `nextSteps`, `warnings`); an unknown platform or a failed validation is an error with a hint.
-`--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
+`dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
+export would replace), `mode` (Android, iOS), `player` (desktop) and `warnings`, or the error the export would give
+(`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
 folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
 
 ```
 project_export {"platform":"windows","release":true}
+project_export {"platform":"android","dryRun":true}
 ```
+
+## From the editor
+
+The editor's toolbar has an **Export** button (also File > Export Game...). It opens the **Export game** window: one
+button per platform (Windows, macOS, Linux, Android, iOS), each running this same export, never a separate one.
+
+- **Output folder**: the parent folder of the exports, `<project>/build/export` by default. Type a path (relative to
+  the project), press **Choose...** for the system's folder dialog or **Default** to go back; **Show in Finder** (Explorer
+  on Windows, the file manager on Linux) opens it. An export replaces `<output folder>/<game>-<platform>` and nothing
+  else. **Release** changes the build commands in the next steps, as `--release` does.
+- **Each platform's row** says what an export there writes (hover **Ready** for the folder and the player), or why it
+  cannot run here, with the error and hint `factoria export` would print: a desktop player missing for another OS, no
+  prebuilt mobile players and no engine checkout, a missing reverse-DNS `id` for Android and iOS... Its button stays
+  disabled until that is fixed; the rows are checked again every few seconds (`fa::plan_export`, which writes nothing).
+  For another OS's desktop export, **Choose player...** picks the `factoria_player` built there (the one next to
+  `factoria` in the FactorIA download for that OS), like `--player`.
+- **The report** shows under the buttons when the export finishes (it runs in the background; the editor keeps working):
+  the output folder with **Show in Finder** / **Copy path**, the mode, the warnings and the numbered **next steps**,
+  or the error and how to fix it. **Copy report** copies it as text. Android and iOS exports are projects, not
+  finished apps: the next steps say how to build them (Gradle for the APK, `build_ios.sh` / Xcode on a Mac).
+
+The export packages the files on disk: when the scene has unsaved changes the window says so and offers **Save scene**.
 
 ## What is shipped (and what is not)
 

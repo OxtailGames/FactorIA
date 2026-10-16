@@ -435,6 +435,67 @@ void Editor::at_build_tools_script() {
         dlgScanned_ = false;
     });
 
+    // ------------------------------------------------- H. Export window: a button per platform, then the export's report
+    // The toolbar's Export opens it. Every platform's row says what an export there writes, or why it cannot run here
+    // (another OS's desktop player is not in this build tree). This machine's platform is exported for real, with the
+    // factoria_player of the build tree, on the export's worker thread; the report shows the folder and the next steps.
+    const std::string host = normalize_export_platform("");
+    auto host_status = [this, host]() -> const ExportStatus* {
+        for (size_t i = 0; i < export_targets().size() && i < exportStatus_.size(); ++i)
+            if (host == export_targets()[i].platform) return &exportStatus_[i];
+        return nullptr;
+    };
+    step(2, [this] {
+        at_check(windowTitle_ == editor_window_title(FA_ENGINE_VERSION, "Autotest Platformer"),
+                 "the window title names the engine version and the project (" + windowTitle_ + ")");
+    });
+    click("toolbar:export");
+    step(4, [this, host_status] {
+        at_check(showExport_, "the toolbar's Export button opens the Export window");
+        at_check(exportStatus_.size() == export_targets().size(), "the Export window checked every platform");
+        for (size_t i = 0; i < exportStatus_.size() && i < export_targets().size(); ++i) {
+            const ExportTarget& t = export_targets()[i];
+            const ExportStatus& st = exportStatus_[i];
+            if (st.ready) continue;
+            at_check(!st.error.empty() && !st.hint.empty(), std::string(t.label) + " is not ready and says why and how to fix it");
+            if (export_needs_player(t.platform))
+                at_check(st.error.find("cannot export for") != std::string::npos,
+                         std::string(t.label) + " needs a player built for it (" + st.error + ")");
+        }
+        const ExportStatus* st = host_status();
+        if (st && !st->ready) {  // a build tree without factoria_player: export with a stand-in, the window is what is tested
+            atLog_.push_back("NOTE no factoria_player for this machine (" + st->error + "): exporting with a stand-in player");
+            const std::string fake = atOutDir_ + "/stand-in-player/factoria_player";
+            write_file(fake, "#!/bin/sh\nexit 0\n");
+            exportSettings_.players[normalize_export_platform("")] = fake;
+            exportChecked_ = -100;
+        }
+    });
+    snap("editor_export_window.png");
+    click("export:" + host);
+    step(1, [this] {
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return !exportJob_.running() && exportLast_.has_value(); };
+    });
+    step(2, [this, host] {
+        at_check(exportLast_.has_value(), "pressing this machine's Export button runs an export that finishes");
+        if (!exportLast_) return;
+        const ExportOutcome& o = *exportLast_;
+        at_check(o.ok && o.platform == host, "the " + host + " export succeeded (" + o.error + " " + o.hint + ")");
+        if (!o.ok) return;
+        std::error_code ec;
+        const stdfs::path out = stdfs::weakly_canonical(o.report.outputDir, ec);
+        const stdfs::path parent = stdfs::weakly_canonical(stdfs::path(projectDir_) / "build" / "export", ec);
+        at_check(out.parent_path() == parent && out.filename().string() == "autotest-platformer-" + host,
+                 "the export went to <project>/build/export/<game>-<platform> (" + o.report.outputDir + ")");
+        at_check(stdfs::exists(out / o.report.notices), "the license notices are where the report says (" + o.report.notices + ")");
+        at_check(!o.report.nextSteps.empty(), "the report lists the next steps");
+        at_check(at_visible("export:reveal"), std::string("the report offers Show in ") + file_manager_name());
+        at_check(export_report_text(o).find(o.report.outputDir) != std::string::npos, "Copy report includes the output folder");
+    });
+    snap("editor_export_report.png");
+    step(2, [this] { showExport_ = false; });
+
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
     // fake Claude Code of the AI tests calls scene_spawn there: the coin must land in THIS world, with an undo step, and
