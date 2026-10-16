@@ -310,6 +310,17 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `lockRotation`, `angularDamping`, `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. A dynamic **box** is a rigid body: collisions and friction turn it (it tips over a ledge, tumbles, settles on a face), so put `"lockRotation": true` on a character or a crate that must stay upright. A sphere is an arcade rolling ball by default (`rollWithMotion`, contacts never turn it); with `"rollWithMotion": false` it is a rigid body too and real friction rolls and spins it. Box colliders follow `Transform.rotation`. Fast bodies are swept against every solid collider, so they do not tunnel. |
 | `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. |
 
+**UI (menus and settings screens; screen space only, section 9.22)**
+
+| Component | Key fields | Typical use |
+|---|---|---|
+| `Panel` | `size`, `pivot`, `anchor`, `layer` (default 200), `color`, `texture` + `slice` (9-slice), `layout` (none, row, column, grid), `spacing`, `padding` [l,t,r,b], `columns`, `align`, `justify`, `fit` | A background that places its children in a column, row or grid. |
+| `Button` | `text`, `size`, `autoFocus`, `interactable`, `font`, `fontSize`, `textColor`, `accentColor` + the style fields of Panel | Sends `ui.click`. |
+| `Toggle` | `label`, `value` | Sends `ui.change` `{value: bool}`. |
+| `Slider` | `label`, `value`, `min`, `max`, `step`, `showValue` | Sends `ui.change` `{value: number}`; left / right change it by `step`. |
+| `TextField` | `text`, `placeholder`, `maxLength` | Sends `ui.change` while typing and `ui.submit` on Enter. |
+| `ScrollList` | `spacing`, `padding`, `scrollSpeed`, `scroll` | A column that scrolls with the wheel and clips its children. |
+
 **Audio and scripts**
 
 | Component | Key fields | Typical use |
@@ -351,7 +362,8 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | Import | Members |
 |---|---|
 | `world` | `find(idOrName)`, `findAll(name)`, `findByTag(tag)`, `entities()`, `spawn(json, {position, rotation, scale, parent, props})`, `spawnPrefab(path, {position, rotation, scale, parent, props, overrides})`, `emit(name, data)`, `on(name, fn)` (returns an unsubscribe function) |
-| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`) |
+| `input` | `pressed(a)`, `down(a)`, `released(a)`, `axis(negative, positive)`, `vector(left, right, down, up)`, `keyDown("Space")`, `keyPressed`, `keyReleased`, `mouse` (`position`, `world`, `delta`, `wheel`, `down("left")`, `pressed("left")`), `touches` (`[{id, position, world, pressed}]`); options menus: `actions()`, `bindings(a)`, `rebind(a, [names])`, `resetBindings(a?)`, `lastPressed()` (what went down this frame, for "press a key"), `lastDevice`, `buttonName(bindingOrAction, pad?)` ("Cross" on a PlayStation pad), `gamepad(i).type`, `text` (typed this frame), `showKeyboard(on?)`, `mouse.visible`, `mouse.locked` (details in `docs_read {"name":"scripting"}`) |
+| `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)` |
 | `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
@@ -1030,6 +1042,62 @@ export default class Dash extends Behaviour {
 - **Not for** testing a spot (`from === to` returns `null`; use `overlapBox` / `overlapCircle`), ground checks (`isGrounded`) or walls (`isTouching`).
 - From outside a script, the command `physics.shape_cast` does the same: `{"shape":{"shape":"box","size":[28,44]},"from":[0,100],"to":[120,100],"ignore":"player"}`.
 - A wrong shape throws an Error that names the problem and shows an example, for instance `"sphere"` in a 2D cast (`"circle"` is the 2D name) or a misspelt `"circel"` (did you mean `circle`).
+
+### 9.22 A menu: buttons, sliders, focus and the gamepad
+
+Widgets (section 7, UI) are entities in screen space. A `Panel` with `layout: "column"` stacks its children; the first
+item has `autoFocus` so the keyboard and the gamepad work from the first frame. A scene (`scenes/menu.scene.json`) with a
+title, two buttons and a volume slider:
+
+```json
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "menu", "name": "Main menu",
+      "components": {
+        "Transform": { "position": [0, 0, 0] },
+        "Panel": { "anchor": [0.5, 0.5], "size": [360, 300], "layout": "column", "spacing": 12, "padding": [20, 20, 20, 20] } },
+      "children": [
+        { "id": "title", "components": { "Text": { "text": "My Game", "fontSize": 36, "space": "screen", "pivot": [0.5, 1] } } },
+        { "id": "play_button", "components": { "Button": { "text": "Play", "size": [260, 56], "autoFocus": true } } },
+        { "id": "volume", "components": { "Slider": { "label": "Volume", "value": 0.8, "size": [320, 44] } } },
+        { "id": "quit_button", "components": { "Button": { "text": "Quit", "size": [260, 56] } } }
+      ] }
+  ]
+}
+```
+
+```js
+// scripts/menu.js, on the "menu" entity
+import { Behaviour, ui, scene, game, audio } from "factoria";
+
+export default class Menu extends Behaviour {
+  onStart() {
+    this.on("ui.click", (data) => {
+      if (data.id === "play_button") scene.load("scenes/level1.scene.json");
+      if (data.id === "quit_button") game.quit();
+    });
+    this.on("ui.change", (data) => { if (data.id === "volume") audio.setVolume("master", data.value); });
+  }
+}
+```
+
+- **Navigation is automatic.** Up / down / left / right (keys, d-pad, left stick) move the focus to the nearest widget,
+  `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. Nothing is
+  focused until an `autoFocus` widget or `ui.focus(entity)` takes the focus, which keeps Space / A (jump) from clicking HUD
+  buttons during play. Rebind the six `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
+- **Looks.** A plain widget is a translucent dark rectangle with a label; give `texture` + `slice` (9-slice borders in
+  texture pixels) for a themed one, and `color`, `textColor`, `accentColor` to restyle. Everything is design pixels, so
+  `size`, `padding` and `spacing` do not change with the window size; use `anchor` and `pivot` to pin a panel to a corner
+  or the centre.
+- **Pause menu.** The UI keeps working while `time.scale` is 0: set `time.scale = 0` and show the panel (`entity.active = true`;
+  call `ui.focus("resume_button")` when it opens, the focus of an inactive panel is lost).
+- **Find and click things from outside.** `ui.state` lists every widget with its `rect` (so `game.input` can click its
+  centre), `focused` and `value`. To test a menu without a mouse, tap the pad: `game.gamepad().tap("DpadDown")`,
+  `.tap("A")`, then assert on `ui.focused`, widget values or `ui.on` events (see `SCRIPTING.md`, UI).
+- **Long lists** go in a `ScrollList`: the wheel scrolls it, moving the focus to an item scrolls it into view, and
+  everything inside is clipped to its rectangle.
 
 ## 10. Tests
 

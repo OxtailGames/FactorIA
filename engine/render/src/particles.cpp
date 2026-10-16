@@ -168,8 +168,10 @@ void gather_particles(World& world, Frame& f) {
 
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
         QuadList& list = screen ? f.screen : f.world;
+        Rect clip;
+        if (screen && !screen_clip(world, e, f, clip)) return;
         list.begin_item(em.layer, f.cam.perspective && !screen ? length(m.translation() - f.cam.position) : 0.0f, tex,
-                        SamplerKind::Linear, em.blend);
+                        SamplerKind::Linear, em.blend, clip);
         for (const auto& p : st.particles) {
             float t = p.age / p.life;
             float size = lerp(em.startSize, em.endSize, t);

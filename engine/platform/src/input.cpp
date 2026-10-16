@@ -131,6 +131,41 @@ bool gamepad_axis_from_name(std::string_view name, GamepadAxis& out) {
 std::vector<std::string> gamepad_button_names() { return {std::begin(kPadButtonNames), std::end(kPadButtonNames)}; }
 std::vector<std::string> gamepad_axis_names() { return {std::begin(kPadAxisNames), std::end(kPadAxisNames)}; }
 
+namespace {
+const char* const kPadTypeNames[] = {"generic", "xbox", "playstation", "nintendo", "steamdeck"};
+const char* const kDeviceNames[] = {"keyboard", "mouse", "gamepad", "touch"};
+}  // namespace
+
+const char* gamepad_type_name(GamepadType t) { return size_t(t) < std::size(kPadTypeNames) ? kPadTypeNames[size_t(t)] : "generic"; }
+bool gamepad_type_from_name(std::string_view name, GamepadType& out) {
+    for (size_t i = 0; i < std::size(kPadTypeNames); ++i)
+        if (iequals(kPadTypeNames[i], trim(name))) { out = GamepadType(i); return true; }
+    return false;
+}
+std::vector<std::string> gamepad_type_names() { return {std::begin(kPadTypeNames), std::end(kPadTypeNames)}; }
+const char* input_device_name(InputDevice d) { return size_t(d) < std::size(kDeviceNames) ? kDeviceNames[size_t(d)] : "keyboard"; }
+
+GamepadType gamepad_type_from_ids(std::uint16_t vendorId, std::string_view name) {
+    switch (vendorId) {
+        case 0x045e: return GamepadType::Xbox;         // Microsoft
+        case 0x054c: return GamepadType::PlayStation;  // Sony
+        case 0x057e: return GamepadType::Nintendo;
+        case 0x28de: return GamepadType::SteamDeck;    // Valve
+        default: break;
+    }
+    const std::string n = to_lower(name);
+    auto has = [&](std::initializer_list<const char*> words) {
+        for (const char* w : words)
+            if (n.find(w) != std::string::npos) return true;
+        return false;
+    };
+    if (has({"xbox", "xinput"})) return GamepadType::Xbox;
+    if (has({"playstation", "dualshock", "dualsense", "ps4", "ps5"})) return GamepadType::PlayStation;
+    if (has({"nintendo", "switch", "joy-con"})) return GamepadType::Nintendo;
+    if (has({"steam"})) return GamepadType::SteamDeck;
+    return GamepadType::Generic;
+}
+
 // ---------------------------------------------------------------------------
 // Frame lifecycle + event feed
 // ---------------------------------------------------------------------------
@@ -161,25 +196,40 @@ void Input::begin_frame() {
 void Input::on_key(Key key, bool down) {
     size_t i = size_t(key);
     if (key == Key::Unknown || i >= size_t(Key::Count)) return;
-    if (down && !keys_[i]) keyPressedEdge_[i] = true;
+    if (down && !keys_[i]) {
+        keyPressedEdge_[i] = true;
+        lastDevice_ = InputDevice::Keyboard;
+    }
     if (!down && keys_[i]) keyReleasedEdge_[i] = true;
     keys_[i] = down;
 }
 
 void Input::on_mouse_move(Vec2 designPos) {
+    if (designPos != mouse_) lastDevice_ = InputDevice::Mouse;
     mouseDelta_ += designPos - mouse_;
     mouse_ = designPos;
+}
+
+void Input::on_mouse_delta(Vec2 delta) {
+    if (delta != Vec2{}) lastDevice_ = InputDevice::Mouse;
+    mouseDelta_ += delta;
 }
 
 void Input::on_mouse_button(MouseButton b, bool down) {
     size_t i = size_t(b);
     if (i >= size_t(MouseButton::Count)) return;
-    if (down && !mouse_buttons_[i]) mousePressedEdge_[i] = true;
+    if (down && !mouse_buttons_[i]) {
+        mousePressedEdge_[i] = true;
+        lastDevice_ = InputDevice::Mouse;
+    }
     if (!down && mouse_buttons_[i]) mouseReleasedEdge_[i] = true;
     mouse_buttons_[i] = down;
 }
 
-void Input::on_mouse_wheel(float dy) { wheel_ += dy; }
+void Input::on_mouse_wheel(float dy) {
+    if (dy != 0.0f) lastDevice_ = InputDevice::Mouse;
+    wheel_ += dy;
+}
 
 // The first finger also drives the mouse (position + left button) until it lifts, so mouse-based UI and scripts work on
 // touch devices unchanged. It lives here, not in the platform event handler, so every feed (a device, game.touch in
@@ -200,6 +250,7 @@ void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
         on_mouse_move(designPos);
         on_mouse_button(MouseButton::Left, true);
     }
+    lastDevice_ = InputDevice::Touch;  // after the mouse mirror above
 }
 
 void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
@@ -207,6 +258,7 @@ void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
         if (t.id == id) {
             t.position = designPos;
             if (primaryTouchDown_ && primaryTouchId_ == id) on_mouse_move(designPos);
+            lastDevice_ = InputDevice::Touch;
         }
 }
 
@@ -224,9 +276,21 @@ void Input::on_touch_end(std::uint64_t id) {
         on_mouse_move(last);
         on_mouse_button(MouseButton::Left, false);
     }
+    lastDevice_ = InputDevice::Touch;
 }
 
 void Input::on_text(std::uint32_t codepoint) { text_.push_back(char32_t(codepoint)); }
+
+std::string Input::text_utf8() const {
+    std::string utf8;
+    for (char32_t c : text_) {
+        if (c < 0x80) utf8 += char(c);
+        else if (c < 0x800) { utf8 += char(0xC0 | (c >> 6)); utf8 += char(0x80 | (c & 0x3F)); }
+        else if (c < 0x10000) { utf8 += char(0xE0 | (c >> 12)); utf8 += char(0x80 | ((c >> 6) & 0x3F)); utf8 += char(0x80 | (c & 0x3F)); }
+        else { utf8 += char(0xF0 | (c >> 18)); utf8 += char(0x80 | ((c >> 12) & 0x3F)); utf8 += char(0x80 | ((c >> 6) & 0x3F)); utf8 += char(0x80 | (c & 0x3F)); }
+    }
+    return utf8;
+}
 
 void Input::on_gamepad_connected(int index, bool connected) {
     if (index < 0 || index >= kMaxGamepads) return;
@@ -245,7 +309,10 @@ void Input::on_gamepad_button(int index, GamepadButton button, bool down) {
     Pad& pad = pads_[size_t(index)];
     pad.connected = true;
     size_t i = size_t(button);
-    if (down && !pad.buttons[i]) pad.pressedEdge[i] = true;
+    if (down && !pad.buttons[i]) {
+        pad.pressedEdge[i] = true;
+        lastDevice_ = InputDevice::Gamepad;
+    }
     if (!down && pad.buttons[i]) pad.releasedEdge[i] = true;
     pad.buttons[i] = down;
 }
@@ -256,7 +323,26 @@ void Input::on_gamepad_axis(int index, GamepadAxis axis, float value) {
     pad.connected = true;
     bool trigger = axis == GamepadAxis::LeftTrigger || axis == GamepadAxis::RightTrigger;
     if (!(value == value)) value = 0.0f;  // NaN from a broken driver or script
-    pad.axes[size_t(axis)] = std::clamp(value, trigger ? 0.0f : -1.0f, 1.0f);
+    value = std::clamp(value, trigger ? 0.0f : -1.0f, 1.0f);
+    // A poll feeds the same value every frame: only a CHANGE past the deadzone is the player touching the pad.
+    if (value != pad.axes[size_t(axis)] && std::fabs(value) > deadzone_) lastDevice_ = InputDevice::Gamepad;
+    pad.axes[size_t(axis)] = value;
+}
+
+void Input::set_gamepad_type(int index, GamepadType type) {
+    if (index >= 0 && index < kMaxGamepads) pads_[size_t(index)].type = type;
+}
+
+GamepadType Input::gamepad_type(int index) const {
+    return gamepad_connected(index) ? pads_[size_t(index)].type : GamepadType::Generic;
+}
+
+void Input::reset_options() {
+    reset_bindings();
+    mouseVisible_ = true;
+    mouseLocked_ = keyboardShown_ = false;
+    lastDevice_ = InputDevice::Keyboard;
+    for (Pad& pad : pads_) pad.type = GamepadType::Generic;
 }
 
 void Input::release_all() {
@@ -391,9 +477,40 @@ void Input::bind(std::string_view action, std::string_view binding) {
     if (parse_binding(binding, b)) actions_[std::string(action)].push_back(b);
 }
 
+std::vector<Input::Binding> Input::parse_binding_list(const std::string& action, const Json& list,
+                                                      const std::vector<std::string>& candidates,
+                                                      std::vector<std::string>& problems) const {
+    std::vector<Binding> out;
+    auto add = [&](const Json& item) {
+        if (!item.is_string()) {
+            problems.push_back(std::format("input.actions.{}: binding must be a string such as \"Space\", got {}", action,
+                                           describe_json_value(item)));
+            return;
+        }
+        Binding b;
+        std::string text = item.get<std::string>();
+        if (!parse_binding(text, b)) {
+            problems.push_back(std::format("input.actions.{}: unknown binding '{}'. {}", action, text,
+                                           did_you_mean(text, candidates)));
+            return;
+        }
+        out.push_back(b);
+    };
+    if (list.is_array()) {
+        for (const auto& item : list) add(item);
+    } else if (list.is_string()) {
+        add(list);
+    } else {
+        problems.push_back(std::format("input.actions.{}: expected an array of binding names, got {}", action,
+                                       describe_json_value(list)));
+    }
+    return out;
+}
+
 std::vector<std::string> Input::set_actions(const Json& actions) {
     std::vector<std::string> problems;
     actions_.clear();
+    projectActions_ = actions;
     if (actions.is_null()) return problems;
     if (!actions.is_object()) {
         problems.push_back(std::format(
@@ -402,35 +519,150 @@ std::vector<std::string> Input::set_actions(const Json& actions) {
         return problems;
     }
     const auto candidates = all_binding_names();
-    for (auto it = actions.begin(); it != actions.end(); ++it) {
-        const std::string& name = it.key();
-        const Json& list = it.value();
-        std::vector<Binding>& out = actions_[name];  // even an empty list declares the action
-        auto add = [&](const Json& item) {
-            if (!item.is_string()) {
-                problems.push_back(std::format("input.actions.{}: binding must be a string such as \"Space\", got {}",
-                                               name, describe_json_value(item)));
-                return;
-            }
-            Binding b;
-            std::string text = item.get<std::string>();
-            if (!parse_binding(text, b)) {
-                problems.push_back(std::format("input.actions.{}: unknown binding '{}'. {}", name, text,
-                                               did_you_mean(text, candidates)));
-                return;
-            }
-            out.push_back(b);
-        };
-        if (list.is_array()) {
-            for (const auto& item : list) add(item);
-        } else if (list.is_string()) {
-            add(list);
-        } else {
-            problems.push_back(std::format("input.actions.{}: expected an array of binding names, got {}", name,
-                                           describe_json_value(list)));
+    for (auto it = actions.begin(); it != actions.end(); ++it)  // even an empty list declares the action
+        actions_[it.key()] = parse_binding_list(it.key(), it.value(), candidates, problems);
+    return problems;
+}
+
+std::string Input::binding_name(const Binding& b) {
+    switch (b.kind) {
+        case Binding::Kind::Key: return key_name(b.key);
+        case Binding::Kind::Mouse: return kMouseNames[size_t(b.mouse)];
+        case Binding::Kind::Touch: return "Touch";
+        case Binding::Kind::PadButton: return std::string("Gamepad") + kPadButtonNames[size_t(b.button)];
+        case Binding::Kind::PadAxis:
+            for (const auto& p : pad_binding_names())
+                if (p.isAxis && p.axis == b.axis && p.sign == b.sign) return p.name;
+    }
+    return "";
+}
+
+namespace {
+// "Unknown input action 'x'. Did you mean ...? Valid: ..." for the rebinding functions.
+std::string unknown_action_message(std::string_view what, std::string_view action, const std::vector<std::string>& names) {
+    return std::format("{}: unknown input action '{}'. {}", what, action,
+                       names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
+                                     : did_you_mean(action, names));
+}
+}  // namespace
+
+std::vector<std::string> Input::rebind(std::string_view action, const std::vector<std::string>& bindings) {
+    std::vector<std::string> problems;
+    auto it = actions_.find(std::string(action));
+    if (it == actions_.end()) {
+        problems.push_back(unknown_action_message("input.rebind", action, action_names()));
+        return problems;
+    }
+    const auto candidates = all_binding_names();
+    std::vector<Binding> parsed;
+    for (const std::string& text : bindings) {
+        Binding b;
+        if (parse_binding(text, b)) parsed.push_back(b);
+        else problems.push_back(std::format("input.rebind('{}'): unknown binding '{}'. {}", action, text, did_you_mean(text, candidates)));
+    }
+    if (problems.empty()) it->second = std::move(parsed);
+    return problems;
+}
+
+std::vector<std::string> Input::bindings(std::string_view action) const {
+    std::vector<std::string> out;
+    auto it = actions_.find(std::string(action));
+    if (it != actions_.end())
+        for (const Binding& b : it->second) out.push_back(binding_name(b));
+    return out;
+}
+
+std::vector<std::string> Input::reset_bindings(std::string_view action) {
+    if (action.empty()) return projectActions_.is_null() ? std::vector<std::string>{} : set_actions(projectActions_);
+    std::vector<std::string> problems;
+    const std::string name(action);
+    if (!actions_.count(name)) {
+        problems.push_back(unknown_action_message("input.resetBindings", action, action_names()));
+        return problems;
+    }
+    if (projectActions_.is_object() && projectActions_.contains(name))
+        actions_[name] = parse_binding_list(name, projectActions_[name], all_binding_names(), problems);
+    else
+        actions_.erase(name);  // made by bind(), not declared by the project
+    return problems;
+}
+
+// ---------------------------------------------------------------------------
+// Last input and button names
+// ---------------------------------------------------------------------------
+std::string Input::last_pressed() const {
+    for (size_t i = 1; i < size_t(Key::Count); ++i)
+        if (keyPressedEdge_[i]) return key_name(Key(i));
+    if (touchPressedEdge_) return "Touch";
+    for (size_t i = 0; i < size_t(MouseButton::Count); ++i)
+        if (mousePressedEdge_[i]) return kMouseNames[i];
+    for (const Pad& pad : pads_)
+        for (size_t i = 0; i < size_t(GamepadButton::Count); ++i)
+            if (pad.pressedEdge[i]) return std::string("Gamepad") + kPadButtonNames[i];
+    for (const auto& p : pad_binding_names()) {
+        if (!p.isAxis) continue;
+        for (const Pad& pad : pads_)
+            if (float(p.sign) * pad_axis(pad, p.axis, false) >= kActionDownThreshold &&
+                float(p.sign) * pad_axis(pad, p.axis, true) < kActionDownThreshold)
+                return p.name;
+    }
+    return "";
+}
+
+namespace {
+// What each family prints on a pad's buttons, in GamepadButton order (A B X Y Start Back Guide DpadLeft DpadRight DpadUp
+// DpadDown LeftShoulder RightShoulder LeftThumb RightThumb). Our buttons are positions (A = bottom, B = right, X = left,
+// Y = top), so a Nintendo pad, which letters its buttons by name, has B at the bottom and A at the right.
+const char* const kPadLabels[5][size_t(GamepadButton::Count)] = {
+    // Generic: the Xbox names
+    {"A", "B", "X", "Y", "Menu", "View", "Guide", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "LB", "RB", "LS", "RS"},
+    // Xbox
+    {"A", "B", "X", "Y", "Menu", "View", "Xbox", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "LB", "RB", "LS", "RS"},
+    // PlayStation
+    {"Cross", "Circle", "Square", "Triangle", "Options", "Create", "PS", "D-Pad Left", "D-Pad Right", "D-Pad Up",
+     "D-Pad Down", "L1", "R1", "L3", "R3"},
+    // Nintendo
+    {"B", "A", "Y", "X", "+", "-", "Home", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "L", "R", "LS", "RS"},
+    // Steam Deck
+    {"A", "B", "X", "Y", "Menu", "View", "Steam", "D-Pad Left", "D-Pad Right", "D-Pad Up", "D-Pad Down", "L1", "R1", "L3", "R3"},
+};
+const char* const kTriggerLabels[5][2] = {{"LT", "RT"}, {"LT", "RT"}, {"L2", "R2"}, {"ZL", "ZR"}, {"L2", "R2"}};
+}  // namespace
+
+std::string Input::binding_label(std::string_view binding, GamepadType type) {
+    Binding b;
+    if (!parse_binding(binding, b)) return "";
+    const size_t t = size_t(type) < 5 ? size_t(type) : 0;
+    switch (b.kind) {
+        case Binding::Kind::Key: return key_name(b.key);
+        case Binding::Kind::Mouse:
+            return std::string(b.mouse == MouseButton::Left ? "Left" : b.mouse == MouseButton::Right ? "Right" : "Middle") + " Click";
+        case Binding::Kind::Touch: return "Touch";
+        case Binding::Kind::PadButton: return kPadLabels[t][size_t(b.button)];
+        case Binding::Kind::PadAxis: {
+            if (b.axis == GamepadAxis::LeftTrigger || b.axis == GamepadAxis::RightTrigger)
+                return kTriggerLabels[t][b.axis == GamepadAxis::RightTrigger ? 1 : 0];
+            const bool left = b.axis == GamepadAxis::LeftX || b.axis == GamepadAxis::LeftY;
+            const bool horizontal = b.axis == GamepadAxis::LeftX || b.axis == GamepadAxis::RightX;
+            return std::string(left ? "Left" : "Right") + " Stick " +
+                   (horizontal ? (b.sign < 0 ? "Left" : "Right") : (b.sign > 0 ? "Up" : "Down"));
         }
     }
-    return problems;
+    return "";
+}
+
+std::string Input::button_name(std::string_view bindingOrAction, int pad) const {
+    const GamepadType type = gamepad_type(pad);
+    auto it = actions_.find(std::string(bindingOrAction));
+    if (it == actions_.end()) return binding_label(bindingOrAction, type);
+    const bool wantPad = lastDevice_ == InputDevice::Gamepad;
+    const Binding* pick = nullptr;
+    for (const Binding& b : it->second) {
+        const bool isPad = b.kind == Binding::Kind::PadButton || b.kind == Binding::Kind::PadAxis;
+        if (isPad == wantPad) { pick = &b; break; }
+        if (!pick) pick = &b;  // fallback: the first binding of any kind
+    }
+    return pick ? binding_label(binding_name(*pick), type) : "";
 }
 
 std::vector<std::string> Input::action_names() const {
@@ -561,16 +793,7 @@ Json Input::snapshot() const {
         pads.push_back({{"index", i}, {"buttonsDown", down}, {"axes", axes}});
     }
     if (!pads.empty()) j["gamepads"] = pads;
-    if (!text_.empty()) {
-        std::string utf8;
-        for (char32_t c : text_) {
-            if (c < 0x80) utf8 += char(c);
-            else if (c < 0x800) { utf8 += char(0xC0 | (c >> 6)); utf8 += char(0x80 | (c & 0x3F)); }
-            else if (c < 0x10000) { utf8 += char(0xE0 | (c >> 12)); utf8 += char(0x80 | ((c >> 6) & 0x3F)); utf8 += char(0x80 | (c & 0x3F)); }
-            else { utf8 += char(0xF0 | (c >> 18)); utf8 += char(0x80 | ((c >> 12) & 0x3F)); utf8 += char(0x80 | ((c >> 6) & 0x3F)); utf8 += char(0x80 | (c & 0x3F)); }
-        }
-        j["text"] = utf8;
-    }
+    if (!text_.empty()) j["text"] = text_utf8();
     return j;
 }
 

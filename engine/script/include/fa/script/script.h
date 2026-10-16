@@ -40,6 +40,26 @@ class Input;
 class Audio;
 class Physics;
 class Renderer;
+class UiSystem;
+
+// The game's own window, as `window.*` in scripts reaches it. Only a game that owns a real window has one (factoria run,
+// an exported game, a phone or tablet player); headless runs, tests, the MCP server and the editor's game view have none,
+// and ScriptHost::window() is nullptr there. Sizes are logical pixels (see fa/platform/app.h).
+class WindowControl {
+public:
+    virtual ~WindowControl() = default;
+    virtual bool fullscreen() const = 0;
+    virtual void size(int& width, int& height) const = 0;          // client size now
+    virtual void display_size(int& width, int& height) const = 0;  // the monitor the window is on (the window size if unknown)
+    virtual bool vsync() const = 0;
+    virtual int frame_cap() const = 0;  // frames per second, 0 = unlimited
+    // The setters return "" when done, else a sentence that says why not and what to do instead (the script layer puts
+    // `window.<function>: ` in front and throws it).
+    virtual std::string set_fullscreen(bool on) = 0;
+    virtual std::string set_size(int width, int height) = 0;
+    virtual std::string set_vsync(bool on) = 0;
+    virtual std::string set_frame_cap(int fps) = 0;  // 0 or 15..1000, already checked by the script layer
+};
 
 // Implemented by fa_runtime's Engine. Everything scripts can reach.
 class ScriptHost {
@@ -50,9 +70,12 @@ public:
     virtual Audio& audio() = 0;
     virtual Physics& physics() = 0;
     virtual Renderer* renderer() = 0;  // nullptr when running without graphics
+    virtual UiSystem* ui() { return nullptr; }  // the game UI (ui.focus, ui.focused, ui.hovered); nullptr without one
     virtual CommandRegistry& commands() = 0;
     virtual Json project_settings() const = 0;
     virtual double fixed_dt() const = 0;
+    // The game window, or nullptr when this run has none (the default): `window.available` in scripts.
+    virtual WindowControl* window() { return nullptr; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     virtual void request_quit() = 0;

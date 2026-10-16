@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "fa/scene/tilemap.h"
+#include "fa/scene/ui_rect.h"
 
 namespace fa {
 
@@ -122,6 +123,11 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
                                      (1.0f - t->pivot.y) * size.y)));
     }
+    // A UI widget: always screen space, its size box placed by pivot (see ui_rect.h).
+    if (const UiBox* b = includeScreenSpace ? ui_box(W, e) : nullptr)
+        out.push_back(make(ui_kind_name(ui_kind(W, e)), RenderSpace::Screen, b->layer, b->anchor,
+                           rect_quad(-b->pivot.x * b->size.x, -b->pivot.y * b->size.y, (1.0f - b->pivot.x) * b->size.x,
+                                     (1.0f - b->pivot.y) * b->size.y)));
     return out;
 }
 

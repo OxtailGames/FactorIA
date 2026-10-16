@@ -292,6 +292,152 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 
+## UI
+
+### Panel
+
+Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `layout` | enum: none \\| row \\| column \\| grid | `"none"` | How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot. |
+| `spacing` | float | `8.0` | Gap in design pixels between children (a grid uses it on both axes). Range 0.0..10000.0. |
+| `padding` | vec4 | `[16.0,16.0,16.0,16.0]` | Space [left, top, right, bottom] between the panel's edge and its children. |
+| `columns` | int | `2` | Grid only: number of columns. Range 1.0..64.0. |
+| `align` | enum: start \\| center \\| end | `"center"` | Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom. |
+| `justify` | enum: start \\| center \\| end | `"start"` | Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom. A grid is placed as one block on both axes. |
+| `fit` | bool | `false` | true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position. |
+
+### Button
+
+Clickable button with a text label. Activated by the mouse / a touch, or by ui_submit (Enter, Space, gamepad A) while it has focus; the event is ui.click {id}. Focus rules and the other widgets: see Panel.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[240.0,56.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
+| `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
+| `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
+| `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
+| `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
+| `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
+| `text` | string | `"Button"` | Label, centred on the button. |
+
+### Toggle
+
+Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[240.0,40.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
+| `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
+| `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
+| `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
+| `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
+| `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
+| `label` | string | `"Toggle"` | Text to the right of the box. |
+| `value` | bool | `false` | true = checked. Scripts may write it; no event is sent for a write. |
+
+### Slider
+
+Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[320.0,40.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
+| `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
+| `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
+| `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
+| `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
+| `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
+| `label` | string | `""` | Text at the left; empty gives the track the extra room. |
+| `value` | float | `0.5` | Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. |
+| `min` | float | `0.0` | Smallest value. |
+| `max` | float | `1.0` | Largest value. |
+| `step` | float | `0.1` | Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press and dragging is not snapped. Range 0.0..1000000.0. |
+| `showValue` | bool | `true` | Draw the value at the right: "60%" when min is 0 and max is 1, else the number with up to 2 decimals. |
+
+### TextField
+
+Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[320.0,48.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `font` | asset (font) | `""` | Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). |
+| `fontSize` | float | `24.0` | Label glyph height in design pixels. Range 1.0..4096.0. |
+| `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
+| `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
+| `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
+| `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
+| `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
+| `text` | string | `""` | The text, UTF-8. Scripts may write it; no event is sent for a write. |
+| `placeholder` | string | `""` | Hint drawn at half alpha while `text` is empty. |
+| `maxLength` | int | `64` | Longest text, in characters (code points). 0 = unlimited. Range 0.0..1000000.0. |
+| `caret` | bool | `false` | Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only. Runtime-only (not saved). |
+
+### ScrollList
+
+Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), and focusing a widget inside scrolls just enough to show it.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `size` | vec2 | `[320.0,240.0]` | Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame. |
+| `pivot` | vec2 | `[0.5,0.5]` | Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children. |
+| `anchor` | vec2 | `[0.0,0.0]` | Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout. |
+| `layer` | int | `200` | Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget. |
+| `color` | color | `[0.16,0.18,0.24,0.92]` | Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name. |
+| `texture` | asset (texture) | `""` | Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally. |
+| `spacing` | float | `8.0` | Gap in design pixels between children. Range 0.0..10000.0. |
+| `padding` | vec4 | `[8.0,8.0,8.0,8.0]` | Space [left, top, right, bottom] between the list's edge and its children. |
+| `scroll` | float | `0.0` | Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame. Runtime-only (not saved). |
+| `scrollSpeed` | float | `40.0` | Pixels scrolled per mouse-wheel notch. Range 0.0..10000.0. |
+
 ## Scripting
 
 ### Script
@@ -994,6 +1140,14 @@ Returns {home, host, components[]}; each component is {id, title, state, details
 | `component` | string ["android","players","cmake","xcode"] | no | Only this component (default: all of them). |
 | `fetchLicenses` | boolean | no | Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI). Default true. |
 
+## ui
+
+### `ui.state`
+
+List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList) and which has focus.
+
+Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely. `value` is a Toggle's boolean or a Slider's number; `text` is a Button's text, a Toggle's or Slider's label or a TextField's contents. Example: ui.state {}
+
 
 ## Scripting API (TypeScript declarations)
 
@@ -1039,6 +1193,16 @@ declare module "factoria" {
    * A gamepad axis: sticks run -1..1 with +Y up, triggers 0..1.
    */
   export type GamepadAxis = "LeftX" | "LeftY" | "RightX" | "RightY" | "LeftTrigger" | "RightTrigger";
+
+  /**
+   * The family of a gamepad, found from its vendor id and name (Microsoft, Sony, Nintendo, Valve). It decides the button names input.buttonName() gives: the same bottom button is "A" on Xbox and Steam Deck, "Cross" on PlayStation and "B" on Nintendo. "generic" (any other pad) uses the Xbox names.
+   */
+  export type GamepadType = "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck";
+
+  /**
+   * The kind of device that produced input last (input.lastDevice): choose keyboard or gamepad button prompts with it.
+   */
+  export type InputDevice = "keyboard" | "mouse" | "gamepad" | "touch";
 
   /**
    * Plain JSON data (objects, arrays, numbers, strings, booleans, null).
@@ -1356,6 +1520,10 @@ declare module "factoria" {
      */
     enabled: boolean;
     /**
+     * Default false. While time.scale is 0 (game.paused) the engine calls onUpdate and onLateUpdate only on behaviours whose runWhilePaused is true, with the REAL frame time as dt (time.dt is 0 then; time.unscaledDt is the real one). Set it as a class field (`runWhilePaused = true;`) on pause menus and anything else that must react while gameplay is frozen. onFixedUpdate never runs while paused. ui events and world.on listeners are delivered either way.
+     */
+    runWhilePaused: boolean;
+    /**
      * One-shot timer (scaled game time); cancelled automatically on destroy.
      */
     after(seconds: number, fn: () => void): TimerHandle;
@@ -1434,7 +1602,7 @@ declare module "factoria" {
      */
     emit(name: string, data?: any, source?: Entity): void;
     /**
-     * Subscribe to an event; returns unsubscribe.
+     * Subscribe to an event; returns unsubscribe. The UI sends ui.click, ui.change, ui.submit, ui.focus and ui.cancel with data { id, value? } and the widget as `source` (ui.on wraps them).
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
@@ -1462,6 +1630,14 @@ declare module "factoria" {
     down(button?: "left" | "right" | "middle"): boolean;
     pressed(button?: "left" | "right" | "middle"): boolean;
     released(button?: "left" | "right" | "middle"): boolean;
+    /**
+     * Whether the mouse cursor is drawn over the window (default true). Set false for a game that draws its own cursor or plays with a pad. Independent of `locked`. A headless run or test only records the value.
+     */
+    visible: boolean;
+    /**
+     * Mouse lock for mouse-look cameras: the cursor is hidden and held in the window, `position` stays frozen and `delta` reports raw movement (not design pixels). The window system may unlock it when the window loses focus; the engine locks it again when focus comes back. A headless run or test only records the value.
+     */
+    locked: boolean;
   }
 
   export interface TouchInfo {
@@ -1479,6 +1655,10 @@ declare module "factoria" {
      * A pad is plugged in at this index.
      */
     readonly connected: boolean;
+    /**
+     * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
+     */
+    readonly type: GamepadType;
     /**
      * Button held. Unknown names throw with a suggestion.
      */
@@ -1534,6 +1714,46 @@ declare module "factoria" {
      * Deadzone of gamepad sticks (radial) and triggers, 0 up to 1 (not included); factoria.json input.deadzone sets the start value (default 0.2). Assign to offer calibration in an options menu.
      */
     deadzone: number;
+    /**
+     * The characters typed this frame, as UTF-8 text ("" when none): from the keyboard or the on-screen keyboard, already composed (shift, dead keys, IME), control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed().
+     */
+    readonly text: string;
+    /**
+     * Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown).
+     */
+    showKeyboard(on?: boolean): void;
+    /**
+     * The last value given to showKeyboard() (false at start).
+     */
+    readonly keyboardShown: boolean;
+    /**
+     * The names of all input actions (from factoria.json input.actions and the engine's own), sorted.
+     */
+    actions(): string[];
+    /**
+     * The bindings of an action in order, as names input.rebind() accepts: ["Space", "W", "GamepadA"]. An unknown action throws with a suggestion.
+     */
+    bindings(action: string): string[];
+    /**
+     * Replaces the bindings of an existing action, for a controls screen. Names are keys ("Space", "W", "Left"), "MouseLeft", "MouseRight", "MouseMiddle", "Touch" and gamepad bindings ("GamepadA", "GamepadLeftStickUp", "GamepadRightTrigger"...), case-insensitive. All or nothing: an unknown action or binding name throws an Error with "did you mean" and nothing changes. An empty array unbinds the action. Several actions may share a binding. Combine with input.lastPressed() to let the player press the new key, and save input.bindings(action) with storage.set() to restore it at the next start (see docs/SCRIPTING.md).
+     */
+    rebind(action: string, bindings: string[]): void;
+    /**
+     * Puts one action (or every action when no name is given) back to what factoria.json and the engine's defaults say, undoing input.rebind().
+     */
+    resetBindings(action?: string): void;
+    /**
+     * The binding that went down this frame ("Space", "MouseLeft", "Touch", "GamepadA", "GamepadLeftStickUp"...) or null: for a "press a key to rebind" screen. Sticks and triggers count when pushed past half way. If several went down in the same frame, keys come first, then touch, mouse buttons, pad buttons, sticks and triggers. Ignore the frame in which the player clicked the Rebind button itself.
+     */
+    lastPressed(): string | null;
+    /**
+     * The device that produced input last: "keyboard" (a key going down), "mouse" (moved, clicked, wheel), "gamepad" (a button pressed or a stick pushed past the deadzone) or "touch". "keyboard" at the start. Show gamepad prompts when it is "gamepad".
+     */
+    readonly lastDevice: InputDevice;
+    /**
+     * The label a player sees, for button prompts: a key gives its name ("Space", "W"), the mouse "Left Click", and a pad button the name on THAT pad (pad 0 by default): Xbox/Steam Deck "A" "B" "X" "Y" "LB" "RB" "LT" "RT" "View" "Menu", PlayStation "Cross" "Circle" "Square" "Triangle" "L1" "R1" "L2" "R2" "Create" "Options", Nintendo "B" "A" "Y" "X" "L" "R" "ZL" "ZR" "-" "+" (our A, the bottom button, is Nintendo's B). An action gives the label of its first binding for input.lastDevice (a pad binding after pad input, else a key or mouse binding), or "" if it has no binding. Unknown names throw with a suggestion.
+     */
+    buttonName(bindingOrAction: string, pad?: number): string;
     /**
      * Raw key by name ("Space", "A", "Escape"...).
      */
@@ -1648,14 +1868,18 @@ declare module "factoria" {
     readonly dt: number;
     readonly fixedDt: number;
     /**
-     * Simulated seconds since scene start.
+     * Simulated seconds since scene start (fixed steps run so far x fixedDt); not affected by time.scale.
      */
     readonly elapsed: number;
     readonly frame: number;
     /**
-     * Time scale for gameplay; 0 pauses behaviours.
+     * Time scale for gameplay (>= 0, default 1): scales onUpdate/onFixedUpdate dt, timers, physics steps, particles and sprite animators. 0 freezes all of them (game.paused): only behaviours with runWhilePaused = true keep updating, and the UI keeps working. Audio is not scaled.
      */
     scale: number;
+    /**
+     * Seconds of the current frame, NOT scaled by time.scale (the real frame time while paused): animate pause menus with it.
+     */
+    readonly unscaledDt: number;
   }
 
   /**
@@ -1698,7 +1922,7 @@ declare module "factoria" {
   export interface GameAPI {
     quit(): void;
     /**
-     * True while time.scale is 0.
+     * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false sets it back to 1.
      */
     paused: boolean;
     /**
@@ -1706,6 +1930,64 @@ declare module "factoria" {
      */
     readonly project: Readonly<Json>;
     readonly screenSize: Vec2;
+    /**
+     * The third-party software inside the FactorIA runtime that every game ships (the parts whose full license texts `factoria export` writes to FACTORIA_NOTICES.txt next to the game), FactorIA first. Show it on a credits or licenses screen: e.g. game.notices().map((n) => `${n.name} (${n.license})`).
+     */
+    notices(): { name: string; url: string; license: string; usedFor: string }[];
+  }
+
+  /**
+   * A window size in logical pixels, from window.resolutions().
+   */
+  export interface Resolution {
+    width: number;
+    height: number;
+  }
+
+  /**
+   * The game window, for an options menu: full screen, size, vsync and frame cap. The getters work in every run (a run without a window answers from factoria.json display settings). Every setter throws an Error that explains why when this run has no window (headless runs, tests, the MCP server, the editor's game view), so check `window.available` first. The engine saves nothing: keep the player's choice with storage.set() and apply it at start (docs/SCRIPTING.md has the recipe). Sizes are logical pixels: the window system's points, so a 1280 x 720 window on a 200% display has a 2560 x 1440 framebuffer. Phones and tablets always run full screen.
+   */
+  export interface WindowAPI {
+    /**
+     * True when the game owns a real window: `factoria run`, an exported game, the mobile players. False in headless runs, tests and inside the editor.
+     */
+    readonly available: boolean;
+    /**
+     * Whether the window is full screen (the project's display.fullscreen when there is no window; always true on phones and tablets).
+     */
+    readonly fullscreen: boolean;
+    /**
+     * Enters or leaves full screen (desktop: the window covers its monitor). `window.fullscreen` follows at once. On phones and tablets true does nothing and false throws ("phones and tablets always run full screen"). Throws without a window.
+     */
+    setFullscreen(on: boolean): void;
+    /**
+     * The window's client size in logical pixels (the project's display size when there is no window). In full screen it is the monitor's size.
+     */
+    readonly size: Vec2;
+    /**
+     * The size in logical pixels of the monitor the window is on (the whole screen on Linux with several monitors); the window size when the platform cannot tell.
+     */
+    readonly displaySize: Vec2;
+    /**
+     * Resizes the window's client area, in whole logical pixels from 160 to 16384; the window keeps its position. Desktop windows only, and not in full screen: call setFullscreen(false) first, or the call throws and says so. The game keeps its design resolution and letterboxes (or expands, see display.scaleMode) to the new size.
+     */
+    setSize(width: number, height: number): void;
+    /**
+     * Window sizes for a resolution picker: common 16:9 and 16:10 sizes (640x360 up to 3840x2160) plus the game's design size, keeping those that fit the monitor, smallest first. Pass an entry to setSize().
+     */
+    resolutions(): Resolution[];
+    /**
+     * Whether presents wait for the display (the project's display.vsync at start, then setVsync()).
+     */
+    readonly vsync: boolean;
+    /**
+     * Turns vsync on or off while the game runs (Windows, Linux; macOS only stops waiting for the display). Throws and names the platform where it cannot (phones and tablets, a Linux driver without swap control) or when there is no window.
+     */
+    setVsync(on: boolean): void;
+    /**
+     * Frames per second the window may draw at: 0 = unlimited (default), else a whole number from 15 to 1000. The game loop waits so frames do not start faster than that; the simulation still runs at the fixed step, so gameplay results do not change. Useful with vsync off, or to save battery on a laptop. Setting it throws without a window and on phones and tablets (the display sets the pace).
+     */
+    frameCap: number;
   }
 
   /**
@@ -1845,13 +2127,55 @@ declare module "factoria" {
   }
 
   /**
-   * Text/UI helpers.
+   * What a ui.on callback receives: one widget event (Button, Toggle, Slider, TextField).
+   */
+  export interface UiEvent {
+    /**
+     * Which event: click (Button pressed by ui_submit or the mouse), change (Toggle flipped, Slider moved, TextField edited), submit (TextField Enter), focus (a widget took focus), cancel (ui_cancel pressed: Escape or the pad's B).
+     */
+    readonly type: "click" | "change" | "submit" | "focus" | "cancel";
+    /**
+     * Id of the widget entity (the "id" of the scene entity). null for a cancel with nothing focused.
+     */
+    readonly id: string | null;
+    /**
+     * The widget entity; null for a cancel with nothing focused.
+     */
+    readonly entity: Entity | null;
+    /**
+     * change and submit only: the Toggle's value (boolean), the Slider's value (number) or the TextField's text (string).
+     */
+    readonly value?: boolean | number | string;
+  }
+
+  /**
+   * Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI). The UI keeps working while time.scale is 0.
    */
   export interface UIAPI {
     /**
      * Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning).
      */
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number };
+    /**
+     * Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
+     */
+    on(type: "click" | "change" | "submit" | "focus" | "cancel", fn: (e: UiEvent) => void): () => void;
+    /**
+     * Listens to a widget event from one widget only; `target` is the widget Entity or its entity id, e.g. ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json")).
+     */
+    on(type: "click" | "change" | "submit" | "focus" | "cancel", target: Entity | string, fn: (e: UiEvent) => void): () => void;
+    /**
+     * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
+     */
+    focus(target: Entity | string | null): void;
+    /**
+     * The widget that has keyboard / gamepad focus, or null.
+     */
+    readonly focused: Entity | null;
+    /**
+     * The widget under the mouse pointer (the top-most visible interactable one), or null. Check it in game code so a click meant for a button does not also shoot.
+     */
+    readonly hovered: Entity | null;
   }
 
   /**
@@ -1910,6 +2234,11 @@ declare module "factoria" {
   export const game: GameAPI;
 
   /**
+   * The game window: full screen, size, vsync, frame cap.
+   */
+  export const window: WindowAPI;
+
+  /**
    * Save data.
    */
   export const storage: StorageAPI;
@@ -1940,7 +2269,7 @@ declare module "factoria" {
   export const particles: ParticlesAPI;
 
   /**
-   * Text measurement.
+   * Game UI events and focus, text measurement.
    */
   export const ui: UIAPI;
 
@@ -2754,6 +3083,496 @@ declare module "factoria" {
     volume: number;
   }
   /**
+   * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
+   * 
+   * Category: UI
+   */
+  export interface PanelComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
+     */
+    layout: "none" | "row" | "column" | "grid";
+    /**
+     * Gap in design pixels between children (a grid uses it on both axes).
+     */
+    spacing: number;
+    /**
+     * Space [left, top, right, bottom] between the panel's edge and its children.
+     */
+    get padding(): Vec3 & { w: number };
+    set padding(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Grid only: number of columns.
+     */
+    columns: number;
+    /**
+     * Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom.
+     */
+    align: "start" | "center" | "end";
+    /**
+     * Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom. A grid is placed as one block on both axes.
+     */
+    justify: "start" | "center" | "end";
+    /**
+     * true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position.
+     */
+    fit: boolean;
+  }
+  /**
+   * Clickable button with a text label. Activated by the mouse / a touch, or by ui_submit (Enter, Space, gamepad A) while it has focus; the event is ui.click {id}. Focus rules and the other widgets: see Panel.
+   * 
+   * Category: UI
+   */
+  export interface ButtonComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels.
+     */
+    fontSize: number;
+    /**
+     * Label colour.
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     */
+    get accentColor(): Color;
+    set accentColor(value: ColorLike);
+    /**
+     * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     */
+    interactable: boolean;
+    /**
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     */
+    autoFocus: boolean;
+    /**
+     * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     */
+    readonly focused: boolean;
+    /**
+     * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     */
+    readonly hovered: boolean;
+    /**
+     * Runtime: the pointer is held down on this widget. Read-only.
+     */
+    readonly pressed: boolean;
+    /**
+     * Label, centred on the button.
+     */
+    text: string;
+  }
+  /**
+   * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
+   * 
+   * Category: UI
+   */
+  export interface ToggleComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels.
+     */
+    fontSize: number;
+    /**
+     * Label colour.
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     */
+    get accentColor(): Color;
+    set accentColor(value: ColorLike);
+    /**
+     * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     */
+    interactable: boolean;
+    /**
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     */
+    autoFocus: boolean;
+    /**
+     * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     */
+    readonly focused: boolean;
+    /**
+     * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     */
+    readonly hovered: boolean;
+    /**
+     * Runtime: the pointer is held down on this widget. Read-only.
+     */
+    readonly pressed: boolean;
+    /**
+     * Text to the right of the box.
+     */
+    label: string;
+    /**
+     * true = checked. Scripts may write it; no event is sent for a write.
+     */
+    value: boolean;
+  }
+  /**
+   * Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
+   * 
+   * Category: UI
+   */
+  export interface SliderComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels.
+     */
+    fontSize: number;
+    /**
+     * Label colour.
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     */
+    get accentColor(): Color;
+    set accentColor(value: ColorLike);
+    /**
+     * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     */
+    interactable: boolean;
+    /**
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     */
+    autoFocus: boolean;
+    /**
+     * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     */
+    readonly focused: boolean;
+    /**
+     * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     */
+    readonly hovered: boolean;
+    /**
+     * Runtime: the pointer is held down on this widget. Read-only.
+     */
+    readonly pressed: boolean;
+    /**
+     * Text at the left; empty gives the track the extra room.
+     */
+    label: string;
+    /**
+     * Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write.
+     */
+    value: number;
+    /**
+     * Smallest value.
+     */
+    min: number;
+    /**
+     * Largest value.
+     */
+    max: number;
+    /**
+     * Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press and dragging is not snapped.
+     */
+    step: number;
+    /**
+     * Draw the value at the right: "60%" when min is 0 and max is 1, else the number with up to 2 decimals.
+     */
+    showValue: boolean;
+  }
+  /**
+   * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+   * 
+   * Category: UI
+   */
+  export interface TextFieldComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels.
+     */
+    fontSize: number;
+    /**
+     * Label colour.
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     */
+    get accentColor(): Color;
+    set accentColor(value: ColorLike);
+    /**
+     * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     */
+    interactable: boolean;
+    /**
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     */
+    autoFocus: boolean;
+    /**
+     * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     */
+    readonly focused: boolean;
+    /**
+     * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     */
+    readonly hovered: boolean;
+    /**
+     * Runtime: the pointer is held down on this widget. Read-only.
+     */
+    readonly pressed: boolean;
+    /**
+     * The text, UTF-8. Scripts may write it; no event is sent for a write.
+     */
+    text: string;
+    /**
+     * Hint drawn at half alpha while `text` is empty.
+     */
+    placeholder: string;
+    /**
+     * Longest text, in characters (code points). 0 = unlimited.
+     */
+    maxLength: number;
+    /**
+     * Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only.
+     */
+    readonly caret: boolean;
+  }
+  /**
+   * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), and focusing a widget inside scrolls just enough to show it.
+   * 
+   * Category: UI
+   */
+  export interface ScrollListComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Gap in design pixels between children.
+     */
+    spacing: number;
+    /**
+     * Space [left, top, right, bottom] between the list's edge and its children.
+     */
+    get padding(): Vec3 & { w: number };
+    set padding(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame.
+     */
+    scroll: number;
+    /**
+     * Pixels scrolled per mouse-wheel notch.
+     */
+    scrollSpeed: number;
+  }
+  /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
    * 
    * Category: Scripting
@@ -2840,6 +3659,12 @@ declare module "factoria" {
     Collider3D: Collider3DComponent;
     AudioSource: AudioSourceComponent;
     AudioListener: AudioListenerComponent;
+    Panel: PanelComponent;
+    Button: ButtonComponent;
+    Toggle: ToggleComponent;
+    Slider: SliderComponent;
+    TextField: TextFieldComponent;
+    ScrollList: ScrollListComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -2862,6 +3687,12 @@ declare module "factoria" {
     Collider3D: { shape?: "box" | "sphere"; size?: Vec3Like; radius?: number; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; fit?: boolean };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
   }
@@ -2988,6 +3819,10 @@ declare module "factoria:test" {
      * Unplugs the pad; what it held is released.
      */
     disconnect(): void;
+    /**
+     * Plugs the pad in as that family, so input.gamepad(i).type and input.buttonName() answer for it (tests start with "generic" pads, which use the Xbox names). An unknown family throws with a suggestion.
+     */
+    setType(type: "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck"): void;
   }
 
   /**
@@ -3013,6 +3848,10 @@ declare module "factoria:test" {
     tap(action: string): void;
     keyDown(key: string): void;
     keyUp(key: string): void;
+    /**
+     * Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap().
+     */
+    typeText(text: string): void;
     /**
      * Drives gamepad 0..3 (default 0); a bad index throws. Actions bound to Gamepad* names react like they do to a real pad.
      */
