@@ -19,6 +19,7 @@
 #include "fa/tooling/icons.h"
 #include "fa/tooling/notices.h"
 #include "fa/tooling/project_fs.h"
+#include "fa/tooling/setup.h"
 #include "util.h"
 
 #if defined(_WIN32)
@@ -388,12 +389,22 @@ Result<MobileSetup> resolve_mobile(const ExportOptions& o, const std::string& pl
         s.engine = *engine;
         return s;
     }
+    // The mobile libraries `factoria setup players` downloaded for this factoria version (<home>/players/<version>/mobile).
+    if (const std::string installed = installed_mobile_dir(); !installed.empty()) {
+        const stdfs::path installedLibs = stdfs::path(installed) / sub;
+        if (android ? android_libs_present(installedLibs) : ios_libs_present(installedLibs)) {
+            s.prebuilt = true;
+            s.libs = installedLibs;
+            return s;
+        }
+    }
     return err("export: cannot export for " + platform + ": no prebuilt player (" + what + " not found) and no engine "
                    "source checkout (the one factoria was built from, '" + builtFrom + "', has no " + need + ")",
-               "use the FactorIA download from https://github.com/OxtailGames/FactorIA/releases, whose mobile/ folder "
-               "holds the prebuilt players" + std::string(android ? "" : " (iOS ones ship in the macOS package only: export on a Mac)") +
-                   ", or set FACTORIA_ENGINE_DIR (or pass --engine-root) to a FactorIA source checkout to compile the engine "
-                   "from source");
+               "run `factoria setup players` (the editor: Set up in the Export window) to download the prebuilt players of "
+               "this FactorIA version" + std::string(android ? "" : " (the iOS ones come from the macOS package)") +
+                   ", use the FactorIA download from https://github.com/OxtailGames/FactorIA/releases, whose mobile/ folder "
+                   "holds them, or set FACTORIA_ENGINE_DIR (or pass --engine-root) to a FactorIA source checkout to compile the "
+                   "engine from source");
 }
 
 // ---- license notices -----------------------------------------------------------------------------

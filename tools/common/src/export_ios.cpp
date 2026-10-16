@@ -6,6 +6,7 @@
 #include "export_internal.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/setup.h"
 
 namespace fa::export_detail {
 
@@ -76,6 +77,13 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     s += "# Needs macOS, Xcode (full app), CMake 3.24+.\n";
     s += "set -euo pipefail\n";
     s += "HERE=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+    // CMake 3.24+: $FACTORIA_CMAKE, else the one this export found (`factoria setup cmake` installs one into ~/.factoria),
+    // else cmake from PATH (the folder may be built on another Mac than the one that exported it).
+    const std::string cmake = host_platform() == "macos" ? find_cmake() : std::string();
+    s += "CMAKE=\"${FACTORIA_CMAKE:-}\"\n";
+    s += "if [ -z \"$CMAKE\" ]; then\n  for c in " + (cmake.empty() ? std::string() : sh_quote(cmake) + " ") +
+         "cmake; do if command -v \"$c\" >/dev/null 2>&1; then CMAKE=\"$c\"; break; fi; done\nfi\n";
+    s += "[ -n \"$CMAKE\" ] || { echo \"CMake 3.24+ not found: run \\`factoria setup cmake\\` (or install CMake), or set FACTORIA_CMAKE\" >&2; exit 1; }\n";
     if (!setup.prebuilt) s += "ENGINE_DIR=\"${FACTORIA_ENGINE_DIR:-" + generic(setup.engine) + "}\"\n";
     s += "SYSROOT=iphoneos\nBUILD=0\nRUN=0\nXCODE_ARGS=()\n";
     s += "while [ $# -gt 0 ]; do\n  case \"$1\" in\n    --simulator) SYSROOT=iphonesimulator ;;\n    --build) BUILD=1 ;;\n"
@@ -85,7 +93,7 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          "  esac\n  shift\ndone\n";
     if (!setup.prebuilt)
         s += "[ -f \"$ENGINE_DIR/CMakeLists.txt\" ] || { echo \"engine not found at $ENGINE_DIR: set FACTORIA_ENGINE_DIR\" >&2; exit 1; }\n";
-    s += std::string("cmake -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
+    s += std::string("\"$CMAKE\" -S ") + (setup.prebuilt ? "\"$HERE\"" : "\"$ENGINE_DIR\"") + " -B \"$HERE/build\" -G Xcode \\\n"
          "  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 -DCMAKE_OSX_SYSROOT=\"$SYSROOT\" \\\n" +
          (setup.prebuilt ? "" : "  -DFA_BUILD_TOOLS=OFF -DFA_BUILD_TESTS=OFF \\\n") +
          "  -DFA_GAME_PROJECT_DIR=\"$HERE/game\" \\\n"
@@ -128,7 +136,7 @@ print(pick[0]["udid"] if pick else "")'
 }
 if [ "$SYSROOT" = iphonesimulator ]; then
   # Simulator apps need no team: build unsigned, then sign ad hoc as Xcode does for the simulator.
-  cmake --build "$HERE/build" --config "$CONFIG" --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO \
+  "$CMAKE" --build "$HERE/build" --config "$CONFIG" --target factoria_player -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO \
     ${XCODE_ARGS[@]+"${XCODE_ARGS[@]}"}
 else
   # A scheme build with a destination (not cmake --build, which builds a target and ignores the destination), so that
