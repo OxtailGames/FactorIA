@@ -909,7 +909,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -1027,9 +1027,160 @@
   }
   Object.freeze(plugins);
 
+  // ====================================================================================================== platform
+  // Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence
+  // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
+  // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
+  // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence"];
+  const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
+  const platformPending = new Map();  // request id -> { resolve, reject, label, map }
+  let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
+  const quotedList = (names) => names.map((n) => `"${n}"`).join(", ");
+  const platformArg = (v) => {
+    const s = typeof v === "string" ? JSON.stringify(v) : inspect(v);
+    return s.length > 40 ? s.slice(0, 37) + "..." : s;
+  };
+  const platformLabel = (name, args) => `platform.${name}(${args.filter((a) => a !== undefined).map(platformArg).join(", ")})`;
+
+  function platformSettle(entry, a) {
+    if (a.ok) {
+      let value;
+      try { value = entry.map ? entry.map(a.result) : a.result; }
+      catch (e) { entry.reject(new Error(`${entry.label} failed: the answer could not be read (${e.message})`)); return; }
+      entry.resolve(value);
+      return;
+    }
+    const err = a.error || {};
+    const e = new Error(`${entry.label} failed: ${err.message || "unknown error"}` + (err.hint ? ` (hint: ${err.hint})` : ""));
+    e.code = err.code;
+    e.hint = err.hint || "";
+    entry.reject(e);
+  }
+  function platformCall(method, label, args, map) {
+    const r = N.platformStart(method, plain(args));
+    if (r.mistake) {
+      const e = new Error(`${label}: ${r.mistake.message}` + (r.mistake.hint ? ` (hint: ${r.mistake.hint})` : ""));
+      e.hint = r.mistake.hint || "";
+      throw e;
+    }
+    return new Promise((resolve, reject) => {
+      const entry = { resolve, reject, label, map };
+      // Answered inside the call: no need to wait for a frame. It settles in the next microtask, so that a rejection never
+      // happens before the caller could attach its handler (the engine reports a rejection nobody handles as a script error).
+      if (r.answer) Promise.resolve().then(() => platformSettle(entry, r.answer));
+      else platformPending.set(r.id, entry);
+    });
+  }
+  const noResult = () => undefined;
+  function deliverPlatformEvent(name, data) {
+    const key = "platform." + name;
+    const arr = listeners.get(key);
+    if (arr && arr.length) emitToListeners(key, data, null);
+    else if (name === "purchase" && purchaseBacklog.length < 100) purchaseBacklog.push({ name, data });
+  }
+  // Called by the engine at the start of every frame with what arrived since the last one.
+  function platformDeliver(answers, events) {
+    for (const a of answers) {
+      const entry = platformPending.get(a.id);
+      if (!entry) continue;  // asked before a reset: nobody is waiting
+      platformPending.delete(a.id);
+      platformSettle(entry, a);
+    }
+    const queue = purchaseBacklog.concat(events);
+    purchaseBacklog = [];
+    for (const ev of queue) deliverPlatformEvent(ev.name, ev.data);
+  }
+  function platformReset() { platformPending.clear(); purchaseBacklog = []; }
+
+  const platformStats = {
+    get(id) { return platformCall("stats.get", platformLabel("stats.get", [id]), { id }, (r) => r.value); },
+    set(id, value) { return platformCall("stats.set", platformLabel("stats.set", [id, value]), { id, value }, (r) => r.value); },
+    // get, then set: resolves with the new value. An int stat needs a whole delta.
+    add(id, delta) {
+      if (typeof delta !== "number" || !Number.isFinite(delta))
+        throw new Error(`${platformLabel("stats.add", [id, delta])}: delta must be a finite number, e.g. platform.stats.add("wins", 1), got ${platformArg(delta)}`);
+      return platformStats.get(id).then((v) => platformStats.set(id, v + delta));
+    },
+  };
+  const platform = {
+    // "fake" (development, tests), "none" (no store), or the backend plugin's name ("steam", "apple").
+    get backend() { return N.platformInfo().backend; },
+    // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence".
+    has(service) {
+      if (!PLATFORM_SERVICES.includes(service)) {
+        const sug = closest(String(service), PLATFORM_SERVICES);
+        throw new Error(`platform.has(service): unknown service ${platformArg(service)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${quotedList(PLATFORM_SERVICES)}`);
+      }
+      return N.platformInfo().services.includes(service);
+    },
+    // The last known player { id, name, signedIn } (from signIn and "player" events).
+    get player() { return N.platformInfo().player; },
+    signIn() { return platformCall("player.signIn", "platform.signIn()", {}); },
+    // on(event, fn): "purchase" { status, productId, transactionId, receipt }, "overlay" { open }, "player" { id, name, signedIn }.
+    // Returns the function that stops listening. Listeners end with the scene, like ui.on.
+    on(event, fn) {
+      if (!PLATFORM_EVENTS.includes(event)) {
+        const sug = closest(String(event), PLATFORM_EVENTS);
+        throw new Error(`platform.on(event, fn): unknown event ${platformArg(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${quotedList(PLATFORM_EVENTS)}`);
+      }
+      if (typeof fn !== "function")
+        throw new Error(`platform.on("${event}", fn) expects a function, e.g. platform.on("${event}", (e) => console.log(e)), but got ${platformArg(fn)}`);
+      const off = addListener("platform." + event, (data) => fn(data), null);
+      if (event === "purchase" && purchaseBacklog.length)  // transactions that arrived before anyone listened
+        Promise.resolve().then(() => { const queue = purchaseBacklog; purchaseBacklog = []; for (const ev of queue) deliverPlatformEvent(ev.name, ev.data); });
+      return off;
+    },
+    achievements: {
+      unlock(id) { return platformCall("achievements.unlock", platformLabel("achievements.unlock", [id]), { id }); },
+      // fraction 0..1; 1 unlocks it.
+      progress(id, fraction) { return platformCall("achievements.progress", platformLabel("achievements.progress", [id, fraction]), { id, progress: fraction }); },
+      list() { return platformCall("achievements.list", "platform.achievements.list()", {}); },
+      // Development only: locks every achievement again.
+      reset() { return platformCall("achievements.reset", "platform.achievements.reset()", {}, noResult); },
+    },
+    stats: platformStats,
+    leaderboards: {
+      submit(id, score) { return platformCall("leaderboards.submit", platformLabel("leaderboards.submit", [id, score]), { id, score }); },
+      // range: "top" (default), "around" (the player's neighbours) or "friends"; count 1..100 (default 10).
+      entries(id, options = {}) {
+        const o = isObj(options) ? options : {};
+        return platformCall("leaderboards.entries", platformLabel("leaderboards.entries", [id, options]), { id, range: o.range, count: o.count });
+      },
+    },
+    cloud: {
+      // value: anything JSON can hold. load resolves with it, or undefined when the key does not exist.
+      save(key, value) {
+        const data = value === undefined || typeof value === "function" ? undefined : JSON.stringify(plain(value));
+        if (data === undefined) throw new Error(`${platformLabel("cloud.save", [key, "..."])}: ${platformArg(value)} cannot be saved; use anything JSON can hold (objects, arrays, strings, numbers, booleans, null)`);
+        return platformCall("cloud.save", platformLabel("cloud.save", [key, "..."]), { key, data });
+      },
+      load(key) { return platformCall("cloud.load", platformLabel("cloud.load", [key]), { key }, (r) => (r === null || r === undefined ? undefined : JSON.parse(r.data))); },
+      list() { return platformCall("cloud.list", "platform.cloud.list()", {}); },
+      remove(key) { return platformCall("cloud.remove", platformLabel("cloud.remove", [key]), { key }, noResult); },
+    },
+    purchases: {
+      // Titles and prices as the store shows them (ids: catalog ids; all products when omitted).
+      products(ids) { return platformCall("purchases.products", platformLabel("purchases.products", [ids]), ids === undefined ? {} : { ids }); },
+      // Resolves { status: "purchased" | "pending" | "cancelled", productId, transactionId?, receipt? }. Finish a purchased
+      // transaction once the game delivered the goods.
+      buy(id) { return platformCall("purchases.buy", platformLabel("purchases.buy", [id]), { id }); },
+      finish(transactionId) { return platformCall("purchases.finish", platformLabel("purchases.finish", [transactionId]), { transactionId }, noResult); },
+      restore() { return platformCall("purchases.restore", "platform.purchases.restore()", {}); },
+    },
+    overlay: {
+      // page: "achievements", "leaderboards", "friends" or "store"; id: an achievement, leaderboard or product of the catalog.
+      open(page, id) { return platformCall("overlay.open", platformLabel("overlay.open", [page, id]), { page, id }, noResult); },
+    },
+    presence: {
+      // text: what friends see ("" clears it); data: an object of string values.
+      set(text, data) { return platformCall("presence.set", platformLabel("presence.set", [text, data]), { text, data }, noResult); },
+    },
+  };
+
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform,
     window: windowApi,
   };
 
@@ -1290,6 +1441,21 @@
     // bus, loop, music, source, ok }], oldest first. Assert with expect(game.audioLog()).toContainPlayed(path).
     audioLog() { return N.audioLog(false); },
     clearAudioLog() { N.audioLog(true); },
+    // The fake store, for tests (docs/PLATFORM.md, "Testing"): script its answers, send it events, look at what it holds.
+    // They run the platform.* commands, so MCP clients and tests share one implementation.
+    platform: {
+      // respond(method, answer, times = 1): the next answer(s) to `method`: { error: "network", message?, hint? } rejects,
+      // { result } resolves with exactly that, any other object is merged into the default result ({ status: "cancelled" }).
+      respond(method, answer, times = 1) { fa.call("platform.respond", { method, answer: plain(answer), times }); },
+      // emit(event, data): sends "purchase", "overlay" or "player" to platform.on listeners at the next game.step().
+      emit(event, data = {}) { fa.call("platform.emit", { event, data: plain(data) }); },
+      reset() { fa.call("platform.reset"); },
+      // set({ signedIn, delayFrames }): signedIn false rejects everything with notSignedIn; delayFrames holds each answer.
+      set(options) { fa.call("platform.set_fake", plain(options)); },
+      state() { return fa.call("platform.state"); },
+      // Every request the game made: [{ seq, frame, method, args, ok, result | error }], oldest first.
+      calls() { const s = fa.call("platform.state"); return s.fake ? s.fake.calls : []; },
+    },
   };
   const testApi = { test, describe, expect, game: gameApi, beforeEach, afterEach };
 
@@ -1343,7 +1509,7 @@
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver,
     tick: (dt) => timers.tick(dt),
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

@@ -41,6 +41,7 @@ class Audio;
 class Physics;
 class Renderer;
 class UiSystem;
+class PlatformServices;
 
 // The game's own window, as `window.*` in scripts reaches it. Only a game that owns a real window has one (factoria run,
 // an exported game, a phone or tablet player); headless runs, tests, the MCP server and the editor's game view have none,
@@ -76,6 +77,9 @@ public:
     virtual double fixed_dt() const = 0;
     // The game window, or nullptr when this run has none (the default): `window.available` in scripts.
     virtual WindowControl* window() { return nullptr; }
+    // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
+    // `platform` then reports the "none" backend.
+    virtual PlatformServices* platform_services() { return nullptr; }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     virtual void request_quit() = 0;
@@ -164,6 +168,9 @@ public:
     void fixed_update(float dt);     // onFixedUpdate
     void late_update(float dt);      // onLateUpdate
     void dispatch_events();          // world.events() -> onCollision*/onTrigger*/world.on(...) handlers, then clear
+    // Start of every engine frame, before the fixed steps: settles the promises of platform requests that were answered
+    // since the last frame, then calls the platform.on listeners for the events that came in, then runs pending jobs.
+    void dispatch_platform();
 
     // Developer tools.
     Result<Json> eval(std::string_view code);  // REPL in the game context; returns the value as JSON

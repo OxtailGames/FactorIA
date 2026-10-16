@@ -5,6 +5,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
 #include "fa/scene/serialize.h"
 
@@ -67,6 +68,18 @@ void Engine::Impl::apply_project_settings() {
     for (const std::string& problem : input.set_actions(ui_with_default_actions(project.inputActions))) {
         FA_WARN("input", "{}", problem);
         startupProblems.push_back(problem);
+    }
+    // The platform catalog. A section with errors counts as empty (every platform call then says the id is not declared):
+    // the first error is logged here, `factoria validate` lists them all.
+    auto catalog = load_platform_catalog(project.raw.is_object() && project.raw.contains(kPlatformKey) ? project.raw[kPlatformKey] : Json());
+    if (catalog.ok()) {
+        platform.set_catalog(std::move(catalog.value()));
+    } else {
+        const std::string problem = "platform: the catalog is ignored: " + catalog.error().to_string() +
+                                    " (`factoria validate` lists every problem)";
+        FA_WARN("platform", "{}", problem);
+        startupProblems.push_back(problem);
+        platform.set_catalog(PlatformCatalog{});
     }
 }
 
@@ -250,6 +263,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
     // frame's survive until the next frame starts so a screenshot still shows them.
     if (renderStale && renderer) renderer->debug().clear();
+    // Store answers and events reach scripts here, before anything else of the frame runs (never in the middle of a call).
+    platform.frame();
+    scripts.dispatch_platform();
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
         physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
@@ -369,8 +385,17 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
-    for (std::string& problem : install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts))
-        I.startupProblems.push_back(std::move(problem));
+    PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
+    for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
+    BackendChoice choice = choose_platform_backend(config.platformBackend, config.platformFallback, I.platform.catalog(), installed,
+                                                   runtime_platform());
+    for (const std::string& warning : choice.warnings) {
+        FA_WARN("platform", "{}", warning);
+        I.startupProblems.push_back("platform: " + warning);
+    }
+    if (!choice.reason.empty()) FA_INFO("platform", "{}", choice.reason);
+    else FA_DEBUG("platform", "backend '{}'", choice.backend->name());
+    I.platform.set_backend(std::move(choice.backend), choice.why);
     std::string serr;
     if (!I.scripts.init(*this, &serr)) {
         FA_ERROR("script", "Script system init failed: {}", serr);
@@ -474,6 +499,8 @@ bool Engine::quit_requested() const { return impl_->quit; }
 const ProjectSettings& Engine::project() const { return impl_->project; }
 const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
+PlatformServices* Engine::platform_services() { return &impl_->platform; }
+
 ScriptSystem& Engine::scripts() { return impl_->scripts; }
 
 bool Engine::screenshot(std::string_view path, std::string* error) {

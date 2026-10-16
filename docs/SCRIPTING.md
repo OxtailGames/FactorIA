@@ -540,6 +540,25 @@ JSON. A plugin's functions and their doc strings are in `types/factoria.d.ts` (`
   have throws with a did-you-mean and the names it has.
 - A plugin's commands are ordinary commands: `fa.call("example.info", {})`.
 
+### platform (stores: achievements, purchases, cloud saves...)
+`import { platform } from "factoria"`: achievements, stats, leaderboards, cloud saves, in-app purchases, the store overlay
+and rich presence behind one API that every store backend answers (the fake store in development and in all tests, a
+store SDK through a native plugin). **Every call returns a Promise**; ids come from the `"platform"` catalog in
+`factoria.json`, and a typo throws at once with a "did you mean". Store failures reject with `e.code` and `e.hint`.
+
+```js
+if (platform.has("achievements")) platform.achievements.unlock("first_win").catch(() => {});
+const r = await platform.purchases.buy("gems_100");               // { status, productId, transactionId, receipt }
+if (r.status === "purchased") { addGems(100); await platform.purchases.finish(r.transactionId); } // grant, then finish
+platform.on("overlay", (e) => (game.paused = e.open));            // also "purchase" and "player"
+```
+
+Members: `backend`, `has(service)`, `player`, `signIn()`, `on(event, fn)`, `achievements` (`unlock progress list reset`),
+`stats` (`get set add`), `leaderboards` (`submit entries`), `cloud` (`save load list remove`), `purchases` (`products buy
+finish restore`), `overlay.open(page, id?)`, `presence.set(text, data?)`. Everything about it, the catalog, the error
+codes, the fake store's test hooks (`game.platform` in `factoria:test`) and how to write a backend plugin, is in
+[PLATFORM.md](PLATFORM.md). `game.platform` of the `factoria` module is the operating system's name, a different thing.
+
 ### fa (commands)
 `fa.call(name, args)` runs any command (same as MCP tools) and returns its result · `fa.commands()` lists them.
 On failure `fa.call` throws an `Error` whose message is `<name> failed: <message> (hint: <hint>)` and which also

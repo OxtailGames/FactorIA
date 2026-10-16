@@ -66,6 +66,15 @@
           }
         },
         {
+          "id": "shop_button",
+          "active": false,
+          "components": {
+            "Button": {
+              "text": "Shop"
+            }
+          }
+        },
+        {
           "id": "quit",
           "components": {
             "Button": {
@@ -79,6 +88,98 @@
       "id": "options",
       "active": false,
       "prefab": "prefabs/ui/options.prefab.json"
+    },
+    {
+      "id": "shop",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [760, 520],
+          "anchor": [0.5, 0.5],
+          "layer": 300,
+          "layout": "column",
+          "spacing": 16,
+          "padding": [24, 24, 24, 24]
+        },
+        "Script": {
+          "path": "scripts/ui/shop.js"
+        }
+      },
+      "children": [
+        {
+          "id": "shop_title",
+          "components": {
+            "Text": {
+              "text": "Shop",
+              "fontSize": 40,
+              "space": "screen",
+              "layer": 301
+            }
+          }
+        },
+        {
+          "id": "gems_label",
+          "components": {
+            "Text": {
+              "text": "Gems: 0",
+              "fontSize": 28,
+              "space": "screen",
+              "layer": 301
+            }
+          }
+        },
+        {
+          "id": "buy_gems",
+          "components": {
+            "Button": {
+              "text": "100 gems",
+              "layer": 302,
+              "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "buy_remove_ads",
+          "components": {
+            "Button": {
+              "text": "Remove ads",
+              "layer": 302
+            }
+          }
+        },
+        {
+          "id": "restore",
+          "components": {
+            "Button": {
+              "text": "Restore purchases",
+              "layer": 302
+            }
+          }
+        },
+        {
+          "id": "shop_status",
+          "components": {
+            "Text": {
+              "text": "",
+              "fontSize": 22,
+              "color": [0.75, 0.8, 0.9, 1],
+              "space": "screen",
+              "maxWidth": 700,
+              "layer": 301
+            }
+          }
+        },
+        {
+          "id": "shop_back",
+          "tags": ["back"],
+          "components": {
+            "Button": {
+              "text": "Back",
+              "layer": 302
+            }
+          }
+        }
+      ]
     },
     {
       "id": "credits",

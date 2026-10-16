@@ -539,6 +539,32 @@ Acceptance criteria:
 - With the Steamworks plugin and Valve's test AppID 480, an exported desktop game unlocks an achievement (manual check,
   steps in the docs).
 
+Done so far (package A, branch `m12/platform-api`): the API, the fake backend and plugin ABI v2; no store backend yet.
+- **`fa_services`** (new module, `fa/services/platform.h`): the `"platform"` catalog of factoria.json (achievements,
+  stats, leaderboards, products, per-backend store `ids`, `backend`; teaching errors, `factoria validate` and the
+  project schema), the request protocol `(method, args) -> one answer`, the `PlatformServices` dispatcher (ids checked
+  and `storeId` filled in before a backend sees a request; answers from any thread, delivered at the start of a frame),
+  the `PlatformBackend` interface, the deterministic fake backend (scripted answers, `delayFrames`, `signedIn`, events,
+  a request log) and the "none" backend. The `platform.*` commands (`state`, `reset`, `respond`, `emit`, `set_fake`).
+- **Scripts**: `platform` in the `factoria` module (every call a Promise; mistakes throw with a "did you mean", store
+  failures reject with `.code` and `.hint`; `platform.on` for `purchase`, `overlay`, `player`), and `game.platform`
+  in `factoria:test`; `await` works in tests.
+- **Plugin ABI v2** (`fa_plugin.h`): `add_backend`, `FaRequest`, `resolve`, `reject`, `emit`; version 1 plugins load
+  unchanged. Backend choice: `platform.backend`, `EngineConfig::platformBackend/platformFallback`; headless runs and
+  tests use the fake, an exported game without a store plugin gets "none" (never free purchases). `project.new_plugin`
+  takes a `template` (the folders of `platforms/plugins/`, none yet).
+- **Docs and fixture**: `docs/PLATFORM.md` (API, catalog, errors, fake store and testing, writing a backend plugin);
+  the menus fixture has a shop (consumable gems, a non-consumable, restore) and `tests/platform.test.js`: buying gems
+  through the pad adds them and finishes the transaction, a cancelled buy and a `network` failure grant nothing, a
+  delayed answer shows "waiting", restore returns the non-consumable, an achievement unlocks during play and the
+  overlay event pauses the game (the first acceptance criterion).
+
+Left open (the next M12 packages): the Steamworks plugin and Valve's AppID 480 check, StoreKit 2 and Game Center, Play
+Billing and Play Games, then the rest of the list above. `PlatformServices` keeps no receipts or entitlement cache: a
+backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
+event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
+Cloud saves take JSON values only (no binary blobs, no conflict resolution beyond "last write wins" in the fake).
+
 ## M13. Store-ready desktop export (M-L, high)
 
 Closes E-04, E-05, E-06 (the crash half), E-09 (the desktop half; mobile uploads are M16), E-10, F-15, Q-03 and H-10.
