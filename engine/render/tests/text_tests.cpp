@@ -43,7 +43,6 @@ Gfx& with_fonts() {
 // Puts the renderer's text options back when a test ends, so the next test starts from the defaults.
 struct TextOptions {
     Renderer& r;
-    explicit TextOptions(Renderer& renderer) : r(renderer) {}
     ~TextOptions() {
         r.set_fallback_fonts({});
         r.set_text_scale(1.0f);
@@ -306,7 +305,7 @@ TEST_CASE("text: each character is drawn by the first font of the chain that has
 TEST_CASE("text: set_fallback_fonts takes effect on the next layout, and a font that cannot be read is skipped") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     g.renderer.clear_asset_cache();
     clear_recent_logs();
     World w; add_black_camera(w);
@@ -336,7 +335,7 @@ TEST_CASE("text: set_fallback_fonts takes effect on the next layout, and a font 
 TEST_CASE("text: DejaVu Sans is the last font of every chain, and the missing-glyph warning names only what no font has") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     g.renderer.set_fallback_fonts({kJp});
     g.renderer.clear_asset_cache();
     clear_recent_logs();
@@ -362,7 +361,7 @@ TEST_CASE("text: DejaVu Sans is the last font of every chain, and the missing-gl
 TEST_CASE("text: measure_text is the box Text drawing lays out, wrapped or not, and the ink stays inside it") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     g.renderer.set_fallback_fonts({kJp, kAr});
     Faces f({"builtin", kJp, kAr});
     int asc = 0, desc = 0, gap = 0;
@@ -401,7 +400,7 @@ TEST_CASE("text: measure_text is the box Text drawing lays out, wrapped or not, 
 TEST_CASE("text: UI labels and debug text use the same layout and the same fallback chain") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     g.renderer.set_fallback_fonts({kJp});
     World w; add_black_camera(w);
     Entity e = make(w, "play", {20, 20, 0});
@@ -431,7 +430,7 @@ TEST_CASE("text: UI labels and debug text use the same layout and the same fallb
 TEST_CASE("text: the text scale resizes screen-space Text and UI labels, never world-space Text") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     World w; add_black_camera(w);
     put_text(w, "HHHH", {10, 10, 0}, 20, "", Align::Left, 0, RenderSpace::Screen);  // top-left of the screen
     put_text(w, "HHHH", {-150, -30, 0}, 20);                                        // world: pixel (10, 120)
@@ -495,7 +494,7 @@ TEST_CASE("text: the text scale is clamped to 0.5 .. 3 and ignores NaN") {
 TEST_CASE("text: Japanese, Chinese, Korean and Arabic draw together through the fallback chain (golden)") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     g.renderer.set_fallback_fonts({kJp, kKr});
     World w;
     w.add<Camera>(make(w, "cam")).clearColor = Color::hex(0x101820);
@@ -515,7 +514,7 @@ TEST_CASE("text: Japanese, Chinese, Korean and Arabic draw together through the 
 TEST_CASE("text: Align is explicit: Left stays at the left edge for right-to-left text too") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
-    TextOptions restore(g.renderer);
+    TextOptions restore{g.renderer};
     auto box = [&](Align a) {
         World w; add_black_camera(w);
         put_text(w, kArabicWord, {-100, 40, 0}, 24, kAr, a, 200);  // a 200 px wide box from pixel x = 60
