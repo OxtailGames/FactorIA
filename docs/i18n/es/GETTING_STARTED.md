@@ -57,7 +57,8 @@ necesita nada más.
    - **Linux:** ejecuta `./factoria editor` en la carpeta. Necesita X11 y OpenGL, que las distribuciones de escritorio
      ya incluyen, y glibc 2.31 o posterior: Ubuntu 20.04 y posteriores, Debian 11 y posteriores, Fedora, Arch... y el Steam
      Linux Runtime «sniper» (los programas se compilan en él, así que los juegos que exportes también funcionan en Steam,
-     incluida la Steam Deck).
+     incluida la Steam Deck). El asistente de IA y la generación de assets con IA necesitan además el programa `curl`,
+     que la mayoría de distribuciones instala.
    - **AppImage de Linux:** ejecuta `./FactorIA-linux-x64.AppImage`. Sin argumentos abre el editor; con argumentos es
      el comando `factoria` (`./FactorIA-linux-x64.AppImage new mi-juego`; `editor mi-juego` abre ese proyecto). Si no
      puede montarse sola (sin FUSE), ejecútala como `./FactorIA-linux-x64.AppImage --appimage-extract-and-run`. No se
