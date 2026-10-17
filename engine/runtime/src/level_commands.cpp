@@ -21,6 +21,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 
@@ -61,11 +62,9 @@ bool as_int(const Json& j, int& out) {
 std::vector<std::string> split_glyphs(const std::string& s) {
     std::vector<std::string> out;
     for (std::size_t i = 0; i < s.size();) {
-        const unsigned char c = static_cast<unsigned char>(s[i]);
-        std::size_t n = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2 : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 1;
-        n = std::min(n, s.size() - i);
-        out.push_back(s.substr(i, n));
-        i += n;
+        const std::size_t start = i;
+        utf8_next(s, i);
+        out.push_back(s.substr(start, i - start));
     }
     return out;
 }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "fa/core/utf8.h"
 #include "ui_internal.h"
 
 namespace fa {
@@ -26,28 +27,6 @@ void emit(World& w, const char* name, Entity source, Json value = nullptr) {
 }
 
 // ------------------------------------------------------------------------------------------------------------ utf-8 --
-void append_utf8(std::string& s, char32_t c) {
-    if (c < 0x80) {
-        s += char(c);
-    } else if (c < 0x800) {
-        s += char(0xC0 | (c >> 6));
-        s += char(0x80 | (c & 0x3F));
-    } else if (c < 0x10000) {
-        s += char(0xE0 | (c >> 12));
-        s += char(0x80 | ((c >> 6) & 0x3F));
-        s += char(0x80 | (c & 0x3F));
-    } else {
-        s += char(0xF0 | (c >> 18));
-        s += char(0x80 | ((c >> 12) & 0x3F));
-        s += char(0x80 | ((c >> 6) & 0x3F));
-        s += char(0x80 | (c & 0x3F));
-    }
-}
-std::size_t code_points(const std::string& s) {
-    std::size_t n = 0;
-    for (unsigned char c : s) n += (c & 0xC0) != 0x80;
-    return n;
-}
 void pop_code_point(std::string& s) {
     while (!s.empty()) {
         const unsigned char c = static_cast<unsigned char>(s.back());
@@ -241,8 +220,8 @@ void UiSystem::update(World& w, const Input& in, Vec2 design, float dt, const Vi
             bool changed = false;
             for (const char32_t c : in.text_input()) {
                 if (c < 32 || c == 127 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) continue;
-                if (tf->maxLength > 0 && code_points(tf->text) >= std::size_t(tf->maxLength)) break;
-                append_utf8(tf->text, c);
+                if (tf->maxLength > 0 && utf8_length(tf->text) >= std::size_t(tf->maxLength)) break;
+                utf8_append(tf->text, c);
                 changed = true;
             }
             if (backspace_.tick(in.key_pressed(Key::Backspace), in.key_down(Key::Backspace), dt) && !tf->text.empty()) {
