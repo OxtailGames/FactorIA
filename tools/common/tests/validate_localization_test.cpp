@@ -128,7 +128,8 @@ TEST_CASE("validate: a table that is missing or is not a string table is an erro
     CHECK(mentions(*wrong[0], "expected a string"));
 
     p.table("pt-BR", "{ not json");
-    const auto broken = at(p.validate().errors, "locales/pt-BR.json");
+    const ValidationReport again = p.validate();  // at() points into the report: keep it alive
+    const auto broken = at(again.errors, "locales/pt-BR.json");
     REQUIRE(broken.size() == 1);
     CHECK_FALSE(broken[0]->message.empty());
 }
