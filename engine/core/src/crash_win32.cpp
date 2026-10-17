@@ -31,9 +31,6 @@
 namespace fa::crash_detail {
 namespace {
 
-constexpr unsigned kMaxFrames = 64;  // lines of stack in a report
-constexpr unsigned kMaxWalk = 4096;  // frames looked at (a recursion shows up as one frame repeated)
-constexpr std::size_t kMaxDirChars = 800;
 constexpr DWORD kWaitMs = 30000;  // the helper thread has this long; then the process ends without a finished report
 
 // Codes of the "exceptions" we make up for crashes that are not exceptions.
@@ -41,7 +38,7 @@ constexpr DWORD kCodeAbort = 0xE0FA0001;
 constexpr DWORD kCodeInvalidParameter = 0xE0FA0002;
 constexpr DWORD kCodePureCall = 0xE0FA0003;
 
-wchar_t g_dir[kMaxDirChars + 1];
+wchar_t g_dir[kMaxDirLength + 1];
 LONG g_busy = 0;
 volatile DWORD g_writerThread = 0;
 
@@ -119,7 +116,7 @@ void report_path(wchar_t* out, std::size_t capacity, const Civil& when, const wc
 }
 
 // One stack frame: "#1  game.exe!fa::Foo::bar + 0x1c  (foo.cpp:42)  [0x00007ff7...]". Without symbols: "game.exe+0x1234".
-void write_frame(HANDLE file, HANDLE process, unsigned index, DWORD64 pc) {
+void write_frame(HANDLE file, HANDLE process, int index, DWORD64 pc) {
     LineBuf b;
     b.str("#"); b.dec(index); b.str("  ");
     // A return address can be one past the end of the calling function: look the caller up by the byte before it.
@@ -173,7 +170,7 @@ void write_stack(HANDLE file, const Job& job) {
     frame.AddrStack.Offset = context.Rsp;
     frame.AddrPC.Mode = frame.AddrFrame.Mode = frame.AddrStack.Mode = AddrModeFlat;
     HANDLE thread = OpenThread(THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, job.threadId);
-    unsigned printed = 0, repeats = 0;
+    int printed = 0, repeats = 0;
     DWORD64 last = 0;
     auto note_repeats = [&] {
         if (!repeats) return;
@@ -182,7 +179,7 @@ void write_stack(HANDLE file, const Job& job) {
         flush(file, b);
         repeats = 0;
     };
-    for (unsigned i = 0; i < kMaxWalk && printed < kMaxFrames; ++i) {
+    for (int i = 0; i < kMaxWalk && printed < kMaxFrames; ++i) {
         if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread ? thread : GetCurrentThread(), &frame, &context, nullptr,
                          SymFunctionTableAccess64, SymGetModuleBase64, nullptr) || frame.AddrPC.Offset == 0)
             break;
@@ -206,7 +203,7 @@ void write_stack(HANDLE file, const Job& job) {
 void write_text_report(const wchar_t* path, const Job& job, const Civil& when) {
     HANDLE file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return;
-    write_all(file, g_shared.header, c_length(g_shared.header));
+    write_all(file, g_shared.header, std::strlen(g_shared.header));
     LineBuf b;
     const EXCEPTION_RECORD& record = *job.pointers->ExceptionRecord;
     b.str("time: "); b.iso_time(when);
@@ -260,13 +257,7 @@ void note_cpp_exception(const EXCEPTION_RECORD& record) {
     // Through a pointer: /EHsc assumes a call to an extern "C" function such as RaiseException cannot throw, and with
     // optimization drops the catch blocks around it.
     void(WINAPI * volatile raise)(DWORD, DWORD, DWORD, const ULONG_PTR*) = RaiseException;
-    try {
-        raise(record.ExceptionCode, record.ExceptionFlags, record.NumberParameters, record.ExceptionInformation);
-    } catch (const std::exception& e) {
-        std::snprintf(g_shared.terminateMessage, sizeof g_shared.terminateMessage, "uncaught exception: %s", e.what());
-    } catch (...) {
-        std::snprintf(g_shared.terminateMessage, sizeof g_shared.terminateMessage, "uncaught exception of an unknown type");
-    }
+    note_uncaught([&] { raise(record.ExceptionCode, record.ExceptionFlags, record.NumberParameters, record.ExceptionInformation); });
 }
 #else
 void note_cpp_exception(const EXCEPTION_RECORD&) {}  // MinGW: libstdc++ calls std::terminate, crash.cpp keeps the what()
@@ -359,11 +350,7 @@ void __cdecl on_pure_call() {
 
 bool platform_install(const std::filesystem::path& dir, std::string& error) {
     const std::wstring d = dir.wstring();
-    if (d.size() > kMaxDirChars) {
-        error = "the crash report folder path is longer than " + std::to_string(kMaxDirChars) +
-                " characters: " + dir.string();
-        return false;
-    }
+    if (!dir_length_ok(dir, d.size(), "characters", error)) return false;
     std::wmemcpy(g_dir, d.c_str(), d.size() + 1);
 
     static bool installed = false;

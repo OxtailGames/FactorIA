@@ -6,6 +6,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/tooling/publish.h"
+#include "util.h"
 
 namespace fa {
 
@@ -26,41 +27,7 @@ std::string itch_channel_for(const ItchPublishSettings& settings, const std::str
 
 namespace {
 
-std::string token(const std::string& key) {  // JSON pointer escaping
-    std::string out;
-    for (char c : key) out += c == '~' ? "~0" : c == '/' ? "~1" : std::string(1, c);
-    return out;
-}
-
-struct Reader {
-    PublishSettingsParse result;
-
-    void error(const std::string& pointer, std::string message, std::string hint) {
-        result.errors.push_back({pointer, std::move(message), std::move(hint)});
-    }
-
-    void unknown_keys(const Json& obj, const std::string& base, std::initializer_list<const char*> names) {
-        unknown_keys(obj, base, std::vector<std::string>(names.begin(), names.end()));
-    }
-    void unknown_keys(const Json& obj, const std::string& base, const std::vector<std::string>& known) {
-        for (auto it = obj.begin(); it != obj.end(); ++it) {
-            if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
-            result.warnings.push_back({base + "/" + token(it.key()), "Unknown key '" + it.key() + "'; it is ignored.",
-                                       did_you_mean(it.key(), known)});
-        }
-    }
-
-    // The member `key` of `obj` as an object, or nullptr (absent, null, or an error was recorded).
-    const Json* object(const Json& obj, const std::string& base, const char* key, const std::string& example) {
-        auto it = obj.find(key);
-        if (it == obj.end() || it->is_null()) return nullptr;
-        if (!it->is_object()) {
-            error(base + "/" + key, "expected an object, got " + describe_json_value(*it), "Write it as " + example + ".");
-            return nullptr;
-        }
-        return &*it;
-    }
-
+struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
     // A non-empty string without surrounding spaces.
     bool text(const Json& obj, const std::string& base, const char* key, std::string& out, const std::string& hint) {
         auto it = obj.find(key);
@@ -98,7 +65,7 @@ struct Reader {
     template <class F>
     void per_platform(const Json& obj, const std::string& base, F each) {
         for (auto it = obj.begin(); it != obj.end(); ++it) {
-            const std::string pointer = base + "/" + token(it.key());
+            const std::string pointer = base + "/" + tooling_detail::escape_token(it.key());
             const auto& platforms = publish_platforms();
             if (std::find(platforms.begin(), platforms.end(), it.key()) != platforms.end()) {
                 each(it.key(), it.value(), pointer);
@@ -113,7 +80,7 @@ struct Reader {
 
     void steam(const Json& o, const std::string& base, SteamPublishSettings& s) {
         text(o, base, "account", s.account, "Use the name of the Steam account that uploads builds (a build account with the \"Edit App Metadata\" permission), e.g. \"mystudio_build\". Its password is never stored here: steamcmd keeps the login.");
-        if (const Json* depots = object(o, base, "depots", "{\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}"))
+        if (const Json* depots = object_member(o, base, "depots", "{\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}"))
             per_platform(*depots, base + "/depots", [&](const std::string& platform, const Json& v, const std::string& pointer) {
                 std::string id;
                 if (this->id(v, pointer, id, "a Steam depot id")) s.depots[platform] = std::stoll(id);
@@ -138,7 +105,7 @@ struct Reader {
             else
                 s.game = game;
         }
-        if (const Json* channels = object(o, base, "channels", "{\"windows\": \"windows\", \"macos\": \"mac\", \"linux\": \"linux\"}"))
+        if (const Json* channels = object_member(o, base, "channels", "{\"windows\": \"windows\", \"macos\": \"mac\", \"linux\": \"linux\"}"))
             per_platform(*channels, base + "/channels", [&](const std::string& platform, const Json& v, const std::string& pointer) {
                 static const std::regex re("^[a-z0-9]+(-[a-z0-9]+)*$");
                 if (!v.is_string() || !std::regex_match(v.get<std::string>(), re))
@@ -156,7 +123,7 @@ struct Reader {
         text(o, base, "productId", s.productId, hint + " The Product ID is in the product's settings.");
         text(o, base, "clientId", s.clientId,
              hint + " Use the client under Product Settings > General > Build Patch Tool Credentials (not an SDK client). The matching secret goes in FACTORIA_EPIC_CLIENT_SECRET, never here.");
-        if (const Json* artifacts = object(o, base, "artifacts", "{\"windows\": \"<artifact id>\", \"macos\": \"<artifact id>\"}"))
+        if (const Json* artifacts = object_member(o, base, "artifacts", "{\"windows\": \"<artifact id>\", \"macos\": \"<artifact id>\"}"))
             per_platform(*artifacts, base + "/artifacts", [&](const std::string& platform, const Json& v, const std::string& pointer) {
                 if (!v.is_string() || trim(v.get<std::string>()).empty())
                     error(pointer, "expected an artifact id, got " + describe_json_value(v), "Each platform has its own artifact: copy the Artifact ID from the Dev Portal (Artifacts and Binaries).");
@@ -208,10 +175,10 @@ PublishSettingsParse parse_publish_settings(const Json& pj) {
     }
     const Json& pub = *it;
     r.unknown_keys(pub, "/publish", publish_stores());
-    if (const Json* o = r.object(pub, "/publish", "steam", "{\"account\": \"mystudio_build\", \"depots\": {\"windows\": 1234561}}")) r.steam(*o, "/publish/steam", s.steam);
-    if (const Json* o = r.object(pub, "/publish", "itch", "{\"game\": \"user/game\"}")) r.itch(*o, "/publish/itch", s.itch);
-    if (const Json* o = r.object(pub, "/publish", "epic", "{\"organizationId\": \"...\", \"productId\": \"...\"}")) r.epic(*o, "/publish/epic", s.epic);
-    if (const Json* o = r.object(pub, "/publish", "gog", "{\"productId\": \"1234567890\"}")) r.gog(*o, "/publish/gog", s.gog);
+    if (const Json* o = r.object_member(pub, "/publish", "steam", "{\"account\": \"mystudio_build\", \"depots\": {\"windows\": 1234561}}")) r.steam(*o, "/publish/steam", s.steam);
+    if (const Json* o = r.object_member(pub, "/publish", "itch", "{\"game\": \"user/game\"}")) r.itch(*o, "/publish/itch", s.itch);
+    if (const Json* o = r.object_member(pub, "/publish", "epic", "{\"organizationId\": \"...\", \"productId\": \"...\"}")) r.epic(*o, "/publish/epic", s.epic);
+    if (const Json* o = r.object_member(pub, "/publish", "gog", "{\"productId\": \"1234567890\"}")) r.gog(*o, "/publish/gog", s.gog);
     return r.result;
 }
 
