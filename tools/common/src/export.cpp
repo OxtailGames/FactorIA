@@ -296,7 +296,8 @@ bool excluded_top_level(const std::string& name, const std::string& feedbackFile
     // a shipped game gets its app id from the Steam client.
     static const std::set<std::string> names = {"build", "tests", "tools", "types", "node_modules", "AGENTS.md",
                                                 "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "steam_appid.txt"};
-    return names.count(name) > 0 || name == feedbackFile;
+    // The project's own README is documentation for whoever works on the game, and no game reads it (any capitalization).
+    return names.count(name) > 0 || name == feedbackFile || to_lower(name) == "readme.md";
 }
 
 // Project-relative paths (forward slashes, sorted) of every file that ships.
@@ -615,6 +616,10 @@ Json ExportReport::to_json() const {
     if (!format.empty()) j["format"] = format;
     if (!artifact.empty()) j["artifact"] = artifact;
     j["notices"] = notices;
+    if (!pack.empty()) {
+        j["pack"] = pack;
+        j["packed"] = packed;
+    }
     j["files"] = files;
     j["nextSteps"] = nextSteps;
     j["warnings"] = warnings;
@@ -704,7 +709,7 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         r = platform == "android" ? export_android(p, plan.mobile, plan.android, outRoot, files, report)
                                   : export_ios(options, p, plan.mobile, outRoot, files, plan.icon, report);
     } else {
-        r = export_desktop(p, platform, plan.player, outRoot, files, plan.icon, report);
+        r = export_desktop(options, p, platform, plan.player, outRoot, files, plan.icon, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);
@@ -743,7 +748,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "
         "\"apk\" (default) or \"aab\" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports "
         "it as `artifact`; \"gradle\" only writes the project and builds nothing. `release` builds the release variant "
-        "(signed with export.android.signing, else with the debug key and a warning). ios: the game plus an Xcode/CMake "
+        "(signed with export.android.signing, else with the debug key and a warning); on linux, windows and macos it packs the whole "
+        "game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode "
+        "unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake "
         "project and build_ios.sh. Android and iOS have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
         "ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, "
         "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "
@@ -764,7 +771,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
         "format":{"type":"string","enum":["apk","aab","gradle"],"description":"Android only (other platforms ignore it): apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed). apk and aab run Gradle and need a JDK 17+ and the Android SDK."},
-        "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore the debug key is used, with a warning). Other platforms: only changes the build commands in nextSteps (and the iOS script).","default":false},
+        "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore the debug key is used, with a warning). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {

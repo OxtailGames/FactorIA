@@ -8,6 +8,8 @@
 #include <cctype>
 
 #include "export_internal.h"
+#include "fa/core/pack.h"
+#include "fa/script/bytecode.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/pe_icon.h"
 #include "fa/tooling/plugin_manifest.h"
@@ -150,6 +152,37 @@ Result<void> install_player(const Project& p, const stdfs::path& player, const s
     return {};
 }
 
+// The release build: every file of the game goes into ONE pack (fa/core/pack.h, read through fa::fs), no loose files. A
+// script becomes QuickJS bytecode when export.scriptBytecode is on (fa/script/bytecode.h); the module keeps its path in the
+// pack, so nothing in the game changes. A script that does not compile is packed as the source it is, with a warning: the
+// game then behaves exactly as it does when run from the folder (the error shows when something loads that script).
+Result<void> pack_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report) {
+    PackWriter writer;
+    for (const std::string& f : files) {
+        const auto staged = p.staged.find(f);
+        const stdfs::path from = staged != p.staged.end() ? staged->second : p.dir / f;
+        const std::string ext = fs::extension(f);
+        if (p.settings.scriptBytecode && (ext == ".js" || ext == ".mjs")) {
+            auto source = read_file(from);
+            if (!source) return err("export: cannot read '" + f + "' to pack it (" + generic(from) + ")");
+            auto bytecode = compile_script_bytecode(*source, f);
+            if (bytecode.ok()) {
+                if (auto r = writer.add_bytes(f, std::move(bytecode.value())); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+                continue;
+            }
+            report.warnings.push_back(bytecode.error().message + " - '" + f + "' is packed as plain source, so the game reports this error "
+                                      "when it loads the script (`factoria validate` lists the syntax errors of a project)");
+        }
+        if (auto r = writer.add_file(f, from); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+    }
+    std::error_code ec;
+    stdfs::create_directories(os_path(packFile.parent_path()), ec);
+    if (auto r = writer.write(packFile); !r.ok()) return err("export: " + r.error().message, r.error().hint);
+    report.pack = generic(packFile.filename());
+    report.packed = files;
+    return {};
+}
+
 }  // namespace
 
 // The entitlements of a signed macOS app, from the plugins' manifests: Xcode's build settings ($(TeamIdentifierPrefix),
@@ -204,8 +237,8 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 #endif
 }
 
-Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player, const stdfs::path& outRoot,
-                            const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
+Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform, const stdfs::path& player,
+                            const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     const std::string exeName = slug + (platform == "windows" ? ".exe" : "");
     std::error_code ec;
@@ -226,7 +259,13 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
     if (auto r = install_player(p, player, exeDest, platform, icon, report, signatureRemoved); !r.ok()) return r;
     stdfs::permissions(os_path(exeDest), stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                        stdfs::perm_options::add, ec);
-    if (auto r = copy_game(p, files, gameDest); !r.ok()) return r;
+    // The pack sits where the game/ folder would: next to the executable, in Contents/Resources of a macOS app.
+    const stdfs::path packFile = gameDest.parent_path() / kPackFileName;
+    if (options.release) {
+        if (auto r = pack_game(p, files, packFile, report); !r.ok()) return r;
+    } else if (auto r = copy_game(p, files, gameDest); !r.ok()) {
+        return r;
+    }
     // Native plugins: their build folder (the library and the ones it needs) next to the executable, where the player
     // looks for them; inside a macOS app that is Contents/Frameworks.
     const stdfs::path libDest = platform == "macos" ? exeDest.parent_path().parent_path() / "Frameworks" : exeDest.parent_path();
@@ -284,7 +323,8 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
         }
     } else if (platform == "windows") {
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",
-                            "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep game/ next to the exe"};
+                            "Zip the folder '" + generic(outRoot.filename()) + "' to share it; keep " +
+                                (options.release ? std::string(kPackFileName) : std::string("game/")) + " next to the exe"};
         if (signatureRemoved)
             report.nextSteps.push_back("The exe's digital signature was removed because the export wrote the game's icon, name and "
                                        "version into it (the player of the FactorIA download is signed with FactorIA's certificate). "
@@ -302,6 +342,11 @@ Result<void> export_desktop(const Project& p, const std::string& platform, const
                             "Archive to share: tar czf " + outRoot.filename().string() + ".tar.gz -C " +
                                 generic(outRoot.parent_path()) + " " + outRoot.filename().string()};
     }
+    if (options.release)
+        report.nextSteps.push_back(std::string("The whole game is in ") + kPackFileName + " (" + std::to_string(files.size()) + " files" +
+                                   (p.settings.scriptBytecode ? ", scripts compiled to bytecode" : ", scripts as source") + "), next to the " +
+                                   (platform == "macos" ? "app's executable inside the .app" : "executable") +
+                                   "; there is no game/ folder. Ship them together");
     return {};
 }
 
