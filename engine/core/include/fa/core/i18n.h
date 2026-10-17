@@ -1,5 +1,5 @@
 // Localization: string tables, plural forms, {placeholders} and language matching. Pure logic over fa::fs and fa::Json;
-// the run-time pass that writes translations into Text and widgets is in fa_runtime (docs/LOCALIZATION.md).
+// the pass that writes translations into Text and widgets is fa/scene/localize.h, run by fa_runtime (docs/LOCALIZATION.md).
 //
 // A string table is locales/<language>.json: an object whose nested objects flatten to dotted keys.
 //   { "$name": "Español", "menu": { "play": "Jugar" }, "items": { "one": "{count} objeto", "other": "{count} objetos" } }

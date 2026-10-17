@@ -28,8 +28,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
    hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
    `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
 8. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
-   Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). A game with one language
-   leaves out the section, the tables and the `key`s: the texts stay as written.
+   Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
+   texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
+   `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
 9. **Check.** `factoria call scene.format` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` at the end. `ui.state` lists every
