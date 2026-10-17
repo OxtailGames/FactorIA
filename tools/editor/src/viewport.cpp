@@ -54,7 +54,7 @@ VisualMeasure Editor::visual_measure() {
     m.textureSize = [this](const std::string& path) { return image_size_of(path); };
     m.textSize = [this](const Text& t) {
         Renderer* r = engine_ ? engine_->renderer() : nullptr;
-        if (r && r->initialized()) return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth);
+        if (r && r->initialized()) return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth, t.space);
         return approx_text_size(t.text, t.fontSize, t.maxWidth);
     };
     return m;

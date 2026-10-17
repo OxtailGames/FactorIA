@@ -100,8 +100,8 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.font = font;
     t.fontSize = size;
     t.pivot = {0, 1};
-    // Same raster size as screen-space Text at scale 1.
-    return c.f.fonts->layout(t, size, size / std::max(std::round(std::clamp(size, 4.0f, 400.0f)), 1.0f));
+    // Same layout as screen-space Text at scale 1, including the player's text size option.
+    return c.f.fonts->layout(t, size * c.f.textScale, 1.0f);
 }
 
 void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int layer, const Rect& clip) {

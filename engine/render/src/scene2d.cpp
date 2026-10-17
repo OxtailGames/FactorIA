@@ -269,10 +269,9 @@ void gather_2d(World& world, Frame& f) {
             ppu = (float(f.targetH) * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
         } else ppu = f.cam.pixelsPerUnit;
         float eff = ppu * scale;
-        float rasterPx = t.fontSize * eff;
-        // Layout in LOCAL units (the entity scale is applied by the matrix), so raster size uses eff.
-        float localUnitsPerPx = t.fontSize / std::max(std::round(std::clamp(rasterPx, 4.0f, 400.0f)), 1.0f);
-        TextLayout lay = f.fonts->layout(t, rasterPx, localUnitsPerPx);
+        // Layout in LOCAL units (the entity scale is applied by the matrix), so the raster size uses eff. Screen-space Text
+        // follows the player's text size option; world-space Text is part of the world and does not.
+        TextLayout lay = f.fonts->layout(t, screen ? t.fontSize * f.textScale : t.fontSize, eff);
         if (lay.quads.empty()) return;
         if (screen) apply_anchor(m, t.anchor, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
@@ -357,7 +356,7 @@ void gather_debug(DebugDrawData& dd, Frame& f) {
         tx.fontSize = t.size;
         tx.color = t.c;
         tx.pivot = {0, 1};
-        TextLayout lay = f.fonts->layout(tx, t.size, 1.0f);
+        TextLayout lay = f.fonts->layout(tx, t.size, 1.0f);  // a developer overlay: the text scale does not apply
         f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
         QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}), true,
                        pack_color(t.c), kModeGlyph, 0};

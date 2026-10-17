@@ -153,7 +153,7 @@ Your game is yours. FactorIA is open source under the MIT License, and the files
 (the templates) are MIT-0: use, change and sell them with no notice at all.
 
 What an exported game does carry is the FactorIA runtime (`factoria_player`), which is FactorIA's MIT-licensed code
-plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, Basis Universal, dr_libs, QOA,
+plus third-party libraries and fonts (sokol, QuickJS-ng, Box2D, stb, cgltf, Basis Universal, HarfBuzz, SheenBidi, dr_libs, QOA,
 nlohmann/json, SDL_GameControllerDB, DejaVu Sans, Press Start 2P). Their licenses only ask that their notices travel
 with every copy, so every export writes `FACTORIA_NOTICES.txt` with all of them where it ships with the game:
 

@@ -607,22 +607,42 @@ NATIVE(particlesBurst) {
 
 // Size {w, h} of `text` laid out like Text rendering: the renderer's own layout when there is one, otherwise (headless) an
 // approximation of 0.6 em per character and 1.2 em per line, with a one-time warning. `what` names the caller in it.
-Vec2 measure_text_size(Impl* I, const std::string& text, float size, const std::string& font, float maxW, const char* what) {
+Vec2 measure_text_size(Impl* I, const std::string& text, float size, const std::string& font, float maxW, const char* what,
+                       RenderSpace space) {
     Renderer* r = I->host->renderer();
-    if (r && r->initialized()) return r->measure_text(text, size, font, maxW);
+    if (r && r->initialized()) return r->measure_text(text, size, font, maxW, space);
     static bool warned = false;
     if (!warned) {
         warned = true;
         fa::log(LogLevel::Warn, "script", std::string(what) + ": no renderer in this run (headless); using an approximation of 0.6 * fontSize per character");
     }
-    return approx_text_size(text, size, maxW);
+    return approx_text_size(text, space == RenderSpace::Screen ? size * I->host->text_scale() : size, maxW);
 }
 
-NATIVE(measureText) {  // (text, fontSize, font, maxWidth) -> [w, h]
+NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace) -> [w, h]
     SETUP;
     Vec2 m = measure_text_size(I, arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 16)),
-                               arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0)), "ui.measureText");
+                               arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0)), "ui.measureText",
+                               arg_bool(ctx, argc, argv, 4, true) ? RenderSpace::Screen : RenderSpace::World);
     return array_of(ctx, {m.x, m.y});
+}
+
+NATIVE(textScale) {  // () -> the player's text size option
+    SETUP;
+    return float_to_js(ctx, I->host->text_scale());
+}
+
+NATIVE(setTextScale) {  // (scale): 0.5 .. 3, throws saying what is accepted
+    SETUP;
+    double v = 0;
+    const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
+    if (!number || v < double(kMinTextScale) || v > double(kMaxTextScale))
+        return throw_err(ctx, std::format("ui.textScale = {}: expected a number from {} to {} (1 is normal size, 1.5 is 50% bigger). A saved option "
+                                          "from an older version or a hand-edited file may be out of range: clamp it first, e.g. "
+                                          "ui.textScale = math.clamp(saved, {}, {}).",
+                                          arg_str(ctx, argc, argv, 0), kMinTextScale, kMaxTextScale, kMinTextScale, kMaxTextScale));
+    I->host->set_text_scale(float(v));
+    return JS_UNDEFINED;
 }
 
 // ---- ui ---------------------------------------------------------------------------------------------------------------------
@@ -688,7 +708,7 @@ NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
     VisualMeasure measure;
     measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
     measure.textSize = [I](const Text& t) {
-        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "entity.bounds() of a Text");
+        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "entity.bounds() of a Text", t.space);
     };
     const std::optional<Rect> box = entity_world_rect(W, e, measure);
     if (!box) return JS_NULL;
@@ -1979,7 +1999,7 @@ const Reg kRegs[] = {
     R(testText, 1),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 4), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

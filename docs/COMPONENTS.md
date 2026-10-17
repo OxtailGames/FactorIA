@@ -1549,11 +1549,21 @@ Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<
 
 ## ui
 
+### `ui.set_text_scale` (modifies state)
+
+Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.
+
+The player's "text size" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by `scale`, and so is what ui.measureText returns for them (space "screen", the default). World-space Text is part of the world and is not scaled, nor is its entity.bounds(). 1 is normal size; the range is 0.5 to 3. Wrapped text keeps its maxWidth and grows taller, and widgets keep their rectangles, so lay a menu out with room for the biggest size you offer. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot. Example: ui.set_text_scale {"scale":1.5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scale` | number | yes | Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half. |
+
 ### `ui.state`
 
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList) and which has focus.
 
-Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely. `value` is a Toggle's boolean or a Slider's number; `text` is a Button's text, a Toggle's or Slider's label or a TextField's contents. Example: ui.state {}
+Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely. `value` is a Toggle's boolean or a Slider's number; `text` is a Button's text, a Toggle's or Slider's label or a TextField's contents. `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}
 
 
 ## Scripting API (TypeScript declarations)
@@ -2571,9 +2581,13 @@ declare module "factoria" {
    */
   export interface UIAPI {
     /**
-     * Size of `text` laid out like Text rendering (wraps at maxWidth > 0). Headless runs approximate 0.6 * fontSize per character (with a warning).
+     * Size of `text` laid out exactly like Text rendering: shaped (ligatures, kerning, Arabic joining, bidi) and wrapped at maxWidth > 0 at spaces and between CJK characters. `space` (default "screen") says how it will be drawn: a "screen" label is measured at fontSize * ui.textScale, a "world" one is not scaled. Headless runs approximate 0.6 * fontSize per character (with a warning).
      */
-    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number }): { width: number; height: number };
+    measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world" }): { width: number; height: number };
+    /**
+     * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer. Setting a number outside 0.5 to 3 throws; clamp a saved value first. The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
+     */
+    textScale: number;
     /**
      * Listens to a widget event from any widget. Returns the function that stops listening. Inside a behaviour prefer this.on("ui.click", (data, source) => ...), which is removed with the behaviour. An unknown type throws with a suggestion.
      */

@@ -1,6 +1,6 @@
 fa_add_module(render
     DEPS fa_core fa_scene fa_platform
-    PRIVATE_DEPS fa_ext_sokol fa_ext_stb fa_ext_cgltf fa_ext_basisu_transcoder)
+    PRIVATE_DEPS fa_ext_sokol fa_ext_stb fa_ext_cgltf fa_ext_basisu_transcoder fa_ext_harfbuzz fa_ext_sheenbidi)
 
 # Built-in fonts are embedded in the binary (namespace fa_render_fonts, header embedded_fonts.h).
 fa_embed_files(fa_render fa_render_fonts embedded_fonts
@@ -21,6 +21,9 @@ endif()
 fa_add_tests(render)
 if(TARGET fa_test_render)
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
+    # The text tests look at the shaped glyphs (src/text_shaper.h), which needs the private headers and HarfBuzz and stb.
+    target_link_libraries(fa_test_render PRIVATE fa_ext_harfbuzz fa_ext_stb)
+    target_include_directories(fa_test_render PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
 # Windowed smoke test (needs a display; runs under xvfb when available).

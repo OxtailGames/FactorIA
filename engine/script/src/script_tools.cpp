@@ -360,6 +360,7 @@ void Impl::reset_for_test_file() {
         host->world().clear();
     }
     host->input().release_all();
+    host->set_text_scale(1.0f);
     timeScale = 1.0;
     call_method("reset session", "", hooks.get(), "resetSession", {});
     after_test_load();
@@ -391,6 +392,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     // Tests never touch the real save file: in-memory storage, fresh for every test file.
     const StorageMode savedMode = storageMode;
     storageMode = StorageMode::Memory;
+    const float savedTextScale = host->text_scale();
     for (const std::string& f : files) {
         auto norm = fs::normalize_checked(f);
         std::string path = norm ? *norm : f;
@@ -474,6 +476,7 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         if (!placed) rep.otherLogs.push_back(line);
     }
     reset_for_test_file();
+    host->set_text_scale(savedTextScale);
     inTestRun = false;
     storageMode = savedMode;
     storage = Json::object();

@@ -176,6 +176,35 @@ TEST_CASE("ui.state lists the widgets in reading order with their rectangles and
     e.shutdown();
 }
 
+TEST_CASE("ui.set_text_scale is the text size option: ui.textScale and ui.state see it, a bad value teaches") {
+    TempProject p("textscale");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("ui.set_text_scale");
+    REQUIRE(info != nullptr);
+    CHECK_FALSE(info->readOnly);
+    CHECK(info->description.find("Example") != std::string::npos);
+    CHECK(info->description.find("not save") != std::string::npos);  // it says the game stores the option
+    CHECK(e.commands().call("ui.state", Json::object()).result["textScale"] == 1.0);
+    auto r = e.commands().call("ui.set_text_scale", Json{{"scale", 1.5}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["textScale"] == 1.5);
+    CHECK(e.text_scale() == 1.5f);
+    CHECK(e.commands().call("ui.state", Json::object()).result["textScale"] == 1.5);
+    CHECK(e.commands().call("script.eval", Json{{"code", "ui.textScale"}}).result["value"] == 1.5);  // a script sees the same option
+    e.commands().call("script.eval", Json{{"code", "ui.textScale = 2"}});
+    CHECK(e.text_scale() == 2.0f);                                                                    // and a script sets it
+    for (auto [bad, what] : {std::pair{0.1, "minimum 0.5"}, std::pair{3.5, "maximum 3"}, std::pair{100.0, "maximum 3"}}) {
+        r = e.commands().call("ui.set_text_scale", Json{{"scale", bad}});
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["message"].get<std::string>().find(what) != std::string::npos);  // the schema says which end was crossed
+        CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+    }
+    CHECK(e.text_scale() == 2.0f);  // a rejected value changes nothing
+    e.shutdown();
+}
+
 TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     TempProject p("js");
     p.write("tests/ui.test.js", kMenuTest);
