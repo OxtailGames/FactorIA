@@ -378,8 +378,14 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
 ### particles / ui
 - `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,
   even with `emitting = false`. Without a renderer (headless) it is a no-op with a warning.
-- `ui.measureText(text, { fontSize, font, maxWidth })` → `{ width, height }` laid out like `Text` rendering.
-  Headless runs approximate (0.6 × fontSize per character) and warn once.
+- `ui.measureText(text, { fontSize, font, maxWidth, space })` → `{ width, height }` laid out exactly like `Text` rendering
+  (shaped, wrapped, with the fallback fonts). `space` is `"screen"` (default: HUD text and widget labels, measured at the
+  size the player's text size option makes it) or `"world"`. Headless runs approximate (0.6 × fontSize per character,
+  times `ui.textScale` for `"screen"`) and warn once.
+- `ui.textScale` (get / set, 0.5 to 3, default 1) is the player's text size option: screen-space `Text` and the labels of
+  Button, Toggle, Slider and TextField are drawn and measured at `fontSize * ui.textScale`; world-space `Text` is never
+  scaled. A value outside the range throws. The engine does not save it (keep it in `storage`), and each test file starts
+  at 1. The command is `ui.set_text_scale`. Fonts, languages and right-to-left text: [TEXT.md](TEXT.md).
 - `ui.on`, `ui.focus`, `ui.focused` and `ui.hovered` belong to the widgets: see the next section.
 
 ### UI: menus, settings screens and HUD widgets

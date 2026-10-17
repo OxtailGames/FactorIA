@@ -324,7 +324,7 @@ and next steps with the component settings to use. Each written file gets an `as
 |---|---|
 | `.png` `.jpg` `.tga` `.bmp` | Copied as they are (decoded once to check the engine can read it; the size is in `details`). |
 | `.wav` `.ogg` `.mp3` | Copied into `assets/audio/`. |
-| `.ttf` `.otf` | Copied into `assets/fonts/`. |
+| `.ttf` `.otf` | Copied into `assets/fonts/`. A game that shows Chinese, Japanese, Korean or Arabic ships such a font (see [TEXT.md](TEXT.md)). |
 | `.glb` | Copied into `assets/models/`. |
 | `.gltf` | Copied with the `.bin` buffers and images it refers to (relative paths, next to the model or below it). A missing buffer is an error, a missing image a warning. |
 | `.aseprite` `.ase` | A PNG sprite sheet plus its `sheet` entry (see below). |
