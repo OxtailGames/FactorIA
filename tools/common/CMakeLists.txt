@@ -39,10 +39,11 @@ if(FA_BUILD_TESTS)
     if(tooling_tests)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings fa_ext_cgltf)
-        target_compile_definitions(fa_test_tooling PRIVATE FA_REPO_ROOT="${FA_ROOT}")
+        target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
         add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders
-            target_compile_definitions(fa_test_tooling PRIVATE FA_PLAYER_EXE="$<TARGET_FILE:factoria_player>")
+            set_source_files_properties(tests/pe_icon_test.cpp PROPERTIES
+                COMPILE_DEFINITIONS FA_PLAYER_EXE="$<TARGET_FILE:factoria_player>")  # its one file: the ccache, above
             add_dependencies(fa_test_tooling factoria_player)
         endif()
     endif()

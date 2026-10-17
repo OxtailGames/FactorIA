@@ -32,7 +32,7 @@ if(FA_BUILD_TESTS)
         add_executable(fa_test_cli ${cli_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_cli PRIVATE fa_cli fa_ext_doctest fa_warnings)
         target_include_directories(fa_test_cli PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)  # common.h: Session, run_project_tests
-        target_compile_definitions(fa_test_cli PRIVATE FA_REPO_ROOT="${FA_ROOT}")
+        target_include_directories(fa_test_cli PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
         add_test(NAME cli COMMAND fa_test_cli WORKING_DIRECTORY ${FA_ROOT})
     endif()
 

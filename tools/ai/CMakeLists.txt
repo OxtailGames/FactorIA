@@ -34,8 +34,7 @@ if(FA_BUILD_TESTS)
     if(ai_tests)
         add_executable(fa_test_ai ${ai_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_ai PRIVATE fa_ai fa_ext_cgltf fa_ext_doctest fa_warnings)
-        target_compile_definitions(fa_test_ai PRIVATE FA_REPO_ROOT="${FA_ROOT}"
-            FA_AI_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+        target_include_directories(fa_test_ai PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_AI_FIXTURES...
         add_test(NAME ai COMMAND fa_test_ai WORKING_DIRECTORY ${FA_ROOT})
     endif()
 endif()
