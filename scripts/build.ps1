@@ -6,6 +6,9 @@
 .DESCRIPTION
     Uses the presets in CMakePresets.json. Build trees go to build\<preset>.
     The default preset is windows-<Config> (Visual Studio 2022, x64).
+    CMake (3.24 or newer) is taken from PATH; without one, the CMake that Visual Studio installs is found with vswhere
+    (Build Tools too), so a machine whose only CMake is that one builds. A checkout in a folder too deep for Windows'
+    260-character path limit gets a warning.
 
     Run from the repository root:
         powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 [debug|release] [-Test] [-Preset NAME]
@@ -59,22 +62,64 @@ if (-not $Preset) {
 
 # ---- prerequisites ----------------------------------------------------------
 
-if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
-    Stop-Build ("cmake not found. Install Visual Studio 2022 with the 'Desktop development with C++' " +
-        "workload (it includes CMake), or run: winget install Kitware.CMake. Then open a new terminal.")
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+
+# Visual Studio installs its own CMake (component "C++ CMake tools for Windows", part of the workload "Desktop development
+# with C++") in a folder that is not on PATH. VS 2022 first: that is the generator the presets use. Build Tools count.
+function Find-VisualStudioCmake {
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        return $null
+    }
+    foreach ($range in @('[17.0,18.0)', '[17.0,)')) {
+        $found = & $vswhere -latest -products '*' -version $range -requires Microsoft.VisualStudio.Component.VC.CMake.Project `
+            -find 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' | Select-Object -First 1
+        if ($found -and (Test-Path -LiteralPath $found)) {
+            return [string]$found
+        }
+    }
+    return $null
 }
 
-$firstLine = (cmake --version)[0]
-if ($firstLine -match 'version (\d+)\.(\d+)') {
-    $major = [int]$Matches[1]
-    $minor = [int]$Matches[2]
-    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 24)) {
-        Stop-Build "CMake $major.$minor is too old. FactorIA needs CMake 3.24 or newer."
+# "3.31.6" -> [version]; $null when the program does not run or prints something else.
+function Get-CmakeVersion([string]$Exe) {
+    $line = & $Exe --version 2>$null | Select-Object -First 1
+    if ($line -match 'version (\d+\.\d+(\.\d+)?)') {
+        return [version]$Matches[1]
+    }
+    return $null
+}
+
+$minCmake = [version]'3.24'
+$cmakeExe = $null
+$cmakeFrom = $null
+$onPath = Get-Command cmake -ErrorAction SilentlyContinue
+if ($onPath) {
+    $v = Get-CmakeVersion $onPath.Source
+    if ($v -and $v -ge $minCmake) {
+        $cmakeExe, $cmakeFrom = $onPath.Source, 'on PATH'
+    } else {
+        Write-Host "warning: the cmake on PATH ($($onPath.Source)) is $v; FactorIA needs $minCmake or newer. Looking for the one of Visual Studio." -ForegroundColor Yellow
     }
 }
+if (-not $cmakeExe) {
+    $vsCmake = Find-VisualStudioCmake
+    if ($vsCmake) {
+        $v = Get-CmakeVersion $vsCmake
+        if ($v -and $v -ge $minCmake) {
+            $cmakeExe, $cmakeFrom = $vsCmake, 'installed by Visual Studio, found with vswhere'
+            # cmake and ctest both come from this folder; the presets and `cmake --build` use whichever is first on PATH.
+            $env:PATH = "$(Split-Path -Parent $vsCmake);$env:PATH"
+        }
+    }
+}
+if (-not $cmakeExe) {
+    Stop-Build ("cmake $minCmake or newer not found (not on PATH, and Visual Studio's CMake was not found either). " +
+        "Install Visual Studio 2022 with the 'Desktop development with C++' workload (it includes CMake), or run: " +
+        "winget install Kitware.CMake. Then open a new terminal.")
+}
+Write-Host "==> cmake: $cmakeExe (CMake $(Get-CmakeVersion $cmakeExe), $cmakeFrom)"
 
 function Test-VisualStudio2022 {
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     if (-not (Test-Path -LiteralPath $vswhere)) {
         return $false
     }
@@ -92,6 +137,25 @@ if ($Preset -like 'windows-ninja*') {
     Stop-Build ("Visual Studio 2022 with the C++ tools was not found. Install 'Desktop development with C++' " +
         "from https://visualstudio.microsoft.com/downloads/ , or use -Preset windows-ninja-debug " +
         "from a Developer PowerShell.")
+}
+
+# ---- path length ------------------------------------------------------------
+
+# Many Windows tools (MSBuild's file tracker, cl.exe, rc.exe) stop at MAX_PATH, 259 characters. A Visual Studio build writes
+# files as deep as build\windows-debug\engine\render\fa_render.dir\Debug\fa_render.tlog\... below the checkout: the deepest
+# path a build of the windows presets creates measures $deepestBuildPath characters (relative to the repository root, with
+# the folder separator). Only warns: the build may work (for example with long paths enabled).
+$deepestBuildPath = 190
+$maxPath = 259
+$root = (Get-Location).Path
+if ($Preset -notlike 'windows-ninja*' -and ($root.Length + $deepestBuildPath) -gt $maxPath) {
+    $room = $maxPath - $deepestBuildPath
+    Write-Host ("warning: this checkout is in a deep folder ($($root.Length) characters: $root). The longest file a build " +
+        "creates adds $deepestBuildPath, so $($root.Length + $deepestBuildPath) in all, and Windows tools stop at $maxPath. " +
+        "MSBuild may fail with FTK1011 ('The specified path, file name, or both are too long') or the compiler with C1083. " +
+        "Fix: clone the repository to a short path, such as C:\src\FactorIA (the folder of the checkout must stay under $room " +
+        "characters), or turn on Windows long paths (LongPathsEnabled=1 in the registry, and git config --system " +
+        "core.longpaths true); some tools ignore it, so the short path is the sure fix.") -ForegroundColor Yellow
 }
 
 # ---- configure, build, test -------------------------------------------------
