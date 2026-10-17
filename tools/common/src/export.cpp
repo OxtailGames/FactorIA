@@ -43,6 +43,11 @@ bool is_export_format(const std::string& format) {
     return std::find(export_formats().begin(), export_formats().end(), format) != export_formats().end();
 }
 
+const std::vector<std::string>& all_export_formats() {
+    static const std::vector<std::string> formats = {"apk", "aab", "gradle", "appimage"};
+    return formats;
+}
+
 std::string host_platform() {
 #if defined(_WIN32)
     return "windows";
@@ -512,6 +517,7 @@ struct Plan {
     MobileSetup mobile;              // android/ios
     Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
     AndroidPlan android;             // android
+    AppImagePlan appimage;           // linux, format "appimage"
     std::vector<std::string> warnings;
 };
 
@@ -536,6 +542,14 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project", "choose another --out folder");
     if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
 
+    // Checked before the player: on a computer that cannot build an AppImage, a missing player is beside the point.
+    const bool appimage = plan.platform == "linux" && to_lower(options.format) == "appimage";
+    if (appimage) {
+        auto image = plan_appimage(options, p, plan.outRoot);
+        if (!image.ok()) return image.error();
+        plan.appimage = std::move(image.value());
+    }
+
     if (plan.platform == "android" || plan.platform == "ios") {
         auto setup = resolve_mobile(options, plan.platform);
         if (!setup.ok()) return setup.error();
@@ -550,8 +564,8 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         if (!android.ok()) return android.error();
         plan.android = std::move(android.value());
     } else {
-        if (!options.format.empty())
-            plan.warnings.push_back("The format '" + options.format + "' only applies to android; " + plan.platform +
+        if (!options.format.empty() && !appimage)
+            plan.warnings.push_back("The format '" + options.format + "' only applies to android (apk, aab, gradle) and linux (appimage); " + plan.platform +
                                     " has a single format, so it is ignored");
         const std::string rel = p.settings.icon_for(plan.platform);
         std::error_code iconEc;
@@ -653,6 +667,10 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
     out.outputDir = generic(plan.outRoot);
     if (plan.platform == "android" || plan.platform == "ios") out.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
     else out.player = generic(plan.player);
+    if (plan.appimage.enabled) {
+        out.format = "appimage";
+        out.artifact = generic(plan.appimage.artifact);
+    }
     if (plan.platform == "android") {
         out.format = plan.android.format;
         out.artifact = generic(plan.android.artifact);
@@ -713,6 +731,10 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);
+    if (r.ok() && plan.appimage.enabled) {  // the folder is complete by now: a failed appimagetool leaves it, like a failed Gradle build leaves its project
+        r = build_appimage(options, p, plan.appimage, outRoot, report);
+        keepOutput = !r.ok();
+    }
     if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
         if (!keepOutput) stdfs::remove_all(os_path(outRoot), ec);
@@ -756,7 +778,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "and for Android no NDK or CMake) or \"source\" (the engine is compiled from a source checkout, chosen by "
         "$FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error "
         "says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is "
-        "(<out>/<slug>-android/build.log); the Gradle project stays on disk. Every export also writes "
+        "(<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` \"appimage\" also builds the whole game as one "
+        "<out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the "
+        "folder export stays). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
         "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). "
         "Returns {outputDir, mode (android/ios), format and artifact (android), notices, files[], nextSteps[], "
         "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
@@ -770,7 +794,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
       "properties":{
         "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
-        "format":{"type":"string","enum":["apk","aab","gradle"],"description":"Android only (other platforms ignore it): apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed). apk and aab run Gradle and need a JDK 17+ and the Android SDK."},
+        "format":{"type":"string","enum":["apk","aab","gradle","appimage"],"description":"Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore the debug key is used, with a warning). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
@@ -790,8 +814,8 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
             o.outDir = dir->string();
         }
         o.format = tooling_detail::arg_string(args, "format", false);
-        if (!o.format.empty() && !is_export_format(o.format))
-            throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, export_formats()));
+        if (!o.format.empty() && std::find(all_export_formats().begin(), all_export_formats().end(), o.format) == all_export_formats().end())
+            throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, all_export_formats()));
         o.release = tooling_detail::arg_bool(args, "release", false);
         if (tooling_detail::arg_bool(args, "dryRun", false)) {
             auto plan = plan_export(o);

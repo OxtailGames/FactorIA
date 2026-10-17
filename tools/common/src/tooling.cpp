@@ -3,6 +3,8 @@
 #include <filesystem>
 
 #include "fa/runtime/engine.h"
+#include "fa/tooling/ci_workflow.h"
+#include "fa/tooling/sign.h"
 
 namespace fa {
 
@@ -17,6 +19,8 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_publish_commands(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_plugin_commands(registry, projectDir);
+    register_sign_commands(registry, projectDir);
+    register_ci_workflow_commands(registry, projectDir);
     register_platform_setup_commands(registry, projectDir);
     register_setup_commands(registry);
 }

@@ -288,9 +288,9 @@ TEST_CASE("export: the macOS app is signed as a whole, so codesign --verify acce
     CHECK(warnings_without_icon_note(r.value().warnings).empty());
     const std::string app = tmp.sub("out/space-dodge-macos/Space Dodge.app");
     CHECK(std::system(("/usr/bin/codesign --verify --strict '" + app + "' 2>/dev/null").c_str()) == 0);
-    bool forceInSteps = false;
-    for (const auto& s : r.value().nextSteps) forceInSteps = forceInSteps || s.find("codesign --force") != std::string::npos;
-    CHECK(forceInSteps);  // re-signing a signed app needs --force
+    bool signCommand = false;
+    for (const auto& s : r.value().nextSteps) signCommand = signCommand || s.find("sign.macos") != std::string::npos;
+    CHECK(signCommand);  // the next step is the command that re-signs it with a Developer ID (it passes --force)
 }
 #endif
 
@@ -1032,7 +1032,7 @@ TEST_CASE("export: macOS keeps plugin.json out of the app and writes the entitle
     CHECK(entitlements.find("$(") == std::string::npos);
     bool signing = false;
     for (const std::string& s : r->nextSteps)
-        signing = signing || (s.find("embedded.provisionprofile") != std::string::npos && s.find("--entitlements space-dodge.entitlements") != std::string::npos);
+        signing = signing || (s.find("provisioningProfile") != std::string::npos && s.find("sign.macos") != std::string::npos && s.find("space-dodge.entitlements") != std::string::npos);
     CHECK(signing);
     // Windows and Linux builds of the same game drop the manifest too, and write nothing else.
     add_apple_plugin(proj, kAppleIosManifest, "{}");

@@ -1,6 +1,6 @@
 // One-click setup of everything an export needs: `factoria setup`, commands "setup.status" and "setup.install".
 //
-// FactorIA never only tells the user what to install when it can install it. Four components:
+// FactorIA never only tells the user what to install when it can install it. Five components:
 //   android   JDK 21 (Eclipse Temurin) + the Android SDK (the command-line tools revision pinned below, platform-tools,
 //             platform 36, build-tools 35.0.0) with its license accepted: what `factoria export --platform android` builds an
 //             APK/AAB with.
@@ -9,6 +9,8 @@
 //             prebuilt Android/iOS exports copy into the game.
 //   cmake     CMake 3.24+ for the iOS export's build_ios.sh (macOS).
 //   xcode     status and guidance only (macOS): a program cannot install Xcode; install opens its App Store page.
+//   appimage  appimagetool and the AppImage runtime (Linux x86_64 only): what `factoria export --platform linux --format
+//             appimage` builds an AppImage with. Pinned releases, checked against SHA-256 values kept in this file.
 // Everything lands under factoria_home() (`$FACTORIA_HOME`, else ~/.factoria) and nothing outside it except the
 // machine config (~/.factoria/export.json, fa/tooling/export_settings.h) that learns where the JDK and SDK are. Every
 // download is verified against the checksum its publisher lists; an archive is unpacked next to its destination and
@@ -56,6 +58,12 @@ inline constexpr const char* kSetupAndroidCmdlineTools = "cmdline-tools;22.0";
 inline constexpr const char* kSetupAndroidCmdlineToolsFallback = "cmdline-tools;latest";
 inline constexpr const char* kSetupCmakeVersion = "3.31.6";
 inline constexpr const char* kSetupCmakeMinimum = "3.24";                  // what the engine and build_ios.sh need
+// The AppImage tools: the same releases and hashes as scripts/package-appimage.sh (a test keeps the two equal). To upgrade,
+// change the script and these four together.
+inline constexpr const char* kSetupAppimagetoolVersion = "1.9.1";
+inline constexpr const char* kSetupAppimagetoolSha256 = "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0";
+inline constexpr const char* kSetupAppImageRuntimeVersion = "20251108";  // github.com/AppImage/type2-runtime release tag
+inline constexpr const char* kSetupAppImageRuntimeSha256 = "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d";
 
 // The folder everything is installed into: $FACTORIA_HOME when set, else <HOME>/.factoria
 // (%USERPROFILE%\.factoria on Windows). It is also where ai.json lives (export.json follows FACTORIA_HOME unless
@@ -139,7 +147,7 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "cmake" | "xcode"
+    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -169,7 +177,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "cmake" | "xcode"
+    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
     std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
@@ -225,6 +233,13 @@ std::string installed_mobile_dir(const SetupContext& context);
 // Program Files, then <home>/tools/cmake (what `setup cmake` installs); "" when none.
 std::string find_cmake();
 std::string find_cmake(const SetupContext& context);
+
+// The files `setup appimage` installed: <home>/tools/appimage/appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64.
+// Both empty when either is missing.
+struct AppImageTools {
+    std::string tool, runtime;
+};
+AppImageTools installed_appimage_tools(const SetupContext& context);
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.

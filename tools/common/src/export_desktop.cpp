@@ -306,10 +306,10 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
         stdfs::path app = stdfs::path(fs_safe_name(p.name) + ".app");
         report.nextSteps = {
             "Run it: open '" + generic(outRoot / app) + "'",
-            "To distribute outside your machine, sign and notarize the app: codesign --force --deep --options runtime "
-            "--timestamp --sign \"Developer ID Application: <you>\" '" + app.string() + "', then xcrun notarytool "
-            "submit and xcrun stapler staple (see docs/EXPORTING.md)",
-            "Zip it for sharing: ditto -c -k --keepParent '" + app.string() + "' " + slug + "-macos.zip"};
+            "To distribute outside your machine, sign it with your Developer ID and have Apple notarize it, on a Mac: factoria call sign.macos "
+            "'{\"identity\":\"Developer ID Application: <you> (TEAMID)\",\"keychainProfile\":\"<notarytool profile>\"}' signs the app and its plugin "
+            "libraries, notarizes it, staples the ticket and writes " + slug + "-macos.zip to share; add \"dryRun\":true to see the commands first "
+            "(docs/EXPORTING.md, \"Signing and notarizing for macOS\")"};
         if (!entitlementsFile.empty()) {
             std::vector<std::string> names;
             for (auto it = entitlements.begin(); it != entitlements.end(); ++it) names.push_back(it.key());
@@ -317,9 +317,9 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
                 "The plugins ask for capabilities (" + join(names, ", ") + "), which only a signature with your Apple developer "
                 "certificate and a provisioning profile can carry: until then the app runs and those services answer 'unavailable' with "
                 "a hint. To turn them on: create a macOS provisioning profile for the App ID " + p.id + " with the same capabilities in the "
-                "Apple Developer portal, copy it to '" + app.string() + "/Contents/embedded.provisionprofile', replace TEAMID in " +
-                entitlementsFile + " with your 10-character Team ID, and sign with codesign --force --deep --options runtime --timestamp "
-                "--entitlements " + entitlementsFile + " --sign \"<your certificate>\" '" + app.string() + "' (docs/PLATFORM.md, section Apple)");
+                "Apple Developer portal, replace TEAMID in " + entitlementsFile + " with your 10-character Team ID (or set export.ios.teamId "
+                "in factoria.json and export again), and sign with sign.macos passing \"provisioningProfile\": the path of the profile file; "
+                "it embeds the profile and applies " + entitlementsFile + " (docs/PLATFORM.md, section Apple)");
         }
     } else if (platform == "windows") {
         report.nextSteps = {"Run it: " + exeName + " (from " + generic(outRoot) + ")",

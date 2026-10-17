@@ -5,11 +5,12 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 `project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
 
 ```bash
-factoria export [project] --platform <linux|windows|macos|android|ios> [--format apk|aab|gradle] [--out DIR] [--release]
+factoria export [project] --platform <linux|windows|macos|android|ios> [--format apk|aab|gradle|appimage] [--out DIR] [--release]
                 [--player PATH] [--engine-root DIR | --mobile-dir DIR]
 ```
 
-`--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android).
+`--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android);
+for Linux, `appimage` also builds the game as one AppImage file: see [Linux: AppImage](#linux-appimage).
 `--release` on Linux, Windows and macOS puts the whole game in ONE file, `game.pak`, with the scripts compiled to bytecode: see
 [Release build](#release-build-gamepak). On Android it builds the release APK/AAB.
 
@@ -24,7 +25,7 @@ The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
 export, but only when it is empty or an export wrote it: a folder of yours that happens to have that name is never
 deleted ([Replacing an earlier export](#replacing-an-earlier-export)). `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
-`format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built),
+`format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built; Linux with `appimage`: the AppImage),
 `notices` (see [License notices](#license-notices)), `pack` and `packed` (a `--release` desktop export: the pack and the paths in it), `files`
 (what is on disk, so a release export lists `game.pak`, not the files in it), `nextSteps`, `warnings`. A game with AI-made assets also
 gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](#ai-content-disclosure)).
@@ -34,12 +35,12 @@ gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](#ai-content-disclosure)
 The same export is the command `project.export` (MCP tool `project_export`, also `factoria call project.export`, the
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
-`gradle`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
+`gradle`; Linux: `appimage`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
 `release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
-export would replace), `mode` (Android, iOS), `format` and `artifact` (Android), `toolchain` (Android with `apk` or `aab`:
+export would replace), `mode` (Android, iOS), `format` and `artifact` (Android, Linux with `appimage`), `toolchain` (Android with `apk` or `aab`:
 `jdk`, `jdkFrom`, `jdkMajor`, `sdk` and `sdkFrom`, the JDK and SDK the build would use and where they were found), `player`
 (desktop) and `warnings`, or the error the export would give, including a missing JDK or SDK, a missing keystore or
 password for `--release` (`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
@@ -190,6 +191,7 @@ factoria setup players                             # the players of the other de
 factoria setup players --platforms windows,linux   # only these (windows, linux, macos, mobile)
 factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
+factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -198,6 +200,7 @@ factoria setup xcode                               # macOS: checks Xcode, opens 
 | `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (Android libraries; also iOS on a Mac), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
+| `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
 
@@ -208,6 +211,7 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
   android/user/         what Google's tools keep for themselves ($ANDROID_USER_HOME): about 4 MB (sdkmanager's package-list cache) with the pinned tools, about 250 MB if the fallback below applies
   players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/
   tools/cmake/          CMake (CMake.app on macOS)
+  tools/appimage/       appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64 (Linux x86_64 only)
   export.json           machine settings: learns where the JDK and the SDK are (below)
 ```
 
@@ -216,7 +220,7 @@ Nothing else on the computer changes: no `sudo`, no `PATH`, no registry. A JDK o
 belongs to Unity and is never touched (FactorIA sets up its own next to it). Only what was installed here is written to
 `export.json`. Running a setup again is safe: it skips what is there and says so.
 
-**From the editor.** File > Set Up This Computer... opens a window with the four components, their state, what is missing
+**From the editor.** File > Set Up This Computer... opens a window with the components, their state, what is missing
 and an **Install** button each, with a progress bar, **Cancel** and a log while it runs and the report (steps, warnings, next
 steps) when it finishes. The Export window and the Platform settings tabs show the button that fixes what their row
 lacks, in plain words (**Install Android build tools**, **Download Windows player**, **Download mobile libraries**, **Install CMake**,
@@ -245,9 +249,10 @@ Studio's, `ANDROID_HOME`) keeps the tools it has (`--force` adds the pinned revi
 Google's tools always run with `ANDROID_USER_HOME` inside the FactorIA folder.
 
 **What is trusted.** Downloads come only from `api.adoptium.net` and `github.com/adoptium` (JDK), `dl.google.com` (SDK),
-`api.github.com` and `github.com/OxtailGames/FactorIA/releases` (players) and `github.com/Kitware/CMake` (CMake); a listing
+`api.github.com` and `github.com/OxtailGames/FactorIA/releases` (players), `github.com/Kitware/CMake` (CMake) and
+`github.com/AppImage` (appimagetool and the runtime; two pinned releases); a listing
 that points anywhere else is refused. Every file is checked against the checksum its publisher lists (SHA-256 from Adoptium,
-GitHub and Kitware, SHA-1 from Google's package list) before it is unpacked, and a mismatch (code `checksum_mismatch`)
+GitHub and Kitware, SHA-1 from Google's package list, a SHA-256 compiled into FactorIA for the two AppImage files) before it is unpacked, and a mismatch (code `checksum_mismatch`)
 installs nothing. Archives are unpacked next to their destination and moved into place only when complete, so an
 interrupted install never looks installed. The programs used are `curl` (macOS, Windows 10+ and most Linux have it;
 `HTTPS_PROXY` is honored), `tar` (macOS, Windows) and `tar` or `unzip` (Linux).
@@ -362,7 +367,8 @@ does not know are kept when the file is saved. `factoria setup android` fills in
 ```json
 {
   "format": "factoria.export-config/1",
-  "android": { "sdk": "/Users/me/Library/Android/sdk", "jdk": "/path/to/jdk", "keystorePassword": "...", "keyPassword": "..." }
+  "android": { "sdk": "/Users/me/Library/Android/sdk", "jdk": "/path/to/jdk", "keystorePassword": "...", "keyPassword": "..." },
+  "sign": { "macos": { "identity": "Developer ID Application: Ada Lovelace (ABCDE12345)", "notaryProfile": "factoria-notary" } }
 }
 ```
 
@@ -372,9 +378,13 @@ does not know are kept when the file is saved. `factoria setup android` fills in
 | `android.jdk` | Folder of a JDK 17 or newer (the one that contains `bin/java` and `release`). Empty = look for it. |
 | `android.keystorePassword` | Password of the keystore. `FACTORIA_ANDROID_KEYSTORE_PASSWORD` wins over it. |
 | `android.keyPassword` | Password of the signing key. `FACTORIA_ANDROID_KEY_PASSWORD` wins over it; when neither is set the keystore password is used. |
+| `sign.macos.identity` | The certificate `sign.macos` signs with (`Developer ID Application: Your Name (TEAMID)`). The `identity` argument and `FACTORIA_MACOS_SIGN_IDENTITY` win over it. Not a secret. |
+| `sign.macos.keychain` | A keychain file that holds the certificate. `FACTORIA_MACOS_KEYCHAIN` and the `keychain` argument win over it. |
+| `sign.macos.notaryProfile` | The notarytool keychain profile (`xcrun notarytool store-credentials <name>`). `FACTORIA_NOTARY_PROFILE` and the `keychainProfile` argument win over it. |
 
 The file is written with owner-only permissions on macOS and Linux because it can hold passwords (loading it warns when
-other users can read it). Passwords never go in `factoria.json` or in the files of an export.
+other users can read it). Passwords never go in `factoria.json` or in the files of an export. The Apple ID password of
+notarization is the one secret `sign.macos` takes, and only from the environment (`FACTORIA_APPLE_APP_PASSWORD`), never from this file.
 
 ### Finding the Android toolchain
 
@@ -405,6 +415,7 @@ or pass `--player path/to/factoria_player[.exe]` for one built there.
 linux/windows:  my-game-linux/
                   my-game            (my-game.exe on Windows)
                   my-game.png  my-game.desktop      (Linux only: the icon and the application-menu entry)
+                  my-game-x86_64.AppImage            (Linux only, with --format appimage: the whole game as one file)
                   FACTORIA_NOTICES.txt
                   AI_CONTENT_DISCLOSURE.md           (only when assets are made with AI)
                   game/              factoria.json, scenes/, scripts/, assets/ ...
@@ -493,18 +504,121 @@ the executable alone: copied into a bundle unchanged it fails `codesign --verify
 indicates they must be present"), and a Mac that downloads such an app calls it damaged. The ad hoc app runs on your
 Mac; a copy someone else downloads is stopped by Gatekeeper like any app that is not notarized (with Open Anyway).
 Exporting for macOS on Windows or Linux cannot sign: the report warns, and `codesign --force --sign -` on a Mac fixes
-it. To distribute the game, sign it with your own Developer ID and notarize it (Apple Developer Program):
+it. To distribute the game, sign it with your own Developer ID and notarize it (Apple Developer Program): the command
+`sign.macos` does it ([Signing and notarizing for macOS](#signing-and-notarizing-for-macos)). The player of the macOS download
+is universal (Apple Silicon and Intel).
 
-```
-codesign --force --deep --options runtime --timestamp --sign "Developer ID Application: ..." "My Game.app"
-ditto -c -k --keepParent "My Game.app" my-game.zip
-xcrun notarytool submit my-game.zip --keychain-profile <profile> --wait
-xcrun stapler staple "My Game.app"
+### Signing and notarizing for macOS
+
+The ad hoc signature above runs on your Mac. To hand the game to other people you sign it with your Developer ID
+Application certificate and have Apple notarize it (Apple Developer Program). The command `sign.macos` does every step on
+the exported app (MCP tool `sign_macos`, `factoria call sign.macos`, the editor console, `fa.call`; C++:
+`fa/tooling/sign.h`, `fa::sign_macos`):
+
+```bash
+factoria export --platform macos
+factoria call sign.macos '{"identity":"Developer ID Application: Ada Lovelace (ABCDE12345)","keychainProfile":"factoria-notary"}'
+factoria call sign.macos '{"dryRun":true}'      # every command line it would run, on any computer
 ```
 
-`--force` replaces the ad hoc signature; `xcrun notarytool store-credentials <profile>` saves your Apple ID, team ID and
-app-specific password once. Zip the stapled app again to share it. The player of the macOS download is universal
-(Apple Silicon and Intel).
+1. `codesign` of every piece of native code in `Contents/Frameworks` (the native plugins: frameworks, bundles, helper apps,
+   `.dylib` and `.so` files and other Mach-O files), the deepest first, then of the app: `--force --options runtime
+   --timestamp --sign <identity>` (the hardened runtime and a secure timestamp are what Apple asks for).
+2. With `provisioningProfile`: the profile is copied to `Contents/embedded.provisionprofile` first, and the app is signed with
+   the export's `<game>.entitlements` (below).
+3. `codesign --verify --deep --strict`.
+4. Notarization: the app is zipped with `ditto`, `xcrun notarytool submit --wait` uploads it and waits for Apple's verdict.
+   When Apple refuses the app the error quotes `notarytool log` (typically a library that is not signed with the hardened
+   runtime and a timestamp, or a file changed after signing).
+5. `xcrun stapler staple` and `validate` (the ticket goes into the app, so it opens offline), then `spctl --assess`:
+   Gatekeeper's own verdict.
+6. `ditto` writes the stapled app to `<out>/<game-slug>-macos.zip`, next to the export folder: the file to share.
+
+Arguments, all optional (`app` and `out` default to the export of this game, `build/export/<game-slug>-macos/<Name>.app`;
+`app`, `out` and `zip` stay inside the project like the `fs.*` commands, the files you point the other arguments at may be
+anywhere):
+
+| Argument | Meaning |
+|---|---|
+| `identity` | The certificate: its name (`Developer ID Application: Your Name (TEAMID)`; `security find-identity -v -p codesigning` lists them) or its SHA-1. `"-"` signs ad hoc (no certificate; the app runs on this Mac only and is never notarized). Default: `FACTORIA_MACOS_SIGN_IDENTITY`, then `sign.macos.identity` of `~/.factoria/export.json`; with none the error says so. |
+| `keychain` | A keychain file that holds the certificate (and the notary profile). Default: `FACTORIA_MACOS_KEYCHAIN`, then `sign.macos.keychain`, then the user's keychains. |
+| `notarize` | Unset: notarize when there are credentials and the identity is a Developer ID Application certificate, else only sign, with a warning that says why. `true`: that is an error instead of a warning. `false`: only sign. |
+| `keychainProfile` | A notarytool profile saved once with `xcrun notarytool store-credentials <name>`. Default: `FACTORIA_NOTARY_PROFILE`, then `sign.macos.notaryProfile`. |
+| `apiKey`, `apiKeyId`, `apiIssuer` | An App Store Connect API key instead: the `AuthKey_<id>.p8` file, its key id and, for a team key, the issuer id. Defaults: `FACTORIA_NOTARY_API_KEY`, `FACTORIA_NOTARY_API_KEY_ID`, `FACTORIA_NOTARY_API_ISSUER`. |
+| `appleId`, `teamId` | An Apple ID instead. Defaults: `FACTORIA_APPLE_ID` / `FACTORIA_APPLE_TEAM_ID` (also `APPLE_ID` / `APPLE_TEAM_ID`). The app-specific password is read from `FACTORIA_APPLE_APP_PASSWORD` (or `APPLE_APP_PASSWORD`) **only**. |
+| `provisioningProfile`, `entitlements` | See below. |
+| `zip` | Where the zip to share goes (default: next to the export folder). |
+| `dryRun` | Check everything and return the command lines in `steps[]`; sign and send nothing. |
+
+The login for notarytool is the first of: a keychain profile, an API key, an Apple ID. The result is `{app, dryRun,
+identity, identityFrom, credentials, signed, verified, notarized, stapled, notarizationId, zip, steps[], warnings[],
+nextSteps[]}`; each step is `{title, command, commandLine, ran, exitCode}`. Nothing secret is ever an argument, is in
+`factoria.json`, in a result or in a log: the only secret there is, the app-specific password, comes from the environment
+and is replaced by `<redacted>` in every step and every line of output. A key file or a keychain profile holds its secret
+where Apple's tools keep it.
+
+`~/.factoria/export.json` (this computer only, [Machine settings](#machine-settings-factoriaexportjson)) may carry the
+identity, the keychain and the profile name, which are not secrets:
+
+```json
+{ "sign": { "macos": { "identity": "Developer ID Application: Ada Lovelace (ABCDE12345)", "notaryProfile": "factoria-notary" } } }
+```
+
+**Needs a Mac.** `codesign`, `notarytool` and `stapler` exist only on macOS. Anywhere else a real run is an error that says
+so and what to do (copy the export folder to a Mac, or let a macOS CI runner do it: [CI for your game](#ci-for-your-game));
+`dryRun: true` always works and prints the commands a Mac would run, with this computer's paths. Export on the Mac too (or
+on a macOS CI runner): the export seals the app there, and the files keep their permissions.
+
+**Capabilities that need a profile (Game Center, iCloud).** A native plugin that asks for them makes the export write
+`<game>.entitlements` next to the app, with a `TEAMID` placeholder. macOS kills an app that claims such an entitlement
+without a provisioning profile for its App ID, so `sign.macos` applies that file **only** together with `provisioningProfile`
+(the `.provisionprofile` you create in the Apple Developer portal for the App ID, with the same capabilities). Without a profile
+the app is signed without them and the result warns that those services will answer "unavailable". Replace `TEAMID` with your
+10-character Team ID first (or set `export.ios.teamId` in `factoria.json` and export again): `sign.macos` refuses a file that
+still has the placeholder. `entitlements` signs the app with a file of your own instead.
+
+**Every export replaces the app**: sign again after each `project.export`. An app that is changed after it is signed
+(a file added to the bundle) is no longer valid; export and sign again instead of editing it.
+
+### Linux: AppImage
+
+`--format appimage` also builds the game as **one file** that runs on most Linux desktops without installing anything: the
+folder of the Linux export stays, and `<out>/<game-slug>-linux/<game-slug>-x86_64.AppImage` is added next to its files
+(reported as `artifact`).
+
+```bash
+factoria setup appimage                                    # once: appimagetool and the AppImage runtime (about 16 MB)
+factoria export --platform linux --format appimage         # the command: project.export {"platform":"linux","format":"appimage"}
+./build/export/my-game-linux/my-game-x86_64.AppImage       # or with --appimage-extract-and-run on a computer without FUSE
+```
+
+- **Where it can be built.** On Linux x86_64, or in WSL (Ubuntu) on Windows: `appimagetool` is an x86_64 Linux program. On a Mac,
+  Windows or an ARM Linux the export refuses before it writes anything, with an error that says to export on Linux or in WSL;
+  without `--format` the Linux export works from any computer and writes the folder (`tar czf` it to share). A CI job can
+  build it too ([CI for your game](#ci-for-your-game) exports the folder; add a `factoria setup appimage` step and
+  `--format appimage` to its Linux export step).
+- **The tools come from `factoria setup appimage`**, never from the export (it downloads nothing): appimagetool 1.9.1 and the
+  type 2 runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 that is compiled into FactorIA (the same
+  files and hashes `scripts/package-appimage.sh` packs FactorIA's own AppImage with). They live in
+  `<FactorIA home>/tools/appimage/`. Without them the export says to run the setup; `setup.status` lists the component as
+  `appimage` (`unsupported` away from Linux x86_64).
+- **The AppDir.** Beside the export folder (and removed again, whatever happens) the export builds
+  `.<game-slug>-linux.AppDir/` with `AppRun` (starts `usr/bin/<game-slug>`), `<game-slug>.desktop` (the export's entry with
+  `Icon=<game-slug>` and `X-AppImage-Version` from the game's `version`), `<game-slug>.png` and `.DirIcon` (the game's icon; a
+  plain placeholder and a warning when the game has none) and `usr/bin/` holding the export folder as it is: the player, `game/`,
+  `FACTORIA_NOTICES.txt` and the native plugins' libraries. The player finds `game/` and the plugins next to its executable, so
+  the layout needs no change. Then it runs
+  `ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 appimagetool --no-appstream --runtime-file <runtime> <AppDir> <AppImage>`
+  (`APPIMAGE_EXTRACT_AND_RUN` lets the tool run where FUSE is missing: CI, containers, WSL).
+- **Running it.** `chmod +x` (the export already does), or **Allow executing as a program** once in a file manager. A
+  computer without FUSE 2 starts it with `--appimage-extract-and-run`. The game uses the system's X11, OpenGL and ALSA, and
+  needs a glibc at least as new as the player's: the FactorIA download is built on Ubuntu 24.04, so an older distribution may
+  refuse it. Save games and `log.txt` go where the folder export puts them.
+- **If appimagetool fails** the error quotes what it printed (often a `.desktop` validation: `export.linux.categories`) and the
+  export folder stays, complete without the AppImage; fix it and export again.
+- **Flatpak is not generated.** An AppImage needs nothing but the file; Flatpak needs a manifest, a runtime and a store
+  review. A game that wants it can wrap the folder export.
+
 ### Release build (`game.pak`)
 
 `factoria export --release` (or `project_export {"release": true}`) for Linux, Windows and macOS ships the game as ONE
@@ -589,7 +703,8 @@ What each desktop export takes from [Platform settings](#platform-settings):
 - **Linux.** `<name>.png` (256 px) and `<name>.desktop` are written next to the game, with `Name`, `Exec`, `Icon`,
   `Type=Application`, `Terminal=false` and `Categories` (from `categories`; the default is `Game;`). Both
   `Exec=` and `Icon=` are bare names: the report prints the one command that installs the entry for the folder
-  the game lives in (it rewrites them to absolute paths and copies the file to `~/.local/share/applications`).
+  the game lives in (it rewrites them to absolute paths and copies the file to `~/.local/share/applications`). The
+  [AppImage](#linux-appimage) carries the same entry, with `Icon=<name>` and the game's version.
 
 Windows: the player of a release download carries FactorIA's signature once the release is signed
 ([BUILDING.md](BUILDING.md), "Releasing"), and one built from source is not signed. Writing the game's icon and version
@@ -967,6 +1082,46 @@ cannot publish to the *master* branch, so `branch: "master"` is refused.
 
 The tests of these commands run against a fake uploader (`tools/common/test_tools/fake_store_tool.cpp`) that records its arguments:
 point the environment variable of a tool at any program to see exactly how it is called. `dryRun` needs no account.
+
+## CI for your game
+
+`project.new_ci_workflow` writes `.github/workflows/factoria.yml` into the game's folder: a GitHub Actions workflow that
+validates the game, runs its tests and exports it on every push to `main` or `master` and on every pull request.
+
+```bash
+factoria call project.new_ci_workflow                                      # all three platforms
+factoria call project.new_ci_workflow '{"platforms":["linux","windows"],"dryRun":true}'   # print it, write nothing
+factoria call project.new_ci_workflow '{"workingDirectory":"games/my-game"}'  # the game is a folder of a larger repository
+```
+
+(MCP tool `project_new_ci_workflow`; C++: `fa/tooling/ci_workflow.h`, `fa::write_ci_workflow`.) Templates do not carry the
+file, because not every game lives on GitHub: call it when yours does. What the workflow does:
+
+- **Job `check`, on `ubuntu-24.04`.** Installs the libraries FactorIA loads (`xvfb libegl1 libopengl0 libx11-6 libxcursor1
+  libxi6 libasound2t64 libgl1-mesa-dri libegl-mesa0`: the Mesa software renderer, so no GPU is needed), downloads the
+  FactorIA package and **checks it against the SHA-256 GitHub lists for the release asset** (with `python3`, which every
+  runner has), puts it on the `PATH`, then runs `factoria validate`, `xvfb-run -a factoria test`, `factoria setup players
+  --platforms windows` and `factoria export` for Linux and Windows. The exports are packed (a `.tar.gz` for Linux, which keeps
+  the executable bit, and a `.zip` for Windows) and uploaded with `actions/upload-artifact`: Actions > the run > Artifacts.
+- **Job `macos`, on `macos-latest`.** Installs the macOS package, runs `factoria export --platform macos` (the app is
+  sealed ad hoc, see [Desktop](#desktop-linux-windows-macos)) and uploads it. To sign and notarize in CI, import your Developer
+  ID certificate into a keychain in that job from repository secrets, store the notarytool profile or pass the credentials as
+  environment variables (never in the file), and add a step that runs `factoria call sign.macos`
+  ([Signing and notarizing for macOS](#signing-and-notarizing-for-macos)); the workflow has a comment where it goes.
+- **One pinned version.** `FACTORIA_VERSION` at the top of the file is the FactorIA release the job downloads, the same
+  version as the `factoria` that wrote the file (`version` chooses another: `"0.1.6"` or `"latest"`). A `factoria` built from
+  source has no release of its own, so the file follows the newest release (`"latest"`) and the result warns about it. Change
+  the one line to move the game to another version; the download is `github.com/OxtailGames/FactorIA/releases`.
+- **Least privilege.** `permissions: contents: read`; the job's token only reads the public release listing for its checksum.
+
+Arguments: `platforms` (`linux`, `windows`, `macos`; default all three), `path` (another file name inside
+`.github/workflows/`), `workingDirectory` (the game's folder relative to the repository root, default `.`), `version`,
+`overwrite` and `dryRun`. **It never overwrites a file that differs**: an existing `factoria.yml` is an error that names
+`overwrite: true`, another file name and `dryRun` as the ways on (an identical file is left alone and reported as up to
+date). GitHub reads workflows only from the repository root: for a game in a subfolder, write it with `workingDirectory` and
+move the file to `<repository>/.github/workflows/` (the result warns when the game is inside a larger git repository). The
+result is `{path, written, dryRun, version, repo, platforms[], workflow, warnings[], nextSteps[]}`, `workflow` being the
+YAML. The workflow runs the same `factoria` commands you run by hand: when a CI export fails, run the failing step locally.
 
 ## Tips
 
