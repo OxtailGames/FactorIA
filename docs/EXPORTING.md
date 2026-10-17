@@ -419,8 +419,17 @@ The player starts the game found in `game/` next to the executable (inside the
 `.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:
 
 ```
-my-game [projectDir | game.pak] [--scene scenes/level2.scene.json] [--fullscreen]
+my-game [projectDir | game.pak] [--scene scenes/level2.scene.json] [--fullscreen] [--version]
 ```
+
+`--version` prints the engine version the player belongs to (`factoria_player 0.1.6`, the number `factoria version`
+prints) and exits.
+
+**Linux requirements.** The Linux player is built in Valve's Steam Runtime "sniper" container (libstdc++ and libgcc
+linked in), so a Linux game needs glibc 2.31 or newer and the usual desktop libraries (`libX11`, `libXi`, `libXcursor`,
+`libGL.so.1`, `libEGL.so.1`, `libasound.so.2`): it runs in Steam's Linux runtime (Steam Deck included), on Ubuntu 20.04
+and newer, Debian 11 and newer, Fedora and Arch. A player you build yourself with `linux-release` needs at least the glibc
+of the machine that built it; `scripts/build-sniper.sh` makes the portable one ([BUILDING.md](BUILDING.md)).
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). The export copies the build of every plugin declared for
 the platform next to the executable: the contents of the plugin's `windows/` or `linux/` folder (its library and the

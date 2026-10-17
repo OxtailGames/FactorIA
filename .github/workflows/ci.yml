@@ -100,6 +100,38 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The Linux release programs, built the way release.yml builds them: in the Steam Runtime "sniper" SDK container (glibc
+  # 2.31, GCC 14, libstdc++ and libgcc static), so they run on the Steam Linux Runtime (Steam, the Steam Deck), Ubuntu 20.04
+  # and newer, Debian 11 and newer. Builds the preset linux-sniper (no tests: the `linux` job has them), fails when factoria
+  # or factoria_player imports a glibc/GLIBCXX/CXXABI version newer than sniper has, then runs them in the sniper RUNTIME
+  # image (the `platform` one, with no compilers and nothing installed): `--version`, a new project, a headless frame on
+  # Mesa's software renderer. All of it is scripts/build-sniper.sh (docs/BUILDING.md), so it runs locally with Docker or Podman.
+  linux-sniper:
+    name: Linux (Steam Runtime sniper)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # The script mounts ~/.cache/ccache into the container. release.yml reads this cache (key ccache-Linux-sniper-).
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-sniper-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-sniper-
+
+      - name: Build in the sniper SDK container (GCC 14, static libstdc++)
+        run: ./scripts/build-sniper.sh build
+
+      - name: Check the symbol versions the programs need
+        run: ./scripts/build-sniper.sh check
+
+      - name: Run in the sniper runtime container (version, new project, headless frame)
+        run: ./scripts/build-sniper.sh smoke
+
   # Windows: MSVC through the Visual Studio 2022 generator. Headless GPU code
   # uses the D3D11 software adapter (WARP).
   # One command per step, so a failing command fails the step (PowerShell).
@@ -581,7 +613,7 @@ jobs:
   result:
     name: CI result
     if: always()
-    needs: [changes, linux, windows, macos, ios-build, ios, android, android-apk, android-emulator]
+    needs: [changes, linux, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator]
     runs-on: ubuntu-24.04
     steps:
       - name: Fail if a job failed or was cancelled

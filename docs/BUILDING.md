@@ -45,8 +45,10 @@ the same components with your package manager.
 
 ### Windows
 
-- Visual Studio 2022 (Community works) with the workload **Desktop development
-  with C++**. It provides MSVC and CMake.
+- Visual Studio 2022 (Community works, and so do the Build Tools) with the workload **Desktop development
+  with C++**. It provides MSVC and CMake. That CMake is not on `PATH`: `scripts/build.ps1` finds it with `vswhere`
+  (see below), so no separate CMake install is needed.
+- A short checkout path, such as `C:\src\FactorIA` (see "Long paths" below).
 - Ninja, only for `windows-ninja-debug`: `winget install Ninja-build.Ninja`.
 - Windows PowerShell 5.1 (built in) or PowerShell 7.
 
@@ -90,12 +92,78 @@ The default preset is `windows-debug` or `windows-release` (Visual Studio 2022,
 x64). Use `-Preset windows-ninja-debug` from "Developer PowerShell for VS 2022",
 which puts `cl.exe` on the path.
 
+**CMake.** The script uses the `cmake` on `PATH` when it is 3.24 or newer. Otherwise it asks `vswhere` (installed with
+Visual Studio and its Build Tools) for the CMake that Visual Studio carries
+(`Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`, from the component "C++ CMake tools for Windows",
+part of the workload "Desktop development with C++"; Visual Studio 2022 first), puts its folder first on `PATH` for the
+script's own commands (`cmake` and `ctest`), and prints which one it uses:
+`==> cmake: C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\...\cmake.exe (CMake 3.31.6, installed by Visual Studio, found with vswhere)`.
+So a machine whose only CMake is Visual Studio's builds with no setup. With none at all it stops and names the two
+ways to get one (the Visual Studio workload, or `winget install Kitware.CMake`).
+
+**Long paths.** Windows tools stop at 259 characters per path (MAX_PATH), and a Visual Studio build writes files as
+deep as `build\windows-debug\platforms\plugins\steam\tests\fa_steam_mock_current.dir\Debug\fa_steam.B4D08805.tlog\...`:
+143 characters below the repository root in Release, 141 in Debug. The script warns (and builds anyway) when the
+checkout's own path is longer than 114 characters, because MSBuild fails then, with `FTK1011` ("The specified path, file
+name, or both are too long"), with `C1083` from the compiler, or already while CMake identifies the compiler
+(`No CMAKE_C_COMPILER could be found`). Clone to a short path such as `C:\src\FactorIA`. Enabling Windows long paths
+(`LongPathsEnabled=1` under `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`, and `git config --system
+core.longpaths true`) helps the tools that support it, but not all of them do: a 207-character checkout path failed at
+the compiler identification on a machine that had it enabled, so a short path is the fix that always works.
+
 `factoria_player.exe` carries a placeholder icon (`player/windows/factoria_player.rc` and `.ico`, compiled in by MSVC's
 `rc` or MinGW's `windres`, both found by CMake with no setup). A game export overwrites its images with the game's icon
 ([EXPORTING.md](EXPORTING.md#icon-and-settings-per-platform)), so the file must keep its seven BMP images (16, 24, 32, 48,
 64, 128 and 256 px). To change the drawing, edit `draw_placeholder_icon` in `tools/common/tests/placeholder_icon_test.cpp`
 and regenerate the committed file on any OS:
 `FA_REGEN_PLACEHOLDER_ICON=1 build/<preset>/tools/common/fa_test_tooling -tc="placeholder icon*"`.
+
+### Linux release: `scripts/build-sniper.sh`
+
+```bash
+./scripts/build-sniper.sh [build|check|smoke|all] [-- <cmake configure arguments>]
+```
+
+The Linux download (`FactorIA-linux-x64.tar.gz` and the AppImage), and with it the `factoria_player` that every exported
+Linux game carries, is built here and not with `linux-release`. A build on the runner's Ubuntu 24.04 needs glibc 2.38
+and GLIBCXX 3.4.31, so it does not start in the Steam Linux Runtime 3.0 "sniper" (what Steam runs Linux games in,
+also on the Steam Deck: glibc 2.31, a libstdc++ from GCC 10), Ubuntu 22.04 or Debian 12. The script builds inside
+Valve's sniper SDK container instead, `registry.gitlab.steamos.cloud/steamrt/sniper/sdk` (Debian 11, glibc 2.31, GCC 14
+installed as `g++-14` next to its default GCC 10, CMake 3.25, Ninja, ccache and the X11, GL, EGL and ALSA development
+files), so the programs need glibc 2.31 or newer and nothing else but the usual desktop libraries
+(`libX11`, `libXi`, `libXcursor`, `libGL.so.1`, `libEGL.so.1`, `libasound.so.2`): Steam's sniper runtime, Ubuntu 20.04
+and newer, Debian 11 and newer, and any distribution with glibc 2.31 or newer (Fedora, Arch...).
+
+The build uses the preset `linux-sniper`, which is `linux-release` plus:
+
+- `FA_LINUX_STATIC_LIBSTDCXX=ON`: libstdc++ and libgcc are linked into the programs (`-static-libstdc++ -static-libgcc`).
+  The engine uses `std::format`, which needs GCC 13 or newer, but the sniper runtime has the libstdc++ of GCC 10, so the
+  compiler's own libstdc++ travels with the programs. glibc stays dynamic: it is the one library that cannot be linked
+  in, and the container's glibc is what sets the oldest system the programs run on.
+- `OpenGL_GL_PREFERENCE=LEGACY`: link `libGL.so.1`. GLVND's `libOpenGL.so.0`, which the default picks, is not in the
+  sniper runtime (and not on every desktop either).
+- `CMAKE_DISABLE_FIND_PACKAGE_CURL=ON`: no `libcurl` (the SDK has only the GnuTLS flavour, whose `libcurl-gnutls.so.4`
+  other distributions do not have). The AI features call the `curl` program, as on Windows (`fa_ai`, `tools/ai/src/http.cpp`).
+- `FA_BUILD_TESTS=OFF`. The `linux` job of CI runs the tests with a normal build.
+
+The steps (default `all`; each one starts the right container with Docker, or Podman if there is no Docker, and mounts
+this checkout at `/src`):
+
+| Step | Container | What it does |
+|---|---|---|
+| `build` | SDK | Configures and builds `linux-sniper` into `build/linux-sniper/` (`tools/cli/factoria`, `player/factoria_player`). Arguments after `--` go to `cmake --preset`; the release adds `-DFA_UPDATE_REPO=...`. ccache keeps its cache in `~/.cache/ccache` (`FA_CCACHE_DIR` changes it), so the next build is fast. |
+| `check` | SDK | `objdump -T` on both programs: fails when one imports a glibc, `GLIBCXX`, `CXXABI` or `GCC_` symbol version newer than the sniper runtime defines (read from the container's own `libc.so.6`, `libstdc++.so.6` and `libgcc_s.so.1`, which are the runtime's), and says which symbols and how to fix it. In GitHub Actions the message is an `::error::` annotation. |
+| `smoke` | sniper **runtime** (`.../sniper/platform`: the image games run in, with no compilers and nothing installed) | `ldd` finds every library, `factoria_player --version`, `factoria version` (the same version), `factoria new --template 2d-empty` and `factoria run --headless --frames 1` with a screenshot (EGL surfaceless on Mesa's llvmpipe). |
+
+The first run pulls two images (the SDK is about 1.2 GB). The tag is pinned (`SNIPER_TAG` in the script), so a build is
+reproducible; Valve publishes a new one about monthly (the tags are listed at
+`https://gitlab.steamos.cloud/steamrt/sniper/sdk`). To upgrade: change the tag, run `all`, and fix what it reports.
+`FA_SNIPER_TAG=latest ./scripts/build-sniper.sh` tries the newest without editing the script. Inside a sniper
+container already (a CI job with `container:`, a distrobox made from the SDK image) the steps run in place without
+Docker. On Windows run it in WSL with Docker; the script is Linux-only.
+
+CI runs the same three steps in the job `Linux (Steam Runtime sniper)` of `ci.yml`, and `release.yml` builds the
+`linux-x64` package with `build-sniper.sh all`.
 
 ### iOS: `scripts/build-ios.sh`
 
@@ -127,6 +195,7 @@ starts that build directory over, because CMake would otherwise keep using the o
 |---|---|---|---|---|---|
 | `linux-debug` | Linux | Ninja (GCC or Clang) | Debug | yes | Default on Linux |
 | `linux-release` | Linux | Ninja | Release | yes | |
+| `linux-sniper` | Linux, inside the Steam Runtime sniper SDK container | Ninja (GCC 14) | Release | no | Static libstdc++, no tests: what `scripts/build-sniper.sh` builds (see "Linux release" above) |
 | `macos-debug` | macOS | Ninja (Apple Clang) | Debug | yes | Default on macOS |
 | `macos-release` | macOS | Ninja | Release | yes | |
 | `windows-debug` | Windows | Visual Studio 17 2022, x64 | Debug | yes | Default on Windows |
@@ -186,7 +255,8 @@ FactorIA renders into an offscreen target, so the tests can run without a window
   screenshots) when a job fails.
 - **Release packages.** `.github/workflows/release.yml` builds the release presets on Windows, macOS and Linux and
   packages `factoria`, `factoria_player` and (Windows) `FactorIA-Editor.exe` as `FactorIA-<os>.zip` (`.tar.gz` on
-  macOS and Linux), one `FactorIA/` folder inside. The jobs `mobile-android` (NDK, `arm64-v8a` and `x86_64`) and
+  macOS and Linux), one `FactorIA/` folder inside. The Linux programs are built in the Steam Runtime sniper container
+  (`scripts/build-sniper.sh`, "Linux release" above) and run on glibc 2.31 and newer. The jobs `mobile-android` (NDK, `arm64-v8a` and `x86_64`) and
   `mobile-ios` (device, simulator `arm64;x86_64`) build the mobile runtime first; every package gets
   `FactorIA/mobile/android/jniLibs/<abi>/libfactoria_player.so` and the macOS one also `FactorIA/mobile/ios/<sdk>/*.a`,
   so `factoria export --platform android|ios` works from the download without engine source (docs/EXPORTING.md).
@@ -219,8 +289,8 @@ A release holds these files (the header of `release.yml` says the same):
 | `FactorIA-windows-x64-setup.exe` | Installer of the same files, built with Inno Setup from `platforms/windows/FactorIA.iss`: per user (no administrator prompt) into `%LOCALAPPDATA%\Programs\FactorIA`, Start menu entry, folder on the user PATH (once), uninstaller | Silent install, PATH entry read from the registry, `factoria version/new/test` from the installed copy, a second install (no second PATH entry), silent uninstall (PATH entry, shortcut, files and the updater's leftovers gone) |
 | `FactorIA-macos-universal.tar.gz` | arm64 + x86_64 in one binary (`CMAKE_OSX_ARCHITECTURES="arm64;x86_64"`); what the editor's updater downloads | `lipo -archs` lists both; the Intel half runs through Rosetta when the runner has it |
 | `FactorIA-macos-arm64.tar.gz` | The same file, only because editors up to 0.1.2 download this name. Remove the `publish` step that copies it once nobody runs them | none (a copy) |
-| `FactorIA-linux-x64.tar.gz` | Linux package; what the editor's updater downloads | as the zip |
-| `FactorIA-linux-x64.AppImage` | The same files in one file (`scripts/package-appimage.sh`, `platforms/linux/`): no arguments open the editor, arguments are the `factoria` command, a link named `factoria` is the CLI. No self-update. Like the tar.gz it uses the system's X11, OpenGL and ALSA and the glibc of the runner (Ubuntu 24.04) | `--appimage-extract-and-run` (the runner has no FUSE): `version`, `new`, `test`, `export`, the `factoria` link prints the help, and with no arguments the editor stays open under Xvfb |
+| `FactorIA-linux-x64.tar.gz` | Linux package; what the editor's updater downloads. Built in the Steam Runtime sniper container: needs glibc 2.31 or newer | `build-sniper.sh all` (symbol versions, then `--version`, `new` and a headless frame inside the sniper runtime), then as the zip |
+| `FactorIA-linux-x64.AppImage` | The same files in one file (`scripts/package-appimage.sh`, `platforms/linux/`): no arguments open the editor, arguments are the `factoria` command, a link named `factoria` is the CLI. No self-update. Like the tar.gz it uses the system's X11, OpenGL and ALSA and needs glibc 2.31 or newer (built in the sniper container) | `--appimage-extract-and-run` (the runner has no FUSE): `version`, `new`, `test`, `export`, the `factoria` link prints the help, and with no arguments the editor stays open under Xvfb |
 
 The names carry no version, so `releases/latest/download/<name>` is always the newest. The AppImage tool and its
 runtime are pinned by version and SHA-256 in `scripts/package-appimage.sh`; to upgrade, change both together. Locally:
@@ -302,6 +372,7 @@ and reports the others as skipped, with the reason:
 | `android` | any host with `ANDROID_NDK_HOME` (NDK r27+) | `factoria_player` for arm64-v8a |
 | `macos` | a Mac | macOS build + ctest |
 | `ios` | a Mac with Xcode | iOS Simulator app bundle with a demo game |
+| `sniper` | Linux with Docker or Podman; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
 
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
 MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
@@ -322,7 +393,9 @@ base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds not
 and the iOS and Android jobs run only when the change touches what they build or run
 (`engine/`, `player/`, `platforms/`, `external/`, `cmake/`, `templates/`,
 `tools/common/`, `tools/cli/`, `scripts/`, the top-level CMake files or `ci.yml`).
-The last job, `CI result`, fails if any job that ran failed. It is the only check that
+The job `Linux (Steam Runtime sniper)` builds the Linux release programs as `release.yml` does and runs them in Valve's
+sniper runtime image (`scripts/build-sniper.sh`, "Linux release" above), with its own ccache. The last job,
+`CI result`, fails if any job that ran failed. It is the only check that
 the branch protection of `main` requires, so a pull request with auto-merge on
 (`gh pr merge <n> --auto --merge`) merges itself when it passes, and GitHub then
 deletes its branch. `release.yml` is not part of `CI result`: a pull request that
@@ -385,6 +458,19 @@ Install Xcode from the App Store, open it once, then run
 **`cl.exe not found` (Windows, `windows-ninja-debug`)**
 Run from "Developer PowerShell for VS 2022". The Visual Studio generator
 (`windows-debug`, `windows-release`) does not need this.
+
+**`cmake not found` (Windows, `build.ps1`)**
+Neither `PATH` nor Visual Studio has a CMake 3.24 or newer. Open the Visual Studio Installer, modify the installation
+and tick "C++ CMake tools for Windows" (it is part of "Desktop development with C++"), or run
+`winget install Kitware.CMake`. `build.ps1` finds Visual Studio's CMake by itself (`vswhere`), no `PATH` change needed.
+
+**`No CMAKE_C_COMPILER could be found`, `FTK1011` or `C1083` with Visual Studio (Windows)**
+The checkout is in a folder too deep for Windows' 259-character path limit (`build.ps1` warns about it first). Clone the
+repository to a short path such as `C:\src\FactorIA` and build there ("Long paths" above).
+
+**`libOpenGL.so.0: cannot open shared object file`, or `GLIBC_2.38 not found` / `GLIBCXX_3.4.31 not found` (Linux)**
+A program built on a newer Linux than the one it runs on. The releases are built in the Steam Runtime sniper container
+(`scripts/build-sniper.sh`) so they run on glibc 2.31 and newer; build your own copy the same way.
 
 **CMake cannot find Visual Studio 2022 (Windows)**
 Install Visual Studio 2022 with the workload "Desktop development with C++".
