@@ -16,6 +16,8 @@ every exported game, and a tooling test fails until it is there.
 | [stb](https://github.com/nothings/stb) | `2c980bb` (2026-08-01) | MIT / Public domain | render, audio | PNG/JPG decode + PNG encode, TrueType fonts, rect packing, Ogg Vorbis |
 | [cgltf](https://github.com/jkuhlmann/cgltf) | `85cd623` (2026-02-02) | MIT | render | glTF 2.0 model loading |
 | [Basis Universal](https://github.com/BinomialLLC/basis_universal) | `v2.50` (`9bebe16`) | Apache-2.0 (encoder extras: BSD-3-Clause, MIT) | render (transcoder), tooling (encoder) | KTX2 textures: the transcoder turns them into ASTC, BC7 or ETC2 at load time; `factoria export` encodes them (UASTC, ETC1S) |
+| [HarfBuzz](https://github.com/harfbuzz/harfbuzz) | `14.6.0` (2026-10-05) | MIT | render | Text shaping: ligatures, kerning, Arabic joining, Hebrew, Indic scripts and the other complex scripts |
+| [SheenBidi](https://github.com/Tehreer/SheenBidi) | `v3.0.0` (2026-01-24) | Apache-2.0 | render | Unicode Bidirectional Algorithm: paragraph direction and embedding levels for right-to-left text |
 | [dr_libs](https://github.com/mackron/dr_libs) | `dfe8377` (2026-09-01) | MIT-0 / Public domain | audio | WAV and MP3 decoding |
 | [qoa](https://github.com/phoboslab/qoa) | `bc05897` (2026-09-27) | MIT | audio, tooling | QOA audio: decoding in the engine, WAV to QOA conversion in `factoria export` |
 | [nlohmann/json](https://github.com/nlohmann/json) | `v3.12.0` | MIT | everywhere | JSON (scenes, project files, MCP, AI APIs) |
@@ -27,6 +29,11 @@ WebAssembly bindings (`encoder/basisu_wasm_*`) and `encoder/basisu_xbc7_encode.c
 includes zstd unconditionally and zstd is not vendored). `external/CMakeLists.txt` builds the transcoder into every
 player with only the output formats the engine asks for (ASTC 4x4, BC7, ETC2 RGBA8, RGBA8) and no Zstandard
 supercompression, and the encoder into `fa_tooling` only, where it stubs the two XBC7 functions `basisu_comp.cpp` calls.
+
+`external/harfbuzz/` holds the 14.6.0 release's `src/` reduced to the files `src/harfbuzz.cc` (its amalgamation) includes,
+unmodified, plus `COPYING`: no tests, no subsetter sources, no FreeType/ICU/GLib/CoreText/DirectWrite glue (those compile to
+nothing without their `HAVE_*` macros). `external/CMakeLists.txt` builds it with `HB_LEAN` and `HB_NO_AAT`. `external/sheenbidi/`
+holds `Headers/` and `Source/` of the v3.0.0 release, built through its unity file `Source/SheenBidi.c` (`SB_CONFIG_UNITY`).
 
 ## Tools (not vendored)
 
