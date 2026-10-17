@@ -98,7 +98,8 @@ VisualMeasure Engine::Impl::measure() const {
 }
 
 // Every scene load (scene.load, scene.reload, hot reload, project.test) starts from what is on disk now. ponytail: only
-// fixedHz, the input actions and the deadzone are re-applied from factoria.json; size, scale mode and the renderer need a restart.
+// fixedHz, the input actions and the deadzone are re-applied from factoria.json; size, scale mode, the renderer and the
+// "localization" section (languages, default language: setup_localization) need a restart. locales/*.json reload by themselves.
 void Engine::Impl::refresh_from_disk() {
     const std::int64_t t = fs::modified_time(kProjectFileName);
     if (t != projectMtime) {
