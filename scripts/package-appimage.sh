@@ -8,8 +8,8 @@
 #
 # Inside: usr/bin/factoria and usr/bin/factoria_player (so `factoria export` finds the player next to the binary),
 # platforms/linux/AppRun (no arguments: the editor; otherwise the factoria CLI), the .desktop file and the icon.
-# Like the tar.gz it links the system's X11, OpenGL and ALSA and the glibc of the machine that built it; it bundles no
-# libraries.
+# Like the tar.gz it links the system's X11, OpenGL and ALSA and needs glibc 2.31 or newer (the programs are built in the
+# Steam Runtime sniper container, scripts/build-sniper.sh); it bundles no libraries.
 #
 # appimagetool is itself an AppImage: it runs with APPIMAGE_EXTRACT_AND_RUN, so this works without FUSE. Both downloads
 # are pinned and checked against their SHA-256 (GitHub shows it on each release asset). To upgrade, change the

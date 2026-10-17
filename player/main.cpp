@@ -1,6 +1,6 @@
 // factoria_player: the minimal runtime shipped inside exported games.
 //
-//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--help]
+//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--version] [--help]
 //             Without an argument the game is, in this order: the folder "<exe dir>/game" (or
 //             "<exe dir>/../Resources/game" inside a macOS .app) when it contains factoria.json; else the pack
 //             "<exe dir>/game.pak" (or "<exe dir>/../Resources/game.pak"), the one archive a `factoria export
@@ -149,11 +149,12 @@ int startup_error(const std::string& text) {
 }
 
 void print_usage() {
-    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--help]\n"
+    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--version] [--help]\n"
               "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
               "              ./game.pak next to it, else the current directory)\n"
               "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
-              "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)");
+              "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)\n"
+              "  --version   print the engine version (the one `factoria version` prints) and exit");
 }
 
 }  // namespace
@@ -168,6 +169,9 @@ int main(int argc, char** argv) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") {
             print_usage();
+            return 0;
+        } else if (a == "--version") {
+            std::printf("factoria_player %s\n", FA_ENGINE_VERSION);
             return 0;
         } else if (a == "--fullscreen") {
             fullscreen = true;

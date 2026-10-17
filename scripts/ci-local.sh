@@ -17,6 +17,9 @@
 #            quirks need the Windows host).
 #   android  factoria_player for arm64-v8a (needs ANDROID_NDK_HOME, NDK r27+).
 #   macos    macOS build + ctest (only on a Mac).
+#   sniper   Linux release programs built in the Steam Runtime sniper SDK container, checked and run in the sniper
+#            runtime image (scripts/build-sniper.sh; needs Docker or Podman). Not part of the default set: it pulls
+#            about 1.5 GB of images the first time.
 #   ios      iOS Simulator build of factoria_player (only on a Mac with Xcode).
 #
 # Exit code: 0 if every job that ran passed, 1 otherwise.
@@ -136,6 +139,19 @@ job_android() {
     fi
 }
 
+job_sniper() {
+    note "sniper"
+    [ "$HOST" = "Linux" ] || { record sniper SKIP "not a Linux host"; return; }
+    if ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
+        record sniper SKIP "needs Docker or Podman"; return
+    fi
+    if run_logged "$LOGDIR/sniper.log" ./scripts/build-sniper.sh all; then
+        record sniper PASS "linux-sniper build, symbol versions, run in the sniper runtime"
+    else
+        record sniper FAIL "see $LOGDIR/sniper.log"
+    fi
+}
+
 job_macos() {
     note "macos"
     [ "$HOST" = "Darwin" ] || { record macos SKIP "needs a Mac (run this script on macOS)"; return; }
@@ -163,8 +179,8 @@ SELECTED=("$@")
 [ ${#SELECTED[@]} -eq 0 ] && SELECTED=("${ALL[@]}")
 for j in "${SELECTED[@]}"; do
     case "$j" in
-        linux|windows|android|macos|ios) "job_$j" ;;
-        *) echo "unknown job '$j' (valid: ${ALL[*]})"; exit 2 ;;
+        linux|windows|android|macos|ios|sniper) "job_$j" ;;
+        *) echo "unknown job '$j' (valid: ${ALL[*]} sniper)"; exit 2 ;;
     esac
 done
 
