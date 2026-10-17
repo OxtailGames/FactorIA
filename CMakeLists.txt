@@ -19,7 +19,12 @@ endif()
 # then name another checkout (debuggers may ask where a source file is).
 find_program(FA_CCACHE ccache)
 if(FA_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
-    set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE} base_dir=${CMAKE_CURRENT_SOURCE_DIR} hash_dir=false)
+    set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE})
+    execute_process(COMMAND ${FA_CCACHE} --version OUTPUT_VARIABLE _fa_ccache_version ERROR_QUIET)
+    string(REGEX MATCH "[0-9]+\\.[0-9]+" _fa_ccache_version "${_fa_ccache_version}")
+    if(_fa_ccache_version VERSION_GREATER_EQUAL 4.8)  # settings as arguments came in 4.8 (Ubuntu 22.04 has 4.5)
+        list(APPEND CMAKE_C_COMPILER_LAUNCHER base_dir=${CMAKE_CURRENT_SOURCE_DIR} hash_dir=false)
+    endif()
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CMAKE_C_COMPILER_LAUNCHER})
     # MSVC: ccache cannot cache /Zi (one .pdb shared by all objects of a target); /Z7 keeps debug info in each object.
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
