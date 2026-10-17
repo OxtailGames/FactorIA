@@ -21,6 +21,7 @@
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/publish.h"
 #include "assets_internal.h"
 #include "util.h"
 
@@ -293,6 +294,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     }
     const Json& pj = parsed.value();
     const ExportSettingsParse exportSettings = parse_export_settings(pj);
+    const PublishSettingsParse publish = parse_publish_settings(pj);
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
@@ -300,12 +302,15 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
         for (const auto& e : validate_json(schema, pj)) {
             if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
-            const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(),
-                                                        [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; });
+            const auto sameSpot = [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; };
+            const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
+                                            std::any_of(publish.errors.begin(), publish.errors.end(), sameSpot);
             if (!reportedBySettings) c.error(kProjectFileName, e.pointer, e.message, e.hint);
         }
     if (!pj.is_object()) return;
     check_export_settings(c, exportSettings);
+    for (const auto& e : publish.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
+    for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));

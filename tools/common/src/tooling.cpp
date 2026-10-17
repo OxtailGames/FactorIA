@@ -14,6 +14,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_asset_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
     register_export_commands(registry, projectDir);
+    register_publish_commands(registry, projectDir);
     register_audio_commands(registry, projectDir);
     register_plugin_commands(registry, projectDir);
     register_platform_setup_commands(registry, projectDir);
