@@ -67,6 +67,8 @@ development build came from); the mode is printed and reported as `mode`, and th
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build; Gradle's
 output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
+`--release` on linux, windows and macos puts the whole game in one `game.pak` next to the executable instead of a `game/` folder, with the
+scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](EXPORTING.md#release-build-gamepak)).
 Linux: `--format appimage` also builds `<slug>-x86_64.AppImage`, the game as one file (Linux x86_64 or WSL, after
 `factoria setup appimage`; see [EXPORTING.md](EXPORTING.md#linux-appimage)). On a Mac, `factoria call sign.macos` signs and
 notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)), and
@@ -74,6 +76,9 @@ notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-f
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
 `out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
 [EXPORTING.md](EXPORTING.md).
+
+Uploading the desktop exports to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic` and
+`publish.gog` (`factoria call publish.itch '{"dryRun":true}'`) run the store's uploader; see [Uploading to stores](EXPORTING.md#uploading-to-stores).
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio

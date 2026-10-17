@@ -36,7 +36,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 
 ```
 engine/            runtime modules (ship inside every game)
-  core/            fa_core     types, math, log, json, fs (VFS), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h)
+  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads
   render/          fa_render   2D + 3D renderer, text, particles, debug draw, capture, KTX2 textures (Basis Universal transcoder)
@@ -44,7 +44,7 @@ engine/            runtime modules (ship inside every game)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
-  script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner
+  script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands
 player/            factoria_player — minimal runtime for exported games
 tools/             developer tools (desktop only)
@@ -110,6 +110,18 @@ export default {
 Every command is automatically exposed through MCP (`factoria mcp`), the
 built-in AI agent, the CLI (`factoria call <name> '<json>'`), the editor console
 and scripts (`fa.call(name, args)`).
+
+### Files: `fa::fs`
+Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts, scripts, `factoria.json`) goes through
+`fa::fs` (`core/fs.h`), by project-relative path (forward slashes, no `..`). The paths are answered from one of three
+sources: the project folder on disk (`set_project_root`), the APK's assets on Android, or a **game pack**: one read-only
+archive (`core/pack.h`) that `fa::fs::mount_pack` mounts, which is how a `--release` desktop export ships a game
+([EXPORTING.md](EXPORTING.md#release-build-gamepak)). While a pack is mounted it answers every project-relative path alone
+(`read_*`, `exists`, `is_directory`, `file_size`, `modified_time`, `list`); absolute paths and writes still go to the host.
+So engine code must not open a game file with `std::ifstream` or `std::filesystem` on a path it built from the project
+folder: use `fs::`, or the file will be missing from a packed game. The pack reads positionally (no shared file offset), so
+it is safe from any thread. `script/bytecode.h` compiles scripts for the pack; the module loader reads a compiled script from
+the same `.js` path.
 
 ### Game loop
 See `engine/runtime/include/fa/runtime/engine.h`. Fixed-step simulation

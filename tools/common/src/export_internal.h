@@ -126,8 +126,9 @@ std::string fs_safe_name(const std::string& s);
 // Seals an exported .app with an ad hoc signature; returns "" or what went wrong.
 std::string sign_app_ad_hoc(const stdfs::path& app);
 // `icon` is the platform's icon (load_platform_icon), empty when none is set: the .icns of a macOS app, the icon of the
-// Windows exe, the PNG and .desktop file of a Linux build.
-Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player,
+// Windows exe, the PNG and .desktop file of a Linux build. With options.release the game goes into one pack
+// (game.pak, fa/core/pack.h) instead of the game/ folder; scripts become bytecode unless export.scriptBytecode is false.
+Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform, const stdfs::path& player,
                             const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon,
                             ExportReport& report);
 

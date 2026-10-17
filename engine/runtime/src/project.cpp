@@ -221,7 +221,19 @@ Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
     return p;
 }
 
+// True when `dir` is the folder fs treats as the project root (the player sets it before the engine starts).
+bool is_project_root(std::string_view dir) {
+    std::error_code ec;
+    stdfs::path a = stdfs::absolute(stdfs::path(std::string(dir)), ec).lexically_normal();
+    stdfs::path b = fs::project_root();
+    if (!a.has_filename()) a = a.parent_path();
+    if (!b.has_filename()) b = b.parent_path();
+    return a.generic_string() == b.generic_string();
+}
+
 Result<std::string> read_project_text(std::string_view projectDir) {
+    // A game pack (fs::mount_pack) holds the project: its factoria.json is in the pack, not next to it on disk.
+    if (fs::pack_mounted() && (projectDir.empty() || is_project_root(projectDir))) return fs::read_text(kProjectFileName);
     if (!projectDir.empty()) {
         stdfs::path p = stdfs::path(std::string(projectDir)) / kProjectFileName;
         std::error_code ec;
@@ -767,6 +779,11 @@ constexpr const char* kSchemaText =
 )JSON"
     R"JSON(      "description": "Per-platform export settings, committed with the game. Every field is optional and defaults are applied; a field equal to its default is best left out. Unknown keys inside a platform object only give a warning (with a \"did you mean\"). Edited by the editor's Platform settings window; machine-specific settings (Android SDK and JDK folders, keystore passwords) are never stored here but in ~/.factoria/export.json. See docs/EXPORTING.md, \"Platform settings\".",
       "properties": {
+        "scriptBytecode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Release builds of the desktop platforms (factoria export --release for windows, macos, linux): compile the scripts (.js) to QuickJS bytecode inside the game pack instead of shipping their source. Default true. The compiled scripts only run on the FactorIA version that wrote them (a game that meets another version says so and asks for a new export), keep their file names and line numbers in error messages, and leave out the source text. false ships the scripts as plain source in the pack. A script with a syntax error is shipped as source with a warning. Without --release, and on Android and iOS, the setting changes nothing. See docs/EXPORTING.md, \"Release build\"."
+        },
         "windows": {
           "type": "object",
           "description": "Windows export settings (factoria export --platform windows).",
@@ -929,6 +946,113 @@ constexpr const char* kSchemaText =
     "feedbackFile": {
       "type": "string",
       "description": "Project-relative path of the engine feedback log (default ENGINE_FEEDBACK.json)."
+    },
+)JSON"
+    R"JSON(    "publish": {
+      "type": "object",
+      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic and publish.gog commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
+      "properties": {
+        "steam": {
+          "type": "object",
+          "description": "Steam (SteamPipe, uploaded with steamcmd).",
+          "properties": {
+            "account": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of the Steam account that uploads builds (a build account with the \"Edit App Metadata\" permission), e.g. \"mystudio_build\". Its password is never stored: sign in once with `steamcmd +login <account>` and steamcmd keeps the login."
+            },
+            "depots": {
+              "type": "object",
+              "description": "The depot id of each platform, from the Steamworks partner site (App Admin > SteamPipe > Depots): {\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}. A platform without a depot is not uploaded.",
+              "additionalProperties": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              }
+            },
+            "branch": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Beta branch to set every uploaded build live on, e.g. \"beta\". Absent = the build is only uploaded. \"default\" is not allowed: Steam sets that branch live by hand only."
+            }
+          }
+        },
+        "itch": {
+          "type": "object",
+          "description": "itch.io (uploaded with butler).",
+          "properties": {
+            "game": {
+              "type": "string",
+              "pattern": "^[a-z0-9_-]+/[a-z0-9_-]+$",
+              "description": "Your itch.io page as \"user/game\" in lower case, from its address (mystudio.itch.io/space-dodge is \"mystudio/space-dodge\")."
+            },
+            "channels": {
+              "type": "object",
+              "description": "The butler channel of each platform. itch.io tags a download by the words in its channel name: windows, linux, mac or osx. Default: {\"windows\": \"windows\", \"macos\": \"mac\", \"linux\": \"linux\"}.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "epic": {
+          "type": "object",
+          "description": "Epic Games Store (uploaded with BuildPatchTool). The ids are in the Epic Games Dev Portal.",
+          "properties": {
+            "organizationId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Organization ID (Dev Portal > Organization settings)."
+            },
+            "productId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Product ID of the game (Dev Portal > Product settings)."
+            },
+            "clientId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Client ID of the Build Patch Tool credential (Product Settings > General > Build Patch Tool Credentials; an SDK client does not work). Its secret goes in the environment variable FACTORIA_EPIC_CLIENT_SECRET, never here."
+            },
+            "artifacts": {
+              "type": "object",
+              "description": "The artifact id of each platform (Dev Portal > Artifacts and Binaries): {\"windows\": \"<id>\", \"macos\": \"<id>\"}. A platform without an artifact is not uploaded.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "gog": {
+          "type": "object",
+          "description": "GOG (uploaded with GOG Galaxy Pipeline Builder).",
+          "properties": {
+            "productId": {
+              "type": [
+                "string",
+                "integer"
+              ],
+              "description": "Product id of the game in the GOG Developer Portal."
+            },
+            "clientId": {
+              "type": [
+                "string",
+                "integer"
+              ],
+              "description": "GALAXY SDK client id of the game, when it uses the GALAXY SDK (its secret is not written to the project file). Default: none."
+            },
+            "languages": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              },
+              "description": "Locale codes of the languages the game supports, e.g. [\"en-US\", \"fr-FR\"]. Default [\"en-US\"]."
+            }
+          }
+        }
+      }
     }
   }
 })JSON";
