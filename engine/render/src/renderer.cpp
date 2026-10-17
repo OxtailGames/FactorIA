@@ -81,6 +81,7 @@ struct Renderer::Impl {
     Gpu gpu;
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
+    float textScale = 1.0f;  // Renderer::set_text_scale
 
     sg_image colorImg{}, resolveImg{}, depthImg{};
     sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
@@ -345,6 +346,8 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     }
     im.assets = std::make_unique<Assets>(im.gpu);
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
+    im.fonts->set_fallback_fonts(fallbackFonts_);
+    im.textScale = textScale_;
     im.create_targets(desc.designWidth, desc.designHeight);
     im.initialized = true;
     return true;
@@ -461,6 +464,7 @@ void Renderer::update(World& world, float dt) {
     fr.dt = dt;
     fr.assets = im.assets.get();
     fr.fonts = im.fonts.get();
+    fr.textScale = im.textScale;
     update_animators(world, fr, true);
     update_particles(world, dt);
     // Camera queries (world_to_screen, screen_to_world, screen_ray) must not depend on drawing:
@@ -478,16 +482,25 @@ void Renderer::set_scale_mode(ScaleMode mode) {
     if (impl_) impl_->scaleMode = mode;
 }
 
-Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth) const {
+Vec2 Renderer::measure_text(std::string_view text, float fontSize, std::string_view font, float maxWidth, RenderSpace space) const {
     if (!initialized() || text.empty() || fontSize <= 0.0f) return {0, 0};
     Text t;
     t.text = std::string(text);
     t.font = std::string(font);
     t.fontSize = fontSize;
     t.maxWidth = maxWidth;
-    float rasterPx = fontSize;  // same as screen-space Text rendering at scale 1
-    float unitsPerPx = fontSize / std::max(std::round(std::clamp(rasterPx, 4.0f, 400.0f)), 1.0f);
-    return impl_->fonts->layout(t, rasterPx, unitsPerPx).size;
+    // The very layout of Text drawing at entity scale 1 (and of UI labels in screen space).
+    return impl_->fonts->layout(t, space == RenderSpace::Screen ? fontSize * impl_->textScale : fontSize, 1.0f).size;
+}
+
+void Renderer::set_fallback_fonts(std::vector<std::string> fonts) {
+    fallbackFonts_ = std::move(fonts);
+    if (impl_ && impl_->fonts) impl_->fonts->set_fallback_fonts(fallbackFonts_);
+}
+
+void Renderer::set_text_scale(float scale) {
+    textScale_ = std::isfinite(scale) ? std::clamp(scale, kMinTextScale, kMaxTextScale) : 1.0f;
+    if (impl_) impl_->textScale = textScale_;
 }
 
 void Renderer::render_world(World& world, float dt) {
@@ -512,7 +525,7 @@ void Renderer::Impl::render(World& world, float dt) {
     fr.stats = &stats;
     fr.assets = assets.get();
     fr.fonts = fonts.get();
-    fonts->begin_frame();
+    fr.textScale = textScale;
 
     flush_particle_bursts(world);
     update_animators(world, fr, false);

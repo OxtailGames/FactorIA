@@ -14,6 +14,7 @@ struct Frame {
     RenderStats* stats = nullptr;
     Assets* assets = nullptr;
     Fonts* fonts = nullptr;
+    float textScale = 1.0f;  // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
     bool white_used = false;
 };
 
