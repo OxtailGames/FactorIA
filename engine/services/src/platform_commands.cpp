@@ -49,7 +49,7 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
     commands.add(
         {"platform.reset",
          "Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.",
-         "Also numbers transactions from fake-1 again. Pending requests are not cancelled. Fails when the game runs a real store "
+         "Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again. Pending requests are not cancelled. Fails when the game runs a real store "
          "backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that "
          "share state. Example: platform.reset {}",
          schema(R"({"type":"object","properties":{}})"), false, "platform"},

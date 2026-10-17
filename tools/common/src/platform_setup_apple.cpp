@@ -26,12 +26,6 @@ std::string slice_library(const std::string& slice, const std::string& name) {
     return "ios/" + slice + "/lib" + name + ".a";
 }
 
-std::string quoted_list(const std::vector<std::string>& ids) {
-    std::string out;
-    for (const std::string& id : ids) out += (out.empty() ? "" : ", ") + std::string("\"") + id + "\"";
-    return out;
-}
-
 }  // namespace
 
 Backend apple_backend() {

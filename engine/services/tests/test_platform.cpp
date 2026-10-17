@@ -233,6 +233,98 @@ TEST_CASE("platform: an empty catalog says how to declare the first entry") {
     CHECK(has(m, "\"platform\": {\"achievements\": ["));
 }
 
+TEST_CASE("platform: integrity.token checks the challenge before the request leaves the game") {
+    Game g;
+    auto rec = std::make_unique<Recorder>();
+    Recorder* r = rec.get();
+    g.ps.set_backend(std::move(rec));
+
+    const std::string hint = "Make the challenge on your server: 16 or more random bytes as URL-safe Base64 (a nonce)";
+    const std::string missing = g.mistake("integrity.token", Json::object());
+    CHECK(has(missing, "the argument \"challenge\" is missing"));
+    CHECK(has(missing, hint.c_str()));
+    CHECK(has(missing, "check it inside the decoded token; a token without a fresh challenge can be replayed."));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": null})")), "is missing"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": 42})")), "\"challenge\" must be a string"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": 42})")), "got number 42"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "short"})")), "too short: 5 characters, it needs 16 to 500"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": ""})")), "too short: 0 characters"));
+    CHECK(has(g.mistake("integrity.token", Json{{"challenge", std::string(501, 'a')}}), "too long: 501 characters, it needs 16 to 500"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "short"})")), hint.c_str()));
+
+    // A bad character is named with its position (from 1); standard Base64's + and / get the fix.
+    const std::string plus = g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefg+hijklmnopqrstuv=="})"));
+    CHECK(has(plus, "the challenge has the character \"+\" at position 8; only A-Z a-z 0-9 - _ = are allowed (URL-safe Base64)"));
+    CHECK(has(plus, "URL-safe Base64 writes - and _ instead"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abc/defghijklmnopqrstuv"})")), "the character \"/\" at position 4"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefghijklmnop qrstuv"})")), "the character \" \" at position 17"));
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "abcdefghijklmnopqrstuv\n"})")), "the character \"\\n\" at position 23"));
+    // Not ASCII: named without echoing it; the position counts characters, not bytes.
+    const std::string accent = g.mistake("integrity.token", Json::parse("{\"challenge\": \"aaaa\\u00e9aaaaaaaaaaaaaaaa\"}"));
+    CHECK(has(accent, "the challenge has a non-ASCII character at position 5"));
+    // The first bad character is the one reported, even when the length is wrong too.
+    CHECK(has(g.mistake("integrity.token", Json::parse(R"({"challenge": "a b"})")), "at position 2"));
+
+    // 16 and 500 characters of the allowed alphabet pass, and the backend gets the challenge as it is.
+    const std::string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=";
+    CHECK(g.ps.start("integrity.token", Json{{"challenge", alphabet.substr(0, 16)}}).ok());
+    CHECK(g.ps.start("integrity.token", Json{{"challenge", std::string(500, '_')}}).ok());
+    REQUIRE(r->calls.size() == 2);
+    CHECK(r->calls[0].method == "integrity.token");
+    CHECK(r->calls[0].args == Json{{"challenge", alphabet.substr(0, 16)}});
+    CHECK(r->calls[1].args["challenge"].get<std::string>().size() == 500);
+    // Only the challenge is passed on: nothing else the script wrote.
+    CHECK(g.ps.start("integrity.token", Json{{"challenge", alphabet.substr(0, 16)}, {"extra", 1}}).ok());
+    CHECK(r->calls[2].args == Json{{"challenge", alphabet.substr(0, 16)}});
+}
+
+TEST_CASE("platform: integrity.token needs the integrity service, and its answer needs a token") {
+    const Json args = Json{{"challenge", "AAAAAAAAAAAAAAAAAAAAAA"}};
+    PlatformServices ps;
+    ps.set_catalog(catalog());
+
+    // Steam and Apple do not offer it: the engine answers.
+    auto steam = std::make_unique<Recorder>();
+    Recorder* sp = steam.get();
+    steam->offered = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence"};
+    ps.set_backend(std::move(steam));
+    auto r = ps.start("integrity.token", args);
+    REQUIRE(r.ok());
+    REQUIRE(r->answer.has_value());
+    CHECK(r->answer->error.code == "unavailable");
+    CHECK(has(r->answer->error.message, "the \"steam\" backend does not offer the \"integrity\" service"));
+    CHECK(has(r->answer->error.hint, "platform.has(\"integrity\")"));
+    CHECK(sp->calls.empty());
+    CHECK_FALSE(ps.has_service("integrity"));
+
+    // A backend that offers it answers {token}; an answer without a string token is a failure.
+    auto play = std::make_unique<Recorder>();
+    Recorder* pp = play.get();
+    play->backendName = "google";
+    pp->handler = [](const Recorder::Call& c, const PlatformSink& sink) {
+        const std::string c0 = c.args["challenge"].get<std::string>();
+        if (c0[0] == 'A') sink.complete(c.id, Json{{"token", "signed.token.1"}});
+        else if (c0[0] == 'B') sink.complete(c.id, Json::object());
+        else if (c0[0] == 'C') sink.complete(c.id, Json{{"token", 7}});
+        else sink.complete(c.id, Json("signed"));
+    };
+    ps.set_backend(std::move(play));
+    CHECK(ps.has_service("integrity"));
+    r = ps.start("integrity.token", args);
+    REQUIRE(r.ok());
+    REQUIRE(r->answer.has_value());
+    CHECK(r->answer->ok);
+    CHECK(r->answer->result == Json{{"token", "signed.token.1"}});
+    for (const char* c : {"BBBBBBBBBBBBBBBBBBBBBB", "CCCCCCCCCCCCCCCCCCCCCC", "DDDDDDDDDDDDDDDDDDDDDD"}) {
+        r = ps.start("integrity.token", Json{{"challenge", c}});
+        REQUIRE(r.ok());
+        REQUIRE(r->answer.has_value());
+        CHECK_FALSE(r->answer->ok);
+        CHECK(r->answer->error.code == "failed");
+        CHECK(has(r->answer->error.message, "the \"google\" backend answered integrity.token without a string \"token\""));
+    }
+}
+
 // ------------------------------------------------------------------------------------- dispatcher: store ids ------
 TEST_CASE("platform: the backend gets the store ids, and answers with a store id are mapped back") {
     PlatformServices ps;
@@ -541,6 +633,45 @@ TEST_CASE("fake: overlay and presence") {
     CHECK(g.fake().state()["presence"] == Json::parse(R"({"text": "In level 3", "data": {"level": "3"}})"));
     auto calls = g.fake().state()["calls"];
     CHECK(calls[calls.size() - 2]["args"] == Json::parse(R"({"page": "store", "id": "gems_100", "storeId": "gems_100"})"));
+}
+
+TEST_CASE("fake: integrity tokens are numbered from 1, restart on reset, and can be scripted") {
+    Game g;
+    const Json args = Json{{"challenge", "AAAAAAAAAAAAAAAAAAAAAA"}};
+    CHECK(g.ps.has_service("integrity"));
+    CHECK(g.ok("integrity.token", args) == Json{{"token", "fake-integrity-1"}});
+    CHECK(g.ok("integrity.token", args)["token"] == "fake-integrity-2");
+
+    // A scripted error uses no number; neither does a scripted token (the made-up one is still next).
+    REQUIRE(g.fake().respond("integrity.token", Json::parse(R"({"error": "unavailable", "message": "Google Play services are missing"})")).ok());
+    PlatformError e = g.fails("integrity.token", args);
+    CHECK(e.code == "unavailable");
+    CHECK(e.message == "Google Play services are missing");
+    REQUIRE(g.fake().respond("integrity.token", Json::parse(R"({"token": "my.token"})")).ok());
+    CHECK(g.ok("integrity.token", args)["token"] == "my.token");
+    REQUIRE(g.fake().respond("integrity.token", Json::parse(R"({"result": {"token": "exact"}})")).ok());
+    CHECK(g.ok("integrity.token", args) == Json{{"token", "exact"}});
+    CHECK(g.ok("integrity.token", args)["token"] == "fake-integrity-3");
+    // A scripted answer without a string token is a failure, as with a real backend.
+    REQUIRE(g.fake().respond("integrity.token", Json::parse(R"({"result": {}})")).ok());
+    CHECK(g.fails("integrity.token", args).code == "failed");
+    CHECK(g.ok("integrity.token", args)["token"] == "fake-integrity-4");
+
+    // The request log has every call with the challenge the backend got.
+    Json calls = g.fake().state()["calls"];
+    CHECK(calls[0]["method"] == "integrity.token");
+    CHECK(calls[0]["args"] == args);
+    CHECK(calls[0]["result"]["token"] == "fake-integrity-1");
+    CHECK(calls[2]["error"]["code"] == "unavailable");
+
+    // reset() numbers them from 1 again, next to the transactions.
+    g.fake().reset();
+    CHECK(g.ok("integrity.token", args)["token"] == "fake-integrity-1");
+    CHECK(g.ok("purchases.buy", Json::parse(R"({"id": "gems_100"})"))["transactionId"] == "fake-1");
+
+    // Not signed in: like every method but player.signIn.
+    g.fake().set_signed_in(false);
+    CHECK(g.fails("integrity.token", args).code == "notSignedIn");
 }
 
 TEST_CASE("fake: not signed in rejects everything but player.signIn") {

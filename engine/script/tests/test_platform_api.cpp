@@ -84,12 +84,28 @@ test("overlay and presence", async () => {
   // The call log keeps every call of the file; the last two are the ones just made.
   expect(game.platform.calls().map((c) => c.method).slice(-2)).toEqual(["overlay.open", "presence.set"]);
 });
+
+test("integrity tokens answer { token }, numbered from 1 like transactions", async () => {
+  expect(platform.has("integrity")).toBe(true);
+  const challenge = "dGhpcy1pcy1hLW5vbmNl"; // what the game's server made
+  expect(await platform.integrity.token(challenge)).toEqual({ token: "fake-integrity-1" });
+  expect((await platform.integrity.token(challenge)).token).toBe("fake-integrity-2");
+  const last = game.platform.calls().slice(-1)[0];
+  expect(last.method).toBe("integrity.token");
+  expect(last.args).toEqual({ challenge });
+  game.platform.respond("integrity.token", { error: "unavailable", hint: "Install Google Play services." });
+  let caught;
+  await platform.integrity.token(challenge).catch((e) => { caught = e; });
+  expect(caught.code).toBe("unavailable");
+  game.platform.reset();
+  expect((await platform.integrity.token(challenge)).token).toBe("fake-integrity-1");
+});
 )");
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/platform.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 5);
+    CHECK(rep.passed == 6);
 }
 
 TEST_CASE("platform api: a mistake in the call throws at once, a store failure rejects with code and hint") {
@@ -119,6 +135,19 @@ test("wrong arguments throw", () => {
   expect(() => platform.overlay.open("achievments")).toThrow('did you mean "achievements"');
   expect(() => platform.stats.add("wins", "1")).toThrow("delta must be a finite number");
   expect(() => platform.purchases.finish("nope")).toThrow("is not one this game was told about");
+});
+
+test("a bad integrity challenge throws at once, naming the character and what to do", () => {
+  expect(() => platform.integrity.token()).toThrow('the argument "challenge" is missing');
+  expect(() => platform.integrity.token(12345)).toThrow("must be a string");
+  expect(() => platform.integrity.token("too-short")).toThrow("too short: 9 characters, it needs 16 to 500");
+  expect(() => platform.integrity.token("a".repeat(501))).toThrow("too long: 501 characters");
+  let message = "";
+  try { platform.integrity.token("abcdefg+hijklmnopqrstuv=="); } catch (e) { message = e.message; }
+  expect(message).toContain('platform.integrity.token("abcdefg+hijklmnopqrstuv==")');
+  expect(message).toContain('the character "+" at position 8');
+  expect(message).toContain("Make the challenge on your server");
+  expect(game.platform.calls().some((c) => c.method === "integrity.token")).toBe(false); // nothing was sent
 });
 
 test("unknown services and events throw with a suggestion", () => {
@@ -160,7 +189,7 @@ test("a rejection somebody handles is no script error", async () => {
     TestReport rep = h.scripts.run_tests({"tests/errors.test.js"});
     MESSAGE(rep.summary());
     CHECK(rep.ok());
-    CHECK(rep.passed == 6);
+    CHECK(rep.passed == 7);
     CHECK(h.scripts.errors().empty());
 }
 

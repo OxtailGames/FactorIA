@@ -16,7 +16,7 @@ namespace fa {
 
 // ------------------------------------------------------------------------------------------------------ tables ----
 const std::vector<std::string>& platform_services_all() {
-    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence"};
+    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity"};
     return v;
 }
 
@@ -51,6 +51,9 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"purchases.restore", "purchases", "List the non-consumables and subscriptions the player owns."},
         {"overlay.open", "overlay", "Open a page of the store's overlay."},
         {"presence.set", "presence", "Set the rich presence text friends see."},
+        {"integrity.token", "integrity",
+         "Get a signed token that says this is the genuine app on a genuine device, for the game's own server to verify (args: challenge, "
+         "the server's nonce; result: token)."},
     };
     return v;
 }
@@ -73,6 +76,20 @@ bool valid_cloud_key(const std::string& s) {
 }
 
 Json unknown_player() { return Json::object({{"id", ""}, {"name", ""}, {"signedIn", false}}); }
+
+// The characters of integrity.token's challenge: URL-safe Base64 (A-Z a-z 0-9 - _ =).
+bool challenge_char(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '=';
+}
+
+// The character at byte `i` of `s` for a message: ASCII is quoted ("+", " ", "\n"), anything else is named only, so that
+// the message is valid UTF-8 whatever bytes the string holds. `position` counts characters from 1.
+std::string describe_char(const std::string& s, std::size_t i, std::size_t& position) {
+    position = 1;
+    for (std::size_t k = 0; k < i; ++k) position += (static_cast<unsigned char>(s[k]) & 0xC0) != 0x80;  // not a UTF-8 continuation byte
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    return c < 0x80 ? in_quotes(std::string(1, static_cast<char>(c))) : "a non-ASCII character";
+}
 
 // ---------------------------------------------------------------------------------------------- preparing requests --
 // A programmer's mistake found before the request leaves the game. Thrown by the helpers below and caught in start();
@@ -321,6 +338,33 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         return Json::object({{"text", text}, {"data", data}});
     }
 
+    if (method == "integrity.token") {
+        const std::string hint =
+            "Make the challenge on your server: 16 or more random bytes as URL-safe Base64 (a nonce), send it to the game, and check it "
+            "inside the decoded token; a token without a fresh challenge can be replayed.";
+        const auto it = in.find("challenge");
+        if (it == in.end() || it->is_null())
+            throw Bad{"the argument \"challenge\" is missing (a nonce from your server, 16 to 500 characters of URL-safe Base64)", hint};
+        if (!it->is_string())
+            throw Bad{"\"challenge\" must be a string (a nonce from your server, 16 to 500 characters of URL-safe Base64), got " + describe_json_value(*it), hint};
+        const std::string& challenge = it->get_ref<const std::string&>();
+        for (std::size_t i = 0; i < challenge.size(); ++i) {
+            if (challenge_char(static_cast<unsigned char>(challenge[i]))) continue;
+            std::size_t position = 0;
+            const std::string what = describe_char(challenge, i, position);
+            throw Bad{"the challenge has " + (what[0] == '"' ? "the character " : std::string()) + what + " at position " + std::to_string(position) +
+                          "; only A-Z a-z 0-9 - _ = are allowed (URL-safe Base64)",
+                      hint + (challenge[i] == '+' || challenge[i] == '/'
+                                  ? " Standard Base64 writes + and /; URL-safe Base64 writes - and _ instead."
+                                  : std::string())};
+        }
+        if (challenge.size() < 16 || challenge.size() > 500)
+            throw Bad{"the challenge is too " + std::string(challenge.size() < 16 ? "short" : "long") + ": " + std::to_string(challenge.size()) +
+                          " characters, it needs 16 to 500",
+                      hint};
+        return Json::object({{"challenge", challenge}});
+    }
+
     throw Bad{"no preparation for " + method, "This is an engine bug; report it."};
 }
 
@@ -433,6 +477,12 @@ struct PlatformSink::State {
         }
         Pending p = std::move(it->second);
         pending.erase(it);
+        // A game sends this answer to its server: one without a token is a failure here, not something to forward.
+        if (ok && p.method == "integrity.token" && !(result.is_object() && result.contains("token") && result["token"].is_string())) {
+            ok = false;
+            error = {"failed", "the " + in_quotes(backendName) + " backend answered integrity.token without a string \"token\": got " + describe_json_value(result),
+                     "This is a bug in the backend; the answer must be {\"token\": \"<string>\"}."};
+        }
         PlatformAnswer a;
         a.id = id;
         a.method = p.method;
