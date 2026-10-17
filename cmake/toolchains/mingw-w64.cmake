@@ -16,4 +16,3 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 # Ship self-contained executables and DLLs (plugins, test mocks): no libstdc++/libgcc/winpthread DLLs needed.
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-static -static-libgcc -static-libstdc++")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "${CMAKE_EXE_LINKER_FLAGS_INIT}")
-set(CMAKE_MODULE_LINKER_FLAGS_INIT "${CMAKE_EXE_LINKER_FLAGS_INIT}")
