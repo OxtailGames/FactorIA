@@ -346,8 +346,10 @@ Linux); an offline player's are kept by Steam and sent later. There is no `achie
 file holds the JSON text of one key. Steam Input, workshop, networking, and inventory are not wrapped.
 
 **Steam Deck.** The Deck is a Linux machine with the controller as a gamepad (the engine names its buttons like an Xbox pad).
-Today the release `factoria_player` for Linux needs glibc 2.38 and does not start in the Steam Linux Runtime "sniper" (glibc
-2.31; M13 in feedback/ROADMAP.md), so a Deck release waits for that, or ships the Windows build through Proton. **The Deck's
+The release `factoria_player` for Linux is built in the Steam Linux Runtime "sniper" container (glibc 2.31, libstdc++
+linked in; `scripts/build-sniper.sh`, docs/BUILDING.md), and CI runs it there, so a Linux export runs in the runtime Steam
+gives Linux games, on the Deck included (pick "Steam Linux Runtime 3.0 (sniper)" in the Steamworks partner site); the
+Windows build through Proton is the alternative. **The Deck's
 on-screen keyboard for a `TextField` is not wired:** Steam's `ShowGamepadTextInput` and `ShowFloatingGamepadTextInput` would
 have to be called when a text field takes focus, and the plugin API has no hook for that (M12 "Left open" in
 feedback/ROADMAP.md). Until then players type with the keyboard Steam opens by itself (Steam button + X).

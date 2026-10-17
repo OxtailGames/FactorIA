@@ -55,7 +55,9 @@ necesita nada más.
      anteriores: clic derecho en `factoria` en Finder > **Abrir**). Los juegos que exporta `factoria` se abren después
      sin preguntar; `factoria_player` necesitaría el mismo permiso, pero nunca lo ejecutas directamente.
    - **Linux:** ejecuta `./factoria editor` en la carpeta. Necesita X11 y OpenGL, que las distribuciones de escritorio
-     ya incluyen.
+     ya incluyen, y glibc 2.31 o posterior: Ubuntu 20.04 y posteriores, Debian 11 y posteriores, Fedora, Arch... y el Steam
+     Linux Runtime «sniper» (los programas se compilan en él, así que los juegos que exportes también funcionan en Steam,
+     incluida la Steam Deck).
    - **AppImage de Linux:** ejecuta `./FactorIA-linux-x64.AppImage`. Sin argumentos abre el editor; con argumentos es
      el comando `factoria` (`./FactorIA-linux-x64.AppImage new mi-juego`; `editor mi-juego` abre ese proyecto). Si no
      puede montarse sola (sin FUSE), ejecútala como `./FactorIA-linux-x64.AppImage --appimage-extract-and-run`. No se
@@ -124,7 +126,8 @@ Necesitas las herramientas de línea de comandos de Xcode (`xcode-select --insta
 
 ### Windows
 
-1. Instala Visual Studio 2022 con la carga de trabajo «Desarrollo para escritorio con C++» (en inglés, *Desktop development with C++*). Community sirve.
+1. Instala Visual Studio 2022 con la carga de trabajo «Desarrollo para escritorio con C++» (en inglés, *Desktop development with C++*). Community sirve, y también las Build Tools. CMake viene incluido: el script lo encuentra aunque no esté en tu PATH.
+   Clona el repositorio en una carpeta corta, como `C:\src\FactorIA`: Windows se detiene en 259 caracteres por ruta, y el script avisa cuando la carpeta es demasiado profunda para que quepa una compilación.
 2. Desde la raíz del repositorio, en PowerShell:
 
 ```powershell
