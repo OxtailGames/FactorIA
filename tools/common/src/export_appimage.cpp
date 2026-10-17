@@ -3,8 +3,8 @@
 // notices); this builds an AppDir from it and runs appimagetool:
 //
 //   <slug>.AppDir/
-//     AppRun                 starts usr/bin/<slug>
-//     <slug>.desktop         the export's entry, with Icon and the version fixed for AppImage
+//     AppRun                 starts usr/bin/<executable> (<slug>; game-bin for a game whose slug is game, see desktop_exe_name)
+//     <slug>.desktop         the export's entry (its Exec is that executable), with Icon and the version fixed for AppImage
 //     <slug>.png, .DirIcon   the game's icon (a plain placeholder when the game has none: appimagetool insists on one)
 //     usr/bin/               everything else the export folder holds, in the same layout: the executable, game/ (or whatever
 //                            the export wrote next to it), FACTORIA_NOTICES.txt, the native plugins' libraries
@@ -101,14 +101,15 @@ Result<void> write_appdir(const Project& p, const stdfs::path& exportRoot, const
                     stdfs::copy_options::recursive | stdfs::copy_options::overwrite_existing | stdfs::copy_options::copy_symlinks, copyEc);
         if (copyEc) return err("export: cannot copy " + name + " into the AppDir: " + copyEc.message());
     }
-    if (!is_file_at(appDir / "usr" / "bin" / slug))
-        return err("export: the export folder " + generic(exportRoot) + " has no " + slug + " (the game's executable)", "Export the game again (project.export {\"platform\":\"linux\"}).");
+    const std::string exe = desktop_exe_name(slug, "linux");
+    if (!is_file_at(appDir / "usr" / "bin" / exe))
+        return err("export: the export folder " + generic(exportRoot) + " has no " + exe + " (the game's executable)", "Export the game again (project.export {\"platform\":\"linux\"}).");
 
     // AppRun: appimagetool wants it at the top. APPDIR is set by the AppImage runtime; the fallback also lets the AppDir run unpacked.
     const std::string appRun = "#!/bin/sh\n"
                                "# Starts the game of this AppImage (written by `factoria export --format appimage`).\n"
                                "here=\"${APPDIR:-$(dirname \"$(readlink -f \"$0\")\")}\"\n"
-                               "exec \"$here/usr/bin/" + slug + "\" \"$@\"\n";
+                               "exec \"$here/usr/bin/" + exe + "\" \"$@\"\n";
     if (auto r = write_text(appDir / "AppRun", appRun, true); !r.ok()) return r;
 
     // The icon.

@@ -335,6 +335,54 @@ TEST_CASE("export linux: the PNG icon and the .desktop file sit next to the exec
     CHECK(listed);
 }
 
+TEST_CASE("export linux: a game named \"Game\" gets an executable that is not its game/ folder") {
+    testing::TempDir tmp;
+    const std::string proj = make_game(tmp, with_icon(), true, "Game");
+    for (const bool release : {false, true}) {
+        CAPTURE(release);
+        ExportOptions o = options_for(proj, tmp, "linux", script_player(tmp));
+        o.release = release;
+        auto r = export_project(o);
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+        const stdfs::path root = r->outputDir;
+        CHECK(root.filename().string() == "game-linux");
+
+        // The slug is "game", the data folder is game/: the executable takes another name, a file next to the folder.
+        const stdfs::path exe = root / "game-bin";
+        CHECK(stdfs::is_regular_file(exe));
+        CHECK(testing::read_all(exe) == testing::read_all(script_player(tmp)));
+        if (release) {
+            CHECK(stdfs::is_regular_file(root / "game.pak"));
+            CHECK_FALSE(stdfs::exists(root / "game"));
+        } else {
+            CHECK(stdfs::is_directory(root / "game"));
+            CHECK(stdfs::is_regular_file(root / "game" / "factoria.json"));  // what the player looks for next to itself
+        }
+
+        // The entry, the icon and the next steps name that executable (and the icon keeps the slug).
+        CHECK(testing::read_all(root / "game.desktop") ==
+              "[Desktop Entry]\nType=Application\nName=Game\nExec=game-bin\nIcon=game\nTerminal=false\nCategories=Game;\n");
+        CHECK(stdfs::is_regular_file(root / "game.png"));
+        CHECK(any_contains(r->nextSteps, "Run it: " + exe.generic_string()));
+        CHECK(any_contains(r->nextSteps, "Exec=$PWD/game-bin"));
+    }
+}
+
+TEST_CASE("export windows and macos: a game named \"Game\" keeps the plain executable name (it cannot meet game/)") {
+    testing::TempDir tmp;
+    const std::string proj = make_game(tmp, ProjectExportSettings{}, false, "Game");
+    auto win = export_project(options_for(proj, tmp, "windows", script_player(tmp)));
+    REQUIRE_MESSAGE(win.ok(), (win.ok() ? "" : win.error().to_string()));
+    CHECK(stdfs::is_regular_file(stdfs::path(win->outputDir) / "game.exe"));
+    CHECK(stdfs::is_regular_file(stdfs::path(win->outputDir) / "game" / "factoria.json"));
+
+    auto mac = export_project(options_for(proj, tmp, "macos", script_player(tmp)));
+    REQUIRE_MESSAGE(mac.ok(), (mac.ok() ? "" : mac.error().to_string()));
+    const stdfs::path app = stdfs::path(mac->outputDir) / "Game.app" / "Contents";
+    CHECK(stdfs::is_regular_file(app / "MacOS" / "game"));
+    CHECK(stdfs::is_regular_file(app / "Resources" / "game" / "factoria.json"));
+}
+
 TEST_CASE("export linux: without an icon the .desktop file has no Icon line and there is no PNG; names are escaped") {
     testing::TempDir tmp;
     ProjectExportSettings s;
