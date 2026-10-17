@@ -6,6 +6,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
+#include "fa/script/bytecode.h"
 #include <cstdio>
 #include "script_internal.h"
 
@@ -241,6 +242,10 @@ Result<void> Impl::check_syntax(std::string_view modulePath, std::string* broken
         std::vector<std::string> candidates = fs::list("", true, ".js");
         return Error{"cannot read '" + path + "': " + text.error().message,
                      candidates.empty() ? text.error().hint : did_you_mean(path, candidates)};
+    }
+    if (is_script_bytecode(*text)) {  // compiled by a --release export: it compiled then, what can be wrong is the version
+        if (auto payload = script_bytecode_payload(*text, path); !payload.ok()) return payload.error();
+        return {};
     }
     std::string unique = "<syntax>/" + path;
     brokenData.reset();
