@@ -111,7 +111,24 @@ bool pack_image(const image&, const pack_options&, uint8_vec&, vector2D<basist::
     target_compile_definitions(fa_ext_basisu_encoder PUBLIC BASISU_SUPPORT_ASTCENC=0)
 endif()
 
-foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder)
+# ---- HarfBuzz (text shaping) and SheenBidi (Unicode bidirectional algorithm) ------------------------------------
+# HarfBuzz is built as its own amalgamation (src/harfbuzz.cc) with the OpenType shaper only: no FreeType, ICU, GLib,
+# Graphite, CoreText, DirectWrite or Uniscribe (their files compile to nothing without the HAVE_* macros), no AAT
+# (Apple morx/kerx) and HB_LEAN's cuts of everything a game's text layout never calls (variations, naming, drawing,
+# colour fonts, serialization). The `kern` table and the fallback shapers stay: old fonts have no GPOS kerning.
+set(FA_HB ${FA_EXT}/harfbuzz)
+add_library(fa_ext_harfbuzz STATIC ${FA_HB}/src/harfbuzz.cc)
+target_include_directories(fa_ext_harfbuzz SYSTEM PUBLIC ${FA_HB}/src)
+target_compile_definitions(fa_ext_harfbuzz PRIVATE HB_LEAN HB_NO_AAT HB_OPTIMIZE_SIZE)
+
+# SheenBidi: its unity build (Source/SheenBidi.c) is one translation unit; only the paragraph/line API is used.
+add_library(fa_ext_sheenbidi STATIC ${FA_EXT}/sheenbidi/Source/SheenBidi.c)
+set_target_properties(fa_ext_sheenbidi PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+target_include_directories(fa_ext_sheenbidi SYSTEM PUBLIC ${FA_EXT}/sheenbidi/Headers)
+target_include_directories(fa_ext_sheenbidi PRIVATE ${FA_EXT}/sheenbidi/Source)
+target_compile_definitions(fa_ext_sheenbidi PRIVATE SB_CONFIG_UNITY)
+
+foreach(t fa_ext_quickjs fa_ext_box2d fa_ext_imgui fa_ext_basisu_transcoder fa_ext_basisu_encoder fa_ext_harfbuzz fa_ext_sheenbidi)
     if(NOT TARGET ${t})
         continue()
     endif()

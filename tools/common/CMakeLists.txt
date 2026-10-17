@@ -22,6 +22,7 @@ list(FILTER FA_EMBED_PLATFORMS EXCLUDE REGEX "/platforms/plugins/[^/]+/tests/")
 # License texts for the notices the export writes next to every game (fa/tooling/notices.h). A library that ships a NOTICE
 # file (Apache-2.0) or a LICENSES/ folder for parts of it has those embedded too.
 file(GLOB FA_EMBED_LICENSES CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/external/*/LICENSE* ${FA_ROOT}/external/*/NOTICE*
+     ${FA_ROOT}/external/*/COPYING ${FA_ROOT}/external/harfbuzz/src/ms-use/COPYING
      ${FA_ROOT}/external/*/LICENSES/* ${FA_ROOT}/engine/render/assets/fonts/*.txt)
 list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
