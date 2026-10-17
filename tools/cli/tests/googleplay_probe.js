@@ -22,5 +22,10 @@ export default class GooglePlayProbe extends Behaviour {
       (p) => console.log(`probe signin=ok signedIn=${p.signedIn}`),
       (e) => console.log(`probe signin=${e.code}`),
     );
+    // Play Integrity without the Play Store: the same path through the Java code (Integrity.java), another refusal.
+    platform.integrity.token("ZmFjdG9yaWEtY2ktcHJvYmU").then(
+      () => console.log("probe integrity=ok"),
+      (e) => console.log(`probe integrity=${e.code}`),
+    );
   }
 }
