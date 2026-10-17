@@ -31,11 +31,8 @@ namespace fa::crash_detail {
 namespace {
 
 constexpr int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
-constexpr int kMaxFrames = 64;  // lines of stack in a report
-constexpr int kMaxWalk = 4096;  // frames looked at (a recursion shows up as one frame repeated)
-constexpr std::size_t kMaxDirBytes = 800;  // the report path is built in a LineBuf of 1024 bytes
 
-char g_dir[kMaxDirBytes + 1];
+char g_dir[kMaxDirLength + 1];
 alignas(16) char g_altStack[128 * 1024];  // the handler runs here, so it works after a stack overflow
 std::atomic<bool> g_busy{false};
 
@@ -69,7 +66,7 @@ void flush(int fd, LineBuf& b) {
 }
 
 void write_report(int fd, int sig, const siginfo_t* info, const Civil& when, void* trampoline) {
-    write_all(fd, g_shared.header, c_length(g_shared.header));
+    write_all(fd, g_shared.header, std::strlen(g_shared.header));
     LineBuf b;
     b.str("time: "); b.iso_time(when); b.str("\npid: "); b.dec(std::uint64_t(getpid()));
     b.str("\nsignal: "); b.str(signal_name(sig));
@@ -154,10 +151,7 @@ void on_signal(int sig, siginfo_t* info, void*) {
 
 bool platform_install(const std::filesystem::path& dir, std::string& error) {
     const std::string d = dir.string();
-    if (d.size() > kMaxDirBytes) {
-        error = "the crash report folder path is longer than " + std::to_string(kMaxDirBytes) + " bytes: " + d;
-        return false;
-    }
+    if (!dir_length_ok(dir, d.size(), "bytes", error)) return false;
     std::memcpy(g_dir, d.c_str(), d.size() + 1);
 
     static bool installed = false;

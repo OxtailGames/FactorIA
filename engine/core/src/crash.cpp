@@ -64,20 +64,14 @@ void remember_log_line(const LogEntry& entry) {
 // An exception nobody caught ends in std::terminate -> abort(). Keep what() for the report (the stack of a terminate
 // only shows where it was called, not what was thrown), then do what the default handler does.
 void on_terminate() {
-    const char* text = "std::terminate() was called";
-    std::string what;
     if (std::current_exception()) {
-        try {
-            throw;
-        } catch (const std::exception& e) {
-            what = std::string("uncaught exception: ") + e.what();
-        } catch (...) {
-            what = "uncaught exception of an unknown type";
-        }
-        text = what.c_str();
+        crash_detail::note_uncaught([] { throw; },
+                                    [](const char* head, const char* what) { std::fprintf(stderr, "%s%s\n", head, what); });
+    } else {
+        const char* text = "std::terminate() was called";
+        std::snprintf(g_shared.terminateMessage, sizeof g_shared.terminateMessage, "%s", text);
+        std::fprintf(stderr, "%s\n", text);
     }
-    std::snprintf(g_shared.terminateMessage, sizeof g_shared.terminateMessage, "%s", text);
-    std::fprintf(stderr, "%s\n", text);
     std::abort();
 }
 
