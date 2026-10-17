@@ -410,8 +410,9 @@ cache: a new worktree reuses what another checkout already compiled (a debugger 
 because the recorded paths are relative). With MSVC each checkout keeps its own entries: on a cache hit ccache replays
 `cl /showIncludes` with the header paths of the checkout that filled the cache, so Ninja would watch another worktree's
 headers and miss changes to its own (stale objects). With MSVC, Debug objects also carry their own debug information
-(`/Z7`) instead of one `.pdb` per target, which ccache needs. Tests find the checkout through the generated `fa_test_paths.h` (`FA_REPO_ROOT`...);
-include it only where a test needs a path, so the other tests keep sharing the cache.
+(`/Z7`) instead of one `.pdb` per target, which ccache needs. Tests find the checkout through the generated
+`fa_test_paths.h` (`FA_REPO_ROOT`...); include it only where a test needs a path, so the other tests keep sharing the
+cache.
 
 With the Visual Studio presets CMake cannot launch ccache: copy `ccache.exe` (not a Chocolatey or Scoop shim) as
 `cl.exe` into an empty folder and set the environment variables `CLToolPath=<that folder>` and `UseMultiToolTask=true`
