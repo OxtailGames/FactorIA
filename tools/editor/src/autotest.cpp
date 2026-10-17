@@ -4,7 +4,6 @@
 // The editor has no manual editing UI (the AI edits), so edits go through the same commands the AI and the Console call.
 // Output directory: FA_EDITOR_AUTOTEST_OUT (default: <tmp>/fa_editor_autotest_out).
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 
@@ -308,11 +307,9 @@ void Editor::autotest_pre_frame() {
         at_check(!w.find_by_id("player").is_null(), "player exists after stop");
     } else if (f == 53) {
         // The AI providers are detected on a background thread since the project opened: a slow PATH scan (WSL: many
-        // Windows dirs) outlasts the frames so far. Hold the script until it is done, at most 10 s; then the check fails.
+        // Windows dirs) outlasts the frames so far. Hold the script until it is done (bounded like every wait), then check.
         atWaitCount_ = 0;
-        atWaitUntil_ = [this, until = std::chrono::steady_clock::now() + std::chrono::seconds(10)] {
-            return aiDetected_.load() || std::chrono::steady_clock::now() > until;
-        };
+        atWaitUntil_ = [this] { return aiDetected_.load(); };
     } else if (f == 54) {
         run_console_line("engine.info {}");
         run_console_line("> 1 + 1");
