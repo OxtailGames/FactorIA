@@ -17,6 +17,7 @@
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/setup_parse.h"
+#include "fa/tooling/translations.h"
 #include "fa/tooling/validate.h"
 #include "fa/runtime/engine.h"
 
@@ -26,7 +27,7 @@ class Engine;
 
 // Registers every tooling command for the project at `projectDir`:
 // feedback.{report,list,update}, docs.{list,read,search,components,commands},
-// fs.{list,read,write,edit,search,delete}, assets.{import,slice_sheet,analyze_audio}, project.validate, project.export,
+// fs.{list,read,write,edit,search,delete}, assets.{import,slice_sheet,analyze_audio}, project.validate, i18n.{export,import}, project.export,
 // project.new_plugin, publish.{steam,itch,epic,gog}, setup.{status,install}.
 void register_tooling_commands(CommandRegistry& registry, const std::string& projectDir);
 
