@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.24)
+# CMake 3.25+: the MSVC debug information format is a property, so ccache can get /Z7 below instead of /Zi.
+if(POLICY CMP0141)
+    cmake_policy(SET CMP0141 NEW)
+endif()
 
 project(FactorIA
     VERSION 0.1.6
@@ -9,11 +13,16 @@ if(APPLE)
     enable_language(OBJC OBJCXX)
 endif()
 
-# Faster rebuilds when ccache is available (optional).
+# Faster rebuilds when ccache is available (optional; -DFA_CCACHE=OFF turns it off).
+# base_dir: paths inside this checkout are hashed relative to the build directory, so git worktrees of the repository
+# share one cache. hash_dir=false: for the same reason; the working directory recorded in an object's debug info may
+# then name another checkout (debuggers may ask where a source file is).
 find_program(FA_CCACHE ccache)
 if(FA_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
-    set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE})
-    set(CMAKE_CXX_COMPILER_LAUNCHER ${FA_CCACHE})
+    set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE} base_dir=${CMAKE_CURRENT_SOURCE_DIR} hash_dir=false)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CMAKE_C_COMPILER_LAUNCHER})
+    # MSVC: ccache cannot cache /Zi (one .pdb shared by all objects of a target); /Z7 keeps debug info in each object.
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
