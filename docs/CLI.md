@@ -67,6 +67,8 @@ development build came from); the mode is printed and reported as `mode`, and th
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build; Gradle's
 output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
+`--release` on linux, windows and macos puts the whole game in one `game.pak` next to the executable instead of a `game/` folder, with the
+scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](EXPORTING.md#release-build-gamepak)).
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
 `out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
 [EXPORTING.md](EXPORTING.md).
