@@ -388,6 +388,11 @@
       "type": "object",
       "description": "Per-platform export settings, committed with the game. Every field is optional and defaults are applied; a field equal to its default is best left out. Unknown keys inside a platform object only give a warning (with a \"did you mean\"). Edited by the editor's Platform settings window; machine-specific settings (Android SDK and JDK folders, keystore passwords) are never stored here but in ~/.factoria/export.json. See docs/EXPORTING.md, \"Platform settings\".",
       "properties": {
+        "scriptBytecode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Release builds of the desktop platforms (factoria export --release for windows, macos, linux): compile the scripts (.js) to QuickJS bytecode inside the game pack instead of shipping their source. Default true. The compiled scripts only run on the FactorIA version that wrote them (a game that meets another version says so and asks for a new export), keep their file names and line numbers in error messages, and leave out the source text. false ships the scripts as plain source in the pack. A script with a syntax error is shipped as source with a warning. Without --release, and on Android and iOS, the setting changes nothing. See docs/EXPORTING.md, \"Release build\"."
+        },
         "windows": {
           "type": "object",
           "description": "Windows export settings (factoria export --platform windows).",
