@@ -3,7 +3,8 @@
 One script API, `platform`, for what a store gives a game: **achievements**, **stats**, **leaderboards**, **cloud
 saves**, **in-app purchases**, the store **overlay** and **rich presence**. A game is written once against it; a backend
 decides what answers: the **fake** store (development and every test), **none** (an exported game that has no store
-plugin), or a store SDK that a native plugin wraps (Steam: [below](#steam-steamworks); Apple: a later M12 package).
+plugin), or a store SDK that a native plugin wraps (Steam: [below](#steam-steamworks); Apple: [section
+6](#6-apple-storekit-2-game-center-and-icloud); Google Play: [section 7](#7-google-play-billing-play-games-services-and-play-integrity)).
 
 ```js
 import { platform } from "factoria";
@@ -50,7 +51,7 @@ error with a "did you mean", not a silent failure inside a store SDK. Every sect
 | stats | `type`: `"int"` (default) or `"float"`. An int stat takes whole numbers. |
 | leaderboards | `name` (required), `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times). |
 | products | `type`: `"consumable"`, `"nonConsumable"` or `"subscription"` (required), `title` (required), `description`, `price` (a number, `currency` default `"USD"`). Only the fake store uses `price`: real stores give their own, localized. |
-| `backend` | Which backend plugin to use: `"auto"` (default), a plugin's name, or one per platform: `{"windows": "steam", "macos": "steam", "linux": "steam", "ios": "apple"}`. See section 5. |
+| `backend` | Which backend plugin to use: `"auto"` (default), a plugin's name, or one per platform: `{"windows": "steam", "macos": "steam", "linux": "steam", "ios": "apple", "android": "googleplay"}`. See section 5. |
 
 `factoria validate` reports every problem of the section (`factoria.json#/platform/products/1/type: "consumable " is
 not a product type; use one of "consumable", "nonConsumable", "subscription" (did you mean "consumable"?)`), and a
@@ -64,7 +65,7 @@ call then says its id is not declared) and the engine logs why.
 | Call | Resolves with |
 |---|---|
 | `platform.backend` | The name of the backend that runs: `"fake"`, `"none"`, `"steam"`... (the plugin's name). |
-| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`. Check it before using a service that a store may not have. |
+| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`. Check it before using a service that a store may not have. |
 | `platform.player` | The last known `{ id, name, signedIn }` (empty and signed out until the store tells). |
 | `platform.signIn()` | `{ id, name, signedIn }`. Always allowed. |
 | `platform.on(event, fn)` | Returns a function that removes the listener. Events: below. |
@@ -86,11 +87,38 @@ call then says its id is not declared) and the engine logs why.
 | `platform.purchases.restore()` | `[{ productId, transactionId, receipt }]`: what the player owns that does not get used up (non-consumables, active subscriptions). |
 | `platform.overlay.open(page, id?)` | Opens the store's own screen: `page` is `"achievements"`, `"leaderboards"`, `"friends"` or `"store"`; `id` narrows it to one achievement, leaderboard or product. |
 | `platform.presence.set(text, data?)` | "What the player is doing" for friends. `data`: an object whose values are strings. |
+| `platform.integrity.token(challenge)` | `{ token }`: a signed token for **your server** to verify (see below). `challenge` is a string your server made: 16 to 500 characters of URL-safe Base64 (`A-Z a-z 0-9 - _ =`); anything else throws at once. |
 
 **Purchases: grant, then finish.** A store keeps a purchase "unfinished" until the game calls `finish`, and hands it over
 again on the next run. Grant what was bought first, finish after, and remember the `transactionId`s you granted so the
 same purchase never pays twice. Consumables (gems) are not remembered by the store after `finish`; non-consumables
 (Remove ads) come back from `restore()`, which a "Restore purchases" button must offer on Apple platforms.
+
+**Integrity checks.** `platform.integrity.token(challenge)` asks the platform to vouch for the game: the `token` it
+returns is signed and says "this is the genuine, unmodified app, installed from the store, on a genuine device". The
+token proves nothing to the game itself: **your server decides**.
+
+```js
+if (platform.has("integrity")) {
+  const challenge = await myServer.newChallenge(); // made by the server, new for every request
+  const { token } = await platform.integrity.token(challenge).catch(() => ({ token: null }));
+  await myServer.check(challenge, token);          // the server verifies the token, not the game
+}
+```
+
+- The **server makes the challenge**: 16 or more random bytes as URL-safe Base64 (a nonce), used once. It sends it to
+  the game, gets the token back, **verifies the token with the store's server API** (for Google Play, Google's Play
+  Integrity API) and **checks that the decoded token holds the same challenge**. A token without a fresh challenge can
+  be replayed by anyone who copied it.
+- **Never trust the client's word.** A modified game can claim anything it likes ("the check passed") but cannot
+  forge a token; send the token itself and let the server read the verdict.
+- **The game must work without it.** Not every store offers the service (Google Play does; Steam and Apple do not, and
+  the answer there is `unavailable`), and a request can fail (`network`, `unavailable`). Check
+  `platform.has("integrity")`, treat a missing or failed token as "unknown", and let the server choose what that
+  means (a limit on a feature, say) instead of locking the player out.
+- A challenge that is not a string of 16 to 500 characters from `A-Z a-z 0-9 - _ =` throws before anything is sent,
+  naming the bad character and its position. The backend gets `{ challenge }` and must answer `{ token }` with a
+  string `token`; any other answer is a `failed` rejection.
 
 ### Events
 
@@ -128,12 +156,14 @@ player what happened (`e.hint`) and grant nothing.
 ## 3. The fake store, and testing with it
 
 The fake backend runs in development and in **every** headless run: `factoria test`, `factoria call`, `factoria
-session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all seven
+session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all eight
 services, and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
 `{ id: "fake-player", name: "Player", signedIn: true }`; `buy` answers `purchased` with the transaction `fake-1`,
 `fake-2`... and the receipt `fake-receipt-1`...; the purchase stays unfinished until `finish`; consumables are never
 "owned"; `products()` takes title and price from the catalog (`$0.99`, or `2.99 EUR`); a leaderboard shows the player's
-own best. `await` works in tests, and an answer is ready at once, without `game.step()`.
+own best; `integrity.token` answers `{ token: "fake-integrity-1" }`, then `fake-integrity-2`... (no store
+can verify these: a development server has to accept them on purpose). `await` works in tests, and an answer is ready at
+once, without `game.step()`.
 
 `import { game } from "factoria:test"` gives `game.platform`, the store's controls:
 
@@ -144,7 +174,7 @@ own best. `await` works in tests, and an answer is ready at once, without `game.
 | `game.platform.set({ signedIn, delayFrames })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
-| `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no scripted answers, an empty log. |
+| `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no scripted answers, an empty log; transactions and integrity tokens are numbered from 1 again. |
 
 ```js
 import { test, expect, game } from "factoria:test";
@@ -197,15 +227,16 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 | `none` | Done. Exported games without a store plugin. |
 | Steam (Steamworks) | Done: the `steam` plugin, [below](#steam-steamworks). |
 | Apple (StoreKit 2, Game Center, iCloud) | Done: iOS and macOS, `platform.add_backend {"backend": "apple"}`, [section 6](#6-apple-storekit-2-game-center-and-icloud). |
+| Google Play (Billing, Play Games Services, Play Integrity) | Done: Android, `platform.add_backend {"backend": "googleplay"}`, [section 7](#7-google-play-billing-play-games-services-and-play-integrity). |
 
 ### Store backends: one command sets them up
 
-`factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`) does the setup of a store backend in one call:
-it writes the backend's plugin from its template (`project.new_plugin` with `"template": "<backend>"`) unless
-factoria.json already declares it, builds it for this computer with CMake (the CMake `setup` installs when there is
-none), and adds what that store needs. Running it again keeps what is there. Its result lists what it did (`done`) and
-what only a person can do (`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which
-arguments it reads.
+`factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`, or `"googleplay"`) does the setup of a store
+backend in one call: it writes the backend's plugin from its template (`project.new_plugin` with `"template":
+"<backend>"`) unless factoria.json already declares it, builds it for this computer with CMake (the CMake `setup`
+installs when there is none; the Google Play bridge is built with the Android SDK's NDK instead), and adds what that
+store needs. Running it again keeps what is there. Its result lists what it did (`done`) and what only a person can do
+(`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which arguments it reads.
 
 ### Steam (Steamworks)
 
@@ -455,6 +486,7 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `purchases.restore` | `{ products: [{ id, storeId, type }] }` | `[{ productId, transactionId, receipt }]` |
 | `overlay.open` | `{ page, id?, storeId? }` | `{}` |
 | `presence.set` | `{ text, data }` | `{}` |
+| `integrity.token` | `{ challenge }` | `{ token }` (`token` is a string; the engine has checked `challenge` is 16 to 500 characters of URL-safe Base64) |
 
 The C++ side is `fa/services/platform.h` (`PlatformBackend`, `PlatformServices`, `platform_methods()` with this table)
 and `fa/runtime/platform_backend.h` (the plugin adapter and the choice of backend). The fake backend
@@ -590,5 +622,157 @@ launches an app with the plugin linked. Before a release, on a device with a san
    event.
 6. Kill the app after a `buy` and before `finish`: the next run delivers the purchase as a `purchase` event.
 7. `cloud.save` on one device, `cloud.load` on another with the same iCloud account.
+
+Record what a real check finds in `ENGINE_FEEDBACK.json`.
+
+## 7. Google Play: Billing, Play Games Services and Play Integrity
+
+The backend `"googleplay"` is a plugin with a C bridge and a Java Gradle module (`platforms/plugins/googleplay`, written into
+the game by `platform.add_backend`) for **Android on a device with Google Play** (the game's `minSdk`, 26 by default). It answers `platform` with:
+
+| Service | Google's API | Notes |
+|---|---|---|
+| `purchases` | Play Billing 9.1 | consumables, non-consumables and subscriptions; pending payments; refunds. Always on. |
+| `overlay` | Play Games / Play Store | `"achievements"` and `"leaderboards"` (Play Games screens) and `"store"` (the game's Play Store page). Always on; `"friends"` is `unavailable`. |
+| `integrity` | Play Integrity 1.6 | a token that vouches for the app and the device: the generic service, this is its Android backend. Always on. |
+| `achievements`, `leaderboards` | Play Games Services v2 22.1 | the sign-in prompt, Google's banners, all-time public / around the player / friends boards. **Only with a Play Games project id** (below). |
+| `cloudSave` | Play Games Saved Games | one snapshot per cloud key. **Only with a Play Games project id.** |
+
+Play Games has no stats and no presence: `platform.has("stats")` and `platform.has("presence")` are false and the engine
+answers those calls `unavailable`. Keep the numbers you need in `cloud.save` or on a leaderboard. Without a project id,
+`platform.has("achievements")`, `"leaderboards"` and `"cloudSave"` are false too, and `platform.signIn()` answers signed out.
+
+### Setup, in one command
+
+```bash
+factoria call platform.add_backend '{"backend": "googleplay", "playGamesId": "123456789012"}'
+```
+
+It writes the plugin to `plugins/googleplay` from its template and declares it for Android in factoria.json (unless it is
+declared already), writes the Play Games project id to the plugin's `android/src/main/res/values/games-ids.xml`, and builds the
+C bridge for `arm64-v8a` and `x86_64` with the **Android SDK's NDK, CMake and Ninja** (the SDK that
+[the export](EXPORTING.md#android) uses: `ANDROID_HOME` / `ANDROID_SDK_ROOT`, else Android Studio's default folder). It uses
+NDK `27.2.12479018` and CMake `3.31.6` when installed, else the newest installed with a note in `done`, and builds against
+the game's `minSdk` (`export.android.minSdk`, 26 by default). The libraries land in `android/src/main/jniLibs/<abi>/`. Without
+an SDK or an NDK the command stops before writing anything, says which is missing and how to install it (`sdkmanager
+"ndk;27.2.12479018"`), and offers `googleplayBuild: false`.
+
+| Argument | Meaning |
+|---|---|
+| `playGamesId` | The Play Games Services project id (digits: Play Console > Play Games Services > Setup and management > Configuration). Kept as it is when not passed; `""` turns Play Games off. A build without it offers `purchases`, `overlay` and `integrity` only. Export again after changing it. |
+| `googleplayBuild` | `false` only writes and declares the plugin, to build later where the NDK is installed (the plugin's README has the commands). |
+
+The result lists the built `libraries` and `nextSteps`, with the ids of your catalog filled in. What only a person can do:
+
+1. **Play Console**: create the app with the package name of factoria.json's `id`, upload a signed build to a testing track
+   (`factoria export --platform android --format aab`; internal testing is enough) and add your Google account under
+   Settings > License testing. Billing and Play Integrity answer only for an app Play knows, and the app must be installed
+   from the track's opt-in link, not with `adb`.
+2. **Products** (Monetize with Play > Products): one-time products and subscriptions (with a base plan), each with
+   **exactly** the id of the catalog (`ids.googleplay`, else `id`) and active. Google's rule for product ids: lowercase
+   letters, digits, `_` and `.`, starting with a letter or digit, at most 40 characters; the command lists the ones that break it.
+3. **Play Games Services** (only for achievements, leaderboards and cloud saves): create the project, add an Android credential
+   for the package name with the SHA-1 of the key the build is signed with (the upload key for `adb` installs, the Play App
+   Signing key for builds from Play), turn **Saved Games** on for cloud saves, and add yourself as a tester while the project is
+   unpublished. Then pass its id as `playGamesId`.
+4. **Achievements and leaderboards**: create them in that project. Play generates their ids (they start with `CgkI`): copy each
+   into `ids.googleplay` of the catalog entry. A leaderboard's sort order must match the catalog's `order` (Play fixes it at creation).
+5. **Play Integrity**: link a Google Cloud project in Play Console > Test and release > App integrity. A token is decoded
+   **on your server** with Google's `decodeIntegrityToken`, never on the device.
+
+Then export with `factoria export --platform android`: the exported Gradle project builds the plugin's module, which pulls
+Billing, Play Games and Play Integrity from Google's Maven repository, and merges its manifest ([MOBILE.md](MOBILE.md#native-plugins-on-android)).
+The plugin's manifest removes Play Games' automatic initializer: the plugin starts the SDK itself, and only when a project id is
+set.
+
+### What each call does
+
+Google answers with its own ids: the engine maps the catalog ids to the `ids.googleplay` (else `id`) of each entry, and back.
+
+| Call | On Google Play |
+|---|---|
+| `platform.signIn()` | Play Games signs the player in by itself when the app starts (a `player` event follows when it does). `signIn()` shows Google's sign-in prompt if the player is not signed in, and resolves `{ id, name, signedIn }` (`id` is the Play Games player id). A player who declines gets `notSignedIn`. Without a project id it resolves signed out, without any prompt. |
+| `achievements.unlock(id)`, `.progress(id, fraction)` | Reports to Play Games (`newly` is false when it was unlocked already). `progress` needs an **incremental** achievement (else `failed`, saying how to make it one); 1 unlocks it. An id that Play Console does not have is `unknownId`, listing the ids it has. |
+| `achievements.list()` | The catalog's achievements with what the player reached (an achievement Play does not have is reported locked, with a warning in the log). |
+| `achievements.reset()` | `unavailable`: a game cannot reset achievements on Google Play. Use a fresh test account, or the Play Games management API from your own tooling. |
+| `leaderboards.submit(id, score)` | The all-time board. `best` is the player's best including this score. |
+| `leaderboards.entries(id, {range, count})` | `range`: `"top"`, `"around"` or `"friends"` (the player must allow friends in the Play Games app, else `notAllowed`). **At most 25 rows** per call: a larger `count` is cut to 25. The board's sort order is the one set in Play Console; the catalog's `order` is not sent. |
+| `cloud.save(key, data)`, `cloud.load(key)`, `cloud.list()`, `cloud.remove(key)` | One Saved Games snapshot per cloud key, named after it (Play allows letters, digits and `- . _ ~`, up to 100 characters: every key the engine accepts fits). The value is stored as JSON text. `load` of a key that does not exist is `null` (a script gets `undefined`). When two devices saved the same key, the most recently modified save wins. Saved Games not turned on in Play Console: `unavailable`. |
+| `purchases.products(ids?)` | The product's title, description, price text (the player's currency), price value, currency and type. A product Google does not know is left out, with a warning in the log that says how to create it. A subscription shows the price of its base plan's renewing phase. |
+| `purchases.buy(id)` | Shows Google's purchase sheet. `purchased` (with `transactionId` and `receipt`), `cancelled`, or `pending` (a payment that needs time: cash, a parent's approval). The call waits as long as the player takes with the sheet, but gives up after 30 s when Google answers nothing. |
+| `purchases.finish(transactionId)` | A consumable is **consumed** (it can be bought again), a non-consumable or a subscription is **acknowledged**. Google **refunds a purchase that is not acknowledged within three days**: grant, then finish. The id must come from a `buy()` result, a `purchase` event or a `restore()` entry of this run. |
+| `purchases.restore()` | Returns what the player owns: non-consumables and active subscriptions of the catalog (consumables are used up). Waits up to 120 s. |
+| `overlay.open(page, id?)` | `"achievements"`: Google's achievements screen. `"leaderboards"`: all boards, or the one of `id`. `"store"`: the game's page in the Play Store app (a browser when there is none). The first two need Play Games on. |
+| `integrity.token(...)` | Asks Google for an integrity token for the challenge your server made (the Play Integrity nonce: URL-safe Base64, 16 to 500 characters, as section 2 says). Needs Google Play services and a Play Store; for an app that Play did not install it answers `unavailable` (`APP_NOT_INSTALLED`). |
+
+**Events.** `purchase` for a purchase that did not come from `buy()`: a pending payment that completed, a purchase made on
+another device, a subscription renewal, or a purchase the last run did not finish. The plugin looks for them when the game
+starts and **every time the game comes back to the front** (Google gives no push for them), once per purchase and state;
+the engine keeps the ones nobody listens for (up to 100) and hands them to the first `platform.on("purchase", ...)`:
+register it in `onStart`, grant, then `finish`. `overlay` `{open}` when a Google screen opens (Play Games or the Play Store)
+and when the game is back in front. `player` when the Play Games player is known at start or changes.
+
+**Refunds.** A refunded or cancelled purchase is no longer reported by Google, so it is not delivered or restored; a game
+that must take goods back tracks refunds on its server (the Google Play Developer API's voided purchases).
+
+### Receipts
+
+The `transactionId` of a purchase is Google's **purchase token**. The `receipt` is the JSON text
+`{"signedData": "<the purchase as Google signed it>", "signature": "<base64>"}`: `signedData` holds `packageName`,
+`productId`, `purchaseToken`, `orderId` and the purchase time, and `signature` is checked with the licence key of the app
+(Play Console > Monetize with Play > Monetization setup). A game with real money at stake (server-side goods, an online
+economy) must verify the receipt **on its server** before granting: either verify the signature with the licence key, or
+send the `purchaseToken` and `productId` to the Google Play Developer API (`purchases.products.get`, or
+`purchases.subscriptionsv2.get`), which answers with the purchase state and whether it was acknowledged. A single-player game
+that trusts the device can ignore the receipt.
+
+### Testing purchases
+
+Billing answers only for an app that Play knows, so a purchase needs a Play Console app, a build on a testing track, a license
+tester account, and the app installed from Play. `adb install` builds and emulators without the Play Store cannot buy:
+the calls then reject `unavailable` with a hint that names what is missing. A license tester pays nothing (the sheet says
+"test card, always approves"), and Play Console lists the test orders. For everything but buying, a debug build installed with
+`adb` is enough: Play Games works once the project knows the debug key's SHA-1 (add it as a second credential).
+
+### When something does not work: `googleplay.status`
+
+The plugin registers the command **`googleplay.status`** (from a script: `fa.call("googleplay.status", {})`): the package and
+who installed it, Google Play services and Play Store versions and whether they are usable, the Billing connection, whether
+Play Games is on (with the project id) and who is signed in, the services on offer, and a `problems` list of sentences that
+say what to fix. Run it first.
+
+| Situation | What the game gets |
+|---|---|
+| No Google Play services (an emulator image without the Play icon, a device without Google) | `unavailable`, naming Google Play services and how to get a device or image that has it. Purchases and Integrity are `unavailable` too. |
+| Player not signed in to Play Games | `notSignedIn` from `signIn()` (the player declined), and from the calls that need a player. The hint explains the tester rule of an unpublished project. |
+| Play Games project not set up (wrong id, missing credential or SHA-1) | `failed`, with a hint that lists the three things to check. |
+| Achievement or leaderboard missing in Play Console | `unknownId` for an achievement (the message lists the ids Play has). A leaderboard id that Play does not know often comes back as an internal error of Play Games: the hint says to check `ids.googleplay` against Play Console. |
+| Product missing in Play Console, or the app unknown to Play | `unknownId` from `buy`; `products()` leaves it out and logs the steps. `DEVELOPER_ERROR` is `failed`, listing the usual causes (no test track, another signing key, product inactive). |
+| Billing not available (no Play Store, no Google account, an unsupported country) | `unavailable`. |
+| The player already owns a non-consumable | `failed`, pointing at `restore()`. |
+| No answer from Google in 30 s (restore: 120 s) | `network`. |
+| Google's servers cannot be reached | `network`. |
+| `reset()`, a `"friends"` overlay, stats, presence | `unavailable`. |
+
+### CI and manual checks
+
+CI builds the C bridge for both ABIs, exports the plugin and checks that the APK carries both libraries, the plugin's classes
+(with Billing, Play Games and Play Integrity linked into the dex) and the merged manifest; the emulator job (an Android image
+with **no** Google Play) then starts that APK and checks that the plugin registered the backend in a real engine, that
+`googleplay.status` answers and that `signIn()` and `integrity.token` are answered through the C bridge and the Java code
+with a teaching `unavailable` (the table at the top of [MOBILE.md](MOBILE.md)). The tests of the tooling cover the setup command (the NDK lookup, the project id, the `nextSteps`).
+What needs a Play Console app, a signed build and Google accounts is checked by hand before a release, on a phone with Google
+Play, the build installed from the internal testing track:
+
+1. `platform.backend` is `"googleplay"`; `googleplay.status` has an empty `problems` list.
+2. `platform.signIn()` shows the prompt once; `platform.player` and the `player` event follow it.
+3. An achievement unlocks (Google's banner on screen); a half-way `progress` of an incremental one is kept, `list()` shows
+   both. `overlay.open("achievements")` shows them, with `overlay` events at open and close.
+4. A score reaches the board (`submit`), and `entries` returns it for `"top"`, `"around"` and `"friends"`.
+5. A consumable: `buy`, grant, `finish`, buy again. A non-consumable: `buy`, then `restore()` after reinstalling. A subscription:
+   `buy`, then `restore()`. A slow payment method: `pending`, then the completion arrives as a `purchase` event.
+6. Kill the app after a `buy` and before `finish`: the next run delivers the purchase as a `purchase` event.
+7. `cloud.save` on one phone, `cloud.load` on another with the same Google account.
+8. `integrity.token` returns a token that your server can decode.
 
 Record what a real check finds in `ENGINE_FEEDBACK.json`.

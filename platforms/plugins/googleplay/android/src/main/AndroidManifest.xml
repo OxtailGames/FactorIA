@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the Google Play libraries need from the app's manifest; Gradle merges this into it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Android 11+ hides other apps unless they are listed: the plugin asks whether the Play Store and Google Play services are
+         installed (googleplay.status) and opens the Play Store page of the app. -->
+    <queries>
+        <package android:name="com.android.vending" />
+        <package android:name="com.google.android.gms" />
+    </queries>
+
+    <application>
+        <!-- The Play Games Services project id (Play Console > Play Games Services > Setup and management > Configuration), from
+             res/values/games-ids.xml. `platform.add_backend` writes it (argument playGamesId). -->
+        <meta-data
+            android:name="com.google.android.gms.games.APP_ID"
+            android:value="@string/game_services_project_id" />
+
+        <!-- The Play Games library starts itself when the app starts (this provider) and tries to sign the player in, whether or not
+             the game uses it. The plugin starts it instead, only when the project id above is set (Backend.java, PlayGamesSdk.initialize):
+             a game without Play Games runs none of its code. -->
+        <provider
+            android:name="com.google.android.gms.games.provider.PlayGamesInitProvider"
+            android:authorities="${applicationId}.playgamesinitprovider"
+            tools:node="remove" />
+    </application>
+</manifest>

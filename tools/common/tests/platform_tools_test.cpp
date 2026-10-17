@@ -159,7 +159,7 @@ TEST_CASE("platform.add_backend: one command lists every store backend with the 
     CHECK_FALSE(info->readOnly);
     const Json& backend = info->inputSchema["properties"]["backend"];
     REQUIRE(backend["enum"].is_array());
-    for (const char* name : {"steam", "apple"}) {
+    for (const char* name : {"steam", "apple", "googleplay"}) {
         bool listed = false;
         for (const Json& n : backend["enum"]) listed = listed || n == name;
         CHECK_MESSAGE(listed, name);

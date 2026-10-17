@@ -1028,11 +1028,11 @@
   Object.freeze(plugins);
 
   // ====================================================================================================== platform
-  // Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence
+  // Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity
   // (docs/PLATFORM.md). Every call returns a Promise. A programmer's mistake (an id the catalog in factoria.json does not
   // declare, a wrong argument) throws at once; a store failure rejects with an Error that has .code and .hint. Answers that
   // arrive later settle the promises, and events reach platform.on listeners, at the start of the next engine frame.
-  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence"];
+  const PLATFORM_SERVICES = ["achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity"];
   const PLATFORM_EVENTS = ["purchase", "overlay", "player"];
   const platformPending = new Map();  // request id -> { resolve, reject, label, map }
   let purchaseBacklog = [];           // purchase events nobody was listening for: a paid transaction is never lost
@@ -1106,7 +1106,8 @@
   const platform = {
     // "fake" (development, tests), "none" (no store), or the backend plugin's name ("steam", "apple").
     get backend() { return N.platformInfo().backend; },
-    // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence".
+    // Does the backend offer the service? One of "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
+    // "presence", "integrity".
     has(service) {
       if (!PLATFORM_SERVICES.includes(service)) {
         const sug = closest(String(service), PLATFORM_SERVICES);
@@ -1175,6 +1176,11 @@
     presence: {
       // text: what friends see ("" clears it); data: an object of string values.
       set(text, data) { return platformCall("presence.set", platformLabel("presence.set", [text, data]), { text, data }, noResult); },
+    },
+    integrity: {
+      // challenge: a nonce the game's server made (16 to 500 characters of URL-safe Base64). Resolves { token }: a signed
+      // statement that this is the genuine app on a genuine device, for the server to verify and to check the challenge in.
+      token(challenge) { return platformCall("integrity.token", platformLabel("integrity.token", [challenge]), { challenge }); },
     },
   };
 

@@ -1070,7 +1070,7 @@ Like physics.raycast, but the shape has size: use it to ask whether a character 
 
 Set up a store backend for this game: its plugin, its build and what the store needs.
 
-One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs. steam: the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich presence): writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK ("sdk": its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt ("appId", default Valve's test app 480) for development. apple: the StoreKit 2, Game Center and iCloud plugin for iOS and macOS (Swift: it builds on a Mac with Xcode). Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps lists what only a person can do (store dashboards, accounts). Example: {"backend": "steam", "appId": 480}.
+One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): writes the backend's plugin from its template (project.new_plugin with template = backend) unless factoria.json already declares it, builds it for this computer with CMake, and adds what that store needs. steam: the Steamworks plugin (achievements, stats, leaderboards, Cloud saves, DLC purchases, overlay, rich presence): writes it, builds it for this computer, copies Valve's redistributable libraries from the Steamworks SDK ("sdk": its folder or .zip) next to it for Windows, macOS and Linux, and writes steam_appid.txt ("appId", default Valve's test app 480) for development. apple: the StoreKit 2, Game Center and iCloud plugin for iOS and macOS (Swift: it builds on a Mac with Xcode). googleplay: the Google Play Billing, Play Games Services and Play Integrity plugin for Android (a C bridge and a Java module; it builds with the Android SDK's NDK). Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps lists what only a person can do (store dashboards, accounts). Example: {"backend": "steam", "appId": 480}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -1078,7 +1078,9 @@ One call instead of the manual steps of docs/PLATFORM.md ("Store backends"): wri
 | `appId` | integer | no | (steam) Your game's Steam app id, written to steam_appid.txt for development. Without it an existing steam_appid.txt is kept, else the file gets 480, Valve's test app (Spacewar), which any Steam account can run. |
 | `appleSlices` | array | no | apple: which libraries to build: macos (the .dylib of a Mac app), iphoneos (an iPhone or iPad) and iphonesimulator (the iOS Simulator). Default: all three. |
 | `appleBuild` | boolean | no | apple: false only writes the plugin and declares it, without building (any computer); build it later on a Mac with Xcode: cmake -S plugins/apple -B plugins/apple/build && cmake --build plugins/apple/build. Default true. |
-| `backend` | string ["steam","apple"] | yes | The store backend to set up; it is also the plugin's name. |
+| `playGamesId` | any | no | googleplay: the Play Games Services project id (digits: Play Console > Play Games Services > Setup and management > Configuration), written to android/src/main/res/values/games-ids.xml. Without it the backend offers purchases, the store page and Play Integrity, and no achievements, leaderboards or cloud saves. Kept as it is when not passed; "" turns Play Games off. Export again after changing it. |
+| `googleplayBuild` | boolean | no | googleplay: false only writes the plugin and declares it, without building (any computer); build it later where the Android NDK is installed. Default true. |
+| `backend` | string ["steam","apple","googleplay"] | yes | The store backend to set up; it is also the plugin's name. |
 
 ### `platform.emit` (modifies state)
 
@@ -1095,7 +1097,7 @@ Send an event to the game as the store would: a purchase, the overlay opening or
 
 Reset the fake platform backend: nothing unlocked, bought or saved, no scripted answers, signed in, an empty request log.
 
-Also numbers transactions from fake-1 again. Pending requests are not cancelled. Fails when the game runs a real store backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that share state. Example: platform.reset {}
+Also numbers transactions from fake-1 and integrity tokens from fake-integrity-1 again. Pending requests are not cancelled. Fails when the game runs a real store backend (the message says which and why). Tests start every file with a fresh fake already; use this between tests that share state. Example: platform.reset {}
 
 ### `platform.respond` (modifies state)
 
@@ -2485,7 +2487,7 @@ declare module "factoria" {
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity";
 
   /**
    * Who is signed in to the store.
@@ -2706,7 +2708,17 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.
+   */
+  export interface PlatformIntegrityAPI {
+    /**
+     * Asks the platform for a signed integrity token. `challenge` is a nonce your server made: 16 to 500 characters of URL-safe Base64 (A-Z a-z 0-9 - _ =), e.g. 16 or more random bytes. Send the token to your server, which must verify it with the store's server API and check the challenge inside the decoded token (a token without a fresh challenge can be replayed); never trust the client's word. A bad challenge throws at once. Offered by some stores only (Google Play): check platform.has("integrity") and let the game work without it; otherwise the Promise rejects with code "unavailable".
+     */
+    token(challenge: string): Promise<{ token: string }>;
+  }
+
+  /**
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -2744,6 +2756,7 @@ declare module "factoria" {
     readonly purchases: PlatformPurchasesAPI;
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
+    readonly integrity: PlatformIntegrityAPI;
   }
 
   /**
@@ -2842,7 +2855,7 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
 

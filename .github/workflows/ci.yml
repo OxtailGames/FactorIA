@@ -450,6 +450,27 @@ jobs:
               json.dump(scene, f, indent=2)
           PY
 
+      # The Google Play backend (platforms/plugins/googleplay, docs/PLATFORM.md section 7): platform.add_backend writes it into the game
+      # and builds its C bridge for both ABIs with the SDK's NDK, CMake and Ninja installed above. The export below copies its Gradle
+      # module, so Gradle adds Billing, Play Games and Play Integrity from Google's Maven repository and compiles the Java against
+      # them. A Play Games project id is set so that the Play Games code is linked too. The game's script calls the backend when it
+      # starts (tools/cli/tests/googleplay_probe.js); the emulator has no Google Play, so what it gets back are teaching refusals.
+      - name: Add the Google Play backend (platform.add_backend), built for both ABIs
+        run: |
+          factoria=build/tools/tools/cli/factoria
+          $factoria call platform.add_backend '{"backend":"googleplay","playGamesId":"123456789012"}' --project /tmp/ci-game
+          ls -l /tmp/ci-game/plugins/googleplay/android/src/main/jniLibs/*/
+          cp tools/cli/tests/googleplay_probe.js /tmp/ci-game/scripts/googleplay_probe.js
+          python3 - <<'PY'
+          import json
+          path = "/tmp/ci-game/scenes/main.scene.json"
+          with open(path) as f:
+              scene = json.load(f)
+          scene["entities"].append({"id": "googleplayProbe", "name": "Google Play probe", "components": {"Script": {"path": "scripts/googleplay_probe.js"}}})
+          with open(path, "w") as f:
+              json.dump(scene, f, indent=2)
+          PY
+
       # Writes the Gradle project and runs ./gradlew assembleDebug in it (source mode: the engine is compiled from this
       # checkout for both ABIs); the APK lands next to the project as <slug>-debug.apk. FA_CI_PLUGINS (job env) is still
       # set: the export copies the plugin's android/ module into the project (plugins/example).
@@ -471,6 +492,24 @@ jobs:
           grep -q 'android:hasCode="true"' /tmp/ci-out/ci-game-android/app/src/main/AndroidManifest.xml
           unzip -p /tmp/ci-out/ci-game-android/ci-game-debug.apk 'classes*.dex' > /tmp/apk-classes.dex
           grep -aq 'Lfactoria/plugin/example/Plugin;' /tmp/apk-classes.dex
+
+      # The Google Play backend: its C bridge for both ABIs, its Java class and the three Google libraries in the dex, the Play Games
+      # id in the app's resources, and the manifest merged: the Play Games meta-data in, the library's auto-start provider out.
+      - name: Check the APK carries the Google Play backend
+        run: |
+          grep -q 'lib/arm64-v8a/libgoogleplay.so' /tmp/apk-contents.txt
+          grep -q 'lib/x86_64/libgoogleplay.so' /tmp/apk-contents.txt
+          grep -aq 'Lfactoria/plugin/googleplay/Backend;' /tmp/apk-classes.dex
+          grep -aq 'Lcom/android/billingclient/api/BillingClient;' /tmp/apk-classes.dex
+          grep -aq 'Lcom/google/android/gms/games/PlayGames;' /tmp/apk-classes.dex
+          grep -aq 'Lcom/google/android/play/core/integrity/IntegrityManagerFactory;' /tmp/apk-classes.dex
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          aapt2="$sdk/build-tools/35.0.0/aapt2"
+          apk=/tmp/ci-out/ci-game-android/ci-game-debug.apk
+          "$aapt2" dump xmltree --file AndroidManifest.xml "$apk" | tee /tmp/apk-manifest.txt
+          grep -q 'com.google.android.gms.games.APP_ID' /tmp/apk-manifest.txt
+          if grep -q 'PlayGamesInitProvider' /tmp/apk-manifest.txt; then echo "the Play Games auto-start provider is still in the manifest"; exit 1; fi
+          "$aapt2" dump resources "$apk" | grep -A1 'game_services_project_id' | grep -q '123456789012'
 
       - name: Upload the debug APK for the emulator job
         uses: actions/upload-artifact@v4
@@ -507,13 +546,22 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       # FA_SMOKE_EXPECT: what the game's script logs when it calls its native plugin (tools/cli/tests/plugin_probe.js):
-      # the sum computed by the plugin's Java class through JNI, and the plugin's command.
+      # the sum computed by the plugin's Java class through JNI, and the plugin's command; and what the Google Play backend
+      # answers (tools/cli/tests/googleplay_probe.js). This image has no Google Play services, so Play Games sign-in
+      # and Play Integrity are refused with `unavailable` by the Java code, and the status says so.
       - name: Run the APK in the emulator (smoke test)
         uses: reactivecircus/android-emulator-runner@v2.38.0
         env:
           FA_SMOKE_EXPECT: |
             probe add=3
             probe info=.*"plugin":"example"
+            Google Play backend ready
+            probe backend=googleplay
+            probe services=.*"purchases".*"overlay".*"integrity".*"achievements".*"leaderboards".*"cloudSave"
+            probe playgames=true id=123456789012
+            probe playservices=false
+            probe signin=unavailable
+            probe integrity=unavailable
         with:
           api-level: 34
           arch: x86_64

@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus), M11 (native plugins) and M15 (asset pipeline) are done, the rest is not started.
+Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus), M11 (native plugins) and M15 (asset pipeline) are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; the rest is not started.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -625,7 +625,39 @@ sandbox account, so no CI job runs them. The scheme reference to `Products.store
 not yet checked in Xcode itself. A macOS app needs the developer's certificate and provisioning profile for Game Center
 and iCloud (the export is ad hoc signed). No `cloudChanged` event when iCloud brings a newer save from another device.
 
-Left open (the next M12 packages): Play Billing and Play Games, then the rest of the list above. `PlatformServices` keeps no receipts or entitlement cache: a
+Done (package D, branches `m12/integrity` and `m12/googleplay`): the Google Play backend and a new platform service.
+- **`integrity`**, the eighth service (`fa_services`, `platform.integrity.token(challenge)` -> `{ token }`): a signed token
+  that vouches for the app and the device, for the game's server to verify. The engine checks the challenge (16 to 500
+  characters of URL-safe Base64) and the shape of the answer; the fake answers `fake-integrity-<n>`. Steam and Apple do not
+  offer it (`unavailable`).
+- **`platforms/plugins/googleplay`** (the `"googleplay"` template, backend `"googleplay"`, Android only): a C bridge (JNI:
+  every request goes to `Backend.request` in Java, answers come back through `RegisterNatives` callbacks) and a Gradle
+  module in Java on Play Billing 9.1, Play Games Services v2 22.1 and Play Integrity 1.6. Purchases (consumables are
+  consumed, the rest acknowledged; pending payments; `purchase` events for unfinished purchases at start and on every
+  resume; receipts are Google's signed purchase JSON and signature), the overlay (Play Games screens, the Play Store page)
+  and integrity are always on; achievements, leaderboards (25 rows a call) and Saved Games only with a Play Games project
+  id in `games-ids.xml` (the plugin removes Play Games' auto-start provider and starts it only then). No stats and no
+  presence. Each request answers once, with a 30 s watchdog (restore 120 s). The command `googleplay.status` lists what
+  the device lacks.
+- **`platform.add_backend {"backend": "googleplay", "playGamesId"}`**: writes and declares the plugin, writes the project id,
+  builds the bridge for arm64-v8a and x86_64 with the Android SDK's NDK, CMake and Ninja, and lists the Play Console steps
+  with the catalog's ids (product ids Play refuses, achievements and leaderboards without `ids.googleplay`). The exported
+  Android project now has `android.useAndroidX=true` (Billing and Play Games need AndroidX).
+- **CI**: `android-apk` sets the backend up with `add_backend`, checks the APK (both libraries, the plugin's and Google's
+  classes in the dex, the merged manifest and resources); `android-emulator` (an image with no Google Play) checks
+  `Google Play backend ready`, the services, `googleplay.status`, and that `signIn()` and `integrity.token` come back
+  through JNI as teaching `unavailable`s. Tooling tests cover the setup command and the export of the module.
+
+Left open (Google Play): **nothing has run against Google's services.** Purchases, Play Games and Play Integrity need a
+Play Console app, a build on a testing track, license testers and a phone with Google Play (docs/PLATFORM.md section 7,
+"CI and manual checks"); CI's emulator has no Google Play, and this machine has no NDK, so the Java was only compiled with
+`javac` against the real libraries before CI. Play Games events (increment-only counters) are not mapped to stats;
+`achievements.reset()` and the "friends" overlay are `unavailable`; Play Integrity uses the classic request (no Standard
+API, no cloud project number, so an app distributed outside Play cannot get tokens). Apple's App Attest is not an
+`integrity` backend yet.
+
+Left open (the next M12 packages): Epic Online Services and GOG Galaxy, ads with consent, analytics and remote config, push
+notifications and deep links, the Android stores outside Play. `PlatformServices` keeps no receipts or entitlement cache: a
 backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
 Cloud saves take JSON values only (no binary blobs, no conflict resolution beyond "last write wins" in the fake).

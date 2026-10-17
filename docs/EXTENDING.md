@@ -675,7 +675,9 @@ and `android/`, the Gradle module of the Android build) and declares the plugin 
 copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
 `linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
 is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
-store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `factoria call
+store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `"googleplay"` the
+Google Play one, a C bridge plus a Java module with Billing, Play Games and Play Integrity: the example to copy for an
+Android SDK ([PLATFORM.md](PLATFORM.md#7-google-play-billing-play-games-services-and-play-integrity)); `factoria call
 platform.add_backend` sets one up in a single step; an unknown name lists the ones there are):
 
 ```js
@@ -795,7 +797,7 @@ FA_PLUGIN_INIT(example) {
 - **Platform backends (version 2).** A plugin that wraps a store SDK registers a backend with
   `add_backend(api, &FaBackendDesc)` (one per plugin, inside the entry point): `name` (the key of the catalog's `ids`),
   `services` (a JSON array: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`,
-  `"presence"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
+  `"presence"`, `"integrity"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
   thread, before scripts: `SteamAPI_RunCallbacks`, or Steam's manual dispatch as the Steam plugin does). The game's `platform.*` calls arrive in `request` with their ids
   already checked; answer each `FaRequest*` exactly once with `resolve(req, result_json)` or `reject(req, code,
   message, hint)`, now or later and from any thread, and push unasked news with `emit(api, "purchase" | "overlay" |
