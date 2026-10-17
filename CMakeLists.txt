@@ -58,6 +58,17 @@ set(FA_UPDATE_REPO "" CACHE STRING "GitHub owner/repo whose Releases the editor 
 set(FA_ENGINE_VERSION ${PROJECT_VERSION})
 set(FA_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Linux: the C++ code needs a compiler newer than the oldest distribution the programs must run on (std::format wants GCC
+# 13+; the Steam Runtime "sniper", Ubuntu 20.04/22.04 and Debian 11/12 ship libstdc++ 10 to 12). Linking libstdc++ and
+# libgcc statically leaves only glibc as a requirement of the program, and the build container's glibc sets how old a
+# system it runs on. The `linux-sniper` preset sets this inside the Steam Runtime sniper SDK (scripts/build-sniper.sh); it is
+# also what the Linux release packages use (.github/workflows/release.yml).
+option(FA_LINUX_STATIC_LIBSTDCXX "Linux: link libstdc++ and libgcc statically (programs that run on systems older than the compiler)" OFF)
+if(FA_LINUX_STATIC_LIBSTDCXX AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_link_options(-static-libstdc++ -static-libgcc)
+    message(STATUS "FactorIA: libstdc++ and libgcc are linked statically (FA_LINUX_STATIC_LIBSTDCXX)")
+endif()
+
 if(FA_BUILD_TESTS)
     enable_testing()
     # This checkout's paths for tests, in a header rather than -D flags: only the tests that include it differ between
