@@ -251,7 +251,8 @@ void register_builtin_components(TypeRegistry& r) {
                      "Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, "
                      "Cyrillic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "
                      "and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto "
-                     "Sans SC, JP or KR).")
+                     "Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, "
+                     "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")
         .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D).").range(1, 4096)
         .field("color", &Text::color, "Text color.")
         .enum_field("align", &Text::align, {"left", "center", "right"}, "Horizontal alignment of lines inside the text box.")
