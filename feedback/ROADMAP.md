@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M13-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11, M13 and M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M14 and M16-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -271,34 +271,24 @@ backend answers `restore()` itself. Overlay and presence are one call each; ther
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
 Cloud saves take JSON values only (no binary blobs, no conflict resolution beyond "last write wins" in the fake).
 
-## M13. Store-ready desktop export (M-L, high)
+## M13. Store-ready desktop export (M-L, high) — DONE (PRs #65, #66, #67, #68 and the `m13/sign` PR)
 
-Closes E-04, E-05, E-06 (the crash half), E-09 (the desktop half; mobile uploads are M16), E-10, F-15, Q-03 and H-10.
-Authenticode signing is M8, "Left open".
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M13.
 
-- Linux: the release player needs glibc 2.38 and GLIBCXX 3.4.31 (`release.yml` builds on `ubuntu-24.04`), so it does
-  not start in the Steam Linux Runtime "sniper" (glibc 2.31), Ubuntu 22.04 or Debian 12. Build it in the sniper SDK
-  container or an old-glibc image.
-- Packing: with `--release` the game ships as one archive read through `fa::fs` instead of loose files, with optional
-  QuickJS bytecode instead of plain `.js`. The export copies the project's `README.md` today; leave out files that are
-  not game data.
-- Crash reporting next to `log.txt`: a minidump on Windows (`SetUnhandledExceptionFilter`, `MiniDumpWriteDump`), a
-  backtrace on POSIX; an optional upload URL, off by default.
-- Upload as commands an AI can call: steamcmd (writes the app build VDF), butler (itch.io), Epic's BuildPatchTool and
-  GOG's Galaxy Pipeline Builder, with a dry run.
-- macOS: Developer ID signing and notarization of the exported `.app` as a command (codesign, notarytool, stapler),
-  instead of the manual steps in docs/EXPORTING.md ("To distribute the game...").
-- Linux direct distribution: an AppImage or Flatpak of the exported game with its `.desktop` file (the export writes a
-  folder and suggests a tar).
-- A CI workflow for game projects (validate, test, export), from a template file or `factoria new`.
-- `scripts/build.ps1` asks only PATH for `cmake`, so a Visual Studio install with its bundled CMake fails with "cmake
-  not found"; find it through vswhere, and warn about checkout paths deep enough for MSBuild's FTK1011 (MAX_PATH).
-
-Acceptance criteria:
-- CI runs the release Linux player (`--version` and a headless frame) inside the Steam Runtime sniper container.
-- A `--release` desktop export has no loose `.js` and no README.md, and still runs.
-- A deliberate crash leaves a crash file with a stack in the save folder.
-- `build.ps1` builds on a machine whose only CMake is the one Visual Studio installs.
+Left open:
+- Crash reports have no upload URL yet (it needs M19's HTTP client). A stack overflow is reported on the main thread
+  only, and the player ships no PDB, so a Windows minidump has addresses without symbols.
+- Store uploads were tested against a fake store tool only: no real steamcmd, butler, BuildPatchTool or Galaxy Pipeline
+  Builder run yet. GOG's Pipeline Builder takes its password as a command-line argument, which other processes can see.
+- Native plugins still load from files next to `game.pak` (a shared library cannot load from inside the archive). The
+  editor has no switch for `export.scriptBytecode`. A `--release` export runs on macOS and Linux only in CI.
+- `sign.macos` was tested with fake `codesign`, `notarytool` and `stapler`: a real Developer ID signature and
+  notarization are untested. No Flatpak (AppImage only). The editor's setup panel has no install button for the
+  `appimage` component. Authenticode stays in M8.
+- The sniper build was run with Docker, not Podman; the sniper SDK image tag is pinned and is bumped by hand. The
+  sniper build has no libcurl, so the Linux download's AI features need the `curl` program.
+- A game whose name slugifies to `game` (or to nothing) exports a Linux executable `game` next to its `game/` data
+  folder: the two collide.
 
 ## M14. Localization (L, blocker for a global release)
 

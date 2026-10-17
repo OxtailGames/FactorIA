@@ -442,6 +442,73 @@ plugin that builds for every platform (`platforms/plugin`). CI: ctest `cli_plugi
 game on Linux, Windows and macOS; `android-apk` builds the plugin with the NDK and `android-emulator` checks that the
 sum came from the plugin's Java class; `ios-build` / `ios` link it into the simulator app and check the same log.
 
+## M13. Store-ready desktop export (M-L, high) — DONE (PRs #65, #66, #67, #68 and the `m13/sign` PR)
+
+
+Closes E-04, E-05, E-06 (the crash half), E-09 (the desktop half; mobile uploads are M16), E-10, F-15, Q-03 and H-10.
+Authenticode signing is M8, "Left open".
+
+- Linux: the release player needs glibc 2.38 and GLIBCXX 3.4.31 (`release.yml` builds on `ubuntu-24.04`), so it does
+  not start in the Steam Linux Runtime "sniper" (glibc 2.31), Ubuntu 22.04 or Debian 12. Build it in the sniper SDK
+  container or an old-glibc image.
+- Packing: with `--release` the game ships as one archive read through `fa::fs` instead of loose files, with optional
+  QuickJS bytecode instead of plain `.js`. The export copies the project's `README.md` today; leave out files that are
+  not game data.
+- Crash reporting next to `log.txt`: a minidump on Windows (`SetUnhandledExceptionFilter`, `MiniDumpWriteDump`), a
+  backtrace on POSIX; an optional upload URL, off by default.
+- Upload as commands an AI can call: steamcmd (writes the app build VDF), butler (itch.io), Epic's BuildPatchTool and
+  GOG's Galaxy Pipeline Builder, with a dry run.
+- macOS: Developer ID signing and notarization of the exported `.app` as a command (codesign, notarytool, stapler),
+  instead of the manual steps in docs/EXPORTING.md ("To distribute the game...").
+- Linux direct distribution: an AppImage or Flatpak of the exported game with its `.desktop` file (the export writes a
+  folder and suggests a tar).
+- A CI workflow for game projects (validate, test, export), from a template file or `factoria new`.
+- `scripts/build.ps1` asks only PATH for `cmake`, so a Visual Studio install with its bundled CMake fails with "cmake
+  not found"; find it through vswhere, and warn about checkout paths deep enough for MSBuild's FTK1011 (MAX_PATH).
+
+Acceptance criteria:
+- CI runs the release Linux player (`--version` and a headless frame) inside the Steam Runtime sniper container.
+- A `--release` desktop export has no loose `.js` and no README.md, and still runs.
+- A deliberate crash leaves a crash file with a stack in the save folder.
+- `build.ps1` builds on a machine whose only CMake is the one Visual Studio installs.
+
+What was built (docs/EXPORTING.md is the reference):
+- Linux (#68): the release Linux programs are built in the Steam Runtime sniper SDK container (`scripts/build-sniper.sh`,
+  preset `linux-sniper`: GCC 14, static libstdc++ with `FA_LINUX_STATIC_LIBSTDCXX`, `libGL.so.1` through
+  `OpenGL_GL_PREFERENCE=LEGACY`, no libcurl). The CI job "Linux (Steam Runtime sniper)" builds there, checks the glibc
+  and GLIBCXX symbol versions against the runtime's own libraries and, in the sniper runtime container, runs
+  `factoria_player --version`, `factoria new` and one headless frame; `release.yml` builds linux-x64 the same way and
+  `scripts/ci-local.sh sniper` runs it locally. `scripts/build.ps1` finds Visual Studio's CMake through vswhere and warns
+  about checkout paths near Windows' 260-character limit.
+- Packing (#67): `factoria export --release` (`project_export {"release": true}`) writes the game as one `game.pak`
+  (`fa/core/pack.h`, mounted by `fa::fs`; the player finds it next to itself), with QuickJS bytecode instead of `.js`
+  unless `export.scriptBytecode` is false (`fa/script/bytecode.h`); the project's README.md is no longer exported.
+- Crash reports (#65): `fa/core/crash.h`. The player writes `crashes/crash-<UTC time>.txt` (signal or exception, stack,
+  last log lines) next to `log.txt`, plus a minidump on Windows; the newest five are kept and the next run can hand the
+  last one out once (`take_previous_crash_report`).
+- Uploads (#66): `publish.steam` (writes the app build VDF for steamcmd), `publish.itch` (butler), `publish.epic`
+  (BuildPatchTool) and `publish.gog` (Galaxy Pipeline Builder), each with `dryRun`; settings in the project's `publish`
+  object, secrets only from environment variables or `~/.factoria/`.
+- macOS signing, AppImage and CI (the `m13/sign` PR): `sign.macos` signs the exported `.app` with a Developer ID
+  (hardened runtime, entitlements), notarizes it with notarytool, staples the ticket and zips it; `project_export
+  {"format": "appimage"}` wraps the Linux export with its `.desktop` file and icon (appimagetool from the setup component
+  `appimage`, pinned by SHA-256); `project.new_ci_workflow` writes `.github/workflows/factoria.yml` (validate, test,
+  export).
+
+Acceptance:
+- The sniper CI job above runs the release Linux player (`--version` and a headless frame) in the sniper runtime.
+- `tools/common/tests/export_pack_test.cpp`, "export --release: a desktop game is one game.pak, with no loose scripts and
+  no README.md"; `engine/runtime/tests/pack_tests.cpp`, "pack: an Engine runs the game from a mounted pack for some
+  frames".
+- `engine/core/tests/test_crash.cpp`: a null write, `abort()`, an uncaught exception and a stack overflow each leave a
+  report with a stack.
+- `build.ps1` was run on a Windows machine whose only CMake is the one Visual Studio Build Tools installs.
+
+Found while implementing M13:
+- ccache shared across git worktrees gave stale objects with MSVC: a cache hit replays `cl /showIncludes` with the
+  absolute header paths of the checkout that filled the cache, so Ninja watched another worktree's headers. Since #69
+  only GCC and Clang share the cache across checkouts (docs/BUILDING.md).
+
 ## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56, #57)
 
 Closes A-01..A-07, H-04 and F-07 (music streaming). Today an AI can only write a PNG through `fs.write`; `assets.list` is
