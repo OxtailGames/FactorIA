@@ -426,11 +426,9 @@ macOS:          my-game-macos/My Game.app/Contents/
 With `--release` the `game/` folder is one file, [`game.pak`](#release-build-gamepak), in the same place (next to the
 executable; `Contents/Resources` in the `.app`).
 
-The executable is named after the game's slug (`Space Dodge` -> `space-dodge`). One slug would meet the `game/` folder on
-Linux: a game called `Game`, or whose name has no letter or digit, has the slug `game`, and its Linux executable is
-`game-bin`, so that it and the `game/` folder are two different paths (`game.desktop` and `game.png` keep the slug).
-Windows (`game.exe`) and macOS (`Contents/MacOS/game`) keep `game`. The `Exec` line of the `.desktop` file, the AppImage's
-`AppRun` and `publish` use that name.
+The executable is named after the game's slug (`Space Dodge` -> `space-dodge`). A game called `Game`, or whose name has no
+letter or digit, has the slug `game`: on Linux its executable is `game-bin`, so it does not sit on the `game/` folder
+(`game.desktop` and `game.png` keep the slug; Windows `game.exe` and macOS `Contents/MacOS/game` cannot collide).
 
 The player starts the game found in `game/` next to the executable (inside the
 `.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:

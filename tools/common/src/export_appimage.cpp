@@ -3,7 +3,7 @@
 // notices); this builds an AppDir from it and runs appimagetool:
 //
 //   <slug>.AppDir/
-//     AppRun                 starts usr/bin/<executable> (<slug>; game-bin for a game whose slug is game, see desktop_exe_name)
+//     AppRun                 starts usr/bin/<executable> (desktop_exe_name)
 //     <slug>.desktop         the export's entry (its Exec is that executable), with Icon and the version fixed for AppImage
 //     <slug>.png, .DirIcon   the game's icon (a plain placeholder when the game has none: appimagetool insists on one)
 //     usr/bin/               everything else the export folder holds, in the same layout: the executable, game/ (or whatever

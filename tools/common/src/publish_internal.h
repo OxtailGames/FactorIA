@@ -27,7 +27,7 @@ inline constexpr const char* kRedacted = "<redacted>";
 struct Folder {
     std::string platform;  // windows | macos | linux
     stdfs::path path;      // absolute
-    std::string launch;    // the game's executable relative to `path` (forward slashes): <slug>.exe, <slug> (game-bin for the slug game), <Name>.app/Contents/MacOS/<slug>
+    std::string launch;    // the game's executable relative to `path` (forward slashes): <exe>, <Name>.app/Contents/MacOS/<exe> (desktop_exe_name)
 };
 
 // What a planner works with.
