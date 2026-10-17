@@ -43,11 +43,17 @@ bool parse_plural_category(std::string_view name, PluralCategory& out);       //
 // rule of their own follow the English one (one / other), vi, th, id, ms have a single form. A number with decimals is
 // treated as having visible decimals (CLDR's v > 0); the rules that ignore decimals (fr, pt) still apply.
 PluralCategory plural_category(std::string_view language, double count);
+// The forms a plural entry in `language` needs: the categories plural_category() gives whole counts, in the order zero ..
+// other (always with Other). With `everyCount` also the forms only a fraction (cs: "many") or a round million (es, fr, it,
+// pt: "many") picks; a table may leave those out (the entry then falls back to "other"), but they are not a mistake.
+// `factoria validate` compares a table's plural entries with it.
+std::vector<PluralCategory> plural_categories(std::string_view language, bool everyCount = false);
 
 // ---- String tables ------------------------------------------------------------------------------------------------------
 struct StringEntry {
     std::string text;                                  // a plain string
     std::map<PluralCategory, std::string> forms;       // a plural entry (non-empty): one text per category, always has Other
+    std::string pointer;                               // where the entry is in the file: "/menu/play" ("/coins" for a plural entry)
     bool plural() const { return !forms.empty(); }
 };
 
@@ -89,8 +95,6 @@ public:
     const std::vector<std::string>& languages() const { return languages_; }
     const std::string& default_language() const { return default_; }
     const std::string& language() const { return current_; }
-    // Bumped by every language change and every table (re)load: whoever caches a translation compares it.
-    std::uint64_t revision() const { return revision_; }
 
     // `requested` as one of the game's languages: the same tag in any case or spelling ("pt_br"), else the best match
     // ("es-MX" -> "es", "zh-CN" -> "zh-Hans"). The error says what is available, with "did you mean".
@@ -122,7 +126,6 @@ private:
     std::vector<std::string> languages_;
     std::map<std::string, StringTable> tables_;
     std::vector<const StringTable*> chain_;  // the tables to look in for the current language, best first
-    std::uint64_t revision_ = 0;
     mutable std::set<std::string> warned_;
 };
 
