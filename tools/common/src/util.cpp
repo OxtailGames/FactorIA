@@ -42,6 +42,13 @@ bool write_file(const std::filesystem::path& p, std::string_view data, std::stri
     return r.ok();
 }
 
+std::string expand_home(const std::string& path, const ExportEnvLookup& env) {
+    if (path != "~" && path.rfind("~/", 0) != 0 && path.rfind("~\\", 0) != 0) return path;
+    std::string home = env("HOME");
+    if (home.empty()) home = env("USERPROFILE");
+    return home.empty() ? path : home + path.substr(1);
+}
+
 std::string slugify(std::string_view s, char sep) {
     std::string out;
     bool pendingSep = false;
