@@ -1048,7 +1048,7 @@ declare module "factoria" {
   /**
    * A group of platform functions a backend may or may not offer; platform.has(service) tells. The functions of a missing service reject with code "unavailable".
    */
-  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence";
+  export type PlatformService = "achievements" | "stats" | "leaderboards" | "cloudSave" | "purchases" | "overlay" | "presence" | "integrity";
 
   /**
    * Who is signed in to the store.
@@ -1269,7 +1269,17 @@ declare module "factoria" {
   }
 
   /**
-   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
+   * Integrity checks: the platform signs a statement that this is the genuine app on a genuine device, and the game's own server verifies it.
+   */
+  export interface PlatformIntegrityAPI {
+    /**
+     * Asks the platform for a signed integrity token. `challenge` is a nonce your server made: 16 to 500 characters of URL-safe Base64 (A-Z a-z 0-9 - _ =), e.g. 16 or more random bytes. Send the token to your server, which must verify it with the store's server API and check the challenge inside the decoded token (a token without a fresh challenge can be replayed); never trust the client's word. A bad challenge throws at once. Offered by some stores only (Google Play): check platform.has("integrity") and let the game work without it; otherwise the Promise rejects with code "unavailable".
+     */
+    token(challenge: string): Promise<{ token: string }>;
+  }
+
+  /**
+   * Store and platform services behind one API: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity. factoria.json "platform" declares the ids; a store plugin (Steam, Apple) answers in a shipped game, a deterministic fake in development, tests and the MCP server. Every function returns a Promise; a mistake in the call (an undeclared id, a wrong type) throws at once with a suggestion, a store failure rejects with an Error that has `code` ("unavailable", "notSignedIn", "notAllowed", "unknownId", "network" or "failed") and `hint`. Answers that arrive later settle at the start of the next frame. See docs/PLATFORM.md.
    */
   export interface PlatformAPI {
     /**
@@ -1307,6 +1317,7 @@ declare module "factoria" {
     readonly purchases: PlatformPurchasesAPI;
     readonly overlay: PlatformOverlayAPI;
     readonly presence: PlatformPresenceAPI;
+    readonly integrity: PlatformIntegrityAPI;
   }
 
   /**
@@ -1405,7 +1416,7 @@ declare module "factoria" {
   export const plugins: PluginsAPI;
 
   /**
-   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence (docs/PLATFORM.md).
+   * Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity (docs/PLATFORM.md).
    */
   export const platform: PlatformAPI;
 

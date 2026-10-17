@@ -21,7 +21,7 @@
  *   }
  *
  * A plugin can also be a platform backend (version 2): it answers the game's `platform` requests (achievements, stats,
- * leaderboards, cloud saves, purchases, overlay, presence) with a store SDK. It registers one with add_backend and
+ * leaderboards, cloud saves, purchases, overlay, presence, integrity tokens) with a store SDK. It registers one with add_backend and
  * answers each FaRequest with resolve() or reject(), now or later and from any thread; docs/PLATFORM.md lists the methods.
  *
  *   static void on_request(FaRequest* req, const char* method, const char* args, void* user) {
@@ -91,7 +91,7 @@ typedef struct FaFunctionDesc {
 typedef struct FaBackendDesc {
     const char* name;     /* the backend's name: "steam", "apple"; the catalog's "ids" are keyed by it (required) */
     const char* services; /* JSON array of what it offers: "achievements","stats","leaderboards","cloudSave","purchases",
-                           * "overlay","presence" (required) */
+                           * "overlay","presence","integrity" (required) */
     /* Starts one request: method is "achievements.unlock", "purchases.buy", ... and args_json its arguments, with the
      * store's own id for the entry in "storeId" (docs/PLATFORM.md lists every method). Answer req with resolve() or
      * reject() before or after returning, from any thread. Required. */

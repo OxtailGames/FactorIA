@@ -555,7 +555,8 @@ platform.on("overlay", (e) => (game.paused = e.open));            // also "purch
 
 Members: `backend`, `has(service)`, `player`, `signIn()`, `on(event, fn)`, `achievements` (`unlock progress list reset`),
 `stats` (`get set add`), `leaderboards` (`submit entries`), `cloud` (`save load list remove`), `purchases` (`products buy
-finish restore`), `overlay.open(page, id?)`, `presence.set(text, data?)`. Everything about it, the catalog, the error
+finish restore`), `overlay.open(page, id?)`, `presence.set(text, data?)`, `integrity.token(challenge)` (a signed token for the game's own
+server to verify). Everything about it, the catalog, the error
 codes, the fake store's test hooks (`game.platform` in `factoria:test`) and how to write a backend plugin, is in
 [PLATFORM.md](PLATFORM.md). `game.platform` of the `factoria` module is the operating system's name, a different thing.
 
