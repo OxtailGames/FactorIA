@@ -155,8 +155,9 @@ void Editor::draw_export_window() {
                           kExportMarkerFile);
     ImGui::Checkbox("Release", &exportSettings_.release);
     ImGui::SetItemTooltip("Android: builds a release APK or AAB, signed with the keystore of Platform settings > Android (without one it is signed with the "
-                          "debug key and the export warns; Google Play rejects that). Other platforms: only the build commands in the next steps and "
-                          "the iOS build script change; the packaged game is the same.");
+                          "debug key and the export warns; Google Play rejects that). Windows, macOS and Linux: the whole game goes into one file, "
+                          "game.pak, next to the executable (no game folder, no loose scripts: they are compiled to bytecode unless "
+                          "export.scriptBytecode is false in factoria.json). iOS: only the build commands of the build script change.");
     ImGui::Separator();
 
     // ---- one row per platform

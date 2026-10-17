@@ -55,7 +55,8 @@ std::vector<AppIconImage> load_window_icon(const std::string& projectDir, const 
         FA_WARN("engine", "window icon: {}", relative.error().to_string());
         return out;
     }
-    auto bytes = fs::read_bytes(projectDir.empty() ? relative.value() : fs::join(projectDir, relative.value()));
+    // A mounted game pack holds the icon too (project-relative); otherwise it is a file of the project folder.
+    auto bytes = fs::read_bytes(projectDir.empty() || fs::pack_mounted() ? relative.value() : fs::join(projectDir, relative.value()));
     if (!bytes.ok()) {
         FA_WARN("engine", "window icon: cannot read '{}': {} (the window keeps the default icon; fix `icon` in factoria.json)", rel,
                 bytes.error().message);

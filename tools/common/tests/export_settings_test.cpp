@@ -837,3 +837,48 @@ TEST_CASE("android toolchain: the default search lists this OS's usual places") 
     AndroidToolchain tc = find_android_toolchain({}, s);
     CHECK((tc.ok() || !tc.problems.empty()));
 }
+
+TEST_CASE("export settings: scriptBytecode defaults to true, can be switched off and must be a boolean") {
+    CHECK(parse_export_settings(parse(R"({"name": "G"})")).settings.scriptBytecode);
+    CHECK(parse_export_settings(parse(R"({"export": {"linux": {}}})")).settings.scriptBytecode);
+    auto off = parse_export_settings(parse(R"({"export": {"scriptBytecode": false}})"));
+    CHECK(off.errors.empty());
+    CHECK(off.warnings.empty());  // a known key, not a typo
+    CHECK_FALSE(off.settings.scriptBytecode);
+    auto on = parse_export_settings(parse(R"({"export": {"scriptBytecode": true}})"));
+    CHECK(on.errors.empty());
+    CHECK(on.settings.scriptBytecode);
+
+    auto bad = parse_export_settings(parse(R"({"export": {"scriptBytecode": "no"}})"));
+    REQUIRE(bad.errors.size() == 1);
+    CHECK(bad.errors[0].pointer == "/export/scriptBytecode");
+    CHECK(bad.errors[0].message.find("expected true or false") != std::string::npos);
+    CHECK(bad.errors[0].hint.find("\"scriptBytecode\": false") != std::string::npos);
+    CHECK(bad.settings.scriptBytecode);  // an invalid value keeps the default
+
+    auto typo = parse_export_settings(parse(R"({"export": {"scriptByteCode": false}})"));
+    REQUIRE(!typo.warnings.empty());
+    CHECK(typo.warnings[0].pointer == "/export/scriptByteCode");
+    CHECK(typo.warnings[0].hint.find("scriptBytecode") != std::string::npos);  // did you mean
+}
+
+TEST_CASE("export settings: scriptBytecode is saved only when it is not the default") {
+    testing::TempDir tmp;
+    testing::write_all(project_file(tmp), kTemplateStyle);
+    auto s = load_export_settings(tmp.str());
+    REQUIRE(s.ok());
+    CHECK(s->scriptBytecode);
+    s->scriptBytecode = false;
+    REQUIRE(save_export_settings(tmp.str(), *s).ok());
+    Json j = parse(testing::read_all(project_file(tmp)).c_str());
+    REQUIRE(j.contains("export"));
+    CHECK(j["export"]["scriptBytecode"] == false);
+    CHECK(j["name"] == "Space Dodge");  // the rest of the file is as it was
+
+    auto back = load_export_settings(tmp.str());
+    REQUIRE(back.ok());
+    CHECK_FALSE(back->scriptBytecode);
+    back->scriptBytecode = true;  // the default again: the key goes away, and so does the empty "export"
+    REQUIRE(save_export_settings(tmp.str(), *back).ok());
+    CHECK(testing::read_all(project_file(tmp)) == kTemplateStyle);
+}
