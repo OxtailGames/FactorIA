@@ -40,8 +40,7 @@ std::string xml_escape(const std::string& text, bool attribute) {
             case U'\n': out += attribute ? "&#10;" : "\n"; break;
             case U'\t': out += attribute ? "&#9;" : "\t"; break;
             default:
-                if (cp < 0x20) utf8_append(out, 0xFFFD);  // XML 1.0 cannot hold the other control characters
-                else utf8_append(out, cp);
+                utf8_append(out, cp < 0x20 ? kReplacementChar : cp);  // XML 1.0 cannot hold the other control characters
         }
     }
     return out;
