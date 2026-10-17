@@ -11,6 +11,8 @@ factoria export [project] --platform <linux|windows|macos|android|ios> [--format
 
 `--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android);
 for Linux, `appimage` also builds the game as one AppImage file: see [Linux: AppImage](#linux-appimage).
+`--release` on Linux, Windows and macOS puts the whole game in ONE file, `game.pak`, with the scripts compiled to bytecode: see
+[Release build](#release-build-gamepak). On Android it builds the release APK/AAB.
 
 Before anything is written the project is validated: `factoria.json` must exist,
 `name` must be set, `mainScene` must exist and `id` must be a reverse-DNS
@@ -24,7 +26,8 @@ The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 export, but only when it is empty or an export wrote it: a folder of yours that happens to have that name is never
 deleted ([Replacing an earlier export](#replacing-an-earlier-export)). `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
 `format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built; Linux with `appimage`: the AppImage),
-`notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`. A game with AI-made assets also
+`notices` (see [License notices](#license-notices)), `pack` and `packed` (a `--release` desktop export: the pack and the paths in it), `files`
+(what is on disk, so a release export lists `game.pak`, not the files in it), `nextSteps`, `warnings`. A game with AI-made assets also
 gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](#ai-content-disclosure)).
 
 ## From an AI: `project.export`
@@ -33,7 +36,7 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
 `gradle`; Linux: `appimage`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
-`release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `files`, `nextSteps`, `warnings`); an
+`release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
@@ -92,10 +95,13 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
-`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, a top-level `steam_appid.txt` (the development app id of the
+`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
+game; any capitalization), a top-level `steam_appid.txt` (the development app id of the
 [Steam backend](PLATFORM.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native
 plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
-repository.
+repository. Those are the files no game reads, on every platform and with or without `--release`; the list is also the comment of
+`fa/tooling/export.h`. Only the TOP-LEVEL `README.md` is left out: a `README.md`, `CREDITS.md` or `LICENSE` deeper in the project, or a data
+file of any kind, ships, because a game may load it.
 
 Audio import settings (`assets.json`, [ASSETS.md](ASSETS.md)) act at export time: a WAV with `convert: "qoa"` ships as
 `<path>.qoa` (the engine plays that twin when the original is missing; the converted file is cached in
@@ -343,6 +349,7 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | iOS | `iconBackground` | `#FFFFFF` | The App Store icon cannot be transparent: transparent pixels take this colour, and the PNG is written without an alpha channel. |
 | iOS | `teamId` | none | 10-character Apple Team ID for device builds. It is the default of `FA_IOS_DEVELOPMENT_TEAM`: that environment variable, when set, wins. |
 | iOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload. |
+| Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](#scripts-as-bytecode). |
 
 `windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
 (`factoria.json#/export/android/minSdk: minSdk (34) is higher than targetSdk (30) ...`). An unknown key inside
@@ -416,11 +423,14 @@ macOS:          my-game-macos/My Game.app/Contents/
                   Info.plist  MacOS/my-game  Resources/AppIcon.icns  Resources/game/...  Resources/FACTORIA_NOTICES.txt
 ```
 
+With `--release` the `game/` folder is one file, [`game.pak`](#release-build-gamepak), in the same place (next to the
+executable; `Contents/Resources` in the `.app`).
+
 The player starts the game found in `game/` next to the executable (inside the
-`.app`: `Contents/Resources/game`). Command line:
+`.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:
 
 ```
-my-game [projectDir] [--scene scenes/level2.scene.json] [--fullscreen]
+my-game [projectDir | game.pak] [--scene scenes/level2.scene.json] [--fullscreen]
 ```
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). The export copies the build of every plugin declared for
@@ -438,8 +448,41 @@ Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 Every run writes its log to `log.txt` in that folder (rewritten on each start): it is the file to ask a player for with a
 bug report. On Windows the exe is a GUI program, so the game opens no console window. Started from a terminal it still
 prints its log there, but the terminal does not wait for it (`start /wait my-game.exe` does); output redirected to a
-file or a pipe works as with any program. If the game cannot start at all (no `game/` folder next to the exe), a
-double-clicked exe shows the error in a message box.
+file or a pipe works as with any program. If the game cannot start at all (no `game/` folder and no `game.pak` next to the exe, or a
+pack that is damaged or from another FactorIA version), a double-clicked exe shows the error in a message box.
+
+**Crash reports.** When the game crashes (a fault such as a write through a null pointer or a stack overflow,
+`abort()`, an uncaught C++ exception), the player writes a report next to `log.txt` before it ends, into the `crashes`
+folder of the save folder. The newest five are kept.
+
+```
+<save folder>/log.txt
+<save folder>/crashes/crash-20261017T143052Z.txt     the readable report (the UTC time is in the name)
+<save folder>/crashes/crash-20261017T143052Z.dmp     Windows only: a minidump
+```
+
+The next start of the game logs one line, "the previous run crashed; the report is ...". Ask a player for the
+`crashes` folder together with `log.txt`; nothing is sent anywhere by itself. The `.txt` holds the engine and game
+versions, the time, the signal or exception (`access violation, write to 0x0`; for an uncaught C++ exception also its
+message), the last log lines, and the stack, innermost call first:
+
+```
+exception: 0xc0000005 access violation, write to 0x0
+stack (innermost first):
+#0  factoria_player.exe!fa::Foo::update + 0x2a  (foo.cpp:51)  [0x7ff75d9d83e2]
+#1  factoria_player.exe!fa::Engine::step + 0x1c  (engine.cpp:310)  [0x7ff75d9d889e]
+```
+
+A frame shows its function, file and line when the symbols of that build are found (on Windows the `.pdb` next to the
+exe or in the symbol path), else only `module+offset`. To read a `.dmp`, open it in Visual Studio (File > Open, then
+"Debug with Native Only") or WinDbg (File > Open Crash Dump, then `!analyze -v` and `k`) with the `.pdb` and the source of
+the exact build that crashed. On Linux and macOS the stack lines read `module(symbol+0xoffset) [address]` (the address
+of a caller is shown one byte back, so that it lies inside the call); `addr2line -f -C -e factoria_player <offset>`
+(Linux) or `atos -o <binary> -l <load address> <address>` (macOS) turns an offset into a function and line when the
+binary has symbols. The system still does what it did on a crash (exit status, core file, its own crash dialog), and a
+stack overflow is reported only on the main thread. Android and iOS write their own crash logs (`adb logcat` and
+tombstones; Xcode Organizer), so the player does not install the reporter there. Sending reports to a server is not part
+of the engine yet.
 
 **Long paths on Windows.** A macOS `.app` nests four folders, so an export into a deep folder easily passes the
 260-character limit of Windows paths (MAX_PATH). The export (and every file the engine reads or writes) uses the `\\?\`
@@ -566,6 +609,69 @@ factoria export --platform linux --format appimage         # the command: projec
   export folder stays, complete without the AppImage; fix it and export again.
 - **Flatpak is not generated.** An AppImage needs nothing but the file; Flatpak needs a manifest, a runtime and a store
   review. A game that wants it can wrap the folder export.
+
+### Release build (`game.pak`)
+
+`factoria export --release` (or `project_export {"release": true}`) for Linux, Windows and macOS ships the game as ONE
+read-only file instead of a `game/` folder of loose files:
+
+```
+linux/windows:  my-game-windows/            my-game.exe  game.pak  FACTORIA_NOTICES.txt
+macOS:          My Game.app/Contents/       MacOS/my-game  Resources/game.pak  Info.plist ...
+```
+
+Every file listed under [What is shipped](#what-is-shipped-and-what-is-not) goes into the pack as it is (textures, sounds and
+fonts are already compressed, so nothing is compressed twice), except the scripts, which can be compiled
+([below](#scripts-as-bytecode)). Nothing of the game is left loose: a game of thousands of small files is copied, zipped and
+installed as one file, and the player of the game cannot swap a texture or edit a script by opening a folder. (This is packaging,
+not protection: anyone who knows the format can read the pack, and the bytecode of a script can be decompiled.) The report has
+`pack` (`game.pak`) and `packed` (every path inside it); its `files` lists what is on disk.
+
+**How the player uses it.** It looks for `game/` next to the executable first (so a folder always wins, which makes it easy to
+try a changed file), then for `game.pak`; `factoria_player path/to/game.pak` runs a pack from anywhere. It mounts the pack into
+the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](ARCHITECTURE.md)): `factoria.json`, scenes,
+prefabs, textures, sounds, fonts, scripts, `import`s and the window icon all come out of it, and a game that works from the folder
+works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read from disk when the
+game asks for it, and any number of threads can read at once, so a large pack starts as fast as a small one. While a pack is
+mounted, a project-relative path that is not in it is "File not found" with a "did you mean" taken from the pack, whatever lies
+on disk. Absolute paths and everything the game writes are not affected: save games go to the per-user data folder as always,
+and a file written with a project-relative path lands in the (absent) `game/` folder next to the pack.
+
+**Format** (version 1, integers little-endian; `fa/core/pack.h` is the reference and holds the `fa::PackWriter` and `fa::PackReader`):
+a 16-byte header (`FAPACK\r\n`, `u32` version, `u32` reserved), the files' bytes back to back, an index (`u32` count, then per file,
+sorted by path: `u16` path length, the UTF-8 path, `u64` offset, `u64` size) and a 24-byte footer (`u64` index offset, `u64` index
+size, `FAPKEND!`). The reader finds the index through the footer, so a pack that was cut short (an interrupted download, a full
+disk) is refused with a message that says to export again, never half-read, and the writer builds `game.pak.tmp` and renames it, so
+an export never leaves a half-written pack under the real name. A pack with another format version says which version it has and
+which this FactorIA reads.
+
+#### Scripts as bytecode
+
+With `export.scriptBytecode` on (the default; set `"export": { "scriptBytecode": false }` in `factoria.json` to turn it off), the
+`.js` and `.mjs` files go into the pack compiled to QuickJS bytecode, with the QuickJS of the player that ships with the game. They keep
+their paths (`scripts/player.js`), so `Script` components, `import`s between scripts and JSON imports are unchanged, and a pack can
+mix compiled and plain scripts. The source text is not shipped, but the file names and line numbers are: an error in the
+shipped game still reads `scripts/player.js:12:7: TypeError: ...` and the log and `script.errors` give the same file and line as in
+development. Loading a compiled script skips parsing, so large scripts start faster.
+
+Bytecode only runs on the FactorIA that wrote it. Each compiled script carries the FactorIA and QuickJS versions, and a game that
+meets a script from another one says so instead of crashing:
+
+```
+'scripts/player.js' was compiled by FactorIA 0.1.5; QuickJS 0.17.0, but this game runs FactorIA 0.1.6; QuickJS 0.17.0, and compiled
+scripts only run on the version that wrote them (hint: Export the game again with this FactorIA version (`factoria export --release`);
+export.scriptBytecode: false in factoria.json ships the scripts as plain source instead.)
+```
+
+The export copies the player of its own FactorIA, so a pack and its player always match; a mismatch happens when you pass another
+`--player`, or put a pack next to a player of another version. `false` packs the scripts as the source they are (readable, and
+independent of the player's version). A script that has a syntax error is packed as source with a warning that names the file and
+line, so the game behaves as it does from the folder: the error shows when something loads that script (`factoria validate` lists
+them before you export). Without `--release`, and on Android and iOS, the setting changes nothing.
+
+Not shipped, so not compiled: `tools/` (JS tool modules, which are for development) and `tests/`. The player never reloads
+files while it runs (hot reload belongs to `factoria run` and the editor, which work on the project folder), and a compiled module keeps
+the name it was compiled under, so a pack is a fixed game: change a script, export again.
 
 ### Icon and settings per platform
 
@@ -781,6 +887,192 @@ SDK it is configured for, device or simulator, like the `ios` presets do, and CM
 The iOS libraries ship in the macOS download only, so export for iOS on a Mac.
 
 Details in [MOBILE.md](MOBILE.md).
+
+## Uploading to stores
+
+Four commands upload the desktop exports to a store with the store's own uploader. They are commands like
+`project.export` (MCP tools `publish_steam`, `publish_itch`, `publish_epic`, `publish_gog`; also
+`factoria call publish.steam '{"dryRun":true}'` and the editor console), so an AI can ship a build. FactorIA writes the
+build files and runs the tool; it never downloads or installs the tool, never takes a password, and never writes a secret
+to a file of the project.
+
+| Command | Uploader | One upload per platform goes to |
+|---|---|---|
+| `publish.steam` | `steamcmd` | a depot of your Steam app (all depots in one build) |
+| `publish.itch` | `butler` | a channel of your itch.io page |
+| `publish.epic` | `BuildPatchTool` (`-mode=UploadBinary`) | an artifact of your Epic product |
+| `publish.gog` | `GOGGalaxyPipelineBuilder build-game` | a GOG build of your product |
+
+They upload the folders `project.export` wrote: `<project>/build/export/<game-slug>-<platform>` for `windows`, `macos` and
+`linux`. Export every platform first (`project_export {"platform":"windows"}`, ...). Android and iOS are not uploaded
+here: they go through Google Play and App Store Connect ([Android](#android), [iOS](#ios)). Everything in the export is
+uploaded (the game, `FACTORIA_NOTICES.txt`, which must stay) except `.factoria-export` and `AI_CONTENT_DISCLOSURE.md`,
+which belong to the export, not to the game. Show the AI content disclosure on the store page by hand when the game needs
+it ([AI content disclosure](#ai-content-disclosure)).
+
+Arguments (all optional; every command has `dryRun`):
+
+| Argument | Meaning |
+|---|---|
+| `platforms` | `["windows","macos","linux"]` (`win`, `mac`, `osx` also work). Default: every platform that has an export folder and is set up for this store in `factoria.json`; the others are skipped with a warning. Naming one that is not ready is an error. |
+| `out` | Parent folder of the exports, inside the project (default `build/export`, the `out` of `project.export`). |
+| `folders` | `{"windows": "dist/win"}`: upload another folder (inside the project) for a platform. Wins over `out`. |
+| `dryRun` | `true`: write the build files and return the exact command lines and what would be uploaded where. Nothing is started or sent. |
+| `account`, `appId`, `branch` | `publish.steam` only: the Steam account (default `publish.steam.account`), the app id (default the number in `steam_appid.txt`) and the beta branch to set live (default `publish.steam.branch`). |
+| `branch` | `publish.gog` only: the GOG branch to put the build on (Pipeline Builder `--branch`). |
+
+The result is `{store, dryRun, uploaded, version, tool, toolFrom, uploads, steps, files, warnings, nextSteps}` plus, after
+a real run, `exitCode` and `log`. `uploads` has one entry per platform: `{platform, folder, destination, files, bytes,
+uploaded}`: what goes where. `steps` has one entry per run of the uploader: `{title, command, commandLine, files, ran,
+exitCode}` (the command line with every secret replaced by `<redacted>`). `files` are the build files written. The
+version is the game's `version` of `factoria.json` (`0.1.0` when it has none). While a tool runs, every line of its output
+is written to the engine log as it comes (category `publish.<store>`: stderr of `factoria call` and `factoria mcp`, the editor
+console) and kept in `<project>/.factoria/publish/<store>.log`, with secrets replaced by `<redacted>`. A tool that exits with an error is not a crash: the command fails with the exit code,
+the last lines of its output, the log path and what to check, and the error's `data` is the same report, so the AI can see
+which platforms were uploaded before the failure (the run stops at the first failing upload).
+
+```
+publish_itch {"dryRun":true}
+publish_steam {"platforms":["windows","linux"],"branch":"beta"}
+publish_epic {"platforms":["windows"]}
+publish_gog {"branch":"testing"}
+```
+
+Always run the dry run first; it also checks the tool, the ids and the exports, and it shows the files written to
+`<project>/.factoria/publish/<store>/` (the Steam `.vdf` scripts, the GOG project files, the ignore list of Epic and GOG). The build
+files are rewritten on every call; do not commit `.factoria/`. (Epic's `cloud` folder there is the tool's chunk cache: keep it between uploads.)
+
+### What you set up by hand first
+
+FactorIA cannot create your pages, products or credentials. Each store has something to do once on its partner site:
+
+- **Steam**: a Steamworks account and an app with an app id; one depot per platform (App Admin > SteamPipe > Depots) and the
+  depots added to a package of the app; a build account with the *Edit App Metadata* permission for the app
+  (Users & Permissions; the Steamworks upload page names it); the launch options of each depot (App Admin > Installation > General) after the first upload.
+  Put the app id in `steam_appid.txt` (`platform.add_backend {"backend":"steam","appId":<id>}` writes it). Docs:
+  <https://partner.steamgames.com/doc/sdk/uploading>.
+- **itch.io**: an account and a page for the game (the address `mystudio.itch.io/space-dodge` makes the game
+  `mystudio/space-dodge`); the page can stay a draft. Docs: <https://itch.io/docs/butler/>.
+- **Epic Games Store**: a Dev Portal organization and product, one artifact per platform (Artifacts and Binaries), and a
+  Build Patch Tool client with its secret (Product Settings > General). Docs:
+  <https://dev.epicgames.com/docs/epic-games-store/publishing-tools/uploading-binaries/bpt-instructions-160>.
+- **GOG**: a product with its product id in the GOG Developer Portal, and Pipeline Builder access for your account. Docs:
+  <https://docs.gog.com/pb-quick-start/> and <https://docs.gog.com/pb-build-game/>.
+
+### Store ids: `publish` in `factoria.json`
+
+The ids of the game in the stores go in the `publish` object of `factoria.json` (checked by `factoria validate`, like
+`export`). None of them is a secret. Every wrong value is an error naming the JSON pointer and the fix; an unknown key is a
+warning with a "did you mean".
+
+```json
+"publish": {
+  "steam": { "account": "mystudio_build", "depots": { "windows": 1234561, "macos": 1234562, "linux": 1234563 }, "branch": "beta" },
+  "itch": { "game": "mystudio/space-dodge", "channels": { "windows": "windows", "macos": "mac", "linux": "linux" } },
+  "epic": { "organizationId": "o-abc123", "productId": "0123abcd", "clientId": "xyz",
+            "artifacts": { "windows": "<artifact id>", "macos": "<artifact id>", "linux": "<artifact id>" } },
+  "gog": { "productId": "1234567890", "clientId": "5555", "languages": ["en-US", "fr-FR"] }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `steam.account` | Name of the Steam build account that uploads. Its password is not stored anywhere in the project. |
+| `steam.depots` | `{platform: depot id}`. A platform without a depot is not uploaded. |
+| `steam.branch` | Beta branch the build is set live on after the upload. Optional; `default` is refused: make a build default by hand in Steamworks. Without a branch the build is uploaded but not live. |
+| `itch.game` | `user/game` of the page, lower case, as in its address. |
+| `itch.channels` | `{platform: channel}`. Default `windows`, `mac`, `linux`. itch.io tags a channel's download by its name (`windows`, `osx` or `mac`, `linux`); add suffixes such as `windows-beta` for a test channel. |
+| `epic.organizationId`, `epic.productId`, `epic.clientId` | From the Dev Portal. The client is the Build Patch Tool credential. |
+| `epic.artifacts` | `{platform: artifact id}`. A platform without an artifact is not uploaded. |
+| `gog.productId` | The product id of the game in the GOG Developer Portal. |
+| `gog.clientId` | GALAXY client id of the product (optional). |
+| `gog.languages` | Locale codes of the game's languages. Default `["en-US"]`. |
+
+Store ids are copied from the partner sites as text or numbers. Unknown platforms are rejected with a "did you mean"
+(`windws` -> `windows`), and `android` and `ios` with the reason.
+
+### Secrets: environment variables and `~/.factoria/`
+
+A secret is never read from `factoria.json`, never written to a file of the project, never shown in a result, a progress line
+or a log (the value is replaced by `<redacted>`), and never placed on a command line unless the uploader leaves no other way.
+
+| Store | Secret | Where it comes from |
+|---|---|---|
+| Steam | the account password and the Steam Guard approval | not given to FactorIA: run `steamcmd +login <account>` once in a terminal; steamcmd keeps the login (`config/config.vdf`) and the next run needs no password. |
+| itch.io | the API key | `butler login` once (butler keeps it in its own config folder), or the environment variable `BUTLER_API_KEY`. |
+| Epic | the client secret | the environment variable `FACTORIA_EPIC_CLIENT_SECRET`. It reaches the tool in its environment and the command line only names the variable (`-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET`). |
+| GOG | the GOG account | the sign-in Pipeline Builder cached (run it once by hand), or `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (both or neither). Pipeline Builder only accepts the password as an argument, so it is visible in the process list while the upload runs; the shown command line has it replaced by `<redacted>`. |
+
+### Finding the tools
+
+FactorIA looks for each uploader, in this order: the environment variable (the executable, or the folder that holds it), the
+`publish` object of `~/.factoria/export.json` ([Machine settings](#machine-settings-factoriaexportjson)), then `PATH`. When it
+finds none the command fails with the store's download page, the variable and the key to set; nothing is downloaded.
+
+| Tool | Environment variable | Key in `~/.factoria/export.json` `publish` | Download |
+|---|---|---|---|
+| steamcmd | `FACTORIA_STEAMCMD` | `steamcmd` | <https://developer.valvesoftware.com/wiki/SteamCMD> |
+| butler | `FACTORIA_BUTLER` | `butler` | <https://itch.io/docs/butler/installing.html> |
+| BuildPatchTool | `FACTORIA_BUILDPATCHTOOL` | `buildPatchTool` | the Dev Portal (Build Patch Tool page of the docs above) |
+| GOGGalaxyPipelineBuilder | `FACTORIA_GOG_PIPELINE_BUILDER` | `galaxyPipelineBuilder` | <https://docs.gog.com/pb-quick-start/> |
+
+```json
+{ "format": "factoria.export-config/1", "publish": { "steamcmd": "C:/Tools/steamcmd/steamcmd.exe", "butler": "~/butler" } }
+```
+
+### Steam
+
+`publish.steam` writes `app_build_<appid>.vdf` and one `depot_build_<depot>.vdf` per platform into
+`.factoria/publish/steam/`, then runs `steamcmd +login <account> +run_app_build <app_build.vdf> +quit`. A depot's content
+root is the export folder of its platform, mapped as `"*"` to the depot's root, recursively, without the two export marker
+files. The build description is `<name> <version>`. With a `branch` the app script has `SetLive` and the build becomes the
+current build of that beta branch; without one the build is only uploaded.
+
+Things to know:
+
+- Steam keeps the executable bit of a file only when the upload runs on macOS or Linux: upload the `macos` and `linux` depots
+  from that OS. An export made on Windows has no executable bit to keep. This is a Steamworks rule, not FactorIA's.
+- After the first upload set each depot's launch option in Steamworks (the result's `nextSteps` lists the file for each platform).
+- The app id 480 (Valve's test app) is refused. If `steam_appid.txt` is missing the error says how to write it.
+
+```
+publish_steam {"dryRun":true}
+-> steps[0].commandLine: steamcmd +login mystudio_build +run_app_build C:/games/space/.factoria/publish/steam/app_build_1234560.vdf +quit
+-> uploads: windows -> Steam app 1234560, depot 1234561 (windows), 41 files, 12.4 MB
+```
+
+### itch.io
+
+`publish.itch` runs `butler push <export folder> <user>/<game>:<channel> --userversion <version> --ignore .factoria-export
+--ignore AI_CONTENT_DISCLOSURE.md` once per platform: `windows`, `mac` and `linux` channels unless `publish.itch.channels` says
+otherwise. butler only sends what changed since the last push of the channel, so repeated uploads are quick. No build files are
+written. The dry run warns when neither `BUTLER_API_KEY` is set nor a `butler login` exists.
+
+### Epic Games Store
+
+`publish.epic` runs `BuildPatchTool -OrganizationId=... -ProductId=... -ArtifactId=<artifact of the platform> -ClientId=...
+-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET -mode=UploadBinary -BuildRoot=<export folder> -CloudDir=<work folder>/cloud/<platform>
+-BuildVersion=<version> -AppLaunch=<the game's executable> -AppArgs= -FileIgnoreList=<ignore list>` once per platform.
+`-AppLaunch` is `<slug>.exe`, `<Name>.app/Contents/MacOS/<slug>` or `<slug>`, relative to the export folder: the export must
+contain it. The cloud folder holds the tool's chunks for later patches and is kept between uploads (`.factoria/publish/epic/cloud`);
+the tool needs it to be different from the build root.
+
+An Epic `BuildVersion` can be used once per artifact and may contain letters, digits and `. + - _` only (1 to 100
+characters): raise `version` in `factoria.json` before every upload. After the upload, assign the build to a platform label
+and publish the product in the Dev Portal.
+
+### GOG
+
+`publish.gog` writes `gog-<platform>.json` (a Pipeline Builder project: the export folder as the depot of the product, the
+game's executable as the primary file task) and `ignore.txt` into `.factoria/publish/gog/`, then runs
+`GOGGalaxyPipelineBuilder build-game <json> --ignore_list <ignore.txt> --version <version> [--branch <branch>]` once per platform
+(macOS is `osx` for GOG). A build is not live until you publish it from the Developer Portal (Builds & Branches); Pipeline Builder
+cannot publish to the *master* branch, so `branch: "master"` is refused.
+
+### Testing without a store
+
+The tests of these commands run against a fake uploader (`tools/common/test_tools/fake_store_tool.cpp`) that records its arguments:
+point the environment variable of a tool at any program to see exactly how it is called. `dryRun` needs no account.
 
 ## CI for your game
 

@@ -1,10 +1,16 @@
 // factoria_player: the minimal runtime shipped inside exported games.
 //
-//   Desktop : factoria_player [projectDir] [--scene S] [--fullscreen] [--help]
-//             projectDir defaults to "<exe dir>/game" (or "<exe dir>/../Resources/game" inside a macOS
-//             .app) when that folder contains factoria.json, otherwise the current directory.
-//             The log of every run also goes to <save folder>/log.txt. On Windows the player is a GUI program (no
-//             console window); started from a terminal it prints to that terminal.
+//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--help]
+//             Without an argument the game is, in this order: the folder "<exe dir>/game" (or
+//             "<exe dir>/../Resources/game" inside a macOS .app) when it contains factoria.json; else the pack
+//             "<exe dir>/game.pak" (or "<exe dir>/../Resources/game.pak"), the one archive a `factoria export
+//             --release` writes in place of the folder (fa/core/pack.h); else the current directory. A game.pak given
+//             as the argument is mounted the same way. While a pack is mounted fa::fs answers every project-relative
+//             path from it, and the project root is the (absent) game/ folder next to the pack, so a file the game
+//             writes with a relative path lands there as it always did; save games go to the user folder.
+//             The log of every run also goes to <save folder>/log.txt, and a crash leaves a report (stack + last log
+//             lines; a minidump on Windows) in <save folder>/crashes (fa/core/crash.h, docs/EXPORTING.md). On Windows the
+//             player is a GUI program (no console window); started from a terminal it prints to that terminal.
 //   Android : sokol_main() via NativeActivity. The project lives in the APK assets (root "").
 //   iOS     : sokol_main(). The project lives in the app bundle at <bundle resources>/game.
 //
@@ -12,9 +18,11 @@
 #include <filesystem>
 #include <string>
 
+#include "fa/core/crash.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
+#include "fa/core/pack.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
 
@@ -98,6 +106,19 @@ void log_to_file(const stdfs::path& dir) {
     });
 }
 
+// A crash leaves <save folder>/crashes/crash-<time>.txt (and .dmp on Windows) next to log.txt. The next start says so once.
+void report_crashes_to_file(const stdfs::path& saveDir, const fa::ProjectSettings& project) {
+    fa::CrashReporterOptions crash;
+    crash.dir = saveDir / "crashes";
+    crash.info = {"game: " + project.name + " " + project.version, "game id: " + project.id};
+    if (auto r = fa::install_crash_reporter(crash); !r.ok()) {
+        FA_WARN("player", "crash reports are off: {}", r.error().to_string());
+        return;
+    }
+    if (auto previous = fa::take_previous_crash_report(crash.dir); !previous.empty())
+        FA_WARN("player", "the previous run crashed; the report is {}", previous.string());
+}
+
 #if defined(_WIN32)
 bool g_noConsole = false;  // double-clicked: nobody sees stderr
 
@@ -128,8 +149,9 @@ int startup_error(const std::string& text) {
 }
 
 void print_usage() {
-    std::puts("factoria_player [projectDir] [--scene <scene path>] [--fullscreen] [--help]\n"
-              "  projectDir  folder containing factoria.json (default: ./game next to the executable, else the current directory)\n"
+    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--help]\n"
+              "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
+              "              ./game.pak next to it, else the current directory)\n"
               "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
               "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)");
 }
@@ -168,25 +190,47 @@ int main(int argc, char** argv) {
 
     // An exported game keeps its native plugins next to the executable (Contents/Frameworks in a macOS .app); a game
     // folder passed on the command line uses the plugins' own folders, as `factoria run` does.
-    stdfs::path projectDir, pluginDir;
+    stdfs::path projectDir, pluginDir, packFile;
+    std::error_code ec;
     if (!projectArg.empty()) {
-        projectDir = projectArg;
+        if (stdfs::is_regular_file(projectArg, ec)) {  // factoria_player path/to/game.pak
+            packFile = projectArg;
+            projectDir = packFile.parent_path() / "game";
+            pluginDir = packFile.parent_path();
+        } else {
+            projectDir = projectArg;
+        }
     } else {
         stdfs::path exeDir = executable_dir();
+        const stdfs::path resources = exeDir.parent_path() / "Resources";
         if (has_project(exeDir / "game")) {
             projectDir = exeDir / "game";
             pluginDir = exeDir;
-        } else if (has_project(exeDir.parent_path() / "Resources" / "game")) {
-            projectDir = exeDir.parent_path() / "Resources" / "game";
+        } else if (has_project(resources / "game")) {
+            projectDir = resources / "game";
+            pluginDir = exeDir.parent_path() / "Frameworks";
+        } else if (stdfs::is_regular_file(exeDir / fa::kPackFileName, ec)) {  // a --release export: the whole game in one file
+            packFile = exeDir / fa::kPackFileName;
+            projectDir = exeDir / "game";
+            pluginDir = exeDir;
+        } else if (stdfs::is_regular_file(resources / fa::kPackFileName, ec)) {
+            packFile = resources / fa::kPackFileName;
+            projectDir = resources / "game";
             pluginDir = exeDir.parent_path() / "Frameworks";
         } else {
             projectDir = stdfs::current_path();
         }
     }
-    if (!has_project(projectDir)) {
-        return startup_error(std::string("error: no ") + fa::kProjectFileName + " in '" + projectDir.string() +
-                             "'.\nhint: pass the game folder (factoria_player path/to/game) or put the game in a 'game' folder "
-                             "next to the executable (`factoria export` does this).\n");
+    if (!packFile.empty()) {
+        // From here on every project-relative read of the engine (factoria.json, scenes, assets, scripts) comes out of the pack.
+        if (auto mounted = fa::fs::mount_pack(packFile); !mounted.ok()) return startup_error("error: " + mounted.error().to_string() + "\n");
+        fa::fs::set_project_root(projectDir);
+    }
+    if (packFile.empty() ? !has_project(projectDir) : !fa::fs::exists(fa::kProjectFileName)) {
+        return startup_error(std::string("error: no ") + fa::kProjectFileName + " in '" +
+                             (packFile.empty() ? projectDir : packFile).string() +
+                             "'.\nhint: pass the game folder (factoria_player path/to/game) or a game.pak, or put the game in a 'game' "
+                             "folder or a game.pak next to the executable (`factoria export` does this).\n");
     }
 
     fa::EngineConfig cfg;
@@ -198,6 +242,7 @@ int main(int argc, char** argv) {
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
         log_to_file(fa::fs::user_dir());
+        report_crashes_to_file(fa::fs::user_dir(), *proj);
     } else {
         return startup_error("error: " + proj.error().to_string() + "\n");
     }
