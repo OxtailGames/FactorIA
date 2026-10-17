@@ -1549,6 +1549,16 @@ Takes the app `project.export` wrote for macOS (build/export/<game-slug>-macos/<
 
 ## ui
 
+### `ui.set_text_scale` (modifies state)
+
+Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.
+
+The player's "text size" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by `scale`, and so is what ui.measureText returns for them (space "screen", the default). World-space Text is part of the world and is not scaled, nor is its entity.bounds(). 1 is normal size; the range is 0.5 to 3. Wrapped text keeps its maxWidth and grows taller, and widgets keep their rectangles, so lay a menu out with room for the biggest size you offer. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot. Example: ui.set_text_scale {"scale":1.5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `scale` | number | yes | Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half. |
+
 ### `ui.state`
 
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList) and which has focus.
@@ -1607,16 +1617,6 @@ declare module "factoria" {
   export type GamepadType = "generic" | "xbox" | "playstation" | "nintendo" | "steamdeck";
 
   /**
-### `ui.set_text_scale` (modifies state)
-
-Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.
-
-The player's "text size" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by `scale`, and so is what ui.measureText returns for them (space "screen", the default). World-space Text is part of the world and is not scaled, nor is its entity.bounds(). 1 is normal size; the range is 0.5 to 3. Wrapped text keeps its maxWidth and grows taller, and widgets keep their rectangles, so lay a menu out with room for the biggest size you offer. The engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with game.screenshot. Example: ui.set_text_scale {"scale":1.5}
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `scale` | number | yes | Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half. |
-
    * The kind of device that produced input last (input.lastDevice): choose keyboard or gamepad button prompts with it.
    */
   export type InputDevice = "keyboard" | "mouse" | "gamepad" | "touch";
