@@ -103,9 +103,8 @@ Result<Game> load_game(const std::string& projectDir, const std::string& store) 
 // ---- the exports ---------------------------------------------------------------------------------------------
 
 std::string launch_of(const Game& g, const std::string& platform) {
-    if (platform == "windows") return g.slug + ".exe";
-    if (platform == "macos") return g.safeName + ".app/Contents/MacOS/" + g.slug;
-    return g.slug;
+    const std::string exe = export_detail::desktop_exe_name(g.slug, platform);
+    return platform == "macos" ? g.safeName + ".app/Contents/MacOS/" + exe : exe;
 }
 
 // Resolves the platform names of the options. A mobile platform and a typo are teaching errors.
