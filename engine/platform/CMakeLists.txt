@@ -25,7 +25,9 @@ if(FA_PLATFORM STREQUAL "linux")
     # GL for the window (GLX via sokol_app), EGL for headless rendering.
     find_package(OpenGL REQUIRED COMPONENTS EGL)
     find_package(ALSA)
-    if(TARGET OpenGL::OpenGL)
+    # GLVND's libOpenGL.so.0 is not on every system (the Steam Runtime "sniper" lacks it), libGL.so.1 is:
+    # -DOpenGL_GL_PREFERENCE=LEGACY links that one (the linux-sniper preset does).
+    if(TARGET OpenGL::OpenGL AND NOT OpenGL_GL_PREFERENCE STREQUAL "LEGACY")
         set(FA_GL_LIB OpenGL::OpenGL OpenGL::GLX)
     else()
         set(FA_GL_LIB OpenGL::GL)
