@@ -703,7 +703,7 @@ Google answers with its own ids: the engine maps the catalog ids to the `ids.goo
 | `purchases.finish(transactionId)` | A consumable is **consumed** (it can be bought again), a non-consumable or a subscription is **acknowledged**. Google **refunds a purchase that is not acknowledged within three days**: grant, then finish. The id must come from a `buy()` result, a `purchase` event or a `restore()` entry of this run. |
 | `purchases.restore()` | Returns what the player owns: non-consumables and active subscriptions of the catalog (consumables are used up). Waits up to 120 s. |
 | `overlay.open(page, id?)` | `"achievements"`: Google's achievements screen. `"leaderboards"`: all boards, or the one of `id`. `"store"`: the game's page in the Play Store app (a browser when there is none). The first two need Play Games on. |
-| `integrity.token(...)` | Asks Google for an integrity token for the challenge your server made (URL-safe Base64 without padding, 16 to 500 characters). Needs Google Play services and a Play Store; for an app that Play did not install it answers `unavailable` (`APP_NOT_INSTALLED`). |
+| `integrity.token(...)` | Asks Google for an integrity token for the challenge your server made (the Play Integrity nonce: URL-safe Base64, 16 to 500 characters, as section 2 says). Needs Google Play services and a Play Store; for an app that Play did not install it answers `unavailable` (`APP_NOT_INSTALLED`). |
 
 **Events.** `purchase` for a purchase that did not come from `buy()`: a pending payment that completed, a purchase made on
 another device, a subscription renewal, or a purchase the last run did not finish. The plugin looks for them when the game
@@ -759,8 +759,8 @@ say what to fix. Run it first.
 CI builds the C bridge for both ABIs, exports the plugin and checks that the APK carries both libraries, the plugin's classes
 (with Billing, Play Games and Play Integrity linked into the dex) and the merged manifest; the emulator job (an Android image
 with **no** Google Play) then starts that APK and checks that the plugin registered the backend in a real engine, that
-`googleplay.status` answers and that `signIn()` is answered through the C bridge and the Java code with a teaching
-`unavailable` (the table at the top of [MOBILE.md](MOBILE.md)). The tests of the tooling cover the setup command (the NDK lookup, the project id, the `nextSteps`).
+`googleplay.status` answers and that `signIn()` and `integrity.token` are answered through the C bridge and the Java code
+with a teaching `unavailable` (the table at the top of [MOBILE.md](MOBILE.md)). The tests of the tooling cover the setup command (the NDK lookup, the project id, the `nextSteps`).
 What needs a Play Console app, a signed build and Google accounts is checked by hand before a release, on a phone with Google
 Play, the build installed from the internal testing track:
 

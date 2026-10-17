@@ -547,8 +547,8 @@ jobs:
 
       # FA_SMOKE_EXPECT: what the game's script logs when it calls its native plugin (tools/cli/tests/plugin_probe.js):
       # the sum computed by the plugin's Java class through JNI, and the plugin's command; and what the Google Play backend
-      # answers (tools/cli/tests/googleplay_probe.js). This image has no Google Play services, so Play Games sign-in is
-      # refused with `unavailable` by the Java code, and the status says so.
+      # answers (tools/cli/tests/googleplay_probe.js). This image has no Google Play services, so Play Games sign-in
+      # and Play Integrity are refused with `unavailable` by the Java code, and the status says so.
       - name: Run the APK in the emulator (smoke test)
         uses: reactivecircus/android-emulator-runner@v2.38.0
         env:
@@ -561,6 +561,7 @@ jobs:
             probe playgames=true id=123456789012
             probe playservices=false
             probe signin=unavailable
+            probe integrity=unavailable
         with:
           api-level: 34
           arch: x86_64
