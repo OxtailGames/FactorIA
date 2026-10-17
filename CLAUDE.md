@@ -26,6 +26,12 @@ ctest --test-dir build/dev --output-on-failure
 - CI: `scripts/ci-local.sh linux windows` reproduces the Linux job and a Windows build (MinGW-w64 + Wine, D3D11)
   locally; run it before pushing a CI fix. The `/ci` Claude Code mod in `.claude/mods/ci` shows the GitHub checks
   of the branch's PR (`/plugin install ci --marketplace OxtailGames/FactorIA`, or `claude --plugin-dir .claude/mods/ci`).
+- On a Windows host the Windows check is the native MSVC build plus the full `ctest` (Finishing a task); the MinGW +
+  Wine `windows` job is for Linux-only hosts. Run the Linux and Android jobs in WSL (Ubuntu 24.04 set up with
+  scripts/bootstrap-linux.sh and an Android NDK): push the branch, `git fetch && git checkout <branch>` in the WSL
+  clone, then `wsl -d Ubuntu-24.04 --exec bash -lc 'cd ~/FactorIA && ./scripts/ci-local.sh linux android'` (logs in
+  `build/ci-logs/`). `bash -lc` does not read `~/.bashrc`: export `ANDROID_NDK_HOME` in `~/.profile`, or android is
+  skipped. Put the clone back on `main` afterwards.
 - Shaders: edit `engine/render/shaders/*.glsl`, then run
   `tools/shaders/compile_shaders.sh` (fetches sokol-shdc into `.cache/` if
   needed) and commit the regenerated headers.
