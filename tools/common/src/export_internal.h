@@ -65,6 +65,8 @@ struct Project {
 // The values of ExportOptions::format / export.android.format: "apk", "aab", "gradle" (lower case).
 const std::vector<std::string>& export_formats();
 bool is_export_format(const std::string& format);
+// Every value `format` of project.export accepts: the Android ones and "appimage" (linux).
+const std::vector<std::string>& all_export_formats();
 
 std::string host_platform();  // linux | windows | macos: the machine running factoria
 std::string xml_escape(const std::string& s, bool androidString = false);
@@ -128,6 +130,29 @@ std::string sign_app_ad_hoc(const stdfs::path& app);
 Result<void> export_desktop(const Project& p, const std::string& platform, const stdfs::path& player,
                             const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon,
                             ExportReport& report);
+
+// ---- linux AppImage (export_appimage.cpp) -----------------------------------------------------------
+
+// What the plan decides for `format: "appimage"` on a Linux export: the tools `factoria setup appimage` installed and the file the
+// AppImage will be. enabled is false for every other export.
+struct AppImagePlan {
+    bool enabled = false;
+    stdfs::path tool, runtime;
+    stdfs::path artifact;  // <outRoot>/<slug>-x86_64.AppImage
+};
+
+// Checks that this computer can build an AppImage (Linux x86_64 with the tools installed) and names the file it will write.
+Result<AppImagePlan> plan_appimage(const ExportOptions& o, const Project& p, const stdfs::path& outRoot);
+
+// Writes the AppDir of an exported game: AppRun, <slug>.desktop (the export's, fixed for AppImage), the icon and usr/bin holding
+// the export folder `exportRoot` as it is. `artifactName` (the AppImage that is going to be written) and the export's own marker
+// files are left out. A missing icon is replaced by a plain one, with a warning.
+Result<void> write_appdir(const Project& p, const stdfs::path& exportRoot, const stdfs::path& appDir, const std::string& artifactName,
+                          std::vector<std::string>& warnings);
+
+// After the export folder is complete (notices included): builds the AppDir beside it, runs appimagetool, removes the AppDir and
+// sets report.format / report.artifact / the first next steps.
+Result<void> build_appimage(const ExportOptions& o, const Project& p, const AppImagePlan& a, const stdfs::path& outRoot, ExportReport& report);
 
 // ---- android (export_android.cpp) -------------------------------------------------------------------
 
