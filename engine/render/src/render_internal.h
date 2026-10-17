@@ -108,11 +108,9 @@ struct MeshAsset {
 
 // Fonts ---------------------------------------------------------------------
 struct GlyphInfo {
-    bool valid = false;           // false: font has no such glyph
     float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // pixel offsets from the pen position on the baseline, y DOWN
-    float advance = 0;            // pixels
-    bool empty = false;           // whitespace: no bitmap
+    bool empty = false;           // whitespace or a missing character: no bitmap
 };
 
 struct FontMetrics {
@@ -268,26 +266,34 @@ class Fonts {
 public:
     Fonts(Gpu& gpu, Assets& assets);
     ~Fonts();
-    // font: "" / "builtin" / "builtin:pixel" / project path to a .ttf
+    // font: "" / "builtin" / "builtin:pixel" / project path to a .ttf. Never null: a font that cannot be loaded is the
+    // built-in one (the failure is logged once).
     FontFace* face(const std::string& font);
-    TextLayout layout(const Text& t, float rasterPx, float unitsPerPx);
+    // THE text layout: Text drawing (world and screen), measure_text, UI labels and debug text all call it, so what is
+    // measured is what is drawn. Lays out t.text in t.font (then the fallback fonts) at `fontSize` local units per em,
+    // wrapping at t.maxWidth local units; glyphs are rasterized at fontSize * pixelsPerUnit pixels (4..400). Quads and
+    // size are in local units, y up, with t.pivot and t.align applied. t.fontSize is NOT read: the caller scales it
+    // (screen-space Text and UI labels multiply it by the text scale).
+    TextLayout layout(const Text& t, float fontSize, float pixelsPerUnit);
+    // The fonts every Text falls back to after its own font; the built-in DejaVu Sans stays last. Project paths, or
+    // "builtin:pixel". Takes effect on the next layout.
+    void set_fallback_fonts(std::vector<std::string> fonts);
     // Uploads the atlas if new glyphs were rasterized. Call after layout, before drawing.
     void sync();
     TextureAsset* atlas() { return &atlasTex_; }
-    int glyph_count_last() const { return glyphsLaidOut_; }
-    void begin_frame() { glyphsLaidOut_ = 0; }
     void clear();
     Json report() const;
 
 private:
-    void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<std::uint32_t>& missing);
+    FontFace* load(const std::string& font);  // the face of that file even when it failed to load (ok == false)
+    GlyphInfo glyph(FontFace* face, int px, std::uint32_t gid);
+    void warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing);
 
     struct Impl;
     Gpu& gpu_;
     Assets& assets_;
     std::unique_ptr<Impl> impl_;
     TextureAsset atlasTex_;
-    int glyphsLaidOut_ = 0;
 };
 
 // Pipelines, samplers, shaders, static buffers, transient buffer pool.

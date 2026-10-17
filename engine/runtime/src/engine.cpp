@@ -92,7 +92,7 @@ VisualMeasure Engine::Impl::measure() const {
     VisualMeasure m;
     if (renderer && renderer->initialized()) {
         const Renderer* r = renderer.get();
-        m.textSize = [r](const Text& t) { return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth); };
+        m.textSize = [r](const Text& t) { return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth, t.space); };
     }
     return m;
 }
@@ -645,6 +645,10 @@ void Engine::request_scene_change(std::string_view scenePath) {
 }
 void Engine::request_quit() { impl_->quit = true; }
 void Engine::step_frames(int n) { step(n); }
+void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
+    ScriptHost::set_text_scale(scale);
+    if (impl_->renderer) impl_->renderer->set_text_scale(scale);
+}
 std::string Engine::load_scene_now(std::string_view scenePath) {
     std::string err;
     return impl_->load_scene_impl(std::string(scenePath), &err) ? std::string() : (err.empty() ? "scene load failed" : err);

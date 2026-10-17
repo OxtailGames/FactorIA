@@ -929,10 +929,18 @@
   const UI_EVENTS = ["click", "change", "submit", "focus", "cancel"];
   const ui = {
     // Size of `text` laid out like Text rendering: { width, height }. Approximate (0.6 * fontSize per char) headless.
+    // space: "screen" (default: a UI label or screen-space Text, drawn at fontSize * ui.textScale) or "world".
     measureText(text, o = {}) {
-      const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0);
+      const space = o.space ?? "screen";
+      if (space !== "screen" && space !== "world") throw new Error(`ui.measureText(text, { space }): space must be "screen" or "world", got ${inspect(space)}`);
+      const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0, space === "screen");
       return { width: m[0], height: m[1] };
     },
+    // The player's "text size" option, 0.5 .. 3 (1 = normal): screen-space Text and the labels of UI widgets are drawn and
+    // measured at their font size times this; world-space Text is not scaled. Not saved by the engine: store it with `storage`.
+    // Setting a number outside 0.5 .. 3 throws.
+    get textScale() { return N.textScale(); },
+    set textScale(v) { N.setTextScale(v); },
     // on(type, fn) / on(type, target, fn): the widget events the engine sends as "ui.<type>" (see world.on), with the id
     // of the widget in `e.id` and, for "change" and "submit", the new value in `e.value`. `target` (an Entity or an entity
     // id) limits it to one widget. Returns the function that stops listening.
