@@ -290,6 +290,8 @@ TEST_CASE("sign.macos: the app is found where the export wrote it, or where `app
 TEST_CASE("sign.macos: a real run needs a Mac, and the error says what to do instead") {
     Game g;
     FakeMac mac;
+    const stdfs::path signature = g.app / "Contents" / "_CodeSignature";
+    const bool signedBefore = stdfs::exists(signature);  // on a Mac the export itself signs the bundle ad hoc
     for (const char* host : {"linux", "windows"}) {
         INFO(host);
         SignMacosOptions o = g.options(host);
@@ -303,7 +305,7 @@ TEST_CASE("sign.macos: a real run needs a Mac, and the error says what to do ins
         CHECK(has_text(r.error().hint, "on a Mac"));
     }
     CHECK(mac.calls.empty());  // nothing was started, nothing was changed
-    CHECK_FALSE(stdfs::exists(g.app / "Contents" / "_CodeSignature"));
+    CHECK(stdfs::exists(signature) == signedBefore);
 }
 
 TEST_CASE("sign.macos: where the identity comes from") {

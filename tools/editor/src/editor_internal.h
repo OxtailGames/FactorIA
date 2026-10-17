@@ -245,7 +245,7 @@ public:
     const TextureEntry* icon_preview(const std::string& relPath);
 
     // Set Up This Computer window (setup_panel.cpp; File > Set Up This Computer..., the "Set up" buttons of the Export and
-    // Platform settings windows): the four components fa::setup_status looks at and fa::setup_install on a worker thread
+    // Platform settings windows): the five components fa::setup_status looks at and fa::setup_install on a worker thread
     // (setup_job.h has the logic). Nothing is installed without a click; the Android SDK license is shown first.
     void open_setup_window();
     void draw_setup_window();
