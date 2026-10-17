@@ -31,7 +31,8 @@ if(FA_EMBED_ALL)
     fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
     target_compile_definitions(fa_tooling PRIVATE FA_HAS_EMBEDDED_FILES=1)
 endif()
-target_compile_definitions(fa_tooling PUBLIC FA_SOURCE_ROOT="${FA_ROOT}")
+# Only on the files that use it: an absolute path on every command line would stop worktrees sharing the ccache.
+set_source_files_properties(src/bundle.cpp src/export.cpp PROPERTIES COMPILE_DEFINITIONS FA_SOURCE_ROOT="${FA_ROOT}")
 
 if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
