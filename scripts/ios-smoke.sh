@@ -32,7 +32,8 @@
 # `--boot` on one runner while another builds the app.
 #
 # Output (outDir, default build/ios-smoke): console.log (the player's stdout and stderr; the engine logs to stderr),
-# screen.png, summary.txt; on failure also unified.log (the simulator's system log) and crash reports.
+# screen.png, summary.txt; on failure also unified.log (the simulator's system log: the player, XCTest and accessibility)
+# and crash reports; when the touch UI test fails, its result bundle and a sample of what the player was doing.
 #
 # The console is captured with `simctl launch --console-pty`, not with --stdout/--stderr: from the iOS 27 runtime
 # (Xcode 27) on, those two paths are opened inside the simulator's own file system (`/tmp/x` lands in
@@ -80,8 +81,10 @@ trap '[ -n "$CONSOLE_PID" ] && kill "$CONSOLE_PID" 2>/dev/null; xcrun simctl shu
 fail() {
     echo "FAIL: $*" | tee -a "$OUT/summary.txt"
     xcrun simctl io "$UDID" screenshot "$OUT/screen.png" >/dev/null 2>&1
-    xcrun simctl spawn "$UDID" log show --style compact --last 10m \
-        --predicate 'process == "factoria_player" OR eventMessage CONTAINS "factoria_player"' >"$OUT/unified.log" 2>&1
+    local predicate='process == "factoria_player" OR eventMessage CONTAINS "factoria_player"'
+    predicate+=' OR process == "testmanagerd" OR process BEGINSWITH "FactoriaTouch"'
+    predicate+=' OR subsystem BEGINSWITH[c] "com.apple.accessibility"'
+    xcrun simctl spawn "$UDID" log show --style compact --last 10m --predicate "$predicate" >"$OUT/unified.log" 2>&1
     cp ~/Library/Logs/DiagnosticReports/factoria_player* "$OUT/" 2>/dev/null
     echo "---- console.log ----"
     tail -n 60 "$OUT/console.log" 2>/dev/null
@@ -191,10 +194,16 @@ TOUCH_BUILD="${FA_IOS_TOUCH_TEST_BUILD:-$ROOT/build/ios-touch-test}"
 cmake -S "$ROOT/platforms/ios/touch-test" -B "$TOUCH_BUILD" -G Xcode -DCMAKE_SYSTEM_NAME=iOS \
       -DCMAKE_OSX_SYSROOT=iphonesimulator >"$OUT/touch-test.log" 2>&1 ||
     fail "touch: cannot generate the UI test project (platforms/ios/touch-test): see touch-test.log"
+rm -rf "$OUT/touch-test.xcresult"
 TEST_RUNNER_FA_TOUCH_BUNDLE_ID="$BUNDLE_ID" xcodebuild test -project "$TOUCH_BUILD/FactoriaTouch.xcodeproj" \
     -scheme FactoriaTouchHost -destination "id=$UDID" CODE_SIGNING_ALLOWED=NO \
-    -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 >>"$OUT/touch-test.log" 2>&1 || {
+    -test-timeouts-enabled YES -maximum-test-execution-time-allowance 120 \
+    -resultBundlePath "$OUT/touch-test.xcresult" >>"$OUT/touch-test.log" 2>&1 || {
     grep -E 'error|Test Case|failed' "$OUT/touch-test.log" | tail -n 20
+    # CI failures so far were XCTest timing out on the app (AX loaded, launch), never the tap: keep what the player's
+    # main thread, which answers XCTest's accessibility requests, was doing.
+    ps -o %cpu=,%mem= -p "$PID" | sed 's/^ */player %cpu %mem: /' | tee -a "$OUT/summary.txt"
+    sample "$PID" 3 -file "$OUT/player-sample.txt" >/dev/null 2>&1
     fail "touch: the UI test that taps the screen failed (lines above, full log in touch-test.log)"
 }
 grep -E "Test Case .* passed|Tap Application" "$OUT/touch-test.log" | tee -a "$OUT/summary.txt"

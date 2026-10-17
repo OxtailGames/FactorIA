@@ -38,7 +38,10 @@ workarounds are the most useful part. Do not include secrets or private paths.
 1. regenerates the ranked list with `factoria feedback collect` (see the command above);
 2. picks the top work package, or the one with most blockers/majors per unit of size;
 3. hands the package to an engine agent with its entry ids and acceptance criteria;
-4. after the change merges, runs triage again and marks the entries `fixed-in-engine`.
+4. after the change merges, runs triage again and marks the entries `fixed-in-engine`;
+5. when a milestone is done, moves what it built to `ROADMAP_DONE.md` and leaves in `ROADMAP.md` only a link, what it
+   left open and the decisions later work has to respect ("Decisions of finished milestones"), so every agent that
+   reads the roadmap reads open work.
 
-Layout: `ROADMAP.md` (ranked open entries + milestones), `inbox/` (submitted files, not yet triaged),
-and the in-repo examples under `examples/*/ENGINE_FEEDBACK.json`.
+Layout: `ROADMAP.md` (ranked open entries + milestones), `ROADMAP_DONE.md` (what finished milestones built), `inbox/`
+(submitted files, not yet triaged), and the in-repo examples under `examples/*/ENGINE_FEEDBACK.json`.

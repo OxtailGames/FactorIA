@@ -36,7 +36,7 @@ if(FA_BUILD_TESTS)
         add_executable(fa_test_editor ${editor_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_editor PRIVATE fa_editor fa_ext_imgui fa_ext_sokol fa_ext_doctest fa_warnings)
         target_include_directories(fa_test_editor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-        target_compile_definitions(fa_test_editor PRIVATE FA_REPO_ROOT="${FA_ROOT}")
+        target_include_directories(fa_test_editor PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
         add_test(NAME editor COMMAND fa_test_editor WORKING_DIRECTORY ${FA_ROOT})
     endif()
     # Windowed end-to-end test: opens a temp project in the real editor window,

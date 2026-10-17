@@ -93,7 +93,7 @@ function(fa_add_tests name)
     _fa_filter_platform_sources(tsrcs ${tsrcs})
     add_executable(fa_test_${name} ${tsrcs} ${FA_ROOT}/cmake/doctest_main.cpp)
     target_link_libraries(fa_test_${name} PRIVATE fa_${name} ${ARG_DEPS} fa_ext_doctest fa_warnings)
-    target_compile_definitions(fa_test_${name} PRIVATE FA_REPO_ROOT="${FA_ROOT}")
+    target_include_directories(fa_test_${name} PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT...
     add_test(NAME ${name} COMMAND fa_test_${name} WORKING_DIRECTORY ${FA_ROOT})
     if(ARG_LABELS)
         set_tests_properties(${name} PROPERTIES LABELS "${ARG_LABELS}")

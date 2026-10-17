@@ -20,9 +20,6 @@ endif()
 
 fa_add_tests(render)
 if(TARGET fa_test_render)
-    # Golden images and the KTX2 fixtures (tests/data) live next to the tests.
-    target_compile_definitions(fa_test_render PRIVATE FA_RENDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/golden"
-                                                      FA_RENDER_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
 endif()
 
