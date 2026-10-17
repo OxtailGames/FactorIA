@@ -580,9 +580,29 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "{\"position\": [x, y], \"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and "
            "ui_submit actions (game.input {\"press\": [\"ui_down\"]}). `visible` is false when a ScrollList clips the widget away "
            "entirely. `value` is a Toggle's boolean or a Slider's number; `text` is a Button's text, a Toggle's or Slider's label "
-           "or a TextField's contents. Example: ui.state {}",
+           "or a TextField's contents. `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
-          [&I](const Json&) { return I.ui.state(I.world, I.design_size()); });
+          [&engine, &I](const Json&) {
+              Json state = I.ui.state(I.world, I.design_size());
+              state["textScale"] = engine.text_scale();
+              return state;
+          });
+
+    I.commands.add({"ui.set_text_scale", "Set the text size option: screen-space Text and the labels of UI widgets get bigger or smaller.",
+           "The player's \"text size\" setting (accessibility), the same as `ui.textScale = value` in a script: the font size of "
+           "every screen-space Text (space \"screen\") and of the labels of Button, Toggle, Slider and TextField is multiplied by "
+           "`scale`, and so is what ui.measureText returns for them (space \"screen\", the default). World-space Text is "
+           "part of the world and is not scaled, nor is its entity.bounds(). 1 is normal size; the range is 0.5 to 3. Wrapped text keeps its maxWidth and "
+           "grows taller, and widgets keep their rectangles, so lay a menu out with room for the biggest size you offer. The "
+           "engine does not save the option: the game stores it (storage) and sets it at start. Look at the result with "
+           "game.screenshot. Example: ui.set_text_scale {\"scale\":1.5}",
+           parse_schema(R"({"type":"object","required":["scale"],"properties":{
+               "scale":{"type":"number","minimum":0.5,"maximum":3,"description":"Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {  // the schema has already checked the range
+              engine.set_text_scale(a.at("scale").get<float>());
+              return Json::object({{"textScale", engine.text_scale()}});
+          });
 
     I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",
            "Every play request is logged: audio.play and audio.music from scripts, AudioSource components and scene "

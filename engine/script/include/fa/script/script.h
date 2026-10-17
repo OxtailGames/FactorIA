@@ -95,6 +95,15 @@ public:
         return "not supported by this host (load_scene_json_now is not implemented)";
     }
     virtual bool screenshot(std::string_view path, std::string* error) = 0;
+    // The player's "text size" option (`ui.textScale`, the `ui.set_text_scale` command): screen-space Text and UI labels
+    // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
+    // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:
+    // the game stores its options.
+    float text_scale() const { return textScale_; }
+    virtual void set_text_scale(float scale) { textScale_ = scale; }
+
+private:
+    float textScale_ = 1.0f;
 };
 
 // Where `storage.*` keeps its data. Persistent: <user dir>/storage.json (default). Memory: never touches disk
