@@ -155,15 +155,12 @@ Result<void> PackWriter::write(const stdfs::path& out) const {
     put_u32(header, 0);
     put(header.data(), header.size());
 
-    struct Placed {
-        std::uint64_t offset;
-    };
-    std::vector<Placed> placed;
-    placed.reserve(sorted.size());
+    std::vector<std::uint64_t> offsets;
+    offsets.reserve(sorted.size());
     std::uint64_t position = kHeaderSize;
     std::vector<char> buffer(std::size_t(1) << 20);
     for (const Item* item : sorted) {
-        placed.push_back({position});
+        offsets.push_back(position);
         if (item->source.empty()) {
             put(item->bytes.data(), item->bytes.size());
         } else {
@@ -191,7 +188,7 @@ Result<void> PackWriter::write(const stdfs::path& out) const {
     for (std::size_t i = 0; i < sorted.size(); ++i) {
         put_u16(index, std::uint16_t(sorted[i]->path.size()));
         index.insert(index.end(), sorted[i]->path.begin(), sorted[i]->path.end());
-        put_u64(index, placed[i].offset);
+        put_u64(index, offsets[i]);
         put_u64(index, sorted[i]->size);
     }
     put(index.data(), index.size());
@@ -325,8 +322,7 @@ std::vector<std::string> PackReader::list(std::string_view dir, bool recursive) 
 Error PackReader::not_found(std::string_view requested, std::string_view normalized) const {
     std::string hint = "Paths are relative to the project root and, inside " + file_.filename().generic_string() + ", case-sensitive.";
     const std::string dir = fs::parent(normalized);
-    std::vector<std::string> names;
-    for (const std::string& p : list(dir, false)) names.push_back(p);
+    std::vector<std::string> names = list(dir, false);
     std::string match = closest_match(normalized, names);
     if (match.empty()) {
         // Nothing alike in that folder (a wrong folder, a typo in it): look at every path of the pack.
