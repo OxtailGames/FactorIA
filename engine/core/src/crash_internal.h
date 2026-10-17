@@ -7,6 +7,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <string>
 
@@ -16,6 +18,10 @@ constexpr std::size_t kLogLines = 48;
 constexpr std::size_t kLogLineBytes = 320;
 constexpr std::size_t kHeaderBytes = 2048;
 constexpr std::size_t kMessageBytes = 400;
+
+constexpr int kMaxFrames = 64;  // lines of stack in a report
+constexpr int kMaxWalk = 4096;  // frames looked at (a recursion shows up as one frame repeated)
+constexpr std::size_t kMaxDirLength = 800;  // the report path is built in a buffer of 1024 units (bytes or wchar_t)
 
 struct Shared {
     char header[kHeaderBytes];                // "FactorIA crash report\nengine: ...\n<info lines>", NUL-terminated
@@ -28,6 +34,35 @@ extern Shared g_shared;
 // Platform half of install_crash_reporter: copies what it needs from `dir`, installs the handlers. False + `error`
 // (what is wrong) when the platform cannot.
 bool platform_install(const std::filesystem::path& dir, std::string& error);
+
+// False + `error` when the folder (`length` units of `unit`: "bytes", "characters") is too long for the report path.
+inline bool dir_length_ok(const std::filesystem::path& dir, std::size_t length, const char* unit, std::string& error) {
+    if (length <= kMaxDirLength) return true;
+    error = "the crash report folder path is longer than " + std::to_string(kMaxDirLength) + " " + unit + ": " + dir.string();
+    return false;
+}
+
+// Keeps what() of the exception `rethrow` throws in g_shared.terminateMessage (cut to fit) for the report, and hands the
+// text to `echo(head, what)` too. `rethrow` is `[] { throw; }` for the exception being handled, or raises it again. No
+// allocation: the exception may be std::bad_alloc.
+template <class Rethrow, class Echo>
+void note_uncaught(Rethrow&& rethrow, Echo&& echo) {
+    auto note = [&](const char* head, const char* what) {
+        std::snprintf(g_shared.terminateMessage, sizeof g_shared.terminateMessage, "%s%s", head, what);
+        echo(head, what);
+    };
+    try {
+        rethrow();
+    } catch (const std::exception& e) {
+        note("uncaught exception: ", e.what());
+    } catch (...) {
+        note("uncaught exception of an unknown type", "");
+    }
+}
+template <class Rethrow>
+void note_uncaught(Rethrow&& rethrow) {
+    note_uncaught(rethrow, [](const char*, const char*) {});
+}
 
 // ---- formatting without the C library ----------------------------------------------------------------------------
 
@@ -53,12 +88,6 @@ inline Civil civil_from_unix(std::int64_t t) {
     const std::int64_t month = mp < 10 ? mp + 3 : mp - 9;
     const std::int64_t year = yoe + era * 400 + (month <= 2 ? 1 : 0);
     return {int(year), int(month), int(day), int(rem / 3600), int(rem % 3600 / 60), int(rem % 60)};
-}
-
-inline std::size_t c_length(const char* s) {
-    std::size_t n = 0;
-    while (s[n]) ++n;
-    return n;
 }
 
 // A line being built on the stack; text that does not fit is cut.
