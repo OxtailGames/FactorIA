@@ -560,6 +560,48 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
 }
 
+TEST_CASE("ui.textScale: remembered, range-checked with a teaching error, scales screen measurements and not world ones") {
+    TestHost h("textscale");
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(1.0));
+    ev_ok(h, "ui.textScale = 2");
+    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(2.0));
+    // no renderer here: the 0.6 em approximation follows the option for screen-space text only
+    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10 }).width").get<double>() == doctest::Approx(48.0));
+    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'screen' }).width").get<double>() == doctest::Approx(48.0));
+    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'world' }).width").get<double>() == doctest::Approx(24.0));
+    ev_ok(h, "world.spawn({id: 'wt', components: {Transform: {position: [0, 0]}, Text: {text: 'abcd', fontSize: 10}}})");
+    CHECK(ev_ok(h, "world.find('wt').bounds().w").get<double>() == doctest::Approx(24.0));  // world-space Text is never scaled
+    // a value outside 0.5 .. 3 throws, says what is accepted and what to do, and changes nothing
+    for (const char* bad : {"ui.textScale = 5", "ui.textScale = 0.1", "ui.textScale = 'big'", "ui.textScale = NaN"}) {
+        INFO(bad);
+        const std::string m = ev_err(h, bad);
+        CHECK(m.find("0.5") != std::string::npos);
+        CHECK(m.find("clamp") != std::string::npos);
+    }
+    CHECK(ev_err(h, "ui.measureText('a', { space: 'sceen' })").find("screen") != std::string::npos);
+    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(2.0));
+    ev_ok(h, "ui.textScale = 0.5");
+    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(0.5));
+    ev_ok(h, "ui.textScale = 3");
+    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(3.0));
+}
+
+TEST_CASE("ui.textScale: every test file starts at 1, and the game's value comes back after the run") {
+    TestHost h("textscaletests");
+    h.file("tests/a.test.js", "import { test, expect } from 'factoria:test';\nimport { ui } from 'factoria';\n"
+                              "test('starts at 1, then changes', () => { expect(ui.textScale).toBe(1); ui.textScale = 2.5; expect(ui.textScale).toBe(2.5); });\n");
+    h.file("tests/b.test.js", "import { test, expect } from 'factoria:test';\nimport { ui } from 'factoria';\n"
+                              "test('a fresh file starts at 1 again', () => { expect(ui.textScale).toBe(1); });\n");
+    REQUIRE(h.start());
+    ev_ok(h, "ui.textScale = 1.5");
+    TestReport rep = h.scripts.run_tests({"tests/a.test.js", "tests/b.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 2);
+    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(1.5));
+}
+
 TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and teaches on bad shapes") {
     TestHost h("shapecast");
     REQUIRE(h.start());

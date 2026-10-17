@@ -137,6 +137,7 @@ public:
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;
+    void set_text_scale(float scale) override;  // also the renderer's
     std::string load_scene_now(std::string_view scenePath) override;
     std::string load_scene_json_now(const Json& scene, std::string_view sourceName) override;
 

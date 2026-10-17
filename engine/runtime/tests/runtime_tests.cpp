@@ -222,7 +222,7 @@ TEST_CASE("engine: built-in commands (scene editing, state filters, screenshot)"
     for (const char* name : {"engine.info", "project.info", "scene.list_entities", "scene.get_entity", "scene.spawn",
                              "scene.destroy", "scene.set_component", "scene.remove_component", "scene.load", "scene.save",
                              "scene.reload", "game.step", "game.input", "game.screenshot", "game.state", "game.logs",
-                             "game.pause", "game.resume", "audio.log", "ui.state", "script.eval", "script.errors", "script.reload", "project.test", "physics.raycast", "physics.shape_cast",
+                             "game.pause", "game.resume", "audio.log", "ui.state", "ui.set_text_scale", "script.eval", "script.errors", "script.reload", "project.test", "physics.raycast", "physics.shape_cast",
                              "api.components", "api.commands", "api.scripting", "assets.list"}) {
         INFO(name);
         const CommandInfo* info = c.info(name);
