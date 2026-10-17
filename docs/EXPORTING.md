@@ -589,7 +589,8 @@ its own folder: a Gradle library module (`build.gradle` or `build.gradle.kts`, w
 copies a module to `plugins/<name>` (without its `build/`, `.gradle/` and `.cxx/`) and adds it to `settings.gradle` and
 to the app's dependencies; `.aar` / `.jar` files go to `app/libs/<name>`. The module reads `factoria.compileSdk` and
 `factoria.minSdk` from `gradle.properties`, which the export writes from `targetSdk` and `minSdk`. `android:hasCode` is
-`false` unless a plugin brings code (Java / Kotlin sources or archives). A plugin folder inside the project never ships
+`false` unless a plugin brings code (Java / Kotlin sources or archives). The Gradle project sets `android.useAndroidX=true`,
+which the Google SDKs of a plugin (Play Billing, Play Games) need. A plugin folder inside the project never ships
 as game files. A plugin without an Android build fails the export and says what to put in `android/`. Building the
 library, calling Java from C, `hasCode` and the details: [MOBILE.md](MOBILE.md#native-plugins-on-android).
 

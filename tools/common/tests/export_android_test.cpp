@@ -11,10 +11,12 @@
 #include <map>
 #include <optional>
 
+#include "fa/core/command.h"
 #include "fa/core/image.h"
 #include "fa/tooling/export.h"
 #include "fa/tooling/export_settings.h"
 #include "fa/tooling/scaffold.h"
+#include "fa/tooling/tooling.h"
 #include "test_helpers.h"
 
 using namespace fa;
@@ -257,6 +259,51 @@ TEST_CASE("android export: a plugin's Gradle module becomes a project of the bui
     // The app carries code: the plugin's Java classes are in its dex.
     CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
     CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("{{") == std::string::npos);
+}
+
+TEST_CASE("android export: the Google Play plugin's module carries Billing, Play Games and Play Integrity, its Play Games id and its Java code") {
+    testing::TempDir tmp;
+    const std::string game = make_game(tmp);
+    CommandRegistry reg;
+    register_plugin_commands(reg, game);
+    auto created = reg.call("project.new_plugin", Json::parse(R"({"name": "googleplay", "template": "googleplay", "platforms": ["android"]})"));
+    REQUIRE_MESSAGE(created.ok, created.error.dump());
+    // The bridge is built by platform.add_backend with the NDK: stand-ins for its two libraries.
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        testing::write_all(stdfs::path(game) / "plugins/googleplay/android/src/main/jniLibs" / abi / "libgoogleplay.so", "fake bridge");
+
+    auto r = export_project(options(game, tmp, "gradle"));
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    const stdfs::path root = r->outputDir;
+    const stdfs::path module = root / "plugins/googleplay";
+
+    // The module, its libraries and the file that holds the Play Games project id are in the project; the C sources are not.
+    for (const char* f : {"build.gradle", "consumer-rules.pro", "src/main/AndroidManifest.xml", "src/main/res/values/games-ids.xml",
+                          "src/main/java/factoria/plugin/googleplay/Backend.java", "src/main/java/factoria/plugin/googleplay/Purchases.java",
+                          "src/main/jniLibs/arm64-v8a/libgoogleplay.so", "src/main/jniLibs/x86_64/libgoogleplay.so"}) {
+        CAPTURE(f);
+        CHECK(stdfs::exists(module / f));
+        CHECK(has(r->files, std::string("plugins/googleplay/") + f));
+    }
+    CHECK_FALSE(stdfs::exists(module / "src/plugin.c"));
+    CHECK_FALSE(stdfs::exists(module / "CMakeLists.txt"));
+    CHECK(testing::read_all(module / "src/main/res/values/games-ids.xml").find("game_services_project_id") != std::string::npos);
+
+    // Gradle fetches the three Google libraries; the manifest asks for the Play Games id and removes the auto-start provider.
+    const std::string gradle = testing::read_all(module / "build.gradle");
+    for (const char* dep : {"com.android.billingclient:billing:", "com.google.android.gms:play-services-games-v2:", "com.google.android.play:integrity:"}) {
+        CAPTURE(dep);
+        CHECK(gradle.find(dep) != std::string::npos);
+    }
+    const std::string manifest = testing::read_all(module / "src/main/AndroidManifest.xml");
+    CHECK(manifest.find("com.google.android.gms.games.APP_ID") != std::string::npos);
+    CHECK(manifest.find("tools:node=\"remove\"") != std::string::npos);
+
+    // It is a project of the build and a dependency of the app, which now carries code and may use AndroidX libraries.
+    CHECK(testing::read_all(root / "settings.gradle").find("project(':plugin_googleplay').projectDir = file('plugins/googleplay')") != std::string::npos);
+    CHECK(testing::read_all(root / "app/build.gradle").find("implementation project(':plugin_googleplay')") != std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/AndroidManifest.xml").find("android:hasCode=\"true\"") != std::string::npos);
+    CHECK(testing::read_all(root / "gradle.properties").find("android.useAndroidX=true") != std::string::npos);
 }
 
 TEST_CASE("android export: a plugin module without Java or Kotlin code leaves hasCode false; Kotlin sources turn it on") {

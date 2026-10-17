@@ -675,7 +675,9 @@ and `android/`, the Gradle module of the Android build) and declares the plugin 
 copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
 `linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
 is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
-store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `factoria call
+store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `"googleplay"` the
+Google Play one, a C bridge plus a Java module with Billing, Play Games and Play Integrity: the example to copy for an
+Android SDK ([PLATFORM.md](PLATFORM.md#7-google-play-billing-play-games-services-and-play-integrity)); `factoria call
 platform.add_backend` sets one up in a single step; an unknown name lists the ones there are):
 
 ```js

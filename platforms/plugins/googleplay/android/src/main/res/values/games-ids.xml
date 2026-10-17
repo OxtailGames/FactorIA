@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Play Games Services project id: the number of digits that Play Console shows under Play Games Services > Setup and
+     management > Configuration. Empty means Play Games is off: the backend then offers purchases, the Play Store page and
+     Play Integrity, and no achievements, leaderboards or cloud saves.
+     `factoria call platform.add_backend '{"backend":"googleplay","playGamesId":"123456789012"}'` writes it here (then export again). -->
+<resources>
+    <string name="game_services_project_id" translatable="false"></string>
+</resources>
