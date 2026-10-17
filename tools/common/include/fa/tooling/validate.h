@@ -6,7 +6,10 @@
 // paths referenced by reflected Asset fields exist, scenes and prefabs are in the canonical layout (warning), the
 // `icon` / `export` settings of factoria.json (fa/tooling/export_settings.h) and the icon files they name, the files an
 // export ships (texture size, a file over 20 MB, the total against the store limits) and the textures Sprites draw (fully
-// transparent images, a background that should be transparent; docs/ASSETS.md, "Checks"), scripts
+// transparent images, a background that should be transparent; docs/ASSETS.md, "Checks"), the "localization" section,
+// the string tables (locales/<language>.json: missing, extra and misspelled keys, placeholders, plural forms), the `key`s of
+// scenes and prefabs, and whether the fonts have a glyph for every character the game shows (docs/LOCALIZATION.md,
+// "Checks"), scripts
 // (via optional hooks installed by the CLI once the script module exists: syntax, Script.props, misspelled hooks).
 #pragma once
 
