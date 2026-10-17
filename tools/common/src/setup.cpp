@@ -143,7 +143,6 @@ std::string installed_player(const std::string& platform) { return installed_pla
 std::string installed_player(const SetupContext& context, const std::string& platform) { return setup_detail::installed_player_path(context, platform); }
 std::string installed_mobile_dir() { return installed_mobile_dir(SetupContext{}); }
 std::string installed_mobile_dir(const SetupContext& context) { return setup_detail::installed_mobile_path(context); }
-AppImageTools installed_appimage_tools() { return installed_appimage_tools(SetupContext{}); }
 AppImageTools installed_appimage_tools(const SetupContext& context) { return setup_detail::installed_appimage_path(context); }
 std::string find_cmake() { return find_cmake(SetupContext{}); }
 std::string find_cmake(const SetupContext& context) { return setup_detail::find_cmake_path(context); }
@@ -209,7 +208,7 @@ void register_setup_commands(CommandRegistry& registry) {
             "last release fails with code `no_release`); platforms narrows it (windows, linux, macos, mobile). `cmake`: CMake 3.31 from "
             "Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be "
             "installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). "
-            "`appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 5 MB, into $FACTORIA_HOME/tools/appimage. "
+            "`appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. "
             "Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error "
             "codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. "
             "Example: {\"component\":\"android\",\"acceptLicenses\":true}.";

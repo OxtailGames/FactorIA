@@ -239,7 +239,6 @@ std::string find_cmake(const SetupContext& context);
 struct AppImageTools {
     std::string tool, runtime;
 };
-AppImageTools installed_appimage_tools();
 AppImageTools installed_appimage_tools(const SetupContext& context);
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are

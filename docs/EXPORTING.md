@@ -194,7 +194,7 @@ factoria setup appimage                            # Linux x86_64 (and WSL): app
 | `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (Android libraries; also iOS on a Mac), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
-| `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 5 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
+| `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
 
@@ -535,7 +535,7 @@ folder of the Linux export stays, and `<out>/<game-slug>-linux/<game-slug>-x86_6
 (reported as `artifact`).
 
 ```bash
-factoria setup appimage                                    # once: appimagetool and the AppImage runtime (about 5 MB)
+factoria setup appimage                                    # once: appimagetool and the AppImage runtime (about 16 MB)
 factoria export --platform linux --format appimage         # the command: project.export {"platform":"linux","format":"appimage"}
 ./build/export/my-game-linux/my-game-x86_64.AppImage       # or with --appimage-extract-and-run on a computer without FUSE
 ```

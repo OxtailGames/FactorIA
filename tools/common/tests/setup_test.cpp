@@ -446,7 +446,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
 
     const Json j = all.to_json();
     CHECK(j.at("home").get<std::string>() == w.home);
-    CHECK(j.at("components").size() == 4);
+    CHECK(j.at("components").size() == 5);
     CHECK(j.at("components")[0].at("state").get<std::string>() == "missing");
 }
 

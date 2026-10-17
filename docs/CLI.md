@@ -91,7 +91,7 @@ in a terminal, and without one refuses until `--accept-licenses` says you have r
 (`--platforms windows,linux,macos,mobile` narrows it).
 `cmake` installs CMake 3.31 for the iOS export unless a 3.24+ is found. `xcode` (macOS) checks Xcode, opens its App Store page
 when missing and lists what you do next (it never runs `sudo`). `appimage` (Linux x86_64, also WSL) installs appimagetool and the
-AppImage runtime, 5 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`.
+AppImage runtime, about 16 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`.
 `--force` installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):

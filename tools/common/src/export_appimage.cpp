@@ -74,7 +74,7 @@ Result<AppImagePlan> plan_appimage(const ExportOptions& o, const Project& p, con
     const AppImageTools tools = installed_appimage_tools(ctx);
     if (tools.tool.empty())
         return err("export: appimagetool and the AppImage runtime are not installed (" + (stdfs::path(ctx.home_dir()) / "tools" / "appimage").string() + ")",
-                   "Run `factoria setup appimage` (the setup.install command with component appimage; about 5 MB from github.com/AppImage, SHA-256 checked), then export again.");
+                   "Run `factoria setup appimage` (the setup.install command with component appimage; about 16 MB from github.com/AppImage, SHA-256 checked), then export again.");
     AppImagePlan plan;
     plan.enabled = true;
     plan.tool = tools.tool;

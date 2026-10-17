@@ -541,6 +541,14 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project", "choose another --out folder");
     if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
 
+    // Checked before the player: on a computer that cannot build an AppImage, a missing player is beside the point.
+    const bool appimage = plan.platform == "linux" && to_lower(options.format) == "appimage";
+    if (appimage) {
+        auto image = plan_appimage(options, p, plan.outRoot);
+        if (!image.ok()) return image.error();
+        plan.appimage = std::move(image.value());
+    }
+
     if (plan.platform == "android" || plan.platform == "ios") {
         auto setup = resolve_mobile(options, plan.platform);
         if (!setup.ok()) return setup.error();
@@ -555,15 +563,9 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         if (!android.ok()) return android.error();
         plan.android = std::move(android.value());
     } else {
-        const bool appimage = plan.platform == "linux" && to_lower(options.format) == "appimage";
         if (!options.format.empty() && !appimage)
             plan.warnings.push_back("The format '" + options.format + "' only applies to android (apk, aab, gradle) and linux (appimage); " + plan.platform +
                                     " has a single format, so it is ignored");
-        if (appimage) {
-            auto image = plan_appimage(options, p, plan.outRoot);
-            if (!image.ok()) return image.error();
-            plan.appimage = std::move(image.value());
-        }
         const std::string rel = p.settings.icon_for(plan.platform);
         std::error_code iconEc;
         if (forExport || (!rel.empty() && !stdfs::is_regular_file(p.dir / rel, iconEc))) {

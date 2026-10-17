@@ -28,7 +28,7 @@ struct Download {
 std::vector<Download> downloads() {
     const std::string tool = kSetupAppimagetoolVersion, runtime = kSetupAppImageRuntimeVersion;
     return {{"appimagetool", "appimagetool", "appimagetool-" + tool + "-x86_64.AppImage",
-             "https://github.com/AppImage/appimagetool/releases/download/" + tool + "/appimagetool-x86_64.AppImage", kSetupAppimagetoolSha256, 4},
+             "https://github.com/AppImage/appimagetool/releases/download/" + tool + "/appimagetool-x86_64.AppImage", kSetupAppimagetoolSha256, 15},
             {"runtime", "AppImage runtime", "runtime-" + runtime + "-x86_64",
              "https://github.com/AppImage/type2-runtime/releases/download/" + runtime + "/runtime-x86_64", kSetupAppImageRuntimeSha256, 1}};
 }
