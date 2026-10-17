@@ -4,6 +4,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <set>
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -194,6 +195,16 @@ PluralCategory plural_category(std::string_view language, double count) {
     return whole && i == 1 ? PC::One : PC::Other;
 }
 
+std::vector<PluralCategory> plural_categories(std::string_view language, bool everyCount) {
+    std::set<PluralCategory> found;
+    for (int n = 0; n < 200; ++n) found.insert(plural_category(language, n));
+    if (everyCount) {
+        for (double n : {0.5, 1.5, 2.5, 10.5, 100.5, 1e6, 2e6}) found.insert(plural_category(language, n));
+    }
+    found.insert(PluralCategory::Other);
+    return {found.begin(), found.end()};  // the enum is ordered zero .. other
+}
+
 // ================================================================================================== string tables
 namespace {
 
@@ -230,6 +241,7 @@ struct Flattener {
         if (table.entries.count(key))
             return table_error(file, pointer, "the key '" + key + "' is written twice (as \"a.b\" and as nested objects)",
                                "Keep one spelling of each key.");
+        entry.pointer = pointer;
         table.entries.emplace(key, std::move(entry));
         return std::nullopt;
     }
@@ -359,7 +371,6 @@ void I18n::configure(std::string defaultLanguage, std::vector<std::string> langu
     tables_.clear();
     chain_.clear();
     warned_.clear();
-    ++revision_;
 }
 
 void I18n::rebuild_chain() {
@@ -398,7 +409,6 @@ std::vector<I18n::Problem> I18n::load_tables() {
         tables_[lang] = std::move(table.value());
     }
     rebuild_chain();
-    ++revision_;
     return problems;
 }
 
@@ -410,7 +420,6 @@ Result<void> I18n::add_table(StringTable table) {
     const std::string lang = table.language;
     tables_[lang] = std::move(table);
     rebuild_chain();
-    ++revision_;
     return {};
 }
 
@@ -436,7 +445,6 @@ Result<std::string> I18n::set_language(std::string_view requested) {
     if (current_ != lang.value()) {
         current_ = lang.value();
         rebuild_chain();
-        ++revision_;
     }
     return current_;
 }

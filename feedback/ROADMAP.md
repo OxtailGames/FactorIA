@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11, M13 and M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M14 and M16-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -64,6 +64,12 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   from the recipe when its game needs them. UI focus comes only through `autoFocus` or `ui.focus`, so Space or A never
   clicks a HUD button.
 - M11: a plugin that does not load is a warning, and its reason becomes the script's error.
+- M14: headless runs, tests and the editor start in `localization.defaultLanguage` (output and saved scenes never depend
+  on the machine); a game in its own window and an exported game start in the best match of the system's languages;
+  `FA_LANGUAGE` / `EngineConfig::language` override both. A component with a `key` gets its text overwritten at run time.
+  The font chain is the Text's `font`, `localization.languageFonts[language]`, `localization.fallbackFonts`, then DejaVu
+  Sans; there is no per-Text fallback list. `align` is explicit (Left is the left edge for right-to-left text too). The
+  engine saves neither the language choice nor `ui.textScale`: the game keeps them in `storage`.
 - M15: exports ship the import settings of `assets.json` and drop provenance and style.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
@@ -288,23 +294,24 @@ Left open:
 - The sniper build was run with Docker, not Podman; the sniper SDK image tag is pinned and is bumped by hand. The
   sniper build has no libcurl, so the Linux download's AI features need the `curl` program.
 
-## M14. Localization (L, blocker for a global release)
+## M14. Localization (L, blocker for a global release) — DONE (PRs #73, #74 and the `m14/finish` PR)
 
-Closes F-02, H-08, U-06 and the text-scaling part of U-05. This PR only made missing glyphs visible: Chinese, Japanese and
-Korean need a font the game ships, and Arabic draws left to right with unjoined letters.
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M14.
 
-- String tables (`locales/<lang>.json`), `i18n.t(key, args)` in JS, a `key` field on Text, the system language on every
-  platform, a fallback language, `i18n.setLanguage` at run time.
-- A font fallback chain (project-wide and per Text), so a CJK font fills what the main font lacks.
-- Shaping with HarfBuzz (MIT) and bidirectional line layout for Arabic, Hebrew and Indic scripts.
-- `factoria validate` reports characters in string tables and scene texts that no configured font covers, with the file
-  and the character (the run-time warning added in this PR is the starting point); CSV or XLIFF export and import for
-  translators.
-
-Acceptance criteria:
-- `日本語 中文 한국어 العربية` renders every script with Noto fonts, Arabic joined and right to left (golden image).
-- `validate` fails on a missing glyph and names the character, the text and the file.
-- Switching language at run time updates every Text that has a `key`.
+Left open:
+- Line breaking is spaces plus Chinese, Japanese and Korean with a simple kinsoku rule, not UAX #14: no breaks inside Thai,
+  Khmer or Lao words, after hyphens or around numbers with units. Line height comes from the Text's own font, so a much
+  taller fallback font can touch the next line.
+- Indic and Thai text is shaped by HarfBuzz but no test covers it. No vertical text, colour emoji or inline styles.
+- `TextField` ignores right-to-left text: the caret stays at the end (M10's caret limits) and nothing is mirrored.
+- No locale-aware formatting of numbers, dates or currency. Plural rules are written for 17 languages; the others use
+  English's one/other.
+- The translators' CSV and XLIFF files were tested as formats only: no spreadsheet or CAT tool was run, and the CSV import
+  takes UTF-8 only (Excel's "CSV UTF-8").
+- The system language was read on Windows only; the Apple, Android and Linux code ran in CI apps whose system is English.
+- The editor's own interface is English only; its viewport always shows the default language.
+- HarfBuzz and SheenBidi add about 700 KB to a Release player (measured with GCC before the linker drops unused code).
+- UTF-8 decoding and encoding helpers are duplicated in render, ui, tooling and the Android export.
 
 ## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56, #57)
 

@@ -23,6 +23,7 @@
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
 #include "assets_internal.h"
+#include "localization_check.h"
 #include "util.h"
 
 namespace fa {
@@ -39,6 +40,9 @@ struct Ctx {
     std::string dir;
     std::vector<PropsCheck> propChecks;
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
+    std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
+    LocalizationParse localization;                           // the "localization" section of factoria.json
+    bool projectFileRead = false;                             // factoria.json parsed as an object
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
         report.errors.push_back({std::move(file), std::move(pointer), std::move(msg), std::move(hint)});
@@ -186,6 +190,7 @@ void check_entity_assets(Ctx& c, const std::string& file, const std::string& poi
             }
         }
     }
+    localization_detail::collect_scene_texts(file, pointer, entity, c.sceneTexts);
     if (entity.contains("children") && entity["children"].is_array()) {
         int i = 0;
         for (const auto& ch : entity["children"]) check_entity_assets(c, file, pointer + "/children/" + std::to_string(i++), ch, scripts);
@@ -281,10 +286,12 @@ void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) 
 }
 
 // The "localization" section (languages, default language, fonts): every problem of parse_localization with its pointer and fix.
-// What the string tables hold (locales/<language>.json) is not checked here.
+// What the string tables (locales/<language>.json) and the texts of scenes hold is checked once the scenes are read
+// (check_localization_content, validate_localization.cpp).
 void check_localization(Ctx& c, const LocalizationParse& parsed) {
     for (const LocalizationIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
     for (const LocalizationIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+    c.localization = parsed;
 }
 
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
@@ -322,6 +329,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
     check_localization(c, localization);
+    c.projectFileRead = true;
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));
     if (!stdfs::exists(stdfs::path(c.dir) / mainScene))
@@ -502,6 +510,10 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                    "mainScene '" + mainScene + "' is not named *.scene.json (or is in a hidden or build folder), so it is not validated.",
                    "Name it <something>.scene.json, e.g. scenes/main.scene.json.");
     }
+
+    // String tables, the `key`s scenes use, and whether the fonts have a glyph for every character (not with a broken section).
+    if (c.projectFileRead && c.localization.ok())
+        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.report);
 
     // Scripts: everything under scripts/ and tools/ plus referenced paths.
     for (const char* folder : {"scripts", "tools"}) {
