@@ -1,8 +1,9 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video,
-// Audio (one slider per bus), Controls (rebinding) and Language (a placeholder until localization). Every change is
-// applied at once and saved (scripts/settings.js), so the next run starts with it.
-import { Behaviour, ui, input, window, audio, world } from "factoria";
+// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
+import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -14,8 +15,8 @@ const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
-  /** Actions the Controls tab lets the player rebind, and their labels. */
-  actions = { move_left: "Move left", move_right: "Move right", jump: "Jump", pause: "Pause" };
+  /** Actions the Controls tab lets the player rebind; their labels are the strings "options.action.<action>". */
+  actions = ["move_left", "move_right", "jump", "pause"];
 
   onStart() {
     this.s = settings.load();
@@ -26,6 +27,13 @@ export default class Options extends Behaviour {
     this.setupVideo();
     this.setupAudio();
     this.setupControls();
+    this.setupLanguage();
+    // The texts this script writes are not translated by the engine: write them again in the new language.
+    i18n.on("change", () => {
+      this.refreshVideo();
+      this.refreshControls();
+      this.refreshLanguage();
+    });
   }
 
   showTab(name) {
@@ -76,9 +84,13 @@ export default class Options extends Behaviour {
   refreshVideo() {
     const size = window.size;
     const resolution = world.find("resolution").get("Button");
-    resolution.text = window.fullscreen ? "Window size: full screen" : `Window size: ${Math.round(size.x)} x ${Math.round(size.y)}`;
+    resolution.text = window.fullscreen
+      ? i18n.t("options.windowSizeFullscreen")
+      : i18n.t("options.windowSize", { width: Math.round(size.x), height: Math.round(size.y) });
     resolution.interactable = window.available && !window.fullscreen; // full screen uses the display's size
-    world.find("frame_cap").get("Button").text = `Frame cap: ${window.frameCap ? window.frameCap + " fps" : "off"}`;
+    world.find("frame_cap").get("Button").text = window.frameCap
+      ? i18n.t("options.frameCap", { fps: window.frameCap })
+      : i18n.t("options.frameCapOff");
   }
 
   // ------------------------------------------------------------------------------------------------------------ audio
@@ -96,13 +108,13 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
-    for (const [action, label] of Object.entries(this.actions)) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: label, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+    for (const action of this.actions) {
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };
         MenuStack.busy = true; // Escape cancels the rebinding instead of closing the panel
-        button.get("Button").text = `${label}: press a key or button (Esc cancels)`;
+        this.refreshControls();
       });
     }
     ui.on("click", "reset_controls", () => {
@@ -115,8 +127,31 @@ export default class Options extends Behaviour {
   }
 
   refreshControls() {
-    for (const [action, label] of Object.entries(this.actions))
-      world.find(`bind_${action}`).get("Button").text = `${label}: ${input.buttonName(action)}`;
+    for (const action of this.actions) {
+      const label = i18n.t(`options.action.${action}`);
+      world.find(`bind_${action}`).get("Button").text =
+        this.waiting?.action === action
+          ? i18n.t("options.pressKey", { action: label })
+          : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------------- language
+  setupLanguage() {
+    ui.on("click", "language", () => {
+      const all = i18n.languages;
+      const next = all[(all.indexOf(i18n.language) + 1) % all.length];
+      i18n.setLanguage(next); // every Text and widget with a key changes at once; "change" listeners run next frame
+      this.s.language = next;
+      settings.save(this.s);
+    });
+    this.refreshLanguage();
+  }
+
+  refreshLanguage() {
+    const button = world.find("language").get("Button");
+    button.text = i18n.t("options.language", { language: i18n.name(i18n.language) });
+    button.interactable = i18n.languages.length > 1; // a game with one language has nothing to choose
   }
 
   onUpdate() {

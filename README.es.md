@@ -140,6 +140,7 @@ página y de la guía de primeros pasos.
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): cómo las IAs registran lo que le falta al motor.
 - [docs/BUILDING.md](docs/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas.
 - [docs/MOBILE.md](docs/MOBILE.md) y [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android y exportar juegos.
+- [docs/LOCALIZATION.md](docs/LOCALIZATION.md): varios idiomas: tablas de textos, campos `key` y la API de scripts `i18n` (en inglés).
 
 Si vas a modificar el motor, lee primero [CLAUDE.md](CLAUDE.md) y
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

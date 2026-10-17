@@ -42,6 +42,7 @@ class Physics;
 class Renderer;
 class UiSystem;
 class PlatformServices;
+class I18n;
 
 // The game's own window, as `window.*` in scripts reaches it. Only a game that owns a real window has one (factoria run,
 // an exported game, a phone or tablet player); headless runs, tests, the MCP server and the editor's game view have none,
@@ -80,6 +81,14 @@ public:
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
     // `platform` then reports the "none" backend.
     virtual PlatformServices* platform_services() { return nullptr; }
+    // The string tables and the current language behind `i18n.*` in scripts (fa/core/i18n.h); nullptr when the host has none.
+    virtual const I18n* i18n() { return nullptr; }
+    // Switches the language of the game now: every Text and widget with a `key` is rewritten at once and an "i18n.change" game
+    // event is sent. Returns "" when done (also when it already was that language), else a sentence saying why not.
+    virtual std::string set_language(std::string_view language) {
+        (void)language;
+        return "this host has no localization (set_language is not implemented)";
+    }
     // Deferred to the end of the current frame.
     virtual void request_scene_change(std::string_view scenePath) = 0;
     virtual void request_quit() = 0;

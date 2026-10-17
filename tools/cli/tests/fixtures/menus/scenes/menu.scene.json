@@ -35,6 +35,7 @@
           "components": {
             "Text": {
               "text": "My Game",
+              "key": "menu.title",
               "fontSize": 64,
               "space": "screen"
             }
@@ -45,6 +46,7 @@
           "components": {
             "Button": {
               "text": "Play",
+              "key": "menu.play",
               "autoFocus": true
             }
           }
@@ -53,7 +55,8 @@
           "id": "options_button",
           "components": {
             "Button": {
-              "text": "Options"
+              "text": "Options",
+              "key": "menu.options"
             }
           }
         },
@@ -61,7 +64,8 @@
           "id": "credits_button",
           "components": {
             "Button": {
-              "text": "Credits"
+              "text": "Credits",
+              "key": "menu.credits"
             }
           }
         },
@@ -70,7 +74,8 @@
           "active": false,
           "components": {
             "Button": {
-              "text": "Shop"
+              "text": "Shop",
+              "key": "menu.shop"
             }
           }
         },
@@ -78,7 +83,8 @@
           "id": "quit",
           "components": {
             "Button": {
-              "text": "Quit"
+              "text": "Quit",
+              "key": "menu.quit"
             }
           }
         }
@@ -111,6 +117,7 @@
           "components": {
             "Text": {
               "text": "Shop",
+              "key": "shop.title",
               "fontSize": 40,
               "space": "screen",
               "layer": 301
@@ -152,6 +159,7 @@
           "components": {
             "Button": {
               "text": "Restore purchases",
+              "key": "shop.restore",
               "layer": 302
             }
           }
@@ -175,6 +183,7 @@
           "components": {
             "Button": {
               "text": "Back",
+              "key": "menu.back",
               "layer": 302
             }
           }
@@ -216,6 +225,7 @@
           "components": {
             "Button": {
               "text": "Back",
+              "key": "menu.back",
               "layer": 302,
               "autoFocus": true
             }
