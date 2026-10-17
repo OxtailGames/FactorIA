@@ -21,6 +21,7 @@
         "components": {
           "Text": {
             "text": "Options",
+            "key": "options.title",
             "fontSize": 40,
             "space": "screen",
             "layer": 301
@@ -44,6 +45,7 @@
             "components": {
               "Button": {
                 "text": "Video",
+                "key": "options.tab.video",
                 "size": [160, 48],
                 "layer": 302,
                 "autoFocus": true
@@ -55,6 +57,7 @@
             "components": {
               "Button": {
                 "text": "Audio",
+                "key": "options.tab.audio",
                 "size": [160, 48],
                 "layer": 302
               }
@@ -65,6 +68,7 @@
             "components": {
               "Button": {
                 "text": "Controls",
+                "key": "options.tab.controls",
                 "size": [160, 48],
                 "layer": 302
               }
@@ -75,6 +79,7 @@
             "components": {
               "Button": {
                 "text": "Language",
+                "key": "options.tab.language",
                 "size": [160, 48],
                 "layer": 302
               }
@@ -99,6 +104,7 @@
             "components": {
               "Toggle": {
                 "label": "Full screen",
+                "key": "options.fullscreen",
                 "size": [560, 44],
                 "layer": 302
               }
@@ -120,6 +126,7 @@
             "components": {
               "Toggle": {
                 "label": "VSync",
+                "key": "options.vsync",
                 "size": [560, 44],
                 "layer": 302
               }
@@ -141,6 +148,7 @@
             "components": {
               "Text": {
                 "text": "Video settings apply when the game runs in its own window.",
+                "key": "options.videoNote",
                 "fontSize": 18,
                 "color": [0.75, 0.8, 0.9, 1],
                 "space": "screen",
@@ -167,6 +175,7 @@
             "components": {
               "Slider": {
                 "label": "Master",
+                "key": "options.volume.master",
                 "size": [560, 44],
                 "layer": 302
               }
@@ -177,6 +186,7 @@
             "components": {
               "Slider": {
                 "label": "Music",
+                "key": "options.volume.music",
                 "size": [560, 44],
                 "layer": 302
               }
@@ -187,6 +197,7 @@
             "components": {
               "Slider": {
                 "label": "Effects",
+                "key": "options.volume.effects",
                 "size": [560, 44],
                 "layer": 302
               }
@@ -197,6 +208,7 @@
             "components": {
               "Slider": {
                 "label": "Interface",
+                "key": "options.volume.interface",
                 "size": [560, 44],
                 "layer": 302
               }
@@ -233,6 +245,7 @@
             "components": {
               "Button": {
                 "text": "Reset to defaults",
+                "key": "options.resetControls",
                 "size": [560, 44],
                 "layer": 302,
                 "fontSize": 22
@@ -259,8 +272,7 @@
               "Button": {
                 "text": "Language: English",
                 "size": [560, 44],
-                "layer": 302,
-                "interactable": false
+                "layer": 302
               }
             }
           }
@@ -272,6 +284,7 @@
         "components": {
           "Button": {
             "text": "Back",
+            "key": "menu.back",
             "layer": 302
           }
         }
