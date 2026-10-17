@@ -21,7 +21,8 @@ if(MSVC)
     set_property(TARGET fa_steam_plugin PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# The mock Steamworks library, in four variants of the same source (each in its own folder: the file name is the real one).
+# The mock Steamworks library, in four variants of the same source (each in its own folder: the file name is the real one;
+# on Windows that includes the import library and .exp the linker writes, or parallel builds of two variants collide).
 #   current  the SDK 1.62 to 1.64 interface versions, SteamAPI_InitFlat
 #   legacy   the SDK 1.58 to 1.60 ones: no InitFlat, older accessors, stats that must be requested
 #   next     one interface version above the newest the plugin knows (what SDK 1.65 does to ISteamUtils): used, with a warning
@@ -41,7 +42,8 @@ foreach(variant current legacy next future)
     set_target_properties(fa_steam_mock_${variant} PROPERTIES OUTPUT_NAME ${steam_mock_name} PREFIX "${steam_mock_prefix}"
         CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mock_${variant}
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mock_${variant})
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mock_${variant}
+        ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/mock_${variant})
     if(MSVC)
         set_property(TARGET fa_steam_mock_${variant} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
