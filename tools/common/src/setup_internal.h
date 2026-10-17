@@ -6,6 +6,7 @@
 //   setup_players.cpp  factoria_player of the other OSes + prebuilt mobile libraries
 //   setup_cmake.cpp    CMake for the iOS export
 //   setup_xcode.cpp    Xcode: status and guidance
+//   setup_appimage.cpp appimagetool + the AppImage runtime (Linux x86_64)
 #pragma once
 
 #include <chrono>
@@ -133,6 +134,10 @@ SetupResult cmake_install(const SetupContext& ctx, const SetupInstallOptions& op
 
 SetupComponent xcode_status(const SetupContext& ctx);
 SetupResult xcode_install(const SetupContext& ctx, const SetupInstallOptions& options);
+
+SetupComponent appimage_status(const SetupContext& ctx);
+AppImageTools installed_appimage_path(const SetupContext& ctx);  // both empty when not installed
+SetupResult appimage_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 // What the three installers and the status share about Java and the SDK folders.
 bool jdk_usable(const std::string& dir);        // bin/java + bin/javac + Java 17 or newer

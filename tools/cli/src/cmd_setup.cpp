@@ -19,7 +19,7 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage"};
     return ids;
 }
 
@@ -143,7 +143,7 @@ int run_install(Context& ctx, const std::string& component) {
 Command make_setup_command() {
     Command g;
     g.name = "setup";
-    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake).";
+    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools).";
     g.usage = "";
     g.details =
         "'factoria setup' shows what an export needs and whether this computer has it. 'factoria setup <component>' installs it into\n"
@@ -153,7 +153,9 @@ Command make_setup_command() {
         "           The SDK license is shown first and installed only after you accept it (or pass --accept-licenses).\n"
         "  players  the factoria_player of the other desktop OSes and the Android/iOS libraries, for this version of factoria.\n"
         "  cmake    CMake 3.24+ for the iOS export (macOS), unless one is found.\n"
-        "  xcode    macOS: checks Xcode; 'setup xcode' opens its App Store page and says what to do next.";
+        "  xcode    macOS: checks Xcode; 'setup xcode' opens its App Store page and says what to do next.\n"
+        "  appimage Linux x86_64 (and WSL): appimagetool and the AppImage runtime, so 'factoria export --platform linux --format appimage'\n"
+        "           also builds the game as one AppImage file.";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses", "factoria setup players",
@@ -195,6 +197,8 @@ Command make_setup_command() {
     g.subs.push_back(sub("cmake", "Install CMake 3.24+ (for the iOS export) unless one is found.",
                          {{"force", "", "Install it into ~/.factoria even when a CMake is found (or this is not a Mac)."}}, {"factoria setup cmake"}));
     g.subs.push_back(sub("xcode", "macOS: check Xcode and open its App Store page when it is missing.", {}, {"factoria setup xcode"}));
+    g.subs.push_back(sub("appimage", "Linux x86_64: install appimagetool and the AppImage runtime that --format appimage exports build with.",
+                         {{"force", "", "Download them again even when installed."}}, {"factoria setup appimage"}));
     return g;
 }
 

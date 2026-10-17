@@ -56,7 +56,7 @@ canonical layout is a warning (fix: `factoria call scene.format`).
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--format apk|aab|gradle] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
+### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
@@ -67,6 +67,10 @@ development build came from); the mode is printed and reported as `mode`, and th
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build; Gradle's
 output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
+Linux: `--format appimage` also builds `<slug>-x86_64.AppImage`, the game as one file (Linux x86_64 or WSL, after
+`factoria setup appimage`; see [EXPORTING.md](EXPORTING.md#linux-appimage)). On a Mac, `factoria call sign.macos` signs and
+notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)), and
+`factoria call project.new_ci_workflow` writes a GitHub Actions workflow for the game ([EXPORTING.md](EXPORTING.md#ci-for-your-game)).
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
 `out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
 [EXPORTING.md](EXPORTING.md).
@@ -76,7 +80,7 @@ Opens the visual editor (only in builds with the editor). It is AI-first: the vi
 are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
 `scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
-### `factoria setup [android|players|cmake|xcode] [--accept-licenses] [--platforms LIST] [--force] [--json]`
+### `factoria setup [android|players|cmake|xcode|appimage] [--accept-licenses] [--platforms LIST] [--force] [--json]`
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
@@ -86,7 +90,9 @@ in a terminal, and without one refuses until `--accept-licenses` says you have r
 `factoria_player` of the other desktop OSes and the Android/iOS libraries from the GitHub release of this version
 (`--platforms windows,linux,macos,mobile` narrows it).
 `cmake` installs CMake 3.31 for the iOS export unless a 3.24+ is found. `xcode` (macOS) checks Xcode, opens its App Store page
-when missing and lists what you do next (it never runs `sudo`). `--force` installs again even when something is found.
+when missing and lists what you do next (it never runs `sudo`). `appimage` (Linux x86_64, also WSL) installs appimagetool and the
+AppImage runtime, 5 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`.
+`--force` installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):
 [EXPORTING.md](EXPORTING.md#setting-up-this-computer).
@@ -95,6 +101,7 @@ factoria setup
 factoria setup android
 factoria setup android --accept-licenses
 factoria setup players --platforms windows,linux
+factoria setup appimage
 ```
 
 ## Running

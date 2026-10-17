@@ -64,7 +64,7 @@ TEST_CASE("every command has help with examples") {
         CHECK_MESSAGE(r.out.find("Examples:") != std::string::npos, c);
     }
     for (auto sub : std::vector<std::vector<std::string>>{{"ai", "run"}, {"ai", "doctor"}, {"feedback", "add"}, {"feedback", "collect"}, {"docs", "search"},
-                                                             {"setup", "android"}, {"setup", "players"}, {"setup", "cmake"}, {"setup", "xcode"}}) {
+                                                             {"setup", "android"}, {"setup", "players"}, {"setup", "cmake"}, {"setup", "xcode"}, {"setup", "appimage"}}) {
         auto args = sub;
         args.push_back("--help");
         auto r = run(args);
@@ -76,7 +76,7 @@ TEST_CASE("every command has help with examples") {
 TEST_CASE("setup: help names the components; mistakes exit with 2 and teach, without touching the computer") {
     auto h = run({"setup", "--help"});
     CHECK(h.code == 0);
-    for (const char* c : {"android", "players", "cmake", "xcode", "FACTORIA_HOME"}) CHECK_MESSAGE(h.out.find(c) != std::string::npos, c);
+    for (const char* c : {"android", "players", "cmake", "xcode", "appimage", "FACTORIA_HOME"}) CHECK_MESSAGE(h.out.find(c) != std::string::npos, c);
 
     auto typo = run({"setup", "andriod"});
     CHECK(typo.code == 2);
@@ -216,6 +216,27 @@ TEST_CASE("--json: a failure is a JSON error object on stdout, whatever the comm
     auto plain = run({"export", f.project.string(), "--platform", "linux", "--player", missing});
     CHECK(plain.code == 1);
     CHECK(plain.out.empty());
+}
+
+TEST_CASE("export --format appimage: a typo teaches, and a computer that cannot build one says so before writing anything") {
+    PathsFixture f;
+    auto typo = run({"export", f.project.string(), "--platform", "linux", "--format", "appimge"});
+    CHECK(typo.code == 2);
+    CHECK(typo.err.find("Unknown format 'appimge'") != std::string::npos);
+    CHECK(typo.err.find("appimage") != std::string::npos);  // did you mean
+    auto help = run({"export", "--help"});
+    CHECK(help.out.find("appimage") != std::string::npos);
+    CHECK(help.out.find("factoria setup appimage") != std::string::npos);
+#if !defined(__linux__)
+    // Not Linux (or not x86_64): the AppImage needs appimagetool, a Linux x86_64 program, and the error says where to export instead.
+    const std::string player = (f.root / "no-such-player").string();
+    auto refused = run({"export", f.project.string(), "--platform", "linux", "--format", "appimage", "--player", player, "--json"});
+    CHECK(refused.code == 1);
+    const fa::Json j = fa::Json::parse(refused.out, nullptr, false);
+    REQUIRE_MESSAGE(j.is_object(), refused.out);
+    CHECK(j["error"]["message"].get<std::string>().find("AppImage can only be built on Linux x86_64") != std::string::npos);
+    CHECK(j["error"]["hint"].get<std::string>().find("WSL") != std::string::npos);
+#endif
 }
 
 TEST_CASE("run output options are relative to the current directory and the report prints the absolute path") {

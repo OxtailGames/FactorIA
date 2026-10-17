@@ -615,7 +615,8 @@ TEST_CASE("setup status: every component, refreshed on a worker, downloading not
     CHECK_FALSE(cache.refreshing());
     const SetupStatus& st = cache.status();
     CHECK(st.home == w.home.string());
-    REQUIRE(st.components.size() == 4);
+    REQUIRE(st.components.size() == 5);  // android, players, cmake, xcode and the AppImage tools (no editor button for those yet)
+    REQUIRE(st.find("appimage") != nullptr);
     CHECK(st.find("android")->state == "missing");
     CHECK(st.find("players")->state == "missing");
     CHECK(st.find("cmake")->state == "missing");  // the fake world has no cmake
