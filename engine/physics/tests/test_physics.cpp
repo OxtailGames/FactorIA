@@ -2376,14 +2376,18 @@ TEST_CASE("3d sleep: a rider on a moving kinematic platform never sleeps; once t
     CHECK(pos_of(s.world, box).x > x0 + 0.9f);
 }
 
+namespace {
+// At file scope: MinGW GCC 13 leaves std::vector<Vec3>'s operator== undefined (a link error) for a local class's defaulted ==.
+struct SleepResult { int sleptAt = -1; std::vector<Vec3> pos; bool operator==(const SleepResult&) const = default; };
+}  // namespace
+
 TEST_CASE("3d sleep: a changed scene gravity wakes sleeping bodies; sleeping is deterministic") {
-    struct Result { int sleptAt = -1; std::vector<Vec3> pos; bool operator==(const Result&) const = default; };
     auto run = []() {
         Sim s;
         add_box3(s.world, "ground", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
         Entity ball = add_sphere3(s.world, "ball", {0, 2, 0}, 0.5f);
         Entity crate = add_box3(s.world, "crate", {3, 3, 0}, {1, 1, 1}, BodyType::Dynamic, true);
-        Result r;
+        SleepResult r;
         for (int i = 0; i < 400; ++i) {
             s.run(1);
             if (r.sleptAt < 0 && !body_awake(s, "ball") && !body_awake(s, "crate")) r.sleptAt = i;
