@@ -20,28 +20,9 @@ namespace fa {
 
 using namespace publish_detail;
 using export_detail::fs_safe_name;
-using export_detail::os_path;
+using export_detail::host_platform;
 
 namespace {
-
-Error err(std::string message, std::string hint = {}) { return Error{std::move(message), std::move(hint)}; }
-
-bool is_dir(const stdfs::path& p) {
-    std::error_code ec;
-    return stdfs::is_directory(os_path(p), ec);
-}
-bool is_file(const stdfs::path& p) {
-    std::error_code ec;
-    return stdfs::is_regular_file(os_path(p), ec);
-}
-
-bool is_windows_host() {
-#if defined(_WIN32)
-    return true;
-#else
-    return false;
-#endif
-}
 
 // A command line as a person would type it (arguments with spaces or quotes are quoted).
 std::string display_command(const std::vector<std::string>& argv) {
@@ -136,20 +117,13 @@ void measure(const stdfs::path& dir, PublishUpload& up) {
 
 // ---- the tool --------------------------------------------------------------------------------------------------
 
-std::string expand_home(std::string path, const ExportEnvLookup& env) {
-    if (path != "~" && path.rfind("~/", 0) != 0 && path.rfind("~\\", 0) != 0) return path;
-    std::string home = env("HOME");
-    if (home.empty()) home = env("USERPROFILE");
-    return home.empty() ? path : home + path.substr(1);
-}
-
 // `value` names the tool's executable, or the folder that holds it. "" when there is none.
 std::string resolve_tool_path(const Store& store, const std::string& value, const ExportEnvLookup& env) {
-    const stdfs::path p(expand_home(value, env));
+    const stdfs::path p(tooling_detail::expand_home(value, env));
     if (is_file(p)) return generic(p);
     if (is_dir(p))
         for (const std::string& name : store.exeNames)
-            for (const std::string& file : is_windows_host() ? std::vector<std::string>{name + ".exe", name + ".cmd", name + ".bat", name} : std::vector<std::string>{name})
+            for (const std::string& file : host_platform() == "windows" ? std::vector<std::string>{name + ".exe", name + ".cmd", name + ".bat", name} : std::vector<std::string>{name})
                 if (is_file(p / file)) return generic(p / file);
     return {};
 }
@@ -159,7 +133,7 @@ struct ToolFound {
 };
 
 Result<ToolFound> find_tool(const Store& store, const PublishOptions& o) {
-    const ExportEnvLookup env = o.env ? o.env : system_export_env();
+    const ExportEnvLookup& env = o.env;
     const std::string configPath = o.toolConfigPath.empty() ? machine_export_config_path(env) : o.toolConfigPath;
     const std::string where = "To set it up: download it from " + store.download + ", then put it on PATH, set " + store.envVar +
                               " to the executable (or its folder), or write {\"publish\": {\"" + store.configKey + "\": \"<path>\"}} in " + configPath + ".";
@@ -323,7 +297,7 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
     }
 
     // ---- the tool, then the store's own checks and build files ----
-    auto tool = find_tool(*store, options);
+    auto tool = find_tool(*store, c.options);  // c.options.env is never empty (set above)
     if (!tool.ok()) return tool.error();
     c.tool = tool->path;
     report.tool = tool->path;

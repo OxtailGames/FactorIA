@@ -11,7 +11,6 @@
 //   GOG       https://docs.gog.com/pb-build-game/  (GOGGalaxyPipelineBuilder build-game <project.json> [--ignore_list F]
 //             [--version V] [--branch B] [--username U --password P]; the project file format is the page's example)
 #include <algorithm>
-#include <fstream>
 #include <regex>
 
 #include "fa/core/strings.h"
@@ -21,8 +20,6 @@ namespace fa::publish_detail {
 
 namespace {
 
-Error err(std::string message, std::string hint = {}) { return Error{std::move(message), std::move(hint)}; }
-
 const char* const kEpicSecretVar = "FACTORIA_EPIC_CLIENT_SECRET";
 const char* const kGogUserVar = "FACTORIA_GOG_USERNAME";
 const char* const kGogPasswordVar = "FACTORIA_GOG_PASSWORD";
@@ -30,16 +27,6 @@ const char* const kGogPasswordVar = "FACTORIA_GOG_PASSWORD";
 std::string tab_value(std::string v) {  // a VDF string: quotes would end it
     std::replace(v.begin(), v.end(), '"', '\'');
     return v;
-}
-
-std::string read_text(const stdfs::path& file) {
-    std::ifstream in(file, std::ios::binary);
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-bool exists_file(const stdfs::path& file) {
-    std::error_code ec;
-    return stdfs::is_regular_file(file, ec);
 }
 
 std::string env_of(const Context& c, const char* name) { return c.options.env ? c.options.env(name) : std::string(); }
@@ -57,11 +44,11 @@ Result<std::string> steam_app_id(const Context& c) {
     std::string text = c.options.appId, from = "the appId argument";
     if (text.empty()) {
         const stdfs::path file = c.projectDir / "steam_appid.txt";
-        if (!exists_file(file))
+        if (!is_file(file))
             return err("steam: the game has no Steam app id: there is no steam_appid.txt in " + generic(c.projectDir) + " and no appId argument",
                        "Your app id is the number in the Steamworks partner site (App Admin). Write it to steam_appid.txt with "
                        "platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>} (the file is for development and never shipped), or pass \"appId\".");
-        text = std::string(trim(read_text(file)));
+        text = std::string(trim(tooling_detail::read_file(file).value_or("")));
         from = "steam_appid.txt";
     }
     const bool digits = !text.empty() && text.size() <= 10 && std::all_of(text.begin(), text.end(), [](char ch) { return ch >= '0' && ch <= '9'; });
@@ -144,9 +131,9 @@ bool butler_login_exists(const Context& c) {
     const std::string profile = !env_of(c, "USERPROFILE").empty() ? env_of(c, "USERPROFILE") : env_of(c, "HOME");
     if (profile.empty()) return false;
 #if defined(__APPLE__)
-    return exists_file(stdfs::path(profile) / "Library" / "Application Support" / "itch" / "butler_creds");
+    return is_file(stdfs::path(profile) / "Library" / "Application Support" / "itch" / "butler_creds");
 #else
-    return exists_file(stdfs::path(profile) / ".config" / "itch" / "butler_creds");
+    return is_file(stdfs::path(profile) / ".config" / "itch" / "butler_creds");
 #endif
 }
 
