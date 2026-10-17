@@ -64,14 +64,9 @@ set(FA_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 # system it runs on. The `linux-sniper` preset sets this inside the Steam Runtime sniper SDK (scripts/build-sniper.sh); it is
 # also what the Linux release packages use (.github/workflows/release.yml).
 option(FA_LINUX_STATIC_LIBSTDCXX "Linux: link libstdc++ and libgcc statically (programs that run on systems older than the compiler)" OFF)
-if(FA_LINUX_STATIC_LIBSTDCXX)
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        add_link_options(-static-libstdc++ -static-libgcc)
-        message(STATUS "FactorIA: libstdc++ and libgcc are linked statically (FA_LINUX_STATIC_LIBSTDCXX)")
-    else()
-        message(WARNING "FA_LINUX_STATIC_LIBSTDCXX is ON but only applies to GCC or Clang on Linux (this is "
-            "${CMAKE_SYSTEM_NAME} with ${CMAKE_CXX_COMPILER_ID}): ignored. Leave it OFF here.")
-    endif()
+if(FA_LINUX_STATIC_LIBSTDCXX AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_link_options(-static-libstdc++ -static-libgcc)
+    message(STATUS "FactorIA: libstdc++ and libgcc are linked statically (FA_LINUX_STATIC_LIBSTDCXX)")
 endif()
 
 if(FA_BUILD_TESTS)

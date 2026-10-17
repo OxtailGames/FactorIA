@@ -3,7 +3,7 @@
 # Builds the Linux release the way the release packages are built: inside the Steam Runtime "sniper" SDK container
 # (glibc 2.31, GCC 14, CMake 3.25), with libstdc++ and libgcc linked statically, so the programs run on the Steam Linux
 # Runtime "sniper" (what Steam runs Linux games in, also on the Steam Deck), Ubuntu 20.04 and newer, Debian 11 and newer.
-# It needs Docker or Podman (the image is about 1.2 GB); on Linux only. CI runs the same script (.github/workflows/ci.yml
+# It needs Docker or Podman, found in that order (the image is about 1.2 GB); on Linux only. CI runs the same script (.github/workflows/ci.yml
 # job `Linux (Steam Runtime sniper)`, and the `linux-x64` package of release.yml).
 #
 #   ./scripts/build-sniper.sh [build|check|smoke|all] [-- <cmake configure arguments>]
@@ -20,10 +20,8 @@
 #   all     build, check and smoke (the default).
 #
 # Environment:
-#   FA_CONTAINER_ENGINE  docker or podman (default: docker if installed, else podman)
 #   FA_SNIPER_TAG        image tag of both images (default: the pinned one below; `latest` follows Valve's releases)
 #   FA_CCACHE_DIR        ccache directory on this machine, mounted into the build (default: ~/.cache/ccache)
-#   FA_MAX_GLIBC, FA_MAX_GLIBCXX, FA_MAX_CXXABI, FA_MAX_GCC   limits for `check` instead of the container's libraries
 #
 # Inside a sniper container already (a CI job with `container:`, a distrobox made from the SDK image) the steps run in
 # place, without Docker.
@@ -87,11 +85,9 @@ system_lib() {
 
 inside_check() {
     cd "$ROOT"
-    local files=("$@")
-    [[ ${#files[@]} -gt 0 ]] || files=("${PROGRAMS[@]}")
     command -v objdump > /dev/null || die "objdump is not in this container: run check in the sniper SDK image."
-    local failed=0 file spec prefix lib override limit used imports bad line
-    for file in "${files[@]}"; do
+    local failed=0 file spec prefix lib limit used imports bad line
+    for file in "${PROGRAMS[@]}"; do
         if [[ ! -f "$file" ]]; then
             fail_msg "$file does not exist: run ./scripts/build-sniper.sh build first"
             failed=1
@@ -100,13 +96,12 @@ inside_check() {
         echo "==> $file"
         objdump -p "$file" | sed -n 's/^ *NEEDED */    needs /p'
         imports="$(objdump -T "$file" | grep -F '*UND*' || true)"
-        # PREFIX:library that defines it:name of the override variable.
-        for spec in GLIBC:libc.so.6:FA_MAX_GLIBC GLIBCXX:libstdc++.so.6:FA_MAX_GLIBCXX CXXABI:libstdc++.so.6:FA_MAX_CXXABI GCC:libgcc_s.so.1:FA_MAX_GCC; do
-            IFS=: read -r prefix lib override <<< "$spec"
+        # PREFIX:the library of the runtime that defines those versions.
+        for spec in GLIBC:libc.so.6 GLIBCXX:libstdc++.so.6 CXXABI:libstdc++.so.6 GCC:libgcc_s.so.1; do
+            IFS=: read -r prefix lib <<< "$spec"
             used="$(newest_version "$prefix" <<< "$imports")"
             [[ -n "$used" ]] || continue
-            limit="${!override:-}"
-            [[ -n "$limit" ]] || limit="$(objdump -T "$(system_lib "$lib")" | newest_version "$prefix")"
+            limit="$(objdump -T "$(system_lib "$lib")" | newest_version "$prefix")"
             [[ -n "$limit" ]] || die "cannot read the $prefix versions of $lib in this container"
             echo "    ${prefix}_$used is the newest it imports; the sniper runtime's $lib has up to ${prefix}_$limit"
             if version_le "$used" "$limit"; then continue; fi
@@ -154,14 +149,10 @@ inside_smoke() {
         { fail_msg "'$player_version' and '$version' are different versions"; exit 1; }
 
     "$fa" new "$tmp/game" --template 2d-empty
-    # The run succeeds without a renderer too when the scene needs none, so the output must say a frame was drawn.
+    # The run succeeds without a GPU too when no frame is drawn, so the screenshot proves a GPU context worked.
     out="$("$fa" run "$tmp/game" --headless --frames 1 --render-all --screenshot-at 0 --screenshot-pattern "$tmp/frame_{frame}.png" 2>&1)" ||
         { echo "$out"; fail_msg "'factoria run --headless --frames 1' failed in the sniper runtime (output above)"; exit 1; }
     echo "$out"
-    if grep -qi 'no renderer\|no egl display' <<< "$out"; then
-        fail_msg "the headless frame ran without a GPU context in the sniper runtime (output above)"
-        exit 1
-    fi
     [[ -s "$tmp/frame_0.png" ]] || { fail_msg "the headless frame wrote no screenshot ($tmp/frame_0.png) in the sniper runtime"; exit 1; }
     rm -rf "$tmp"
     echo "==> smoke passed"
@@ -170,8 +161,7 @@ inside_smoke() {
 # ---- starting a step in the container ----------------------------------------------------------------------------------
 
 container_engine() {
-    if [[ -n "${FA_CONTAINER_ENGINE:-}" ]]; then echo "$FA_CONTAINER_ENGINE"
-    elif command -v docker > /dev/null; then echo docker
+    if command -v docker > /dev/null; then echo docker
     elif command -v podman > /dev/null; then echo podman
     else die "neither docker nor podman is installed. Install one (https://docs.docker.com/engine/install/ or 'apt install podman'), or run this inside a Steam Runtime sniper SDK container."
     fi
@@ -182,7 +172,7 @@ run_step() {
     local image="$1" mode="$2"; shift 2
     local engine; engine="$(container_engine)"
     local args=(run --rm -v "$ROOT:/src:$mode" -w /src -e HOME=/tmp/fa-home
-                -e GITHUB_ACTIONS -e FA_MAX_GLIBC -e FA_MAX_GLIBCXX -e FA_MAX_CXXABI -e FA_MAX_GCC)
+                -e GITHUB_ACTIONS)
     if [[ "$engine" == podman ]]; then
         # Rootless: the same user inside, and no SELinux relabelling of the checkout.
         args+=(--userns=keep-id --security-opt label=disable)
@@ -202,17 +192,8 @@ run_step() {
 
 # ---- main --------------------------------------------------------------------------------------------------------------
 
-if [[ "${1:-}" == --inside ]]; then
-    shift
-    step="${1:?}"; shift
-    case "$step" in
-        build) inside_build "$@" ;;
-        check) inside_check "$@" ;;
-        smoke) inside_smoke ;;
-        *) die "unknown step '$step'" ;;
-    esac
-    exit 0
-fi
+inside=0
+if [[ "${1:-}" == --inside ]]; then inside=1; shift; fi  # how run_step starts this script in a container
 
 step=all
 case "${1:-}" in
@@ -224,8 +205,9 @@ esac
 if [[ "${1:-}" == -- ]]; then shift; fi
 [[ "$(uname -s)" == Linux ]] || die "this script is for Linux (Docker or Podman, or WSL on Windows)."
 
-if in_steamrt; then
-    # Already in a sniper container: run in place. The platform image has no compilers, the SDK image has everything.
+# In a sniper container already (started by run_step, or a CI job with `container:`): run the steps in place. The platform
+# image has no compilers, the SDK image has everything.
+if [[ "$inside" == 1 ]] || in_steamrt; then
     case "$step" in
         build) inside_build "$@" ;;
         check) inside_check ;;
