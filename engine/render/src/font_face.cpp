@@ -46,7 +46,8 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
         f->data = f->ownedData.data();
         f->size = f->ownedData.size();
     }
-    if (!f->data || !stbtt_InitFont(&f->info, f->data, stbtt_GetFontOffsetForIndex(f->data, 0))) {
+    const int offset = f->data ? stbtt_GetFontOffsetForIndex(f->data, 0) : -1;  // -1: not a font file at all (and stb would read before it)
+    if (offset < 0 || !stbtt_InitFont(&f->info, f->data, offset)) {
         f->error = std::format("'{}' is not a usable TrueType font (stb_truetype cannot parse it)", font);
         f->hint = "Only .ttf (and TrueType-flavoured .otf) files are supported; convert other formats.";
         return f;
