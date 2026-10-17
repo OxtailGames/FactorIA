@@ -38,9 +38,7 @@ struct EntryText {
 };
 std::vector<EntryText> texts_of(const StringEntry& entry);
 
-// UTF-8 for messages: code points of a text (malformed bytes count as U+FFFD), one code point as UTF-8, `U+65E5 '日'`.
-std::u32string decode_utf8(std::string_view text);
-void append_utf8(std::string& out, char32_t cp);
+// One code point for a message: `U+65E5 '日'`.
 std::string describe_code_point(std::uint32_t cp);
 // The start of a text for a message: at most `limit` code points, "..." when cut, line breaks shown as \n.
 std::string excerpt(std::string_view text, std::size_t limit = 40);

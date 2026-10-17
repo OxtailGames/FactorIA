@@ -8,6 +8,7 @@
 #include <stb_truetype.h>
 
 #include "fa/core/log.h"
+#include "fa/core/utf8.h"
 #include "font_internal.h"
 #include "render_internal.h"
 #include "text_shaper.h"
@@ -238,10 +239,10 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit) {
 // characters, and what to do: a font already in use that has them, else the kind of font that does.
 void Fonts::warn_missing_glyphs(FontFace* f, const std::string& text, const std::vector<char32_t>& missing) {
     std::string chars;
-    for (char32_t cp : missing) chars += std::format("{}U+{:04X} '{}'", chars.empty() ? "" : ", ", unsigned(cp), encode_utf8(cp));
+    for (char32_t cp : missing) chars += std::format("{}U+{:04X} '{}'", chars.empty() ? "" : ", ", unsigned(cp), utf8_encode(cp));
     std::string excerpt;
-    const std::u32string cps = decode_utf8(text);
-    for (std::size_t i = 0; i < cps.size() && i < 24; ++i) excerpt += encode_utf8(cps[i]);
+    const std::u32string cps = utf8_decode(text);
+    for (std::size_t i = 0; i < cps.size() && i < 24; ++i) utf8_append(excerpt, cps[i]);
     if (cps.size() > 24) excerpt += "...";
     std::string label = font_label(f->key);
     if (!impl_->fallbackKeys.empty()) {  // the whole chain was searched

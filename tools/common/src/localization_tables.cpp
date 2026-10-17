@@ -4,6 +4,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 
 namespace fa::localization_detail {
 
@@ -85,71 +86,22 @@ std::vector<EntryText> texts_of(const StringEntry& entry) {
     return out;
 }
 
-std::u32string decode_utf8(std::string_view text) {
-    std::u32string out;
-    for (std::size_t i = 0; i < text.size();) {
-        const unsigned char c = static_cast<unsigned char>(text[i]);
-        const int extra = c < 0x80 ? 0 : (c >> 5) == 0x6 ? 1 : (c >> 4) == 0xE ? 2 : (c >> 3) == 0x1E ? 3 : -1;
-        if (extra < 0 || i + std::size_t(extra) >= text.size()) {  // not a lead byte, or the text ends inside the character
-            out.push_back(0xFFFD);
-            ++i;
-            continue;
-        }
-        char32_t cp = extra == 0 ? c : (c & (0x3F >> extra));
-        bool good = true;
-        for (int k = 1; k <= extra; ++k) {
-            const unsigned char cc = static_cast<unsigned char>(text[i + std::size_t(k)]);
-            if ((cc & 0xC0) != 0x80) {
-                good = false;
-                break;
-            }
-            cp = (cp << 6) | (cc & 0x3F);
-        }
-        if (!good) {
-            out.push_back(0xFFFD);
-            ++i;
-            continue;
-        }
-        out.push_back(cp);
-        i += std::size_t(extra) + 1;
-    }
-    return out;
-}
-
-void append_utf8(std::string& out, char32_t cp) {
-    if (cp < 0x80) {
-        out += char(cp);
-    } else if (cp < 0x800) {
-        out += char(0xC0 | (cp >> 6));
-        out += char(0x80 | (cp & 0x3F));
-    } else if (cp < 0x10000) {
-        out += char(0xE0 | (cp >> 12));
-        out += char(0x80 | ((cp >> 6) & 0x3F));
-        out += char(0x80 | (cp & 0x3F));
-    } else {
-        out += char(0xF0 | (cp >> 18));
-        out += char(0x80 | ((cp >> 12) & 0x3F));
-        out += char(0x80 | ((cp >> 6) & 0x3F));
-        out += char(0x80 | (cp & 0x3F));
-    }
-}
-
 std::string describe_code_point(std::uint32_t cp) {
     std::string out = std::format("U+{:04X}", cp);
     if (cp >= 0x20 && cp != 0x7F) {
         out += " '";
-        append_utf8(out, cp);
+        utf8_append(out, cp);
         out += "'";
     }
     return out;
 }
 
 std::string excerpt(std::string_view text, std::size_t limit) {
-    const std::u32string cps = decode_utf8(text);
+    const std::u32string cps = utf8_decode(text);
     std::string out;
     for (std::size_t i = 0; i < cps.size() && i < limit; ++i) {
         if (cps[i] == U'\n') out += "\\n";
-        else append_utf8(out, cps[i]);
+        else utf8_append(out, cps[i]);
     }
     if (cps.size() > limit) out += "...";
     return out;

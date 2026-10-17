@@ -36,7 +36,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 
 ```
 engine/            runtime modules (ship inside every game)
-  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h), string tables, plural rules and language matching (i18n.h)
+  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h), UTF-8 decoding and encoding (utf8.h), string tables, plural rules and language matching (i18n.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder)

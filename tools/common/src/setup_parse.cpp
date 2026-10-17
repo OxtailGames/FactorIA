@@ -6,6 +6,7 @@
 
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 
 namespace fa {
 
@@ -189,13 +190,7 @@ std::string decode_xml_entities(std::string_view text) {
         else if (!name.empty() && name[0] == '#') {
             const bool hex = name.size() > 1 && (name[1] == 'x' || name[1] == 'X');
             const long cp = std::strtol(std::string(name.substr(hex ? 2 : 1)).c_str(), nullptr, hex ? 16 : 10);
-            if (cp > 0 && cp < 0x80) out += char(cp);
-            else if (cp >= 0x80 && cp < 0x800) out += char(0xC0 | (cp >> 6)), out += char(0x80 | (cp & 0x3F));
-            else if (cp >= 0x800 && cp < 0x10000)
-                out += char(0xE0 | (cp >> 12)), out += char(0x80 | ((cp >> 6) & 0x3F)), out += char(0x80 | (cp & 0x3F));
-            else if (cp >= 0x10000)
-                out += char(0xF0 | (cp >> 18)), out += char(0x80 | ((cp >> 12) & 0x3F)), out += char(0x80 | ((cp >> 6) & 0x3F)),
-                    out += char(0x80 | (cp & 0x3F));
+            if (cp > 0 && cp <= 0x10FFFF) utf8_append(out, char32_t(cp));
             else out.append(text.substr(i, semi - i + 1));
         } else {
             out.append(text.substr(i, semi - i + 1));  // an entity we do not know stays as written
