@@ -20,8 +20,6 @@ endif()
 
 fa_add_tests(render)
 if(TARGET fa_test_render)
-    # Golden images and the KTX2 fixtures (tests/data) live next to the tests: FA_RENDER_GOLDEN_DIR and FA_RENDER_DATA_DIR
-    # in fa_test_paths.h.
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
 endif()
 
