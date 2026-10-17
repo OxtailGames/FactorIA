@@ -1,7 +1,7 @@
 // @ts-check
-// The player's settings (volumes, video, controls), kept in storage under "settings" and applied once per run.
+// The player's settings (volumes, video, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session } from "factoria";
+import { storage, audio, window, input, session, i18n } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -13,6 +13,7 @@ const DEFAULTS = {
   vsync: null, // null: keep factoria.json display.vsync
   frameCap: 0, // 0 = no cap
   bindings: {}, // action -> binding names, only for actions the player rebound
+  language: null, // null: the language the game started in (the player's system language, else the default one)
 };
 
 /** The saved settings merged over the defaults (a fresh object each call). */
@@ -25,9 +26,16 @@ export function save(s) {
   storage.set("settings", s);
 }
 
-/** Puts `s` into effect: bus volumes, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
+  if (s.language && s.language !== i18n.language) {
+    try {
+      i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
+    } catch (e) {
+      console.warn(`settings: the saved language was ignored: ${e.message}`);
+    }
+  }
   for (const [action, list] of Object.entries(s.bindings)) {
     try {
       input.rebind(action, list);

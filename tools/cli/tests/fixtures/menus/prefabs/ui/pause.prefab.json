@@ -30,6 +30,7 @@
             "components": {
               "Text": {
                 "text": "Paused",
+                "key": "pause.title",
                 "fontSize": 40,
                 "layer": 301,
                 "space": "screen"
@@ -41,6 +42,7 @@
             "components": {
               "Button": {
                 "text": "Resume",
+                "key": "pause.resume",
                 "layer": 302,
                 "autoFocus": true
               }
@@ -51,6 +53,7 @@
             "components": {
               "Button": {
                 "text": "Options",
+                "key": "menu.options",
                 "layer": 302
               }
             }
@@ -60,6 +63,7 @@
             "components": {
               "Button": {
                 "text": "Main menu",
+                "key": "pause.mainMenu",
                 "layer": 302
               }
             }
