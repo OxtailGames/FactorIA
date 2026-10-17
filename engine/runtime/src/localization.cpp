@@ -56,17 +56,23 @@ void Engine::Impl::reload_localization() {
 
 void Engine::Impl::apply_localization() { localize_world(world, i18n); }
 
-std::string Engine::Impl::switch_language(std::string_view requested) {
+Result<std::string> Engine::Impl::switch_language(std::string_view requested) {
     const std::string previous = i18n.language();
     auto language = i18n.set_language(requested);
-    if (!language.ok()) return language.error().to_string();
-    if (language.value() == previous) return {};
+    if (!language.ok() || language.value() == previous) return language;
+    apply_fallback_fonts();
     apply_localization();
     world.events().game.push_back(
         GameEvent{"i18n.change", Json::object({{"language", language.value()}, {"previous", previous}}), kNullEntity});
     if (renderer) renderStale = true;  // OnDemand: what was drawn is outdated
     FA_INFO("i18n", "Language {} -> {}", previous, language.value());
-    return {};
+    return language;
+}
+
+// The renderer falls back to the fonts of the language in use, so a Japanese table draws with the Japanese font while every Text
+// keeps `font: ""`. Called when the renderer is created (the start language is chosen before it exists) and on every switch.
+void Engine::Impl::apply_fallback_fonts() {
+    if (renderer && i18n.enabled()) renderer->set_fallback_fonts(project.localization.fallback_fonts_for(i18n.language()));
 }
 
 namespace {
@@ -133,10 +139,9 @@ void register_i18n_commands(Engine&, Engine::Impl& I) {
             if (!a.contains("language") || !a["language"].is_string())
                 throw CommandError("invalid_argument", "Missing string argument 'language'.", "Use i18n.state to see the game's languages.");
             const std::string previous = I.i18n.language();
-            auto language = I.i18n.resolve_language(a["language"].get<std::string>());
+            auto language = I.switch_language(a["language"].get<std::string>());
             if (!language.ok()) throw CommandError("invalid_argument", language.error().message, language.error().hint);
-            I.switch_language(language.value());
-            return Json::object({{"language", I.i18n.language()}, {"previous", previous}, {"changed", I.i18n.language() != previous}});
+            return Json::object({{"language", language.value()}, {"previous", previous}, {"changed", language.value() != previous}});
         });
 }
 

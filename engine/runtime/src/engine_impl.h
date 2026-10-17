@@ -102,7 +102,8 @@ struct Engine::Impl {
     void setup_localization();
     void reload_localization();  // read locales/*.json again (hot reload) and rewrite the texts
     void apply_localization();
-    std::string switch_language(std::string_view requested);  // "" when done, else the reason
+    Result<std::string> switch_language(std::string_view requested);  // the language now in use, or why not
+    void apply_fallback_fonts();  // the renderer's fallback fonts for the language in use (localization.fallbackFonts / languageFonts)
     Vec2 design_size() const;       // the renderer's target size (UI anchors are fractions of it); without one the project's
     VisualMeasure measure() const;  // text sizes from the renderer, else the approximation
     void poll_hot_reload(bool force = false);

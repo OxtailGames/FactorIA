@@ -249,26 +249,28 @@ void Fonts::warn_missing_glyphs(FontFace* f, const std::string& text, const std:
         for (std::size_t i = 0; i < impl_->fallbackKeys.size(); ++i) label += (i ? ", " : " ") + font_label(impl_->fallbackKeys[i]);
         label += ")";
     }
+    // The fix that suits every Text of the game: the font lists of factoria.json. A Text's own "font" works for one Text.
+    const std::string project = "list it in factoria.json (localization.fallbackFonts, or localization.languageFonts for one language: "
+                                "docs/TEXT.md) or set the Text's \"font\" to it";
     std::string hint;
     for (const auto& [key, other] : impl_->faces) {
         if (other.get() == f || !other->ok) continue;
         bool all = true;
         for (char32_t cp : missing) all = all && other->has_glyph(cp);
         if (all) {
-            hint = std::format("The font {} (already used in this game) has them: set the Text's \"font\" to it.", font_label(key));
+            hint = std::format("The font {} (already used in this game) has them: {}.", font_label(key), project);
             break;
         }
     }
     if (hint.empty()) {
         if (std::any_of(missing.begin(), missing.end(), is_cjk))
             hint = "Chinese, Japanese and Korean need a font that covers them, such as Noto Sans SC, JP or KR (SIL Open Font "
-                   "License): put its .ttf in assets/fonts/ and set the Text's \"font\" to that path. The built-in fonts cover "
-                   "Latin, Greek, Cyrillic, Hebrew and Arabic.";
+                   "License): put its .ttf in assets/fonts/ and " + project + ". The built-in fonts cover Latin, Greek, Cyrillic, "
+                   "Hebrew and Arabic.";
         else if (std::any_of(missing.begin(), missing.end(), is_emoji))
             hint = "Colour emoji fonts are not supported (only TrueType outlines): draw emoji as sprites.";
         else
-            hint = "Use a .ttf that covers them (the Noto fonts have one per script): put it in assets/fonts/ and set the Text's "
-                   "\"font\" to that path.";
+            hint = "Use a .ttf that covers them (the Noto fonts have one per script): put it in assets/fonts/ and " + project + ".";
     }
     FA_WARN("render", "text \"{}\" has characters the font {} has no glyph for, so they draw as nothing: {}. {} (Reported once per font.)",
             excerpt, label, chars, hint);

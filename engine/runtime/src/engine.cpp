@@ -376,6 +376,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             if (I.gpu) I.gpu->shutdown();
             I.gpu.reset();
         } else {
+            I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
                           : std::format("window {}x{} px (dpi scale {})", app_framebuffer_width(), app_framebuffer_height(),
@@ -511,7 +512,10 @@ const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
 PlatformServices* Engine::platform_services() { return &impl_->platform; }
 const I18n* Engine::i18n() { return &impl_->i18n; }
-std::string Engine::set_language(std::string_view language) { return impl_->switch_language(language); }
+std::string Engine::set_language(std::string_view language) {
+    auto switched = impl_->switch_language(language);
+    return switched.ok() ? std::string() : switched.error().to_string();
+}
 
 ScriptSystem& Engine::scripts() { return impl_->scripts; }
 
