@@ -43,6 +43,5 @@ workarounds are the most useful part. Do not include secrets or private paths.
    left open and the decisions later work has to respect ("Decisions of finished milestones"), so every agent that
    reads the roadmap reads open work.
 
-Layout: `ROADMAP.md` (ranked open entries + milestones), `ROADMAP_DONE.md` (what finished milestones built),
-`inbox/` (submitted files, not yet triaged),
-and the in-repo examples under `examples/*/ENGINE_FEEDBACK.json`.
+Layout: `ROADMAP.md` (ranked open entries + milestones), `ROADMAP_DONE.md` (what finished milestones built), `inbox/`
+(submitted files, not yet triaged), and the in-repo examples under `examples/*/ENGINE_FEEDBACK.json`.

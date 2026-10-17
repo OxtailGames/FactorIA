@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: 73 entries reported by the four example games, all 73 verified fixed-in-engine (M6 closed the last 10). No entry is open, every milestone (M1-M9) is done (M9: run on Apple hardware); M5 closed the proactive 3D-physics and gamepad gaps, M7 the gaps found while implementing M5 and M6, and M8 those found in M7 plus the desktop download's next steps. What only certificates, real devices or a device farm can close is listed under M8 and M9, "Left open". M10-M23 come from an external evaluation of v0.1.4 (re-triage 2026-10-16): what it still takes to ship a game to the stores; M10 (game UI and menus), M11 (native plugins) and M15 (asset pipeline) are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; the rest is not started. The history of finished milestones (what was built, what was fixed on the way) is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M13-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -13,8 +13,6 @@ Hand-written triage section (the ranked list above is generated; regenerate it w
 `feedback/README.md` and keep this section). Triage date 2026-10-13, against commit `e2b0090`: of the 55
 entries from the four example games, the engine already fixed most; the work packages below cover what is left,
 plus two packages for gaps seen while verifying that no game has hit yet (marked *proactive*).
-
-Earlier re-triages (2026-10-13 and 2026-10-14) are in [ROADMAP_DONE.md](ROADMAP_DONE.md).
 
 Re-triage 2026-10-16, after `497303d` (v0.1.4), from an external evaluation: a veteran developer tried to take a game
 from `factoria new` to every store with v0.1.4 and listed 82 numbered gaps plus a few notes (the ids below are the
@@ -62,8 +60,9 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   ES 3.1 feature. On Android, sokol_app's exit in `onDestroy` is turned into `_exit(0)` and the activity is
   `stateNotNeeded`, so the system starts the game again in a new process. macOS exports are signed ad hoc after every
   file is written; Developer ID signing then needs `--force`.
-- M10: UI focus comes only through `autoFocus` or `ui.focus`, so Space or A never clicks a HUD button (the templates
-  decision is in M10 below).
+- M10 (2026-10-16): templates stay minimal (the empty ones are a camera and nothing else); a game's AI builds menus
+  from the recipe when its game needs them. UI focus comes only through `autoFocus` or `ui.focus`, so Space or A never
+  clicks a HUD button.
 - M11: a plugin that does not load is a warning, and its reason becomes the script's error.
 - M15: exports ship the import settings of `assets.json` and drop provenance and style.
 
@@ -103,9 +102,6 @@ Found while implementing M9, not fixed:
 ## M10. Game UI and menus (L, blocker for every store) — DONE (PRs #47, #50, #51, #53)
 
 Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M10.
-
-Decision (2026-10-16): templates stay minimal (the empty ones are a camera and nothing else); a game's AI builds menus
-from the recipe when its game needs them.
 
 Left open:
 - `TextField`: the caret stays at the end (no caret movement, selection or IME composition). The Steam Deck floating
