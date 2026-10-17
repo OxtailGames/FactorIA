@@ -87,6 +87,7 @@ function(fa_add_tests name)
     endif()
     cmake_parse_arguments(ARG "" "" "DEPS;LABELS" ${ARGN})
     file(GLOB_RECURSE tsrcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
+    list(FILTER tsrcs EXCLUDE REGEX "/tests/programs/")  # programs the tests run (their own main()), built by the module
     if(NOT tsrcs)
         return()
     endif()
