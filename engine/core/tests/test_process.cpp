@@ -136,7 +136,7 @@ TEST_CASE("process runner: .cmd in a path with spaces, multi-line stdin, unsafe 
     TempDir dir;
     stdfs::create_directories(dir.path / "npm dir");
     std::string cmd = (dir.path / "npm dir" / "fake cli.cmd").string();
-    std::ofstream(cmd) << "@echo arg:%~1\r\n@findstr \"^\"\r\n";
+    std::ofstream(cmd) << "@echo arg:%~1\r\n@more\r\n";  // more, not findstr "^": Wine's findstr (the local CI) has no regex
 
     ProcessOptions po;
     po.argv = {cmd, "two words"};

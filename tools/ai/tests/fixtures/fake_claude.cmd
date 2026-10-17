@@ -6,18 +6,19 @@ rem "No conversation found" error; FAKE_MODE=mcp_spawn calls the tool scene_spaw
 rem server of its --mcp-config with curl, like Claude Code calling a tool (the reply goes to %FAKE_ARGV_FILE%.mcp).
 rem FAKE_MODE=models answers the initialize control_request on stdin with a control_response of three models (argv is recorded, stdin is not; with FAKE_HANG it then keeps running).
 rem A CLAUDE_CODE_AUTO_COMPACT_WINDOW is recorded as "compact-window:<n>". Keep the JSON free of & | < > ^ % and parentheses: cmd.exe would act on them.
+rem stdin is read with more and find, not findstr: Wine's findstr (the local CI runs this under Wine) has no "^" and matches nothing on a pipe.
 if not defined FAKE_COST set FAKE_COST=0.0123
 if "%FAKE_MODE%"=="models" goto models
 if defined FAKE_ARGV_FILE (
   for %%a in (%*) do >>"%FAKE_ARGV_FILE%" echo %%~a
   if defined CLAUDE_CODE_AUTO_COMPACT_WINDOW >>"%FAKE_ARGV_FILE%" echo compact-window:%CLAUDE_CODE_AUTO_COMPACT_WINDOW%
   <nul set /p "=stdin:">>"%FAKE_ARGV_FILE%"
-  findstr "^">>"%FAKE_ARGV_FILE%"
+  more>>"%FAKE_ARGV_FILE%"
 ) else (
-  findstr "^">nul
+  more>nul
 )
 if "%FAKE_MODE%"=="resume_fails" (
-  echo %* | findstr /c:"--resume" >nul && (
+  echo %* | find "--resume" >nul && (
     echo {"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"gone","total_cost_usd":0,"usage":{},"errors":["No conversation found with session ID: gone"]}
     exit /b 1
   )
@@ -44,7 +45,7 @@ exit /b 0
 
 :models
 if defined FAKE_ARGV_FILE for %%a in (%*) do >>"%FAKE_ARGV_FILE%" echo %%~a
-findstr /c:"control_request" >nul || exit /b 1
+find "control_request" >nul || exit /b 1
 echo {"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup","session_id":"sess-1"}
 echo {"type":"control_response","response":{"subtype":"success","request_id":"fa-models","response":{"commands":[],"models":[{"value":"default","displayName":"Default recommended","description":"Opus 5.5 with 1M context","resolvedModel":"claude-opus-5-5"},{"value":"sonnet","displayName":"Sonnet 5.5","description":"Fast and capable","resolvedModel":"claude-sonnet-5-5"},{"value":"claude-haiku-4-5-20251001","displayName":"Haiku 4.5","description":"Fastest for quick answers","resolvedModel":"claude-haiku-4-5-20251001"}]}}}
 if defined FAKE_HANG ping -n 31 127.0.0.1 >nul
