@@ -27,6 +27,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/image.h"
 #include "fa/core/json.h"
@@ -42,6 +43,10 @@ enum class ScaleMode : std::int32_t {
     Expand,   // keep aspect, grow the visible area on the long axis (game target resized to match)
     PixelPerfect  // integer scaling only, letterbox
 };
+
+// The range of Renderer::set_text_scale (the player's "text size" option): half size to triple size.
+inline constexpr float kMinTextScale = 0.5f;
+inline constexpr float kMaxTextScale = 3.0f;
 
 struct RendererDesc {
     int designWidth = 1280;
@@ -124,8 +129,29 @@ public:
     void emit_burst(Entity e, int count);
 
     // Size {width, height} in design/world units of `text` laid out at `fontSize` with the same code as Text
-    // rendering (wrapping at maxWidth > 0, line height). font "" = built-in font.
-    Vec2 measure_text(std::string_view text, float fontSize, std::string_view font = {}, float maxWidth = 0) const;
+    // rendering (shaping, fallback fonts, right-to-left text, wrapping at maxWidth > 0, line height). font "" =
+    // built-in font. `space` is where the text would be drawn: screen-space Text and UI labels (RenderSpace::Screen)
+    // are scaled by the text scale, world-space Text is not.
+    Vec2 measure_text(std::string_view text, float fontSize, std::string_view font = {}, float maxWidth = 0,
+                      RenderSpace space = RenderSpace::World) const;
+
+    // ---- Text -------------------------------------------------------------------------------------------------
+    // Fonts to fall back on, in order, for the characters a Text's own font lacks. The chain of every Text is: its
+    // `font` ("" = the built-in DejaVu Sans), then these fonts (project paths of .ttf files, or "builtin:pixel"), then
+    // the built-in DejaVu Sans last. Each character is drawn with the first font of the chain that has a glyph for it;
+    // a combining mark or joiner stays with its base character's font. A fallback font is only loaded when some text
+    // needs it. Takes effect on the next layout (also for Text already on screen); a font that fails to load is
+    // skipped (the failure is logged once and listed in asset_report()). Characters no font of the chain has draw as
+    // nothing, with one warning per Text font naming them. May be called before init() (it is kept).
+    void set_fallback_fonts(std::vector<std::string> fonts);
+    const std::vector<std::string>& fallback_fonts() const { return fallbackFonts_; }
+    // The player's "text size" option: multiplies the font size of screen-space Text (space = Screen) and of the labels
+    // of UI widgets (Button, Toggle, Slider, TextField), and the measurements of those (measure_text with
+    // RenderSpace::Screen, entity.bounds()). World-space Text is part of the world and is not scaled; neither is debug
+    // text. Clamped to kMinTextScale..kMaxTextScale (NaN = 1). The renderer does not save it: the game stores the option.
+    // May be called before init().
+    void set_text_scale(float scale);
+    float text_scale() const { return textScale_; }
 
     // Expand support: with ScaleMode::Expand the orthographic camera keeps the design height fixed (or the
     // design width when the target is taller than the design aspect). present() also records its mode.
@@ -160,6 +186,8 @@ public:
 
 private:
     std::unique_ptr<Impl> impl_;
+    std::vector<std::string> fallbackFonts_;
+    float textScale_ = 1.0f;
 };
 
 }  // namespace fa
