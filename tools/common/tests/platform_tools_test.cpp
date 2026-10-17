@@ -144,3 +144,32 @@ TEST_CASE("project.new_plugin: template picks a starting point, an unknown one l
     CHECK(header.find("FA_PLUGIN_API_VERSION 2") != std::string::npos);
     CHECK(header.find("add_backend") != std::string::npos);
 }
+
+TEST_CASE("platform.add_backend: one command lists every store backend with the arguments each reads") {
+    testing::TempDir tmp;
+    const std::string dir = tmp.sub("game");
+    REQUIRE(create_project(dir, "2d-empty").ok());
+    CommandRegistry reg;
+    register_plugin_commands(reg, dir);
+    register_platform_setup_commands(reg, dir);
+
+    const CommandInfo* info = reg.info("platform.add_backend");
+    REQUIRE(info != nullptr);
+    CHECK(info->category == "platform");
+    CHECK_FALSE(info->readOnly);
+    const Json& backend = info->inputSchema["properties"]["backend"];
+    REQUIRE(backend["enum"].is_array());
+    for (const char* name : {"steam", "apple"}) {
+        bool listed = false;
+        for (const Json& n : backend["enum"]) listed = listed || n == name;
+        CHECK_MESSAGE(listed, name);
+        CHECK(info->description.find(std::string(name) + ":") != std::string::npos);  // each backend's summary
+    }
+
+    // The schema refuses a backend that does not exist, before anything is written.
+    auto bad = reg.call("platform.add_backend", Json::parse(R"({"backend": "stem"})"));
+    REQUIRE_FALSE(bad.ok);
+    auto project = load_json_file(dir + "/factoria.json");
+    REQUIRE(project.ok());
+    CHECK_FALSE(project->contains("plugins"));
+}

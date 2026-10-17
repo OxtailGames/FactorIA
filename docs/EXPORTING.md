@@ -91,8 +91,9 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
-`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the folder of a native plugin that lives inside the project (its build is
-shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
+`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, a top-level `steam_appid.txt` (the development app id of the
+[Steam backend](PLATFORM.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native
+plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
 repository.
 
 Audio import settings (`assets.json`, [ASSETS.md](ASSETS.md)) act at export time: a WAV with `convert: "qoa"` ships as
@@ -416,7 +417,9 @@ the platform next to the executable: the contents of the plugin's `windows/` or 
 ones it needs), or of `macos/` into `Contents/Frameworks` (the ad hoc signature below covers them, with `--deep`). The
 player loads them from there. An export for a platform the plugin is declared for but not built for fails and says
 which file is missing; `factoria validate` lists those problems for every platform (a warning for each platform other
-than this computer's).
+than this computer's). A `plugin.json` in the plugin's `macos/` folder (the entitlements it needs, EXTENDING.md section G)
+does not ship in the app: the export writes the entitlements to `<game>.entitlements` next to it, for the signing step
+with your Apple developer certificate (the ad hoc signature cannot carry Game Center or iCloud).
 
 Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 `%APPDATA%\<id>`, `~/Library/Application Support/<id>`).
@@ -642,7 +645,10 @@ From the project's [platform settings](#platform-settings) the export takes:
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). Each plugin declared for iOS needs `ios/iphoneos/lib<name>.a` and
 `ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it
-([MOBILE.md](MOBILE.md#native-plugins-ios)).
+([MOBILE.md](MOBILE.md#native-plugins-ios)). The plugin's `ios/plugin.json` (system frameworks, Swift, entitlements) makes
+`build_ios.sh` link those frameworks and the Swift runtime, and the export writes `factoria_player.entitlements` next to
+it; with a store plugin that links StoreKit and products in the catalog it also writes `Products.storekit`, which the
+Xcode scheme uses to sell the products when the project runs from Xcode ([PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)).
 
 ```
 my-game-ios/                        prebuilt mode (the download for macOS)
