@@ -21,7 +21,8 @@
 #   FactorIA-macos-arm64.tar.gz       the same file again, only because editors up to 0.1.2 look for this name (the
 #                                     `publish` job copies it). Drop it once nobody runs those editors, together with
 #                                     the note in update_package_name() (tools/editor/src/update.cpp).
-#   FactorIA-linux-x64.tar.gz         the Linux package; the editor's updater uses it
+#   FactorIA-linux-x64.tar.gz         the Linux package; the editor's updater uses it. Built in the Steam Runtime "sniper"
+#                                     container (scripts/build-sniper.sh): runs on glibc 2.31 and newer
 #   FactorIA-linux-x64.AppImage       the same files as one file (scripts/package-appimage.sh); does not update itself
 #
 # Signing: with the repository secrets set, the executables are signed on Windows (signtool; the installer too) and
@@ -171,9 +172,9 @@ jobs:
             ccache-key: macos
           - os: linux-x64
             runner: ubuntu-24.04
-            preset: linux-release
+            preset: linux-sniper  # not linux-release: built in the Steam Runtime sniper container (step below)
             ccache: ~/.cache/ccache
-            ccache-key: linux
+            ccache-key: sniper  # the cache of the ci.yml job that builds the same way
             wrap: xvfb-run -a  # headless tests on Mesa llvmpipe, as in ci.yml
     defaults:
       run:
@@ -208,10 +209,22 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache-key }}-
 
       - name: Configure (${{ matrix.preset }}, no tests)
+        if: runner.os != 'Linux'
         run: cmake --preset ${{ matrix.preset }} -DFA_BUILD_TESTS=OFF -DFA_UPDATE_REPO=${{ github.repository }} ${{ matrix.cmake-args }}
 
       - name: Build (${{ matrix.preset }})
+        if: runner.os != 'Linux'
         run: cmake --build --preset ${{ matrix.preset }} --parallel
+
+      # The Linux programs are built in the Steam Runtime "sniper" SDK container (glibc 2.31, GCC 14, libstdc++ and libgcc
+      # linked statically), so the download, the AppImage and every exported Linux game run on the Steam Linux Runtime
+      # (Steam, the Steam Deck), Ubuntu 20.04 and newer, Debian 11 and newer: a build on the runner's Ubuntu 24.04 needs
+      # glibc 2.38. The script (also what ci.yml runs; docs/BUILDING.md) builds the preset `linux-sniper` into
+      # build/linux-sniper, fails when a program imports a symbol version newer than sniper has, and runs them in the
+      # sniper runtime image: `--version`, a new project, a headless frame.
+      - name: Build in the Steam Runtime sniper container, check and run there (Linux)
+        if: runner.os == 'Linux'
+        run: ./scripts/build-sniper.sh all -- -DFA_UPDATE_REPO=${{ github.repository }}
 
       - name: Check the universal binaries (macOS)
         if: runner.os == 'macOS'

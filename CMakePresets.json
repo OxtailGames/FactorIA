@@ -37,7 +37,8 @@
       "inherits": "linux-release",
       "cacheVariables": {
         "FA_LINUX_STATIC_LIBSTDCXX": "ON",
-        "FA_BUILD_TESTS": "OFF"
+        "FA_BUILD_TESTS": "OFF",
+        "CMAKE_DISABLE_FIND_PACKAGE_CURL": "ON"
       }
     },
 

@@ -103,12 +103,12 @@ inside_check() {
             [[ -n "$used" ]] || continue
             limit="$(objdump -T "$(system_lib "$lib")" | newest_version "$prefix")"
             [[ -n "$limit" ]] || die "cannot read the $prefix versions of $lib in this container"
-            echo "    ${prefix}_$used is the newest it imports; the sniper runtime's $lib has up to ${prefix}_$limit"
+            echo "    newest ${prefix} version it imports: ${prefix}_$used (the sniper runtime's $lib defines up to ${prefix}_$limit)"
             if version_le "$used" "$limit"; then continue; fi
             failed=1
             # The imports that are too new: "version symbol" per line.
             bad="$(awk -v p="${prefix}_" '{ for (i = 1; i <= NF; i++) { v = $i; gsub(/[()]/, "", v); if (index(v, p) == 1) print substr(v, length(p) + 1), $NF } }' <<< "$imports" |
-                while read -r v sym; do version_le "$v" "$limit" || echo "${prefix}_$v $sym"; done | sort -uV | head -n 8 | tr '\n' ',' | sed 's/,$//; s/,/, /g')" || true
+                while read -r v sym; do version_le "$v" "$limit" || echo "${prefix}_$v $sym"; done | sort -urV | head -n 6 | tr '\n' ',' | sed 's/,$//; s/,/, /g')" || true
             case "$prefix" in
                 GLIBC) line="it was not built against the sniper glibc. Build it with ./scripts/build-sniper.sh (the sniper SDK container), not on a newer system" ;;
                 *) line="libstdc++/libgcc must be linked statically (-DFA_LINUX_STATIC_LIBSTDCXX=ON, the linux-sniper preset)" ;;
