@@ -170,9 +170,7 @@ Json export_translations(const std::string& projectDir, const Json& args) {
     } else {
         for (std::size_t i = 0; i < targets.size(); ++i) write(out / ("translations." + targets[i] + ".xlf"), write_xliff(sheet, i, def.file));
     }
-    Json languages = Json::array();
-    for (const std::string& l : targets) languages.push_back(l);
-    return Json::object({{"format", format}, {"files", files}, {"rows", sheet.rows.size()}, {"sourceLanguage", loc.defaultLanguage}, {"languages", languages}});
+    return Json::object({{"format", format}, {"files", files}, {"rows", sheet.rows.size()}, {"sourceLanguage", loc.defaultLanguage}, {"languages", targets}});
 }
 
 // ---- import ----------------------------------------------------------------------------------------------------------------
@@ -453,10 +451,8 @@ Json import_translations(const std::string& projectDir, const Json& args) {
                 throw CommandError("failed", w.error().message, w.error().hint);
             written = true;
         }
-        Json warnings = Json::array();
-        for (const std::string& w : r.warnings) warnings.push_back(w);
         languages[language] = Json::object({{"file", r.file}, {"updated", r.updated}, {"added", r.added}, {"unchanged", r.unchanged},
-                                            {"skippedEmpty", r.skipped}, {"written", written}, {"warnings", warnings}});
+                                            {"skippedEmpty", r.skipped}, {"written", written}, {"warnings", r.warnings}});
     }
     out["languages"] = languages;
     if (!ignored.empty()) out["ignored"] = ignored;

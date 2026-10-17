@@ -2,7 +2,6 @@
 // What the files mean for the string tables is translations.cpp.
 #include <algorithm>
 #include <charconv>
-#include <format>
 
 #include "fa/core/strings.h"
 #include "fa/tooling/translations.h"
@@ -243,7 +242,7 @@ struct XliffReader {
     std::string error;
     std::string targetLanguage;
     int altTrans = 0, unitDepth = 0;
-    bool inTarget = false, haveTarget = false;
+    bool inTarget = false;
     std::string key, targetText;
     std::size_t unitLine = 0;
     bool sawXliff = false;
@@ -259,11 +258,9 @@ struct XliffReader {
             const std::string& resname = attribute_of(attributes, "resname");
             key = resname.empty() ? attribute_of(attributes, "id") : resname;
             targetText.clear();
-            haveTarget = false;
             unitLine = line;
         } else if (name == "target" && unitDepth > 0 && altTrans == 0) {
             inTarget = true;
-            haveTarget = true;
             targetText.clear();
         }
     }
@@ -281,7 +278,6 @@ struct XliffReader {
                 if (error.empty()) error = "line " + std::to_string(unitLine) + ": the <file> of the unit '" + key + "' has no target-language";
                 return;
             }
-            if (!haveTarget) targetText.clear();
             if (std::find(file.languages.begin(), file.languages.end(), targetLanguage) == file.languages.end()) file.languages.push_back(targetLanguage);
             file.rows[targetLanguage].push_back({key, targetText, unitLine});
         }
