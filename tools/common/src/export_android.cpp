@@ -15,6 +15,7 @@
 #include "export_internal.h"
 #include "fa/core/process.h"
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 
 namespace fa::export_detail {
 
@@ -41,44 +42,24 @@ bool is_text_template(const stdfs::path& p) {
 std::string properties_escape(const std::string& v) {
     std::string out;
     char buf[16];
-    for (std::size_t i = 0; i < v.size();) {
-        const unsigned char c = static_cast<unsigned char>(v[i]);
-        if (c < 0x80) {
-            switch (c) {
-                case '\\': out += "\\\\"; break;
-                case ':': out += "\\:"; break;
-                case '=': out += "\\="; break;
-                case '#': out += "\\#"; break;
-                case '!': out += "\\!"; break;
-                case '\n': out += "\\n"; break;
-                case '\r': out += "\\r"; break;
-                case '\t': out += "\\t"; break;
-                case ' ': out += i == 0 ? "\\ " : " "; break;
-                default: out += static_cast<char>(c);
-            }
-            ++i;
-            continue;
-        }
-        // UTF-8 sequence -> code point (a malformed byte becomes U+FFFD).
-        unsigned len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
-        unsigned cp = len == 4 ? c & 0x07u : len == 3 ? c & 0x0Fu : len == 2 ? c & 0x1Fu : 0xFFFDu;
-        if (len == 1 || i + len > v.size()) {
-            cp = 0xFFFDu;
-            len = 1;
-        } else {
-            for (unsigned k = 1; k < len; ++k) cp = (cp << 6) | (static_cast<unsigned char>(v[i + k]) & 0x3Fu);
-        }
-        i += len;
-        auto unit = [&](unsigned u) {
-            std::snprintf(buf, sizeof buf, "\\u%04X", u);
-            out += buf;
-        };
-        if (cp >= 0x10000) {
-            cp -= 0x10000;
-            unit(0xD800u + (cp >> 10));
-            unit(0xDC00u + (cp & 0x3FFu));
-        } else {
-            unit(cp);
+    for (const char16_t u : utf8_to_utf16(v)) {
+        switch (u) {
+            case '\\': out += "\\\\"; break;
+            case ':': out += "\\:"; break;
+            case '=': out += "\\="; break;
+            case '#': out += "\\#"; break;
+            case '!': out += "\\!"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case ' ': out += out.empty() ? "\\ " : " "; break;  // only a leading space needs it
+            default:
+                if (u < 0x80) {
+                    out += static_cast<char>(u);
+                } else {
+                    std::snprintf(buf, sizeof buf, "\\u%04X", unsigned(u));
+                    out += buf;
+                }
         }
     }
     return out;

@@ -6,6 +6,7 @@
 #include <format>
 
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 
 namespace fa {
 
@@ -283,12 +284,7 @@ void Input::on_text(std::uint32_t codepoint) { text_.push_back(char32_t(codepoin
 
 std::string Input::text_utf8() const {
     std::string utf8;
-    for (char32_t c : text_) {
-        if (c < 0x80) utf8 += char(c);
-        else if (c < 0x800) { utf8 += char(0xC0 | (c >> 6)); utf8 += char(0x80 | (c & 0x3F)); }
-        else if (c < 0x10000) { utf8 += char(0xE0 | (c >> 12)); utf8 += char(0x80 | ((c >> 6) & 0x3F)); utf8 += char(0x80 | (c & 0x3F)); }
-        else { utf8 += char(0xF0 | (c >> 18)); utf8 += char(0x80 | ((c >> 12) & 0x3F)); utf8 += char(0x80 | ((c >> 6) & 0x3F)); utf8 += char(0x80 | (c & 0x3F)); }
-    }
+    for (char32_t c : text_) utf8_append(utf8, c);
     return utf8;
 }
 

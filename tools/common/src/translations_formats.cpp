@@ -4,6 +4,7 @@
 #include <charconv>
 
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 #include "fa/tooling/translations.h"
 #include "localization_tables.h"
 
@@ -29,7 +30,7 @@ std::string csv_field(const std::string& text, char delimiter) {
 
 std::string xml_escape(const std::string& text, bool attribute) {
     std::string out;
-    for (const char32_t cp : localization_detail::decode_utf8(text)) {
+    for (const char32_t cp : utf8_decode(text)) {
         switch (cp) {
             case U'&': out += "&amp;"; break;
             case U'<': out += "&lt;"; break;
@@ -39,8 +40,8 @@ std::string xml_escape(const std::string& text, bool attribute) {
             case U'\n': out += attribute ? "&#10;" : "\n"; break;
             case U'\t': out += attribute ? "&#9;" : "\t"; break;
             default:
-                if (cp < 0x20) localization_detail::append_utf8(out, 0xFFFD);  // XML 1.0 cannot hold the other control characters
-                else localization_detail::append_utf8(out, cp);
+                if (cp < 0x20) utf8_append(out, 0xFFFD);  // XML 1.0 cannot hold the other control characters
+                else utf8_append(out, cp);
         }
     }
     return out;
@@ -74,7 +75,7 @@ std::string xml_unescape(std::string_view text) {
                 out += '&';
                 continue;
             }
-            localization_detail::append_utf8(out, cp);
+            utf8_append(out, cp);
         } else {
             out += '&';
             continue;

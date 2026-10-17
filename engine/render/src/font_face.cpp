@@ -4,6 +4,7 @@
 
 #include "embedded_fonts.h"
 #include "fa/core/fs.h"
+#include "fa/core/utf8.h"
 #include "font_internal.h"
 
 namespace fa::render {
@@ -69,43 +70,16 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
 
 // ---- text ------------------------------------------------------------------------------------------------------------
 
-std::u32string decode_utf8(std::string_view s) {
-    std::u32string out;
-    out.reserve(s.size());
-    std::size_t i = 0;
-    while (i < s.size()) {
-        const unsigned char c = static_cast<unsigned char>(s[i]);
-        int extra = c < 0x80 ? 0 : (c >= 0xF0 && c < 0xF8) ? 3 : (c >= 0xE0 && c < 0xF0) ? 2 : (c >= 0xC2 && c < 0xE0) ? 1 : -1;
-        char32_t cp = extra == 0 ? c : extra > 0 ? char32_t(c & (0x3F >> extra)) : 0xFFFD;
-        ++i;
-        for (int k = 0; k < extra; ++k) {
-            if (i >= s.size() || (static_cast<unsigned char>(s[i]) & 0xC0) != 0x80) { cp = 0xFFFD; break; }
-            cp = (cp << 6) | (static_cast<unsigned char>(s[i++]) & 0x3F);
-        }
-        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) cp = 0xFFFD;
-        out.push_back(cp);
-    }
-    return out;
-}
-
 std::u32string decode_text(std::string_view utf8) {
     std::u32string out;
-    for (char32_t cp : decode_utf8(utf8)) {
+    for (std::size_t i = 0; i < utf8.size();) {
+        const char32_t cp = utf8_next(utf8, i);
         if (cp == '\n' || cp == 0x85 || cp == 0x2028 || cp == 0x2029) out.push_back('\n');
         else if (cp == '\t') out.append(4, U' ');
         else if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) continue;  // '\r' and the other controls draw nothing
         else out.push_back(cp);
     }
     return out;
-}
-
-std::string encode_utf8(char32_t cp) {
-    std::string o;
-    if (cp < 0x80) o += char(cp);
-    else if (cp < 0x800) o += char(0xC0 | (cp >> 6)), o += char(0x80 | (cp & 0x3F));
-    else if (cp < 0x10000) o += char(0xE0 | (cp >> 12)), o += char(0x80 | ((cp >> 6) & 0x3F)), o += char(0x80 | (cp & 0x3F));
-    else o += char(0xF0 | (cp >> 18)), o += char(0x80 | ((cp >> 12) & 0x3F)), o += char(0x80 | ((cp >> 6) & 0x3F)), o += char(0x80 | (cp & 0x3F));
-    return o;
 }
 
 bool is_visible(char32_t cp) {

@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string>
 
+#include "fa/core/utf8.h"
 #include "fa/tooling/icons.h"
 
 namespace fa {
@@ -172,25 +173,6 @@ void finish_patch(std::vector<std::uint8_t>& exe, const PeLayout& pe, bool& sign
     put_u32(exe, pe.opt + 64, pe_checksum(exe, std::size_t(pe.opt + 64)));
 }
 
-// UTF-8 -> UTF-16 code units (invalid bytes become U+FFFD).
-std::u16string utf16(const std::string& s) {
-    std::u16string out;
-    for (std::size_t i = 0; i < s.size();) {
-        const unsigned char c = static_cast<unsigned char>(s[i++]);
-        int extra = c < 0x80 ? 0 : c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : -1;
-        std::uint32_t cp = extra < 0 ? 0xFFFD : c & (0x7F >> extra);
-        for (int k = 0; k < extra && i < s.size(); ++k) cp = (cp << 6) | (static_cast<unsigned char>(s[i++]) & 0x3F);
-        if (cp >= 0x10000) {
-            cp -= 0x10000;
-            out += char16_t(0xD800 + (cp >> 10));
-            out += char16_t(0xDC00 + (cp & 0x3FF));
-        } else {
-            out += char16_t(cp);
-        }
-    }
-    return out;
-}
-
 // "1.2.3" -> {1, 2, 3, 0}: the leading digits of up to four dot-separated parts, each capped at 65535.
 void version_numbers(const std::string& version, std::uint32_t out[4]) {
     std::size_t i = 0;
@@ -299,7 +281,7 @@ Result<PeVersionPatch> patch_pe_version(std::vector<std::uint8_t>& exe, const Pe
                 const auto want = info.strings.find(key);
                 if (want == info.strings.end()) return true;
                 const std::size_t room = std::size_t((blockEnd - value) / 2) - 1;
-                std::u16string text = utf16(want->second);
+                std::u16string text = utf8_to_utf16(want->second);
                 if (text.size() > room) {
                     text.resize(room);
                     if (room > 0 && text.back() >= 0xD800 && text.back() < 0xDC00) text.back() = 0;  // half a surrogate pair

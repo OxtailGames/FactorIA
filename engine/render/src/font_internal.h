@@ -45,9 +45,6 @@ std::unique_ptr<FontFace> load_font_face(const std::string& key);
 // Text as it is laid out: UTF-8 to code points (malformed bytes become U+FFFD); '\n', U+0085, U+2028 and U+2029 are line
 // breaks (all become '\n'), a tab is four spaces, and '\r' and the other control characters are dropped.
 std::u32string decode_text(std::string_view utf8);
-// Plain UTF-8 to code points, nothing normalized (for messages).
-std::u32string decode_utf8(std::string_view utf8);
-std::string encode_utf8(char32_t cp);
 
 // A character that should draw something: not a control, a zero-width or direction mark, a variation selector or a BOM.
 bool is_visible(char32_t cp);
