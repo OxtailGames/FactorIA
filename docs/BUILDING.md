@@ -406,7 +406,7 @@ Limit the parallel jobs: `cmake --build --preset <name> -- -j 2` (or
 Install `ccache` (4.8 or newer; on Windows 4.13 or newer, from its GitHub releases). CMake uses it automatically when
 it is on the path (`-DFA_CCACHE=OFF` turns it off; `ccache -s` shows the hit rate). Paths inside the checkout are hashed
 relative to the build directory, so every checkout and git worktree of the repository shares one cache: a new worktree
-reuses what another checkout already compiled (a full Debug build went from 107 s to 29 s on 20 threads). The price: with MSVC, Debug objects carry their own debug
+reuses what another checkout already compiled. The price: with MSVC, Debug objects carry their own debug
 information (`/Z7`) instead of one `.pdb` per target, and a debugger may ask where a source file is, because the
 recorded paths are relative. Tests find the checkout through the generated `fa_test_paths.h` (`FA_REPO_ROOT`...);
 include it only where a test needs a path, so the other tests keep sharing the cache.
