@@ -251,7 +251,7 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
   (it exports the game for the machine it runs on and checks the report) and the Platform settings window (tabs, edits,
   Save / Revert, closing with unsaved changes, the Create keystore window) and the Set Up This Computer window (it lists
-  the four components, the Export rows show the right Set up button, a setup that cannot download shows its report, "I accept" of
+  the five components, the Export rows show the right Set up button, a setup that cannot download shows its report, "I accept" of
   the Android license waits for its checkbox). The autotest keeps this computer's settings in
   `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`) and its `FACTORIA_HOME` in
   `<FA_EDITOR_AUTOTEST_OUT>/factoria_home`, never in your `~/.factoria`. **It never installs anything**: its setup context
