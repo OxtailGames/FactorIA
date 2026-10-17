@@ -9,16 +9,21 @@
 
 #include "fa/core/command.h"
 #include "fa/core/json.h"
+#include "fa/tooling/export_settings.h"
 
 namespace fa::platform_setup {
 
 // What one call of platform.add_backend works with, and what it reports.
 struct Context {
     std::string projectDir;
-    std::string backend;  // "steam", "apple": also the plugin's name and its template (platforms/plugins/<backend>)
+    std::string backend;  // "steam", "apple", "googleplay": also the plugin's name and its template (platforms/plugins/<backend>)
     Json args;            // the command's arguments, defaults filled in
     CommandRegistry* registry = nullptr;
     std::string folder;   // the plugin's folder once ensure_plugin ran: the result's "folder"
+    // googleplay: where to look for the Android SDK instead of the usual folders (tests); it must outlive the call.
+    const AndroidToolchainSearch* androidSearch = nullptr;
+    // run_cmake runs this CMake when set, else the one find_cmake() finds (googleplay: the Android SDK's own, which comes with Ninja).
+    std::string cmakeExe;
 
     // Declares the plugin from its template (project.new_plugin) unless factoria.json already declares it, and returns its
     // folder (absolute, generic separators; also kept in `folder`). `platforms`: what the plugin is declared for.
@@ -42,8 +47,16 @@ struct Backend {
     std::function<void(Context&)> run;  // does the work; throws CommandError (teaching) when something is missing
 };
 
+// `"a", "b"`: ids for a nextSteps sentence.
+inline std::string quoted_list(const std::vector<std::string>& ids) {
+    std::string out;
+    for (const std::string& id : ids) out += (out.empty() ? "" : ", ") + std::string("\"") + id + "\"";
+    return out;
+}
+
 // One per backend file.
 Backend steam_backend();  // platform_setup_steam.cpp
 Backend apple_backend();  // platform_setup_apple.cpp
+Backend googleplay_backend();  // platform_setup_googleplay.cpp
 
 }  // namespace fa::platform_setup

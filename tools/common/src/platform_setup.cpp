@@ -21,7 +21,7 @@ namespace platform_setup {
 namespace {
 
 const std::vector<Backend>& backends() {
-    static const std::vector<Backend> all = {steam_backend(), apple_backend()};
+    static const std::vector<Backend> all = {steam_backend(), apple_backend(), googleplay_backend()};
     return all;
 }
 
@@ -60,7 +60,7 @@ std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
 }
 
 void Context::run_cmake(const std::vector<std::string>& arguments, const std::string& what) {
-    const std::string cmake = find_cmake();
+    const std::string cmake = cmakeExe.empty() ? find_cmake() : cmakeExe;
     if (cmake.empty())
         throw CommandError("not_found", "cannot " + what + ": CMake 3.24 or newer is not installed",
                            "Install it with `factoria call setup.install '{\"items\":[\"cmake\"]}'` (or the editor's Setup "
@@ -91,7 +91,7 @@ void Context::build_plugin(const std::string& pluginDir, const std::vector<std::
 
 }  // namespace platform_setup
 
-void register_platform_setup_commands(CommandRegistry& registry, const std::string& projectDir) {
+void register_platform_setup_commands(CommandRegistry& registry, const std::string& projectDir, const AndroidToolchainSearch* androidSearch) {
     using namespace platform_setup;
     std::vector<std::string> names;
     std::string perBackend;
@@ -118,7 +118,7 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         " Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps "
         "lists what only a person can do (store dashboards, accounts). Example: {\"backend\": \"steam\", \"appId\": 480}.";
     info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"backend"})}, {"properties", properties}});
-    registry.add(info, [&registry, projectDir](const Json& a) {
+    registry.add(info, [&registry, projectDir, androidSearch](const Json& a) {
         const std::string name = a.at("backend").get<std::string>();
         const auto& all = backends();
         const auto it = std::find_if(all.begin(), all.end(), [&](const Backend& b) { return b.name == name; });
@@ -132,6 +132,7 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         ctx.backend = name;
         ctx.args = a;
         ctx.registry = &registry;
+        ctx.androidSearch = androidSearch;
         it->run(ctx);
         Json out = Json::object({{"backend", name}});
         if (!ctx.folder.empty()) out["folder"] = ctx.folder;
