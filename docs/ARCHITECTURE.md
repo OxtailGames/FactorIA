@@ -211,7 +211,12 @@ Text lives in string tables, `locales/<language>.json`, and the engine shows the
 - **The engine** (`fa_runtime`, `localization.cpp`) owns the `I18n`: it reads `project.localization`, chooses the start
   language (`choose_start_language`: `EngineConfig::language`, `FA_LANGUAGE`, the system language of a windowed game,
   else the default language), switches language (`ScriptHost::set_language`, the `i18n.change` game event) and registers
-  `i18n.state` / `i18n.set_language`. Scripts see it as the `i18n` object (`ScriptHost::i18n()`).
+  `i18n.state` / `i18n.set_language`. It also hands `project.localization.fallback_fonts_for(language)` to
+  `Renderer::set_fallback_fonts` when the renderer starts and at every switch (`apply_fallback_fonts`). Scripts see it as
+  the `i18n` object (`ScriptHost::i18n()`).
+- **The tools** (`fa_tooling`) check the tables and fonts in `factoria validate` (`validate_localization.cpp`, with
+  `FontCoverage` from `fa_render`) and register `i18n.export` / `i18n.import` (`translations.cpp`: CSV and XLIFF 1.2 in
+  `translations_formats.cpp`). Both read the tables through the same `read_table` (`localization_tables.cpp`).
 
 ### Headless
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works
