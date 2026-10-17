@@ -166,7 +166,7 @@ Command make_export_command() {
                {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
                {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/, replaced only when an export wrote it (default out: <project>/build/export)."},
                {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk."},
-               {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json), else with the debug key and a warning."},
+               {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json), else with the debug key and a warning. Linux, Windows, macOS: the whole game in ONE file, game.pak, next to the executable instead of a game/ folder, with the scripts compiled to bytecode (export.scriptBytecode: false in factoria.json keeps them as source)."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria)."},

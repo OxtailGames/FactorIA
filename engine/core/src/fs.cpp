@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 
+#include "fa/core/pack.h"
 #include "fa/core/strings.h"
 #include "fs_internal.h"
 
@@ -27,11 +28,19 @@ struct FsState {
     stdfs::path userDir;
     bool rootSet = false;
     bool userDirSet = false;
+    std::shared_ptr<const PackReader> pack;  // mount_pack
 };
 
 FsState& state() {
     static FsState s;
     return s;
+}
+
+// The mounted pack when `normalized` (already normalized) is a project-relative path it answers for, else null.
+std::shared_ptr<const PackReader> pack_for(const std::string& normalized) {
+    if (is_absolute(normalized)) return nullptr;
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().pack;
 }
 
 bool use_assets(const std::string& normalized) {
@@ -64,6 +73,24 @@ Error not_found_error(std::string_view requested, const stdfs::path& resolved) {
 }
 
 }  // namespace
+
+Result<void> mount_pack(const stdfs::path& packFile) {
+    auto opened = PackReader::open(packFile);
+    if (!opened.ok()) return opened.error();
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().pack = std::move(opened.value());
+    return {};
+}
+
+void unmount_pack() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    state().pack.reset();
+}
+
+bool pack_mounted() {
+    std::lock_guard<std::mutex> lock(state().mutex);
+    return state().pack != nullptr;
+}
 
 void set_project_root(const stdfs::path& root) {
     std::error_code ec;
@@ -210,6 +237,10 @@ Result<void> check_writable(std::string_view path) {
 Result<std::vector<std::uint8_t>> read_bytes(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return n.error();
+    if (auto pack = pack_for(n.value())) {
+        if (!pack->contains(n.value()) && !pack->is_directory(n.value())) return pack->not_found(path, n.value());
+        return pack->read(n.value());  // a directory gets its own error from the pack
+    }
     if (use_assets(n.value())) {
 #ifdef __ANDROID__
         std::vector<std::uint8_t> data;
@@ -303,6 +334,7 @@ Result<void> write_text(std::string_view path, std::string_view text) {
 bool exists(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return false;
+    if (auto pack = pack_for(n.value())) return pack->contains(n.value()) || pack->is_directory(n.value());
     if (use_assets(n.value())) {
 #ifdef __ANDROID__
         return detail::android_exists(n.value());
@@ -315,6 +347,7 @@ bool exists(std::string_view path) {
 bool is_directory(std::string_view path) {
     auto n = normalize_checked(path);
     if (!n) return false;
+    if (auto pack = pack_for(n.value())) return pack->is_directory(n.value());
     if (use_assets(n.value())) {
 #ifdef __ANDROID__
         return detail::android_is_directory(n.value());
@@ -324,9 +357,28 @@ bool is_directory(std::string_view path) {
     return stdfs::is_directory(os_path(resolve(path)), ec);
 }
 
+std::int64_t file_size(std::string_view path) {
+    auto n = normalize_checked(path);
+    if (!n) return -1;
+    if (auto pack = pack_for(n.value())) return pack->size_of(n.value());
+    if (use_assets(n.value())) {
+#ifdef __ANDROID__
+        std::vector<std::uint8_t> data;  // an APK asset has no cheaper size query here
+        return detail::android_read(n.value(), data) ? std::int64_t(data.size()) : -1;
+#endif
+    }
+    std::error_code ec;
+    const stdfs::path full = os_path(resolve(path));
+    if (!stdfs::is_regular_file(full, ec)) return -1;
+    const auto size = stdfs::file_size(full, ec);
+    return ec ? -1 : std::int64_t(size);
+}
+
 std::int64_t modified_time(std::string_view path) {
     auto n = normalize_checked(path);
-    if (!n || use_assets(n.value())) return -1;
+    if (!n) return -1;
+    if (auto pack = pack_for(n.value())) return pack->contains(n.value()) || pack->is_directory(n.value()) ? pack->modified_time() : -1;
+    if (use_assets(n.value())) return -1;
     std::error_code ec;
     auto t = stdfs::last_write_time(os_path(resolve(path)), ec);
     if (ec) return -1;
@@ -342,6 +394,11 @@ std::vector<std::string> list(std::string_view dir, bool recursive, std::string_
     if (!wantExt.empty() && wantExt[0] != '.') wantExt.insert(0, ".");
     auto accept = [&](const std::string& p) { return wantExt.empty() || extension(p) == wantExt; };
 
+    if (auto pack = pack_for(prefix)) {
+        for (std::string& p : pack->list(prefix, recursive))
+            if (accept(p)) out.push_back(std::move(p));
+        return out;  // the pack's index is already sorted
+    }
     if (use_assets(prefix)) {
 #ifdef __ANDROID__
         for (std::string& p : detail::android_list(prefix, recursive))
