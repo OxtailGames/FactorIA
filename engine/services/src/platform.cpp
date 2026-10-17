@@ -10,6 +10,7 @@
 
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 #include "fa/services/fake_platform.h"
 
 namespace fa {
@@ -85,8 +86,7 @@ bool challenge_char(unsigned char c) {
 // The character at byte `i` of `s` for a message: ASCII is quoted ("+", " ", "\n"), anything else is named only, so that
 // the message is valid UTF-8 whatever bytes the string holds. `position` counts characters from 1.
 std::string describe_char(const std::string& s, std::size_t i, std::size_t& position) {
-    position = 1;
-    for (std::size_t k = 0; k < i; ++k) position += (static_cast<unsigned char>(s[k]) & 0xC0) != 0x80;  // not a UTF-8 continuation byte
+    position = 1 + utf8_length(std::string_view(s).substr(0, i));
     const unsigned char c = static_cast<unsigned char>(s[i]);
     return c < 0x80 ? in_quotes(std::string(1, static_cast<char>(c))) : "a non-ASCII character";
 }

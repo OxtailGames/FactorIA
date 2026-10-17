@@ -311,7 +311,6 @@ Left open:
 - The system language was read on Windows only; the Apple, Android and Linux code ran in CI apps whose system is English.
 - The editor's own interface is English only; its viewport always shows the default language.
 - HarfBuzz and SheenBidi add about 700 KB to a Release player (measured with GCC before the linker drops unused code).
-- UTF-8 decoding and encoding helpers are duplicated in render, ui, tooling and the Android export.
 
 ## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56, #57)
 

@@ -7,6 +7,7 @@
 #include <iterator>
 
 #include "fa/core/strings.h"
+#include "fa/core/utf8.h"
 
 namespace fa::editor {
 
@@ -381,12 +382,9 @@ std::string chat_title_from(const std::string& text, std::size_t maxChars) {
             }
         }
     }
-    std::size_t chars = 0;
-    for (std::size_t i = 0; i < line.size(); ++i) {
-        if ((static_cast<unsigned char>(line[i]) & 0xC0) == 0x80) continue;  // UTF-8 continuation byte
-        if (chars++ == maxChars) return line.substr(0, i) + "...";
-    }
-    return line;
+    std::size_t end = 0;  // after the first maxChars characters
+    for (std::size_t chars = 0; chars < maxChars && end < line.size(); ++chars) utf8_next(line, end);
+    return end < line.size() ? line.substr(0, end) + "..." : line;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
