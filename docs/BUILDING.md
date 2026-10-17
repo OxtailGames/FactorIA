@@ -372,6 +372,7 @@ and reports the others as skipped, with the reason:
 | `android` | any host with `ANDROID_NDK_HOME` (NDK r27+) | `factoria_player` for arm64-v8a |
 | `macos` | a Mac | macOS build + ctest |
 | `ios` | a Mac with Xcode | iOS Simulator app bundle with a demo game |
+| `sniper` | Linux with Docker or Podman; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
 
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
 MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
