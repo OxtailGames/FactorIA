@@ -221,7 +221,19 @@ Result<PluginSettings> read_plugin(const std::string& name, const Json& v) {
     return p;
 }
 
+// True when `dir` is the folder fs treats as the project root (the player sets it before the engine starts).
+bool is_project_root(std::string_view dir) {
+    std::error_code ec;
+    stdfs::path a = stdfs::absolute(stdfs::path(std::string(dir)), ec).lexically_normal();
+    stdfs::path b = fs::project_root();
+    if (!a.has_filename()) a = a.parent_path();
+    if (!b.has_filename()) b = b.parent_path();
+    return a.generic_string() == b.generic_string();
+}
+
 Result<std::string> read_project_text(std::string_view projectDir) {
+    // A game pack (fs::mount_pack) holds the project: its factoria.json is in the pack, not next to it on disk.
+    if (fs::pack_mounted() && (projectDir.empty() || is_project_root(projectDir))) return fs::read_text(kProjectFileName);
     if (!projectDir.empty()) {
         stdfs::path p = stdfs::path(std::string(projectDir)) / kProjectFileName;
         std::error_code ec;
@@ -767,6 +779,11 @@ constexpr const char* kSchemaText =
 )JSON"
     R"JSON(      "description": "Per-platform export settings, committed with the game. Every field is optional and defaults are applied; a field equal to its default is best left out. Unknown keys inside a platform object only give a warning (with a \"did you mean\"). Edited by the editor's Platform settings window; machine-specific settings (Android SDK and JDK folders, keystore passwords) are never stored here but in ~/.factoria/export.json. See docs/EXPORTING.md, \"Platform settings\".",
       "properties": {
+        "scriptBytecode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Release builds of the desktop platforms (factoria export --release for windows, macos, linux): compile the scripts (.js) to QuickJS bytecode inside the game pack instead of shipping their source. Default true. The compiled scripts only run on the FactorIA version that wrote them (a game that meets another version says so and asks for a new export), keep their file names and line numbers in error messages, and leave out the source text. false ships the scripts as plain source in the pack. A script with a syntax error is shipped as source with a warning. Without --release, and on Android and iOS, the setting changes nothing. See docs/EXPORTING.md, \"Release build\"."
+        },
         "windows": {
           "type": "object",
           "description": "Windows export settings (factoria export --platform windows).",
