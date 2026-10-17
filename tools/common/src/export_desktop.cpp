@@ -80,15 +80,15 @@ std::string desktop_entry_value(const std::string& s) {
     return o;
 }
 
-// <slug>.desktop: the entry that puts the game in the application menu of a Linux desktop. `Exec` and `Icon` are the bare
-// names; installing the file (nextSteps) points them at the real folder.
-std::string linux_desktop_file(const Project& p, const std::string& slug, bool hasIcon) {
+// <slug>.desktop: the entry that puts the game in the application menu of a Linux desktop. `Exec` (the executable) and `Icon`
+// (the slug) are bare names; installing the file (nextSteps) points them at the real folder.
+std::string linux_desktop_file(const Project& p, const std::string& slug, const std::string& exeName, bool hasIcon) {
     std::string categories;
     for (std::string c : p.settings.linux.categories) {
         c.erase(std::remove_if(c.begin(), c.end(), [](char ch) { return ch == ';' || ch == '\n' || ch == '\r'; }), c.end());
         if (!c.empty()) categories += c + ";";
     }
-    std::string out = "[Desktop Entry]\nType=Application\nName=" + desktop_entry_value(p.name) + "\nExec=" + slug + "\n";
+    std::string out = "[Desktop Entry]\nType=Application\nName=" + desktop_entry_value(p.name) + "\nExec=" + exeName + "\n";
     if (hasIcon) out += "Icon=" + slug + "\n";
     out += "Terminal=false\n";
     if (!categories.empty()) out += "Categories=" + categories + "\n";
@@ -212,6 +212,11 @@ std::string fs_safe_name(const std::string& s) {
     return o.empty() ? "Game" : o;
 }
 
+std::string desktop_exe_name(const std::string& slug, const std::string& platform) {
+    if (platform == "windows") return slug + ".exe";
+    return platform == "linux" && slug == "game" ? "game-bin" : slug;
+}
+
 // Seals an exported .app with an ad hoc signature; returns "" or what went wrong. The executable inside is a copy of
 // factoria_player, which a release download carries signed with FactorIA's Developer ID. That signature covers the
 // executable alone, so the finished bundle (its Info.plist, the game files) would fail `codesign --verify` ("code has
@@ -240,7 +245,7 @@ std::string sign_app_ad_hoc(const stdfs::path& app) {
 Result<void> export_desktop(const ExportOptions& options, const Project& p, const std::string& platform, const stdfs::path& player,
                             const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon, ExportReport& report) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
-    const std::string exeName = slug + (platform == "windows" ? ".exe" : "");
+    const std::string exeName = desktop_exe_name(slug, platform);
     std::error_code ec;
     stdfs::path exeDest, gameDest;
     if (platform == "macos") {
@@ -333,7 +338,7 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
     } else {
         if (!icon.empty())
             if (auto r = write_png_icon(generic(outRoot / (slug + ".png")), icon, 256); !r.ok()) return r;
-        if (auto r = write_text(outRoot / (slug + ".desktop"), linux_desktop_file(p, slug, !icon.empty())); !r.ok()) return r;
+        if (auto r = write_text(outRoot / (slug + ".desktop"), linux_desktop_file(p, slug, exeName, !icon.empty())); !r.ok()) return r;
         report.nextSteps = {"Run it: " + generic(outRoot / exeName),
                             "To add it to the application menu, run this in the folder where the game will live: sed -e "
                             "\"s|^Exec=.*|Exec=$PWD/" + exeName + "|\" -e \"s|^Icon=.*|Icon=$PWD/" + slug + ".png|\" " + slug +
