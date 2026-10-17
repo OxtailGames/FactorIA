@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/i18n.h"
 #include "fa/runtime/engine.h"
 #include "fa/scene/serialize.h"
 #include "fa/services/platform.h"
@@ -54,6 +55,7 @@ struct Engine::Impl {
     ScriptSystem scripts;
     UiSystem ui;
     PlatformServices platform;  // achievements, purchases, ...: the catalog of factoria.json and the backend (platform_backend.h)
+    I18n i18n;                  // string tables and the current language (factoria.json "localization"); off without the section
     CommandRegistry commands;
     std::unique_ptr<HeadlessGpu> gpu;
     std::unique_ptr<Renderer> renderer;
@@ -95,6 +97,12 @@ struct Engine::Impl {
     bool load_scene_impl(const std::string& path, std::string* error);
     void refresh_from_disk();  // factoria.json (input actions, ...) and script modules that changed on disk
     void apply_project_settings();
+    // Localization (localization.cpp). setup: configure, read locales/*.json, choose the start language. apply: rewrite the
+    // text of every component with a `key`. switch_language: i18n.set_language + apply + the "i18n.change" game event.
+    void setup_localization();
+    void reload_localization();  // read locales/*.json again (hot reload) and rewrite the texts
+    void apply_localization();
+    std::string switch_language(std::string_view requested);  // "" when done, else the reason
     Vec2 design_size() const;       // the renderer's target size (UI anchors are fractions of it); without one the project's
     VisualMeasure measure() const;  // text sizes from the renderer, else the approximation
     void poll_hot_reload(bool force = false);
@@ -117,6 +125,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& impl);
 void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
 void register_scene_file_commands(Engine& engine, Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
 void register_play_session_commands(Engine& engine, Engine::Impl& impl);  // play_sessions.cpp: play.sessions, play.report
+void register_i18n_commands(Engine& engine, Engine::Impl& impl);  // localization.cpp: i18n.state, i18n.set_language
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");

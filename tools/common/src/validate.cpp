@@ -280,6 +280,13 @@ void check_platform(Ctx& c, const Json& pj, const PlatformCatalogParse& parsed) 
     }
 }
 
+// The "localization" section (languages, default language, fonts): every problem of parse_localization with its pointer and fix.
+// What the string tables hold (locales/<language>.json) is not checked here.
+void check_localization(Ctx& c, const LocalizationParse& parsed) {
+    for (const LocalizationIssue& i : parsed.issues) c.error(kProjectFileName, i.pointer, i.message, i.hint);
+    for (const LocalizationIssue& w : parsed.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
+}
+
 void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFile) {
     auto text = tooling_detail::read_file(stdfs::path(c.dir) / kProjectFileName);
     if (!text) {
@@ -297,10 +304,12 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     const PublishSettingsParse publish = parse_publish_settings(pj);
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
+    const LocalizationParse localization = parse_localization(pj.is_object() && pj.contains("localization") ? pj["localization"] : Json());
     Json schema = tooling_detail::load_schema("schemas/project.schema.json");
     if (!schema.is_null())
         for (const auto& e : validate_json(schema, pj)) {
             if (!platform.ok() && (e.pointer == "/platform" || e.pointer.rfind("/platform/", 0) == 0)) continue;  // check_platform says it better
+            if (!localization.ok() && (e.pointer == "/localization" || e.pointer.rfind("/localization/", 0) == 0)) continue;  // check_localization too
             // `icon` / `export` problems are reported once, by check_export_settings, with a fix that names the setting.
             const auto sameSpot = [&](const ExportSettingsIssue& i) { return i.pointer == e.pointer; };
             const bool reportedBySettings = std::any_of(exportSettings.errors.begin(), exportSettings.errors.end(), sameSpot) ||
@@ -312,6 +321,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     for (const auto& e : publish.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
     for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
+    check_localization(c, localization);
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
     feedbackFile = pj.value("feedbackFile", std::string(kFeedbackFileName));
     if (!stdfs::exists(stdfs::path(c.dir) / mainScene))

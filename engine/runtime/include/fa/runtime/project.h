@@ -15,11 +15,15 @@
 //   "platforms": ["windows", "macos", "linux", "ios", "android"],
 //   "feedbackFile": "ENGINE_FEEDBACK.json",
 //   "icon": "assets/icon.png",                // the game icon; export.<platform>.icon replaces it for one platform
+//   "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ja"],       // BCP 47 tags; locales/<language>.json
+//                     "fallbackFonts": ["assets/fonts/NotoSansArabic-Regular.ttf"],   // fonts for what the main font lacks
+//                     "languageFonts": { "zh-Hans": ["assets/fonts/NotoSansSC-Regular.ttf"] } },   // docs/LOCALIZATION.md
 //   "plugins": { "example": { "path": "plugins/example", "platforms": ["windows"] } },   // native plugins: fa/runtime/plugins.h
 //   "export": { ... }                         // per-platform export settings: fa/tooling/export_settings.h, docs/EXPORTING.md
 // }
 #pragma once
 
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,6 +43,34 @@ struct PluginSettings {
     std::string path;                    // its folder as written: project-relative or absolute, ${VAR} = an environment variable
     std::vector<std::string> platforms;  // the platforms it is built for; empty = the project's `platforms` (all five without)
 };
+
+// The "localization" section (docs/LOCALIZATION.md). No section = `languages` is empty = localization is off and the game behaves as
+// before.
+struct LocalizationSettings {
+    std::string defaultLanguage;                           // one of `languages`; the language of headless runs and the last fallback
+    std::vector<std::string> languages;                    // BCP 47 tags in the order language menus list them; each has locales/<tag>.json
+    std::vector<std::string> fallbackFonts;                // project-relative .ttf/.otf for every language, after the main font
+    std::map<std::string, std::vector<std::string>> languageFonts;  // per language: tried before fallbackFonts
+
+    bool enabled() const { return !languages.empty(); }
+    // The fonts a Text in `language` falls back to when its own font lacks a glyph: languageFonts[language] (else of its base
+    // language: zh-Hans-CN -> zh-Hans -> zh), then fallbackFonts, without repeats. Parsed and stored here; fa_render uses it.
+    std::vector<std::string> fallback_fonts_for(std::string_view language) const;
+};
+
+// One problem of the "localization" section, with the JSON pointer it is at ("/localization/languages/1").
+struct LocalizationIssue {
+    std::string pointer, message, hint;
+};
+struct LocalizationParse {
+    LocalizationSettings settings;
+    std::vector<LocalizationIssue> issues;    // every problem found; `settings` is only usable without any
+    std::vector<LocalizationIssue> warnings;  // keys the engine does not know (a typo), with "did you mean"
+    bool ok() const { return issues.empty(); }
+};
+// Reads the value of "localization" (null = the section is absent = off). Reports every mistake with its pointer, a fix and a
+// "did you mean".
+LocalizationParse parse_localization(const Json& section);
 
 struct ProjectSettings {
     std::string name = "Untitled";
@@ -61,6 +93,7 @@ struct ProjectSettings {
     std::string feedbackFile = kFeedbackFileName;
     std::string icon;  // "icon": project-relative path of the game icon (a square PNG/JPG); "" = none
     std::vector<PluginSettings> plugins;  // "plugins", sorted by name
+    LocalizationSettings localization;    // "localization": languages and fonts; off when the section is absent
     Json raw;  // the whole file, for fields the engine does not model yet
 
     // The icon file the window of THIS platform shows: `export.<platform>.icon` of the file (windows | macos | linux |
