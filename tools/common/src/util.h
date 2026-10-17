@@ -1,14 +1,19 @@
 // Private helpers shared by fa_tooling sources.
 #pragma once
 
+#include <algorithm>
 #include <filesystem>
+#include <initializer_list>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/core/strings.h"
+#include "fa/tooling/export_settings.h"
 
 namespace fa::tooling_detail {
 
@@ -36,6 +41,56 @@ inline std::string string_setting(const Json& s, const char* key, const char* fa
     auto it = s.find(key);
     return it != s.end() && it->is_string() ? it->get<std::string>() : fallback;
 }
+// "~" and "~/..." with the home folder (HOME, else USERPROFILE); unchanged when neither is set.
+std::string expand_home(const std::string& path, const ExportEnvLookup& env);
+
+// A key as one token of a JSON pointer ("a/b" -> "a~1b").
+inline std::string escape_token(const std::string& key) {
+    std::string out;
+    for (char c : key) {
+        if (c == '~') out += "~0";
+        else if (c == '/') out += "~1";
+        else out += c;
+    }
+    return out;
+}
+
+// What the readers of a factoria.json section share (export_settings.cpp, publish_settings.cpp): `Parse` has `errors` and
+// `warnings`, both lists of ExportSettingsIssue. A reader derives from it and adds the fields of its section.
+template <class Parse>
+struct SettingsReader {
+    Parse result;
+
+    void error(const std::string& pointer, std::string message, std::string hint) {
+        result.errors.push_back({pointer, std::move(message), std::move(hint)});
+    }
+    void warn(const std::string& pointer, std::string message, std::string hint) {
+        result.warnings.push_back({pointer, std::move(message), std::move(hint)});
+    }
+
+    // The member `key` of `obj` as an object, or nullptr (absent, null, or an error was recorded).
+    const Json* object_member(const Json& obj, const std::string& base, const char* key, const std::string& example) {
+        auto it = obj.find(key);
+        if (it == obj.end() || it->is_null()) return nullptr;
+        if (!it->is_object()) {
+            error(base + "/" + key, "expected an object, got " + describe_json_value(*it), "Write it as " + example + ".");
+            return nullptr;
+        }
+        return &*it;
+    }
+
+    void unknown_keys(const Json& obj, const std::string& base, const std::vector<std::string>& known) {
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
+            warn(base + "/" + escape_token(it.key()), "Unknown key '" + it.key() + "'; it is ignored.",
+                 did_you_mean(it.key(), known));
+        }
+    }
+    void unknown_keys(const Json& obj, const std::string& base, std::initializer_list<const char*> names) {
+        unknown_keys(obj, base, std::vector<std::string>(names.begin(), names.end()));
+    }
+};
+
 // A sound file the engine plays: .wav, .ogg, .mp3 or .qoa.
 inline bool is_audio_file(std::string_view path) {
     const std::string ext = fs::extension(path);

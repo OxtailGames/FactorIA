@@ -76,16 +76,6 @@ namespace {
 constexpr const char* kPlatformNames[] = {"windows", "macos", "linux", "android", "ios"};
 constexpr const char* kConfigFormat = "factoria.export-config/1";
 
-std::string escape_token(const std::string& key) {
-    std::string out;
-    for (char c : key) {
-        if (c == '~') out += "~0";
-        else if (c == '/') out += "~1";
-        else out += c;
-    }
-    return out;
-}
-
 std::vector<std::string> names_of(std::initializer_list<const char*> list) {
     return std::vector<std::string>(list.begin(), list.end());
 }
@@ -104,35 +94,7 @@ bool is_dotted_version(const std::string& s) {
 // Reading factoria.json
 // ===========================================================================
 
-struct Reader {
-    ExportSettingsParse result;
-
-    void error(const std::string& pointer, std::string message, std::string hint) {
-        result.errors.push_back({pointer, std::move(message), std::move(hint)});
-    }
-    void warn(const std::string& pointer, std::string message, std::string hint) {
-        result.warnings.push_back({pointer, std::move(message), std::move(hint)});
-    }
-
-    // The member `key` of `obj` as an object, or nullptr (absent, null, or an error was recorded).
-    const Json* object_member(const Json& obj, const std::string& base, const char* key, const std::string& example) {
-        auto it = obj.find(key);
-        if (it == obj.end() || it->is_null()) return nullptr;
-        if (!it->is_object()) {
-            error(base + "/" + key, "expected an object, got " + describe_json_value(*it), "Write it as " + example + ".");
-            return nullptr;
-        }
-        return &*it;
-    }
-
-    void unknown_keys(const Json& obj, const std::string& base, const std::vector<std::string>& known) {
-        for (auto it = obj.begin(); it != obj.end(); ++it) {
-            if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
-            warn(base + "/" + escape_token(it.key()), "Unknown key '" + it.key() + "'; it is ignored.",
-                 did_you_mean(it.key(), known));
-        }
-    }
-
+struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
     bool take_string(const Json& obj, const std::string& base, const char* key, std::string& out, const std::string& hint) {
         auto it = obj.find(key);
         if (it == obj.end() || it->is_null()) return false;
@@ -996,13 +958,7 @@ std::vector<std::string> expand_candidate(const std::string& pattern) {
     return out;
 }
 
-std::string expand_home(const std::string& path, const ExportEnvLookup& env) {
-    if (path != "~" && path.rfind("~/", 0) != 0 && path.rfind("~\\", 0) != 0) return path;
-    std::string home = env("HOME");
-    if (home.empty()) home = env("USERPROFILE");
-    if (home.empty()) return path;
-    return home + path.substr(1);
-}
+using tooling_detail::expand_home;
 
 bool is_dir(const stdfs::path& p) {
     std::error_code ec;
