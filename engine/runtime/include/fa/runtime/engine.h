@@ -6,6 +6,7 @@
 //   ui.update (layout, focus, widget events) -> scripts.dispatch_events
 //   scripts.update(dt) -> animators/particles -> audio.update -> scripts.late_update
 //   physics.step and animators/particles are scaled by scripts.time_scale() (game.paused: frozen)
+//   localization: Text/widget `key`s are rewritten after every scene load, after scripts.late_update and before drawing
 //   renderer: ui.layout -> begin_frame -> render_world -> end_frame
 //   world.flush() (deferred destroys), pending scene change, hot-reload poll
 //
@@ -17,7 +18,7 @@
 //   engine.info, project.info, scene.list_entities, scene.get_entity,
 //   scene.spawn, scene.destroy, scene.set_component, scene.remove_component,
 //   scene.load, scene.save, scene.reload, game.step, game.input, game.screenshot,
-//   game.state, game.logs, game.pause, game.resume, audio.log, ui.state, script.eval, script.errors,
+//   game.state, game.logs, game.pause, game.resume, audio.log, ui.state, i18n.state, i18n.set_language, script.eval, script.errors,
 //   physics.raycast, api.components, api.commands, api.scripting, assets.list
 #pragma once
 
@@ -73,6 +74,11 @@ struct EngineConfig {
     // What automatic falls back to when no plugin offers a backend: "fake" (development: purchases are not real) or "none"
     // (exported games: a shipped game must never get free purchases from the fake).
     std::string platformFallback = "fake";
+    // The language to start in (a tag of factoria.json localization.languages, "" = automatic): overrides the choice below and
+    // the FA_LANGUAGE environment variable. Automatic: headless runs (tests, the MCP server, `factoria call`) and the editor
+    // always start in localization.defaultLanguage so that what they print and save does not depend on the machine; a game in
+    // its own window and an exported game start in the best match of the system's languages. docs/LOCALIZATION.md.
+    std::string language;
 };
 
 class Engine final : public ScriptHost {
@@ -134,6 +140,8 @@ public:
     double fixed_dt() const override;
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
+    const I18n* i18n() override;
+    std::string set_language(std::string_view language) override;
     void request_scene_change(std::string_view scenePath) override;
     void request_quit() override;
     void step_frames(int n) override;

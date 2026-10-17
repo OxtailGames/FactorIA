@@ -151,6 +151,7 @@ void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string
     }
     physics.sync(world);  // bodies exist (and can be queried) right after the load, before the first step
     ui.reset();
+    apply_localization();  // the first frame (and the first onStart) already read the current language
     scripts.on_scene_loaded();
     if (renderer) renderer->debug().clear();
     // The picture of the previous scene is outdated: the next screenshot / render_now must draw the new one, also when
@@ -194,6 +195,7 @@ void update_visuals(R& r, World& w, float dt) {
 
 void Engine::Impl::draw(double dt) {
     if (!renderer) return;
+    apply_localization();  // entities created or keyed since the frame ended (a paused game, the editor) are drawn translated
     ui.layout(world, design_size(), measure());  // what scripts changed this frame is drawn in place
     renderer->begin_frame();
     renderer->render_world(world, float(dt));
@@ -221,7 +223,7 @@ void Engine::Impl::render(double dt) {
 void Engine::Impl::poll_hot_reload(bool force) {
     bool active = force || cfg.hotReload;
     if (!active) return;
-    static const char* dirs[] = {"scripts", "tools", "scenes", "assets"};
+    static const char* dirs[] = {"scripts", "tools", "scenes", "assets", "locales"};
     std::map<std::string, std::int64_t> now;
     for (const char* d : dirs) {
         if (!fs::is_directory(d)) continue;
@@ -239,7 +241,12 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
     watched = std::move(now);
     for (const std::string& p : changed) {
-        if (has_ext(p, {".js", ".mjs"})) {
+        if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
+            if (i18n.enabled()) {
+                FA_INFO("hotreload", "String table {} changed on disk, reloading the tables", p);
+                reload_localization();
+            }
+        } else if (has_ext(p, {".js", ".mjs"})) {
             FA_INFO("hotreload", "Reloading script {}", p);
             if (starts_with(p, "tools/")) scripts.reload_tools();
             else scripts.reload_module(p);
@@ -284,6 +291,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     audio.update(world, float(dt));
     if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
     scripts.late_update(float(dt));
+    apply_localization();  // keys of entities scripts spawned or edited this frame
     render(dt);
     end_of_frame(dt);
     ++frame;
@@ -337,6 +345,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     // World + input.
     I.world.rng().reseed(config.seed);
     I.apply_project_settings();
+    I.setup_localization();
 
     // Graphics.
     if (config.graphics) {
@@ -500,6 +509,8 @@ const ProjectSettings& Engine::project() const { return impl_->project; }
 const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
 PlatformServices* Engine::platform_services() { return &impl_->platform; }
+const I18n* Engine::i18n() { return &impl_->i18n; }
+std::string Engine::set_language(std::string_view language) { return impl_->switch_language(language); }
 
 ScriptSystem& Engine::scripts() { return impl_->scripts; }
 

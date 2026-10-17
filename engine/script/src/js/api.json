@@ -1862,6 +1862,64 @@
      ]
     },
     {
+     "kind": "interface",
+     "name": "I18nChange",
+     "doc": "The payload of i18n.on(\"change\").",
+     "members": [
+      {
+       "sig": "language: string",
+       "doc": "The language now in use."
+      },
+      {
+       "sig": "previous: string",
+       "doc": "The language before."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "I18nAPI",
+     "doc": "Localization: the strings of locales/<language>.json in the player's language. factoria.json \"localization\" lists the languages; without it the game is not localized (t(key) returns the key, languages is []). Components with a `key` field (Text, Button, Toggle, Slider, TextField) are translated by the engine; use t() for text a script builds itself. The chosen language is not saved between runs: keep it with `storage` and call setLanguage at start. See docs/LOCALIZATION.md.",
+     "members": [
+      {
+       "sig": "t(key: string, args?: { count?: number; [name: string]: unknown }): string",
+       "doc": "The text of `key` in the current language, else in its base language (\"pt\" for \"pt-BR\"), else in the default language. `{name}` placeholders are filled from args; a plural entry is chosen by args.count with the language's CLDR rules. A key that no table has returns the key itself and warns once in the log; it never throws for a missing key. A key that is not a string or args that is not an object throws."
+      },
+      {
+       "sig": "has(key: string): boolean",
+       "doc": "True when a table of the current language's fallback chain has `key`, so a real string can be told from the key returned for a missing one."
+      },
+      {
+       "sig": "readonly language: string",
+       "doc": "The current language (one of `languages`; \"\" when the game has no localization)."
+      },
+      {
+       "sig": "setLanguage(language: string): void",
+       "doc": "Switches now: every Text and widget with a `key` is rewritten at once and the \"change\" listeners run. Accepts the tag as in factoria.json or close to it (\"pt_br\", \"es-MX\" -> \"es\"). An unknown language throws with a \"did you mean\" and the languages the game has. Not saved: a game keeps the player's choice with `storage` and calls this at start."
+      },
+      {
+       "sig": "readonly languages: string[]",
+       "doc": "The game's languages, as in factoria.json localization.languages."
+      },
+      {
+       "sig": "readonly defaultLanguage: string",
+       "doc": "factoria.json localization.defaultLanguage: the language of the text written in scenes and the last fallback."
+      },
+      {
+       "sig": "readonly systemLanguages: string[]",
+       "doc": "The player's system languages, best first (BCP 47 tags such as \"es-MX\"). Empty in headless runs and tests: the start language does not depend on the machine there."
+      },
+      {
+       "sig": "name(language: string): string",
+       "doc": "The language's own name for a language menu (\"Español\"): the \"$name\" of its table, else the tag."
+      },
+      {
+       "sig": "on(event: \"change\", fn: (e: I18nChange) => void): () => void",
+       "doc": "Runs fn after every language switch (setLanguage or the i18n.set_language command). Returns the function that stops listening; listeners end with the scene, like ui.on, so register in onStart."
+      }
+     ]
+    },
+    {
      "kind": "const",
      "name": "world",
      "type": "WorldAPI",
@@ -1980,6 +2038,12 @@
      "name": "platform",
      "type": "PlatformAPI",
      "doc": "Store and platform services: achievements, stats, leaderboards, cloud saves, purchases, overlay, presence, integrity (docs/PLATFORM.md)."
+    },
+    {
+     "kind": "const",
+     "name": "i18n",
+     "type": "I18nAPI",
+     "doc": "Localization: t(key, args), language, setLanguage, languages, systemLanguages, on(\"change\") (docs/LOCALIZATION.md)."
     },
     {
      "kind": "function",
