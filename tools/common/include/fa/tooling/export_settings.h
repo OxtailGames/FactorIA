@@ -80,6 +80,8 @@ struct IosExportSettings {
 // (Android versionCode, iOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
 struct ProjectExportSettings {
     std::string icon;  // the icon of every platform that has no icon of its own; "" = none
+    bool scriptBytecode = true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
+                                 // inside the game pack (false: plain source in the pack). No other export reads it
     WindowsExportSettings windows;
     MacosExportSettings macos;
     LinuxExportSettings linux;

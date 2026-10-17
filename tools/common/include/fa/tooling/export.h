@@ -3,6 +3,10 @@
 // export_project() validates a game project and writes a shippable folder:
 //   linux / windows : <out>/<slug>-<platform>/{<slug>[.exe], game/...}
 //   macos           : <out>/<slug>-macos/<Name>.app/Contents/{Info.plist, MacOS/<slug>, Resources/game/...}
+//   With `release` the game/ folder of these three is replaced by ONE archive, game.pak, in the same place (next to the
+//   executable, in Contents/Resources of the .app): every file of the game packed as it is (fa/core/pack.h; the player reads it
+//   through fa::fs), the .js scripts as QuickJS bytecode unless export.scriptBytecode is false in factoria.json
+//   (fa/script/bytecode.h). No loose game files are left. ExportReport::pack / packed say what went in.
 //   android         : <out>/<slug>-android/  a complete Gradle project (with its own Gradle wrapper) with the game in
 //                     app/src/main/assets/ plus assets_index.txt (the file list the engine VFS needs to enumerate files
 //                     inside an APK: one project-relative path per line). Unless the format is "gradle", the export then
@@ -23,8 +27,12 @@
 // It also writes kExportMarkerFile at the top of <out>/<slug>-<platform>/: an export replaces an existing folder of that
 // name only when it is empty or an export wrote it (the marker, or FACTORIA_NOTICES.txt where that platform's export
 // puts it, for exports older than the marker). Any other folder is an error, so an unrelated one is never deleted.
-// Never shipped: .factoria/, build/ (earlier exports), tests/, tools/, types/, ENGINE_FEEDBACK.json, AGENTS.md, CLAUDE.md,
-// jsconfig.json, every dot-file/dot-folder, and the output folder itself.
+// Never shipped (every platform, release or not): files that are not game data, so no game reads them. Top level of the
+// project: .factoria/ and every other dot-file/dot-folder (.git, .gitignore, .mcp.json), build/ (earlier exports), tests/,
+// tools/, types/, node_modules/, ENGINE_FEEDBACK.json (the file named by feedbackFile), AGENTS.md, CLAUDE.md, jsconfig.json,
+// README.md (any capitalization: the project's own documentation), steam_appid.txt, the folder of a native plugin that lives in
+// the project (its build ships instead), and the output folder itself. A README.md or CREDITS.md deeper in the project, a
+// LICENSE, a data file of any kind: shipped, because a game may load them. Everything else the project holds is shipped.
 #pragma once
 
 #include <filesystem>
@@ -48,8 +56,9 @@ struct ExportOptions {
     std::string platform;       // linux | windows | macos | android | ios ("" = the platform running factoria)
     std::string outDir;         // parent folder of the export ("" = <projectDir>/build/export)
     bool release = false;       // android: builds the release APK/AAB (signed with export.android.signing, else with the
-                                // debug key and a warning); the other platforms: only changes the build commands in
-                                // nextSteps / the iOS script
+                                // debug key and a warning). linux/windows/macos: the game ships as ONE archive, game.pak,
+                                // with the scripts as bytecode (export.scriptBytecode). ios: only changes the build
+                                // commands of the script
     std::string playerBinary;   // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
@@ -78,7 +87,11 @@ struct ExportReport {
     std::string artifact;                  // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
                                            // .aab of an Android export (release builds have no "-debug"); empty otherwise
     std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
-    std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted)
+    std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted): what is on disk, so a release
+                                           // export of a desktop game lists game.pak, not the files in it
+    std::string pack;                      // release desktop export: the game's pack, as a path relative to the folder it is in
+                                           // (game.pak: next to the executable, in Contents/Resources of a macOS app); else empty
+    std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems
     Json to_json() const;

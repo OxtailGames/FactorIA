@@ -413,8 +413,17 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
         return r.result;
     }
     const Json& exp = *it;
-    const std::vector<std::string> platforms(std::begin(kPlatformNames), std::end(kPlatformNames));
-    r.unknown_keys(exp, "/export", platforms);
+    std::vector<std::string> known(std::begin(kPlatformNames), std::end(kPlatformNames));
+    known.push_back("scriptBytecode");
+    r.unknown_keys(exp, "/export", known);
+    if (auto b = exp.find("scriptBytecode"); b != exp.end() && !b->is_null()) {
+        if (!b->is_boolean())
+            r.error("/export/scriptBytecode", "expected true or false, got " + describe_json_value(*b),
+                    "Write \"scriptBytecode\": false to ship the scripts of a --release export as plain source, or remove the key "
+                    "(the default, true, compiles them to bytecode).");
+        else
+            s.scriptBytecode = b->get<bool>();
+    }
     if (const Json* o = r.object_member(exp, "/export", "windows", "{\"icon\": \"assets/icon.png\"}")) r.windows(*o, "/export/windows", s.windows);
     if (const Json* o = r.object_member(exp, "/export", "macos", "{\"category\": \"public.app-category.games\"}")) r.macos(*o, "/export/macos", s.macos);
     if (const Json* o = r.object_member(exp, "/export", "linux", "{\"categories\": [\"Game\"]}")) r.linux_(*o, "/export/linux", s.linux);
@@ -753,6 +762,10 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
         sync_field(o, "teamId", before.ios.teamId, now.ios.teamId, def.ios.teamId);
         sync_field(o, "buildNumber", before.ios.buildNumber, now.ios.buildNumber, def.ios.buildNumber);
         finish("ios");
+    }
+    if (before.scriptBytecode != now.scriptBytecode) {
+        sync_field(exp, "scriptBytecode", before.scriptBytecode, now.scriptBytecode, def.scriptBytecode);
+        exportChanged = true;
     }
     if (!iconChanged && !exportChanged) return {};
 

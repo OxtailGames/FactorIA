@@ -3,11 +3,11 @@
 // Game code and data refer to files with PROJECT-RELATIVE paths using forward
 // slashes: "assets/player.png", "scenes/main.scene.json". The VFS maps them to
 // the platform location:
-//   desktop  -> <project root>/<path>
+//   desktop  -> <project root>/<path>, or the game pack (fa/core/pack.h) once one is mounted: see mount_pack
 //   android  -> APK assets (AAssetManager), read-only
 //   ios      -> app bundle resources, read-only
-// Absolute paths are accepted on desktop (tools use them); on mobile they fail.
-// Writes are for tools and save games; game data on mobile is read-only.
+// Absolute paths are accepted on desktop (tools use them); on mobile they fail. They never come from a pack.
+// Writes are for tools and save games; game data on mobile and in a pack is read-only.
 #pragma once
 
 #include <cstdint>
@@ -35,6 +35,16 @@ const std::filesystem::path& user_dir();
 // share one. The caller removes it when done.
 std::filesystem::path make_temp_dir(std::string_view prefix);
 
+// Game pack (a `--release` desktop export is one archive, docs/EXPORTING.md). While a pack is mounted, every PROJECT-RELATIVE
+// path read_bytes, read_text, exists, is_directory, file_size, modified_time and list are given is answered by the pack
+// alone: a file that is not in it is "not found" (with a "did you mean" from the pack's index), whatever lies in the
+// project folder. Absolute paths are not affected, and neither are writes: write_text and write_bytes still go to
+// <project root>/<path> on disk, where save games and other files the game makes live. One pack at a time; mounting again
+// replaces the mounted one. `packFile` is opened and its index read now (errors say what is wrong with the file).
+Result<void> mount_pack(const std::filesystem::path& packFile);
+void unmount_pack();
+bool pack_mounted();
+
 // Platform backends (called once by fa_platform at startup on mobile).
 void set_android_asset_manager(void* aassetManager);
 
@@ -60,7 +70,8 @@ Result<void> write_text(std::string_view path, std::string_view text);  // creat
 Result<void> write_bytes(std::string_view path, const void* data, std::size_t size);
 bool exists(std::string_view path);
 bool is_directory(std::string_view path);
-std::int64_t modified_time(std::string_view path);  // -1 if missing; any monotonic unit
+std::int64_t file_size(std::string_view path);      // bytes; -1 if missing or not a file
+std::int64_t modified_time(std::string_view path);  // -1 if missing; any monotonic unit (a file of a pack: a fixed number)
 
 // Lists files (project-relative paths, sorted). `extension` like ".png" filters.
 std::vector<std::string> list(std::string_view dir, bool recursive = true, std::string_view extension = {});
