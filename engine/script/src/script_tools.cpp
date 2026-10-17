@@ -3,6 +3,7 @@
 #include <format>
 
 #include "fa/core/fs.h"
+#include "fa/core/i18n.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
@@ -348,6 +349,9 @@ void Impl::reset_for_test_file() {
     storage = Json::object();
     storageLoaded = true;
     if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
+    // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).
+    if (const I18n* loc = host->i18n(); loc && loc->enabled() && loc->language() != loc->default_language())
+        host->set_language(loc->default_language());
     call_method("reset session", "", hooks.get(), "resetSession", {});
     if (fs::exists(scene)) {
         std::string err = host->load_scene_now(scene);

@@ -36,9 +36,9 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 
 ```
 engine/            runtime modules (ship inside every game)
-  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h)
+  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h), string tables, plural rules and language matching (i18n.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
-  platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads
+  platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder)
   physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes with rigid-body rotation, continuous collision, shape casts)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
@@ -197,6 +197,21 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
 - **Commands** `platform.state`, `platform.reset`, `platform.respond`, `platform.emit`, `platform.set_fake`
   (`platform_commands.h`, registered by the runtime): `game.platform` of `factoria:test` is a view of them.
 Docs: [PLATFORM.md](PLATFORM.md).
+
+### Localization
+Text lives in string tables, `locales/<language>.json`, and the engine shows the player's language (docs:
+[LOCALIZATION.md](LOCALIZATION.md)).
+- **Pure logic** is `fa_core` (`fa/core/i18n.h`): BCP 47 tags and best match, CLDR plural rules, `{placeholder}`
+  formatting, table parsing with JSON-pointer errors, and `I18n` (current language, fallback chain current -> base ->
+  default, warn once per missing key). It reads files through `fa::fs`.
+- **The system language** is `fa_platform` (`system_languages()`, one `system_language_<platform>` file each).
+- **The pass** is `fa_scene` (`localize_world`, `localize_entity`): it writes `t(key)` into `Text.text`, `Button.text`,
+  `Toggle.label`, `Slider.label` and `TextField.placeholder` for components with a `key`, only when the string differs.
+  The runtime runs it after every scene load, each frame and on a language change; scripts run it for what they spawn.
+- **The engine** (`fa_runtime`, `localization.cpp`) owns the `I18n`: it reads `project.localization`, chooses the start
+  language (`choose_start_language`: `EngineConfig::language`, `FA_LANGUAGE`, the system language of a windowed game,
+  else the default language), switches language (`ScriptHost::set_language`, the `i18n.change` game event) and registers
+  `i18n.state` / `i18n.set_language`. Scripts see it as the `i18n` object (`ScriptHost::i18n()`).
 
 ### Headless
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works

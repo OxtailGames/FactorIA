@@ -48,6 +48,12 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
     return b
         .asset_field("font", static_cast<std::string T::*>(&UiControl::font), "font",
                      "Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font).")
+        .field("key", static_cast<std::string T::*>(&UiControl::key),
+               "Localization key, e.g. \"menu.play\" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime "
+               "writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder "
+               "(never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the "
+               "language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps "
+               "the text written in the field and logs one warning.")
         .field("fontSize", static_cast<float T::*>(&UiControl::fontSize), "Label glyph height in design pixels.").range(1, 4096)
         .field("textColor", static_cast<Color T::*>(&UiControl::textColor), "Label colour.")
         .field("accentColor", static_cast<Color T::*>(&UiControl::accentColor),
@@ -232,7 +238,15 @@ void register_builtin_components(TypeRegistry& r) {
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
                 "2D")
-        .field("text", &Text::text, "The string to draw. Use \\n for line breaks.")
+        .field("text", &Text::text,
+               "The string to draw. Use \\n for line breaks. While `key` is set the engine overwrites it with the translation of the "
+               "current language every frame: edit the string table (locales/<language>.json), not this field.")
+        .field("key", &Text::key,
+               "Localization key, e.g. \"menu.play\" (docs/LOCALIZATION.md). Empty (default) = this Text is not translated. With a key, the "
+               "runtime writes the string of that key in the current language (locales/<language>.json, falling back to the base "
+               "language and then to localization.defaultLanguage) into `text` when a scene or prefab loads, every frame and "
+               "when the language changes, so `text` is overwritten at run time. A key that no string table has keeps the "
+               "text written here and logs one warning.")
         .asset_field("font", &Text::font, "font",
                      "Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, "
                      "Cyrillic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "

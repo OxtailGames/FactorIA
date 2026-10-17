@@ -175,6 +175,49 @@
         }
       }
     },
+    "localization": {
+      "type": "object",
+      "description": "Languages of the game (docs/LOCALIZATION.md). Each language has a string table locales/<language>.json; Text.key and the widgets' key fields, `i18n.t(key, args)` in scripts and the i18n.* commands read them. Without this section localization is off and the game behaves as it always did. Headless runs (tests, the MCP server, `factoria call`) and the editor always use defaultLanguage; a game in its own window or an exported game starts in the language of the player's system that best matches `languages`, unless the environment variable FA_LANGUAGE names one. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "defaultLanguage": {
+          "type": "string",
+          "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$",
+          "description": "The language the strings are written in first and the last fallback of every lookup; also the language of headless runs and the editor. Must be one of `languages` (default: the first of them). A BCP 47 tag: language lower case, script capitalized, region upper case (\"en\", \"pt-BR\", \"zh-Hans\")."
+        },
+        "languages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The languages the game ships, in the order a language menu lists them. Each is a BCP 47 tag and has a string table locales/<tag>.json (\"en\", \"es\", \"pt-BR\", \"zh-Hans\", \"ja\", \"ar\"). With only defaultLanguage given, the game has that one language.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+          }
+        },
+        "fallbackFonts": {
+          "type": "array",
+          "description": "Project-relative paths of .ttf or .otf fonts that fill the characters the main font of a Text lacks, in every language, after the font of the language itself (languageFonts). Typically Noto fonts for the scripts of `languages`: [\"assets/fonts/NotoSansArabic-Regular.ttf\", \"assets/fonts/NotoSansJP-Regular.ttf\"]. Stored here; the text renderer uses them (see the font documentation).",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "languageFonts": {
+          "type": "object",
+          "description": "Fonts for one language, tried before fallbackFonts when the game runs in it (or in a region of it: \"zh-Hans\" also serves \"zh-Hans-CN\"). Keys are tags of `languages`: {\"zh-Hans\": [\"assets/fonts/NotoSansSC-Regular.ttf\"], \"ja\": [\"assets/fonts/NotoSansJP-Regular.ttf\"]}.",
+          "propertyNames": {
+            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "platform": {
       "type": "object",
       "description": "Store and platform services of the game: achievements, stats, leaderboards, cloud saves and in-app purchases behind one scripting API (`platform` from \"factoria\", docs/PLATFORM.md). This section declares what the game has, so that ids are checked before a request leaves the game and each store gets its own id for the same entry (\"ids\"). Every key is optional. Which store answers is chosen by the native plugins the game declares (\"plugins\") and by \"backend\"; development runs, tests and the MCP server use a deterministic fake store. `factoria validate` reports every problem with how to fix it.",
