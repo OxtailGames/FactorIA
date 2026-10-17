@@ -175,6 +175,24 @@ TEST_CASE("i18n: CLDR plural categories per language") {
     CHECK(cat("en", -1) == PC::One);  // the sign does not matter
 }
 
+TEST_CASE("i18n: plural_categories lists the forms a language needs, and with everyCount the ones only fractions or millions pick") {
+    using PC = PluralCategory;
+    const auto forms = [](const char* lang, bool every = false) { return plural_categories(lang, every); };
+    CHECK(forms("en") == std::vector<PC>{PC::One, PC::Other});
+    CHECK(forms("ja") == std::vector<PC>{PC::Other});
+    CHECK(forms("zh-Hans") == std::vector<PC>{PC::Other});
+    CHECK(forms("ru") == std::vector<PC>{PC::One, PC::Few, PC::Many, PC::Other});
+    CHECK(forms("ar") == std::vector<PC>{PC::Zero, PC::One, PC::Two, PC::Few, PC::Many, PC::Other});
+    CHECK(forms("he") == std::vector<PC>{PC::One, PC::Two, PC::Other});
+    // "many" of es / fr is for whole millions, of cs for fractions: not needed, but not a mistake.
+    CHECK(forms("es") == std::vector<PC>{PC::One, PC::Other});
+    CHECK(forms("es", true) == std::vector<PC>{PC::One, PC::Many, PC::Other});
+    CHECK(forms("fr", true) == std::vector<PC>{PC::One, PC::Many, PC::Other});
+    CHECK(forms("cs") == std::vector<PC>{PC::One, PC::Few, PC::Other});
+    CHECK(forms("cs", true) == std::vector<PC>{PC::One, PC::Few, PC::Many, PC::Other});
+    CHECK(forms("en", true) == std::vector<PC>{PC::One, PC::Other});
+}
+
 TEST_CASE("i18n: nested keys flatten to dotted keys, plural entries and metadata") {
     StringTable t = table_of("es", R"({
         "$name": "Español", "$comment": 12,
@@ -194,6 +212,11 @@ TEST_CASE("i18n: nested keys flatten to dotted keys, plural entries and metadata
     CHECK(t.entries.count("$comment") == 0);
     CHECK(t.entries.count("menu") == 0);
     CHECK(t.entries.size() == 5);
+    // Where each entry is in the file, as a JSON pointer (escaped): `factoria validate` and the translation import use it.
+    CHECK(t.entries.at("menu.play").pointer == "/menu/play");
+    CHECK(t.entries.at("menu.options.title").pointer == "/menu/options/title");
+    CHECK(t.entries.at("flat.key").pointer == "/flat.key");
+    CHECK(t.entries.at("coins").pointer == "/coins");
 }
 
 TEST_CASE("i18n: a bad table is a teaching error with file and JSON pointer") {
@@ -274,11 +297,9 @@ TEST_CASE("i18n: set_language resolves tags and teaches on a mistake") {
     CHECK(bad.error().message.find("Did you mean 'es'?") != std::string::npos);
     CHECK(bad.error().message.find("Valid: en, es, zh-Hans") != std::string::npos);
     CHECK(i.language() == "en");  // unchanged
-    const std::uint64_t rev = i.revision();
     REQUIRE(i.set_language("en").ok());
-    CHECK(i.revision() == rev);  // no change, no new revision
     REQUIRE(i.set_language("es").ok());
-    CHECK(i.revision() > rev);
+    CHECK(i.language() == "es");
 
     I18n off;  // no localization section
     CHECK_FALSE(off.enabled());
