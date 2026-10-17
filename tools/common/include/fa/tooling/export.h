@@ -48,6 +48,8 @@
 
 namespace fa {
 
+struct SetupContext;  // fa/tooling/setup.h
+
 // File every export writes at the top of its <out>/<slug>-<platform>/ folder: the mark that the next export may replace it.
 inline constexpr const char* kExportMarkerFile = ".factoria-export";
 
@@ -70,7 +72,9 @@ struct ExportOptions {
     std::string format;         // the kind of file a platform exports ("" = export.android.format of factoria.json, else the
                                 // platform's default). android: "apk" (default: built with Gradle), "aab" (the Google
                                 // Play bundle, built with Gradle) or "gradle" (only the Gradle project; nothing is built
-                                // and no JDK or SDK is needed). The other platforms have one format and ignore it
+                                // and no JDK or SDK is needed). linux: "appimage" also writes the game as one AppImage file
+                                // (needs Linux x86_64 and `factoria setup appimage`); without it the folder is all there is.
+                                // The other platforms have one format and ignore it
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
                                 // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
                                 // may be empty
@@ -78,6 +82,8 @@ struct ExportOptions {
                                 // the export then fails with "cancelled" and the Gradle project stays on disk
     const AndroidToolchainSearch* androidSearch = nullptr;  // where to look for the JDK and SDK, the environment variables
                                 // and ~/.factoria/export.json (nullptr = this machine); only tests change it
+    const SetupContext* setup = nullptr;  // linux appimage: which computer this is, where the AppImage tools are installed and how
+                                // programs are run (nullptr = this machine); only tests change it
 };
 
 struct ExportReport {
@@ -85,7 +91,8 @@ struct ExportReport {
     std::string mode;                      // android/ios: "prebuilt" or "source" (see above); empty for desktop exports
     std::string format;                    // the format that was exported (see ExportOptions::format); empty when none
     std::string artifact;                  // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
-                                           // .aab of an Android export (release builds have no "-debug"); empty otherwise
+                                           // .aab of an Android export (release builds have no "-debug"), or the
+                                           // <outputDir>/<slug>-x86_64.AppImage of a linux one; empty otherwise
     std::string notices;                   // FACTORIA_NOTICES.txt, relative to outputDir (fa/tooling/notices.h)
     std::vector<std::string> files;        // paths relative to outputDir (forward slashes, sorted): what is on disk, so a release
                                            // export of a desktop game lists game.pak, not the files in it
@@ -108,7 +115,7 @@ struct ExportPlan {
     std::string outputDir;              // absolute folder the export replaces: <out>/<game-slug>-<platform>
     std::string mode;                   // android/ios: "prebuilt" or "source"; empty for desktop exports
     std::string format;                 // the format the export would produce (see ExportOptions::format); empty when none
-    std::string artifact;               // absolute path of the file the export would build (.apk / .aab); else empty
+    std::string artifact;               // absolute path of the file the export would build (.apk / .aab / .AppImage); else empty
     AndroidToolchain toolchain;         // android apk/aab: the JDK and SDK the build would use, and where each was found
                                         // (problems stays empty: a missing one is the plan's error); else empty
     std::string player;                 // desktop: the factoria_player that is copied into the export

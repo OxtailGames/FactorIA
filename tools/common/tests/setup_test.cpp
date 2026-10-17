@@ -416,11 +416,13 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     SetupContext c = w.ctx();
 
     SetupStatus all = setup_status(c, {}, false);
-    REQUIRE(all.components.size() == 4);
+    REQUIRE(all.components.size() == 5);
     CHECK(all.components[0].id == "android");
     CHECK(all.components[1].id == "players");
     CHECK(all.components[2].id == "cmake");
     CHECK(all.components[3].id == "xcode");
+    CHECK(all.components[4].id == "appimage");
+    CHECK(all.components[4].state == "unsupported");  // a Mac builds no AppImage
     CHECK(all.host == "macos-aarch64");
     CHECK(all.home == w.home);
     CHECK(all.components[0].state == "missing");
@@ -444,7 +446,7 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
 
     const Json j = all.to_json();
     CHECK(j.at("home").get<std::string>() == w.home);
-    CHECK(j.at("components").size() == 4);
+    CHECK(j.at("components").size() == 5);
     CHECK(j.at("components")[0].at("state").get<std::string>() == "missing");
 }
 

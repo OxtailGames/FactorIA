@@ -536,8 +536,8 @@ the Swift runtime, entitlements: [MOBILE.md](MOBILE.md#native-plugins-ios), [EXT
 (`factoria_player.entitlements`; set `export.ios.teamId` or `FA_IOS_DEVELOPMENT_TEAM` so Xcode can sign for a device).
 **macOS**: Game Center and iCloud are *restricted* entitlements, which macOS only honours in an app signed with your Apple
 Developer certificate and a provisioning profile. The export is signed ad hoc, so it runs, and those services answer
-`unavailable` with a hint; the export also writes `<game>.entitlements` and lists the `codesign` command that turns them on
-(`nextSteps`). An ad hoc app also gets no answers from the App Store: try purchases from Xcode (below) or after that signing step.
+`unavailable` with a hint; the export also writes `<game>.entitlements`, and `sign.macos` with `provisioningProfile` (the profile
+of the App ID, from the Apple Developer portal) signs the app with them ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)). An ad hoc app also gets no answers from the App Store: try purchases from Xcode (below) or after that signing step.
 
 ### What each call does
 

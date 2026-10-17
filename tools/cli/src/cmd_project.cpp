@@ -160,19 +160,19 @@ Command make_export_command() {
     Command c;
     c.name = "export";
     c.summary = "Package the game for a platform (desktop bundle, Android APK/AAB, iOS project).";
-    c.usage = "[project] [--platform P] [--format apk|aab|gradle] [--out DIR] [--release]";
+    c.usage = "[project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release]";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
                {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/, replaced only when an export wrote it (default out: <project>/build/export)."},
-               {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk."},
+               {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk. Linux: appimage also builds <slug>-x86_64.AppImage, the game as one file (needs Linux x86_64 or WSL and `factoria setup appimage`)."},
                {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json), else with the debug key and a warning. Linux, Windows, macOS: the whole game in ONE file, game.pak, next to the executable instead of a game/ folder, with the scripts compiled to bytecode (export.scriptBytecode: false in factoria.json keeps them as source)."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
                {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria)."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android",
-                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle"};
+                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle", "factoria export --platform linux --format appimage"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         std::string platform = ctx.args.str("platform");
@@ -192,7 +192,7 @@ Command make_export_command() {
         if (!eo.format.empty()) {
             std::string f;
             for (char ch : eo.format) f += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-            const std::vector<std::string> formats = {"apk", "aab", "gradle"};
+            const std::vector<std::string> formats = {"apk", "aab", "gradle", "appimage"};
             if (std::find(formats.begin(), formats.end(), f) == formats.end())
                 throw UsageError("Unknown format '" + eo.format + "'.", fa::did_you_mean(eo.format, formats));
             eo.format = f;

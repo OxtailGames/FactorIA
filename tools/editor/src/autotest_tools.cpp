@@ -719,7 +719,7 @@ void Editor::at_build_tools_script() {
     step(2, [this] { showExport_ = false; });
 
     // ------------------------------------------------- J. Set Up This Computer
-    // File > Set Up This Computer... lists the four components; the Export window and the Platform settings tabs offer the
+    // File > Set Up This Computer... lists the five components; the Export window and the Platform settings tabs offer the
     // "Set up" button that fixes a row; the Android SDK license dialog only lets "I accept" through after its checkbox.
     // The editor's setup context in the autotest (on_init) can neither download nor run a program, and its FACTORIA_HOME is a
     // folder of the autotest's own: no step here can install anything, and none presses "I accept".
@@ -774,7 +774,8 @@ void Editor::at_build_tools_script() {
         return out;
     };
 
-    // The window: File > Set Up This Computer... lists the four components, each with its Install button.
+    // The window: File > Set Up This Computer... lists the five components, each with its Install button (the AppImage
+    // tools have none yet: their row says to run `factoria setup appimage`).
     click("menu:file");
     step(3, [] {});
     click("menu:setup");
@@ -787,7 +788,7 @@ void Editor::at_build_tools_script() {
         const SetupStatus& st = setupStatus_.status();
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
-        at_check(ids == "android players cmake xcode ", "the window lists the four components, in order (" + ids + ")");
+        at_check(ids == "android players cmake xcode appimage ", "the window lists the five components, in order (" + ids + ")");
         at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(), "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)
             if (setup_action_for_component(c, st.home))

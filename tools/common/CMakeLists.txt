@@ -33,6 +33,8 @@ if(FA_EMBED_ALL)
 endif()
 # Only on the files that use it: an absolute path on every command line would stop worktrees sharing the ccache.
 set_source_files_properties(src/bundle.cpp src/export.cpp PROPERTIES COMPILE_DEFINITIONS FA_SOURCE_ROOT="${FA_ROOT}")
+# The release packages set FA_UPDATE_REPO: the CI workflow downloads FactorIA from there (fa/tooling/ci_workflow.h).
+set_property(SOURCE src/ci_workflow.cpp APPEND PROPERTY COMPILE_DEFINITIONS FA_UPDATE_REPO="${FA_UPDATE_REPO}")
 
 if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
