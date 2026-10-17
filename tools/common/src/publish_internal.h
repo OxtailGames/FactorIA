@@ -8,11 +8,15 @@
 #include <utility>
 #include <vector>
 
+#include "export_internal.h"
 #include "fa/tooling/publish.h"
 
 namespace fa::publish_detail {
 
-namespace stdfs = std::filesystem;
+namespace stdfs = export_detail::stdfs;
+using export_detail::err;
+using export_detail::generic;
+using export_detail::os_path;
 
 // Left out of every upload: they belong to the export, not to the game (docs/EXPORTING.md). Paths are relative to the
 // export folder.
@@ -71,6 +75,13 @@ struct Store {
 
 const Store* find_store(const std::string& name);
 
-inline std::string generic(const stdfs::path& p) { return p.generic_string(); }
+inline bool is_dir(const stdfs::path& p) {
+    std::error_code ec;
+    return stdfs::is_directory(os_path(p), ec);
+}
+inline bool is_file(const stdfs::path& p) {
+    std::error_code ec;
+    return stdfs::is_regular_file(os_path(p), ec);
+}
 
 }  // namespace fa::publish_detail
