@@ -287,8 +287,6 @@ Left open:
   `appimage` component. Authenticode stays in M8.
 - The sniper build was run with Docker, not Podman; the sniper SDK image tag is pinned and is bumped by hand. The
   sniper build has no libcurl, so the Linux download's AI features need the `curl` program.
-- A game whose name slugifies to `game` (or to nothing) exports a Linux executable `game` next to its `game/` data
-  folder: the two collide.
 
 ## M14. Localization (L, blocker for a global release)
 

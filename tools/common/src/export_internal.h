@@ -123,6 +123,10 @@ Result<std::string> select_sections(const std::string& text, bool source, const 
 Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platform);
 // The game name with the characters a file name cannot hold replaced (the .app folder of macOS).
 std::string fs_safe_name(const std::string& s);
+// The game's executable in a desktop export: <slug>.exe on Windows, else <slug>. On Linux the slug `game` gives game-bin:
+// the data folder is game/ next to the executable, and a slug (no dots) can meet nothing else there.
+// The export, the AppImage and publish all use it.
+std::string desktop_exe_name(const std::string& slug, const std::string& platform);
 // Seals an exported .app with an ad hoc signature; returns "" or what went wrong.
 std::string sign_app_ad_hoc(const stdfs::path& app);
 // `icon` is the platform's icon (load_platform_icon), empty when none is set: the .icns of a macOS app, the icon of the

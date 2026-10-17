@@ -96,10 +96,10 @@ std::string make_player(const testing::TempDir& tmp) {
 }
 
 // "Space Dodge" (slug space-dodge), with an icon unless told otherwise.
-std::string make_game(const testing::TempDir& tmp, bool withIcon = true) {
+std::string make_game(const testing::TempDir& tmp, bool withIcon = true, const std::string& name = "Space Dodge") {
     const std::string dir = tmp.sub("proj");
     ScaffoldOptions so;
-    so.name = "Space Dodge";
+    so.name = name;
     so.id = "com.example.spacedodge";
     auto r = create_project(dir, "2d-platformer", so);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -136,16 +136,16 @@ struct Seen {
     std::map<std::string, std::string> env;
 };
 
-void fake_appimagetool(Lab& lab, Seen& seen, int exitCode = 0, bool writeArtifact = true) {
-    lab.program = [&seen, exitCode, writeArtifact](const ProcessOptions& o) -> Result<ProcessResult> {
+void fake_appimagetool(Lab& lab, Seen& seen, int exitCode = 0, bool writeArtifact = true, const std::string& slug = "space-dodge") {
+    lab.program = [&seen, exitCode, writeArtifact, slug](const ProcessOptions& o) -> Result<ProcessResult> {
         seen.argv = o.argv;
         seen.env = o.env;
         const stdfs::path appDir = o.argv.at(o.argv.size() - 2);
         seen.files = listing(appDir);
         seen.appRun = testing::read_all(appDir / "AppRun");
-        seen.desktop = testing::read_all(appDir / "space-dodge.desktop");
+        seen.desktop = testing::read_all(appDir / (slug + ".desktop"));
         auto is_png = [](const stdfs::path& p) { return testing::read_all(p).compare(1, 3, "PNG") == 0; };
-        seen.iconIsPng = is_png(appDir / "space-dodge.png");
+        seen.iconIsPng = is_png(appDir / (slug + ".png"));
         seen.dirIconIsPng = is_png(appDir / ".DirIcon");
         ProcessResult r;
         r.exitCode = exitCode;
@@ -380,6 +380,31 @@ TEST_CASE("export appimage: the AppDir and the appimagetool command line") {
     auto again = export_project(o);
     REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
     CHECK(lab.runs.size() == 2);
+}
+
+TEST_CASE("export appimage: a game named \"Game\" starts game-bin, the executable next to its game/ folder") {
+    Lab lab;
+    lab.install_fake_tools();
+    Seen seen;
+    fake_appimagetool(lab, seen, 0, true, "game");
+    SetupContext c = lab.ctx();
+    ExportOptions o;
+    o.projectDir = make_game(lab.tmp, true, "Game");
+    o.platform = "linux";
+    o.format = "appimage";
+    o.outDir = lab.tmp.sub("out");
+    o.playerBinary = make_player(lab.tmp);
+    o.setup = &c;
+    auto r = export_project(o);
+    REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
+    CHECK(has_text(r->artifact, "game-linux/game-x86_64.AppImage"));
+
+    // usr/bin holds the executable and, as a folder of the same parent, the data the player finds next to itself.
+    CHECK(contains(seen.files, "usr/bin/game-bin"));
+    CHECK(contains(seen.files, "usr/bin/game/factoria.json"));
+    CHECK(has_text(seen.appRun, "exec \"$here/usr/bin/game-bin\" \"$@\""));
+    CHECK(has_text(seen.desktop, "Exec=game-bin\n"));
+    CHECK(has_text(seen.desktop, "Icon=game\n"));
 }
 
 TEST_CASE("export appimage: a game without an icon gets a placeholder and a warning") {

@@ -603,6 +603,28 @@ TEST_CASE("publish.epic dry run: BuildPatchTool UploadBinary per platform, the s
     CHECK(r.uploads[0].destination == "Epic artifact art-win (build 1.2.3)");
 }
 
+TEST_CASE("publish.epic: a game named \"Game\" is launched through game-bin on Linux, the name the export gives its executable") {
+    Fixture f;
+    f.vars["FACTORIA_EPIC_CLIENT_SECRET"] = "epic-secret-5678";
+    auto j = load_json_file(f.dir + "/factoria.json");
+    REQUIRE(j.ok());
+    (*j)["name"] = "Game";
+    REQUIRE(save_json_file(f.dir + "/factoria.json", *j).ok());
+    testing::write_all(f.dir + "/build/export/game-linux/.factoria-export", "written by an export");
+    testing::write_all(f.dir + "/build/export/game-linux/game-bin", "elf");
+    testing::write_all(f.dir + "/build/export/game-linux/game/factoria.json", "{}");
+    PublishOptions o = f.options("epic");
+    o.dryRun = true;
+    o.platforms = {"linux"};
+    const PublishReport r = f.ok(o);
+    REQUIRE(r.steps.size() == 1);
+    CHECK(r.steps[0].command[10] == "-AppLaunch=game-bin");
+
+    stdfs::remove(f.dir + "/build/export/game-linux/game-bin");  // game/ is not the executable
+    const Error e = f.fails(o);
+    CHECK(has(e.message, "has no game-bin, the game's executable"));
+}
+
 TEST_CASE("publish.epic: missing ids, secret, artifacts, or an invalid version are teaching errors") {
     {
         Fixture f("{}");

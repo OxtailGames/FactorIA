@@ -426,6 +426,10 @@ macOS:          my-game-macos/My Game.app/Contents/
 With `--release` the `game/` folder is one file, [`game.pak`](#release-build-gamepak), in the same place (next to the
 executable; `Contents/Resources` in the `.app`).
 
+The executable is named after the game's slug (`Space Dodge` -> `space-dodge`). A game called `Game`, or whose name has no
+letter or digit, has the slug `game`: on Linux its executable is `game-bin`, so it does not sit on the `game/` folder
+(`game.desktop` and `game.png` keep the slug; Windows `game.exe` and macOS `Contents/MacOS/game` cannot collide).
+
 The player starts the game found in `game/` next to the executable (inside the
 `.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:
 
@@ -1062,7 +1066,8 @@ written. The dry run warns when neither `BUTLER_API_KEY` is set nor a `butler lo
 `publish.epic` runs `BuildPatchTool -OrganizationId=... -ProductId=... -ArtifactId=<artifact of the platform> -ClientId=...
 -ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET -mode=UploadBinary -BuildRoot=<export folder> -CloudDir=<work folder>/cloud/<platform>
 -BuildVersion=<version> -AppLaunch=<the game's executable> -AppArgs= -FileIgnoreList=<ignore list>` once per platform.
-`-AppLaunch` is `<slug>.exe`, `<Name>.app/Contents/MacOS/<slug>` or `<slug>`, relative to the export folder: the export must
+`-AppLaunch` is `<slug>.exe`, `<Name>.app/Contents/MacOS/<slug>` or `<slug>` (`game-bin` on Linux for the slug `game`, see
+[Desktop](#desktop-linux-windows-macos)), relative to the export folder: the export must
 contain it. The cloud folder holds the tool's chunks for later patches and is kept between uploads (`.factoria/publish/epic/cloud`);
 the tool needs it to be different from the build root.
 
