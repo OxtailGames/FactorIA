@@ -285,7 +285,7 @@ TEST_CASE("platform.add_backend googleplay: builds the bridge for each ABI with 
     testing::write_all(sdk / "cmake" / "3.22.1" / "bin" / "ninja", "");
     testing::write_all(sdk / "cmake" / "3.30.5" / "bin" / "ninja", "");
     const stdfs::path cmake = sdk / "cmake" / "3.30.5" / "bin" / "cmake";
-    testing::write_all(cmake, "#!/bin/sh\necho \"$*\" >> '" + log.string() + R"(')
+    testing::write_all(cmake, "#!/bin/sh\necho \"$*\" >> '" + log.string() + R"('
 if [ "$1" = "--build" ]; then
   abi="${2##*/build-}"
   folder="${2%/build-*}"
