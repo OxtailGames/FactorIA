@@ -33,4 +33,7 @@ dependencies {
     implementation 'com.android.billingclient:billing:9.1.0'               // Google Play Billing: purchases
     implementation 'com.google.android.gms:play-services-games-v2:22.1.0'  // Play Games Services v2: sign-in, achievements, leaderboards, Saved Games
     implementation 'com.google.android.play:integrity:1.6.0'               // Play Integrity: integrity.token
+    // These pull kotlin-stdlib 1.8 and, through an older Play library, kotlin-stdlib-jdk7/jdk8 1.6, which hold the same classes
+    // (duplicate-class error). The BOM lifts jdk7/jdk8 to 1.8, where they are empty.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
 }
