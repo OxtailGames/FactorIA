@@ -93,12 +93,6 @@ struct Game {
     }
 };
 
-std::vector<std::string> titles(const SignReport& r) {
-    std::vector<std::string> t;
-    for (const SignStep& s : r.steps) t.push_back(s.title);
-    return t;
-}
-
 const SignStep* step_named(const SignReport& r, const std::string& prefix) {
     for (const SignStep& s : r.steps)
         if (starts_with(s.title, prefix)) return &s;

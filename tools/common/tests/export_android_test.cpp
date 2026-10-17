@@ -495,7 +495,7 @@ TEST_CASE("android export: command project.export takes the format and plans the
     const CommandInfo* info = reg.info("project.export");
     REQUIRE(info != nullptr);
     const Json& format = info->inputSchema["properties"]["format"];
-    CHECK(format["enum"] == Json::array({"apk", "aab", "gradle"}));
+    CHECK(format["enum"] == Json::array({"apk", "aab", "gradle", "appimage"}));
     CHECK_FALSE(format.value("description", std::string()).empty());
     CHECK(info->description.find("artifact") != std::string::npos);
 

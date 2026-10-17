@@ -7,7 +7,6 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
-#include <regex>
 
 #include "export_internal.h"
 #include "fa/core/log.h"
@@ -219,17 +218,8 @@ NotaryAnswer parse_notary(const std::string& output) {
             a.id = j->value("id", std::string());
             a.status = j->value("status", std::string());
             a.message = j->value("message", std::string());
-            if (!a.status.empty() || !a.id.empty()) return a;
         }
-    auto grab = [&](const char* key) {
-        std::smatch m;
-        const std::regex re(std::string("\"") + key + "\"\\s*:\\s*\"([^\"]*)\"");
-        return std::regex_search(output, m, re) ? m[1].str() : std::string();
-    };
-    a.id = grab("id");
-    a.status = grab("status");
-    a.message = grab("message");
-    return a;
+    return a;  // nothing parsed: the answer stays empty and the error quotes what notarytool printed
 }
 
 // ---- running ------------------------------------------------------------------------------------------------------
@@ -509,9 +499,10 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         const stdfs::path submitZip = zip.parent_path() / (zip.stem().string() + "-notarize.zip");
         {
             const std::string title = "Zip the app for notarization";
-            auto r = runner.go(title, {kDitto, "-c", "-k", "--keepParent", generic(app), generic(submitZip)});
+            const std::vector<std::string> argv = {kDitto, "-c", "-k", "--keepParent", generic(app), generic(submitZip)};
+            auto r = runner.go(title, argv);
             if (!r.ok()) return r.error();
-            if (r->exitCode != 0) return runner.failed(title, {kDitto, "-c", "-k", "--keepParent", generic(app), generic(submitZip)}, *r, "Check the free disk space and that the folder of the zip is writable.");
+            if (r->exitCode != 0) return runner.failed(title, argv, *r, "Check the free disk space and that the folder of the zip is writable.");
         }
         std::vector<std::string> submit = {kXcrun, "notarytool", "submit", generic(submitZip)};
         std::vector<std::string> submitShown = submit;
@@ -519,13 +510,9 @@ Result<SignReport> sign_macos(const SignMacosOptions& options) {
         submitShown.insert(submitShown.end(), credentials.shown.begin(), credentials.shown.end());
         for (std::vector<std::string>* v : {&submit, &submitShown}) v->insert(v->end(), {"--wait", "--timeout", "40m", "--output-format", "json"});
         auto sent = runner.go("Notarize (upload to Apple and wait for the verdict)", submit, submitShown, 45 * 60);
-        if (!sent.ok()) {
-            std::error_code rm;
-            stdfs::remove(os_path(submitZip), rm);
-            return sent.error();
-        }
         std::error_code rm;
         stdfs::remove(os_path(submitZip), rm);
+        if (!sent.ok()) return sent.error();
         if (!options.dryRun) {
             const NotaryAnswer answer = parse_notary(sent->stdoutText.empty() ? sent->stderrText : sent->stdoutText);
             rep.notarizationId = answer.id;
