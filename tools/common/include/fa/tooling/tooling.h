@@ -32,6 +32,9 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
 // project.new_plugin: writes a native plugin from platforms/plugin/ and declares it in factoria.json (plugin_scaffold.cpp).
 void register_plugin_commands(CommandRegistry& registry, const std::string& projectDir);
 
+// platform.add_backend: sets a store backend plugin (Steamworks, Apple) up in a game (platform_setup.cpp).
+void register_platform_setup_commands(CommandRegistry& registry, const std::string& projectDir);
+
 }  // namespace fa
 
 namespace fa {

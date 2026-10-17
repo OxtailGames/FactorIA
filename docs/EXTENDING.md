@@ -675,8 +675,8 @@ and `android/`, the Gradle module of the Android build) and declares the plugin 
 copies the library into the plugin's folder for this computer: `windows/example.dll`, `macos/libexample.dylib` or
 `linux/libexample.so` (for Android, [MOBILE.md](MOBILE.md#native-plugins-on-android) builds it once per ABI). The plugin it writes
 is complete (`"template"` picks another starting point: the folders of `platforms/plugins/` in the engine, ready-made
-store backends such as the Steamworks and Apple plugins of the later M12 packages; an unknown name lists the ones
-there are):
+store backends: `"steam"` is the Steamworks plugin ([PLATFORM.md](PLATFORM.md#steam-steamworks)), `factoria call
+platform.add_backend` sets one up in a single step; an unknown name lists the ones there are):
 
 ```js
 plugins.example.add(1, 2)       // 3, computed in C (in its Java class on Android)
@@ -713,6 +713,33 @@ Libraries the plugin needs go next to it, in the same folder: the template's `CM
 the plugin's folder (`$ORIGIN`, `@loader_path`), and Windows looks in the DLL's folder. The Android build (the module,
 the NDK build of the library, Java code) and the iOS build (two static libraries) are described in
 [MOBILE.md](MOBILE.md#native-plugins-on-android).
+
+**The manifest, `ios/plugin.json` and `macos/plugin.json`** (optional). A library cannot tell the export what the app that
+ships it must do, so the plugin says so in a small file in its platform folder:
+
+```json
+{
+  "frameworks": ["StoreKit", "GameKit"],
+  "swift": true,
+  "entitlements": { "com.apple.developer.game-center": true }
+}
+```
+
+`frameworks` are system frameworks the iOS app links (a static library cannot), `swift` gives the iOS app the Swift runtime
+for a plugin written in Swift, and `entitlements` are capabilities the signed app needs (Game Center, iCloud, ...; values
+are booleans, numbers, strings or lists of strings, and may use Xcode's `$(TeamIdentifierPrefix)` and `$(CFBundleIdentifier)`).
+`factoria export --platform ios` merges the manifests of all plugins (two plugins that ask for the same entitlement with
+different values fail the export, naming both) into the Xcode project's frameworks, Swift runtime and
+`factoria_player.entitlements`. `factoria export --platform macos` reads only `entitlements`, from `macos/plugin.json`: it
+writes them to `<game>.entitlements` next to the app, because only a signature with the developer's certificate and a
+provisioning profile can carry restricted ones. The file never ships inside the app and the plugin never sees it. The
+Apple backend (`platforms/plugins/apple`, [PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)) is the
+example, and [MOBILE.md](MOBILE.md#native-plugins-ios) has the details of the iOS side.
+
+A plugin written in Swift needs a small C file for the entry point: the Swift code exports a function with `@_cdecl` (the
+Apple plugin's is `fa_apple_init`) and `FA_PLUGIN_INIT(<name>)` in the C file calls it, so `fa_plugin_init` (a dylib) or
+`fa_plugin_init_<name>` (the iOS static library) is a C symbol like any other plugin's. The Apple plugin's `CMakeLists.txt` shows how `xcrun swiftc` builds the macOS dylib and
+the two iOS libraries.
 
 ### G.3 Checks and failures
 
@@ -769,7 +796,7 @@ FA_PLUGIN_INIT(example) {
   `add_backend(api, &FaBackendDesc)` (one per plugin, inside the entry point): `name` (the key of the catalog's `ids`),
   `services` (a JSON array: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`,
   `"presence"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
-  thread, before scripts: `SteamAPI_RunCallbacks`). The game's `platform.*` calls arrive in `request` with their ids
+  thread, before scripts: `SteamAPI_RunCallbacks`, or Steam's manual dispatch as the Steam plugin does). The game's `platform.*` calls arrive in `request` with their ids
   already checked; answer each `FaRequest*` exactly once with `resolve(req, result_json)` or `reject(req, code,
   message, hint)`, now or later and from any thread, and push unasked news with `emit(api, "purchase" | "overlay" |
   "player", data_json)`. A plugin built for version 2 checks `api->version >= 2`; a version 1 plugin keeps working.

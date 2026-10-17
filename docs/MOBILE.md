@@ -37,6 +37,7 @@ its own failure message, and the logs, screenshots and crash reports are uploade
 | No crash | no Java exception, native signal or ANR, no `E factoria` line, the activity was never destroyed or relaunched, the screenshot shows a picture | no `ERROR` line, no crash report, the screenshot shows a picture |
 | Relaunch | `am update-appinfo` (the update an overlay or a wallpaper-colour change sends) relaunches the activity: the old process ends with no native signal and no GL call without a context, the system starts the game again in a new process, which renders 60 frames, has the window focus and shows a picture, and logs no `E factoria` line | not applicable |
 | Native plugin | the game has a native plugin with a Java class ([below](#native-plugins-on-android)): its script logged `probe add=3` (the sum came from the Java class through JNI) and `probe info=` with `"plugin":"example"` (`FA_SMOKE_EXPECT`) | the app links the plugin's static library ([below](#native-plugins-ios)): the same two lines in the console (`FA_IOS_PLUGIN_PROBE=1`) |
+| Apple plugin | not applicable | the game links the Apple backend plugin (Swift, StoreKit, GameKit; [below](#native-plugins-ios)): the console shows `Apple backend ready`, `probe backend=apple` and `probe unlock=notSignedIn` (a Game Center call answered by the Swift code; `FA_IOS_APPLE_PROBE=1`, script `tools/cli/tests/apple_probe.js`) |
 
 The lines the scripts wait for are part of the player: `player: 60 frames rendered` (`engine/runtime/src/runners.cpp`),
 `player: suspended`, `player: resumed`, `player: 60 frames rendered after resume` (same file), `audio: output device open`
@@ -365,8 +366,39 @@ Direct use of the engine checkout: add `-DFA_GAME_PLUGINS=example -DFA_GAME_PLUG
 device build needs `iphoneos/`). CI does this with the example plugin (the `ios` job runs `scripts/ios-smoke.sh` with
 `FA_IOS_PLUGIN_PROBE=1`).
 
-Not supported yet: Swift packages, XCFrameworks, and plugins that need more than their own `.a` (the app links only the
-frameworks listed in `platforms/ios/prebuilt/CMakeLists.txt`).
+**The plugin manifest, `ios/plugin.json`.** A static library cannot say which system frameworks it uses, whether it is
+written in Swift, or which capabilities the signed app needs. The plugin says so in `ios/plugin.json` (optional; a plugin
+without one needs nothing):
+
+```json
+{
+  "frameworks": ["StoreKit", "GameKit"],
+  "swift": true,
+  "entitlements": {
+    "com.apple.developer.game-center": true,
+    "com.apple.developer.ubiquity-kvstore-identifier": "$(TeamIdentifierPrefix)$(CFBundleIdentifier)"
+  }
+}
+```
+
+| Key | Meaning | What the export does |
+|---|---|---|
+| `frameworks` | System frameworks the plugin's code uses, by name (`"StoreKit"`, no `.framework`). | `build_ios.sh` passes `-DFA_GAME_PLUGIN_FRAMEWORKS=StoreKit;GameKit`; `platforms/ios/plugins.cmake` links each into the app. |
+| `swift` | `true`: the plugin is written in Swift. | `-DFA_GAME_PLUGIN_SWIFT=ON`: the app gets what Xcode adds to a target with Swift code: the toolchain's Swift library folder for the SDK (the back-deployment libraries a Swift static library asks for) and the run path to the OS's Swift runtime, `/usr/lib/swift`. |
+| `entitlements` | Capabilities of the signed app: a key to a boolean, number, string or list of strings. `$(TeamIdentifierPrefix)` and `$(CFBundleIdentifier)` are Xcode's build settings. | The entitlements of all plugins are merged into `factoria_player.entitlements` next to `build_ios.sh` (`-DFA_GAME_ENTITLEMENTS=...`, which the project's `CODE_SIGN_ENTITLEMENTS` points to), so Xcode's automatic signing turns the capabilities on for the App ID. Two plugins that ask for the same entitlement with different values fail the export, naming both. |
+
+A manifest with a mistake (an unknown key, a wrong type) fails the export with the file, the JSON pointer and a "did you
+mean". The Apple plugin ([PLATFORM.md](PLATFORM.md#6-apple-storekit-2-game-center-and-icloud)) is the example of all
+three keys: Swift code built with `xcrun swiftc`, StoreKit and GameKit, Game Center and iCloud entitlements. When a linked
+plugin brings StoreKit and the catalog has `platform.products`, the export also writes `Products.storekit` (a StoreKit
+configuration made from the catalog) and `build_ios.sh` references it from the Xcode scheme (`storekit_scheme.cmake`, run
+after CMake generates the project): running the project from Xcode sells the products without App Store Connect.
+`./build_ios.sh --run` launches with `simctl`, which does not use it.
+
+A plugin written in Swift builds with the Xcode toolchain (`xcrun swiftc`; the Apple plugin's `CMakeLists.txt` is the
+example): one static library per SDK, and an entry point defined with `@_cdecl` that a small C file
+(`fa_plugin_init_<name>`) calls. Not supported yet: Swift packages, XCFrameworks and third-party frameworks that are not
+part of the iOS SDK (the manifest names system frameworks only).
 
 App Store: archive from Xcode (Product > Archive) with a distribution
 certificate and provisioning profile. The icon comes from the game's `icon` (without one the app has the default

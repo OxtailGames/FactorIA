@@ -3,7 +3,7 @@
 One script API, `platform`, for what a store gives a game: **achievements**, **stats**, **leaderboards**, **cloud
 saves**, **in-app purchases**, the store **overlay** and **rich presence**. A game is written once against it; a backend
 decides what answers: the **fake** store (development and every test), **none** (an exported game that has no store
-plugin), or a store SDK that a native plugin wraps (Steam, Apple: later M12 packages).
+plugin), or a store SDK that a native plugin wraps (Steam: [below](#steam-steamworks); Apple: a later M12 package).
 
 ```js
 import { platform } from "factoria";
@@ -195,8 +195,195 @@ that did not load falls back as above and logs why. `factoria call platform.stat
 |---|---|
 | `fake` | Done. Development and tests. |
 | `none` | Done. Exported games without a store plugin. |
-| Steam (Steamworks) | Coming in the next M12 packages. |
-| Apple (StoreKit 2 and Game Center) | Coming in the next M12 packages. |
+| Steam (Steamworks) | Done: the `steam` plugin, [below](#steam-steamworks). |
+| Apple (StoreKit 2, Game Center, iCloud) | Done: iOS and macOS, `platform.add_backend {"backend": "apple"}`, [section 6](#6-apple-storekit-2-game-center-and-icloud). |
+
+### Store backends: one command sets them up
+
+`factoria call platform.add_backend '{"backend": "steam"}'` (or `"apple"`) does the setup of a store backend in one call:
+it writes the backend's plugin from its template (`project.new_plugin` with `"template": "<backend>"`) unless
+factoria.json already declares it, builds it for this computer with CMake (the CMake `setup` installs when there is
+none), and adds what that store needs. Running it again keeps what is there. Its result lists what it did (`done`) and
+what only a person can do (`nextSteps`: store dashboards, accounts). Each backend's section says what it adds and which
+arguments it reads.
+
+### Steam (Steamworks)
+
+The `steam` plugin (`platforms/plugins/steam` in the engine, the `"steam"` template of `project.new_plugin`) answers the
+game's `platform.*` calls with Valve's Steamworks API: achievements, stats, leaderboards, Steam Cloud, DLC purchases, the
+overlay and rich presence. It holds **no Valve code or header**: it loads Valve's redistributable library at run time and
+calls its flat C API.
+
+**Set it up** with one call, then `factoria run`:
+
+```bash
+factoria call platform.add_backend '{"backend": "steam", "sdk": "~/Downloads/steamworks_sdk_162.zip"}'
+```
+
+It writes `plugins/steam/` from the template and declares it for Windows, macOS and Linux, builds it with CMake for this
+computer, copies Valve's three libraries from the SDK next to it, and writes `steam_appid.txt` (see below). Running it
+again keeps what is there. The Steamworks SDK is a download from Valve (partner.steamgames.com/downloads/list, a free
+Steamworks account); its license does not let FactorIA ship its files, so you supply them.
+
+| Argument | Meaning |
+|---|---|
+| `sdk` | The SDK as a folder or its `steamworks_sdk_*.zip` (relative paths start in the project folder, `~/` works). Without it the build is made and the libraries are a `nextSteps` item. |
+| `appId` | Your game's Steam app id for `steam_appid.txt`. Without it an existing file is kept, else it gets **480**, Valve's test app. |
+
+By hand (what `plugins/steam/README.md` describes): `project.new_plugin {"name": "steam", "template": "steam"}`, build the plugin,
+copy the library of each platform next to the plugin's, write `steam_appid.txt`.
+
+| Platform | Plugin (built for it) | Valve's library, in the same folder |
+|---|---|---|
+| Windows | `windows/steam.dll` | `steam_api64.dll` (SDK: `redistributable_bin/win64/`) |
+| macOS | `macos/libsteam.dylib` | `libsteam_api.dylib` (`redistributable_bin/osx/`) |
+| Linux | `linux/libsteam.so` | `libsteam_api.so` (`redistributable_bin/linux64/`) |
+
+The plugin was checked against the flat API of **Steamworks SDK 1.58 to 1.64**. It calls the flat functions by name (they do
+not change with the interface versions) and finds the interfaces by their versioned accessors (`SteamAPI_SteamUtils_v010`...):
+the versions of those SDKs first, then the five versions above the newest it knows. **A newer SDK is used, with one warning**
+that names the interfaces newer than the plugin was checked against (and `steam.status` lists them as `newerInterfaces`), as
+long as every function the plugin calls is present. That covers **SDK 1.65** (July 2026): it changed ISteamUtils
+(`IsRunningOnSteamDeck` gave way to `IsRunningOnSteamHardware`; the plugin calls neither), so its library is expected to
+export a newer accessor than 1.64's. Only a library with a function the plugin needs missing (a later SDK renamed or removed it), or with interface
+versions more than five above the known ones, or from an SDK older than 1.58, is refused, with a message that lists what was
+tried. If a newer SDK misbehaves, put the redistributable of SDK 1.64 next to the plugin, or update the plugin. (The tests use
+a mock of Steam's library with a newer accessor for each interface; none ran against a real 1.65 library.) Only the 64-bit
+libraries are used. The export copies the plugin's whole folder for the platform, so Valve's library ships next to it.
+
+**steam_appid.txt.** In development Steam learns which game this is from a `steam_appid.txt` (a number) in the project
+folder. `add_backend` writes **480** (Spacewar, Valve's test app: any Steam account can run it, and it has achievements,
+stats and a leaderboard to try). For your own game put its app id there and sign in to an account that owns it. The
+plugin hands the number to Steam; **`factoria export` never copies `steam_appid.txt`**, because a game started from the
+Steam client gets its app id from Steam, and a shipped file would make it run as the wrong game. (A shipped game that is
+started outside Steam cannot start Steam and runs without platform services.)
+
+**Starting.** When the plugin loads it opens the library, starts Steam (`SteamAPI_InitFlat`, `SteamAPI_Init` on an older
+library), and takes over Steam's callbacks (manual dispatch: it calls Steam once per engine frame itself, never
+`SteamAPI_RunCallbacks`). `SteamAPI_Shutdown` runs when the process ends (not on Windows, where the DLL's exit handlers run
+after Steam's own DLL is gone; Steam notices the process ending, and stats are stored every frame anyway). When Steam
+cannot start (it is not running, there is no app id, the library is missing or from another SDK) the plugin **logs why, with
+what to do**, and the game falls back: the fake backend in a development run, **none** in an exported game.
+`factoria call platform.state` shows the backend and `why`; `factoria call steam.status` shows what the plugin found (app id and
+where it came from, player, library and interface versions, overlay, Cloud).
+
+Every engine that loads the plugin starts Steam, because a plugin cannot know which backend the engine will pick: that includes
+`factoria test`, `factoria call` and the MCP server on a game that declares it. They still answer `platform.*` with the fake
+store and never touch Steam's data, but a running Steam client shows you as playing the game, and a computer without Steam
+(CI) logs the warning above (only a log line: the run goes on with the fake store).
+
+**Catalog ids** (`ids.steam` of each entry in `factoria.json`, section 1):
+
+| Catalog | `ids.steam` is | Without it |
+|---|---|---|
+| achievements | the achievement's **API Name** (Steamworks partner site, App Admin > Stats & Achievements), e.g. `ACH_WIN_ONE_GAME` | the catalog `id` |
+| stats | the stat's **API Name**; its type there (int or float) must be the catalog's `type` | the catalog `id` |
+| leaderboards | the leaderboard's name; created on first use with the catalog's `order` when it does not exist | the catalog `id` |
+| products | the **app id of the DLC** (the number in its store page's URL) | not a DLC: the product is left out and a warning says how to fix it |
+
+**What each call does on Steam**
+
+| Call | On Steam |
+|---|---|
+| `signIn()` | `{ id: SteamID, name: persona name, signedIn: whether Steam is online }`. |
+| `achievements.unlock(id)` | `SetAchievement` then `StoreStats`; `newly` is false when Steam had it. |
+| `achievements.progress(id, f)` | At `1` unlocks. Below it shows Steam's "n of 100" notice (`IndicateAchievementProgress`); Steam keeps real progress in the stat behind the achievement, so set that stat too. |
+| `achievements.list()` | `GetAchievement` for each catalog entry (one Steam does not have shows locked, with a warning). `progress` is 0 or 1. |
+| `achievements.reset()` | `ResetAllStats` including achievements: development only. |
+| `stats.get / set` | Int and float stats. A set is stored by the next frame (several sets in a frame are one `StoreStats`; Steam limits how often it may be called). Int stats are 32-bit. |
+| `leaderboards.submit(id, score)` | Uploads keeping the player's best; `best` is what Steam kept. Scores are 32-bit. |
+| `leaderboards.entries(id, {range, count})` | `top`: ranks 1 to `count`. `around`: the player in the middle. `friends`: the player and friends (Steam gives them all; at most `count` are returned). Names are Steam persona names. |
+| `cloud.save / load / list / remove` | Steam Cloud files named `<key>.json`. Needs Cloud enabled for the app (partner site, App Admin > Cloud) and for the account; otherwise `unavailable`, saying which. A file is up to 100 MB; the app's quota applies. |
+| `purchases.products(ids?)` | Steam's DLC list for the app, by the products' `ids.steam`: `title` is the DLC's name; `price` is `""` (Steam gives a DLC's price on its store page, not here), `priceValue` null. |
+| `purchases.buy(id)` | Owned already: `purchased` with the transaction `dlc-<appid>`. Not owned: the overlay opens the DLC in a cart and the answer is `pending`; when the player owns it, a `purchase` event follows. A consumable or a subscription is `unavailable` (below). |
+| `purchases.restore()` | The non-consumable products whose DLC the player owns. |
+| `purchases.finish(txn)` | Nothing to do on Steam: resolves. |
+| `overlay.open(page, id?)` | `achievements` and `friends`: that overlay page. `store`: the DLC's store page for a product, else the game's own. `leaderboards`: the game's leaderboards page on Steam Community (Steam has no overlay page for them). `unavailable` when Steam says the overlay is off. |
+| `presence.set(text, data?)` | Rich presence: `text` is the key `status`, each `data` key is sent as it is (`connect`, `steam_display`...), and what was shown before is replaced. Steam allows 30 keys of 64 bytes with values of 256. |
+
+**Events**: `overlay` (`{open}`, Steam's `GameOverlayActivated`), `purchase` (a DLC the player got, from the overlay or another
+computer: Steam's `DlcInstalled`), `player` (Steam went online or offline).
+
+**DLC, not microtransactions.** Steam sells a game's extras as **DLC**, which is what `nonConsumable` products map to. Steam's
+other mechanism, microtransactions (`ISteamMicroTxn`), needs your own server calling Valve's web API and cannot start
+from the client, so **consumables and subscriptions are `unavailable` on Steam**, with a message that says so. Sell a
+consumable as a DLC that grants it once, or keep the shop on the stores that have it. (Steam Inventory, Steam's service for
+items, is not wrapped either.)
+
+**Limits worth knowing.** Stat and achievement changes reach Steam when stored (every frame that set one, and at exit on macOS and
+Linux); an offline player's are kept by Steam and sent later. There is no `achievements.onUnlocked` event. A Steam Cloud
+file holds the JSON text of one key. Steam Input, workshop, networking, and inventory are not wrapped.
+
+**Steam Deck.** The Deck is a Linux machine with the controller as a gamepad (the engine names its buttons like an Xbox pad).
+Today the release `factoria_player` for Linux needs glibc 2.38 and does not start in the Steam Linux Runtime "sniper" (glibc
+2.31; M13 in feedback/ROADMAP.md), so a Deck release waits for that, or ships the Windows build through Proton. **The Deck's
+on-screen keyboard for a `TextField` is not wired:** Steam's `ShowGamepadTextInput` and `ShowFloatingGamepadTextInput` would
+have to be called when a text field takes focus, and the plugin API has no hook for that (M12 "Left open" in
+feedback/ROADMAP.md). Until then players type with the keyboard Steam opens by itself (Steam button + X).
+
+**Troubleshooting.** The plugin's messages say what to do; the usual ones:
+
+| The log says | Do |
+|---|---|
+| `The Steamworks library ... was not found` | Copy Valve's library next to the plugin (`add_backend` with `sdk` does it). |
+| `Steam is not running, or the game has no app id` | Start the Steam client and sign in; check `steam_appid.txt` is in the project folder and holds a number. |
+| `The Steam client is older than the Steamworks library` | Update Steam (Steam menu > Check for Steam Client Updates), or use an older SDK's library. |
+| `has none of the interface accessors this plugin can use` | The library is from an SDK older than 1.58, or one that changed the interfaces by more than five versions: the message lists what was tried; use an SDK between 1.58 and 1.64, or update the plugin. |
+| `... newer than the SDKs this plugin was checked against` | A warning, not an error: the library is from a newer SDK (1.65 or later) and the plugin uses it. If a call misbehaves, use the SDK 1.64 library, or update the plugin. |
+| `does not export SteamAPI_...` | A function the plugin calls is not in the library: a later SDK renamed or removed it. Use the SDK 1.64 library, or update the plugin. |
+| `The Steamworks library ... cannot be loaded` | It is not the 64-bit library of this OS (or it is damaged). On macOS a library that came through a browser may be quarantined: `xattr -d com.apple.quarantine <file>`. |
+| `Steam Cloud is not enabled for app N` | Enable it in the partner site (App Admin > Cloud) and publish; for 480 it may simply be off. |
+| `The Steam overlay is not available` | In Steam: Settings > In Game > Enable the Steam Overlay. It loads a few seconds after start and needs the game to draw with a graphics API Steam hooks. |
+
+**Manual check with Valve's test app 480.** The tests of the plugin run against a mock of Steam's library (`ctest`:
+`steam_plugin_*`); this is the check against the real Steam, which needs a Steam client and a free account. Do it on each
+desktop OS you ship.
+
+1. Install Steam, sign in, leave it running. (The Deck: switch to Desktop Mode, or run it from a terminal with Steam open.)
+2. `factoria new steamcheck && cd steamcheck`, then download the Steamworks SDK zip and run
+   `factoria call platform.add_backend '{"backend": "steam", "sdk": "<the zip>"}'`. `steam_appid.txt` now holds `480`.
+3. In `factoria.json` add the catalog (Spacewar's names):
+   ```json
+   "platform": {
+     "achievements": [{ "id": "first_win", "name": "First win", "ids": { "steam": "ACH_WIN_ONE_GAME" } }],
+     "stats": [{ "id": "wins", "type": "int", "ids": { "steam": "NumWins" } }, { "id": "feet", "type": "float", "ids": { "steam": "FeetTraveled" } }],
+     "leaderboards": [{ "id": "feet_board", "name": "Feet", "ids": { "steam": "Feet Traveled" } }],
+     "backend": "steam"
+   }
+   ```
+4. `factoria call steam.status`: it prints `"appId": 480`, `"appIdFrom": "steam_appid.txt in ..."`, your Steam name, and
+   `"statsLoaded": true`. (If it fails, the log says why, see Troubleshooting.)
+5. Add `scripts/check.js` and an entity with `"Script": { "path": "scripts/check.js" }` to `scenes/main.scene.json`:
+   ```js
+   import { Behaviour, platform } from "factoria";
+   export default class Check extends Behaviour {
+     async onStart() {
+       console.log("backend", platform.backend);                                       // steam
+       console.log("player", JSON.stringify(await platform.signIn()));
+       console.log("unlock", JSON.stringify(await platform.achievements.unlock("first_win")));
+       console.log("wins", await platform.stats.add("wins", 1));
+       console.log("board", JSON.stringify(await platform.leaderboards.submit("feet_board", 1000)));
+       console.log("top", JSON.stringify(await platform.leaderboards.entries("feet_board", { count: 3 })));
+       console.log("save", JSON.stringify(await platform.cloud.save("check", { n: 1 })));
+       await platform.presence.set("Checking Steam", { score: "1" });
+     }
+   }
+   ```
+6. `factoria run`. In the log: `steam: Steam is ready: app 480`, `backend steam`, your player, `unlock {"id":"first_win","unlocked":true,"newly":true}`
+   (`newly` is false on a second run: reset it with `platform.achievements.reset()`), `wins` one higher each run, your score in
+   `board`. A `cloud.save` may answer `unavailable` for app 480 if Valve has Cloud off for it; that message is the correct answer.
+7. Open Steam's overlay in the game window (Shift+Tab): with the window focused it must open, and the game receives the
+   `overlay` event. Call `platform.overlay.open("achievements")` from the script: it opens the overlay's achievements page.
+   (The engine draws with Direct3D 11 on Windows, Metal on macOS and OpenGL on Linux: note in ENGINE_FEEDBACK.json on which of
+   them the overlay does not appear.)
+8. In Steam, your friends list shows "Checking Steam" under your name while the game runs.
+9. In Steam's own page for the achievement (Library > Spacewar > Achievements, or `steamcommunity.com/stats/480/achievements`),
+   "Win a game" shows unlocked.
+10. Export: `factoria export --platform <this OS>`; the exported folder holds the plugin and Valve's library, **no**
+    `steam_appid.txt`. Start the exported game from a terminal with Steam running: without an app id Steam refuses to start
+    it, the log says so, and the game runs with no platform services (`platform.backend` is `none`). For the final check, a
+    game started by the Steam client gets its app id from Steam: upload a build to your own app with SteamPipe (app 480 takes no
+    uploads) and start it from the Steam library.
 
 ## 5. Writing a backend plugin
 
@@ -272,3 +459,136 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 The C++ side is `fa/services/platform.h` (`PlatformBackend`, `PlatformServices`, `platform_methods()` with this table)
 and `fa/runtime/platform_backend.h` (the plugin adapter and the choice of backend). The fake backend
 (`fa/services/fake_platform.h`) is the reference implementation of every row.
+
+## 6. Apple: StoreKit 2, Game Center and iCloud
+
+The backend `"apple"` is a Swift plugin (`platforms/plugins/apple`, written into the game by `platform.add_backend`) for **iOS
+16.3+ and macOS 12+**. It answers `platform` with:
+
+| Service | Apple's API | Notes |
+|---|---|---|
+| `purchases` | StoreKit 2 | consumables, non-consumables and subscriptions; Ask to Buy; refunds. |
+| `achievements`, `leaderboards` | Game Center | the sign-in sheet, the banners, global / around the player / friends boards. |
+| `overlay` | Game Center | `"achievements"`, `"leaderboards"` and `"friends"` through the Game Center access point. `"store"` is `unavailable`: `purchases.buy` shows the purchase sheet. |
+| `cloudSave` | iCloud key-value store | 1 MB and 1024 keys for the whole game. |
+
+Game Center has no stats and no presence: `platform.has("stats")` and `platform.has("presence")` are false and the engine
+answers those calls `unavailable`. Keep the numbers you need in `cloud.save` or on a leaderboard.
+
+### Setup, in one command
+
+On a Mac with Xcode:
+
+```bash
+factoria call platform.add_backend '{"backend": "apple"}'
+```
+
+It writes the plugin to `plugins/apple` from its template and declares it for iOS and macOS in factoria.json (unless it is
+declared already), then builds its three libraries with the Xcode toolchain (`xcrun swiftc`, driven by CMake):
+`macos/libapple.dylib`, `ios/iphoneos/libapple.a` and `ios/iphonesimulator/libapple.a`. Arguments: `appleSlices` (any of
+`"macos"`, `"iphoneos"`, `"iphonesimulator"`; default all three) and `appleBuild: false` (only write and declare, to build
+later on a Mac). A computer that is not a Mac cannot build Swift against StoreKit: the command says so and offers
+`appleBuild: false`. Its `nextSteps` list what only a person can do, with the ids of your catalog filled in:
+
+1. **Apple Developer portal**: the App ID of `factoria.json`'s `id` needs the capabilities **Game Center**, **In-App
+   Purchase** and **iCloud** (key-value storage only, no iCloud Drive or CloudKit).
+2. **App Store Connect**: add the app with that bundle id, accept the **Paid Apps Agreement**, turn **Game Center** on, and
+   create the products, achievements and leaderboards. Each gets **exactly** the id of the catalog (`ids.apple`, else `id`).
+3. A **sandbox tester** (Users and Access > Sandbox), signed in under Settings > Developer > Sandbox Apple Account.
+
+Then export with `factoria export --platform ios` (or `macos`). The exports read the plugin's `plugin.json` (frameworks,
+the Swift runtime, entitlements: [MOBILE.md](MOBILE.md#native-plugins-ios), [EXTENDING.md](EXTENDING.md#g2-the-declaration)).
+**iOS**: the Xcode project links StoreKit, GameKit and the Swift runtime and is signed with the entitlements
+(`factoria_player.entitlements`; set `export.ios.teamId` or `FA_IOS_DEVELOPMENT_TEAM` so Xcode can sign for a device).
+**macOS**: Game Center and iCloud are *restricted* entitlements, which macOS only honours in an app signed with your Apple
+Developer certificate and a provisioning profile. The export is signed ad hoc, so it runs, and those services answer
+`unavailable` with a hint; the export also writes `<game>.entitlements` and lists the `codesign` command that turns them on
+(`nextSteps`). An ad hoc app also gets no answers from the App Store: try purchases from Xcode (below) or after that signing step.
+
+### What each call does
+
+| Call | On Apple |
+|---|---|
+| `platform.signIn()` | Starts Game Center's authentication: a sheet the first time, a welcome banner after. Resolves `{ id, name, signedIn }` (`id` is the `gamePlayerID`, stable for this game). A player who is not signed in gets `notSignedIn` with a hint (sign in under Settings > Game Center). With no sheet and no answer it ends after 20 s; a sheet on screen waits for the player. |
+| `achievements.unlock(id)`, `.progress(id, fraction)` | Reports to Game Center (`newly` is false when it was unlocked already). An id that App Store Connect does not have is `unknownId`, listing the ids it has. |
+| `achievements.list()` | The catalog's achievements with what the player reached. |
+| `achievements.reset()` | Resets *every* achievement of the player (development). |
+| `leaderboards.submit(id, score)`, `.entries(id, {range, count})` | The all-time board. `range`: `"top"`, `"around"` (empty until the player has a score) or `"friends"`. `best` is the player's best including this score. |
+| `cloud.save/load/list/remove` | One iCloud key-value key per cloud key; the value is stored as JSON text. Over 1 MB or 1024 keys: `failed`. No iCloud account or no entitlement: `unavailable`. Syncing between devices is iCloud's (seconds to minutes); `load` reads what this device has. |
+| `purchases.products(ids?)` | The product's `displayName`, `description`, `displayPrice` (the player's storefront), price value, currency and type. A product the store does not know is left out, with a warning in the log that says how to create it. |
+| `purchases.buy(id)` | Shows the purchase sheet. `purchased` (with `transactionId` and the JWS `receipt`), `cancelled`, or `pending` (Ask to Buy). `notAllowed` when Screen Time forbids purchases. The call waits as long as the player takes with the sheet, but gives up after 30 s when the App Store never shows it. |
+| `purchases.finish(transactionId)` | `Transaction.finish()`. The id must come from a `buy()` result, a `purchase` event or a `restore()` entry of this run. |
+| `purchases.restore()` | Syncs with the App Store (it may ask for the Apple Account password) and returns the verified entitlements: non-consumables and active subscriptions. |
+| `overlay.open(page, id?)` | Opens the Game Center dashboard on the page (an `id` goes straight to that achievement or leaderboard on iOS 18 / macOS 15). Needs a signed-in player. |
+
+**Events.** `purchase` for a transaction that did not come from `buy()`: an Ask to Buy approval, a purchase made on another
+device, a subscription renewal, or a purchase the last run did not finish. Those arrive right after the game starts, before a
+script could listen, so the engine keeps the ones nobody listens for (up to 100) and hands them to the first
+`platform.on("purchase", ...)`: register it in `onStart`, grant, then `finish`. `overlay` `{open}` when the Game Center
+dashboard opens and closes. `player` when the Game Center sign-in changes (also when the player signs out in Settings while
+the game runs).
+
+**Refunds, expired subscriptions and unverified transactions.** A revoked (refunded) or expired transaction is finished and
+never delivered. A transaction whose signature does not verify on the device is *not* delivered and not finished (the log
+says so): a modified device or a missing StoreKit test certificate, never a purchase to grant.
+
+### Receipts are JWS documents
+
+The `receipt` of a purchase is the transaction as a **JWS** (the compact text `header.payload.signature`), signed by Apple.
+The device has verified it (StoreKit 2 delivers only verified transactions to the game). A game with real money at stake
+(server-side goods, an online economy) must verify it again **on its server** before granting: check the signature against
+the certificate chain in the header (`x5c`, ending at Apple's root CA), then read `productId`, `transactionId`,
+`originalTransactionId`, `bundleId` and `environment` (`"Sandbox"`, `"Xcode"` or `"Production"`) from the payload. Apple's
+App Store Server Library (Swift, Java, Node and Python) does the verification, and the App Store Server API looks a
+transaction up by its `transactionId` and sends refund notifications. A single-player game that trusts the device can ignore
+the receipt.
+
+### Testing purchases without App Store Connect
+
+`factoria export --platform ios` writes **`Products.storekit`** next to the Xcode project when the catalog has products: a
+StoreKit configuration file made from `platform.products` (consumables and non-consumables as such; a subscription as a
+monthly auto-renewable product in one subscription group; the prices and titles of the catalog; ids = `ids.apple`, else
+`id`). `build_ios.sh` wires it into the project's scheme, so **running the project from Xcode** sells exactly those products,
+with no App Store Connect, sandbox account, network or provisioning, and `Debug > StoreKit > Manage Transactions` approves or
+fails purchases and simulates Ask to Buy, refunds and renewals. If the scheme shows "StoreKit Configuration: None", pick the
+file under Product > Scheme > Edit Scheme > Run > Options. The file is rewritten at every export: edit the catalog, not the
+file. Launching the app any other way (`build_ios.sh --run`, `simctl launch`, the home screen of a device) does not use it;
+products then come from the App Store (sandbox for development-signed builds, TestFlight for TestFlight builds). Game Center
+has no such file: a sign-in needs a real or sandbox Apple Account (on the simulator: Settings > Game Center).
+
+### When something does not work: `apple.status`
+
+The plugin registers the command **`apple.status`** (from a script: `fa.call("apple.status", {})`): whether a Game Center
+player is signed in, whether this device may make payments, whether iCloud is signed in and, on macOS, whether the app
+carries the entitlements, with a `problems` list of sentences that say what to fix. When StoreKit or Game Center cannot talk to
+Apple at all (an app that is not signed with a development team, or run outside Xcode without a StoreKit file), the calls
+reject `unavailable` with a hint that points here.
+
+| Situation | What the game gets |
+|---|---|
+| Not signed in to Game Center | `notSignedIn` ("Sign in under Settings > Game Center..."). |
+| Achievement or leaderboard missing in App Store Connect | `unknownId`, with the ids that exist. |
+| Product missing in App Store Connect | `unknownId` from `buy`; `products()` leaves it out and logs the steps (Paid Apps Agreement, product id). |
+| Purchases restricted by Screen Time | `notAllowed`. |
+| No answer from Apple in 30 s (restore: 120 s) | `network`. |
+| iCloud signed out, or the entitlement missing | `unavailable` (cloud saves), naming the entitlement. |
+| Apple's servers cannot be reached | `network`. |
+
+### Manual checks
+
+These need App Store Connect, a development-signed build and a sandbox account, so no automated test runs them. The tests
+cover what needs none of that: the plugin registers in a real engine and answers every request once, in time, with a
+teaching error; the exports write the frameworks, entitlements and `Products.storekit`; the iOS Simulator job builds and
+launches an app with the plugin linked. Before a release, on a device with a sandbox account:
+
+1. `platform.signIn()` shows the sheet once; `platform.player` and the `player` event follow it; `platform.backend` is `"apple"`.
+2. An achievement unlocks (banner on screen), a half-way `progress` is kept, `list()` shows both, `reset()` clears them.
+3. A score reaches the board (`submit`), and `entries` returns it for `"top"`, `"around"` and `"friends"`.
+4. `overlay.open` opens the dashboard for each page, with `overlay` events at open and close.
+5. A consumable: `buy`, grant, `finish`, buy again. A non-consumable: `buy`, then `restore()` on a second device or after
+   reinstalling. A subscription: `buy`, then `restore()`. Ask to Buy: `pending`, then the approval arrives as a `purchase`
+   event.
+6. Kill the app after a `buy` and before `finish`: the next run delivers the purchase as a `purchase` event.
+7. `cloud.save` on one device, `cloud.load` on another with the same iCloud account.
+
+Record what a real check finds in `ENGINE_FEEDBACK.json`.
