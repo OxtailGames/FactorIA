@@ -808,9 +808,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                   else if (ext == ".js") type = "script";
                   else if (ends_with(f, ".scene.json")) type = "scene";
                   else if (ends_with(f, ".prefab.json")) type = "prefab";
-                  std::error_code ec;
-                  auto sz = std::filesystem::file_size(fs::resolve(f), ec);
-                  list.push_back(Json::object({{"path", f}, {"type", type}, {"size", ec ? 0 : std::uint64_t(sz)}}));
+                  const auto sz = fs::file_size(f);
+                  list.push_back(Json::object({{"path", f}, {"type", type}, {"size", sz < 0 ? std::uint64_t(0) : std::uint64_t(sz)}}));
               }
               return Json::object({{"folder", folder}, {"count", list.size()}, {"files", list}});
           });

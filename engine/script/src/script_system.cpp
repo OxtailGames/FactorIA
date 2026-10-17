@@ -9,6 +9,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/components.h"
+#include "fa/script/bytecode.h"
 #include "script_internal.h"
 
 namespace fa {
@@ -477,7 +478,41 @@ JSModuleDef* ScriptSystem::Impl::load_module(const char* cname) {
         moduleMtime[file] = fs::modified_time(file);
         return jm;
     }
-    JSValue func = JS_Eval(ctx, text->c_str(), text->size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    JSValue func;
+    if (is_script_bytecode(*text)) {
+        // A script a `--release` export compiled (fa/script/bytecode.h): same module, no parsing. Whatever is wrong with it
+        // (another FactorIA or QuickJS version, a damaged file) is a teaching error, never a crash.
+        auto fail = [&](const std::string& why, const std::string& hint) -> JSModuleDef* {
+            // JS_ThrowReferenceError formats into a 256 byte buffer, which would cut the hint, the part that matters: set the
+            // message of the error whole.
+            JS_ThrowReferenceError(ctx, "Cannot load module '%s'", file.c_str());
+            JSValue exc = JS_GetException(ctx);
+            const std::string message = why + " (hint: " + hint + ")";
+            JS_DefinePropertyValueStr(ctx, exc, "message", JS_NewString(ctx, message.c_str()), JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE);
+            JS_Throw(ctx, exc);
+            return nullptr;
+        };
+        auto payload = script_bytecode_payload(*text, file);
+        if (!payload.ok()) return fail(payload.error().message, payload.error().hint);
+        func = JS_ReadObject(ctx, reinterpret_cast<const uint8_t*>(payload->data()), payload->size(), JS_READ_OBJ_BYTECODE);
+        if (JS_IsException(func)) {
+            JSValue exc = JS_GetException(ctx);
+            const char* what = JS_ToCString(ctx, exc);
+            std::string why = what ? what : "unreadable";
+            if (what) JS_FreeCString(ctx, what);
+            JS_FreeValue(ctx, exc);
+            return fail("Cannot load module '" + file + "': its compiled code cannot be read (" + why +
+                            "); it is damaged or was compiled by another QuickJS",
+                        "Export the game again with this FactorIA version (`factoria export --release`).");
+        }
+        if (JS_VALUE_GET_TAG(func) != JS_TAG_MODULE) {
+            JS_FreeValue(ctx, func);
+            return fail("Cannot load module '" + file + "': it is compiled code but not a module",
+                        "Export the game again with this FactorIA version.");
+        }
+    } else {
+        func = JS_Eval(ctx, text->c_str(), text->size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    }
     if (JS_IsException(func)) return nullptr;
     auto* m = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(func));
     JS_FreeValue(ctx, func);
