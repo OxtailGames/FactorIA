@@ -3,8 +3,8 @@
 # Builds the Linux release the way the release packages are built: inside the Steam Runtime "sniper" SDK container
 # (glibc 2.31, GCC 14, CMake 3.25), with libstdc++ and libgcc linked statically, so the programs run on the Steam Linux
 # Runtime "sniper" (what Steam runs Linux games in, also on the Steam Deck), Ubuntu 20.04 and newer, Debian 11 and newer.
-# It needs Docker or Podman, found in that order (the image is about 1.2 GB); on Linux only. CI runs the same script (.github/workflows/ci.yml
-# job `Linux (Steam Runtime sniper)`, and the `linux-x64` package of release.yml).
+# It needs Docker or Podman, found in that order (the image is about 1.2 GB); on Linux only. CI runs the same script
+# (the job `Linux (Steam Runtime sniper)` of .github/workflows/ci.yml, and the `linux-x64` package of release.yml).
 #
 #   ./scripts/build-sniper.sh [build|check|smoke|all] [-- <cmake configure arguments>]
 #
@@ -186,7 +186,7 @@ run_step() {
         args+=(-v "$cache:/ccache" -e CCACHE_DIR=/ccache -e CCACHE_BASEDIR=/src -e CCACHE_NOHASHDIR=1)
     fi
     echo "==> $engine run $image: $*"
-    "$engine" "${args[@]}" "$image" /src/scripts/build-sniper.sh "$@"
+    "$engine" "${args[@]}" "$image" bash /src/scripts/build-sniper.sh "$@"
 }
 
 # ---- main --------------------------------------------------------------------------------------------------------------

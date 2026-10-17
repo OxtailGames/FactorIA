@@ -142,20 +142,23 @@ if ($Preset -like 'windows-ninja*') {
 # ---- path length ------------------------------------------------------------
 
 # Many Windows tools (MSBuild's file tracker, cl.exe, rc.exe) stop at MAX_PATH, 259 characters. A Visual Studio build writes
-# files as deep as build\windows-debug\engine\render\fa_render.dir\Debug\fa_render.tlog\... below the checkout: the deepest
-# path a build of the windows presets creates measures $deepestBuildPath characters (relative to the repository root, with
-# the folder separator). Only warns: the build may work (for example with long paths enabled).
-$deepestBuildPath = 190
+# files as deep as build\windows-debug\platforms\plugins\steam\tests\fa_steam_mock_current.dir\Debug\fa_steam.B4D08805.tlog\fa_steam_mock_current.lastbuildstate
+# below the checkout: 141 characters below the repository root in Debug, 143 in
+# Release (measured on the windows presets; the deepest tracked source file is 90), plus the folder separator and some
+# room for a longer name. Only warns: the build may work (for example with long paths enabled).
+$deepestBuildPath = 145
 $maxPath = 259
 $root = (Get-Location).Path
 if ($Preset -notlike 'windows-ninja*' -and ($root.Length + $deepestBuildPath) -gt $maxPath) {
     $room = $maxPath - $deepestBuildPath
-    Write-Host ("warning: this checkout is in a deep folder ($($root.Length) characters: $root). The longest file a build " +
-        "creates adds $deepestBuildPath, so $($root.Length + $deepestBuildPath) in all, and Windows tools stop at $maxPath. " +
-        "MSBuild may fail with FTK1011 ('The specified path, file name, or both are too long') or the compiler with C1083. " +
-        "Fix: clone the repository to a short path, such as C:\src\FactorIA (the folder of the checkout must stay under $room " +
-        "characters), or turn on Windows long paths (LongPathsEnabled=1 in the registry, and git config --system " +
-        "core.longpaths true); some tools ignore it, so the short path is the sure fix.") -ForegroundColor Yellow
+    Write-Host "warning: this checkout is in a deep folder ($($root.Length) characters): $root" -ForegroundColor Yellow
+    Write-Host ("  The longest file a build creates is $deepestBuildPath characters below it, $($root.Length + $deepestBuildPath) in all; " +
+        "many Windows tools stop at $maxPath (MAX_PATH).") -ForegroundColor Yellow
+    Write-Host ("  The build may then fail already while CMake identifies the compiler ('No CMAKE_C_COMPILER could be found'), " +
+        "or MSBuild with FTK1011 ('The specified path, file name, or both are too long') or the compiler with C1083.") -ForegroundColor Yellow
+    Write-Host ("  Fix: clone the repository to a short path such as C:\src\FactorIA (the folder of the checkout up to $room characters), " +
+        "or turn on Windows long paths (LongPathsEnabled=1 in the registry and git config --system core.longpaths true);") -ForegroundColor Yellow
+    Write-Host "  some tools ignore that setting, so the short path is the sure fix." -ForegroundColor Yellow
 }
 
 # ---- configure, build, test -------------------------------------------------
