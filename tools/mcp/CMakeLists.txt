@@ -12,8 +12,7 @@ if(FA_BUILD_TESTS)
         add_executable(fa_test_mcp ${mcp_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         # fa_ai: its HTTP client and the fake CLI fixtures drive the HTTP endpoint end to end.
         target_link_libraries(fa_test_mcp PRIVATE fa_mcp fa_ai fa_ext_doctest fa_warnings)
-        target_compile_definitions(fa_test_mcp PRIVATE FA_REPO_ROOT="${FA_ROOT}"
-            FA_AI_FIXTURES="${FA_ROOT}/tools/ai/tests/fixtures")
+        target_include_directories(fa_test_mcp PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_AI_FIXTURES...
         add_test(NAME mcp COMMAND fa_test_mcp WORKING_DIRECTORY ${FA_ROOT})
     endif()
 endif()

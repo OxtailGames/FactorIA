@@ -17,8 +17,12 @@ ctest --test-dir build/dev --output-on-failure
 - Build a single module's tests: `cmake --build build/dev --target fa_test_core`.
 - GPU code without a display: headless EGL works with Mesa (llvmpipe). For
   windowed code use `xvfb-run -a -s "-screen 0 1280x720x24" <cmd>`.
-- When several agents work in the same checkout, each uses its OWN build dir
-  (`build/agent-<name>`) and builds with `-j2`.
+- Each agent uses its OWN build dir (`build/agent-<name>`) and builds with `-j8`
+  (at most three agents building at once; fewer jobs on a machine with under 16
+  hardware threads). Install ccache (docs/BUILDING.md): every checkout and git
+  worktree of the repository then shares one compile cache, so a new worktree
+  does not rebuild the engine from scratch. Run the final full `ctest` while no
+  other build runs: some tests are timing-sensitive.
 - CI: `scripts/ci-local.sh linux windows` reproduces the Linux job and a Windows build (MinGW-w64 + Wine, D3D11)
   locally; run it before pushing a CI fix. The `/ci` Claude Code mod in `.claude/mods/ci` shows the GitHub checks
   of the branch's PR (`/plugin install ci --marketplace OxtailGames/FactorIA`, or `claude --plugin-dir .claude/mods/ci`).
@@ -70,7 +74,7 @@ repository, not only the one where it was agreed:
   suite, commits and pushes.
 - **Workers — `sonnet`.** Implement features and fixes (Agent tool with
   `model: "sonnet"`). One work package per worker, each in its own git worktree
-  or its own build dir (`build/agent-<name>`, `-j2`), with tests and docs.
+  or its own build dir (`build/agent-<name>`, `-j8`), with tests and docs.
 - **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`): code searches,
   regenerating docs/typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
 
@@ -83,6 +87,9 @@ check passes and deletes its branch:
 - Start from the latest `origin/main` (`git fetch` first); merge `origin/main`
   into the branch again before opening the PR. If the task needs work whose PR
   has not merged yet, branch from that PR's branch instead.
+- Before every push, build every target (`cmake --build <dir>`, no `--target`)
+  and run the full `ctest`, not only the tests of the module you changed. CI
+  should only find what this machine cannot run (other platforms, mobile).
 - Open the PR and turn on auto-merge with a merge commit (no need to ask):
   `gh pr merge <n> --auto --merge`. If CI fails, fix it on the same branch;
   never merge red. A PR that changes `.github/workflows/release.yml` is the
