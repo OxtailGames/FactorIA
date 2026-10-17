@@ -1,6 +1,6 @@
-// Platform services: achievements, stats, leaderboards, cloud saves, purchases, the store overlay and rich presence behind
-// ONE request interface that every store backend implements (docs/PLATFORM.md). The scripts' `platform` object, the
-// `platform.*` commands and the native-plugin ABI v2 (fa_plugin.h) are all views of this module.
+// Platform services: achievements, stats, leaderboards, cloud saves, purchases, the store overlay, rich presence and
+// integrity tokens behind ONE request interface that every store backend implements (docs/PLATFORM.md). The scripts'
+// `platform` object, the `platform.*` commands and the native-plugin ABI v2 (fa_plugin.h) are all views of this module.
 //
 //   script:  platform.purchases.buy("gems_100")
 //     PlatformServices::start(method, args)    checks ids and arguments against the catalog (factoria.json "platform"),
@@ -110,8 +110,8 @@ Result<PlatformCatalog> load_platform_catalog(const Json& section);
 
 inline constexpr const char* kPlatformKey = "platform";  // the section of factoria.json
 
-// The seven services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
-// "presence". `player.signIn` belongs to none: every backend answers it.
+// The eight services a backend may offer: "achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay",
+// "presence", "integrity". `player.signIn` belongs to none: every backend answers it.
 const std::vector<std::string>& platform_services_all();
 // The events a backend sends: "purchase", "overlay", "player".
 const std::vector<std::string>& platform_events();
