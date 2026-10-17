@@ -510,8 +510,7 @@ Found while implementing M13:
 
 ## M14. Localization (L, blocker for a global release) — DONE (PRs #73, #74 and the `m14/finish` PR)
 
-Closes F-02, H-08, U-06 and the text-scaling part of U-05. This PR only made missing glyphs visible: Chinese, Japanese and
-Korean need a font the game ships, and Arabic draws left to right with unjoined letters.
+Closes F-02, H-08, U-06 and the text-scaling part of U-05.
 
 - String tables (`locales/<lang>.json`), `i18n.t(key, args)` in JS, a `key` field on Text, the system language on every
   platform, a fallback language, `i18n.setLanguage` at run time.
