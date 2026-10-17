@@ -1177,9 +1177,9 @@ never measures), and `project_validate` warns about clipped, very loud, very qui
 ### 9.24 Game menus: main menu, options, credits, loading screen, pause
 
 New projects have no menus. `factoria docs read menus` (MCP `docs_read {"name":"menus"}`) has a complete set to copy,
-which FactorIA's own tests drive with a gamepad only: a main menu, options (video, audio per bus, controls, a language
-slot), credits listing the software in `FACTORIA_NOTICES.txt`, a loading screen and a pause menu, with the settings
-saved between runs. In short:
+which FactorIA's own tests drive with a gamepad only: a main menu, options (video, audio per bus, controls, language),
+credits listing the software in `FACTORIA_NOTICES.txt`, a loading screen and a pause menu, with the settings saved
+between runs. In short:
 
 1. `factoria.json`: `"mainScene": "scenes/menu.scene.json"` and a `"pause": ["Escape", "P", "GamepadStart"]` action.
 2. `scripts/settings.js` (settings in `storage`, applied once per run) and `scripts/ui/menu_stack.js` (panels over
@@ -1191,6 +1191,8 @@ saved between runs. In short:
 7. A shop, only for a game with in-app purchases: `scripts/ui/shop.js`, the `shop` panel and `shop_button` of the menu
    scene, and `scripts/store_events.js` (pauses the game while the store overlay is open). It uses the `platform`
    API (`factoria docs read platform`); the kit's `tests/platform.test.js` drives it against the fake store.
+8. Languages: `factoria.json` `"localization"`, `locales/<language>.json` per language and a `key` on every Text and
+   widget (`factoria docs read localization`); the kit's `tests/i18n.test.js` switches the language at run time.
 
 When you write menus of your own, the same rules apply:
 
@@ -1206,6 +1208,10 @@ When you write menus of your own, the same rules apply:
 - **Controls.** Rebind with `input.rebind(action, list)` from the next `input.lastPressed()`, and name buttons with
   `input.buttonName(action)` (Cross on a PlayStation pad, A on an Xbox pad).
 - **Quit** has no place on phones and tablets: hide it when `game.platform` is `"ios"` or `"android"`.
+- **Several languages.** Put the text of a game that may be translated in `locales/<language>.json` from the start and
+  give the `Text` or widget a `key`: `{ "text": "Play", "key": "menu.play" }`. The engine overwrites `text` with the
+  player's language, so a script never writes it; text a script builds uses `i18n.t(key, { count })` and is written
+  again on `i18n.on("change", ...)`. `i18n.setLanguage(tag)` switches at once; the choice goes in `storage`.
 
 ## 10. Tests
 
@@ -1368,4 +1374,6 @@ The same format works with `factoria call --input` and `factoria session --input
   and a pause menu to copy into a game, and a shop for a game with in-app purchases.
 - `factoria docs read platform` (MCP `docs_read {"name":"platform"}`): achievements, stats, leaderboards, cloud saves
   and purchases through one API, the fake store for tests, and how a native plugin becomes a store backend.
+- `factoria docs read localization` (MCP `docs_read {"name":"localization"}`): string tables, `key` fields,
+  plurals and placeholders, the `i18n` script API, `i18n.state` / `i18n.set_language`, and how the start language is chosen.
 - The project's `AGENTS.md`: short rules for this game.
