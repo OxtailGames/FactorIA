@@ -444,7 +444,6 @@ sum came from the plugin's Java class; `ios-build` / `ios` link it into the simu
 
 ## M13. Store-ready desktop export (M-L, high) — DONE (PRs #65, #66, #67, #68 and the `m13/sign` PR)
 
-
 Closes E-04, E-05, E-06 (the crash half), E-09 (the desktop half; mobile uploads are M16), E-10, F-15, Q-03 and H-10.
 Authenticode signing is M8, "Left open".
 
