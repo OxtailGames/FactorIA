@@ -795,7 +795,7 @@ FA_PLUGIN_INIT(example) {
 - **Platform backends (version 2).** A plugin that wraps a store SDK registers a backend with
   `add_backend(api, &FaBackendDesc)` (one per plugin, inside the entry point): `name` (the key of the catalog's `ids`),
   `services` (a JSON array: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`,
-  `"presence"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
+  `"presence"`, `"integrity"`), `request(req, method, args_json, user)` and an optional `frame(user)` (once per frame on the game
   thread, before scripts: `SteamAPI_RunCallbacks`, or Steam's manual dispatch as the Steam plugin does). The game's `platform.*` calls arrive in `request` with their ids
   already checked; answer each `FaRequest*` exactly once with `resolve(req, result_json)` or `reject(req, code,
   message, hint)`, now or later and from any thread, and push unasked news with `emit(api, "purchase" | "overlay" |

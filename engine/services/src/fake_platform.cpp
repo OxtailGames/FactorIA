@@ -43,7 +43,7 @@ void FakeBackend::reset() {
     signedIn_ = true;
     delay_ = 0;
     frames_ = seq_ = callsDropped_ = 0;
-    nextTx_ = 1;
+    nextTx_ = nextIntegrity_ = 1;
     scripted_.clear();
     held_.clear();
     achievements_.clear();
@@ -317,6 +317,13 @@ FakeBackend::Outcome FakeBackend::compute(const std::string& method, const Json&
         const Json p = Json::object({{"text", args.value("text", std::string())}, {"data", args.contains("data") ? args["data"] : Json::object()}});
         o.result = Json::object();
         o.commit = [this, p](const Json&) { presence_ = p; };
+    } else if (method == "integrity.token") {
+        const std::string token = "fake-integrity-" + std::to_string(nextIntegrity_);
+        o.result = Json::object({{"token", token}});
+        o.commit = [this, token](const Json& final) {
+            // The number made up for this answer is used; a scripted token leaves the counter alone.
+            if (final.is_object() && final.contains("token") && final.at("token") == token) ++nextIntegrity_;
+        };
     } else {
         o.ok = false;
         o.error = {"failed", "the fake backend does not know " + method, "This is an engine bug; report it."};
