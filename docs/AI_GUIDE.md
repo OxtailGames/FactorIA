@@ -1212,6 +1212,11 @@ When you write menus of your own, the same rules apply:
   give the `Text` or widget a `key`: `{ "text": "Play", "key": "menu.play" }`. The engine overwrites `text` with the
   player's language, so a script never writes it; text a script builds uses `i18n.t(key, { count })` and is written
   again on `i18n.on("change", ...)`. `i18n.setLanguage(tag)` switches at once; the choice goes in `storage`.
+- **Adding a language.** Add its tag to `localization.languages`, create `locales/<tag>.json` with the keys of the default
+  language's table, list a font in `localization.languageFonts` when its script is not Latin, Greek, Cyrillic, Hebrew or
+  Arabic (Noto Sans has one per script), and run `factoria validate`: it names missing keys, wrong placeholders and
+  plural forms, `key`s no table has, and every character no font of the language can draw (`U+65E5 '日'`). To send the
+  strings to translators, `factoria call i18n.export` writes a CSV or XLIFF file and `i18n.import` reads it back.
 
 ## 10. Tests
 
@@ -1375,5 +1380,6 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read platform` (MCP `docs_read {"name":"platform"}`): achievements, stats, leaderboards, cloud saves
   and purchases through one API, the fake store for tests, and how a native plugin becomes a store backend.
 - `factoria docs read localization` (MCP `docs_read {"name":"localization"}`): string tables, `key` fields,
-  plurals and placeholders, the `i18n` script API, `i18n.state` / `i18n.set_language`, and how the start language is chosen.
+  plurals and placeholders, the `i18n` script API, `i18n.state` / `i18n.set_language` / `i18n.export` / `i18n.import`,
+  fonts per language, what `factoria validate` checks, and how the start language is chosen.
 - The project's `AGENTS.md`: short rules for this game.

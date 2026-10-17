@@ -43,8 +43,30 @@ frame, for the Text already on screen too. A combining mark or joiner is shaped 
 when that font has it. Line height comes from the Text's own font (the first of the chain), whatever fonts the characters
 come from; a fallback font with very tall letters can touch the next line, so give a CJK Text a CJK `font`.
 
-The project file does not have a setting for the fallback list yet: until it does, give the Text the font it needs through
-its `font` field.
+### Fonts per language (`factoria.json`)
+
+A localized game lists the fallback fonts in `factoria.json` (the `localization` section of
+[LOCALIZATION.md](LOCALIZATION.md)); the engine hands the list to the renderer when the game starts and again at every
+language switch:
+
+```json
+"localization": {
+  "defaultLanguage": "en",
+  "languages": ["en", "ja", "ar"],
+  "fallbackFonts": ["assets/fonts/NotoSansArabic-Regular.ttf"],
+  "languageFonts": { "ja": ["assets/fonts/NotoSansJP-Regular.ttf"] }
+}
+```
+
+- `languageFonts[tag]` is the list for one language; it comes first while the game runs in `tag`. `fallbackFonts` follows
+  for every language (the right place for a font every menu needs, such as one that has the names of all the languages).
+- A language you did not list a font for draws with `fallbackFonts` and DejaVu Sans, so a Japanese player never loads
+  `NotoSansKR` and a Korean player never loads `NotoSansJP`: a font is only read when some text needs it.
+- A game without a `localization` section keeps the old way: give the Text the font it needs through its `font` field, or
+  call `Renderer::set_fallback_fonts` from C++.
+- The path of a font that is missing or is not a font is an error of `factoria validate`, at its JSON pointer.
+  `factoria validate` also checks that these fonts have a glyph for every character of the string tables and of the texts
+  written in scenes: [LOCALIZATION.md](LOCALIZATION.md), "Checks".
 
 A character no font of the chain has draws as nothing, and the engine logs one warning per Text font that names the
 characters (`U+65E5 '日'`) and what to do. To check text before it is drawn (a translation table, a scene) without a
