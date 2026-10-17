@@ -64,7 +64,7 @@ call then says its id is not declared) and the engine logs why.
 | Call | Resolves with |
 |---|---|
 | `platform.backend` | The name of the backend that runs: `"fake"`, `"none"`, `"steam"`... (the plugin's name). |
-| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`. Check it before using a service that a store may not have. |
+| `platform.has(service)` | Whether the backend offers the service: `"achievements"`, `"stats"`, `"leaderboards"`, `"cloudSave"`, `"purchases"`, `"overlay"`, `"presence"`, `"integrity"`. Check it before using a service that a store may not have. |
 | `platform.player` | The last known `{ id, name, signedIn }` (empty and signed out until the store tells). |
 | `platform.signIn()` | `{ id, name, signedIn }`. Always allowed. |
 | `platform.on(event, fn)` | Returns a function that removes the listener. Events: below. |
@@ -86,11 +86,38 @@ call then says its id is not declared) and the engine logs why.
 | `platform.purchases.restore()` | `[{ productId, transactionId, receipt }]`: what the player owns that does not get used up (non-consumables, active subscriptions). |
 | `platform.overlay.open(page, id?)` | Opens the store's own screen: `page` is `"achievements"`, `"leaderboards"`, `"friends"` or `"store"`; `id` narrows it to one achievement, leaderboard or product. |
 | `platform.presence.set(text, data?)` | "What the player is doing" for friends. `data`: an object whose values are strings. |
+| `platform.integrity.token(challenge)` | `{ token }`: a signed token for **your server** to verify (see below). `challenge` is a string your server made: 16 to 500 characters of URL-safe Base64 (`A-Z a-z 0-9 - _ =`); anything else throws at once. |
 
 **Purchases: grant, then finish.** A store keeps a purchase "unfinished" until the game calls `finish`, and hands it over
 again on the next run. Grant what was bought first, finish after, and remember the `transactionId`s you granted so the
 same purchase never pays twice. Consumables (gems) are not remembered by the store after `finish`; non-consumables
 (Remove ads) come back from `restore()`, which a "Restore purchases" button must offer on Apple platforms.
+
+**Integrity checks.** `platform.integrity.token(challenge)` asks the platform to vouch for the game: the `token` it
+returns is signed and says "this is the genuine, unmodified app, installed from the store, on a genuine device". The
+token proves nothing to the game itself: **your server decides**.
+
+```js
+if (platform.has("integrity")) {
+  const challenge = await myServer.newChallenge(); // made by the server, new for every request
+  const { token } = await platform.integrity.token(challenge).catch(() => ({ token: null }));
+  await myServer.check(challenge, token);          // the server verifies the token, not the game
+}
+```
+
+- The **server makes the challenge**: 16 or more random bytes as URL-safe Base64 (a nonce), used once. It sends it to
+  the game, gets the token back, **verifies the token with the store's server API** (for Google Play, Google's Play
+  Integrity API) and **checks that the decoded token holds the same challenge**. A token without a fresh challenge can
+  be replayed by anyone who copied it.
+- **Never trust the client's word.** A modified game can claim anything it likes ("the check passed") but cannot
+  forge a token; send the token itself and let the server read the verdict.
+- **The game must work without it.** Not every store offers the service (Google Play does; Steam and Apple do not, and
+  the answer there is `unavailable`), and a request can fail (`network`, `unavailable`). Check
+  `platform.has("integrity")`, treat a missing or failed token as "unknown", and let the server choose what that
+  means (a limit on a feature, say) instead of locking the player out.
+- A challenge that is not a string of 16 to 500 characters from `A-Z a-z 0-9 - _ =` throws before anything is sent,
+  naming the bad character and its position. The backend gets `{ challenge }` and must answer `{ token }` with a
+  string `token`; any other answer is a `failed` rejection.
 
 ### Events
 
@@ -128,12 +155,14 @@ player what happened (`e.hint`) and grant nothing.
 ## 3. The fake store, and testing with it
 
 The fake backend runs in development and in **every** headless run: `factoria test`, `factoria call`, `factoria
-session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all seven
+session`, the MCP server. It is deterministic (no clock, no random numbers), keeps everything in memory, offers all eight
 services, and starts afresh in each test file. The defaults are plausible successes: the player is signed in as
 `{ id: "fake-player", name: "Player", signedIn: true }`; `buy` answers `purchased` with the transaction `fake-1`,
 `fake-2`... and the receipt `fake-receipt-1`...; the purchase stays unfinished until `finish`; consumables are never
 "owned"; `products()` takes title and price from the catalog (`$0.99`, or `2.99 EUR`); a leaderboard shows the player's
-own best. `await` works in tests, and an answer is ready at once, without `game.step()`.
+own best; `integrity.token` answers `{ token: "fake-integrity-1" }`, then `fake-integrity-2`... (no store
+can verify these: a development server has to accept them on purpose). `await` works in tests, and an answer is ready at
+once, without `game.step()`.
 
 `import { game } from "factoria:test"` gives `game.platform`, the store's controls:
 
@@ -144,7 +173,7 @@ own best. `await` works in tests, and an answer is ready at once, without `game.
 | `game.platform.set({ signedIn, delayFrames })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
-| `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no scripted answers, an empty log. |
+| `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no scripted answers, an empty log; transactions and integrity tokens are numbered from 1 again. |
 
 ```js
 import { test, expect, game } from "factoria:test";
@@ -455,6 +484,7 @@ the `id`s in an `achievements.list` or `purchases.products` answer the same way.
 | `purchases.restore` | `{ products: [{ id, storeId, type }] }` | `[{ productId, transactionId, receipt }]` |
 | `overlay.open` | `{ page, id?, storeId? }` | `{}` |
 | `presence.set` | `{ text, data }` | `{}` |
+| `integrity.token` | `{ challenge }` | `{ token }` (`token` is a string; the engine has checked `challenge` is 16 to 500 characters of URL-safe Base64) |
 
 The C++ side is `fa/services/platform.h` (`PlatformBackend`, `PlatformServices`, `platform_methods()` with this table)
 and `fa/runtime/platform_backend.h` (the plugin adapter and the choice of backend). The fake backend

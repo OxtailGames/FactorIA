@@ -1,5 +1,5 @@
 // The fake platform backend: a deterministic, in-memory store for headless runs, `factoria test` and development
-// (docs/PLATFORM.md, "The fake backend"). It offers all seven services, keeps everything in memory (nothing reaches a
+// (docs/PLATFORM.md, "The fake backend"). It offers all eight services, keeps everything in memory (nothing reaches a
 // real store, nothing is written to disk) and never reads the clock: the same requests always give the same answers.
 //
 // Test hooks: respond() scripts the next answers of a method (a cancelled purchase, a network error), emit() sends an
@@ -38,7 +38,8 @@ public:
     // Sends an event to the game as the store would. A "purchase" with status "purchased" also records an unfinished
     // transaction (missing transactionId / receipt are made up).
     Result<void> emit(const std::string& event, const Json& data);
-    // Fresh state: signed in, no delay, nothing scripted, nothing unlocked or bought, an empty request log.
+    // Fresh state: signed in, no delay, nothing scripted, nothing unlocked or bought, an empty request log; transactions
+    // and integrity tokens are numbered from 1 again.
     void reset();
     // Not signed in: every method but player.signIn answers "notSignedIn". Sends a `player` event when it changes.
     void set_signed_in(bool signedIn);
@@ -84,7 +85,7 @@ private:
     PlatformSink sink_;
     bool signedIn_ = true;
     int delay_ = 0;
-    std::uint64_t frames_ = 0, seq_ = 0, nextTx_ = 1, callsDropped_ = 0;
+    std::uint64_t frames_ = 0, seq_ = 0, nextTx_ = 1, nextIntegrity_ = 1, callsDropped_ = 0;
     std::map<std::string, std::deque<Scripted>> scripted_;
     std::vector<Held> held_;
     std::map<std::string, Achievement> achievements_;
