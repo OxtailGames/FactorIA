@@ -171,8 +171,7 @@ container_engine() {
 run_step() {
     local image="$1" mode="$2"; shift 2
     local engine; engine="$(container_engine)"
-    local args=(run --rm -v "$ROOT:/src:$mode" -w /src -e HOME=/tmp/fa-home
-                -e GITHUB_ACTIONS)
+    local args=(run --rm -v "$ROOT:/src:$mode" -w /src -e HOME=/tmp/fa-home -e GITHUB_ACTIONS)
     if [[ "$engine" == podman ]]; then
         # Rootless: the same user inside, and no SELinux relabelling of the checkout.
         args+=(--userns=keep-id --security-opt label=disable)
@@ -187,13 +186,10 @@ run_step() {
         args+=(-v "$cache:/ccache" -e CCACHE_DIR=/ccache -e CCACHE_BASEDIR=/src -e CCACHE_NOHASHDIR=1)
     fi
     echo "==> $engine run $image: $*"
-    "$engine" "${args[@]}" "$image" /src/scripts/build-sniper.sh --inside "$@"
+    "$engine" "${args[@]}" "$image" /src/scripts/build-sniper.sh "$@"
 }
 
 # ---- main --------------------------------------------------------------------------------------------------------------
-
-inside=0
-if [[ "${1:-}" == --inside ]]; then inside=1; shift; fi  # how run_step starts this script in a container
 
 step=all
 case "${1:-}" in
@@ -207,7 +203,7 @@ if [[ "${1:-}" == -- ]]; then shift; fi
 
 # In a sniper container already (started by run_step, or a CI job with `container:`): run the steps in place. The platform
 # image has no compilers, the SDK image has everything.
-if [[ "$inside" == 1 ]] || in_steamrt; then
+if in_steamrt; then
     case "$step" in
         build) inside_build "$@" ;;
         check) inside_check ;;
