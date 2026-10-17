@@ -63,29 +63,6 @@ void close_native(std::intptr_t native) {
 #endif
 }
 
-bool pread_all(std::intptr_t native, std::uint64_t offset, void* dst, std::uint64_t size) {
-    auto* out = static_cast<std::uint8_t*>(dst);
-    while (size > 0) {
-#ifdef _WIN32
-        const DWORD chunk = DWORD(std::min<std::uint64_t>(size, std::uint64_t(1) << 28));
-        OVERLAPPED at{};
-        at.Offset = DWORD(offset & 0xffffffffu);
-        at.OffsetHigh = DWORD(offset >> 32);
-        DWORD got = 0;
-        if (!ReadFile(reinterpret_cast<HANDLE>(native), out, chunk, &got, &at) || got == 0) return false;
-#else
-        const std::size_t chunk = std::size_t(std::min<std::uint64_t>(size, std::uint64_t(1) << 30));
-        ssize_t got = ::pread(int(native), out, chunk, off_t(offset));
-        if (got < 0 && errno == EINTR) continue;
-        if (got <= 0) return false;
-#endif
-        out += got;
-        offset += std::uint64_t(got);
-        size -= std::uint64_t(got);
-    }
-    return true;
-}
-
 std::string quoted(const stdfs::path& p) { return "'" + p.generic_string() + "'"; }
 
 }  // namespace
@@ -209,7 +186,28 @@ Result<void> PackWriter::write(const stdfs::path& out) const {
 
 PackReader::~PackReader() { close_native(native_); }
 
-bool PackReader::read_at(std::uint64_t offset, void* dst, std::uint64_t size) const { return pread_all(native_, offset, dst, size); }
+bool PackReader::read_at(std::uint64_t offset, void* dst, std::uint64_t size) const {
+    auto* out = static_cast<std::uint8_t*>(dst);
+    while (size > 0) {
+#ifdef _WIN32
+        const DWORD chunk = DWORD(std::min<std::uint64_t>(size, std::uint64_t(1) << 28));
+        OVERLAPPED at{};
+        at.Offset = DWORD(offset & 0xffffffffu);
+        at.OffsetHigh = DWORD(offset >> 32);
+        DWORD got = 0;
+        if (!ReadFile(reinterpret_cast<HANDLE>(native_), out, chunk, &got, &at) || got == 0) return false;
+#else
+        const std::size_t chunk = std::size_t(std::min<std::uint64_t>(size, std::uint64_t(1) << 30));
+        ssize_t got = ::pread(int(native_), out, chunk, off_t(offset));
+        if (got < 0 && errno == EINTR) continue;
+        if (got <= 0) return false;
+#endif
+        out += got;
+        offset += std::uint64_t(got);
+        size -= std::uint64_t(got);
+    }
+    return true;
+}
 
 Result<std::shared_ptr<const PackReader>> PackReader::open(const stdfs::path& file) {
     const std::string name = quoted(file);
