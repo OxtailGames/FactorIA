@@ -10,6 +10,8 @@ factoria export [project] --platform <linux|windows|macos|android|ios> [--format
 ```
 
 `--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android).
+`--release` on Linux, Windows and macOS puts the whole game in ONE file, `game.pak`, with the scripts compiled to bytecode: see
+[Release build](#release-build-gamepak). On Android it builds the release APK/AAB.
 
 Before anything is written the project is validated: `factoria.json` must exist,
 `name` must be set, `mainScene` must exist and `id` must be a reverse-DNS
@@ -23,7 +25,8 @@ The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 export, but only when it is empty or an export wrote it: a folder of yours that happens to have that name is never
 deleted ([Replacing an earlier export](#replacing-an-earlier-export)). `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
 `format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built),
-`notices` (see [License notices](#license-notices)), `files`, `nextSteps`, `warnings`. A game with AI-made assets also
+`notices` (see [License notices](#license-notices)), `pack` and `packed` (a `--release` desktop export: the pack and the paths in it), `files`
+(what is on disk, so a release export lists `game.pak`, not the files in it), `nextSteps`, `warnings`. A game with AI-made assets also
 gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](#ai-content-disclosure)).
 
 ## From an AI: `project.export`
@@ -32,7 +35,7 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
 `gradle`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
-`release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `files`, `nextSteps`, `warnings`); an
+`release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
@@ -91,10 +94,13 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`),
-`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, a top-level `steam_appid.txt` (the development app id of the
+`AGENTS.md`, `CLAUDE.md`, `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
+game; any capitalization), a top-level `steam_appid.txt` (the development app id of the
 [Steam backend](PLATFORM.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native
 plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
-repository.
+repository. Those are the files no game reads, on every platform and with or without `--release`; the list is also the comment of
+`fa/tooling/export.h`. Only the TOP-LEVEL `README.md` is left out: a `README.md`, `CREDITS.md` or `LICENSE` deeper in the project, or a data
+file of any kind, ships, because a game may load it.
 
 Audio import settings (`assets.json`, [ASSETS.md](ASSETS.md)) act at export time: a WAV with `convert: "qoa"` ships as
 `<path>.qoa` (the engine plays that twin when the original is missing; the converted file is cached in
@@ -338,6 +344,7 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | iOS | `iconBackground` | `#FFFFFF` | The App Store icon cannot be transparent: transparent pixels take this colour, and the PNG is written without an alpha channel. |
 | iOS | `teamId` | none | 10-character Apple Team ID for device builds. It is the default of `FA_IOS_DEVELOPMENT_TEAM`: that environment variable, when set, wins. |
 | iOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload. |
+| Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](#scripts-as-bytecode). |
 
 `windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
 (`factoria.json#/export/android/minSdk: minSdk (34) is higher than targetSdk (30) ...`). An unknown key inside
@@ -405,11 +412,14 @@ macOS:          my-game-macos/My Game.app/Contents/
                   Info.plist  MacOS/my-game  Resources/AppIcon.icns  Resources/game/...  Resources/FACTORIA_NOTICES.txt
 ```
 
+With `--release` the `game/` folder is one file, [`game.pak`](#release-build-gamepak), in the same place (next to the
+executable; `Contents/Resources` in the `.app`).
+
 The player starts the game found in `game/` next to the executable (inside the
-`.app`: `Contents/Resources/game`). Command line:
+`.app`: `Contents/Resources/game`), else the pack `game.pak` next to it. Command line:
 
 ```
-my-game [projectDir] [--scene scenes/level2.scene.json] [--fullscreen]
+my-game [projectDir | game.pak] [--scene scenes/level2.scene.json] [--fullscreen]
 ```
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). The export copies the build of every plugin declared for
@@ -427,8 +437,8 @@ Save games go to the OS per-user data folder (`~/.local/share/<id>`,
 Every run writes its log to `log.txt` in that folder (rewritten on each start): it is the file to ask a player for with a
 bug report. On Windows the exe is a GUI program, so the game opens no console window. Started from a terminal it still
 prints its log there, but the terminal does not wait for it (`start /wait my-game.exe` does); output redirected to a
-file or a pipe works as with any program. If the game cannot start at all (no `game/` folder next to the exe), a
-double-clicked exe shows the error in a message box.
+file or a pipe works as with any program. If the game cannot start at all (no `game/` folder and no `game.pak` next to the exe, or a
+pack that is damaged or from another FactorIA version), a double-clicked exe shows the error in a message box.
 
 **Long paths on Windows.** A macOS `.app` nests four folders, so an export into a deep folder easily passes the
 260-character limit of Windows paths (MAX_PATH). The export (and every file the engine reads or writes) uses the `\\?\`
@@ -453,6 +463,69 @@ xcrun stapler staple "My Game.app"
 `--force` replaces the ad hoc signature; `xcrun notarytool store-credentials <profile>` saves your Apple ID, team ID and
 app-specific password once. Zip the stapled app again to share it. The player of the macOS download is universal
 (Apple Silicon and Intel).
+### Release build (`game.pak`)
+
+`factoria export --release` (or `project_export {"release": true}`) for Linux, Windows and macOS ships the game as ONE
+read-only file instead of a `game/` folder of loose files:
+
+```
+linux/windows:  my-game-windows/            my-game.exe  game.pak  FACTORIA_NOTICES.txt
+macOS:          My Game.app/Contents/       MacOS/my-game  Resources/game.pak  Info.plist ...
+```
+
+Every file listed under [What is shipped](#what-is-shipped-and-what-is-not) goes into the pack as it is (textures, sounds and
+fonts are already compressed, so nothing is compressed twice), except the scripts, which can be compiled
+([below](#scripts-as-bytecode)). Nothing of the game is left loose: a game of thousands of small files is copied, zipped and
+installed as one file, and the player of the game cannot swap a texture or edit a script by opening a folder. (This is packaging,
+not protection: anyone who knows the format can read the pack, and the bytecode of a script can be decompiled.) The report has
+`pack` (`game.pak`) and `packed` (every path inside it); its `files` lists what is on disk.
+
+**How the player uses it.** It looks for `game/` next to the executable first (so a folder always wins, which makes it easy to
+try a changed file), then for `game.pak`; `factoria_player path/to/game.pak` runs a pack from anywhere. It mounts the pack into
+the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](ARCHITECTURE.md)): `factoria.json`, scenes,
+prefabs, textures, sounds, fonts, scripts, `import`s and the window icon all come out of it, and a game that works from the folder
+works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read from disk when the
+game asks for it, and any number of threads can read at once, so a large pack starts as fast as a small one. While a pack is
+mounted, a project-relative path that is not in it is "File not found" with a "did you mean" taken from the pack, whatever lies
+on disk. Absolute paths and everything the game writes are not affected: save games go to the per-user data folder as always,
+and a file written with a project-relative path lands in the (absent) `game/` folder next to the pack.
+
+**Format** (version 1, integers little-endian; `fa/core/pack.h` is the reference and holds the `fa::PackWriter` and `fa::PackReader`):
+a 16-byte header (`FAPACK\r\n`, `u32` version, `u32` reserved), the files' bytes back to back, an index (`u32` count, then per file,
+sorted by path: `u16` path length, the UTF-8 path, `u64` offset, `u64` size) and a 24-byte footer (`u64` index offset, `u64` index
+size, `FAPKEND!`). The reader finds the index through the footer, so a pack that was cut short (an interrupted download, a full
+disk) is refused with a message that says to export again, never half-read, and the writer builds `game.pak.tmp` and renames it, so
+an export never leaves a half-written pack under the real name. A pack with another format version says which version it has and
+which this FactorIA reads.
+
+#### Scripts as bytecode
+
+With `export.scriptBytecode` on (the default; set `"export": { "scriptBytecode": false }` in `factoria.json` to turn it off), the
+`.js` and `.mjs` files go into the pack compiled to QuickJS bytecode, with the QuickJS of the player that ships with the game. They keep
+their paths (`scripts/player.js`), so `Script` components, `import`s between scripts and JSON imports are unchanged, and a pack can
+mix compiled and plain scripts. The source text is not shipped, but the file names and line numbers are: an error in the
+shipped game still reads `scripts/player.js:12:7: TypeError: ...` and the log and `script.errors` give the same file and line as in
+development. Loading a compiled script skips parsing, so large scripts start faster.
+
+Bytecode only runs on the FactorIA that wrote it. Each compiled script carries the FactorIA and QuickJS versions, and a game that
+meets a script from another one says so instead of crashing:
+
+```
+'scripts/player.js' was compiled by FactorIA 0.1.5; QuickJS 0.17.0, but this game runs FactorIA 0.1.6; QuickJS 0.17.0, and compiled
+scripts only run on the version that wrote them (hint: Export the game again with this FactorIA version (`factoria export --release`);
+export.scriptBytecode: false in factoria.json ships the scripts as plain source instead.)
+```
+
+The export copies the player of its own FactorIA, so a pack and its player always match; a mismatch happens when you pass another
+`--player`, or put a pack next to a player of another version. `false` packs the scripts as the source they are (readable, and
+independent of the player's version). A script that has a syntax error is packed as source with a warning that names the file and
+line, so the game behaves as it does from the folder: the error shows when something loads that script (`factoria validate` lists
+them before you export). Without `--release`, and on Android and iOS, the setting changes nothing.
+
+Not shipped, so not compiled: `tools/` (JS tool modules, which are for development) and `tests/`. The player never reloads
+files while it runs (hot reload belongs to `factoria run` and the editor, which work on the project folder), and a compiled module keeps
+the name it was compiled under, so a pack is a fixed game: change a script, export again.
+
 ### Icon and settings per platform
 
 What each desktop export takes from [Platform settings](#platform-settings):
