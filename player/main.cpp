@@ -8,8 +8,9 @@
 //             as the argument is mounted the same way. While a pack is mounted fa::fs answers every project-relative
 //             path from it, and the project root is the (absent) game/ folder next to the pack, so a file the game
 //             writes with a relative path lands there as it always did; save games go to the user folder.
-//             The log of every run also goes to <save folder>/log.txt. On Windows the player is a GUI program (no
-//             console window); started from a terminal it prints to that terminal.
+//             The log of every run also goes to <save folder>/log.txt, and a crash leaves a report (stack + last log
+//             lines; a minidump on Windows) in <save folder>/crashes (fa/core/crash.h, docs/EXPORTING.md). On Windows the
+//             player is a GUI program (no console window); started from a terminal it prints to that terminal.
 //   Android : sokol_main() via NativeActivity. The project lives in the APK assets (root "").
 //   iOS     : sokol_main(). The project lives in the app bundle at <bundle resources>/game.
 //
@@ -17,6 +18,7 @@
 #include <filesystem>
 #include <string>
 
+#include "fa/core/crash.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
@@ -102,6 +104,19 @@ void log_to_file(const stdfs::path& dir) {
         std::lock_guard<std::mutex> lock(mutex);
         file << fa::format_log_line(e) << '\n' << std::flush;
     });
+}
+
+// A crash leaves <save folder>/crashes/crash-<time>.txt (and .dmp on Windows) next to log.txt. The next start says so once.
+void report_crashes_to_file(const stdfs::path& saveDir, const fa::ProjectSettings& project) {
+    fa::CrashReporterOptions crash;
+    crash.dir = saveDir / "crashes";
+    crash.info = {"game: " + project.name + " " + project.version, "game id: " + project.id};
+    if (auto r = fa::install_crash_reporter(crash); !r.ok()) {
+        FA_WARN("player", "crash reports are off: {}", r.error().to_string());
+        return;
+    }
+    if (auto previous = fa::take_previous_crash_report(crash.dir); !previous.empty())
+        FA_WARN("player", "the previous run crashed; the report is {}", previous.string());
 }
 
 #if defined(_WIN32)
@@ -227,6 +242,7 @@ int main(int argc, char** argv) {
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
         fa::fs::set_user_dir(desktop_user_dir(proj->id));
         log_to_file(fa::fs::user_dir());
+        report_crashes_to_file(fa::fs::user_dir(), *proj);
     } else {
         return startup_error("error: " + proj.error().to_string() + "\n");
     }

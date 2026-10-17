@@ -440,6 +440,39 @@ prints its log there, but the terminal does not wait for it (`start /wait my-gam
 file or a pipe works as with any program. If the game cannot start at all (no `game/` folder and no `game.pak` next to the exe, or a
 pack that is damaged or from another FactorIA version), a double-clicked exe shows the error in a message box.
 
+**Crash reports.** When the game crashes (a fault such as a write through a null pointer or a stack overflow,
+`abort()`, an uncaught C++ exception), the player writes a report next to `log.txt` before it ends, into the `crashes`
+folder of the save folder. The newest five are kept.
+
+```
+<save folder>/log.txt
+<save folder>/crashes/crash-20261017T143052Z.txt     the readable report (the UTC time is in the name)
+<save folder>/crashes/crash-20261017T143052Z.dmp     Windows only: a minidump
+```
+
+The next start of the game logs one line, "the previous run crashed; the report is ...". Ask a player for the
+`crashes` folder together with `log.txt`; nothing is sent anywhere by itself. The `.txt` holds the engine and game
+versions, the time, the signal or exception (`access violation, write to 0x0`; for an uncaught C++ exception also its
+message), the last log lines, and the stack, innermost call first:
+
+```
+exception: 0xc0000005 access violation, write to 0x0
+stack (innermost first):
+#0  factoria_player.exe!fa::Foo::update + 0x2a  (foo.cpp:51)  [0x7ff75d9d83e2]
+#1  factoria_player.exe!fa::Engine::step + 0x1c  (engine.cpp:310)  [0x7ff75d9d889e]
+```
+
+A frame shows its function, file and line when the symbols of that build are found (on Windows the `.pdb` next to the
+exe or in the symbol path), else only `module+offset`. To read a `.dmp`, open it in Visual Studio (File > Open, then
+"Debug with Native Only") or WinDbg (File > Open Crash Dump, then `!analyze -v` and `k`) with the `.pdb` and the source of
+the exact build that crashed. On Linux and macOS the stack lines read `module(symbol+0xoffset) [address]` (the address
+of a caller is shown one byte back, so that it lies inside the call); `addr2line -f -C -e factoria_player <offset>`
+(Linux) or `atos -o <binary> -l <load address> <address>` (macOS) turns an offset into a function and line when the
+binary has symbols. The system still does what it did on a crash (exit status, core file, its own crash dialog), and a
+stack overflow is reported only on the main thread. Android and iOS write their own crash logs (`adb logcat` and
+tombstones; Xcode Organizer), so the player does not install the reporter there. Sending reports to a server is not part
+of the engine yet.
+
 **Long paths on Windows.** A macOS `.app` nests four folders, so an export into a deep folder easily passes the
 260-character limit of Windows paths (MAX_PATH). The export (and every file the engine reads or writes) uses the `\\?\`
 form of a path that long, so it works whether or not long paths are enabled on the machine. Explorer, zip tools and
