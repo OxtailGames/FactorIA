@@ -101,7 +101,6 @@ TEST_CASE("pack: the writer refuses paths that are not normalized and duplicates
         CHECK_MESSAGE(!r.ok(), "path '" << bad << "' should be refused");
         if (!r.ok()) CHECK(!r.error().message.empty());
     }
-    CHECK(w.count() == 0);
     REQUIRE(w.add_bytes("a.txt", bytes_of("1")).ok());
     REQUIRE(w.add_bytes("a.txt", bytes_of("2")).ok());
     Scratch s;

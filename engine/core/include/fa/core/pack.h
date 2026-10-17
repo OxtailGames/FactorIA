@@ -43,8 +43,6 @@ public:
     // `source` is streamed into the pack by write(), never held in memory: use it for the game's own files.
     Result<void> add_file(std::string path, std::filesystem::path source);
 
-    std::size_t count() const { return items_.size(); }
-
     // Writes the pack to `out` (the folder must exist). The file appears complete or not at all.
     Result<void> write(const std::filesystem::path& out) const;
 
@@ -69,8 +67,6 @@ public:
     // Opens `file` and reads its index. The errors say what is wrong with the file (not a pack, cut short, written by a
     // newer FactorIA) and how to fix it (export the game again with this FactorIA version).
     static Result<std::shared_ptr<const PackReader>> open(const std::filesystem::path& file);
-
-    const std::filesystem::path& file() const { return file_; }
 
     bool contains(std::string_view path) const;       // a file; `path` is normalized, project-relative
     bool is_directory(std::string_view path) const;   // "" (the root) or a folder with at least one file below it
