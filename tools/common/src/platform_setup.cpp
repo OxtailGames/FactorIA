@@ -40,11 +40,11 @@ std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
     if (!project.ok()) throw CommandError("invalid_argument", project.error().message, project.error().hint);
     for (const PluginSettings& p : project->plugins) {
         if (p.name != backend) continue;
-        auto folder = plugin_folder(projectDir, p);
-        if (!folder.ok()) throw CommandError("invalid_argument", folder.error().message, folder.error().hint);
-        done.push_back("kept the plugin '" + backend + "' factoria.json already declares (" + folder.value() + ")");
-        this->folder = folder.value();
-        return this->folder;
+        auto found = plugin_folder(projectDir, p);
+        if (!found.ok()) throw CommandError("invalid_argument", found.error().message, found.error().hint);
+        done.push_back("kept the plugin '" + backend + "' factoria.json already declares (" + found.value() + ")");
+        folder = found.value();
+        return folder;
     }
     Json platformList = Json::array();
     for (const std::string& p : platforms) platformList.push_back(p);
@@ -80,13 +80,13 @@ void Context::run_cmake(const std::vector<std::string>& arguments, const std::st
     }
 }
 
-void Context::build_plugin(const std::string& folder, const std::vector<std::string>& configureArguments) {
-    const std::string build = folder + "/build";
-    std::vector<std::string> configure = {"-S", folder, "-B", build, "-DCMAKE_BUILD_TYPE=Release"};
+void Context::build_plugin(const std::string& pluginDir, const std::vector<std::string>& configureArguments) {
+    const std::string build = pluginDir + "/build";
+    std::vector<std::string> configure = {"-S", pluginDir, "-B", build, "-DCMAKE_BUILD_TYPE=Release"};
     configure.insert(configure.end(), configureArguments.begin(), configureArguments.end());
     run_cmake(configure, "configure the " + backend + " plugin");
     run_cmake({"--build", build, "--config", "Release"}, "build the " + backend + " plugin");
-    done.push_back("built the " + backend + " plugin for " + runtime_platform() + " (" + folder + "/" + runtime_platform() + "/)");
+    done.push_back("built the " + backend + " plugin for " + runtime_platform() + " (" + pluginDir + "/" + runtime_platform() + "/)");
 }
 
 }  // namespace platform_setup

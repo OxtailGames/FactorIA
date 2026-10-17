@@ -26,9 +26,9 @@ struct Context {
     // Runs CMake with `arguments` (the CMake that `setup` installs when the computer has none). Throws a CommandError that
     // says what failed with the end of CMake's output. `what` names the step in that error ("configure the steam plugin").
     void run_cmake(const std::vector<std::string>& arguments, const std::string& what);
-    // Builds the plugin's CMake project for this computer: <folder>/build, Release (its CMakeLists.txt copies the library
-    // into <folder>/<platform>/). `configureArguments` are added to the configure step (-D...).
-    void build_plugin(const std::string& folder, const std::vector<std::string>& configureArguments = {});
+    // Builds the plugin's CMake project for this computer: <pluginDir>/build, Release (its CMakeLists.txt copies the
+    // library into <pluginDir>/<platform>/). `configureArguments` are added to the configure step (-D...).
+    void build_plugin(const std::string& pluginDir, const std::vector<std::string>& configureArguments = {});
 
     std::vector<std::string> done;       // what was done, in order: the result's "done"
     std::vector<std::string> nextSteps;  // what the developer still does by hand: the result's "nextSteps"
