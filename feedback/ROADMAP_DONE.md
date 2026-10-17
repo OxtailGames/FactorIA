@@ -508,6 +508,52 @@ Found while implementing M13:
   absolute header paths of the checkout that filled the cache, so Ninja watched another worktree's headers. Since #69
   only GCC and Clang share the cache across checkouts (docs/BUILDING.md).
 
+## M14. Localization (L, blocker for a global release) — DONE (PRs #73, #74 and the `m14/finish` PR)
+
+Closes F-02, H-08, U-06 and the text-scaling part of U-05. This PR only made missing glyphs visible: Chinese, Japanese and
+Korean need a font the game ships, and Arabic draws left to right with unjoined letters.
+
+- String tables (`locales/<lang>.json`), `i18n.t(key, args)` in JS, a `key` field on Text, the system language on every
+  platform, a fallback language, `i18n.setLanguage` at run time.
+- A font fallback chain (project-wide and per Text), so a CJK font fills what the main font lacks.
+- Shaping with HarfBuzz (MIT) and bidirectional line layout for Arabic, Hebrew and Indic scripts.
+- `factoria validate` reports characters in string tables and scene texts that no configured font covers, with the file
+  and the character (the run-time warning added in this PR is the starting point); CSV or XLIFF export and import for
+  translators.
+
+Acceptance criteria:
+- `日本語 中文 한국어 العربية` renders every script with Noto fonts, Arabic joined and right to left (golden image).
+- `validate` fails on a missing glyph and names the character, the text and the file.
+- Switching language at run time updates every Text that has a `key`.
+
+What was built (docs/LOCALIZATION.md and docs/TEXT.md are the reference):
+- Localization runtime (#73): string tables `locales/<language>.json` (`fa/core/i18n.h`: nested keys, CLDR plural entries,
+  `{placeholders}`, `$name`, the fallback chain language -> base language -> default language, the best match of the
+  system's languages), the `"localization"` section of factoria.json, the system languages in fa_platform (Windows,
+  Apple, Android, Linux), `key` on Text and every UiControl rewritten after each scene load, spawn and frame
+  (`fa/scene/localize.h`), `i18n` in scripts (`t`, `setLanguage`, `on("change")`...), the commands `i18n.state` and
+  `i18n.set_language`, hot reload of the tables, and the menus recipe and fixture in English and Spanish with a Language
+  option.
+- Text engine (#74): HarfBuzz 14.6.0 and SheenBidi 3.0.0 vendored; a font fallback chain (`Renderer::set_fallback_fonts`),
+  shaping by glyph index (kerning, ligatures, Arabic joining), bidirectional reordering per line, line breaks between
+  CJK characters, one layout for Text, widget labels, debug text and `measure_text`, cached per text and size; the text
+  size option `ui.textScale` / `ui.set_text_scale`; the GPU-free coverage check `fa/render/fonts.h`; docs/TEXT.md.
+- Finish (the `m14/finish` PR): the renderer's fallback fonts follow the language (`localization.languageFonts`, then
+  `fallbackFonts`); `factoria validate` checks the tables (missing and stale keys with "did you mean", placeholders,
+  plural forms per language), the `key`s of scenes and prefabs, and every text against its font chain, naming the
+  character, the text, the file and the fix; `i18n.export` / `i18n.import` write and read CSV (spreadsheets) and XLIFF 1.2
+  (CAT tools) for translators.
+
+Acceptance:
+- `engine/render/tests/text_tests.cpp`, "text: Japanese, Chinese, Korean and Arabic draw together through the fallback chain
+  (golden)" (`2d_text_scripts.png`, Noto subsets) and "text: Arabic letters take their joined forms, and a right-to-left
+  line starts at its right end".
+- `tools/common/tests/validate_localization_test.cpp`, "validate: a character no font has is an error that names the
+  character, the text, the file and the fix".
+- `tools/cli/tests/fixtures/menus/tests/i18n.test.js`, "the Language tab switches every Text and widget that has a key, at
+  once"; `engine/runtime/tests/localization_tests.cpp`, "engine: the renderer's fallback fonts follow the language, so a
+  Japanese Text with font "" draws only in Japanese".
+
 ## M15. AI asset generation and import pipeline (L, blocker for "the AI does everything") — DONE (PRs #52, #55, #56, #57)
 
 Closes A-01..A-07, H-04 and F-07 (music streaming). Today an AI can only write a PNG through `fs.write`; `assets.list` is
