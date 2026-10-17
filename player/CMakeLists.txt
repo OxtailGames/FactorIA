@@ -110,6 +110,11 @@ else()
             OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/windows/factoria_player.ico
             COMPILE_DEFINITIONS "FA_VERSION_MAJOR=${PROJECT_VERSION_MAJOR};FA_VERSION_MINOR=${PROJECT_VERSION_MINOR};FA_VERSION_PATCH=${PROJECT_VERSION_PATCH}")
     endif()
+    # `factoria_player --version` prints the version that `factoria version` prints (the release checks run it on Linux).
+    if(FA_BUILD_TESTS)
+        add_test(NAME player_version COMMAND factoria_player --version)
+        set_tests_properties(player_version PROPERTIES PASS_REGULAR_EXPRESSION "^factoria_player ${FA_ENGINE_VERSION}[\r\n]")
+    endif()
 endif()
 
 target_link_libraries(factoria_player PRIVATE fa_runtime fa_warnings)

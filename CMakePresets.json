@@ -31,6 +31,15 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
+    {
+      "name": "linux-sniper",
+      "displayName": "Linux x64, Release, static libstdc++ (built inside the Steam Runtime sniper SDK by scripts/build-sniper.sh)",
+      "inherits": "linux-release",
+      "cacheVariables": {
+        "FA_LINUX_STATIC_LIBSTDCXX": "ON",
+        "FA_BUILD_TESTS": "OFF"
+      }
+    },
 
     {
       "name": "macos-debug",
@@ -128,6 +137,7 @@
   "buildPresets": [
     { "name": "linux-debug",        "configurePreset": "linux-debug",        "configuration": "Debug" },
     { "name": "linux-release",      "configurePreset": "linux-release",      "configuration": "Release" },
+    { "name": "linux-sniper",       "configurePreset": "linux-sniper",       "configuration": "Release" },
     { "name": "macos-debug",        "configurePreset": "macos-debug",        "configuration": "Debug" },
     { "name": "macos-release",      "configurePreset": "macos-release",      "configuration": "Release" },
     { "name": "windows-debug",      "configurePreset": "windows-debug",      "configuration": "Debug" },
