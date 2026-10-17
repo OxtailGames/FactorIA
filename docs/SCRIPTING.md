@@ -566,6 +566,21 @@ server to verify). Everything about it, the catalog, the error
 codes, the fake store's test hooks (`game.platform` in `factoria:test`) and how to write a backend plugin, is in
 [PLATFORM.md](PLATFORM.md). `game.platform` of the `factoria` module is the operating system's name, a different thing.
 
+### i18n (several languages)
+`import { i18n } from "factoria"`: the strings of `locales/<language>.json` in the player's language (factoria.json
+`"localization"` lists the languages; without it `t(key)` returns the key and `languages` is `[]`). A Text or widget
+with a `key` is translated by the engine; `t` is for the text a script builds.
+
+```js
+label.text = i18n.t("hud.coins", { count: coins });      // "3 monedas": {placeholders} and plural forms by args.count
+i18n.setLanguage("es");                                   // everything with a key changes now; the choice is not saved
+const off = i18n.on("change", (e) => redraw(e.language)); // after every switch; ends with the scene, like ui.on
+```
+
+Members: `t(key, args?)`, `has(key)`, `language`, `setLanguage(tag)`, `languages`, `defaultLanguage`, `systemLanguages`,
+`name(tag)`, `on("change", fn)`. Every test file starts in `defaultLanguage`. All of it, the string tables and how the
+start language is chosen: [LOCALIZATION.md](LOCALIZATION.md).
+
 ### fa (commands)
 `fa.call(name, args)` runs any command (same as MCP tools) and returns its result · `fa.commands()` lists them.
 On failure `fa.call` throws an `Error` whose message is `<name> failed: <message> (hint: <hint>)` and which also

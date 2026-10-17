@@ -20,6 +20,7 @@
         },
         "Text": {
           "text": "Loading...",
+          "key": "loading.text",
           "fontSize": 36,
           "space": "screen",
           "anchor": [1, 1],

@@ -3,7 +3,7 @@
 // the products of factoria.json "platform.products": gems (a consumable) and "Remove ads" (a non-consumable). A purchase
 // is granted first and finished after: the store keeps a purchase "unfinished" and hands it over again on the next run
 // until finish() is called, so a crash between the two never loses what the player paid for.
-import { Behaviour, ui, platform, storage } from "factoria";
+import { Behaviour, ui, platform, storage, i18n } from "factoria";
 
 /** What the player owns, kept in storage under "wallet". `seen` holds the transactions already granted. */
 function wallet() {
@@ -22,8 +22,9 @@ export default class Shop extends Behaviour {
     ui.on("click", "restore", () => this.restore());
     // Purchases that finish outside buy(): a parent approves an "ask to buy", or the store hands over a purchase the last run left
     // unfinished.
-    platform.on("purchase", (p) => p.status === "purchased" && this.grant(p).then(() => this.say("Your purchase arrived.")));
+    platform.on("purchase", (p) => p.status === "purchased" && this.grant(p).then(() => this.say(i18n.t("shop.arrived"))));
     this.refresh();
+    i18n.on("change", () => this.refresh()); // the gems line is written by this script, not translated by the engine
     // The store's own titles and prices (already formatted for the player's country) go on the buttons.
     platform.purchases.products().then((list) => {
       for (const p of list) {
@@ -39,7 +40,7 @@ export default class Shop extends Behaviour {
 
   refresh() {
     const w = wallet();
-    this.world.find("gems_label").get("Text").text = `Gems: ${w.gems}` + (w.noAds ? "   (ads removed)" : "");
+    this.world.find("gems_label").get("Text").text = i18n.t(w.noAds ? "shop.gemsNoAds" : "shop.gems", { count: w.gems });
   }
 
   /** Gives the player what the purchase bought, once per transaction, then tells the store it is done. */
@@ -58,21 +59,21 @@ export default class Shop extends Behaviour {
   async buy(productId) {
     if (this.busy) return;
     this.busy = true;
-    this.say("Waiting for the store...");
+    this.say(i18n.t("shop.waiting"));
     try {
       const r = await platform.purchases.buy(productId);
       if (r.status === "purchased") {
         const finished = this.grant(r); // the wallet changes at once; telling the store it is done may take a moment
-        this.say("Thank you!");
+        this.say(i18n.t("shop.thanks"));
         await finished;
       } else if (r.status === "pending") {
-        this.say("Waiting for approval. The purchase arrives when it is approved."); // the "purchase" event grants it
+        this.say(i18n.t("shop.pending")); // the "purchase" event grants it
       } else {
-        this.say("Purchase cancelled. Nothing was charged.");
+        this.say(i18n.t("shop.cancelled"));
       }
     } catch (e) {
       // e.code is "network", "unavailable", "notSignedIn"...; e.hint says what to try.
-      this.say(`The store could not be reached (${e.code}). ${e.hint ?? e.message}`);
+      this.say(i18n.t("shop.unreachable", { code: e.code, detail: e.hint ?? e.message }));
     } finally {
       this.busy = false;
     }
@@ -81,15 +82,15 @@ export default class Shop extends Behaviour {
   async restore() {
     if (this.busy) return;
     this.busy = true;
-    this.say("Asking the store...");
+    this.say(i18n.t("shop.asking"));
     try {
       const w = wallet();
       for (const owned of await platform.purchases.restore()) if (owned.productId === "remove_ads") w.noAds = true;
       storage.set("wallet", w);
       this.refresh();
-      this.say(w.noAds ? "Your purchases were restored." : "There was nothing to restore.");
+      this.say(i18n.t(w.noAds ? "shop.restored" : "shop.nothingToRestore"));
     } catch (e) {
-      this.say(`The store could not be reached (${e.code}). ${e.hint ?? e.message}`);
+      this.say(i18n.t("shop.unreachable", { code: e.code, detail: e.hint ?? e.message }));
     } finally {
       this.busy = false;
     }

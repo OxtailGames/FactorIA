@@ -123,6 +123,7 @@ struct Shape2D {
 
 struct Text {
     std::string text = "Text";
+    std::string key;                  // localization key ("menu.play"); "" = none. While set, the runtime overwrites `text` with the translation
     std::string font;                 // asset path to .ttf; "" = built-in font
     float fontSize = 24.0f;           // in world units (pixels for 2D)
     Color color{1, 1, 1, 1};
@@ -200,6 +201,7 @@ struct UiControl : UiBox {
     float fontSize = 24.0f;
     Color textColor{1, 1, 1, 1};
     Color accentColor{1.0f, 0.76f, 0.2f, 1.0f};  // focus ring, slider fill and knob, toggle check, caret
+    std::string key;                          // localization key; "" = none. Replaces Button.text, Toggle.label, Slider.label or TextField.placeholder
     bool interactable = true;                 // false: drawn at half alpha, never hovered, focused or clicked
     bool autoFocus = false;                   // takes focus when nothing is focused
     bool focused = false;                     // runtime: has keyboard / gamepad focus

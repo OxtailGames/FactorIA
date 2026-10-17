@@ -1,0 +1,51 @@
+{
+  "$name": "English",
+  "menu": {
+    "title": "My Game",
+    "play": "Play",
+    "options": "Options",
+    "credits": "Credits",
+    "shop": "Shop",
+    "quit": "Quit",
+    "back": "Back"
+  },
+  "loading": { "text": "Loading..." },
+  "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
+  "options": {
+    "title": "Options",
+    "tab": { "video": "Video", "audio": "Audio", "controls": "Controls", "language": "Language" },
+    "fullscreen": "Full screen",
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
+    "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language: {language}"
+  },
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game."
+  },
+  "shop": {
+    "title": "Shop",
+    "gems": "Gems: {count}",
+    "gemsNoAds": "Gems: {count}   (ads removed)",
+    "restore": "Restore purchases",
+    "waiting": "Waiting for the store...",
+    "asking": "Asking the store...",
+    "thanks": "Thank you!",
+    "arrived": "Your purchase arrived.",
+    "pending": "Waiting for approval. The purchase arrives when it is approved.",
+    "cancelled": "Purchase cancelled. Nothing was charged.",
+    "restored": "Your purchases were restored.",
+    "nothingToRestore": "There was nothing to restore.",
+    "unreachable": "The store could not be reached ({code}). {detail}"
+  }
+}

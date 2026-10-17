@@ -16,9 +16,11 @@
 #include "fa/core/notices.h"
 #include "fa/core/strings.h"
 #include "fa/platform/input.h"
+#include "fa/platform/system_language.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
 #include "fa/scene/bounds.h"
+#include "fa/scene/localize.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/ui/ui.h"
@@ -525,6 +527,12 @@ NATIVE(entityJson) {
     return I->from_json(entity_to_json(W, e, o));
 }
 
+// Entities a script just created: their `key`s are translated now, not at the end of the frame (docs/LOCALIZATION.md).
+void localize_created(Impl* I, const std::vector<Entity>& created) {
+    if (const I18n* L = I->host->i18n())
+        for (Entity e : created) localize_entity(I->host->world(), e, *L);
+}
+
 NATIVE(spawn) {
     SETUP;
     Json j = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
@@ -538,6 +546,7 @@ NATIVE(spawn) {
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
+    localize_created(I, report.created);
     return ent_val(ctx, e);
 }
 
@@ -551,6 +560,7 @@ NATIVE(spawnPrefab) {
     Entity e = instantiate_prefab(W, path, parent, report, overrides);
     if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
     I->construct_for(report.created);
+    localize_created(I, report.created);
     return ent_val(ctx, e);
 }
 
@@ -1804,6 +1814,47 @@ NATIVE(platformInfo) {  // {backend, services, player: {id, name, signedIn}, pen
                                       {"pending", 0}}));
 }
 
+// ---- i18n (fa/core/i18n.h; the `i18n` object of the prelude) -------------------------------------------------------------
+NATIVE(i18nInfo) {  // {enabled, language, defaultLanguage, languages, names, systemLanguages}
+    SETUP;
+    const I18n* L = I->host->i18n();
+    Json j = Json::object({{"enabled", L && L->enabled()}, {"language", ""}, {"defaultLanguage", ""}, {"languages", Json::array()},
+                           {"names", Json::object()}, {"systemLanguages", Json::array()}});
+    if (L && L->enabled()) {
+        j["language"] = L->language();
+        j["defaultLanguage"] = L->default_language();
+        for (const std::string& code : L->languages()) {
+            j["languages"].push_back(code);
+            j["names"][code] = L->name(code);
+        }
+        // The player's languages only in a game with its own window: headless runs and tests must not depend on the machine.
+        if (I->host->window())
+            for (const std::string& tag : system_languages()) j["systemLanguages"].push_back(tag);
+    }
+    return I->from_json(j);
+}
+
+NATIVE(i18nT) {  // (key, args) -> the string; the key itself when no table has it (warns once)
+    SETUP;
+    const std::string key = arg_str(ctx, argc, argv, 0);
+    const I18n* L = I->host->i18n();
+    if (!L) return JS_NewString(ctx, key.c_str());
+    const Json args = argc > 1 ? I->to_json(argv[1]) : Json();
+    const std::string text = L->t(key, args);
+    return JS_NewStringLen(ctx, text.data(), text.size());
+}
+
+NATIVE(i18nHas) {
+    SETUP;
+    const I18n* L = I->host->i18n();
+    return JS_NewBool(ctx, L && L->has(arg_str(ctx, argc, argv, 0)));
+}
+
+NATIVE(i18nSet) {  // (language) -> "" when done, else why not
+    SETUP;
+    return JS_NewString(ctx, I->host->set_language(arg_str(ctx, argc, argv, 0)).c_str());
+}
+
 // ---- test helpers -------------------------------------------------------------------------------------------------
 NATIVE(testLoad) {
     SETUP;
@@ -1951,7 +2002,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
+    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

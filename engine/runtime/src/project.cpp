@@ -10,6 +10,7 @@
 #endif
 
 #include "fa/core/fs.h"
+#include "fa/core/i18n.h"
 #include "fa/core/strings.h"
 
 namespace fa {
@@ -172,7 +173,7 @@ Result<void> read_double(const Json& obj, const char* key, std::string_view ptr,
 const std::vector<std::string>& reserved_plugin_names() {
     static const std::vector<std::string> names = {
         "ai",   "api",     "app",    "assets",  "audio",   "debug",   "docs",    "editor", "engine", "fa",    "factoria",
-        "feedback", "fs",  "game",   "input",   "level",   "math",    "mcp",     "physics", "play",  "plugin", "plugins",
+        "feedback", "fs",  "game",   "i18n",    "input",   "level",   "math",    "mcp",     "physics", "play",  "plugin", "plugins",
         "platform", "prefab", "project", "scene", "script", "session", "settings", "setup", "test", "ui", "world"};
     return names;
 }
@@ -248,6 +249,142 @@ Result<std::string> read_project_text(std::string_view projectDir) {
 }
 
 }  // namespace
+
+// ---- "localization" ---------------------------------------------------------------------------------------------------------
+std::vector<std::string> LocalizationSettings::fallback_fonts_for(std::string_view language) const {
+    std::vector<std::string> out;
+    const auto add = [&](const std::vector<std::string>& fonts) {
+        for (const std::string& f : fonts)
+            if (std::find(out.begin(), out.end(), f) == out.end()) out.push_back(f);
+    };
+    for (std::string l(language); !l.empty(); l = base_language(l))
+        if (auto it = languageFonts.find(l); it != languageFonts.end()) {
+            add(it->second);
+            break;
+        }
+    add(fallbackFonts);
+    return out;
+}
+
+LocalizationParse parse_localization(const Json& section) {
+    LocalizationParse r;
+    LocalizationSettings& s = r.settings;
+    const auto issue = [&](const std::string& pointer, const std::string& message, const std::string& hint) {
+        r.issues.push_back({"/localization" + pointer, message, hint});
+    };
+    if (section.is_null()) return r;
+    if (!section.is_object()) {
+        issue("", "expected an object like {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]}, got " + describe_json_value(section),
+              "Declare the game's languages; each has a string table locales/<language>.json (docs/LOCALIZATION.md).");
+        return r;
+    }
+    const std::string tagHint =
+        "Write BCP 47 tags with this case: language lower case, script capitalized, region upper case: \"en\", \"pt-BR\", \"zh-Hans\".";
+    // A language tag at `pointer`, stored in `into` when it is written the canonical way.
+    const auto read_tag = [&](const Json& value, const std::string& pointer, std::string& into) {
+        if (!value.is_string()) {
+            issue(pointer, "expected a language tag such as \"en\" or \"pt-BR\", got " + describe_json_value(value), tagHint);
+            return false;
+        }
+        const std::string tag = value.get<std::string>();
+        if (!is_language_tag(tag)) {
+            const std::string fixed = normalize_language_tag(tag);
+            issue(pointer, "\"" + tag + "\" is not a language tag" + (fixed.empty() ? std::string() : ". Did you mean \"" + fixed + "\"?"), tagHint);
+            return false;
+        }
+        into = tag;
+        return true;
+    };
+    const auto read_fonts = [&](const Json& value, const std::string& pointer, std::vector<std::string>& into) {
+        if (!value.is_array()) {
+            issue(pointer, "expected an array of font paths, got " + describe_json_value(value),
+                  "List project-relative .ttf or .otf files: [\"assets/fonts/NotoSansJP-Regular.ttf\"].");
+            return;
+        }
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            const std::string where = pointer + "/" + std::to_string(i);
+            if (!value[i].is_string() || value[i].get<std::string>().empty()) {
+                issue(where, "expected the path of a font file, got " + describe_json_value(value[i]),
+                      "A project-relative path such as \"assets/fonts/NotoSansJP-Regular.ttf\".");
+                continue;
+            }
+            const std::string raw = value[i].get<std::string>();
+            const std::string path = fs::is_absolute(raw) ? std::string() : fs::normalize(raw);
+            if (path.empty()) {
+                issue(where, "\"" + raw + "\" is not a path inside the project",
+                      "Copy the font into the project (assets/fonts/) and write its project-relative path with forward slashes.");
+                continue;
+            }
+            into.push_back(path);
+        }
+    };
+
+    static const std::vector<std::string> keys = {"defaultLanguage", "languages", "fallbackFonts", "languageFonts"};
+    for (auto it = section.begin(); it != section.end(); ++it)
+        if (std::find(keys.begin(), keys.end(), it.key()) == keys.end())
+            r.warnings.push_back({"/localization/" + it.key(),
+                                  "unknown key \"" + it.key() + "\" in \"localization\" (ignored). " + did_you_mean(it.key(), keys),
+                                  "Remove it or fix the spelling."});
+
+    std::string def;
+    bool hasDefault = false;
+    if (auto it = section.find("defaultLanguage"); it != section.end() && !it->is_null()) hasDefault = read_tag(*it, "/defaultLanguage", def);
+    bool languagesBad = false;
+    if (auto it = section.find("languages"); it != section.end() && !it->is_null()) {
+        if (!it->is_array() || it->empty()) {
+            issue("/languages", "expected a non-empty array of language tags, got " + describe_json_value(*it),
+                  "List the languages the game ships, e.g. [\"en\", \"es\"]; each needs locales/<tag>.json.");
+            languagesBad = true;
+        } else {
+            for (std::size_t i = 0; i < it->size(); ++i) {
+                std::string tag;
+                const std::string pointer = "/languages/" + std::to_string(i);
+                if (!read_tag((*it)[i], pointer, tag)) {
+                    languagesBad = true;
+                } else if (std::find(s.languages.begin(), s.languages.end(), tag) != s.languages.end()) {
+                    issue(pointer, "\"" + tag + "\" is listed twice", "Remove the repeat.");
+                    languagesBad = true;
+                } else {
+                    s.languages.push_back(tag);
+                }
+            }
+        }
+    } else if (hasDefault) {
+        s.languages.push_back(def);  // a game with one language
+    } else {
+        issue("/languages", "missing: the section needs the languages of the game",
+              "Add \"languages\": [\"en\", \"es\"] (and a locales/<tag>.json for each), or remove the \"localization\" section.");
+        languagesBad = true;
+    }
+    if (hasDefault && !languagesBad && std::find(s.languages.begin(), s.languages.end(), def) == s.languages.end())
+        issue("/defaultLanguage", "\"" + def + "\" is not one of \"languages\". " + did_you_mean(def, s.languages),
+              "Add it to \"languages\" or choose one of them.");
+    else if (!s.languages.empty())
+        s.defaultLanguage = hasDefault ? def : s.languages.front();
+
+    if (auto it = section.find("fallbackFonts"); it != section.end() && !it->is_null()) read_fonts(*it, "/fallbackFonts", s.fallbackFonts);
+    if (auto it = section.find("languageFonts"); it != section.end() && !it->is_null()) {
+        if (!it->is_object()) {
+            issue("/languageFonts", "expected an object mapping a language to its fonts, got " + describe_json_value(*it),
+                  "Example: \"languageFonts\": {\"zh-Hans\": [\"assets/fonts/NotoSansSC-Regular.ttf\"]}.");
+        } else {
+            for (auto lf = it->begin(); lf != it->end(); ++lf) {
+                const std::string pointer = "/languageFonts/" + lf.key();
+                if (!is_language_tag(lf.key())) {
+                    issue(pointer, "\"" + lf.key() + "\" is not a language tag", tagHint);
+                    continue;
+                }
+                if (!languagesBad && std::find(s.languages.begin(), s.languages.end(), lf.key()) == s.languages.end()) {
+                    issue(pointer, "\"" + lf.key() + "\" is not one of \"languages\". " + did_you_mean(lf.key(), s.languages),
+                          "Use the tag as it is written in \"languages\".");
+                    continue;
+                }
+                read_fonts(*lf, pointer, s.languageFonts[lf.key()]);
+            }
+        }
+    }
+    return r;
+}
 
 Result<ProjectSettings> load_project(std::string_view projectDir) {
     auto text = read_project_text(projectDir);
@@ -353,6 +490,17 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
             s.plugins.push_back(std::move(plugin.value()));
         }
         std::sort(s.plugins.begin(), s.plugins.end(), [](const PluginSettings& a, const PluginSettings& b) { return a.name < b.name; });
+    }
+    if (auto it = j.find("localization"); it != j.end() && !it->is_null()) {
+        LocalizationParse loc = parse_localization(*it);
+        if (!loc.ok()) {
+            const LocalizationIssue& first = loc.issues.front();
+            std::string more;
+            if (loc.issues.size() > 1)
+                more = " (and " + std::to_string(loc.issues.size() - 1) + " more problem(s) in \"localization\"; `factoria validate` lists them all)";
+            return make_error(at(first.pointer) + ": " + first.message + more, first.hint);
+        }
+        s.localization = std::move(loc.settings);
     }
     return s;
 }
@@ -559,6 +707,50 @@ constexpr const char* kSchemaText =
                 "ios",
                 "android"
               ]
+            }
+          }
+        }
+      }
+    },
+)JSON"
+    R"JSON(    "localization": {
+      "type": "object",
+      "description": "Languages of the game (docs/LOCALIZATION.md). Each language has a string table locales/<language>.json; Text.key and the widgets' key fields, `i18n.t(key, args)` in scripts and the i18n.* commands read them. Without this section localization is off and the game behaves as it always did. Headless runs (tests, the MCP server, `factoria call`) and the editor always use defaultLanguage; a game in its own window or an exported game starts in the language of the player's system that best matches `languages`, unless the environment variable FA_LANGUAGE names one. `factoria validate` reports every problem with how to fix it.",
+      "properties": {
+        "defaultLanguage": {
+          "type": "string",
+          "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$",
+          "description": "The language the strings are written in first and the last fallback of every lookup; also the language of headless runs and the editor. Must be one of `languages` (default: the first of them). A BCP 47 tag: language lower case, script capitalized, region upper case (\"en\", \"pt-BR\", \"zh-Hans\")."
+        },
+        "languages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The languages the game ships, in the order a language menu lists them. Each is a BCP 47 tag and has a string table locales/<tag>.json (\"en\", \"es\", \"pt-BR\", \"zh-Hans\", \"ja\", \"ar\"). With only defaultLanguage given, the game has that one language.",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+          }
+        },
+        "fallbackFonts": {
+          "type": "array",
+          "description": "Project-relative paths of .ttf or .otf fonts that fill the characters the main font of a Text lacks, in every language, after the font of the language itself (languageFonts). Typically Noto fonts for the scripts of `languages`: [\"assets/fonts/NotoSansArabic-Regular.ttf\", \"assets/fonts/NotoSansJP-Regular.ttf\"]. Stored here; the text renderer uses them (see the font documentation).",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "languageFonts": {
+          "type": "object",
+          "description": "Fonts for one language, tried before fallbackFonts when the game runs in it (or in a region of it: \"zh-Hans\" also serves \"zh-Hans-CN\"). Keys are tags of `languages`: {\"zh-Hans\": [\"assets/fonts/NotoSansSC-Regular.ttf\"], \"ja\": [\"assets/fonts/NotoSansJP-Regular.ttf\"]}.",
+          "propertyNames": {
+            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-([A-Z]{2}|[0-9]{3}))?$"
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
             }
           }
         }

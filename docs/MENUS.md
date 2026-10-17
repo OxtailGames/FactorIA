@@ -1,7 +1,7 @@
 # Game menus: main menu, options, credits, loading screen, pause
 
 New projects start with a camera and nothing else. When a game needs menus, the files below give it the usual set in a
-few steps: a main menu, options (video, audio per bus, controls, a language slot), credits that list the software inside
+few steps: a main menu, options (video, audio per bus, controls, language), credits that list the software inside
 the runtime, a loading screen and a pause menu. Everything works with only a keyboard, only a mouse or only a gamepad,
 and the player's settings are saved between runs.
 
@@ -18,7 +18,7 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 3. **Main menu and credits.** `scenes/menu.scene.json`, `scripts/main_menu.js` and `scripts/ui/credits.js`. Put the
    game's name in the `title` Text and its first level in `MainMenu.firstScene`.
 4. **Options.** `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`. `Options.actions` lists the actions the
-   player may rebind, with their labels: use your game's actions.
+   player may rebind (their labels are the strings `options.action.<action>`): use your game's actions.
 5. **Loading screen.** `scenes/loading.scene.json` and `scripts/loading.js`.
 6. **Pause.** `prefabs/ui/pause.prefab.json`, `scripts/pause_menu.js`, and one entity in every level scene:
    `{ "id": "pause_menu", "components": { "Script": { "path": "scripts/pause_menu.js" } } }`.
@@ -27,7 +27,11 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
    ([PLATFORM.md](PLATFORM.md)). Without a store (the exported game before a store plugin is added) the button stays
    hidden; a game with nothing to sell deletes the button, the panel and the script. One entity with
    `scripts/store_events.js` in every level pauses the game while the store's overlay is open.
-8. **Check.** `factoria call scene.format` (the files below are written short; it rewrites them in the canonical
+8. **Languages.** `factoria.json` `"localization"`, one `locales/<language>.json` per language, and a `key` on every
+   Text and widget the scenes and prefabs write (below; [LOCALIZATION.md](LOCALIZATION.md)). The scripts take their
+   texts from the tables (`i18n.t`), so a game with one language keeps the section with that language and
+   `locales/en.json`: `"localization": { "defaultLanguage": "en", "languages": ["en"] }`.
+9. **Check.** `factoria call scene.format` (the files below are written short; it rewrites them in the canonical
    layout), `factoria validate`, a screenshot of the menu (`factoria run --headless --frames 3 --screenshot-at 2`),
    and a test that drives the menus with the pad, such as `tests/recipe.test.js` at the end. `ui.state` lists every
    widget with its rectangle, focus and value.
@@ -60,15 +64,26 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   click), then `input.rebind(action, [pressed, ...the other device's bindings])` and saves the list. While it waits,
   `MenuStack.busy` keeps Escape and B from closing the panel. `input.buttonName(action)` names the button as the
   player's pad shows it (Cross on a PlayStation pad, A on an Xbox pad); "Reset to defaults" is `input.resetBindings()`.
-- **Language.** A slot: the tab shows the current language, greyed out. Localization arrives with a later FactorIA
-  milestone (M14); a game with translations of its own can make the button cycle through them meanwhile.
+- **Language.** The Language tab's button names the current language (`i18n.name`) and cycles through `i18n.languages`
+  with `i18n.setLanguage`: every Text and widget with a `key` is rewritten at once. The choice is saved in `settings`
+  (`language`); `settings.apply` restores it at the next start, and ignores, with a warning, a language the game no
+  longer has. Without a saved choice the game starts in the player's system language when it has it, else in
+  `defaultLanguage`. A game with one language greys the button out.
+- **Texts: with a key, or written by a script.** A Text or widget with a `key` shows `i18n.t(key)` and is rewritten when
+  the language changes, so a script must not write its `text` (the next frame puts the translation back). Text a script
+  builds (`Window size: 1280 x 720`, the controls' buttons, the shop's messages) uses `i18n.t(key, args)` with
+  `{placeholders}` and writes it again on `i18n.on("change", ...)`. A panel's script starts when the panel first opens,
+  so it reads the language then. Credits spawn their Texts with a `key` too: they change while the panel is open.
 - **Shop.** A purchase is granted first and finished after (`platform.purchases.finish`): the store hands over a
   purchase that was never finished again on the next run, so a crash between the two loses nothing, and the wallet
   remembers the transactions it already granted so the player is not paid twice. A cancelled purchase and a store error
   (`e.code`, `e.hint`) show a message and grant nothing. "Restore purchases" returns the non-consumables. The tests are
   `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
-- **Add an option.** Add a widget to `options.prefab.json`, read and write its value in `options.js`, and keep it in
-  `settings.js` (`DEFAULTS` and `apply`).
+- **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
+  `options.js`, and keep it in `settings.js` (`DEFAULTS` and `apply`).
+- **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
+  translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the
+  language's own name in `"$name"`: it is what the Language button shows.
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
   section 9.22.
 
@@ -78,9 +93,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 
 ```js scripts/settings.js
 // @ts-check
-// The player's settings (volumes, video, controls), kept in storage under "settings" and applied once per run.
+// The player's settings (volumes, video, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session } from "factoria";
+import { storage, audio, window, input, session, i18n } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -92,6 +107,7 @@ const DEFAULTS = {
   vsync: null, // null: keep factoria.json display.vsync
   frameCap: 0, // 0 = no cap
   bindings: {}, // action -> binding names, only for actions the player rebound
+  language: null, // null: the language the game started in (the player's system language, else the default one)
 };
 
 /** The saved settings merged over the defaults (a fresh object each call). */
@@ -104,9 +120,16 @@ export function save(s) {
   storage.set("settings", s);
 }
 
-/** Puts `s` into effect: bus volumes, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
+  if (s.language && s.language !== i18n.language) {
+    try {
+      i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
+    } catch (e) {
+      console.warn(`settings: the saved language was ignored: ${e.message}`);
+    }
+  }
   for (const [action, list] of Object.entries(s.bindings)) {
     try {
       input.rebind(action, list);
@@ -204,12 +227,12 @@ export class MenuStack {
         "Panel": { "anchor": [0.5, 0.5], "color": [0, 0, 0, 0], "layout": "column", "spacing": 12, "fit": true },
         "Script": { "path": "scripts/main_menu.js" } },
       "children": [
-        { "id": "title", "components": { "Text": { "text": "My Game", "fontSize": 64, "space": "screen" } } },
-        { "id": "play", "components": { "Button": { "text": "Play", "autoFocus": true } } },
-        { "id": "options_button", "components": { "Button": { "text": "Options" } } },
-        { "id": "credits_button", "components": { "Button": { "text": "Credits" } } },
-        { "id": "shop_button", "active": false, "components": { "Button": { "text": "Shop" } } },
-        { "id": "quit", "components": { "Button": { "text": "Quit" } } }
+        { "id": "title", "components": { "Text": { "text": "My Game", "key": "menu.title", "fontSize": 64, "space": "screen" } } },
+        { "id": "play", "components": { "Button": { "text": "Play", "key": "menu.play", "autoFocus": true } } },
+        { "id": "options_button", "components": { "Button": { "text": "Options", "key": "menu.options" } } },
+        { "id": "credits_button", "components": { "Button": { "text": "Credits", "key": "menu.credits" } } },
+        { "id": "shop_button", "active": false, "components": { "Button": { "text": "Shop", "key": "menu.shop" } } },
+        { "id": "quit", "components": { "Button": { "text": "Quit", "key": "menu.quit" } } }
       ] },
     { "id": "options", "active": false, "prefab": "prefabs/ui/options.prefab.json" },
     { "id": "shop", "active": false,
@@ -217,13 +240,13 @@ export class MenuStack {
         "Panel": { "size": [760, 520], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
         "Script": { "path": "scripts/ui/shop.js" } },
       "children": [
-        { "id": "shop_title", "components": { "Text": { "text": "Shop", "fontSize": 40, "space": "screen", "layer": 301 } } },
+        { "id": "shop_title", "components": { "Text": { "text": "Shop", "key": "shop.title", "fontSize": 40, "space": "screen", "layer": 301 } } },
         { "id": "gems_label", "components": { "Text": { "text": "Gems: 0", "fontSize": 28, "space": "screen", "layer": 301 } } },
         { "id": "buy_gems", "components": { "Button": { "text": "100 gems", "layer": 302, "autoFocus": true } } },
         { "id": "buy_remove_ads", "components": { "Button": { "text": "Remove ads", "layer": 302 } } },
-        { "id": "restore", "components": { "Button": { "text": "Restore purchases", "layer": 302 } } },
+        { "id": "restore", "components": { "Button": { "text": "Restore purchases", "key": "shop.restore", "layer": 302 } } },
         { "id": "shop_status", "components": { "Text": { "text": "", "fontSize": 22, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "maxWidth": 700, "layer": 301 } } },
-        { "id": "shop_back", "tags": ["back"], "components": { "Button": { "text": "Back", "layer": 302 } } }
+        { "id": "shop_back", "tags": ["back"], "components": { "Button": { "text": "Back", "key": "menu.back", "layer": 302 } } }
       ] },
     { "id": "credits", "active": false,
       "components": {
@@ -231,7 +254,7 @@ export class MenuStack {
         "Script": { "path": "scripts/ui/credits.js" } },
       "children": [
         { "id": "credits_list", "components": { "ScrollList": { "size": [712, 476], "layer": 301, "color": [0, 0, 0, 0.25], "spacing": 14, "padding": [16, 16, 16, 16] } } },
-        { "id": "credits_back", "tags": ["back"], "components": { "Button": { "text": "Back", "layer": 302, "autoFocus": true } } }
+        { "id": "credits_back", "tags": ["back"], "components": { "Button": { "text": "Back", "key": "menu.back", "layer": 302, "autoFocus": true } } }
       ] }
   ]
 }
@@ -280,20 +303,22 @@ export default class MainMenu extends Behaviour {
 import { Behaviour, game, input } from "factoria";
 
 export default class Credits extends Behaviour {
-  /** Lines shown after the game's name (factoria.json "name") and before the engine's notices. */
-  lines = ["Made with FactorIA"];
+  /** String-table keys of the lines shown after the game's name (factoria.json "name") and before the engine's notices. */
+  lines = ["credits.madeWith"];
   /** Scroll speed of ui_up/ui_down in pixels per second. */
   scrollSpeed = 500;
 
   onStart() {
     this.list = this.world.find("credits_list");
-    const text = (s, fontSize = 22, color = [1, 1, 1, 1]) =>
-      this.world.spawn({ components: { Text: { text: s, fontSize, color, space: "screen", maxWidth: 680, layer: 302 } } }, { parent: this.list });
+    const text = (s, fontSize = 22, color = [1, 1, 1, 1], key = "") =>
+      this.world.spawn({ components: { Text: { text: s, key, fontSize, color, space: "screen", maxWidth: 680, layer: 302 } } }, { parent: this.list });
+    // A Text with a key is translated by the engine, also when the player changes the language while the credits are open.
+    const keyed = (key, fontSize, color) => text(key, fontSize, color, key);
     text(game.project.name, 34);
-    for (const l of this.lines) text(l, 26);
-    text("This game uses the following software:", 22, [0.75, 0.8, 0.9, 1]);
+    for (const key of this.lines) keyed(key, 26);
+    keyed("credits.software", 22, [0.75, 0.8, 0.9, 1]);
     for (const n of game.notices()) text(`${n.name}  (${n.license})\n${n.usedFor}\n${n.url}`, 20);
-    text("The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.", 18, [0.75, 0.8, 0.9, 1]);
+    keyed("credits.licenses", 18, [0.75, 0.8, 0.9, 1]);
   }
 
   onUpdate(dt) {
@@ -311,7 +336,7 @@ export default class Credits extends Behaviour {
 // the products of factoria.json "platform.products": gems (a consumable) and "Remove ads" (a non-consumable). A purchase
 // is granted first and finished after: the store keeps a purchase "unfinished" and hands it over again on the next run
 // until finish() is called, so a crash between the two never loses what the player paid for.
-import { Behaviour, ui, platform, storage } from "factoria";
+import { Behaviour, ui, platform, storage, i18n } from "factoria";
 
 /** What the player owns, kept in storage under "wallet". `seen` holds the transactions already granted. */
 function wallet() {
@@ -330,8 +355,9 @@ export default class Shop extends Behaviour {
     ui.on("click", "restore", () => this.restore());
     // Purchases that finish outside buy(): a parent approves an "ask to buy", or the store hands over a purchase the last run left
     // unfinished.
-    platform.on("purchase", (p) => p.status === "purchased" && this.grant(p).then(() => this.say("Your purchase arrived.")));
+    platform.on("purchase", (p) => p.status === "purchased" && this.grant(p).then(() => this.say(i18n.t("shop.arrived"))));
     this.refresh();
+    i18n.on("change", () => this.refresh()); // the gems line is written by this script, not translated by the engine
     // The store's own titles and prices (already formatted for the player's country) go on the buttons.
     platform.purchases.products().then((list) => {
       for (const p of list) {
@@ -347,7 +373,7 @@ export default class Shop extends Behaviour {
 
   refresh() {
     const w = wallet();
-    this.world.find("gems_label").get("Text").text = `Gems: ${w.gems}` + (w.noAds ? "   (ads removed)" : "");
+    this.world.find("gems_label").get("Text").text = i18n.t(w.noAds ? "shop.gemsNoAds" : "shop.gems", { count: w.gems });
   }
 
   /** Gives the player what the purchase bought, once per transaction, then tells the store it is done. */
@@ -366,21 +392,21 @@ export default class Shop extends Behaviour {
   async buy(productId) {
     if (this.busy) return;
     this.busy = true;
-    this.say("Waiting for the store...");
+    this.say(i18n.t("shop.waiting"));
     try {
       const r = await platform.purchases.buy(productId);
       if (r.status === "purchased") {
         const finished = this.grant(r); // the wallet changes at once; telling the store it is done may take a moment
-        this.say("Thank you!");
+        this.say(i18n.t("shop.thanks"));
         await finished;
       } else if (r.status === "pending") {
-        this.say("Waiting for approval. The purchase arrives when it is approved."); // the "purchase" event grants it
+        this.say(i18n.t("shop.pending")); // the "purchase" event grants it
       } else {
-        this.say("Purchase cancelled. Nothing was charged.");
+        this.say(i18n.t("shop.cancelled"));
       }
     } catch (e) {
       // e.code is "network", "unavailable", "notSignedIn"...; e.hint says what to try.
-      this.say(`The store could not be reached (${e.code}). ${e.hint ?? e.message}`);
+      this.say(i18n.t("shop.unreachable", { code: e.code, detail: e.hint ?? e.message }));
     } finally {
       this.busy = false;
     }
@@ -389,15 +415,15 @@ export default class Shop extends Behaviour {
   async restore() {
     if (this.busy) return;
     this.busy = true;
-    this.say("Asking the store...");
+    this.say(i18n.t("shop.asking"));
     try {
       const w = wallet();
       for (const owned of await platform.purchases.restore()) if (owned.productId === "remove_ads") w.noAds = true;
       storage.set("wallet", w);
       this.refresh();
-      this.say(w.noAds ? "Your purchases were restored." : "There was nothing to restore.");
+      this.say(i18n.t(w.noAds ? "shop.restored" : "shop.nothingToRestore"));
     } catch (e) {
-      this.say(`The store could not be reached (${e.code}). ${e.hint ?? e.message}`);
+      this.say(i18n.t("shop.unreachable", { code: e.code, detail: e.hint ?? e.message }));
     } finally {
       this.busy = false;
     }
@@ -441,45 +467,45 @@ export default class StoreEvents extends Behaviour {
       "Script": { "path": "scripts/ui/options.js" }
     },
     "children": [
-      { "name": "Title", "components": { "Text": { "text": "Options", "fontSize": 40, "space": "screen", "layer": 301 } } },
+      { "name": "Title", "components": { "Text": { "text": "Options", "key": "options.title", "fontSize": 40, "space": "screen", "layer": 301 } } },
       { "name": "Tabs",
         "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "padding": [0, 0, 0, 0], "fit": true } },
         "children": [
-          { "id": "tab_video", "components": { "Button": { "text": "Video", "size": [160, 48], "layer": 302, "autoFocus": true } } },
-          { "id": "tab_audio", "components": { "Button": { "text": "Audio", "size": [160, 48], "layer": 302 } } },
-          { "id": "tab_controls", "components": { "Button": { "text": "Controls", "size": [160, 48], "layer": 302 } } },
-          { "id": "tab_language", "components": { "Button": { "text": "Language", "size": [160, 48], "layer": 302 } } }
+          { "id": "tab_video", "components": { "Button": { "text": "Video", "key": "options.tab.video", "size": [160, 48], "layer": 302, "autoFocus": true } } },
+          { "id": "tab_audio", "components": { "Button": { "text": "Audio", "key": "options.tab.audio", "size": [160, 48], "layer": 302 } } },
+          { "id": "tab_controls", "components": { "Button": { "text": "Controls", "key": "options.tab.controls", "size": [160, 48], "layer": 302 } } },
+          { "id": "tab_language", "components": { "Button": { "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
         ] },
       { "id": "video_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
-          { "id": "fullscreen", "components": { "Toggle": { "label": "Full screen", "size": [560, 44], "layer": 302 } } },
+          { "id": "fullscreen", "components": { "Toggle": { "label": "Full screen", "key": "options.fullscreen", "size": [560, 44], "layer": 302 } } },
           { "id": "resolution", "components": { "Button": { "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
-          { "id": "vsync", "components": { "Toggle": { "label": "VSync", "size": [560, 44], "layer": 302 } } },
+          { "id": "vsync", "components": { "Toggle": { "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
           { "id": "frame_cap", "components": { "Button": { "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
-          { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.",
+          { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.", "key": "options.videoNote",
             "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "layer": 302 } } }
         ] },
       { "id": "audio_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
-          { "id": "master_volume", "components": { "Slider": { "label": "Master", "size": [560, 44], "layer": 302 } } },
-          { "id": "music_volume", "components": { "Slider": { "label": "Music", "size": [560, 44], "layer": 302 } } },
-          { "id": "sfx_volume", "components": { "Slider": { "label": "Effects", "size": [560, 44], "layer": 302 } } },
-          { "id": "ui_volume", "components": { "Slider": { "label": "Interface", "size": [560, 44], "layer": 302 } } }
+          { "id": "master_volume", "components": { "Slider": { "label": "Master", "key": "options.volume.master", "size": [560, 44], "layer": 302 } } },
+          { "id": "music_volume", "components": { "Slider": { "label": "Music", "key": "options.volume.music", "size": [560, 44], "layer": 302 } } },
+          { "id": "sfx_volume", "components": { "Slider": { "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
+          { "id": "ui_volume", "components": { "Slider": { "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } }
         ] },
       { "id": "controls_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
           { "id": "bindings", "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "column", "padding": [0, 0, 0, 0], "fit": true } } },
-          { "id": "reset_controls", "components": { "Button": { "text": "Reset to defaults", "size": [560, 44], "layer": 302, "fontSize": 22 } } }
+          { "id": "reset_controls", "components": { "Button": { "text": "Reset to defaults", "key": "options.resetControls", "size": [560, 44], "layer": 302, "fontSize": 22 } } }
         ] },
       { "id": "language_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
-          { "id": "language", "components": { "Button": { "text": "Language: English", "size": [560, 44], "layer": 302, "interactable": false } } }
+          { "id": "language", "components": { "Button": { "text": "Language: English", "size": [560, 44], "layer": 302 } } }
         ] },
-      { "id": "options_back", "tags": ["back"], "components": { "Button": { "text": "Back", "layer": 302 } } }
+      { "id": "options_back", "tags": ["back"], "components": { "Button": { "text": "Back", "key": "menu.back", "layer": 302 } } }
     ]
   }
 }
@@ -490,9 +516,10 @@ export default class StoreEvents extends Behaviour {
 ```js scripts/ui/options.js
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video,
-// Audio (one slider per bus), Controls (rebinding) and Language (a placeholder until localization). Every change is
-// applied at once and saved (scripts/settings.js), so the next run starts with it.
-import { Behaviour, ui, input, window, audio, world } from "factoria";
+// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
+// (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
+import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
 
@@ -504,8 +531,8 @@ const TAB_SELECTED = [0.3, 0.36, 0.52, 0.96];
 
 export default class Options extends Behaviour {
   runWhilePaused = true; // the pause menu opens it while game.paused
-  /** Actions the Controls tab lets the player rebind, and their labels. */
-  actions = { move_left: "Move left", move_right: "Move right", jump: "Jump", pause: "Pause" };
+  /** Actions the Controls tab lets the player rebind; their labels are the strings "options.action.<action>". */
+  actions = ["move_left", "move_right", "jump", "pause"];
 
   onStart() {
     this.s = settings.load();
@@ -516,6 +543,13 @@ export default class Options extends Behaviour {
     this.setupVideo();
     this.setupAudio();
     this.setupControls();
+    this.setupLanguage();
+    // The texts this script writes are not translated by the engine: write them again in the new language.
+    i18n.on("change", () => {
+      this.refreshVideo();
+      this.refreshControls();
+      this.refreshLanguage();
+    });
   }
 
   showTab(name) {
@@ -566,9 +600,13 @@ export default class Options extends Behaviour {
   refreshVideo() {
     const size = window.size;
     const resolution = world.find("resolution").get("Button");
-    resolution.text = window.fullscreen ? "Window size: full screen" : `Window size: ${Math.round(size.x)} x ${Math.round(size.y)}`;
+    resolution.text = window.fullscreen
+      ? i18n.t("options.windowSizeFullscreen")
+      : i18n.t("options.windowSize", { width: Math.round(size.x), height: Math.round(size.y) });
     resolution.interactable = window.available && !window.fullscreen; // full screen uses the display's size
-    world.find("frame_cap").get("Button").text = `Frame cap: ${window.frameCap ? window.frameCap + " fps" : "off"}`;
+    world.find("frame_cap").get("Button").text = window.frameCap
+      ? i18n.t("options.frameCap", { fps: window.frameCap })
+      : i18n.t("options.frameCapOff");
   }
 
   // ------------------------------------------------------------------------------------------------------------ audio
@@ -586,13 +624,13 @@ export default class Options extends Behaviour {
   // --------------------------------------------------------------------------------------------------------- controls
   setupControls() {
     const list = world.find("bindings");
-    for (const [action, label] of Object.entries(this.actions)) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: label, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+    for (const action of this.actions) {
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };
         MenuStack.busy = true; // Escape cancels the rebinding instead of closing the panel
-        button.get("Button").text = `${label}: press a key or button (Esc cancels)`;
+        this.refreshControls();
       });
     }
     ui.on("click", "reset_controls", () => {
@@ -605,8 +643,31 @@ export default class Options extends Behaviour {
   }
 
   refreshControls() {
-    for (const [action, label] of Object.entries(this.actions))
-      world.find(`bind_${action}`).get("Button").text = `${label}: ${input.buttonName(action)}`;
+    for (const action of this.actions) {
+      const label = i18n.t(`options.action.${action}`);
+      world.find(`bind_${action}`).get("Button").text =
+        this.waiting?.action === action
+          ? i18n.t("options.pressKey", { action: label })
+          : i18n.t("options.binding", { action: label, button: input.buttonName(action) });
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------------- language
+  setupLanguage() {
+    ui.on("click", "language", () => {
+      const all = i18n.languages;
+      const next = all[(all.indexOf(i18n.language) + 1) % all.length];
+      i18n.setLanguage(next); // every Text and widget with a key changes at once; "change" listeners run next frame
+      this.s.language = next;
+      settings.save(this.s);
+    });
+    this.refreshLanguage();
+  }
+
+  refreshLanguage() {
+    const button = world.find("language").get("Button");
+    button.text = i18n.t("options.language", { language: i18n.name(i18n.language) });
+    button.interactable = i18n.languages.length > 1; // a game with one language has nothing to choose
   }
 
   onUpdate() {
@@ -646,7 +707,7 @@ export default class Options extends Behaviour {
     { "id": "loading",
       "components": {
         "Transform": { "position": [-48, -48, 0] },
-        "Text": { "text": "Loading...", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
+        "Text": { "text": "Loading...", "key": "loading.text", "fontSize": 36, "space": "screen", "anchor": [1, 1], "pivot": [1, 0] },
         "Script": { "path": "scripts/loading.js" } } }
   ]
 }
@@ -683,10 +744,10 @@ export default class Loading extends Behaviour {
       { "id": "pause_box",
         "components": { "Panel": { "layer": 300, "layout": "column", "spacing": 12, "padding": [32, 24, 32, 32], "fit": true } },
         "children": [
-          { "id": "pause_title", "components": { "Text": { "text": "Paused", "fontSize": 40, "layer": 301, "space": "screen" } } },
-          { "id": "resume", "components": { "Button": { "text": "Resume", "layer": 302, "autoFocus": true } } },
-          { "id": "pause_options", "components": { "Button": { "text": "Options", "layer": 302 } } },
-          { "id": "to_main_menu", "components": { "Button": { "text": "Main menu", "layer": 302 } } }
+          { "id": "pause_title", "components": { "Text": { "text": "Paused", "key": "pause.title", "fontSize": 40, "layer": 301, "space": "screen" } } },
+          { "id": "resume", "components": { "Button": { "text": "Resume", "key": "pause.resume", "layer": 302, "autoFocus": true } } },
+          { "id": "pause_options", "components": { "Button": { "text": "Options", "key": "menu.options", "layer": 302 } } },
+          { "id": "to_main_menu", "components": { "Button": { "text": "Main menu", "key": "pause.mainMenu", "layer": 302 } } }
         ] }
     ]
   }
@@ -752,6 +813,65 @@ export default class PauseMenu extends Behaviour {
   back() {
     if (this.menus.top === "pause_panel") this.resume();
     else this.menus.back();
+  }
+}
+```
+
+### `locales/en.json`
+
+The strings of the default language. `locales/es.json` in the fixture has the same keys in Spanish. `{name}` is replaced by
+the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.tab.video`).
+
+```json locales/en.json
+{
+  "$name": "English",
+  "menu": {
+    "title": "My Game",
+    "play": "Play",
+    "options": "Options",
+    "credits": "Credits",
+    "shop": "Shop",
+    "quit": "Quit",
+    "back": "Back"
+  },
+  "loading": { "text": "Loading..." },
+  "pause": { "title": "Paused", "resume": "Resume", "mainMenu": "Main menu" },
+  "options": {
+    "title": "Options",
+    "tab": { "video": "Video", "audio": "Audio", "controls": "Controls", "language": "Language" },
+    "fullscreen": "Full screen",
+    "vsync": "VSync",
+    "windowSize": "Window size: {width} x {height}",
+    "windowSizeFullscreen": "Window size: full screen",
+    "frameCap": "Frame cap: {fps} fps",
+    "frameCapOff": "Frame cap: off",
+    "videoNote": "Video settings apply when the game runs in its own window.",
+    "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
+    "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: press a key or button (Esc cancels)",
+    "resetControls": "Reset to defaults",
+    "language": "Language: {language}"
+  },
+  "credits": {
+    "madeWith": "Made with FactorIA",
+    "software": "This game uses the following software:",
+    "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game."
+  },
+  "shop": {
+    "title": "Shop",
+    "gems": "Gems: {count}",
+    "gemsNoAds": "Gems: {count}   (ads removed)",
+    "restore": "Restore purchases",
+    "waiting": "Waiting for the store...",
+    "asking": "Asking the store...",
+    "thanks": "Thank you!",
+    "arrived": "Your purchase arrived.",
+    "pending": "Waiting for approval. The purchase arrives when it is approved.",
+    "cancelled": "Purchase cancelled. Nothing was charged.",
+    "restored": "Your purchases were restored.",
+    "nothingToRestore": "There was nothing to restore.",
+    "unreachable": "The store could not be reached ({code}). {detail}"
   }
 }
 ```

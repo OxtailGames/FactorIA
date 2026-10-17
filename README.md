@@ -133,6 +133,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.
 - [docs/BUILDING.md](docs/BUILDING.md): platform requirements, presets, CI, tests and troubleshooting.
 - [docs/MOBILE.md](docs/MOBILE.md) and [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android and exporting games.
+- [docs/LOCALIZATION.md](docs/LOCALIZATION.md): several languages: string tables, `key` fields, the `i18n` script API.
 
 If you are going to modify the engine, read [CLAUDE.md](CLAUDE.md) and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first.

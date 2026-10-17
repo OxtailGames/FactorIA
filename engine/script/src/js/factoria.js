@@ -1192,9 +1192,54 @@
     },
   };
 
+  // ======================================================================================================= i18n
+  // Localization (docs/LOCALIZATION.md): the string tables are locales/<language>.json, the languages are listed in factoria.json
+  // "localization". Without that section the game is not localized: t(key) returns the key, languages is [].
+  const I18N_EVENTS = ["change"];
+  const i18n = {
+    // t(key, args?): the text of `key` in the current language (else its base language, else the default language). {name}
+    // placeholders come from args; a plural entry is chosen by args.count. A key no table has: returns the key, warns once.
+    t(key, args) {
+      if (typeof key !== "string")
+        throw new Error(`i18n.t(key, args): key must be a string like "menu.play", but got ${platformArg(key)}`);
+      if (args !== undefined && (!isObj(args) || Array.isArray(args)))
+        throw new Error(`i18n.t("${key}", args): args must be an object like { count: 3, name: "Ana" }, but got ${platformArg(args)}`);
+      return N.i18nT(key, args === undefined ? {} : plain(args));
+    },
+    // Is `key` in some table of the current language's fallback chain? (t never throws; has tells a real string from the key.)
+    has(key) { return N.i18nHas(String(key)); },
+    // The current language: one of `languages` ("" when the game has no localization).
+    get language() { return N.i18nInfo().language; },
+    // Switches now: every Text and widget with a `key` is rewritten, and the "change" listeners run. Accepts the tag as written in
+    // factoria.json or close to it ("pt_br", "es-MX" -> "es"); an unknown language throws with a "did you mean". Not saved: a game
+    // keeps the choice with `storage` and calls this at start.
+    setLanguage(language) {
+      const err = N.i18nSet(String(language));
+      if (err) throw new Error(`i18n.setLanguage(${platformArg(language)}): ${err}`);
+    },
+    // The game's languages, as in factoria.json localization.languages (a copy).
+    get languages() { return N.i18nInfo().languages; },
+    get defaultLanguage() { return N.i18nInfo().defaultLanguage; },
+    // The player's system languages, best first (BCP 47). Empty in headless runs and tests.
+    get systemLanguages() { return N.i18nInfo().systemLanguages; },
+    // The language's own name for a menu ("Español"): "$name" of its table, else the tag.
+    name(language) { const names = N.i18nInfo().names; return Object.prototype.hasOwnProperty.call(names, language) ? names[language] : String(language); },
+    // on("change", fn): fn({ language, previous }) after every language switch. Returns the function that stops listening.
+    // Listeners end with the scene, like ui.on: register in onStart.
+    on(event, fn) {
+      if (!I18N_EVENTS.includes(event)) {
+        const sug = closest(String(event), I18N_EVENTS);
+        throw new Error(`i18n.on(event, fn): unknown event ${platformArg(event)}${sug ? ` (did you mean "${sug}"?)` : ""}; use one of ${quotedList(I18N_EVENTS)}`);
+      }
+      if (typeof fn !== "function")
+        throw new Error(`i18n.on("${event}", fn) expects a function, e.g. i18n.on("${event}", (e) => console.log(e.language)), but got ${platformArg(fn)}`);
+      return addListener("i18n." + event, (data) => fn(data), null);
+    },
+  };
+
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
     window: windowApi,
   };
 

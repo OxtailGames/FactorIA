@@ -5,8 +5,10 @@
 
 #include "fa/audio/audio.h"
 #include "fa/core/fs.h"
+#include "fa/core/i18n.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
+#include "fa/scene/localize.h"
 #include "fa/scene/serialize.h"
 #include "fa/script/script.h"
 #include "fa/services/fake_platform.h"
@@ -28,6 +30,7 @@ struct TestHost : ScriptHost {
     Physics ph;
     CommandRegistry cmds;
     PlatformServices platformServices;  // the fake store, with the platform.* commands; the catalog is proj["platform"]
+    I18n loc;                           // proj["localization"] {defaultLanguage, languages}; the tables are read by start()
     Json proj = Json::object();
     ScriptSystem scripts;
     double fdt = 1.0 / 60.0;
@@ -53,6 +56,10 @@ struct TestHost : ScriptHost {
             platformServices.set_catalog(std::move(catalog.value()));
         platformServices.set_backend(std::make_unique<FakeBackend>(), "the test host always uses the fake");
         register_platform_commands(cmds, platformServices);
+        if (proj.contains("localization")) {
+            const Json& l = proj["localization"];
+            loc.configure(l.value("defaultLanguage", std::string()), l.value("languages", std::vector<std::string>()));
+        }
     }
     ~TestHost() override {
         scripts.shutdown();
@@ -61,6 +68,7 @@ struct TestHost : ScriptHost {
     }
     bool start() {
         fs::set_project_root(root);
+        if (loc.enabled()) loc.load_tables();
         return scripts.init(*this, &initError);
     }
     void file(const std::string& rel, const std::string& text) { write_file(root, rel, text); }
@@ -71,6 +79,17 @@ struct TestHost : ScriptHost {
     Physics& physics() override { return ph; }
     Renderer* renderer() override { return nullptr; }
     PlatformServices* platform_services() override { return &platformServices; }
+    const I18n* i18n() override { return &loc; }
+    std::string set_language(std::string_view language) override {  // what Engine::switch_language does
+        const std::string previous = loc.language();
+        auto r = loc.set_language(language);
+        if (!r.ok()) return r.error().to_string();
+        if (r.value() != previous) {
+            localize_world(w, loc);
+            w.events().game.push_back(GameEvent{"i18n.change", Json::object({{"language", r.value()}, {"previous", previous}}), kNullEntity});
+        }
+        return {};
+    }
     CommandRegistry& commands() override { return cmds; }
     Json project_settings() const override { return proj; }
     double fixed_dt() const override { return fdt; }
@@ -81,6 +100,7 @@ struct TestHost : ScriptHost {
         LoadReport r = load_scene_file(w, p);
         ph.reset();
         w.reset_clock();
+        localize_world(w, loc);
         scripts.on_scene_loaded();
         return r.ok() ? "" : r.summary();
     }
@@ -88,6 +108,7 @@ struct TestHost : ScriptHost {
         LoadReport r = load_scene(w, scene, name);
         ph.reset();
         w.reset_clock();
+        localize_world(w, loc);
         scripts.on_scene_loaded();
         return r.ok() ? "" : r.summary();
     }
@@ -102,6 +123,7 @@ struct TestHost : ScriptHost {
             scripts.update(dt);
             au.update(w, dt);
             scripts.late_update(dt);
+            localize_world(w, loc);  // like the engine: keys of what scripts changed this frame
             w.advance_clock(fdt);
             w.flush();
             in.begin_frame();
