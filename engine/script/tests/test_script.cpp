@@ -581,10 +581,10 @@ TEST_CASE("ui.textScale: remembered, range-checked with a teaching error, scales
     }
     CHECK(ev_err(h, "ui.measureText('a', { space: 'sceen' })").find("screen") != std::string::npos);
     CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(2.0));
-    ev_ok(h, "ui.textScale = 0.5");
-    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(0.5));
-    ev_ok(h, "ui.textScale = 3");
-    CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(3.0));
+    for (double edge : {0.5, 3.0}) {  // both ends of the range are accepted
+        ev_ok(h, ("ui.textScale = " + std::to_string(edge)).c_str());
+        CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(edge));
+    }
 }
 
 TEST_CASE("ui.textScale: every test file starts at 1, and the game's value comes back after the run") {

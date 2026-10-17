@@ -103,8 +103,8 @@ re-measures them, so `ui.measureText` and a layout `Panel` that fits its content
 the world and is never scaled, nor is its `entity.bounds()`; debug text is not scaled either.
 
 ```js
-import { ui, storage } from "factoria";
-ui.textScale = Math.min(3, Math.max(0.5, storage.get("textScale") ?? 1));  // at start
+import { ui, storage, math } from "factoria";
+ui.textScale = math.clamp(storage.get("textScale") ?? 1, 0.5, 3);  // at start
 // in the options menu:
 ui.textScale = 1.5;
 storage.set("textScale", ui.textScale);
