@@ -17,12 +17,16 @@ endif()
 # base_dir: paths inside this checkout are hashed relative to the build directory, so git worktrees of the repository
 # share one cache. hash_dir=false: for the same reason; the working directory recorded in an object's debug info may
 # then name another checkout (debuggers may ask where a source file is).
+# Not with MSVC: on a cache hit ccache replays cl's /showIncludes output as it was recorded, with the absolute header
+# paths of the checkout that filled the cache, so Ninja would watch another worktree's headers and not rebuild the
+# objects that include a header changed here (stale objects: crashes, or tests that pass on old code). GCC and Clang
+# hand Ninja a depfile, which ccache writes with paths relative to the build directory: those resolve in each checkout.
 find_program(FA_CCACHE ccache)
 if(FA_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE})
     execute_process(COMMAND ${FA_CCACHE} --version OUTPUT_VARIABLE _fa_ccache_version ERROR_QUIET)
     string(REGEX MATCH "[0-9]+\\.[0-9]+" _fa_ccache_version "${_fa_ccache_version}")
-    if(_fa_ccache_version VERSION_GREATER_EQUAL 4.8)  # settings as arguments came in 4.8 (Ubuntu 22.04 has 4.5)
+    if(_fa_ccache_version VERSION_GREATER_EQUAL 4.8 AND NOT MSVC)  # settings as arguments came in 4.8 (Ubuntu 22.04 has 4.5)
         list(APPEND CMAKE_C_COMPILER_LAUNCHER base_dir=${CMAKE_CURRENT_SOURCE_DIR} hash_dir=false)
     endif()
     set(CMAKE_CXX_COMPILER_LAUNCHER ${CMAKE_C_COMPILER_LAUNCHER})

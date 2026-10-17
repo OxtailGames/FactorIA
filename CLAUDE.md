@@ -19,9 +19,11 @@ ctest --test-dir build/dev --output-on-failure
   windowed code use `xvfb-run -a -s "-screen 0 1280x720x24" <cmd>`.
 - Each agent uses its OWN build dir (`build/agent-<name>`) and builds with `-j8`
   (at most three agents building at once; fewer jobs on a machine with under 16
-  hardware threads). Install ccache (docs/BUILDING.md): every checkout and git
-  worktree of the repository then shares one compile cache, so a new worktree
-  does not rebuild the engine from scratch. Run the final full `ctest` while no
+  hardware threads). Install ccache (docs/BUILDING.md): with GCC/Clang every
+  checkout and git worktree of the repository then shares one compile cache, so
+  a new worktree does not rebuild the engine from scratch; with MSVC each
+  checkout keeps its own entries (a replayed /showIncludes would point Ninja at
+  another worktree's headers). Run the final full `ctest` while no
   other build runs: some tests are timing-sensitive.
 - CI: `scripts/ci-local.sh linux windows` reproduces the Linux job and a Windows build (MinGW-w64 + Wine, D3D11)
   locally; run it before pushing a CI fix. The `/ci` Claude Code mod in `.claude/mods/ci` shows the GitHub checks
