@@ -24,6 +24,7 @@
 //   sg_commit() is done by end_frame()/present() as appropriate.
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -53,6 +54,17 @@ enum class ScaleMode : std::int32_t {
 // The range of Renderer::set_text_scale (the player's "text size" option): half size to triple size.
 inline constexpr float kMinTextScale = 0.5f;
 inline constexpr float kMaxTextScale = 3.0f;
+
+// Compiles the material `materialPath` (project-relative *.material.json) for one shader dialect ("hlsl5", "glsl430",
+// "glsl300es", "metal_macos", "metal_ios", "metal_sim") and returns its `factoria.shader/1` twin
+// (docs/design/CUSTOM_SHADERS.md). The tooling's compile_material, handed to the renderer by `factoria` and the editor
+// (EngineConfig::shaderCompiler); an exported player has none and reads the twins `<material>.<slang>.shader` instead.
+// On failure the error message lists every compile error ("shaders/x.surface.glsl:7:5: error: ...").
+using ShaderCompiler = std::function<Result<Json>(const std::string& materialPath, const std::string& slang)>;
+
+// SHA-256 of the mesh template files (engine/render/shaders/*_common.glsl) this renderer was built with: a material twin
+// made from another template is refused. The tooling writes the same value into every twin.
+std::string mesh_template_hash();
 
 struct RendererDesc {
     int designWidth = 1280;
@@ -187,7 +199,11 @@ public:
     std::uint32_t game_target_view_id() const;  // texture view (sg_view id) for sampling
 
     // Asset cache control (textures, meshes, fonts are loaded on first use by path).
-    void reload_asset(std::string_view path);  // hot reload
+    void reload_asset(std::string_view path);  // hot reload (a .material.json, or a snippet a material uses, rebuilds it)
+    // Custom materials (MeshRenderer.material): how a material without a twin is compiled. Empty = read twins only.
+    void set_shader_compiler(ShaderCompiler compiler);
+    // The shader dialect of this renderer's backend (see ShaderCompiler); "" before init().
+    std::string shader_dialect() const;
     void clear_asset_cache();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
 
@@ -198,6 +214,7 @@ private:
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     float textScale_ = 1.0f;
+    ShaderCompiler shaderCompiler_;
 };
 
 }  // namespace fa

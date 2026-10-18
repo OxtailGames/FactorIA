@@ -401,6 +401,21 @@ std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->texV
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
 }
+void Renderer::set_shader_compiler(ShaderCompiler compiler) {
+    shaderCompiler_ = std::move(compiler);  // ponytail: stored only, package 3 hands it to Assets
+}
+std::string Renderer::shader_dialect() const {
+    if (!initialized()) return {};
+    switch (sg_query_backend()) {
+        case SG_BACKEND_D3D11: return "hlsl5";
+        case SG_BACKEND_GLCORE: return "glsl430";
+        case SG_BACKEND_GLES3: return "glsl300es";
+        case SG_BACKEND_METAL_MACOS: return "metal_macos";
+        case SG_BACKEND_METAL_IOS: return "metal_ios";
+        case SG_BACKEND_METAL_SIMULATOR: return "metal_sim";
+        default: return {};
+    }
+}
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
     clear_particles();
