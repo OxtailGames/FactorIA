@@ -671,7 +671,9 @@ NATIVE(uiFocus) {  // (entity | null): throws saying why when the entity cannot 
     std::string why;
     if (!ui_is_control(kind))
         why = kind == UiKind::None ? "it has no Button, Toggle, Slider or TextField component"
-                                   : std::string("a ") + ui_kind_name(kind) + " is a container and cannot be focused; focus a Button, Toggle, Slider or TextField";
+                                   : std::string("a ") + ui_kind_name(kind) +
+                                         (kind == UiKind::Panel || kind == UiKind::ScrollList ? " is a container and" : " is touch-only and") +
+                                         " cannot be focused; focus a Button, Toggle, Slider or TextField";
     else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
     else why = "its interactable is false; set interactable = true first";
     return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);

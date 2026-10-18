@@ -595,6 +595,52 @@ What was built (docs/ASSETS.md is the reference):
   BC7, ETC2 or RGBA8; atlas groups (`atlas`) packed by the export for sprites, particles and UI widgets. Acceptance:
   `tools/cli/tests/acceptance_textures_test.cpp` against `tools/cli/tests/golden/export_2d_platformer.png`.
 
+## M16. Mobile store-ready (M, high on mobile) — DONE (PR #77 and the `m16/touch-gamepad` PR)
+
+Closes F-17, the device half of F-08, the mobile half of E-09, E-12, E-13 and the mobile part of Q-06. Store SDKs on
+mobile come with M11 and M12.
+
+- `screen.safeArea` in JS (Android window insets, iOS `safeAreaInsets`), and anchors that can follow it.
+- Android Back: an event the game can consume; today the system Back leaves the app.
+- An on-screen keyboard for M10's text field, an optional on-screen gamepad, vibration.
+- The iOS export writes `PrivacyInfo.xcprivacy` (the required-reason APIs the engine uses) and
+  `ITSAppUsesNonExemptEncryption`; the docs list what to declare in Google Play's data safety form.
+- `setup players --platforms mobile` on Windows and Linux installs the iOS libraries too (only the macOS package has
+  them today, so an iOS project from Windows needs `--mobile-dir` pointed at a macOS package).
+- Upload as commands with a dry run: App Store Connect and TestFlight (App Store Connect API), and the Google Play
+  Developer API (or fastlane).
+- An Android `--release` export without a keystore is an error unless `--allow-debug-key` is passed: today it is only a
+  warning, and the AAB it produces is one Google Play rejects.
+
+Acceptance criteria:
+- The emulator smoke test sends Back and the game receives the event; a notched device profile reports non-zero insets.
+- A test reads `PrivacyInfo.xcprivacy` from the generated Xcode project.
+- `export --platform android --release` without a keystore fails with a teaching error.
+
+What was built (docs/MOBILE.md is the reference):
+- Runtime (#77): `screen.safeArea` / `screen.insets` in JS and `safeArea: true` next to `anchor` on Sprite, Shape2D, Text,
+  ParticleEmitter and UiBox (Android window insets and display cutout through JNI, iOS `safeAreaInsets`; refreshed on
+  resize and every 15 frames); `screen.set_safe_area` and `game.setSafeArea` fake a notched phone in tests.
+  `input.onBack(fn)` (newest handler first; returning `false` passes it on; unconsumed = quit, as before; the manifest
+  sets `enableOnBackInvokedCallback="false"` so Android 13+ still sends the key). `input.vibrate(seconds)` (VIBRATE is in
+  the manifest template). The Android on-screen keyboard through `InputMethodManager`, characters from the key events.
+- Export (#77): `PrivacyInfo.xcprivacy` (FileTimestamp C617.1, SystemBootTime 35F9.1; more from `export.ios.privacy`) at
+  the root of the app bundle, `ITSAppUsesNonExemptEncryption` (`export.ios.usesNonExemptEncryption`), `allowDebugKey` /
+  `--allow-debug-key`, `setup players` takes `mobile/` from the macOS package on every host. docs/MOBILE.md "Store privacy
+  forms" covers Data safety and App Privacy.
+- Upload (#77): `publish.appstore` (`xcrun altool --upload-package` with an App Store Connect API key, macOS only) and
+  `publish.googleplay` (`fastlane supply`, track and release status, release notes per language), both with `dryRun`.
+- CI (#77): the emulator job runs `mobile_probe.js` and sends Back (`FA_SMOKE_BACK` in scripts/android-smoke.sh).
+- On-screen gamepad (the `m16/touch-gamepad` PR): the `TouchStick` and `TouchButton` UI widgets (UiBox, `safeArea` on by
+  default, `touchOnly` shows them only while `input.lastDevice` is touch; a phone starts as touch). fa_ui hands their
+  rectangles to `Input::set_touch_controls` every frame; a finger landing on one belongs to it until it lifts and drives
+  the TOUCH PAD (`pads_[kMaxGamepads]`), which the action bindings read like any pad and the numbered pad queries never
+  see; such a finger is kept out of `touches()`, the Touch binding and the mouse. Drawn by fa_render as discs (or the
+  9-slice texture), listed by `ui.state`. Acceptance: `engine/ui/tests/test_ui.cpp`, "on-screen gamepad: a stick and a
+  button feed the pad actions, several fingers at once, and keep their fingers"; `engine/runtime/tests/ui_tests.cpp`,
+  "on-screen gamepad: a JavaScript test plays the pad actions with two fingers"; `engine/render/tests/ui_render_tests.cpp`,
+  "on-screen gamepad: discs, the knob follows the stick value, a hidden control draws nothing".
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

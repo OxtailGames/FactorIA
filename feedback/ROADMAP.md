@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready) is done except the optional on-screen gamepad; M17-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready) is done; M17-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -331,46 +331,12 @@ Left open:
   GPU; ETC2 keeps less colour detail than ASTC and BC7 (one brightness offset for red, green and blue); KTX2 files use
   no Zstd supercompression (none vendored); textures whose sides are not multiples of 4 ship as PNG.
 
-## M16. Mobile store-ready (M, high on mobile)
+## M16. Mobile store-ready (M, high on mobile) — DONE (PR #77 and the `m16/touch-gamepad` PR)
 
-Closes F-17, the device half of F-08, the mobile half of E-09, E-12, E-13 and the mobile part of Q-06. Store SDKs on
-mobile come with M11 and M12.
-
-- `screen.safeArea` in JS (Android window insets, iOS `safeAreaInsets`), and anchors that can follow it.
-- Android Back: an event the game can consume; today the system Back leaves the app.
-- An on-screen keyboard for M10's text field, an optional on-screen gamepad, vibration.
-- The iOS export writes `PrivacyInfo.xcprivacy` (the required-reason APIs the engine uses) and
-  `ITSAppUsesNonExemptEncryption`; the docs list what to declare in Google Play's data safety form.
-- `setup players --platforms mobile` on Windows and Linux installs the iOS libraries too (only the macOS package has
-  them today, so an iOS project from Windows needs `--mobile-dir` pointed at a macOS package).
-- Upload as commands with a dry run: App Store Connect and TestFlight (App Store Connect API), and the Google Play
-  Developer API (or fastlane).
-- An Android `--release` export without a keystore is an error unless `--allow-debug-key` is passed: today it is only a
-  warning, and the AAB it produces is one Google Play rejects.
-
-Acceptance criteria:
-- The emulator smoke test sends Back and the game receives the event; a notched device profile reports non-zero insets.
-- A test reads `PrivacyInfo.xcprivacy` from the generated Xcode project.
-- `export --platform android --release` without a keystore fails with a teaching error.
-
-Done so far (the `m16/store-ready` PR): everything above except the on-screen gamepad.
-- Runtime: `screen.safeArea` / `screen.insets` in JS and `safeArea: true` next to `anchor` on Sprite, Shape2D, Text,
-  ParticleEmitter and UiBox (Android window insets and display cutout through JNI, iOS `safeAreaInsets`; refreshed on
-  resize and every 15 frames); `screen.set_safe_area` and `game.setSafeArea` fake a notched phone in tests.
-  `input.onBack(fn)` (newest handler first; returning `false` passes it on; unconsumed = quit, as before; the manifest
-  sets `enableOnBackInvokedCallback="false"` so Android 13+ still sends the key). `input.vibrate(seconds)` (VIBRATE is in
-  the manifest template). The Android on-screen keyboard through `InputMethodManager`, characters from the key events.
-- Export: `PrivacyInfo.xcprivacy` (FileTimestamp C617.1, SystemBootTime 35F9.1; more from `export.ios.privacy`) at the
-  root of the app bundle, `ITSAppUsesNonExemptEncryption` (`export.ios.usesNonExemptEncryption`), `allowDebugKey` /
-  `--allow-debug-key`, `setup players` takes `mobile/` from the macOS package on every host. docs/MOBILE.md "Store privacy
-  forms" covers Data safety and App Privacy.
-- Upload: `publish.appstore` (`xcrun altool --upload-package` with an App Store Connect API key, macOS only) and
-  `publish.googleplay` (`fastlane supply`, track and release status, release notes per language), both with `dryRun`.
-- CI: the emulator job runs `mobile_probe.js` and sends Back (`FA_SMOKE_BACK` in scripts/android-smoke.sh).
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M16.
 
 Left open:
-- The optional on-screen gamepad.
-- Nothing ran on a real phone. The Android JNI code was only syntax-checked with the NDK before CI; the iOS code
+- Nothing ran on a real phone, the on-screen gamepad included (tested headless and drawn by the GPU tests only). The Android JNI code was only syntax-checked with the NDK before CI; the iOS code
   (`mobile_apple.mm`, the safe insets in `sokol_impl_apple.m`) and the privacy manifest's place in the bundle were never
   built on a Mac before CI. Predictive Back was not tried on an API 36 image.
 - The Android keyboard takes plain key events only: no composed text (predictive, swipe, CJK, emoji, voice); the IME
@@ -380,6 +346,9 @@ Left open:
   its file name and the keystore setting, not by reading its signature.
 - Apple's reason codes and the store privacy answers in docs/MOBILE.md were written from the stores' docs as of 2026-10;
   recheck them when Apple or Google change the forms.
+- On-screen gamepad: the stick is fixed where it is drawn (no floating stick that appears under the thumb), the knob is
+  always a disc (no knob texture), a finger cannot slide from one button onto another, and a mouse click does not press
+  the controls. The touch pad has no number, so `input.gamepad(i)` never sees it.
 
 ## M17. Web export (L, high)
 

@@ -14,7 +14,8 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
                "Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
-               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.")
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel "
+               "with fit = true recomputes it every frame.")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
                "[1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] "
@@ -29,7 +30,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
                "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
                "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
-               "nothing. Default false.")
+               "nothing. Default false (true on TouchStick and TouchButton).")
         .field("layer", static_cast<std::int32_t T::*>(&UiBox::layer),
                "Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at "
                "layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, "
@@ -597,6 +598,59 @@ void register_builtin_components(TypeRegistry& r) {
                    "Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner "
                    "height] every frame.").runtime_only()
             .field("scrollSpeed", &ScrollList::scrollSpeed, "Pixels scrolled per mouse-wheel notch.").range(0, 10000);
+    }
+    {
+        auto stick = r.add<TouchStick>("TouchStick",
+                  "On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the "
+                  "finger. A finger that lands on it moves a stick of the TOUCH PAD, a virtual gamepad the action bindings read "
+                  "like a real one, so actions bound to GamepadLeftStickLeft/Right/Up/Down (or the right stick) work with no "
+                  "change to the game; the default ui_* actions include the left stick, so it also walks menus. Full tilt is the "
+                  "edge of the disc (half the shorter side); the pad deadzone (input.deadzone) applies like on a real stick. "
+                  "That finger is the stick's until it lifts, even outside the disc: it is not in input.touches, the Touch "
+                  "binding or the mouse. Several fingers work at once (a stick and buttons). Defaults: 200 x 200, inside the "
+                  "safe area, shown only while the player uses touch (touchOnly).",
+                  "UI");
+        ui_box_fields(stick)
+            .enum_field("stick", &TouchStick::stick, {"left", "right"}, "Which stick of the touch pad it moves.")
+            .field("knobColor", &TouchStick::knobColor, "Colour of the knob, a disc 45% as wide as the stick.")
+            .field("touchOnly", &TouchStick::touchOnly,
+                   "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "
+                   "\"touch\"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard "
+                   "and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop "
+                   "previews, screenshots, tests).")
+            .field("value", &TouchStick::value,
+                   "Runtime: the finger's offset from the centre over the radius [x, y], length <= 1, +Y up; [0, 0] when no "
+                   "finger holds it. Before the deadzone; read actions (input.vector) for the value the game should use.")
+            .runtime_only().read_only()
+            .field("pressed", &TouchStick::pressed, "Runtime: a finger holds the stick.").runtime_only().read_only()
+            .field("shown", &TouchStick::shown, "Runtime: drawn this frame (see touchOnly).").runtime_only().read_only();
+    }
+    {
+        auto button = r.add<TouchButton>("TouchButton",
+                  "On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an "
+                  "optional label. While a finger holds it, `button` of the TOUCH PAD is down, a virtual gamepad the action "
+                  "bindings read like a real one: a TouchButton with button \"A\" fires every action bound to GamepadA, with no "
+                  "change to the game. The finger is the button's until it lifts, even if it slides off, and it is not in "
+                  "input.touches, the Touch binding or the mouse. Several fingers work at once. Defaults: 96 x 96, inside the "
+                  "safe area, shown only while the player uses touch (touchOnly). It is not focusable and sends no ui events.",
+                  "UI");
+        ui_box_fields(button)
+            .enum_field("button", &TouchButton::button,
+                        {"A", "B", "X", "Y", "Start", "Back", "Guide", "DpadLeft", "DpadRight", "DpadUp", "DpadDown",
+                         "LeftShoulder", "RightShoulder", "LeftThumb", "RightThumb"},
+                        "The pad button it holds down: actions bound to \"Gamepad\" + this name (GamepadA, GamepadDpadUp...) "
+                        "fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.")
+            .field("text", &TouchButton::text, "Label centred on the button, e.g. \"A\" or \"Jump\". Empty (default) draws none.")
+            .asset_field("font", &TouchButton::font, "font", "Font of the label: project path of a .ttf, empty = the built-in font.")
+            .field("fontSize", &TouchButton::fontSize, "Label glyph height in design pixels.").range(1, 4096)
+            .field("textColor", &TouchButton::textColor, "Label colour.")
+            .field("touchOnly", &TouchButton::touchOnly,
+                   "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "
+                   "\"touch\"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard "
+                   "and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop "
+                   "previews, screenshots, tests).")
+            .field("pressed", &TouchButton::pressed, "Runtime: a finger holds the button.").runtime_only().read_only()
+            .field("shown", &TouchButton::shown, "Runtime: drawn this frame (see touchOnly).").runtime_only().read_only();
     }
 
     // -------------------------------------------------------- Scripting ---

@@ -1559,7 +1559,7 @@
     {
      "kind": "interface",
      "name": "UIAPI",
-     "doc": "Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI). The UI keeps working while time.scale is 0.",
+     "doc": "Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI); TouchStick and TouchButton, the on-screen gamepad, send no events: they press gamepad bindings (docs/MOBILE.md). The UI keeps working while time.scale is 0.",
      "members": [
       {
        "sig": "measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: \"screen\" | \"world\" }): { width: number; height: number }",

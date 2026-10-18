@@ -267,6 +267,65 @@ TEST_CASE("screen.set_safe_area: a notched phone moves the widgets anchored to t
     e.shutdown();
 }
 
+TEST_CASE("on-screen gamepad: a JavaScript test plays the pad actions with two fingers") {
+    TempProject p("touchpad", R"({"name": "x", "mainScene": "scenes/main.scene.json", "display": {"width": 320, "height": 180},
+      "input": {"actions": {"left": ["A", "GamepadLeftStickLeft"], "right": ["D", "GamepadLeftStickRight"],
+                            "down": ["S", "GamepadLeftStickDown"], "up": ["W", "GamepadLeftStickUp"],
+                            "jump": ["Space", "GamepadA"], "tap": ["Touch"]}}})");
+    // The stick in the bottom-left corner (rect 10..90 x 90..170, centre [50, 130]), the button in the bottom-right one
+    // (rect 250..310 x 110..170, centre [280, 140]).
+    p.write("scenes/pad.scene.json", R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "stick", "components": { "Transform": { "position": [10, -10] },
+        "TouchStick": { "anchor": [0, 1], "pivot": [0, 0], "size": [80, 80] } } },
+    { "id": "jump", "components": { "Transform": { "position": [-10, -10] },
+        "TouchButton": { "anchor": [1, 1], "pivot": [1, 0], "size": [60, 60], "button": "A", "text": "A" } } }
+  ]
+})");
+    p.write("tests/pad.test.js", R"JS(
+import { test, expect, game } from "factoria:test";
+import { input, world } from "factoria";
+import pad from "../scenes/pad.scene.json";
+
+test("move and jump at once; the fingers are the pad's, not touches", () => {
+  game.loadJson(pad);
+  game.step(1);
+  const stick = world.find("stick").get("TouchStick");
+  expect(stick.shown).toBe(false);                  // touch-only: hidden before the first touch
+  game.touchStart([50, 130]);                       // the stick's centre
+  game.touchMove([90, 130]);                        // its right edge: full tilt
+  game.touchStart([280, 140], 2);                   // a second finger on the button
+  game.step(1);
+  expect(input.vector("left", "right", "down", "up").x).toBeCloseTo(1, 3);
+  expect(input.down("jump")).toBe(true);
+  expect(input.down("tap")).toBe(false);
+  expect(input.touches.length).toBe(0);
+  expect(world.find("stick").get("TouchStick").shown).toBe(true);
+  expect(world.find("jump").get("TouchButton").pressed).toBe(true);
+  game.touchMove([50, 170]);                        // down
+  game.step(1);
+  expect(input.vector("left", "right", "down", "up").y).toBeCloseTo(-1, 3);
+  game.touchEnd(2);
+  game.touchEnd();
+  game.step(1);
+  expect(input.down("jump")).toBe(false);
+  expect(input.vector("left", "right", "down", "up").y).toBe(0);
+  game.touch([160, 40]);                            // anywhere else: an ordinary touch
+  expect(input.down("jump")).toBe(false);
+});
+)JS");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto t = e.commands().call("project.test", Json::object());
+    REQUIRE_MESSAGE(t.ok, t.error.dump());
+    CHECK_MESSAGE(t.result["ok"].get<bool>(), t.result.dump(2));
+    CHECK(t.result["passed"].get<int>() == 1);
+    e.shutdown();
+}
+
 TEST_CASE("game.input back is the Back button: a script handler consumes it") {
     TempProject p("back");
     Engine e;
