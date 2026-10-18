@@ -2619,6 +2619,97 @@ declare module "factoria" {
     oneWay: boolean;
   }
   /**
+   * A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to `connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.
+   * 
+   * Category: Physics
+   */
+  export interface Joint2DComponent {
+    /**
+     * revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0).
+     */
+    type: "revolute" | "distance" | "prismatic" | "weld";
+    /**
+     * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     */
+    get connected(): Entity | null;
+    set connected(value: EntityLike);
+    /**
+     * Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created.
+     */
+    get connectedAnchor(): Vec2;
+    set connectedAnchor(value: Vec2Like);
+    /**
+     * Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x.
+     */
+    get axis(): Vec2;
+    set axis(value: Vec2Like);
+    /**
+     * true: the two joined bodies still collide with each other (default false).
+     */
+    collideConnected: boolean;
+    /**
+     * Distance only: rest length in world units. 0 = the distance between the anchors when the joint is created.
+     */
+    length: number;
+    /**
+     * Limit the motion: revolute angle, prismatic translation, or distance length (needs enableSpring to stretch).
+     */
+    enableLimit: boolean;
+    /**
+     * Lower limit: revolute degrees (between -178 and 178, 0 = the pose at creation), prismatic translation in world units (0 = anchors coincide), distance minimum length in world units.
+     */
+    lowerLimit: number;
+    /**
+     * Upper limit, same units as lowerLimit.
+     */
+    upperLimit: number;
+    /**
+     * Drive the joint at motorSpeed with at most maxMotorTorque. Revolute and prismatic; a distance joint motor works only with enableSpring.
+     */
+    enableMotor: boolean;
+    /**
+     * Target speed: revolute degrees per second (positive = counter-clockwise), prismatic / distance world units per second.
+     */
+    motorSpeed: number;
+    /**
+     * Strongest push the motor may apply: a torque for a revolute joint, a force for prismatic and distance joints (the same units as physics.applyForce). 0 = the motor does nothing.
+     */
+    maxMotorTorque: number;
+    /**
+     * Revolute, prismatic, distance: make the free motion springy, pulling towards the rest pose (angle 0, translation 0, `length`).
+     */
+    enableSpring: boolean;
+    /**
+     * Spring stiffness in cycles per second (about 1 = a slow bounce, 5 = stiff). Weld joints: 0 = rigid, above 0 = a soft weld (no enableSpring needed).
+     */
+    springHertz: number;
+    /**
+     * Spring damping: 0 = bounces on, 1 = settles without overshoot.
+     */
+    dampingRatio: number;
+    /**
+     * Runtime: the force [x, y] the joint applied last step to hold the bodies (same units as physics.applyForce). Compare it with a limit to break a rope. Read-only.
+     */
+    readonly reactionForce: Vec2;
+    /**
+     * Runtime: the torque the joint applied last step. Read-only.
+     */
+    readonly reactionTorque: number;
+    /**
+     * Runtime: revolute and weld: the current joint angle in degrees (0 = the pose at creation). Read-only.
+     */
+    readonly angle: number;
+    /**
+     * Runtime: prismatic: the current slide position; distance: the current length, in world units. Read-only.
+     */
+    readonly translation: number;
+  }
+  /**
    * Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a simple physics character (for a controller that slides, climbs steps and checks slopes use CharacterController3D instead). Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
    * 
    * Category: Physics
