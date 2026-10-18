@@ -616,6 +616,8 @@ void Editor::at_build_tools_script() {
     });
     click("toolbar:export");
     step(4, [this] { at_check(at_visible("export:settings:android"), "the Export window has a Settings... button on the Android row"); });
+    // The rows are desktop, then mobile, then web: on a smaller screen the Android row starts below the visible part.
+    scroll_until("export:settings:android", -6, Vec2{700, 400}, 560);
     click("export:settings:android");
     step(4, [this] {
         at_check(showPlatformSettings_, "the Android row's Settings... button opens the Platform settings window");
