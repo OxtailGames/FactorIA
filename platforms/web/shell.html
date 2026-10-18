@@ -1,0 +1,16 @@
+<!doctype html>
+<!--
+  The page of a web export (M17). `factoria export --platform web` embeds this file and writes it as index.html, with
+  these placeholders replaced:
+    {{title}}      the game's name, HTML-escaped
+    {{wasmBytes}}  size of factoria_player.wasm in bytes (progress when the server sends no Content-Length)
+    {{pakBytes}}   size of game.pak in bytes (same)
+  Next to it: factoria_player.js (Emscripten, MODULARIZE=1, EXPORT_NAME=createFactoriaPlayer), factoria_player.wasm and
+  game.pak. The page downloads the wasm and the pack with progress, writes the pack to /game.pak in the module's file
+  system and starts the player, which loads /game.pak.
+  Placeholder until the web player lands: the m17 web-player package replaces this file.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>{{title}}</title></head>
+<body><canvas id="canvas"></canvas></body>
+</html>
