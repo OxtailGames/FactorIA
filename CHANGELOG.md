@@ -30,8 +30,8 @@ Animation
 - New `tween` and `ease` in the scripting API: slide a menu in, fade a sprite, grow a pickup. Works on numbers, vectors
   and colors of anything, in 2D and 3D, with 30 easings (`"backOut"`, `"bounceOut"`...), delay, repeat, yoyo, chaining and
   `await tween(...).finished`.
-- Animated models are drawn deformed by the animation, shadows included, on every platform (up to 64 joints per model; a model with more is drawn in its bind pose and a warning says so).
-  The new guide is `factoria docs read animation`.
+- Animated models are drawn deformed by the animation, shadows included (up to 64 joints per model; a model with more
+  is drawn in its bind pose and a warning says so). The new guide is `factoria docs read animation`.
 
 3D physics: new shapes, joints and a character controller
 
