@@ -405,6 +405,22 @@ Acceptance (doctests with real sokol-shdc where available, else skipped with a m
 - A second compile of an unchanged material starts no process (the injected runner counts calls).
 - A test checks that `compile_shaders.sh` and `setup.h` pin the same sokol-shdc commit.
 
+Built (2026-10-18), with what the real tool showed:
+- `fa_user` is included by both `@vs` and `@fs`, so the generated block is split with `GL_VERTEX_SHADER` /
+  `GL_FRAGMENT_SHADER` (glslang defines one per stage): `fa_material_vs` (binding 4) and `vertex()` in the vertex stage,
+  `fa_material` (binding 5) and `surface()` in the fragment stage, helpers in both (with `texture()`/`discard` shims in
+  the vertex stage, undefined again after the snippet). A texture sampled in `vertex()` is an error (out of scope).
+- `alphaCutoff` is implicit for `"clip"` (float, default 0.5, 0..1, counts toward the 16); a material may declare it to
+  change default, range or doc. The generator defines `FA_ALPHA_CLIP`. **P3 must make the template read it**: `discard`
+  below `alphaCutoff` after `surface()` in `fs`, and `shadow_fs` running `surface()` for clip materials (today the
+  generated shadow programs equal the default ones).
+- glslang reports column 0; the column is found from the quoted token. `fa_` names and a missing `surface()` are caught
+  before sokol-shdc runs (glslang says nothing useful about them). `colour` is not near `albedo` by edit distance, so the
+  hint uses a small alias table before `did_you_mean`.
+- Windows Defender quarantines the pinned `sokol-shdc.exe` (`Trojan:Win32/Bearfoos.B!ml`, an ML false positive):
+  the setup status, install and compile errors say how to restore it. Bundling sokol-shdc in the
+  release downloads (D3) is not done yet: it changes `release.yml`.
+
 ### P3. Materials in the renderer and runtime (L, render + runtime + scene)
 
 - `MeshRenderer.material`, `MeshRenderer.materialParams` (docs, COMPONENTS.md, typings).
