@@ -371,8 +371,8 @@ Left open:
 Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M18.
 
 Left open:
-- Custom shaders per material: not built. It needs a design for compiling a game's shaders at export or run time for
-  D3D11, Metal, GL, GLES3 and WebGL2 (sokol-shdc is a developer tool, not part of the runtime).
+- Custom shaders per material: not built. Accepted design with its work packages (P1-P5; P6 custom lighting waits
+  for a game): [docs/design/CUSTOM_SHADERS.md](../docs/design/CUSTOM_SHADERS.md).
 - Rendering ran on D3D11 (WARP) and Linux llvmpipe only: never on Metal, a GLES3 phone or WebGL2. IBL is a procedural
   sky approximation (no environment texture or prefiltered cubemap); lighting stays in gamma space; the shadow map still
   fits every caster (no cascades), so shadows of big scenes are blurry. Blended meshes only batch with neighbours in their
