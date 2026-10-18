@@ -73,6 +73,38 @@ void add_disc(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int s
     for (int s = 0; s < segments; ++s) idx.insert(idx.end(), {base, base + 1 + std::uint32_t(s), base + 2 + std::uint32_t(s)});
 }
 
+// Tangents from the UVs, per triangle and averaged over the vertex (the MikkTSpace idea without its vertex splitting):
+// tangent = direction of growing u, bitangent = direction of growing v with v up (glTF flips the image's v), handedness w
+// from the sign of cross(normal, tangent) . bitangent. Triangles without a UV area add nothing.
+void generate_tangents(std::vector<MeshVertex>& v, const std::vector<std::uint32_t>& idx) {
+    std::vector<Vec3> tan(v.size()), bit(v.size());
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        const MeshVertex &a = v[idx[i]], &b = v[idx[i + 1]], &c = v[idx[i + 2]];
+        Vec3 e1{b.px - a.px, b.py - a.py, b.pz - a.pz}, e2{c.px - a.px, c.py - a.py, c.pz - a.pz};
+        float du1 = b.u - a.u, du2 = c.u - a.u;
+        float dv1 = a.v - b.v, dv2 = a.v - c.v;  // v up
+        float det = du1 * dv2 - du2 * dv1;
+        if (std::fabs(det) < 1e-12f) continue;
+        float r = 1.0f / det;
+        Vec3 t = (e1 * dv2 - e2 * dv1) * r;
+        Vec3 bt = (e2 * du1 - e1 * du2) * r;
+        for (std::uint32_t k : {idx[i], idx[i + 1], idx[i + 2]}) { tan[k] = tan[k] + t; bit[k] = bit[k] + bt; }
+    }
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        MeshVertex& x = v[i];
+        Vec3 n = normalize(Vec3{x.nx, x.ny, x.nz});
+        const float tl = length(tan[i]);
+        Vec3 t = tl > 0.0f ? tan[i] / tl : Vec3{};
+        t = t - n * dot(n, t);
+        if (length(t) < 1e-3f) {  // no usable UVs (or a tangent along the normal): any direction across the normal
+            t = std::fabs(n.y) < 0.9f ? cross(Vec3{0, 1, 0}, n) : cross(Vec3{1, 0, 0}, n);
+        }
+        t = normalize(t);
+        x.tx = t.x; x.ty = t.y; x.tz = t.z;
+        x.tw = dot(cross(n, t), bit[i]) < 0.0f ? -1.0f : 1.0f;
+    }
+}
+
 }  // namespace
 
 bool build_primitive(const std::string& rawName, std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx) {
@@ -131,6 +163,7 @@ bool build_primitive(const std::string& rawName, std::vector<MeshVertex>& v, std
         return false;
     }
     fix_winding(v, idx);
+    generate_tangents(v, idx);
     return true;
 }
 
@@ -245,12 +278,13 @@ private:
 
     bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
                         std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
-        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr;
+        const cgltf_accessor *pos = nullptr, *nrm = nullptr, *uv = nullptr, *tng = nullptr;
         for (cgltf_size a = 0; a < prim.attributes_count; ++a) {
             const cgltf_attribute& at = prim.attributes[a];
             if (at.type == cgltf_attribute_type_position && at.index == 0) pos = at.data;
             else if (at.type == cgltf_attribute_type_normal && at.index == 0) nrm = at.data;
             else if (at.type == cgltf_attribute_type_texcoord && at.index == 0) uv = at.data;
+            else if (at.type == cgltf_attribute_type_tangent && at.index == 0 && at.data->type == cgltf_type_vec4) tng = at.data;
         }
         if (!pos) return false;
         verts.resize(pos->count);
@@ -267,6 +301,10 @@ private:
             float t[2] = {0, 0};
             if (uv) cgltf_accessor_read_float(uv, i, t, 2);
             v.u = t[0]; v.v = t[1];
+            float tn[4] = {1, 0, 0, 1};
+            if (tng) cgltf_accessor_read_float(tng, i, tn, 4);
+            Vec3 wt = normalize(world.transform_dir({tn[0], tn[1], tn[2]}));
+            v.tx = wt.x; v.ty = wt.y; v.tz = wt.z; v.tw = tn[3] < 0.0f ? -1.0f : 1.0f;
         }
         if (prim.indices) {
             idx.resize(prim.indices->count);
@@ -279,9 +317,13 @@ private:
         Vec3 c0{world.at(0, 0), world.at(0, 1), world.at(0, 2)};
         Vec3 c1{world.at(1, 0), world.at(1, 1), world.at(1, 2)};
         Vec3 c2{world.at(2, 0), world.at(2, 1), world.at(2, 2)};
-        if (dot(cross(c0, c1), c2) < 0.0f)
+        const bool mirrored = dot(cross(c0, c1), c2) < 0.0f;
+        if (mirrored) {
             for (std::size_t i = 0; i + 2 < idx.size(); i += 3) std::swap(idx[i + 1], idx[i + 2]);
+            for (auto& v : verts) v.tw = -v.tw;
+        }
         if (!nrm) generate_normals(verts, idx);
+        if (!tng) generate_tangents(verts, idx);
         return !idx.empty();
     }
 
@@ -308,7 +350,27 @@ private:
             sm.baseColor = Color{pbr.base_color_factor[0], pbr.base_color_factor[1], pbr.base_color_factor[2], pbr.base_color_factor[3]};
             const cgltf_texture* tex = pbr.base_color_texture.texture;
             if (tex && tex->image) sm.texture = image_texture(*tex->image, dir, data);
+            sm.hasPbr = true;
+            sm.metallic = pbr.metallic_factor;
+            sm.roughness = pbr.roughness_factor;
+            const cgltf_texture* mr = pbr.metallic_roughness_texture.texture;
+            if (mr && mr->image) sm.mrTex = image_texture(*mr->image, dir, data);
         }
+        const cgltf_texture* nt = mat->normal_texture.texture;
+        if (nt && nt->image) {
+            sm.normalTex = image_texture(*nt->image, dir, data);
+            sm.normalScale = mat->normal_texture.scale;
+        }
+        const cgltf_texture* ot = mat->occlusion_texture.texture;
+        if (ot && ot->image) {
+            sm.occlusionTex = image_texture(*ot->image, dir, data);
+            sm.occlusionStrength = mat->occlusion_texture.scale;
+        }
+        const cgltf_texture* et = mat->emissive_texture.texture;
+        if (et && et->image) sm.emissiveTex = image_texture(*et->image, dir, data);
+        float strength = mat->has_emissive_strength ? mat->emissive_strength.emissive_strength : 1.0f;
+        sm.emissiveFactor = Color{mat->emissive_factor[0] * strength, mat->emissive_factor[1] * strength,
+                                  mat->emissive_factor[2] * strength, 1.0f};
     }
 
     TextureAsset* image_texture(const cgltf_image& img, const std::string& dir, const cgltf_data* data) {

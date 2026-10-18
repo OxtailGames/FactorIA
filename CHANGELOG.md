@@ -4,6 +4,21 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Better looking 3D, and much bigger 3D scenes
+
+- Materials look like real materials: `metallic` and `roughness` now use physically based shading, and shiny surfaces
+  reflect the sky of your scene (`skyColor` and `horizonColor`), so a metal sphere looks like metal without any extra
+  file. Scenes you already have look close to before, with a faint sheen on plastic and stone.
+- Normal maps: give a `MeshRenderer` a `normalMap` picture to add bumps, scratches or bricks without extra triangles, and
+  `normalScale` to make them stronger or softer.
+- glTF models keep their materials: metallic and roughness (with their textures), normal maps, ambient occlusion and
+  glowing parts are read from the file. Models without tangents get them generated.
+- Big scenes are cheaper: anything outside the camera's view is skipped, and many copies of the same mesh with the same
+  material are drawn together. Ten thousand identical cubes now cost one draw.
+- Up to 32 lights at once instead of 8. With more, the engine keeps the sun and the brightest, nearest lights.
+- The render statistics (`play.report`) now also count `meshesCulled`, `meshBatches` and `lightsDropped`.
+- Not yet: your own shaders for a material, and an environment picture for reflections.
+
 Games in the browser
 
 - Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder
