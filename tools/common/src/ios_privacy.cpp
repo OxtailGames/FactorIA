@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "export_internal.h"
+
 namespace fa {
 
 const std::vector<IosPrivacyApiCategory>& ios_privacy_api_categories() {
@@ -41,21 +43,10 @@ const std::vector<IosPrivacyApi>& ios_engine_privacy_apis() {
 
 namespace {
 
-std::string xml_text(const std::string& s) {
-    std::string out;
-    for (char c : s) {
-        if (c == '&') out += "&amp;";
-        else if (c == '<') out += "&lt;";
-        else if (c == '>') out += "&gt;";
-        else out += c;
-    }
-    return out;
-}
-
 std::string strings_array(const std::vector<std::string>& values, const std::string& tabs, const std::string& prefix = {}) {
     if (values.empty()) return tabs + "<array/>\n";
     std::string s = tabs + "<array>\n";
-    for (const std::string& v : values) s += tabs + "\t<string>" + xml_text(prefix + v) + "</string>\n";
+    for (const std::string& v : values) s += tabs + "\t<string>" + export_detail::xml_escape(prefix + v) + "</string>\n";
     return s + tabs + "</array>\n";
 }
 
@@ -89,7 +80,7 @@ std::string ios_privacy_manifest(const IosPrivacySettings& settings) {
         s += "\t<array>\n";
         for (const IosPrivacyCollectedData& d : settings.collectedData) {
             s += "\t\t<dict>\n";
-            s += "\t\t\t<key>NSPrivacyCollectedDataType</key>\n\t\t\t<string>NSPrivacyCollectedDataType" + xml_text(d.type) + "</string>\n";
+            s += "\t\t\t<key>NSPrivacyCollectedDataType</key>\n\t\t\t<string>NSPrivacyCollectedDataType" + export_detail::xml_escape(d.type) + "</string>\n";
             s += std::string("\t\t\t<key>NSPrivacyCollectedDataTypeLinked</key>\n\t\t\t") + boolean(d.linked) + "\n";
             s += std::string("\t\t\t<key>NSPrivacyCollectedDataTypeTracking</key>\n\t\t\t") + boolean(d.tracking) + "\n";
             s += "\t\t\t<key>NSPrivacyCollectedDataTypePurposes</key>\n" + strings_array(d.purposes, "\t\t\t", "NSPrivacyCollectedDataTypePurpose");
@@ -100,7 +91,7 @@ std::string ios_privacy_manifest(const IosPrivacySettings& settings) {
     s += "\t<key>NSPrivacyAccessedAPITypes</key>\n\t<array>\n";
     for (const IosPrivacyApi& api : apis) {
         s += "\t\t<dict>\n";
-        s += "\t\t\t<key>NSPrivacyAccessedAPIType</key>\n\t\t\t<string>NSPrivacyAccessedAPICategory" + xml_text(api.category) + "</string>\n";
+        s += "\t\t\t<key>NSPrivacyAccessedAPIType</key>\n\t\t\t<string>NSPrivacyAccessedAPICategory" + export_detail::xml_escape(api.category) + "</string>\n";
         s += "\t\t\t<key>NSPrivacyAccessedAPITypeReasons</key>\n" + strings_array(api.reasons, "\t\t\t");
         s += "\t\t</dict>\n";
     }
