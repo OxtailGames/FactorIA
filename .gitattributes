@@ -20,3 +20,8 @@ platforms/android/gradlew text eol=lf
 *.ktx2 binary
 # Licence texts are embedded in the factoria binary and embedded as they are: LF on every checkout.
 tools/shaders/licenses/*.txt text eol=lf
+
+# The mesh shader template is hashed into every compiled material twin and embedded in factoria (custom materials): LF on
+# every checkout so that the hash and the embedded files are the same on every host. Twins are JSON.
+engine/render/shaders/*.glsl text eol=lf
+*.shader text eol=lf
