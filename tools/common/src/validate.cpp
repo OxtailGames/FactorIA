@@ -116,10 +116,12 @@ void check_tilemap_tileset(Ctx& c, const std::string& file, const std::string& p
     std::string firstPointer;
     long long firstValue = 0, offenders = 0;
     auto visit = [&](const Json& v, const std::string& ptr) {
-        if (!v.is_number() || v.get<double>() < count) return;
+        if (!v.is_number() || v.get<double>() < 0) return;  // empty (-1) or not a tile; flip / rotate flags are not part of the index
+        const long long index = static_cast<long long>(v.get<double>()) & kTileIndexMask;
+        if (index < count) return;
         if (offenders++ == 0) {
             firstPointer = ptr;
-            firstValue = static_cast<long long>(v.get<double>());
+            firstValue = index;
         }
     };
     const Json& tiles = fields["tiles"];

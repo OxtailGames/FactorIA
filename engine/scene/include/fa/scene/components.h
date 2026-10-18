@@ -90,6 +90,9 @@ struct Sprite {
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to (see above)
     bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
+    Vec4 slice{0, 0, 0, 0};           // 9-slice borders in texture pixels [left, top, right, bottom] (0 = stretch the whole region)
+    bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
+    std::string normalMap;            // tangent-space normal map with the same layout as `texture` ("" = flat); needs lit
 };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
@@ -148,10 +151,38 @@ struct Tilemap {
     std::int32_t columns = 0;         // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
     std::int32_t width = 0;           // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
     std::int32_t height = 0;          // map height in tiles (flat tiles)
-    Json tiles = Json::array();       // row-major tile indices, row 0 = TOP row; array of ints (width*height) or array of rows
-    Json solidTiles = Json::array();  // tile indices that collide (empty = none collide)
+    Json tiles = Json::array();       // row-major tile values, row 0 = TOP row; array of ints (width*height) or array of rows.
+                                      // A value is the tile index plus optional flip/rotate flag bits (fa/scene/tilemap.h)
+    Json solidTiles = Json::array();  // tile indices that collide (empty = none collide); flags are not part of them
     Color color{1, 1, 1, 1};
     std::int32_t layer = -10;
+    bool lit = false;                 // shaded by Light2D entities and SceneSettings.ambientLight
+    std::string normalMap;            // normal map image with the same layout as the tileset ("" = flat); needs lit
+};
+
+// Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so
+// far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 moves with the
+// world as usual, 0 stays glued to the camera (sky), between 0 and 1 is behind the action, above 1 in front of it.
+// With the camera at (0, 0) the entity is exactly where its Transform says. Only world-space visuals are shifted.
+struct Parallax {
+    Vec2 factor{0.5f, 0.5f};          // [x, y] fraction of the camera movement the layer follows
+    bool repeatX = false;             // Sprite only: tile the sprite endlessly along world x so the background never ends
+    bool repeatY = false;             // Sprite only: same along world y
+    Vec2 repeatSize{0, 0};            // distance between repeats; 0 = the sprite's own size on that axis
+    Vec2 offset{0, 0};                // runtime: the shift applied to the drawing this frame (written by the renderer)
+};
+
+// A light for lit 2D visuals (Sprite.lit, Tilemap.lit). Only lit visuals react to it; everything else is drawn as before.
+enum class Light2DType : std::int32_t { Point, Directional };
+struct Light2D {
+    Light2DType type = Light2DType::Point;
+    Color color{1, 1, 1, 1};
+    float intensity = 1.0f;           // multiplies color; above 1 over-brightens
+    float radius = 300.0f;            // point: distance in world units where the light has faded to nothing
+    float falloff = 2.0f;             // point: how fast it fades: brightness = (1 - distance/radius)^falloff
+    float height = 80.0f;             // point: height above the drawing plane in world units; lower = more grazing normal-map relief
+    float direction = 270.0f;         // directional: degrees the light travels towards (0 = right, 90 = up, 270 = down)
+    float elevation = 45.0f;          // directional: degrees above the drawing plane (90 = straight at the picture)
 };
 
 struct ParticleEmitter {
@@ -359,6 +390,35 @@ struct Collider2D {
     std::int32_t layer = 0;           // collision layer 0..31 (this collider's category bit)
     std::int32_t mask = -1;           // bitmask of layers it collides with (-1 = all)
     bool oneWay = false;              // one-way platform: only blocks bodies coming from above (+Y side of the entity)
+};
+
+// A Box2D joint between this entity's body and another one (or the world). Put it on the body entity; both entities need a
+// RigidBody2D or Collider2D. Lengths and anchors are in world units (pixels), angles in degrees; gameplay never sees meters.
+// Anchors are in the entity's local space and scaled with its Transform.scale, like Collider2D.offset. Revolute angles are
+// measured from the relative angle of the two bodies when the joint was created (0 = the creation pose); prismatic
+// translation is 0 where the two anchors coincide.
+enum class JointType2D : std::int32_t { Revolute, Distance, Prismatic, Weld };
+struct Joint2D {
+    JointType2D type = JointType2D::Revolute;
+    Entity connected = kNullEntity;   // the other body; empty = fixed to the world (connectedAnchor is then a world position)
+    Vec2 anchor{0, 0};                // joint point in this entity's local space
+    Vec2 connectedAnchor{0, 0};       // joint point in the connected entity's local space (a world position when `connected` is empty)
+    Vec2 axis{1, 0};                  // prismatic: slide direction in this entity's local space (normalised by the engine)
+    bool collideConnected = false;    // the two bodies still collide with each other
+    float length = 0.0f;              // distance: rest length; 0 = the distance between the anchors when the joint is created
+    bool enableLimit = false;
+    float lowerLimit = 0.0f;          // revolute: degrees; prismatic: translation; distance: minimum length (world units)
+    float upperLimit = 0.0f;          // revolute: degrees; prismatic: translation; distance: maximum length (world units)
+    bool enableMotor = false;         // revolute and prismatic: drive towards motorSpeed; distance: needs enableSpring
+    float motorSpeed = 0.0f;          // revolute: degrees/s; prismatic and distance: world units/s
+    float maxMotorTorque = 0.0f;      // largest torque (revolute) or force (prismatic, distance) the motor may use
+    bool enableSpring = false;        // revolute, prismatic, distance: soft constraint along the free axis
+    float springHertz = 0.0f;         // spring stiffness in cycles per second; weld: 0 = rigid, above 0 = soft
+    float dampingRatio = 0.0f;        // 0 = bounces forever, 1 = no overshoot
+    Vec2 reactionForce{0, 0};         // runtime: force the joint applies to hold the bodies together
+    float reactionTorque = 0.0f;      // runtime: torque the joint applies
+    float angle = 0.0f;               // runtime: revolute and weld: current joint angle in degrees
+    float translation = 0.0f;         // runtime: prismatic: slide position; distance: current length (world units)
 };
 
 // Simple 3D physics for arcade games: spheres and oriented boxes (they follow the entity's world rotation), automatic

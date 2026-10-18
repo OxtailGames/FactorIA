@@ -7,6 +7,7 @@
 
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
+#include "nine_slice.h"
 
 namespace fa::render {
 
@@ -66,19 +67,8 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
     const bool textured = !b.texture.empty();
     TextureAsset* tex = textured ? c.f.assets->texture(b.texture) : c.f.assets->white();
     float border[4] = {0, 0, 0, 0}, uvBorder[4] = {0, 0, 0, 0};  // left, top, right, bottom: on screen and in uv
-    if (textured) {
-        const float size[2] = {float(std::max(1, tex->width)), float(std::max(1, tex->height))};
-        const float want[4] = {std::max(0.0f, b.slice.x), std::max(0.0f, b.slice.y), std::max(0.0f, b.slice.z), std::max(0.0f, b.slice.w)};
-        for (int axis = 0; axis < 2; ++axis) {  // 0: left + right against the width, 1: top + bottom against the height
-            float a = want[axis], z = want[axis + 2];
-            const float sum = a + z, limit = std::min(size[axis], axis == 0 ? r.w : r.h);
-            const float k = sum > limit && sum > 0 ? limit / sum : 1.0f;  // the borders cannot cover more than the texture or the widget
-            border[axis] = a * k;
-            border[axis + 2] = z * k;
-            uvBorder[axis] = a * k / size[axis];
-            uvBorder[axis + 2] = z * k / size[axis];
-        }
-    }
+    if (textured)
+        nine_slice_fit(b.slice, float(std::max(1, tex->width)), float(std::max(1, tex->height)), r.w, r.h, border, uvBorder);
     const float xs[4] = {std::round(r.x), std::round(r.x + border[0]), std::round(r.x + r.w - border[2]), std::round(r.x + r.w)};
     const float ys[4] = {std::round(r.y), std::round(r.y + border[1]), std::round(r.y + r.h - border[3]), std::round(r.y + r.h)};
     const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
