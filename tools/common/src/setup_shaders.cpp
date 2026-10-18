@@ -6,6 +6,8 @@
 //
 // The download is the one file of github.com/floooh/sokol-tools-bin at the pinned commit (no archive), checked against the
 // SHA-256 kept in setup.h. Folders of older commits are removed once the new one is in place.
+#include <fstream>
+
 #include "setup_internal.h"
 
 namespace fa {
@@ -44,6 +46,16 @@ std::string shdc_url(const SokolShdcBinary& b, const SetupContext& ctx) {
            "/" + shdc_file(ctx);
 }
 
+// Windows only: antivirus programs flag the pinned sokol-shdc.exe by mistake, so the file may vanish after the install.
+std::string defender_note(const SetupContext& ctx, const SokolShdcBinary& b) {
+    if (ctx.host_os() != "windows") return {};
+    return std::string("Windows Defender may remove sokol-shdc.exe: it flags this pinned file as a threat by mistake (a known false "
+                       "positive, Trojan:Win32/Bearfoos.B!ml; the file's SHA-256 is ") +
+           b.sha256 +
+           "). Restore it from Windows Security > Virus & threat protection > Protection history, or allow it there, or point "
+           "SOKOL_SHDC at a copy you trust. Games never contain sokol-shdc: only the developer's computer needs it.";
+}
+
 int shdc_size_mb(const std::string& host) { return host == "windows" ? 8 : 12; }
 
 const char* const kUnsupportedHint =
@@ -79,6 +91,10 @@ SetupComponent shaders_status(const SetupContext& ctx) {
                 std::string(kSetupSokolShdcCommit).substr(0, 7) + ", SHA-256 checked) into " + sokol_shdc_install_dir(ctx) + ".";
     if (!envPath.empty())
         c.problems.push_back("$SOKOL_SHDC names " + envPath + ", which is not a file: fix the path or unset the variable.");
+    if (const std::string note = defender_note(ctx, *bin); !note.empty()) {
+        c.details += " " + note;
+        c.problems.push_back(note);
+    }
     c.problems.push_back("Custom materials (*.material.json) are compiled with sokol-shdc: run `factoria setup shaders`.");
     return c;
 }
@@ -123,6 +139,13 @@ SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOp
         if (ec) return in.fail("failed", make_error("Cannot write " + dest.string() + ": " + ec.message(), writable));
     }
     make_executable(dest);
+    ctx.say("Checking that sokol-shdc is still there: " + dest.string());
+    if (!std::ifstream(dest, std::ios::binary).good()) {  // gone or unreadable right after a good checksum
+        std::string why = "sokol-shdc was downloaded and verified but " + dest.string() + " cannot be read afterwards.";
+        const std::string note = defender_note(ctx, *bin);
+        return in.fail("failed", make_error(why, note.empty() ? "Check the folder's permissions and that no other program removes the file."
+                                                              : note));
+    }
     in.report.changed = true;
     s.outcome = "installed";
     s.detail = "from github.com/floooh/sokol-tools-bin (SHA-256 checked)";
