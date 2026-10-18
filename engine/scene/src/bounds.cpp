@@ -15,12 +15,14 @@ std::array<Vec2, 4> rect_quad(float x0, float y0, float x1, float y1) {
     return {Vec2{x0, y0}, Vec2{x1, y0}, Vec2{x1, y1}, Vec2{x0, y1}};
 }
 
-VisualFootprint make(const char* component, RenderSpace space, std::int32_t layer, Vec2 anchor, const std::array<Vec2, 4>& box) {
+VisualFootprint make(const char* component, RenderSpace space, std::int32_t layer, Vec2 anchor, bool safeArea,
+                     const std::array<Vec2, 4>& box) {
     VisualFootprint v;
     v.component = component;
     v.space = space;
     v.layer = layer;
     v.anchor = space == RenderSpace::Screen ? anchor : Vec2{0, 0};
+    v.safeArea = space == RenderSpace::Screen && safeArea;
     v.box = box;
     v.hull = box;
     return v;
@@ -57,7 +59,7 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
         const TilemapSize size = tilemap_size(*tm);
         // What the renderer draws: local x right, y DOWN from the top-left corner.
         if (!size.empty() && tm->tileSize.x > 0 && tm->tileSize.y > 0)
-            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0},
+            out.push_back(make("Tilemap", RenderSpace::World, tm->layer, Vec2{0, 0}, false,
                                rect_quad(0.0f, -static_cast<float>(size.height) * tm->tileSize.y,
                                          static_cast<float>(size.width) * tm->tileSize.x, 0.0f)));
     }
@@ -77,7 +79,7 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
             }
             size = {size.x > 0 ? size.x : base.x, size.y > 0 ? size.y : base.y};
         }
-        out.push_back(make("Sprite", s->space, s->layer, s->anchor,
+        out.push_back(make("Sprite", s->space, s->layer, s->anchor, s->safeArea,
                            rect_quad(-s->pivot.x * size.x, -s->pivot.y * size.y, (1.0f - s->pivot.x) * size.x,
                                      (1.0f - s->pivot.y) * size.y)));
     }
@@ -89,18 +91,18 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
             case ShapeType::Triangle:
             case ShapeType::Polygon:  // a polygon's or star's vertices lie inside the size box; the box is its footprint
             case ShapeType::Star:
-                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, rect_quad(bx0, by0, bx0 + s->size.x, by0 + s->size.y)));
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, by0, bx0 + s->size.x, by0 + s->size.y)));
                 break;
             case ShapeType::Diamond: {  // the rhombus on the midpoints of the size box's edges
                 const float w = s->size.x, h = s->size.y;
-                VisualFootprint v = make("Shape2D", s->space, s->layer, s->anchor, rect_quad(bx0, by0, bx0 + w, by0 + h));
+                VisualFootprint v = make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, by0, bx0 + w, by0 + h));
                 v.hull = {Vec2{bx0 + w * 0.5f, by0}, Vec2{bx0 + w, by0 + h * 0.5f}, Vec2{bx0 + w * 0.5f, by0 + h}, Vec2{bx0, by0 + h * 0.5f}};
                 out.push_back(v);
                 break;
             }
             case ShapeType::Circle: {  // size.x is the diameter and the pivot refers to the circle's bounding square
                 const float cy0 = -s->pivot.y * s->size.x;
-                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, rect_quad(bx0, cy0, bx0 + s->size.x, cy0 + s->size.x)));
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea, rect_quad(bx0, cy0, bx0 + s->size.x, cy0 + s->size.x)));
                 break;
             }
             case ShapeType::Line: {  // from the origin to `size`, as thick as the stroke
@@ -108,7 +110,7 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
                 if (len < 1e-6f) break;  // the renderer draws nothing
                 const Vec2 n = perp(s->size / len) * (std::max(s->thickness, 0.5f) * 0.5f);
                 // Around the stroke: start - n, end - n, end + n, start + n.
-                out.push_back(make("Shape2D", s->space, s->layer, s->anchor,
+                out.push_back(make("Shape2D", s->space, s->layer, s->anchor, s->safeArea,
                                    {Vec2{-n.x, -n.y}, Vec2{s->size.x - n.x, s->size.y - n.y},
                                     Vec2{s->size.x + n.x, s->size.y + n.y}, Vec2{n.x, n.y}}));
                 break;
@@ -119,13 +121,13 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
     if (const Text* t = W.get<Text>(e);
         t && (includeScreenSpace || t->space == RenderSpace::World) && !t->text.empty() && t->fontSize > 0.0f) {
         const Vec2 size = measure.textSize ? measure.textSize(*t) : approx_text_size(t->text, t->fontSize, t->maxWidth);
-        out.push_back(make("Text", t->space, t->layer, t->anchor,
+        out.push_back(make("Text", t->space, t->layer, t->anchor, t->safeArea,
                            rect_quad(-t->pivot.x * size.x, -t->pivot.y * size.y, (1.0f - t->pivot.x) * size.x,
                                      (1.0f - t->pivot.y) * size.y)));
     }
     // A UI widget: always screen space, its size box placed by pivot (see ui_rect.h).
     if (const UiBox* b = includeScreenSpace ? ui_box(W, e) : nullptr)
-        out.push_back(make(ui_kind_name(ui_kind(W, e)), RenderSpace::Screen, b->layer, b->anchor,
+        out.push_back(make(ui_kind_name(ui_kind(W, e)), RenderSpace::Screen, b->layer, b->anchor, b->safeArea,
                            rect_quad(-b->pivot.x * b->size.x, -b->pivot.y * b->size.y, (1.0f - b->pivot.x) * b->size.x,
                                      (1.0f - b->pivot.y) * b->size.y)));
     return out;

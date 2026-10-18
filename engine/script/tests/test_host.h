@@ -117,6 +117,7 @@ struct TestHost : ScriptHost {
             float dt = static_cast<float>(fdt);
             platformServices.frame();
             scripts.dispatch_platform();
+            scripts.dispatch_back();
             scripts.fixed_update(dt);
             ph.step(w, dt);
             scripts.dispatch_events();

@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "fa/scene/ui_rect.h"
 
 namespace fa::editor {
 
@@ -32,8 +33,9 @@ VisualFootprint marker(const char* component, int layer, Vec2 center, Vec2 half)
 Mat4 part_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
     Mat4 m = w.world_matrix(e);
     if (part.space == RenderSpace::Screen) {
-        m.at(3, 0) += part.anchor.x * designSize.x;
-        m.at(3, 1) += part.anchor.y * designSize.y;
+        const Vec2 a = anchor_point(part.anchor, part.safeArea, designSize, w.safe_insets());
+        m.at(3, 0) += a.x;
+        m.at(3, 1) += a.y;
     }
     return m;
 }

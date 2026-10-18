@@ -506,6 +506,19 @@
   };
 
   // ======================================================================================================== events
+  const backHandlers = [];  // input.onBack
+  // Called by the engine when Back was pressed (ScriptSystem::dispatch_back): true when a handler consumed it.
+  function deliverBack() {
+    for (const handler of backHandlers.slice().reverse()) {
+      if (!backHandlers.includes(handler)) continue;  // removed by a handler that ran before
+      let result;
+      N.guardBegin("input.onBack handler", 2.0);
+      try { result = handler.fn(); } catch (e) { N.reportError(e, "", "input.onBack"); result = true; }  // reported; not a reason to quit
+      N.guardEnd();
+      if (result !== false) return true;
+    }
+    return false;
+  }
   const listeners = new Map();
   function emitToListeners(name, data, source) {
     const arr = listeners.get(name);
@@ -665,6 +678,23 @@
     get text() { return N.inText(); },
     showKeyboard(on = true) { N.inCursor(2, !!on); },
     get keyboardShown() { return N.inCursor(2); },
+    // The system Back button or gesture (Android). Handlers run newest first at the start of the frame; the first one that
+    // does not return false consumes the press. When none does (or there is none), the game quits, as Back always did.
+    // Handlers end with the scene, like ui.on. Returns the function that removes the handler.
+    onBack(fn) {
+      if (typeof fn !== "function")
+        throw new Error(`input.onBack(fn) expects a function, e.g. input.onBack(() => { if (menu.open) { menu.close(); return true; } return false; }), but got ${inspect(fn)}`);
+      const handler = { fn };
+      backHandlers.push(handler);
+      return () => { const i = backHandlers.indexOf(handler); if (i >= 0) backHandlers.splice(i, 1); };
+    },
+    // One pulse of the vibration motor of a phone (iOS: a haptic tap for short ones, the system vibration for long ones).
+    // A no-op on desktop; a headless run or test records it (game.vibrations()).
+    vibrate(seconds = 0.1) {
+      if (typeof seconds !== "number" || !(seconds > 0) || seconds > 5)
+        throw new Error(`input.vibrate(seconds) expects a number above 0 and up to 5, e.g. input.vibrate(0.05) for a tap, but got ${inspect(seconds)}`);
+      N.inVibrate(seconds);
+    },
     // Rebinding. rebind() replaces an action's bindings and validates the names (an unknown action or binding throws with
     // a suggestion); resetBindings() goes back to factoria.json (one action, or all of them).
     actions: () => N.inActions(),
@@ -845,6 +875,17 @@
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     get platform() { return N.platform(); },
+  };
+
+  // The screen in design pixels, origin top-left, +Y down. The safe area is what a notch, rounded corners and the system bars
+  // of a phone leave (the whole screen on desktop); items with `safeArea: true` are anchored to it.
+  const screen = {
+    get size() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
+    get insets() { const i = N.screenInsets(); return { left: i[0], top: i[1], right: i[2], bottom: i[3] }; },
+    get safeArea() {
+      const i = N.screenInsets(), s = N.screenSize();
+      return new Rect(i[0], i[1], s[0] - i[0] - i[2], s[1] - i[1] - i[3]);
+    },
   };
 
   const storage = {
@@ -1238,7 +1279,7 @@
   };
 
   const factoria = {
-    Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, storage, rng, fa,
+    Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
     window: windowApi,
   };
@@ -1472,6 +1513,28 @@
         setType(type) { N.testPad(5, index, type, 0); },
       };
     },
+    // Presses the system Back button (Android). The input.onBack handlers run at the next step(); when none consumes it the
+    // game asks to quit (game.quitRequested in game.state()).
+    pressBack() { N.testBack(); },
+    // Pretends to be a phone with a notch, rounded corners or system bars: screen.safeArea, screen.insets and the items with
+    // safeArea follow. Takes insets in design pixels ({ left, top, right, bottom }, 0 for those left out) or a profile name:
+    // "none", "phone-portrait", "phone-landscape". Reset to none before every test.
+    setSafeArea(insets) {
+      if (typeof insets === "string") {
+        const err = N.testSafeProfile(insets);
+        if (err) throw new Error(`game.setSafeArea('${insets}'): ${err}`);
+        return;
+      }
+      if (!isObj(insets)) throw new Error(`game.setSafeArea(insets) expects { left, top, right, bottom } in design pixels or a profile name like "phone-portrait", but got ${inspect(insets)}`);
+      const side = (k) => {
+        const v = insets[k] ?? 0;
+        if (typeof v !== "number" || !(v >= 0)) throw new Error(`game.setSafeArea: '${k}' must be a number of design pixels, 0 or more, but got ${inspect(v)}`);
+        return v;
+      };
+      N.testSafeInsets(side("left"), side("top"), side("right"), side("bottom"));
+    },
+    // The pulses input.vibrate() asked for since the test started (cleared before each test), in seconds, oldest first.
+    vibrations() { return N.testVibrations(); },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },
     click(p, button = "left") {
       const a = posArg(p, "game.click");
@@ -1562,13 +1625,13 @@
   }
 
   function resetScene() {
-    timers.reset(); listeners.clear(); entityCache.clear();
+    timers.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0;
     timers.now = 0;
   }
 
   return {
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, back: deliverBack,
     tick: (dt) => timers.tick(dt),
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),

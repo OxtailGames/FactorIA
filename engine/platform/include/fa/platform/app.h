@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/math.h"
 #include "fa/platform/input.h"
 
 // Forward-declare the sokol structs we hand to the renderer so this header
@@ -112,8 +113,16 @@ bool app_set_vsync(bool on);
 // Mouse lock: the pointer is hidden and held in the window, and Input::mouse_delta() reports raw movement. The window
 // system may unlock it by itself (focus lost), so the caller asks again when the window regains focus.
 void app_lock_mouse(bool lock);
-// The on-screen keyboard (phones and tablets; a no-op on desktop).
+// The on-screen keyboard (phones and tablets; a no-op on desktop). What is typed arrives as Input text and key edges.
 void app_show_keyboard(bool show);
+// The part of the framebuffer that a notch, rounded corners, status and navigation bars cover, in framebuffer pixels from
+// each edge: the screen minus this is the safe area. Android: the window insets of the activity (system bars and display
+// cutout); iOS: the view's safeAreaInsets. Desktop windows: all zero. Refreshed on resize and rotation (and polled a few
+// times a second, because the system reports some changes late).
+EdgeInsets app_safe_insets();
+// One pulse of the vibration motor of a phone, `seconds` long. iOS cannot pick a length: short is a haptic tap, long the
+// system vibration. A no-op without a motor, and on desktop.
+void app_vibrate(float seconds);
 
 // Window-less GPU context.
 class HeadlessGpu {

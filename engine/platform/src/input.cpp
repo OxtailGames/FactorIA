@@ -192,6 +192,11 @@ void Input::begin_frame() {
     mouseDelta_ = {};
     wheel_ = 0.0f;
     text_.clear();
+    backEdge_ = false;
+}
+
+void Input::vibrate(float seconds) {
+    if (vibrations_.size() < 256) vibrations_.push_back(seconds);  // nobody plays them in a headless run: keep the log short
 }
 
 void Input::on_key(Key key, bool down) {
@@ -337,6 +342,8 @@ void Input::reset_options() {
     reset_bindings();
     mouseVisible_ = true;
     mouseLocked_ = keyboardShown_ = false;
+    backEdge_ = false;
+    vibrations_.clear();
     lastDevice_ = InputDevice::Keyboard;
     for (Pad& pad : pads_) pad.type = GamepadType::Generic;
 }
