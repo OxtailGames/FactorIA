@@ -649,7 +649,7 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
 ```
 
 - `rows` is the map: one string per row, ONE CHARACTER PER TILE, all rows the same length, row 0 is the TOP row. `.` and a space are empty tiles unless the legend defines them.
-- `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile. A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
+- `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "flipX"?, "flipY"?, "rotate"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile (`flipX`, `flipY` and `rotate` 0/90/180/270 clockwise turn it, section 9.26). A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
 - `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). You do not need `columns`: left at 0 (the default) it is derived from the tileset image, as many whole tiles of `tileSize[0]` as fit across it. Pass it only for an image with another layout. If an earlier import set `columns` explicitly and you now change `tileset` or `tileSize` without `columns`, it goes back to 0 (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
 - `entity` (default `"tilemap"`) is the id of the Tilemap entity: created when missing, updated when it exists. Use another id for a second layer, such as a background.
 - `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
@@ -1283,6 +1283,20 @@ Animation runs in the fixed step, so headless tests and replays match (`game.ste
 (2D and 3D): `tween(panel.position, { x: 0 }, { duration: 0.4, ease: "backOut" })`, `await tween(...).finished`.
 The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
 Each animated model is its own draw call, so keep crowds of animated characters modest.
+
+### 9.26 2D production: flipped tiles, 9-slice, lights, parallax, joints
+
+- **Flipped and rotated tiles.** A tile value in `Tilemap.tiles` is the index plus flag bits: `+268435456` flip X, `+536870912` flip Y, `+1073741824` transpose (applied first, then X, then Y). Turn 90 degrees clockwise = `1342177280 + i`, 180 = `805306368 + i`, 90 counter-clockwise = `1610612736 + i`. `solidTiles`, the tileset range check and collision use the plain index only. In `scene.import_ascii` a legend object takes `{"tile": 3, "flipX": true, "flipY": false, "rotate": 90}` (rotate is clockwise: 0, 90, 180, 270) so you never write the numbers.
+- **9-slice sprites.** `Sprite.slice` = `[left, top, right, bottom]` in pixels of the picture (of the `region` when set). The corners keep their size, the edges and centre stretch to `size`. Works with `flipX/flipY`, `region` and atlas textures. A size smaller than the corners shrinks them evenly.
+- **Lights.** Add `Light2D` entities (`type` point or directional, `color`, `intensity`, `radius`, `falloff`, `height` for point lights, `direction` and `elevation` for directional ones). Only a `Sprite` or `Tilemap` with `lit: true` is lit; the base brightness is `SceneSettings.ambientLight`. `Sprite.normalMap` (needs `lit`) gives bumps; the normal map may be another size or packed in an atlas. At most 16 lights per frame (WebGL2 and GLES3 uniform limit): directional lights first, then the point lights nearest the camera. Lights ignore layers and cast no shadows. Unlit sprites cost nothing extra.
+- **Parallax.** `Parallax.factor` 1 follows the world, 0 sticks to the screen, 0.5 moves at half the camera's speed (use a value above 1 for a foreground). `repeatX` / `repeatY` with `repeatSize` tile a Sprite endlessly over the view. It works with the camera follow of 9.6: the offset is computed from the camera position each frame, so `entity.bounds()` and the editor pick follow it and replays stay deterministic.
+- **Joints.** `Joint2D` goes on the body entity. `connected` is another entity with a body, or empty to pin to the world (then `connectedAnchor` is a world position). `anchor` is on this entity, `connectedAnchor` on the other, in local pixels. Types: `revolute` (hinge; `enableLimit` with `lowerLimit`/`upperLimit` in degrees, 0 = the pose at creation), `distance` (a rope of `length`, 0 = the starting distance; `enableSpring` with `springHertz`/`dampingRatio` makes it elastic), `prismatic` (slides along `axis`, limits in pixels), `weld` (glue). `enableMotor` with `motorSpeed` (degrees/s or px/s) and `maxMotorTorque`. Limits, motor and spring change live from scripts; the type, anchors, axis and `connected` rebuild the joint. `reactionForce`, `reactionTorque`, `angle` and `translation` are read-only runtime fields.
+
+```js
+const j = this.entity.get("Joint2D");
+j.enableMotor = true; j.motorSpeed = 180;        // a wheel starts spinning
+if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(this.entity); // a rope that takes too much
+```
 
 ## 10. Tests
 
