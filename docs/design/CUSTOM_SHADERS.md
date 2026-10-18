@@ -1,6 +1,6 @@
 # Design: custom shaders per material
 
-Status: **proposal** (not implemented). Closes the M18 item "Custom shaders per material: not built"
+Status: **accepted** (2026-10-18), not implemented. Closes the M18 item "Custom shaders per material: not built"
 (feedback/ROADMAP.md, M18 "Left open"). Written against `m18/integration` (`7b5450a`): `mesh.glsl` with the PBR
 `mesh` and `mesh_skin` programs, instanced batches (`mesh_batch.h`), `shadow.glsl`.
 
@@ -27,7 +27,7 @@ point at its own lines, and have it work on every target an export makes, withou
 | D6 | Hot reload | The existing `Engine::poll_hot_reload` sees the `.material.json` or snippet change, the injected compiler rebuilds it (host dialect only), the renderer swaps the program. A failed compile keeps the last good program and logs the teaching error once. | A file watcher in the editor only: `factoria run` and MCP sessions would not reload. |
 | D7 | Instancing, skinning, shadows | Per material the generator makes up to four programs: `mesh`, `mesh_skin`, and when the material moves vertices or cuts holes `shadow` and `shadow_skin`. Materials join the batch key; per-entity overrides split batches only when they differ. | One program per material without shadow variants: displaced or cut-out surfaces would cast the wrong shadow. |
 
-Points the user should decide are listed at the end ([Decision points](#decision-points-for-the-user)).
+The user's choices on the open points are at the end ([Decisions taken](#decisions-taken)).
 
 ## What the author writes
 
@@ -469,16 +469,16 @@ Acceptance: a two-band toon material renders its golden with a directional and a
   moved together; one test catches a mismatch, and twins carry the versions they were built with.
 - **Compile time in validate**: all dialects of all materials. Cached by hash, so only changed materials pay.
 
-## Decision points for the user
+## Decisions taken
 
-1. **Surface snippet only, no full-GLSL shaders in the first version** (D1). Recommended: yes. The cost is that some
-   effects (a custom vertex layout, multi-pass) wait for a later escape hatch.
+The user took the five recommendations on 2026-10-18:
+
+1. **Surface snippet only, no full-GLSL shaders in the first version** (D1). Some effects (a custom vertex layout,
+   multi-pass) wait for a later escape hatch.
 2. **sokol-shdc bundled in the factoria downloads (+8-12 MB per host), and the game ships cross-compiled source**
-   (D2, D3) instead of a compiler in every player. Recommended: yes.
-3. **Material = a `*.material.json` file + per-entity `materialParams`** (D4), no shader/material split. Recommended:
-   yes; a second material reusing a snippet repeats its param declarations.
-4. **Custom lighting (P6, toon) now or when a game asks.** Recommended: when a game asks (the engine's feedback rule;
-   the template leaves room for it). Toon looks are the most requested stylised effect in other engines, so this is
-   the closest call of the five.
-5. **Error material = unlit magenta** (visible in screenshots) rather than silently drawing the standard material.
-   Recommended: magenta.
+   (D2, D3), no compiler in the players.
+3. **Material = a `*.material.json` file + per-entity `materialParams`** (D4), no shader/material split; a second
+   material reusing a snippet repeats its param declarations.
+4. **Custom lighting (P6, toon) waits for a game that asks** (an `ENGINE_FEEDBACK.json` entry); the template leaves
+   room for the hook.
+5. **Error material = unlit magenta**, never a silent fallback to the standard material.
