@@ -6,7 +6,7 @@
 #include "fa/scene/animation.h"
 
 #include "mesh_batch.h"
-#include "render_internal.h"            // Gpu::set_mesh_shaders
+#include "render_internal.h"            // Gpu::set_mesh_shader
 #include "shaders/time_emission.glsl.h"  // tests/shaders/: a test material made from the mesh template
 
 using namespace fa;
@@ -426,11 +426,11 @@ TEST_CASE("3D mesh template: a material's emission driven by fa_time is the same
         for (int i = 0; i < steps; ++i) w.advance_clock(1.0 / 60.0);
         return g.render(w);
     };
-    gpu->set_mesh_shaders(timed, gpu->meshSkinShader_);
+    gpu->set_mesh_shader(timed);
     const Image start = frame(0);
     const Image a = frame(45);
     const Image b = frame(45);
-    gpu->set_mesh_shaders(builtin, gpu->meshSkinShader_);
+    gpu->set_mesh_shader(builtin);
     sg_destroy_shader(timed);
     CHECK(diff_images(a, b, 0.0f).maxError == 0.0);
     // 0.75 s: red emission 0.5 + 0.5 sin(2.25) = 0.89 and green 0.19, against 0.5 and 0 at the start.

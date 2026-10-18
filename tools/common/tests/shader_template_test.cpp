@@ -20,7 +20,7 @@ TEST_CASE("shader template: the bundled files are engine/render/shaders/*_common
     std::vector<std::string> onDisk;
     for (const auto& e : stdfs::directory_iterator(dir)) {
         const std::string name = e.path().filename().string();
-        if (name.size() > 12 && name.ends_with("_common.glsl")) onDisk.push_back("engine/render/shaders/" + name);
+        if (name.ends_with("_common.glsl")) onDisk.push_back("engine/render/shaders/" + name);
     }
     std::sort(onDisk.begin(), onDisk.end());
     REQUIRE_FALSE(onDisk.empty());
@@ -34,5 +34,4 @@ TEST_CASE("shader template: the bundled files are engine/render/shaders/*_common
         REQUIRE(bundled.has_value());
         CHECK(*bundled == text.str());
     }
-    CHECK(bundled_read("engine/render/shaders/mesh_common.glsl").has_value());
 }
