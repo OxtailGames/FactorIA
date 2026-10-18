@@ -25,6 +25,7 @@
 #include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/render/renderer.h"
 #include "fa/tooling/setup.h"
 
 namespace fa {
@@ -185,5 +186,10 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
 
 // "shader.compile" and "material.info" (category "shader"). `context` supplies the sokol-shdc lookup and the process runner.
 void register_shader_commands(CommandRegistry& registry, const std::string& projectDir, const SetupContext& context = {});
+
+// The compiler the engine calls (EngineConfig::shaderCompiler) for the materials of `projectDir`: compiles the material for
+// one dialect (cached under .factoria/shader-cache) and returns its twin. A failed compile returns an Error whose message
+// is every issue (file:line:col, the quoted line) and whose hint is the first issue's hint.
+ShaderCompiler make_engine_shader_compiler(const std::string& projectDir, const SetupContext& context = {});
 
 }  // namespace fa

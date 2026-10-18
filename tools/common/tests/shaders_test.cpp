@@ -1006,3 +1006,25 @@ TEST_CASE("real sokol-shdc: an hlsl-only error is found by compiling every diale
     REQUIRE_FALSE(r->ok);
     CHECK(find_issue(r->errors, "vertex") != nullptr);
 }
+
+TEST_CASE("engine compiler: returns the twin, and an error with every issue's file:line:col and the first hint") {
+    Project p;
+    FakeShdc shdc;
+    shdc.reflection = fixture("shdc_mesh_hlsl5_glsl430.yaml");
+    const ShaderCompiler compiler = make_engine_shader_compiler(p.str(), shdc.context(p.str()));
+    auto twin = compiler("materials/gem.material.json", "hlsl5");
+    REQUIRE(twin.ok());
+    CHECK((*twin)["slang"] == "hlsl5");
+
+    const GeneratedShader g = generate_material_shader(read_material(p.str(), "materials/bad.material.json").material, kBadSnippet);
+    const int top = top_line_of(g, 7);
+    shdc.stderrText = "top.glsl:" + std::to_string(top) + ":0: error: 'tnt' : undeclared identifier\n";
+    auto bad = compiler("materials/bad.material.json", "hlsl5");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("shaders/bad.surface.glsl:7:27: error:") != std::string::npos);
+    CHECK(bad.error().message.find("return wobble(uv.x) * tnt;") != std::string::npos);
+    CHECK(bad.error().hint.find("did you mean tint?") != std::string::npos);
+
+    auto missing = compiler("materials/none.material.json", "hlsl5");
+    CHECK_FALSE(missing.ok());
+}

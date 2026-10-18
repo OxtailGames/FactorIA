@@ -225,7 +225,7 @@ void Engine::Impl::render(double dt) {
 void Engine::Impl::poll_hot_reload(bool force) {
     bool active = force || cfg.hotReload;
     if (!active) return;
-    static const char* dirs[] = {"scripts", "tools", "scenes", "assets", "locales"};
+    static const char* dirs[] = {"scripts", "tools", "scenes", "assets", "locales", "materials", "shaders"};
     std::map<std::string, std::int64_t> now;
     for (const char* d : dirs) {
         if (!fs::is_directory(d)) continue;
@@ -258,6 +258,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
                 std::string err;
                 load_scene_impl(p, &err);
             }
+        } else if (ends_with(p, ".material.json") || has_ext(p, {".glsl"})) {
+            // A material file or a snippet: the renderer rebuilds that material (or every material using the snippet).
+            if (renderer) renderer->reload_asset(p);
         } else if (has_ext(p, {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})) {
             if (renderer) renderer->reload_asset(p);
         } else if (has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) {
@@ -381,6 +384,7 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
             if (I.gpu) I.gpu->shutdown();
             I.gpu.reset();
         } else {
+            if (config.shaderCompiler) I.renderer->set_shader_compiler(config.shaderCompiler);  // before any scene loads
             I.apply_fallback_fonts();  // the renderer did not exist when the start language was chosen
             FA_INFO("engine", "Graphics: {}",
                     I.gpu ? I.gpu->description()
