@@ -128,9 +128,8 @@ void Gpu::shutdown() {
     bloomState_ = 0;
 }
 
-void Gpu::set_mesh_shaders(sg_shader mesh, sg_shader skin) {
+void Gpu::set_mesh_shader(sg_shader mesh) {
     mesh_shader_ = mesh;
-    meshSkinShader_ = skin;
     for (auto it = pipelines_.begin(); it != pipelines_.end();) {
         if ((it->first.bits & ~7u) == 0x200u) {  // mesh_pipeline keys
             sg_destroy_pipeline(it->second);
