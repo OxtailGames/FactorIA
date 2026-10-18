@@ -59,7 +59,7 @@ bool ios_libs_complete(const stdfs::path& mobile) {
 bool mobile_complete(const stdfs::path& mobile) { return android_libs_complete(mobile) && ios_libs_complete(mobile); }
 
 stdfs::path exe_mobile_dir(const SetupContext& ctx) {
-    return (ctx.executableDir.empty() ? executable_dir() : stdfs::path(ctx.executableDir)) / "mobile";
+    return exe_dir(ctx) / "mobile";
 }
 
 struct Selection {

@@ -40,6 +40,27 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         // that the project builds itself (platforms/android). They end up in the Gradle project, not in the game.
         {"Gradle wrapper", "https://github.com/gradle/gradle", "Apache-2.0", "platforms/licenses/gradle-wrapper-LICENSE.txt",
          "the Gradle wrapper that Android exports write into the Gradle project; not part of the game", false},
+        // sokol-shdc, the shader cross-compiler that `factoria` downloads bundle (and `factoria setup shaders` installs), built from
+        // sokol-tools commit be7a968 (docs/design/CUSTOM_SHADERS.md). It is not in games. The versions are the submodule commits of that
+        // commit; the texts are in tools/shaders/licenses/.
+        {"sokol-shdc (sokol-tools)", "https://github.com/floooh/sokol-tools", "MIT", "tools/shaders/licenses/sokol-tools-LICENSE.txt",
+         "the shader compiler of custom materials, run by the developer tools; not part of the game", false},
+        {"glslang (in sokol-shdc)", "https://github.com/KhronosGroup/glslang", "BSD-3-Clause AND the licenses listed in the text",
+         "tools/shaders/licenses/glslang-LICENSE.txt", "GLSL front end of sokol-shdc", false},
+        {"SPIRV-Cross (in sokol-shdc)", "https://github.com/KhronosGroup/SPIRV-Cross", "Apache-2.0",
+         "tools/shaders/licenses/SPIRV-Cross-LICENSE.txt", "SPIR-V to GLSL, HLSL and Metal in sokol-shdc", false},
+        {"SPIRV-Tools (in sokol-shdc)", "https://github.com/KhronosGroup/SPIRV-Tools", "Apache-2.0",
+         "tools/shaders/licenses/SPIRV-Tools-LICENSE.txt", "SPIR-V validation and optimization in sokol-shdc", false},
+        {"SPIRV-Headers (in sokol-shdc)", "https://github.com/KhronosGroup/SPIRV-Headers", "MIT",
+         "tools/shaders/licenses/SPIRV-Headers-LICENSE.txt", "SPIR-V definitions in sokol-shdc", false},
+        {"Tint (in sokol-shdc)", "https://github.com/floooh/tint-extract", "BSD-3-Clause", "tools/shaders/licenses/tint-LICENSE.txt",
+         "SPIR-V to WGSL in sokol-shdc (a subset of Dawn's Tint)", false},
+        {"{fmt} (in sokol-shdc)", "https://github.com/fmtlib/fmt", "MIT", "tools/shaders/licenses/fmt-LICENSE.txt",
+         "text formatting in sokol-shdc", false},
+        {"getopt (in sokol-shdc)", "https://github.com/wc-duck/getopt", "Zlib", "tools/shaders/licenses/getopt-LICENSE.txt",
+         "command-line parsing in sokol-shdc", false},
+        {"pystring (in sokol-shdc)", "https://github.com/imageworks/pystring", "BSD-3-Clause", "tools/shaders/licenses/pystring-LICENSE.txt",
+         "string helpers in sokol-shdc", false},
     };
     return list;
 }

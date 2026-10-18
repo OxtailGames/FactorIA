@@ -1,6 +1,6 @@
 // One-click setup of everything an export needs: `factoria setup`, commands "setup.status" and "setup.install".
 //
-// FactorIA never only tells the user what to install when it can install it. Five components:
+// FactorIA never only tells the user what to install when it can install it. Six components:
 //   android   JDK 21 (Eclipse Temurin) + the Android SDK (the command-line tools revision pinned below, platform-tools,
 //             platform 36, build-tools 35.0.0) with its license accepted: what `factoria export --platform android` builds an
 //             APK/AAB with.
@@ -165,7 +165,7 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage"
+    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -195,7 +195,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage"
+    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
     std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
