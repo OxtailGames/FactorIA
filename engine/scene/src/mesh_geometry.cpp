@@ -16,8 +16,8 @@ namespace fa {
 
 namespace {
 
-constexpr float kPi = 3.14159265358979f;
 const char* const kPrimitiveNames[] = {"cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad"};
+constexpr const char* kPrimitiveHint = "cube, sphere, plane, cylinder, capsule, cone, quad";
 
 // Surface of revolution about Y through the profile (radius, y) points, `seg` segments around.
 void revolve(MeshGeometry& g, int seg, const std::vector<Vec2>& profile) {
@@ -106,7 +106,7 @@ Result<std::shared_ptr<const MeshGeometry>> load_gltf_geometry(const std::string
     if (!bytes)
         return make_error(std::format("mesh '{}' is not a built-in primitive and cannot be read as a model: {}", path,
                                       bytes.error().message),
-                          "Use a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a "
+                          std::string("Use a primitive name (") + kPrimitiveHint + ") or a "
                           "project-relative path to a .gltf/.glb file, e.g. \"assets/models/ramp.glb\".");
     cgltf_options opts{};
     gltf_use_fs(opts);
@@ -162,20 +162,24 @@ Result<std::shared_ptr<const MeshGeometry>> load_gltf_geometry(const std::string
 
 }  // namespace
 
+namespace {
 bool is_primitive_mesh(const std::string& name) {
     const std::string lower = to_lower(name);
     for (const char* p : kPrimitiveNames)
         if (lower == p) return true;
     return false;
 }
+}  // namespace
+
+std::string mesh_key(const std::string& mesh) { return is_primitive_mesh(mesh) ? to_lower(mesh) : mesh; }
 
 Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string& mesh) {
     static std::map<std::string, std::shared_ptr<const MeshGeometry>> cache;
     if (mesh.empty())
         return make_error("a convex or mesh collider has no `mesh`",
-                          "Set Collider3D.mesh to a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or "
-                          "a .gltf/.glb path, usually the same value as the entity's MeshRenderer.mesh.");
-    const std::string key = is_primitive_mesh(mesh) ? to_lower(mesh) : mesh;
+                          std::string("Set Collider3D.mesh to a primitive name (") + kPrimitiveHint +
+                              ") or a .gltf/.glb path, usually the same value as the entity's MeshRenderer.mesh.");
+    const std::string key = mesh_key(mesh);
     if (auto it = cache.find(key); it != cache.end()) return it->second;
     Result<std::shared_ptr<const MeshGeometry>> out = std::shared_ptr<const MeshGeometry>();
     if (is_primitive_mesh(mesh)) {
@@ -188,7 +192,7 @@ Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string
         if (!lower.ends_with(".gltf") && !lower.ends_with(".glb")) {
             std::vector<std::string> names(std::begin(kPrimitiveNames), std::end(kPrimitiveNames));
             return make_error(std::format("unknown collider mesh '{}'", mesh),
-                              "Use a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a "
+                              std::string("Use a primitive name (") + kPrimitiveHint + ") or a "
                               "project-relative .gltf/.glb path. " + did_you_mean(mesh, names));
         }
         out = load_gltf_geometry(mesh);

@@ -27,7 +27,6 @@ struct ShapeData {
     };
     std::vector<Node> nodes;           // nodes[0] = root (mesh only)
     std::vector<std::uint32_t> order;  // triangle indices (index of the first of its three entries / 3), BVH order
-    int triangles = 0;
 
     Vec3 tri_vertex(std::uint32_t tri, int k) const { return geometry->positions[geometry->indices[tri * 3 + k]]; }
     // Calls fn(triangle) for every triangle whose bounds overlap [lo, hi] (model space), in a fixed order.
