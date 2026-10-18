@@ -59,6 +59,11 @@ target_include_directories(fa_ext_box2d PRIVATE ${FA_EXT}/box2d/src)
 if(NOT MSVC)
     target_link_libraries(fa_ext_box2d PUBLIC m)
 endif()
+if(FA_PLATFORM STREQUAL "web")
+    # Box2D's WebAssembly path uses the SSE2 compatibility header, which needs -msimd128 and so a browser with WebAssembly
+    # SIMD in the whole module. The scalar path runs in every browser; it gives the same simulation, a little slower.
+    target_compile_definitions(fa_ext_box2d PRIVATE BOX2D_DISABLE_SIMD)
+endif()
 
 # ---- Dear ImGui (editor + debug UI) ----------------------------------------
 add_library(fa_ext_imgui STATIC

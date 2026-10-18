@@ -462,6 +462,10 @@ struct Audio::Impl {
 // ===================================================================== API ====
 
 Audio::Audio() : impl_(std::make_unique<Impl>()) {}
+#if defined(__EMSCRIPTEN__)
+void audio_web_unlock();  // audio_web.cpp
+#endif
+
 Audio::~Audio() { shutdown(); }
 
 bool Audio::init(bool device, std::string* error) {
@@ -483,6 +487,9 @@ bool Audio::init(bool device, std::string* error) {
             impl_->deviceRate = std::max(saudio_sample_rate(), 8000);
             impl_->deviceChannels = std::max(saudio_channels(), 1);
             FA_INFO("audio", "output device open: {} Hz, {} channels", impl_->deviceRate, impl_->deviceChannels);
+#if defined(__EMSCRIPTEN__)
+            audio_web_unlock();  // the browser keeps the device silent until the player clicks, touches or presses a key
+#endif
         } else {
             saudio_shutdown();
             FA_WARN("audio", "no audio output device available; running with a silent null device "

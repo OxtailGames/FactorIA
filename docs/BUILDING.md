@@ -14,6 +14,7 @@ packages listed below.
 | Windows | Visual Studio 2022, workload "Desktop development with C++" | `powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Test` |
 | iOS (Simulator) | Full Xcode | `./scripts/build-ios.sh --simulator` |
 | Android (arm64 device) | Android NDK r27 or newer | `./scripts/build-android.sh` |
+| Web (WebAssembly, WebGL2) | Emscripten SDK 6.0.10 | `cmake --preset web-release && cmake --build --preset web-release` ("Web" below) |
 
 Each build writes to `build/<preset>/`. The `build/` folder is git-ignored.
 
@@ -65,6 +66,21 @@ the same components with your package manager.
   `build/cmake/android.toolchain.cmake`. If it is not set, `build-android.sh`
   also looks at `ANDROID_NDK_ROOT`, `ANDROID_NDK_LATEST_HOME`, and then the
   newest NDK under `$ANDROID_HOME/ndk` (or `$ANDROID_SDK_ROOT/ndk`).
+
+### Web
+
+- The Emscripten SDK, **pinned to 6.0.10** (CI uses the same version; newer ones are likely fine but untested):
+
+  ```bash
+  git clone https://github.com/emscripten-core/emsdk && cd emsdk
+  ./emsdk install 6.0.10 && ./emsdk activate 6.0.10     # emsdk.bat on Windows
+  source ./emsdk_env.sh                                  # emsdk_env.bat on Windows: sets EMSDK and puts emcc on PATH
+  ```
+
+- CMake 3.24+ and Ninja on the host (any host OS). The presets read the toolchain file from `$EMSDK`
+  (`$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`), so `EMSDK` must be set (`emsdk_env` does it).
+- No Python, Node or browser is needed to build. To look at the result you serve the folder and open it in a browser
+  (`platforms/web/smoke.mjs` does it headless, "Web" under "Presets" below).
 
 ## One command per platform
 
@@ -205,9 +221,30 @@ starts that build directory over, because CMake would otherwise keep using the o
 | `ios-simulator` | macOS | Xcode | Debug (`--config Release` to change) | no | iOS Simulator SDK |
 | `android-arm64` | any host with the NDK | Ninja | Debug | no | `ANDROID_NDK_HOME`, ABI arm64-v8a, API 26 |
 | `android-x86_64` | any host with the NDK | Ninja | Debug | no | Android emulator, ABI x86_64, API 26 |
+| `web-debug` | any host with the Emscripten SDK | Ninja | Debug | no | `EMSDK` set; WebAssembly, WebGL2; assertions on |
+| `web-release` | any host with the Emscripten SDK | Ninja | Release (`-O3`) | no | The web player: `build/web-release/player/factoria_player.{js,wasm}` |
 
 Desktop presets build the tools (`factoria` CLI, MCP server, AI agent, editor)
-and the unit tests. Mobile presets build the engine libraries and `factoria_player`.
+and the unit tests. Mobile and web presets build the engine libraries and `factoria_player`.
+
+### Web player
+
+```bash
+source emsdk/emsdk_env.sh                  # once per shell (emsdk_env.bat on Windows)
+cmake --preset web-release
+cmake --build --preset web-release         # build/web-release/player/factoria_player.js + .wasm
+```
+
+The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
+and the game's `game.pak`; docs/EXPORTING.md). A release build is about 6.5 MB of wasm (about 2.5 MB gzipped, which is what
+a web server sends) and 150 KB of JS. To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
+and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, saved as `index.html`) in one
+folder, serve it (`python -m http.server`; no special headers, the player uses no threads) and open it in a browser. To
+check it headless, with a software WebGL2: `node platforms/web/smoke.mjs <folder>` (Node 22+, Chrome, Chromium or Edge; it
+waits for the player's `60 frames rendered` line and fails on a page error or `console.error`).
+
+What is different from the other platforms (details in docs/MOBILE.md, "Web"): no threads, WebAssembly exceptions
+(`-fwasm-exceptions`), Box2D without SIMD, no native plugins, no `log.txt`, and the save folder in IndexedDB.
 
 Use the presets directly when you do not need the scripts:
 

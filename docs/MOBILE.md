@@ -540,7 +540,7 @@ The platform layer maps touches to the same `Input` object scripts use:
   keeps its slot while connected, an unplugged pad frees it (logged as `gamepad: pad 0 connected: Controller (Xbox
   One)`). Run on macOS with an Xbox Wireless Controller over Bluetooth (every button, both sticks with +Y up, triggers
   0..1, unplug and plug back); on iOS it is the same code, built and run but not yet with a real pad. The iOS Simulator
-  shows a virtual pad of its own (`Gamepad (MFi)`) in slot 0. The web build has no gamepad support yet. Bindings such as `"GamepadA"` are
+  shows a virtual pad of its own (`Gamepad (MFi)`) in slot 0. Pads in a browser are in "Web" below. Bindings such as `"GamepadA"` are
   accepted everywhere.
 - Android gamepads (Bluetooth or USB pads that Android itself supports: Xbox, DualShock/DualSense, Switch Pro, most
   generic ones) come from the NativeActivity input queue: the button keys (`AKEYCODE_BUTTON_A`..`MODE`, the D-pad
@@ -679,3 +679,50 @@ it from a script. What is typed arrives in `input.text` (and Enter, Backspace as
   keyboard works the same way (also on a tablet). Written against the NDK headers and checked for syntax only: it was not
   run on a device or in the emulator, and the calls are made from the game's thread instead of the Android UI thread, which
   works on the releases known to the author but is not guaranteed by Android.
+
+## Web
+
+A game also runs in a browser page: the player is compiled to WebAssembly with Emscripten and draws with WebGL 2
+(`docs/BUILDING.md`, "Web"). `factoria export --platform web` writes the page and the files next to it (docs/EXPORTING.md):
+
+| File | What it is |
+|---|---|
+| `index.html` | `platforms/web/shell.html` with the game's name and the two file sizes filled in: a loading screen with a progress bar, readable error messages (no WebGL 2, a download that failed, a game that does not start), the canvas filling the window |
+| `factoria_player.js`, `factoria_player.wasm` | the player (`createFactoriaPlayer`, built with `-sMODULARIZE=1`) |
+| `game.pak` | the game, the same pack `--release` writes on desktop; the page puts it at `/game.pak` of the player's file system and the player runs from it |
+
+Nothing else is needed on the server: any static host works (itch.io, GitHub Pages, a plain folder behind `http`). The
+player uses **no threads**, so the page needs no `SharedArrayBuffer` and no COOP/COEP headers. A page opened from
+`file://` cannot download its files: serve the folder.
+
+- **Window**: the canvas follows the size of the browser window and `devicePixelRatio`; the design size of `factoria.json` is the
+  design size as everywhere, and `display.scaleMode` decides how it fits (letterbox bars where the window has another shape).
+  `display.fullscreen` is ignored at start (a browser lets a page go fullscreen only after a click or key press);
+  `window.setFullscreen(true)` from a script takes effect on the next click or key press. `window.setSize` has no meaning in
+  a page. The title is the page's.
+- **Audio**: a browser keeps audio silent until the player clicks, touches or presses a key on the page. The player keeps
+  trying to resume the audio context on every such event until it runs, so the first click or key press starts the sound.
+  The log shows `audio: output device open` when the device is created and `audio: stream running` when it really plays.
+- **Saves** (`storage`, anything the game writes in its save folder) live in the browser's **IndexedDB**, one database per
+  game id (`/save/<game id>`), loaded before the game starts and copied back half a second after a write (several writes
+  become one copy; a closing tab flushes it). They belong to the site: they survive reloads and visits, they are lost when
+  the player clears the site's data, and a private window keeps them only until it closes. `log.txt` and crash reports are
+  not written: the log goes to the browser console (`console.log`, `console.warn` and `console.error` by level), which is
+  where a player or a developer looks.
+- **Gamepads**: the browser's Gamepad API. A pad shows up after one button press (browsers hide pads until then). Pads with
+  the `standard` mapping (Xbox, PlayStation, Switch Pro, Steam Deck: every current browser maps them) work like on desktop,
+  up to four; the family on the button prompts comes from the pad's name. A pad without that mapping is tried with the same
+  numbering and logged. Run in Chrome with a pad's id and values faked; not yet with a physical pad.
+- **Touch**: touch screens give touches as on a phone (`TouchStick`, `TouchButton` and the other touch features work);
+  the mouse and the keyboard work as on desktop. `input.onBack` and the on-screen keyboard are not used (the browser has
+  its own). `input.vibrate` calls `navigator.vibrate`, which Android browsers honour and iOS Safari ignores.
+- **Language**: the game starts in the first of `navigator.languages` it has, like the system language elsewhere.
+- **Not available**: native plugins (a browser cannot `dlopen`; the engine says so in a warning, and platform services use no
+  backend), starting other programs, crash reports, `factoria run --headless` style runs (use the desktop `factoria`), and
+  multithreaded loading: textures and sounds load on the main thread, so a large game starts a little slower than on
+  desktop. Box2D runs without SIMD, which gives the same simulation as the other platforms.
+- **Memory**: the pack and the decoded assets live in the page's memory (the heap grows up to 2 GB). Keep browser games
+  small; a phone browser may kill a tab that uses several hundred MB.
+
+The run marker for a smoke test is the console line `player: 60 frames rendered`, the one the Android and iOS tests wait
+for. `platforms/web/smoke.mjs` serves an export folder, opens it in a headless Chrome or Edge and waits for it.

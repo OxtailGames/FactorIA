@@ -113,9 +113,9 @@ Result<void> save_project(std::string_view projectDir, const ProjectSettings& se
 std::string find_project_root(std::string_view startDir);
 Json project_json_schema();
 
-// The platform this engine was built for: "windows", "macos", "linux", "android" or "ios".
+// The platform this engine was built for: "windows", "macos", "linux", "android", "ios" or "web".
 const char* runtime_platform();
-// The five platform names, in that order.
+// The platform names (windows, macos, linux, ios, android, web), in that order.
 const std::vector<std::string>& platform_names();
 
 // scaleMode spellings: "fit" | "stretch" | "expand" | "pixel-perfect" (parsing is case-insensitive and also

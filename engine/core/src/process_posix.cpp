@@ -8,7 +8,7 @@
 #include <TargetConditionals.h>
 #endif
 
-#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__) || (defined(__APPLE__) && TARGET_OS_IPHONE)
 #define FA_PROCESS_UNAVAILABLE 1
 #endif
 
@@ -18,7 +18,7 @@ namespace fa {
 
 Result<ProcessResult> run_process(const ProcessOptions& opt) {
     const std::string program = opt.argv.empty() ? std::string("a program") : "'" + opt.argv[0] + "'";
-    return make_error("Cannot start " + program + ": running other programs is not available on iOS and Android",
+    return make_error("Cannot start " + program + ": running other programs is not available on iOS, Android and the web",
                       "Export, build and tool commands run on the desktop: use Windows, macOS or Linux.");
 }
 
