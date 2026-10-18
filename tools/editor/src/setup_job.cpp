@@ -125,16 +125,18 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     if (component == "xcode") return "Xcode";
     if (component != "players") return component;
     std::vector<std::string> desktops;
-    bool mobile = false;
+    bool mobile = false, web = false;
     for (const std::string& p : platforms) {
         if (p == "mobile") mobile = true;
+        else if (p == "web") web = true;
         else if (*os_label(p)) desktops.push_back(os_label(p));
     }
-    if (desktops.empty() && !mobile) return "players for the other platforms";
+    if (desktops.empty() && !mobile && !web) return "players for the other platforms";
     std::string text;
     for (size_t i = 0; i < desktops.size(); ++i) text += (i == 0 ? "" : (i + 1 == desktops.size() ? " and " : ", ")) + desktops[i];
     if (!desktops.empty()) text += desktops.size() == 1 ? " player" : " players";
     if (mobile) text += std::string(text.empty() ? "" : " and ") + "mobile libraries";
+    if (web) text += std::string(text.empty() ? "" : " and ") + "web player";
     return text;
 }
 
@@ -210,6 +212,8 @@ std::vector<SetupAction> setup_actions_for_row(const std::string& platform, cons
     } else if (platform == "windows" || platform == "linux" || platform == "macos") {
         if (!row.ready && export_needs_player(platform) && players && players->canInstall && !has_path(*players, "player-" + platform))
             out.push_back(players_action({platform}, home, false, std::string("Download ") + os_label(platform) + " player"));
+    } else if (platform == "web") {
+        if (!row.ready && players && players->canInstall) out.push_back(players_action({"web"}, home, false, "Download web player"));
     } else if (platform == "ios") {
         if (noPrebuilt && mobile_missing()) out.push_back(players_action({"mobile"}, home, false, "Download mobile libraries"));
         // build_ios.sh needs CMake and the Xcode project needs Xcode, ready export or not.

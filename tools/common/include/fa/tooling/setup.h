@@ -179,7 +179,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 struct SetupInstallOptions {
     std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
-    std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile"; empty = the default
+    std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
 };
 
@@ -220,7 +220,8 @@ SetupResult setup_install(const SetupInstallOptions& options, const SetupContext
 // ---------------------------------------------------------------------------------------------------------------
 
 // The factoria_player of `platform` ("windows" | "linux" | "macos") that `setup players` installed for this factoria's
-// version: <home>/players/<version>/<platform>/factoria_player[.exe]; "" when it is not there.
+// version: <home>/players/<version>/<platform>/factoria_player[.exe]; "" when it is not there. "web" gives the path of
+// <home>/players/<version>/web/factoria_player.js (factoria_player.wasm is next to it).
 std::string installed_player(const std::string& platform);
 std::string installed_player(const SetupContext& context, const std::string& platform);
 

@@ -256,6 +256,7 @@ TEST_CASE("setup words: states, sizes, what is installed") {
     CHECK(setup_what("players", {"windows"}) == "Windows player");
     CHECK(setup_what("players", {"mobile"}) == "mobile libraries");
     CHECK(setup_what("players", {"windows", "linux"}) == "Windows and Linux players");
+    CHECK(setup_what("players", {"web"}) == "web player");
     CHECK(setup_what("players", {"windows", "linux", "macos", "mobile"}) == "Windows, Linux and macOS players and mobile libraries");
     CHECK(setup_what("players") == "players for the other platforms");
 }
@@ -386,6 +387,16 @@ TEST_CASE("setup action of an Export row: another OS needs its player") {
 
     // This machine's own platform has its player next to the editor: no download for it.
     CHECK(setup_actions_for_row(own, not_ready("export: factoria_player not found next to the factoria binary"), st).empty());
+}
+
+TEST_CASE("setup action of an Export row: a web row that cannot run offers the web player") {
+    SetupStatus st = bare_status();
+    auto actions = setup_actions_for_row("web", not_ready("export: no web player found"), st);
+    REQUIRE(actions.size() == 1);
+    CHECK(actions[0].label == "Download web player");
+    CHECK(actions[0].component == "players");
+    CHECK(actions[0].platforms == std::vector<std::string>{"web"});
+    CHECK(setup_actions_for_row("web", ready_row(), st).empty());
 }
 
 TEST_CASE("setup action of an Export row: iOS shows CMake and Xcode even when the row is ready") {
