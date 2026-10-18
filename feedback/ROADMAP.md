@@ -379,14 +379,19 @@ Closes F-03, F-04, F-05, F-06 and the run-time part of H-06.
   and blending; morph targets, layers/masks, root motion; hot reload of a changed .gltf under a running Animator.
 - Rendering (Blinn-Phong, `kMaxLights = 8`, no culling today): normal maps, glTF metallic-roughness PBR with image-based
   lighting, frustum culling, instancing, more lights, custom shaders per material.
-- Physics (`Collider3D` is box or sphere, no joints): capsule, convex and triangle-mesh colliders; Box2D's joints exposed
-  in 2D (revolute, distance, prismatic, weld) and hinge/ball joints in 3D; a character controller.
+- Physics, 3D: DONE (capsule, convex and static triangle-mesh colliders, hinge/ball/fixed `Joint3D`,
+  `CharacterController3D` with `physics.moveCharacter`). Left open: Box2D's joints exposed in 2D (revolute, distance,
+  prismatic, weld); convex hulls over 256 vertices are reduced to 256 extreme points; dynamic capsule/convex bodies use
+  the inertia of their bounding box; a box on a mesh rests on ray-probed corners (no full manifold); rays that graze a
+  capsule or hull under ~3 degrees can miss; the character is not carried by moving platforms and has no ragdoll;
+  jointed bodies never sleep; the mesh cache is keyed by name and not refreshed when a file changes while the game runs.
 - 2D: flipped and rotated tile indices, 9-slice (shared with M10), 2D lights with normal maps, parallax layers.
 
 Acceptance criteria:
 - A skinned glTF sample plays two clips and blends between them (golden image).
 - 10 000 instanced cubes draw in one draw call per material; off-screen meshes are not submitted (render stats).
-- A capsule body walks up a triangle-mesh ramp; a revolute-joint pendulum keeps its period.
+- A capsule body walks up a triangle-mesh ramp; a revolute-joint pendulum keeps its period (3D: done, tested in
+  `engine/physics/tests/test_physics3d_shapes.cpp`; the 2D revolute joint is still open).
 
 ## M19. Runtime features (M each, medium; take them when a game needs them)
 

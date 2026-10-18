@@ -2,12 +2,14 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "box2d/box2d.h"
 #include "fa/physics/physics.h"
+#include "shape3d.h"
 
 namespace fa::detail {
 
@@ -144,6 +146,10 @@ public:
     void apply_force(World& world, Entity e, Vec3 force);
     void set_velocity(World& world, Entity e, Vec3 velocity);
     bool has_body(Entity e) const { return index_.count(e.bits()) != 0; }
+    // Character controller: moves the capsule by `delta` with move-and-slide (see physics3d_character.cpp).
+    std::optional<CharacterMoveResult> move_character(World& world, Entity e, Vec3 delta);
+    // Why the entity's Collider3D / Joint3D / CharacterController3D cannot be used ("" = fine); see Physics::problems3d.
+    std::vector<std::string> problems() const;
     void debug_state(const World& world, Json& out) const;
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
 
@@ -163,8 +169,24 @@ private:
         float gravityScale = 1.0f, damping = 0.0f, angDamping = 0.0f;
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
-        Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents along its own axes (scaled)
-        float radius = 0.5f;          // sphere (scaled)
+        // Shape: Box and Sphere have their own exact code; Capsule, Convex and Mesh go through the convex cores of
+        // shape3d.h (`general()`). `box` is true only for Kind::Box.
+        enum class Kind { Box, Sphere, Capsule, Convex, Mesh } kind = Kind::Box;
+        bool general() const { return kind >= Kind::Capsule; }
+        Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents along its own axes (scaled); capsule / convex / mesh: bounding box
+        float radius = 0.5f;          // sphere / capsule radius (scaled)
+        float segHalf = 0.0f;         // capsule: half the length of the straight part, along the entity's local Y (scaled)
+        Vec3 gscale{1, 1, 1};         // convex / mesh: per-axis scale of the model's vertices
+        Vec3 lcenter;                 // convex / mesh: centre of the model's bounding box (scaled, entity axes)
+        std::shared_ptr<const ShapeData> data;  // convex hull cloud / mesh BVH, shared by all colliders of one mesh
+        Vec3 rot[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // the entity's world rotation (any shape; joints use it)
+        Vec3 localScale{1, 1, 1};     // the entity's world scale (joint anchors are scaled with it)
+        std::vector<std::uint64_t> noCollide;  // seq of bodies joined to this one by a joint that forbids their collision
+        bool jointed = false;         // has a Joint3D: always a rotating rigid body, never sleeps
+        bool character = false;       // CharacterController3D: kinematic capsule moved by move_character
+        float stepOffset = 0.3f, slopeLimit = 45.0f, skin = 0.02f;  // character controller
+        std::string problem;          // why the collider is ignored ("" = none)
+        std::string meshName;         // convex / mesh: Collider3D.mesh
         // Box frame in world space: the entity's world rotation. Exactly the identity (and `rotated` false, which
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
@@ -203,11 +225,15 @@ private:
             float mass, gravityScale, radius;
             Vec3 half, offset, ax[3];
             std::int32_t layer, mask;
+            Kind kind;
+            float segHalf;
+            Vec3 gscale;
+            const ShapeData* data;
             bool operator==(const Sig&) const = default;
         };
         Sig sig() const {
             return {type, enabled, hasShape, box, trigger, rotDyn, mass, gravityScale, radius, half, offset,
-                    {ax[0], ax[1], ax[2]}, layer, mask};
+                    {ax[0], ax[1], ax[2]}, layer, mask, kind, segHalf, gscale, data.get()};
         }
     };
     struct Contact {
@@ -242,12 +268,23 @@ private:
     };
 
     static Contact collide(const Body& a, const Body& b, float margin, bool manifold = false);
+    // Capsule / convex / mesh pairs (physics3d_shapes.cpp).
+    static Contact collide_general(const Body& a, const Body& b, float margin, bool manifold);
+    static Contact mesh_contact(const Body& mesh, const Body& other, float margin, bool manifold);
+    static Contact core_contact(const Core& A, const Core& B, float margin);
+    static Contact tri_contact(const Core& tri, const Core& other, float margin);
+    static void add_capsule_points(const Body& a, const Body& b, Contact& c);
+    static Core core_of(const Body& b);
+    static void aabb(const Body& b, Vec3& lo, Vec3& hi);
+    static float bound_radius(const Body& b);
+    static float min_half_extent(const Body& b);
+    static bool ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal);
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
     static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
     static bool sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit);
     // How far the far end of a box travels when it turns by `spin` (rad, world axes): |spin| times its bounding radius.
-    static float turning_reach(const Body& b, Vec3 spin) { return b.box ? length(spin) * length(b.half) : 0.0f; }
+    static float turning_reach(const Body& b, Vec3 spin) { return b.kind != Body::Kind::Sphere ? length(spin) * bound_radius(b) : 0.0f; }
     static bool filters_pass(const Body& a, const Body& b);
     static void refresh_frame(Body& b);
     static void integrate_orient(Body& b, float seconds);
@@ -278,6 +315,48 @@ private:
         Vec3 jt;
     };
     std::map<PairKey, std::vector<WarmPt>> warm_;
+
+    // ---- joints (physics3d_joints.cpp)
+    struct JointState {
+        Entity e, conn;
+        std::uint64_t seqA = 0, seqB = 0;  // seqB 0 = the world
+        std::size_t ia = 0, ib = 0;        // body indices for the current step
+        bool active = false;               // both bodies exist and the settings are usable
+        JointType3D type = JointType3D::Hinge;
+        bool useLimits = false, useMotor = false, collide = false;
+        float lower = 0.0f, upper = 0.0f, motorSpeed = 0.0f, maxTorque = 0.0f;  // radians, rad/s
+        Vec3 anchorA, anchorB;             // local to each body (B: a world point when seqB == 0)
+        Vec3 axisA, axisB;                 // hinge axis in each body's local frame
+        Vec3 refA, refB;                   // hinge reference vector (angle 0) in each body's local frame
+        Vec3 relCol[3];                    // fixed: R_A^T R_B when the joint was created
+        // What the state above was built from; any change rebuilds it from the poses the bodies have now.
+        JointType3D sigType = JointType3D::Hinge;
+        Entity sigConnected;
+        Vec3 sigAnchor, sigConnAnchor, sigAxis;
+        bool sigAuto = true;
+        // Accumulated impulses (warm start of the next sub-step).
+        Vec3 pImp, aImp;
+        float lowImp = 0.0f, upImp = 0.0f, motorImp = 0.0f;
+        float angle = 0.0f;                // radians, this body relative to the connected one about the axis
+        // Per sub-step cache (prepare_joints).
+        Vec3 rA, rB, pBias, kinv[3], aw, t1, t2, fixBias;
+        float k1 = 1.0f, k2 = 1.0f, kAxis = 1.0f, angBias = 0.0f;
+        bool hasB = false;
+        std::string problem;               // why the joint is inactive ("" = none)
+        std::uint64_t seen = 0;
+    };
+    std::map<std::uint64_t, JointState> joints_;  // by owner entity bits
+    void sync_joints(World& world, std::uint64_t stamp);
+    bool prepare_joints(float h);  // false when no joint is active
+    void solve_joints(float h);
+    void finish_joints(World& world);
+    static void build_joint(JointState& j, const Body& a, const Body* b, const Joint3D& jt);
+
+    // ---- shapes of meshes, shared by every collider of the same mesh
+    std::map<std::string, std::shared_ptr<ShapeData>> shapes_;
+    std::shared_ptr<const ShapeData> shape_data(const std::string& mesh, bool bvh, std::string& problem);
+    float lastDt_ = 1.0f / 60.0f;       // the last step's dt (character pushes turn a move into a speed)
+    void move_character_body(World& world, Body& b, const CharacterController3D& cc, Vec3 delta, CharacterMoveResult& out);
 };
 
 }  // namespace fa::detail

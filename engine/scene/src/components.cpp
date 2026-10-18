@@ -475,7 +475,11 @@ void register_builtin_components(TypeRegistry& r) {
                "up through it from below and pass sideways.");
 
     r.add<RigidBody3D>("RigidBody3D",
-                       "Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. "
+                       "Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a "
+                       "triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a "
+                       "Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a "
+                       "simple physics character (for a controller that slides, climbs steps and checks slopes use "
+                       "CharacterController3D instead). "
                        "Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider "
                        "(continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply "
                        "torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles "
@@ -521,21 +525,110 @@ void register_builtin_components(TypeRegistry& r) {
                "rollWithMotion sphere is never turned by contacts either way.");
 
     r.add<Collider3D>("Collider3D",
-                      "Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world "
-                      "rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the "
-                      "Transform scale.",
+                      "Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh. Boxes, capsules "
+                      "and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box "
+                      "rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is "
+                      "for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or "
+                      "kinematic body with one is reported as an error and ignored.",
                       "Physics")
-        .enum_field("shape", &Collider3D::shape, {"box", "sphere"}, "Shape type; uses size (box) or radius (sphere).")
+        .enum_field("shape", &Collider3D::shape, {"box", "sphere", "capsule", "convex", "mesh"},
+                    "box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. "
+                    "convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of "
+                    "`mesh` (static level geometry only; concave shapes, ramps, terrain).")
         .field("size", &Collider3D::size,
                "box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.")
-        .field("radius", &Collider3D::radius, "sphere: radius in meters.")
+        .field("radius", &Collider3D::radius, "sphere and capsule: radius in meters.")
+        .field("height", &Collider3D::height,
+               "capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is "
+               "height - 2 * radius; never less than 2 * radius).").range(0.002f, 100000)
+        .field("mesh", &Collider3D::mesh,
+               "convex / mesh shapes: a built-in primitive name (\"cube\", \"sphere\", \"plane\", \"cylinder\", "
+               "\"capsule\", \"cone\", \"quad\", the same sizes as MeshRenderer) or a project-relative path to a "
+               ".gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the "
+               "MeshRenderer so the collider matches what is drawn.")
         .field("offset", &Collider3D::offset,
-               "Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity.")
+               "Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and "
+               "mesh: where the model's own origin sits).")
         .field("isTrigger", &Collider3D::isTrigger, "true = sensor: reports overlaps but does not block movement.")
         .field("friction", &Collider3D::friction, "Surface friction; 0 = ice, 1 = grippy.").range(0, 10)
         .field("restitution", &Collider3D::restitution, "Bounciness: 0 = none, 1 = perfectly elastic.").range(0, 1)
         .field("layer", &Collider3D::layer, "Collision category of this collider, 0..31.").range(0, 31)
         .field("mask", &Collider3D::mask, "Bitmask of layers this collider collides with. -1 = all layers.");
+
+    r.add<Joint3D>("Joint3D",
+                   "Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a "
+                   "ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together "
+                   "with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the "
+                   "world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint "
+                   "holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to "
+                   "that pose.",
+                   "Physics")
+        .enum_field("type", &Joint3D::type, {"hinge", "ball", "fixed"},
+                    "hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative "
+                    "movement at all.")
+        .field("connected", &Joint3D::connected,
+               "The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a "
+               "RigidBody3D (any type) or a Collider3D.")
+        .field("anchor", &Joint3D::anchor,
+               "Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, "
+               "the door's hinge edge.")
+        .field("connectedAnchor", &Joint3D::connectedAnchor,
+               "Joint point in the connected entity's local space, or a world position when `connected` is empty. "
+               "Ignored while autoAnchor is true.")
+        .field("autoAnchor", &Joint3D::autoAnchor,
+               "true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay "
+               "joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together).")
+        .field("axis", &Joint3D::axis, "hinge: the rotation axis [x, y, z] in THIS entity's local space (normalized).")
+        .field("useLimits", &Joint3D::useLimits, "hinge: keep the angle between lowerLimit and upperLimit.")
+        .field("lowerLimit", &Joint3D::lowerLimit,
+               "hinge: lowest angle in degrees, relative to the pose the joint was created in (0 there).").range(-360, 360)
+        .field("upperLimit", &Joint3D::upperLimit, "hinge: highest angle in degrees (same reference).").range(-360, 360)
+        .field("useMotor", &Joint3D::useMotor, "hinge: drive the joint at motorSpeed (a wheel, an opening door).")
+        .field("motorSpeed", &Joint3D::motorSpeed,
+               "hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis.")
+        .field("maxMotorTorque", &Joint3D::maxMotorTorque,
+               "hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more.")
+        .range(0, 1000000)
+        .field("collideConnected", &Joint3D::collideConnected,
+               "false (default): the two joined bodies do not collide with each other. true: they do.")
+        .field("angle", &Joint3D::angle, "Runtime: the current hinge angle in degrees, relative to the creation pose.")
+        .runtime_only()
+        .read_only();
+
+    r.add<CharacterController3D>("CharacterController3D",
+                                 "A walking character: a kinematic capsule that moves and slides. Move it with "
+                                 "physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to "
+                                 "the move yourself, using isGrounded) or set `velocity`. It slides along walls and "
+                                 "ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit "
+                                 "(it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it "
+                                 "walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule "
+                                 "centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.",
+                                 "Physics")
+        .field("radius", &CharacterController3D::radius, "Capsule radius in meters (scaled by Transform.scale).").range(0.01f, 100)
+        .field("height", &CharacterController3D::height,
+               "Capsule height in meters from tip to tip (never less than 2 * radius).").range(0.02f, 1000)
+        .field("center", &CharacterController3D::center, "Capsule centre [x, y, z] from the entity origin, in meters.")
+        .field("stepOffset", &CharacterController3D::stepOffset,
+               "Highest step in meters the character walks up (and the distance it snaps down to stay on the ground).")
+        .range(0, 10)
+        .field("slopeLimit", &CharacterController3D::slopeLimit,
+               "Steepest slope in degrees the character can walk up; steeper surfaces count as walls.").range(0, 89)
+        .field("skin", &CharacterController3D::skin,
+               "Gap in meters kept between the capsule and the surfaces it touches; avoids jitter and tunnelling.")
+        .range(0.001f, 1)
+        .field("layer", &CharacterController3D::layer, "Collision category of the character, 0..31.").range(0, 31)
+        .field("mask", &CharacterController3D::mask, "Bitmask of layers the character collides with. -1 = all layers.")
+        .field("velocity", &CharacterController3D::velocity,
+               "Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics "
+               "step (no gravity is added). Use it or moveCharacter, not both for the same motion.")
+        .field("isGrounded", &CharacterController3D::isGrounded,
+               "Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit).")
+        .runtime_only()
+        .read_only()
+        .field("groundNormal", &CharacterController3D::groundNormal,
+               "Runtime: the normal of the ground under the character after the last move (up when airborne).")
+        .runtime_only()
+        .read_only();
 
     // ------------------------------------------------------------ Audio ---
     r.add<AudioSource>("AudioSource",
