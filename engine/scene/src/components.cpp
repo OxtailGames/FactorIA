@@ -365,16 +365,22 @@ void register_builtin_components(TypeRegistry& r) {
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",
-                        "Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) "
+                        "Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) "
                         "a Light to be visible.",
                         "3D")
         .field("mesh", &MeshRenderer::mesh,
                "Built-in shape name (\"cube\", \"sphere\", \"plane\", \"cylinder\", \"capsule\", \"cone\", \"quad\") or a "
                "project-relative path to a .gltf/.glb model (e.g. \"assets/models/ship.glb\").")
         .asset_field("texture", &MeshRenderer::texture, "texture", "Base color texture. Empty = none (or the glTF material).")
+        .asset_field("normalMap", &MeshRenderer::normalMap, "texture",
+                     "Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief "
+                     "without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set.")
+        .field("normalScale", &MeshRenderer::normalScale, "How strong the normal map is: 0 = flat, 1 = as authored.").range(0, 4)
         .field("color", &MeshRenderer::color, "Base color, multiplied with the texture.")
-        .field("metallic", &MeshRenderer::metallic, "0 = plastic/stone, 1 = metal.").range(0, 1)
-        .field("roughness", &MeshRenderer::roughness, "0 = mirror-smooth, 1 = fully rough/matte.").range(0, 1)
+        .field("metallic", &MeshRenderer::metallic,
+               "0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead.").range(0, 1)
+        .field("roughness", &MeshRenderer::roughness,
+               "0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.").range(0, 1)
         .field("emissive", &MeshRenderer::emissive, "Light emitted by the surface regardless of lighting (glow). Black = none.")
         .field("unlit", &MeshRenderer::unlit, "true = ignore lighting and draw the flat base color.")
         .field("castShadows", &MeshRenderer::castShadows, "Cast shadows from shadow-casting lights.")

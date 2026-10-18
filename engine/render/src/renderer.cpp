@@ -10,6 +10,7 @@
 #include "fa/platform/sokol_logging.h"
 #include "bloom.h"
 #include "frame.h"
+#include "mesh_batch.h"
 #include "render_internal.h"
 
 #include "shaders/blit.glsl.h"
@@ -27,7 +28,8 @@ using namespace render;
 // ---------------------------------------------------------------------------
 Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
-                {"particles", particles}, {"meshes", meshes}, {"triangles", triangles}, {"lights", lights},
+                {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
+                {"triangles", triangles}, {"lights", lights}, {"lightsDropped", lightsDropped},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
 
@@ -138,19 +140,6 @@ void apply_uniforms(int slot, const T& u) {
 }
 
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
-
-struct MeshInstance {
-    MeshAsset* mesh;
-    Mat4 model;
-    const MeshRenderer* mr;
-    TextureAsset* overrideTex;
-    float dist;
-};
-
-struct LightData {
-    Vec4 pos, color, dir;
-    int rank = 2;  // 0 = shadow-casting directional, 1 = directional, 2 = point/spot
-};
 
 }  // namespace
 
@@ -536,43 +525,54 @@ void Renderer::Impl::render(World& world, float dt) {
     fonts->sync();
 
     // ---- 3D gather ----
-    std::vector<MeshInstance> opaque, blended;
+    const bool z01 = gpu.depth_zero_to_one();
+    std::vector<MeshItem> opaque, blended;
     std::vector<LightData> lights;
     int shadowLight = -1;
     Vec3 lightDirForShadow{0, -1, 0};
     world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
         if (!world.active_in_hierarchy(e)) return;
-        MeshAsset* ma = assets->mesh(mr.mesh);
-        MeshInstance mi{ma, world.world_matrix(e), &mr, mr.texture.empty() ? nullptr : assets->texture(mr.texture), 0};
+        MeshItem mi;
+        mi.mesh = assets->mesh(mr.mesh);
+        mi.model = world.world_matrix(e);
+        mi.mr = &mr;
+        mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
+        mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         mi.dist = length(mi.model.translation() - fr.cam.position);
+        mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.mesh->bmin, mi.mesh->bmax, mi.model);
         bool anyBlend = mr.color.a < 0.999f;
-        for (auto& p : ma->parts) anyBlend = anyBlend || p.blended;
+        for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
         (anyBlend ? blended : opaque).push_back(mi);
     });
-    std::sort(blended.begin(), blended.end(), [](const MeshInstance& a, const MeshInstance& b) { return a.dist > b.dist; });
+    std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
     world.each<Light>([&](Entity e, Light& l) {
         if (!world.active_in_hierarchy(e)) return;
         Mat4 m = world.world_matrix(e);
         LightData ld;
         Vec3 col{l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity};
+        const float brightness = std::max({col.x, col.y, col.z});
         if (l.type == LightType::Directional) {
             Vec3 d = normalize(m.transform_dir(kForward));
             ld.pos = Vec4{-d, 0.0f};
             ld.color = Vec4{col, 0.0f};
             ld.dir = Vec4{d, 1.0f};
             ld.rank = 1;
+            ld.score = brightness;
             if (shadowLight < 0 && l.castShadows) { lightDirForShadow = d; shadowLight = 0; ld.rank = 0; }
         } else {
             Vec3 d = normalize(m.transform_dir(kForward));
             ld.pos = Vec4{m.translation(), l.range};
             ld.color = Vec4{col, l.type == LightType::Point ? 1.0f : 2.0f};
             ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
+            // Relevance to the camera: bright and close first (the light's own range scales the fall-off).
+            const float r2 = std::max(l.range * l.range, 1e-4f);
+            ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
         }
         lights.push_back(ld);
     });
-    // directional lights first; the shadow caster in slot 0
-    std::stable_sort(lights.begin(), lights.end(), [](const LightData& a, const LightData& b) { return a.rank < b.rank; });
-    if (lights.size() > size_t(kMaxLights)) lights.resize(kMaxLights);
+    // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
+    // shader's arrays cannot hold is left out.
+    stats.lightsDropped = select_lights(lights, size_t(kMaxLights));
     stats.lights = int(lights.size());
     bool haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
     if (!opaque.empty() && lights.empty() && !warnedNoLight) {
@@ -612,6 +612,23 @@ void Renderer::Impl::render(World& world, float dt) {
         }
     }
 
+    // ---- cull, then group into instanced batches ----
+    // A mesh outside the camera frustum is not drawn in the main pass but can still cast a shadow into view, so it stays
+    // in the shadow pass (when it is inside the light's volume); an item that does neither is dropped here.
+    for (auto* list : {&opaque, &blended}) {
+        for (auto& mi : *list) {
+            if (!mi.visible) ++stats.meshesCulled;
+            mi.casts = doShadows && mi.mr->castShadows &&
+                       box_in_frustum(lightVP, z01, mi.mesh->bmin, mi.mesh->bmax, mi.model);
+        }
+        list->erase(std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
+                    list->end());
+    }
+    std::vector<MeshBatch> opaqueBatches, blendedBatches;
+    std::vector<Mat4> mainMats, shadowMats;
+    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats);
+    build_batches(blended, false, blendedBatches, mainMats, shadowMats);
+
     // ---- flatten quads into one vertex stream ----
     struct Group { std::vector<QuadBatch> batches; };
     Group gWorld, gDebugWorld, gScreen, gDebugScreen;
@@ -632,8 +649,22 @@ void Renderer::Impl::render(World& world, float dt) {
         sg_write_buffer_transient(&wd);
     }
 
-    const bool z01 = gpu.depth_zero_to_one();
     Mat4 screenProj = Mat4::ortho(0, float(targetW), float(targetH), 0, -1000.0f, 1000.0f, z01);
+
+    // ---- instance data: one model matrix per drawn mesh, written before any pass binds the buffers ----
+    static_assert(sizeof(Mat4) == kMeshInstanceBytes, "an instance is one Mat4");
+    auto upload_instances = [&](const std::vector<Mat4>& mats) {
+        if (mats.empty()) return sg_buffer{};
+        const std::size_t bytes = mats.size() * kMeshInstanceBytes;
+        sg_buffer buf = gpu.acquire_transient(bytes);
+        sg_write_buffer_desc wd{};
+        wd.src.data = {mats.data(), bytes};
+        wd.dst.buffer = buf;
+        sg_write_buffer_transient(&wd);
+        return buf;
+    };
+    const sg_buffer mainInst = upload_instances(mainMats);
+    const sg_buffer shadowInst = upload_instances(shadowMats);
 
     // ---- shadow pass ----
     if (doShadows) {
@@ -647,18 +678,22 @@ void Renderer::Impl::render(World& world, float dt) {
         sp.label = "shadow";
         sg_begin_pass(&sp);
         sg_apply_pipeline(gpu.shadow_pipeline());
-        for (auto* list : {&opaque, &blended}) {
-            for (auto& mi : *list) {
-                if (!mi.mr->castShadows) continue;
-                shadow_shadow_vs_params_t u{};
-                copy_mat(u.mvp, lightVP * mi.model);
-                for (auto& p : mi.mesh->parts) {
+        shadow_shadow_vs_params_t u{};
+        copy_mat(u.light_vp, lightVP);
+        apply_uniforms(UB_shadow_shadow_vs_params, u);
+        for (int pass = 0; pass < 2; ++pass) {
+            const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
+            const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
+            for (const MeshBatch& batch : batches) {
+                if (batch.shadowCount == 0) continue;
+                for (auto& p : items[batch.rep].mesh->parts) {
                     sg_bindings b{};
                     b.vertex_buffers[0] = p.vb;
+                    b.vertex_buffers[1] = shadowInst;
+                    b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
                     b.index_buffer = p.ib;
                     sg_apply_bindings(&b);
-                    apply_uniforms(UB_shadow_shadow_vs_params, u);
-                    sg_draw(0, p.indexCount, 1);
+                    sg_draw(0, p.indexCount, int(batch.shadowCount));
                     ++stats.drawCalls;
                 }
             }
@@ -705,61 +740,80 @@ void Renderer::Impl::render(World& world, float dt) {
         ++stats.drawCalls;
     }
 
-    // meshes
-    auto draw_meshes = [&](std::vector<MeshInstance>& list, bool isBlend) {
+    // meshes: one instanced draw per part of every batch
+    mesh_mesh_lights_t lightUniforms{};
+    for (std::size_t i = 0; i < lights.size(); ++i) {
+        for (int c = 0; c < 4; ++c) {
+            lightUniforms.light_pos[i][c] = lights[i].pos[c];
+            lightUniforms.light_color[i][c] = lights[i].color[c];
+            lightUniforms.light_dir[i][c] = lights[i].dir[c];
+        }
+    }
+    auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items, bool isBlend) {
         const SceneSettings& ss = world.settings();
-        for (auto& mi : list) {
-            Mat4 mvp = fr.cam.viewProj * mi.model;
-            mesh_mesh_vs_params_t vu{};
-            copy_mat(vu.mvp, mvp);
-            copy_mat(vu.model, mi.model);
-            copy_mat(vu.normal_mat, mi.model.inverse().transposed());
-            copy_mat(vu.light_vp, lightVP);
-            vu.uv_scale[0] = mi.mr->uvScale.x; vu.uv_scale[1] = mi.mr->uvScale.y;
-            mesh_mesh_fs_params_t fu{};
-            fu.camera_pos[0] = fr.cam.position.x; fu.camera_pos[1] = fr.cam.position.y; fu.camera_pos[2] = fr.cam.position.z;
-            fu.ambient[0] = ss.ambientLight.r; fu.ambient[1] = ss.ambientLight.g; fu.ambient[2] = ss.ambientLight.b;
-            fu.emissive[0] = mi.mr->emissive.r; fu.emissive[1] = mi.mr->emissive.g; fu.emissive[2] = mi.mr->emissive.b;
-            fu.emissive[3] = mi.mr->unlit ? 1.0f : 0.0f;
-            fu.material[0] = saturate(mi.mr->metallic);
-            fu.material[1] = saturate(mi.mr->roughness);
-            fu.material[2] = (doShadows && mi.mr->receiveShadows) ? 1.0f : 0.0f;
-            fu.material[3] = 0.0015f;
-            fu.fog[0] = ss.fogColor.r; fu.fog[1] = ss.fogColor.g; fu.fog[2] = ss.fogColor.b; fu.fog[3] = ss.fogDensity;
-            fu.counts[0] = float(lights.size());
-            fu.counts[1] = 1.0f / float(kShadowSize);
-            fu.counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
-            for (std::size_t i = 0; i < lights.size(); ++i) {
-                for (int c = 0; c < 4; ++c) {
-                    fu.light_pos[i][c] = lights[i].pos[c];
-                    fu.light_color[i][c] = lights[i].color[c];
-                    fu.light_dir[i][c] = lights[i].dir[c];
-                }
-            }
+        mesh_mesh_vs_params_t vu{};
+        copy_mat(vu.view_proj, fr.cam.viewProj);
+        copy_mat(vu.light_vp, lightVP);
+        mesh_mesh_fs_params_t fu{};
+        fu.camera_pos[0] = fr.cam.position.x; fu.camera_pos[1] = fr.cam.position.y; fu.camera_pos[2] = fr.cam.position.z;
+        fu.ambient[0] = ss.ambientLight.r; fu.ambient[1] = ss.ambientLight.g; fu.ambient[2] = ss.ambientLight.b;
+        fu.fog[0] = ss.fogColor.r; fu.fog[1] = ss.fogColor.g; fu.fog[2] = ss.fogColor.b; fu.fog[3] = ss.fogDensity;
+        fu.counts[0] = float(lights.size());
+        fu.counts[1] = 1.0f / float(kShadowSize);
+        fu.counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
+        fu.env_sky[0] = ss.skyColor.r; fu.env_sky[1] = ss.skyColor.g; fu.env_sky[2] = ss.skyColor.b;
+        fu.env_horizon[0] = ss.horizonColor.r; fu.env_horizon[1] = ss.horizonColor.g; fu.env_horizon[2] = ss.horizonColor.b;
+        fu.material[3] = 0.0015f;
+        for (const MeshBatch& batch : batches) {
+            if (batch.mainCount == 0) continue;
+            const MeshItem& mi = items[batch.rep];
+            const MeshRenderer& mr = *mi.mr;
+            vu.uv_scale[0] = mr.uvScale.x; vu.uv_scale[1] = mr.uvScale.y;
+            fu.emissive[0] = mr.emissive.r; fu.emissive[1] = mr.emissive.g; fu.emissive[2] = mr.emissive.b;
+            fu.emissive[3] = mr.unlit ? 1.0f : 0.0f;
+            fu.material[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
             for (auto& part : mi.mesh->parts) {
                 sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided));
-                TextureAsset* tex = mi.overrideTex ? mi.overrideTex : (part.texture ? part.texture : assets->white());
+                TextureAsset* white = assets->white();
+                TextureAsset* tex = mi.tex ? mi.tex : (part.texture ? part.texture : white);
+                TextureAsset* normalTex = mi.normalTex ? mi.normalTex : part.normalTex;
                 sg_bindings b{};
                 b.vertex_buffers[0] = part.vb;
+                b.vertex_buffers[1] = mainInst;
+                b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                 b.index_buffer = part.ib;
                 b.views[VIEW_mesh_tex] = tex->gpu_view();
+                b.views[VIEW_mesh_shadow_tex] = doShadows ? shadowTexView : white->view;
+                b.views[VIEW_mesh_normal_tex] = (normalTex ? normalTex : white)->gpu_view();
+                b.views[VIEW_mesh_mr_tex] = (part.mrTex ? part.mrTex : white)->gpu_view();
+                b.views[VIEW_mesh_occlusion_tex] = (part.occlusionTex ? part.occlusionTex : white)->gpu_view();
+                b.views[VIEW_mesh_emissive_tex] = (part.emissiveTex ? part.emissiveTex : white)->gpu_view();
                 b.samplers[SMP_mesh_smp] = gpu.sampler(SamplerKind::LinearRepeat);
-                b.views[VIEW_mesh_shadow_tex] = doShadows ? shadowTexView : assets->white()->view;
                 b.samplers[SMP_mesh_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
                 sg_apply_bindings(&b);
                 apply_uniforms(UB_mesh_mesh_vs_params, vu);
-                Color base = mi.mr->color * part.baseColor;
+                Color base = mr.color * part.baseColor;
                 fu.base_color[0] = base.r; fu.base_color[1] = base.g; fu.base_color[2] = base.b; fu.base_color[3] = base.a;
+                // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.
+                fu.material[0] = part.hasPbr ? saturate(part.metallic) : saturate(mr.metallic);
+                fu.material[1] = part.hasPbr ? saturate(part.roughness) : saturate(mr.roughness);
+                fu.model_emissive[0] = part.emissiveFactor.r; fu.model_emissive[1] = part.emissiveFactor.g;
+                fu.model_emissive[2] = part.emissiveFactor.b;
+                fu.maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
+                fu.maps[1] = part.occlusionStrength;
+                fu.maps[2] = normalTex ? 1.0f : 0.0f;
                 apply_uniforms(UB_mesh_mesh_fs_params, fu);
-                sg_draw(0, part.indexCount, 1);
+                apply_uniforms(UB_mesh_mesh_lights, lightUniforms);
+                sg_draw(0, part.indexCount, int(batch.mainCount));
                 ++stats.drawCalls;
-                stats.triangles += part.indexCount / 3;
+                stats.triangles += part.indexCount / 3 * int(batch.mainCount);
             }
-            ++stats.meshes;
+            stats.meshes += int(batch.mainCount);
+            ++stats.meshBatches;
         }
     };
-    draw_meshes(opaque, false);
-    draw_meshes(blended, true);
+    draw_meshes(opaqueBatches, opaque, false);
+    draw_meshes(blendedBatches, blended, true);
 
     // quad groups
     auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest) {

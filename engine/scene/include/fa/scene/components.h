@@ -310,6 +310,8 @@ struct TouchButton : UiBox {
 struct MeshRenderer {
     std::string mesh = "cube";
     std::string texture;              // base color texture ("" = none / glTF material)
+    std::string normalMap;            // tangent-space normal map ("" = none / glTF normalTexture)
+    float normalScale = 1.0f;         // strength of the normal map
     Color color{1, 1, 1, 1};          // base color (multiplied with texture)
     float metallic = 0.0f;
     float roughness = 0.6f;
