@@ -274,6 +274,8 @@ GeneratedShader generate_material_shader(const MaterialDef& material, std::strin
         pos = f.end;
     }
     t.snippet(src, pos, src.size());
+    // The shims stop at the snippet: the engine's own vertex code below sees the real texture() and discard.
+    t.generated("#ifdef GL_VERTEX_SHADER\n#undef texture\n#undef discard\n#endif\n");
     t.generated("@end\n@include mesh_common.glsl\n");
 
     g.programs = {"mesh", "mesh_skin"};

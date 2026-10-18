@@ -13,10 +13,6 @@
 #include "shaders_internal.h"
 #include "util.h"
 
-#ifndef FA_ENGINE_VERSION
-#define FA_ENGINE_VERSION "0.0.0"
-#endif
-
 namespace fa {
 
 namespace stdfs = std::filesystem;
