@@ -505,8 +505,10 @@ void register_builtin_components(TypeRegistry& r) {
                    "of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity "
                    "and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to "
                    "pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity "
-                   "is, destroyed with either body or when the component is removed. Changing a field rebuilds the joint. "
-                   "Reaction force, angle and translation are read-only runtime fields.",
+                   "is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or "
+                   "collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. "
+                   "Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to "
+                   "`connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.",
                    "Physics")
         .enum_field("type", &Joint2D::type, {"revolute", "distance", "prismatic", "weld"},
                     "revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart "

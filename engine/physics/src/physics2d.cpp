@@ -127,6 +127,9 @@ void Physics2D::init(const PhysicsSettings& s) {
 void Physics2D::shutdown() {
     if (B2_IS_NON_NULL(world_)) b2DestroyWorld(world_);
     world_ = b2_nullWorldId;
+    ground_ = b2_nullBodyId;
+    joints_.clear();
+    jointWarned_.clear();
     bodies_.clear();
     tiles_.clear();
     shapes_.clear();
@@ -141,6 +144,9 @@ void Physics2D::shutdown() {
 void Physics2D::reset() {
     if (B2_IS_NON_NULL(world_)) b2DestroyWorld(world_);
     world_ = b2_nullWorldId;
+    ground_ = b2_nullBodyId;
+    joints_.clear();
+    jointWarned_.clear();
     bodies_.clear();
     tiles_.clear();
     shapes_.clear();
@@ -650,6 +656,227 @@ void Physics2D::sync(World& world) {
             ++it;
         }
     }
+    sync_joints(world);  // after the bodies: a joint needs both of its bodies to exist
+}
+
+// ---------------------------------------------------------------- joints ----
+namespace {
+
+float clamp_hinge_deg(float deg) { return std::clamp(deg, -178.0f, 178.0f); }
+
+}  // namespace
+
+void Physics2D::destroy_joint(std::uint64_t key) {
+    auto it = joints_.find(key);
+    if (it == joints_.end()) return;
+    if (B2_IS_NON_NULL(it->second.joint) && b2Joint_IsValid(it->second.joint)) b2DestroyJoint(it->second.joint);  // not after its body died
+    joints_.erase(it);
+}
+
+void Physics2D::sync_joints(World& world) {
+    const float inv = 1.0f / settings_.pixelsPerMeter;
+    const float ppm = settings_.pixelsPerMeter;
+    for (Entity e : world.entities_with(&World::type_of<Joint2D>())) {
+        if (!live(world, e)) continue;
+        Joint2D* j = world.get<Joint2D>(e);
+        if (!j) continue;
+        const std::uint64_t key = e.bits();
+        const bool toWorld = j->connected.is_null();
+        auto itA = bodies_.find(key);
+        auto itB = toWorld ? bodies_.end() : bodies_.find(j->connected.bits());
+        std::string problem;
+        if (itA == bodies_.end())
+            problem = "this entity has no RigidBody2D or Collider2D, so it has no body to join";
+        else if (!toWorld && j->connected == e)
+            problem = "`connected` names the entity itself";
+        else if (!toWorld && !live(world, j->connected))
+            problem = "the `connected` entity no longer exists";
+        else if (!toWorld && itB == bodies_.end())
+            problem = "the connected entity '" + world.id_of(j->connected) + "' has no RigidBody2D or Collider2D";
+        if (!problem.empty()) {
+            destroy_joint(key);
+            if (jointWarned_.insert(key).second)
+                FA_WARN("physics", "Joint2D on '{}' is ignored: {}. Add a RigidBody2D to both entities, or leave `connected` empty to pin the joint to the world.",
+                        world.id_of(e), problem);
+            continue;
+        }
+        jointWarned_.erase(key);
+
+        const WorldPose poseA = world_pose(world, e);
+        const WorldPose poseB = toWorld ? WorldPose{} : world_pose(world, j->connected);
+        const b2BodyId self = itA->second.body;
+        if (toWorld && B2_IS_NULL(ground_)) {
+            b2BodyDef gd = b2DefaultBodyDef();
+            gd.type = b2_staticBody;
+            ground_ = b2CreateBody(world_, &gd);
+        }
+        const b2BodyId bodyA = toWorld ? ground_ : itB->second.body;
+        const b2BodyId bodyB = self;
+        // Box2D's body A is the connected one (or the world) and body B is this entity: a positive angle, motor speed
+        // and translation then move THIS entity counter-clockwise / along +axis relative to what it is joined to.
+
+        // What makes a different joint: rebuilt when it changes (the bodies themselves included, a rebuilt body loses its joints).
+        Hasher sh;
+        sh.add(j->type); sh.add(j->connected.bits()); sh.add(j->collideConnected);
+        sh.add(j->anchor.x); sh.add(j->anchor.y); sh.add(j->connectedAnchor.x); sh.add(j->connectedAnchor.y);
+        sh.add(j->axis.x); sh.add(j->axis.y);
+        sh.add(scale_key(poseA.scale.x)); sh.add(scale_key(poseA.scale.y));
+        sh.add(scale_key(poseB.scale.x)); sh.add(scale_key(poseB.scale.y));
+        sh.add(bodyA.index1); sh.add(bodyA.generation); sh.add(bodyB.index1); sh.add(bodyB.generation);
+        // What is applied to the live joint.
+        Hasher th;
+        th.add(j->enableLimit); th.add(j->lowerLimit); th.add(j->upperLimit); th.add(j->enableMotor); th.add(j->motorSpeed);
+        th.add(j->maxMotorTorque); th.add(j->enableSpring); th.add(j->springHertz); th.add(j->dampingRatio); th.add(j->length);
+
+        auto it = joints_.find(key);
+        if (it != joints_.end() && (it->second.shape != sh.h || !b2Joint_IsValid(it->second.joint))) {
+            destroy_joint(key);
+            it = joints_.end();
+        }
+        if (it == joints_.end()) {
+            const b2Vec2 lb{j->anchor.x * poseA.scale.x * inv, j->anchor.y * poseA.scale.y * inv};
+            const b2Vec2 la = toWorld ? b2Vec2{j->connectedAnchor.x * inv, j->connectedAnchor.y * inv}
+                                      : b2Vec2{j->connectedAnchor.x * poseB.scale.x * inv, j->connectedAnchor.y * poseB.scale.y * inv};
+            JointRec rec;
+            rec.type = j->type;
+            rec.referenceAngle = b2RelativeAngle(b2Body_GetRotation(bodyB), b2Body_GetRotation(bodyA));
+            const b2Vec2 wa = b2Body_GetWorldPoint(bodyA, la), wb = b2Body_GetWorldPoint(bodyB, lb);
+            rec.restLength = std::max(b2Distance(wa, wb), 0.01f);
+            switch (j->type) {
+                case JointType2D::Revolute: {
+                    b2RevoluteJointDef d = b2DefaultRevoluteJointDef();
+                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.referenceAngle = rec.referenceAngle;
+                    d.collideConnected = j->collideConnected;
+                    rec.joint = b2CreateRevoluteJoint(world_, &d);
+                    break;
+                }
+                case JointType2D::Prismatic: {
+                    b2PrismaticJointDef d = b2DefaultPrismaticJointDef();
+                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    const Vec2 ax = length(j->axis) > 1e-6f ? normalize(j->axis) : Vec2{1, 0};
+                    d.localAxisA = {ax.x, ax.y};
+                    d.referenceAngle = rec.referenceAngle;
+                    d.collideConnected = j->collideConnected;
+                    rec.joint = b2CreatePrismaticJoint(world_, &d);
+                    break;
+                }
+                case JointType2D::Distance: {
+                    b2DistanceJointDef d = b2DefaultDistanceJointDef();
+                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.length = j->length > 0.0f ? j->length * inv : rec.restLength;
+                    d.collideConnected = j->collideConnected;
+                    rec.joint = b2CreateDistanceJoint(world_, &d);
+                    break;
+                }
+                case JointType2D::Weld: {
+                    b2WeldJointDef d = b2DefaultWeldJointDef();
+                    d.bodyIdA = bodyA; d.bodyIdB = bodyB; d.localAnchorA = la; d.localAnchorB = lb;
+                    d.referenceAngle = rec.referenceAngle;
+                    d.collideConnected = j->collideConnected;
+                    rec.joint = b2CreateWeldJoint(world_, &d);
+                    break;
+                }
+            }
+            rec.shape = sh.h;
+            rec.tuning = ~th.h;  // never equal: the first pass applies the tuning
+            it = joints_.emplace(key, rec).first;
+        }
+        JointRec& rec = it->second;
+        rec.seen = stepCounter_;
+        if (rec.tuning != th.h) {
+            rec.tuning = th.h;
+            const b2JointId id = rec.joint;
+            const float torque = j->maxMotorTorque / (ppm * ppm), force = j->maxMotorTorque / ppm;
+            const float hertz = std::max(j->springHertz, 0.0f), damping = std::max(j->dampingRatio, 0.0f);
+            switch (j->type) {
+                case JointType2D::Revolute: {
+                    float lo = radians(clamp_hinge_deg(j->lowerLimit)), hi = radians(clamp_hinge_deg(j->upperLimit));
+                    if (lo > hi) std::swap(lo, hi);
+                    b2RevoluteJoint_SetLimits(id, lo, hi);
+                    b2RevoluteJoint_EnableLimit(id, j->enableLimit);
+                    b2RevoluteJoint_SetSpringHertz(id, hertz);
+                    b2RevoluteJoint_SetSpringDampingRatio(id, damping);
+                    b2RevoluteJoint_EnableSpring(id, j->enableSpring);
+                    b2RevoluteJoint_SetMotorSpeed(id, radians(j->motorSpeed));
+                    b2RevoluteJoint_SetMaxMotorTorque(id, torque);
+                    b2RevoluteJoint_EnableMotor(id, j->enableMotor);
+                    break;
+                }
+                case JointType2D::Prismatic: {
+                    float lo = j->lowerLimit * inv, hi = j->upperLimit * inv;
+                    if (lo > hi) std::swap(lo, hi);
+                    b2PrismaticJoint_SetLimits(id, lo, hi);
+                    b2PrismaticJoint_EnableLimit(id, j->enableLimit);
+                    b2PrismaticJoint_SetSpringHertz(id, hertz);
+                    b2PrismaticJoint_SetSpringDampingRatio(id, damping);
+                    b2PrismaticJoint_EnableSpring(id, j->enableSpring);
+                    b2PrismaticJoint_SetMotorSpeed(id, j->motorSpeed * inv);
+                    b2PrismaticJoint_SetMaxMotorForce(id, force);
+                    b2PrismaticJoint_EnableMotor(id, j->enableMotor);
+                    break;
+                }
+                case JointType2D::Distance: {
+                    b2DistanceJoint_SetLength(id, j->length > 0.0f ? j->length * inv : rec.restLength);
+                    float lo = j->lowerLimit * inv, hi = j->upperLimit * inv;
+                    if (lo > hi) std::swap(lo, hi);
+                    b2DistanceJoint_SetLengthRange(id, lo, std::max(hi, lo));
+                    b2DistanceJoint_EnableLimit(id, j->enableLimit);
+                    b2DistanceJoint_SetSpringHertz(id, hertz);
+                    b2DistanceJoint_SetSpringDampingRatio(id, damping);
+                    b2DistanceJoint_EnableSpring(id, j->enableSpring);
+                    b2DistanceJoint_SetMotorSpeed(id, j->motorSpeed * inv);
+                    b2DistanceJoint_SetMaxMotorForce(id, force);
+                    b2DistanceJoint_EnableMotor(id, j->enableMotor);
+                    break;
+                }
+                case JointType2D::Weld:
+                    b2WeldJoint_SetLinearHertz(id, hertz);
+                    b2WeldJoint_SetAngularHertz(id, hertz);
+                    b2WeldJoint_SetLinearDampingRatio(id, damping);
+                    b2WeldJoint_SetAngularDampingRatio(id, damping);
+                    break;
+            }
+            b2Joint_WakeBodies(id);
+        }
+    }
+    for (auto it = joints_.begin(); it != joints_.end();) {  // component removed, entity destroyed
+        if (it->second.seen != stepCounter_) {
+            const std::uint64_t k = it->first;
+            ++it;
+            destroy_joint(k);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void Physics2D::read_joints(World& world) {
+    const float ppm = settings_.pixelsPerMeter;
+    for (auto& [key, rec] : joints_) {
+        const Entity e = Entity::from_bits(key);
+        Joint2D* j = world.alive(e) ? world.get<Joint2D>(e) : nullptr;
+        if (!j || !b2Joint_IsValid(rec.joint)) continue;
+        const b2Vec2 f = b2Joint_GetConstraintForce(rec.joint);
+        j->reactionForce = {f.x * ppm, f.y * ppm};
+        j->reactionTorque = b2Joint_GetConstraintTorque(rec.joint) * ppm * ppm;
+        switch (rec.type) {
+            case JointType2D::Revolute:
+                j->angle = degrees(b2RevoluteJoint_GetAngle(rec.joint));
+                break;
+            case JointType2D::Weld: {
+                const float rel = b2RelativeAngle(b2Body_GetRotation(b2Joint_GetBodyB(rec.joint)), b2Body_GetRotation(b2Joint_GetBodyA(rec.joint)));
+                j->angle = degrees(wrap_pi(rel - rec.referenceAngle));
+                break;
+            }
+            case JointType2D::Prismatic:
+                j->translation = b2PrismaticJoint_GetTranslation(rec.joint) * ppm;
+                break;
+            case JointType2D::Distance:
+                j->translation = b2DistanceJoint_GetCurrentLength(rec.joint) * ppm;
+                break;
+        }
+    }
 }
 
 void Physics2D::step(World& world, float dt) {
@@ -664,6 +891,7 @@ void Physics2D::step(World& world, float dt) {
         if (it == bodies_.end() || !world.alive(e)) continue;
         writeback(world, e, it->second, world.get<RigidBody2D>(e));
     }
+    read_joints(world);
 
     // ---- 4. events
     collect_events(world);
