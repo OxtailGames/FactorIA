@@ -2,7 +2,8 @@
 // (schemas/material.schema.json), generates the sokol-shdc top file around the author's GLSL snippet and the engine's mesh
 // template (engine/render/shaders/*_common.glsl, embedded), runs sokol-shdc, maps its errors back to the snippet, and keeps
 // the result as one JSON "twin" per dialect (`factoria.shader/1`). Commands: "shader.compile", "material.info";
-// `factoria validate` compiles every material for every dialect.
+// `factoria validate` compiles every material for every dialect; `factoria export` ships the twins of the target's dialects
+// (<material>.json.<slang>.shader) in place of the snippets (tools/common/src/export_shaders.cpp).
 //
 // Files of one material: <name>.material.json, the snippet it names (`shader`, e.g. shaders/water.surface.glsl), and
 // .factoria/shader-cache/<sha256>.<slang>.shader (the compiled twins; the key hashes the generated top file, the snippet,
@@ -178,7 +179,11 @@ std::string shader_cache_path(const std::string& projectDir, const GeneratedShad
 // Commands and `factoria validate`
 // ---------------------------------------------------------------------------------------------------------------
 
+struct ValidationIssue;   // fa/tooling/validate.h
 struct ValidationReport;  // fa/tooling/validate.h
+// The errors of a compile the author can fix, as `factoria validate` lists them (a failed `factoria export` prints the same):
+// material file errors with their JSON pointer, snippet errors with line, column and the line quoted.
+std::vector<ValidationIssue> shader_validation_issues(const ShaderCompileResult& result);
 // Checks every material of the project and compiles it for every dialect; adds errors and warnings to `report`. Without
 // sokol-shdc the snippets are not compiled and one warning says so.
 void validate_materials(const std::string& projectDir, const SetupContext& context, ValidationReport& report);
