@@ -1,0 +1,8 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: adds a glow color to the emission.",
+  "shader": "shaders/glow.surface.glsl",
+  "params": {
+    "glow": { "type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Emission color; its alpha scales the strength." }
+  }
+}
