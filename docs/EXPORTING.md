@@ -5,7 +5,7 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 `project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
 
 ```bash
-factoria export [project] --platform <linux|windows|macos|android|ios> [--format apk|aab|gradle|appimage] [--out DIR] [--release]
+factoria export [project] --platform <linux|windows|macos|android|ios> [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]]
                 [--player PATH] [--engine-root DIR | --mobile-dir DIR]
 ```
 
@@ -197,7 +197,7 @@ factoria setup appimage                            # Linux x86_64 (and WSL): app
 | Component | What it installs | Download | The export that needs it |
 |---|---|---|---|
 | `android` | Eclipse Temurin JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmanager`), `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the Android SDK license | about 500 MB (0.9 GB on disk) | `--platform android` (APK/AAB through Gradle) |
-| `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (Android libraries; also iOS on a Mac), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
+| `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (the Android and iOS libraries, from the macOS package, on any OS), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
@@ -349,6 +349,8 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | iOS | `iconBackground` | `#FFFFFF` | The App Store icon cannot be transparent: transparent pixels take this colour, and the PNG is written without an alpha channel. |
 | iOS | `teamId` | none | 10-character Apple Team ID for device builds. It is the default of `FA_IOS_DEVELOPMENT_TEAM`: that environment variable, when set, wins. |
 | iOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload. |
+| iOS | `usesNonExemptEncryption` | `false` | `ITSAppUsesNonExemptEncryption` in `Info.plist`. `true` only when the game uses encryption beyond what iOS provides (HTTPS and other system encryption are exempt). |
+| iOS | `privacy` | the engine's entries only | What the game adds to `PrivacyInfo.xcprivacy`: `tracking`, `trackingDomains`, `accessedApis` (`[{"category": "DiskSpace", "reasons": ["E174.1"]}]`), `collectedData` (`[{"type": "PurchaseHistory", "linked": true, "purposes": ["AppFunctionality"]}]`). The categories, reason codes, data types and purposes are in [MOBILE.md](MOBILE.md#store-privacy-forms). Edited in `factoria.json` only (the editor's window leaves it as it is). |
 | Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](#scripts-as-bytecode). |
 
 `windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
@@ -732,7 +734,7 @@ FactorIA/
   mobile/
     android/jniLibs/arm64-v8a/libfactoria_player.so     in every package (Windows, macOS, Linux)
     android/jniLibs/x86_64/libfactoria_player.so
-    ios/iphoneos/*.a                                     in the macOS package only
+    ios/iphoneos/*.a                                     in the macOS package only (`factoria setup players` fetches it on Windows and Linux)
     ios/iphonesimulator/*.a                              arm64 + x86_64
 ```
 
@@ -838,8 +840,10 @@ file is never copied into the app). The passwords are never written to a project
 they come from `FACTORIA_ANDROID_KEYSTORE_PASSWORD` and `FACTORIA_ANDROID_KEY_PASSWORD` (or `android.keystorePassword` /
 `keyPassword` of `~/.factoria/export.json`; the key password defaults to the keystore password) and are given to the Gradle
 process as environment variables only. `plan_export` and `--release` check that the keystore exists and that the passwords
-are set before Gradle starts. A release build with no keystore configured uses the debug key and says so in a warning; Google
-Play does not accept that. To make a key: `keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`
+are set before Gradle starts. A release build with no keystore configured is an error, because the app it would make is one
+Google Play rejects; the error says how to make a key. To try a release build on your own device with the debug key, pass
+`--allow-debug-key` (the `project.export` command's `allowDebugKey`): the export then warns and uses the debug key, and that
+build must not be uploaded. To make a key: `keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000`
 (keep the file and its passwords safe). A release build you run by hand in the exported project (`./gradlew assembleRelease`)
 reads the same environment variables.
 
@@ -877,6 +881,11 @@ From the project's [platform settings](#platform-settings) the export takes:
 - **`teamId`** becomes the default of `FA_IOS_DEVELOPMENT_TEAM` in the script, so `./build_ios.sh --run` signs for the
   device without the variable. Setting `FA_IOS_DEVELOPMENT_TEAM` yourself still wins.
 - **`buildNumber`** becomes `CFBundleVersion` (`FA_GAME_BUILD`); when absent, the `version` is used as before.
+- **The privacy manifest.** `PrivacyInfo.xcprivacy` is written next to `build_ios.sh` (`FA_GAME_PRIVACY_MANIFEST`) and copied
+  to the root of the app: the engine's required-reason APIs (file time stamps, the monotonic clock), no tracking, no collected
+  data. `export.ios.privacy` adds what the game or its plugins do. `Info.plist` also gets `ITSAppUsesNonExemptEncryption`
+  (`false`; `export.ios.usesNonExemptEncryption` changes it). What to put in both, and in Google Play's Data safety form:
+  [MOBILE.md](MOBILE.md#store-privacy-forms).
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). Each plugin declared for iOS needs `ios/iphoneos/lib<name>.a` and
 `ios/iphonesimulator/lib<name>.a`; the export copies its `ios/` folder to `plugins/<name>/` and the app links it
@@ -897,7 +906,9 @@ In **prebuilt** mode the script configures `CMakeLists.txt` of the folder itself
 source is needed. The libraries are static archives (not an XCFramework: the exported project picks the archives of the
 SDK it is configured for, device or simulator, like the `ios` presets do, and CMake 3.24 cannot link XCFrameworks). In
 **source** mode the folder holds only `game/` and `build_ios.sh`, and the script runs CMake on the engine checkout.
-The iOS libraries ship in the macOS download only, so export for iOS on a Mac.
+The iOS libraries ship in the macOS download only: on Windows and Linux run `factoria setup players --platforms mobile`
+(it fetches the macOS package and keeps its `mobile/`), then `factoria export --platform ios` finds them without
+`--mobile-dir`. Building the project still needs a Mac with Xcode.
 
 Details in [MOBILE.md](MOBILE.md).
 

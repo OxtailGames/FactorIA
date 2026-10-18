@@ -176,9 +176,11 @@ emulator, and Google Play refuses it. For release:
    (upload it in the Play Console; with Play App Signing the key above is your upload key).
 
 The passwords reach Gradle only as environment variables of its process: they are not in `gradle.properties`, `build.gradle`,
-`build.log` or any file of the export, nor on a command line. A release export without a keystore uses the debug key and
-warns; a keystore that does not exist, or missing passwords, are reported by the plan (`project.export` with `dryRun`)
-before Gradle starts. To build by hand inside the exported project, set the same variables and run `./gradlew assembleRelease`
+`build.log` or any file of the export, nor on a command line. A release export without a keystore **fails** (the AAB it
+would produce is one Google Play rejects), with the steps above in its hint. To try a release build on your own device with
+the debug key anyway, add `--allow-debug-key` (`"allowDebugKey": true` in the `project.export` command): the export then
+warns and signs with the debug key; never upload that build. A keystore that does not exist, or missing passwords, are
+reported by the plan (`project.export` with `dryRun`) before Gradle starts. To build by hand inside the exported project, set the same variables and run `./gradlew assembleRelease`
 (APK) or `./gradlew bundleRelease` (AAB).
 
 ### 16 KB memory pages
@@ -323,8 +325,10 @@ are the player and the whole engine as static archives (`libfactoria_player_main
 `sokol_app` inside `libfa_platform.a`); the exported project links the archives of the SDK it is configured for, with the
 same frameworks as the engine presets. There is no XCFramework because the exported project is configured per SDK (device
 or simulator), like the `ios` presets, and CMake's Xcode generator (3.24) cannot link one. The simulator archives hold
-`arm64` and `x86_64`. The iOS libraries are not in the Windows and Linux packages (iOS cannot be built there), so export
-for iOS on a Mac. **Source**: the export holds only `game/` and `build_ios.sh`, which runs CMake on the engine checkout.
+`arm64` and `x86_64`. The iOS libraries are in the macOS package only (the Windows and Linux ones carry Android), but you
+can still prepare an iOS project on Windows or Linux: `factoria setup players --platforms mobile` downloads the macOS
+package and keeps its `mobile/` (Android and iOS) under `~/.factoria/players/<version>/mobile`, and `factoria export
+--platform ios` finds it there, with no `--mobile-dir`. Copy the exported folder to a Mac to build it. **Source**: the export holds only `game/` and `build_ios.sh`, which runs CMake on the engine checkout.
 
 `build_ios.sh` runs the CMake named by `FACTORIA_CMAKE` when it is set, else the CMake 3.24+ the export found
 (`factoria setup cmake` installs one when there is none), else `cmake` from `PATH`.
@@ -339,7 +343,9 @@ cmake --build --preset ios-simulator --target factoria_player -- -sdk iphonesimu
 
 CMake variables: `FA_GAME_PROJECT_DIR`, `FA_GAME_BUNDLE_ID`, `FA_GAME_NAME`,
 `FA_GAME_VERSION`, `FA_GAME_BUILD` (`CFBundleVersion`; default `FA_GAME_VERSION`), `FA_GAME_ORIENTATION`,
-`FA_GAME_ASSET_CATALOG` (path of an `.xcassets` folder with an `AppIcon` set; no icon when empty) and
+`FA_GAME_ASSET_CATALOG` (path of an `.xcassets` folder with an `AppIcon` set; no icon when empty),
+`FA_GAME_PRIVACY_MANIFEST` (a `PrivacyInfo.xcprivacy` copied to the root of the app),
+`FA_GAME_NON_EXEMPT_ENCRYPTION` (`ON` writes `ITSAppUsesNonExemptEncryption` as true; default `OFF`) and
 `FA_IOS_DEVELOPMENT_TEAM`. They feed
 `platforms/ios/Info.plist.in` (full screen, MetalKit, orientation lists for
 iPhone and iPad, launch screen via `UILaunchScreen`) and the Xcode target (the catalog is compiled into `Assets.car`,
@@ -408,7 +414,107 @@ part of the iOS SDK (the manifest names system frameworks only).
 App Store: archive from Xcode (Product > Archive) with a distribution
 certificate and provisioning profile. The icon comes from the game's `icon` (without one the app has the default
 icon and the export warns); the launch screen is the plain `UILaunchScreen` of `Info.plist.in`, change it in Xcode
-if you want a branded one. Raise `export.ios.buildNumber` for every upload.
+if you want a branded one. Raise `export.ios.buildNumber` for every upload. What the two stores ask about privacy is in
+[Store privacy forms](#store-privacy-forms).
+
+## Store privacy forms
+
+Both stores ask what your app does with user data before they accept an upload, and they check it against the app. The
+answers depend on the whole game (its plugins, its scripts, your servers), so these are the facts about the engine to
+build them from, not a form already filled in. Check the store's current help pages too: the forms change.
+
+**What the engine itself does.** Nothing leaves the device: no analytics, no advertising id, no accounts, no network
+connection of its own. Saves (`storage`) and `log.txt` are files in the app's private folder, and crash reports are
+written next to them; nothing sends them anywhere. A game that adds its own networking, an ads or analytics SDK, or a store
+plugin changes the answers, as below.
+
+### App Store (iOS)
+
+**Privacy manifest.** Apple requires a `PrivacyInfo.xcprivacy` in every app that calls a "required reason" API, and rejects
+an upload that uses one without declaring it. `factoria export --platform ios` writes it next to `build_ios.sh` and the
+build copies it to the root of the app. For the engine it declares:
+
+| API category | Reason | Why |
+|---|---|---|
+| `FileTimestamp` | `C617.1` | the size and modification time of the game's own files inside the app (`fs` file checks, hot reload), through `stat` |
+| `SystemBootTime` | `35F9.1` | the monotonic clock (`mach_absolute_time`) that the frame loop, physics and the script runtime measure elapsed time with |
+
+It also says `NSPrivacyTracking` false, no tracking domains and no collected data types. The engine does not use disk space
+or `UserDefaults` APIs; the Apple plugin (StoreKit, Game Center, iCloud key-value store) is made of system frameworks,
+which carry their own declarations.
+
+If your game or a plugin of yours calls more required-reason APIs, collects data or tracks, say so in `factoria.json`; the
+export merges it with the engine's entries (a category the engine already declares gets the union of the reasons):
+
+```json
+"export": {
+  "ios": {
+    "usesNonExemptEncryption": false,
+    "privacy": {
+      "tracking": false,
+      "accessedApis": [{ "category": "DiskSpace", "reasons": ["E174.1"] }],
+      "collectedData": [
+        { "type": "PurchaseHistory", "linked": true, "purposes": ["AppFunctionality"] }
+      ]
+    }
+  }
+}
+```
+
+- `accessedApis[].category`: `FileTimestamp`, `SystemBootTime`, `DiskSpace`, `UserDefaults` or `ActiveKeyboards`. `reasons`
+  are Apple's codes for that category: FileTimestamp `DDA9.1` (shown to the user), `C617.1` (files in the app's own container),
+  `3B52.1` (files the user chose), `0A2A.1` (a third-party SDK's wrapper); SystemBootTime `35F9.1` (time elapsed between
+  events inside the app), `8FFB.1` (a timestamp of an event shown to the user), `3D61.1` (a user-initiated bug report);
+  DiskSpace `E174.1` (check before writing a file or to tell the user), `85F4.1` (show the user), `7D9E.1` (a user-initiated
+  bug report), `B728.1` (health research apps); UserDefaults `CA92.1` (the app's own preferences), `1C8F.1` (app group),
+  `C56D.1` (third-party SDK wrapper), `AC6B.1` (managed app configuration); ActiveKeyboards `3EC4.1` (a custom keyboard),
+  `54BD.1` (to pick a keyboard-specific UI). Apple's page "Describing use of required reason API" has the exact wording.
+- `collectedData[].type`: `Name`, `EmailAddress`, `PhoneNumber`, `PhysicalAddress`, `OtherUserContactInfo`, `Health`, `Fitness`,
+  `PaymentInfo`, `CreditInfo`, `OtherFinancialInfo`, `PreciseLocation`, `CoarseLocation`, `SensitiveInfo`, `Contacts`,
+  `EmailsOrTextMessages`, `PhotosOrVideos`, `AudioData`, `GameplayContent`, `CustomerSupport`, `OtherUserContent`,
+  `BrowsingHistory`, `SearchHistory`, `UserID`, `DeviceID`, `PurchaseHistory`, `ProductInteraction`, `AdvertisingData`,
+  `OtherUsageData`, `CrashData`, `PerformanceData`, `OtherDiagnosticData`, `EnvironmentScanning`, `Hands`, `Head`,
+  `OtherDataTypes`. `purposes`: `ThirdPartyAdvertising`, `DeveloperAdvertising`, `Analytics`, `ProductPersonalization`,
+  `AppFunctionality`, `Other`. `linked` is whether the data is tied to the user's identity, `tracking` whether it is used to
+  track the user.
+- `tracking` and `trackingDomains`: only for apps (or SDKs in them) that track users across other companies' apps and sites;
+  tracking also needs the App Tracking Transparency prompt, which the engine does not show.
+- A mistake in any of these (an unknown category, a reason code that belongs to another category, a misspelled data type)
+  is an error that names the pointer in `factoria.json` and suggests the closest valid value.
+
+Third-party SDKs that you link as plugins bring their own manifest requirements; add what they document.
+
+**Encryption.** `Info.plist` gets `ITSAppUsesNonExemptEncryption` `false`, so App Store Connect does not ask the
+export-compliance question on every upload. That is right for a game that uses only the encryption iOS provides (HTTPS
+through the system, the Keychain). If your game ships its own cryptography, set `export.ios.usesNonExemptEncryption` to
+`true` and answer the export-compliance questions in App Store Connect (some countries need documentation).
+
+**The App Privacy "nutrition label"** (App Store Connect > your app > App Privacy) is filled in by hand and should match the
+manifest:
+
+| Your game | What to answer |
+|---|---|
+| Engine only, saves on the device | "Data Not Collected" |
+| Apple plugin: purchases (StoreKit 2), Game Center, iCloud key-value saves | Apple processes these inside its own services and the data is not sent to you, so they do not add a "collected" entry. If your own server receives receipts or Game Center player ids, add Purchase History and/or User ID, linked to the user, purpose App Functionality |
+| An ads, attribution or analytics SDK | Whatever the SDK documents (Device ID, Advertising Data, Product Interaction, ...), and `tracking` plus the ATT prompt if it tracks |
+| Your own account system or backend | The data you send (Name, Email Address, User ID, Gameplay Content...) |
+
+### Google Play (Android)
+
+**Data safety** (Play Console > App content > Data safety) is also filled in by hand; Play compares it with the app. The
+engine adds no permissions of its own to `AndroidManifest.xml` (add some with `export.android.permissions`). The answers:
+
+| Your game | What to declare |
+|---|---|
+| Engine only, saves on the device | "No data collected" and "No data shared". `log.txt`, crash reports and saves stay in the app's private folder; no network library is linked |
+| `googleplay` plugin: purchases (Play Billing) | Play Billing handles the payment and shows the purchase history to the game on the device; the Billing library adds the `com.android.vending.BILLING` permission to the manifest. Declare Purchase history (Financial info) only if your own server receives or stores purchase tokens or receipts |
+| `googleplay` plugin: Play Games Services (when `playGamesId` is set) | The Play Games SDK signs the player in and keeps achievements, leaderboard scores and Saved Games in the player's Google account. Declare a player id (User IDs under Personal info) and the game data (App activity) when your own backend receives them; where only Google's services hold them, follow Google's definition of "collected" in the Data safety help |
+| `googleplay` plugin: Play Integrity | The request and the verdict go through Google; the token goes to your server. Declare what your server keeps of it (device or app integrity information) |
+| An ads SDK | Advertising ID (`com.google.android.gms.permission.AD_ID` in `export.android.permissions`), plus what the SDK documents; apps that target Android 13+ without it get a zeroed ad id |
+| Your own backend, accounts, analytics | The data you send, whether you share it, whether it is encrypted in transit and whether players can ask for deletion |
+
+Play also asks for a **privacy policy** link on the store listing of every app, and for the "Data deletion" answers when you
+have accounts. Go through the form again whenever you add a plugin or SDK.
 
 ## Touch input
 
