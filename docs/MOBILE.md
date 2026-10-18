@@ -533,8 +533,8 @@ The platform layer maps touches to the same `Input` object scripts use:
   UI and scripts written for the mouse work unchanged (this is done by `Input` itself, so `game.touch` in tests and
   any other feed behave the same);
 - input actions bound to `"Touch"` or `"MouseLeft"` in `factoria.json` fire on touch;
-- there is no on-screen gamepad: bind touch to actions and build on-screen buttons as entities that read touches. The
-  on-screen keyboard, the Back button, the notch and vibration are in "Phone features" below.
+- an optional on-screen gamepad (`TouchStick`, `TouchButton`) plays a game written for a pad, see "On-screen gamepad"
+  below. The on-screen keyboard, the Back button, the notch and vibration are in "Phone features" below.
 - Physical gamepads: iOS (and macOS) read them through the GameController framework (extended gamepads: MFi, Xbox,
   PlayStation, Switch Pro). The framework names the buttons by position, like the engine (`A` is the bottom one). A pad
   keeps its slot while connected, an unplugged pad frees it (logged as `gamepad: pad 0 connected: Controller (Xbox
@@ -561,6 +561,47 @@ The platform layer maps touches to the same `Input` object scripts use:
   on a device: the decisions are unit tested on every OS, the JNI glue is only built by CI.
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
   report their real state again afterwards.
+
+### On-screen gamepad
+
+A game that plays with a gamepad plays on a phone with two UI components and no change to its scripts. A `TouchStick` is
+a disc with a knob that follows the finger; a `TouchButton` is a disc with an optional label. A finger on them moves a
+stick or holds a button of the **touch pad**, a virtual pad the action bindings read like a real one: an action bound to
+`"GamepadLeftStickRight"` gets the stick's push, one bound to `"GamepadA"` fires while the `A` button is held. The default
+`ui_*` actions include the left stick and `GamepadA` / `GamepadB`, so the stick also walks menus.
+
+```json
+{ "id": "move", "components": { "Transform": { "position": [40, -40] },
+    "TouchStick": { "anchor": [0, 1], "pivot": [0, 0], "size": [220, 220] } } },
+{ "id": "jump", "components": { "Transform": { "position": [-40, -60] },
+    "TouchButton": { "anchor": [1, 1], "pivot": [1, 0], "button": "A", "text": "A" } } },
+{ "id": "dash", "components": { "Transform": { "position": [-160, -40] },
+    "TouchButton": { "anchor": [1, 1], "pivot": [1, 0], "button": "B", "text": "B" } } }
+```
+
+with `"jump": ["Space", "GamepadA"]`, `"move_left": ["A", "GamepadLeftStickLeft"]`... in `factoria.json` `input.actions`.
+
+- **Where**: they are UI widgets (screen space, `anchor`, `pivot`, `size`, `layer`, `color`, a `texture` instead of the
+  disc), and `safeArea` is on by default, so the anchor is a corner of the safe area and the notch never covers them.
+  A Panel can lay them out like any widget.
+- **When**: with `touchOnly` (the default) they are drawn only while the player uses touch (`input.lastDevice` is
+  `"touch"`; a phone starts that way), so they disappear when the player picks up a real pad or the keyboard and come back
+  on the next touch. A finger landing on one always works. `touchOnly: false` draws them on any device: desktop previews,
+  screenshots, tests.
+- **Fingers**: each control takes the finger that lands on it and keeps it until it lifts, even when the finger slides
+  off (the stick stays at full tilt in that direction). Several fingers work at once: move and jump together. A finger a
+  control holds is the pad's: it is not in `input.touches`, does not fire `"Touch"` or move the mouse, so a game's own
+  touch handling never sees it. When controls overlap, the one created later takes the finger.
+- **Values**: the stick's edge (half its shorter side) is full tilt; the pad deadzone (`input.deadzone` in
+  `factoria.json`, default 0.2) applies like on a real stick. The components show the state at run time: `value` and
+  `pressed` on a `TouchStick`, `pressed` on a `TouchButton`, `shown` on both; `ui.state` lists them too.
+- **What it is not**: the touch pad has no number (`input.gamepad(0)` and the numbered pad queries never see it) and does
+  not make `input.lastDevice` `"gamepad"`, so button prompts stay on touch. A mouse click does not press the controls.
+  The stick is fixed where it is drawn (no floating stick that appears under the thumb).
+
+Test it headless like any touch: `game.touchStart([x, y])`, `game.touchMove`, `game.touchEnd` (or the command
+`game.input {"touch": ...}`) on the control's rectangle, then check the action (`input.vector("move_left", "move_right",
+"move_down", "move_up")`).
 
 ## Phone features
 

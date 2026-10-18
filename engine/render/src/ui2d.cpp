@@ -1,6 +1,6 @@
-// Draws the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList) into the screen quad list. Where a
-// widget is comes from fa_scene's ui_rect.h (the same code behind layout and hit-testing); how it reacts (focus, hover,
-// values) is fa_ui's, read here from the components' runtime flags.
+// Draws the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton) into the
+// screen quad list. Where a widget is comes from fa_scene's ui_rect.h (the same code behind layout and hit-testing); how
+// it reacts (focus, hover, values) is fa_ui's, read here from the components' runtime flags.
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -133,10 +133,37 @@ std::string slider_text(const Slider& s) {
     return t;
 }
 
+// A disc (an ellipse when `r` is not square) filling `r`.
+void disc(const Ctx& c, int layer, const Rect& r, Color col) {
+    if (r.empty()) return;
+    c.list().begin_item(layer, 0, c.f.assets->white(), SamplerKind::Nearest, BlendMode::Alpha, c.clip);
+    QuadEmitter{c.list(), Mat4::identity(), true, pack(col, c.fade), kModeCircle, 0}.rect(r.x, -(r.y + r.h), r.x + r.w, -r.y, -1, -1, 1, 1);
+    c.list().end_item();
+}
+
+// TouchStick / TouchButton: the background is the texture when there is one, else a disc; then the knob or the label.
+void draw_touch_control(const Ctx& c, const World& world, Entity e, const UiBox& b, const Rect& r) {
+    const TouchStick* stick = world.get<TouchStick>(e);
+    const TouchButton* button = world.get<TouchButton>(e);
+    if (stick ? !stick->shown : !button->shown) return;
+    const Color tint = button && button->pressed ? scaled(b.color, 0.6f, 0.0f) : b.color;
+    if (!b.texture.empty()) background(c, b, r, tint);
+    else disc(c, b.layer, r, tint);
+    if (stick) {
+        const float radius = std::min(r.w, r.h) * 0.5f, knob = radius * 0.45f;
+        const Vec2 at = r.center() + Vec2{stick->value.x, -stick->value.y} * radius;
+        disc(c, b.layer + 1, Rect::from_center(at, {knob * 2, knob * 2}), stick->knobColor);
+    } else if (!button->text.empty()) {
+        const TextLayout lay = line(c, button->text, button->font, button->fontSize);
+        text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, button->textColor, b.layer + 1, c.clip);
+    }
+}
+
 void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBox& b) {
     Ctx c{f, Rect{}};
     if (!screen_clip(world, e, f, c.clip)) return;
     const Rect r = *ui_rect(world, e, Vec2{float(f.targetW), float(f.targetH)});
+    if (kind == UiKind::TouchStick || kind == UiKind::TouchButton) return draw_touch_control(c, world, e, b, r);
     const UiControl* ctl = ui_control(world, e);
     Color tint = b.color;
     if (ctl) {
@@ -201,7 +228,8 @@ void visit(Frame& f, const World& world, Entity e) {
 void gather_ui(World& world, Frame& f) {
     bool any = false;
     for (const TypeInfo* t : {&World::type_of<Panel>(), &World::type_of<Button>(), &World::type_of<Toggle>(), &World::type_of<Slider>(),
-                              &World::type_of<TextField>(), &World::type_of<ScrollList>()})
+                              &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
+                              &World::type_of<TouchButton>()})
         any = any || !world.entities_with(t).empty();
     if (!any) return;
     for (Entity root : world.roots()) visit(f, world, root);

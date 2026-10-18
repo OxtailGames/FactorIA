@@ -265,6 +265,45 @@ struct ScrollList : UiBox {
     ScrollList() { size = {320, 240}; }
 };
 
+// On-screen gamepad for phones and tablets: a stick and buttons that drive a virtual pad (Input's touch pad), so the
+// actions bound to GamepadA, GamepadLeftStickRight... work on a touch screen without a change to the game. fa_ui hands
+// their rectangles to Input and writes the runtime fields; fa_render draws them. Neither is focusable.
+enum class TouchStickSide : std::int32_t { Left, Right };
+// A pad button, in fa::GamepadButton order (fa_ui checks the count), so scene does not depend on fa_platform.
+enum class PadButton : std::int32_t {
+    A, B, X, Y, Start, Back, Guide, DpadLeft, DpadRight, DpadUp, DpadDown, LeftShoulder, RightShoulder, LeftThumb, RightThumb
+};
+
+struct TouchStick : UiBox {
+    TouchStickSide stick = TouchStickSide::Left;
+    Color knobColor{1, 1, 1, 0.6f};
+    bool touchOnly = true;                    // drawn and active only while the player uses touch
+    Vec2 value{0, 0};                         // runtime: the finger's offset, length <= 1, +Y up
+    bool pressed = false;                     // runtime: a finger holds it
+    bool shown = false;                       // runtime: drawn this frame
+    TouchStick() {
+        size = {200, 200};
+        safeArea = true;
+        color = {1, 1, 1, 0.2f};
+    }
+};
+
+struct TouchButton : UiBox {
+    PadButton button = PadButton::A;
+    std::string text;                         // label; "" = none
+    std::string font;
+    float fontSize = 32.0f;
+    Color textColor{1, 1, 1, 0.9f};
+    bool touchOnly = true;
+    bool pressed = false;                     // runtime: a finger holds it
+    bool shown = false;                       // runtime: drawn this frame
+    TouchButton() {
+        size = {96, 96};
+        safeArea = true;
+        color = {1, 1, 1, 0.2f};
+    }
+};
+
 // ------------------------------------------------------------------- 3D ---
 // mesh: "cube" | "sphere" | "plane" | "cylinder" | "capsule" | "cone" | "quad"
 //       or an asset path to a .gltf/.glb file ("assets/models/ship.glb").
