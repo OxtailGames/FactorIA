@@ -4,6 +4,20 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Animation
+
+- 3D models with skeletons: a glTF/GLB with named animation clips plays through the new `Animator` component, which goes on
+  the entity with the model's `MeshRenderer`. Switch clips with a smooth cross-fade (`entity.animator.play("Run", 0.2)`),
+  change the speed, and get an event when a clip reaches a moment you chose (a footstep at 0.3 s) with `world.on`.
+- A small state machine is built in: list the parameters, the states (a clip each) and the transitions in the scene file
+  (`"when": "speed > 0.1"`), then your script only sets values: `entity.animator.set("speed", 3)`. Animation runs in the
+  fixed step, so tests and replays give the same result every time.
+- New `tween` and `ease` in the scripting API: slide a menu in, fade a sprite, grow a pickup. Works on numbers, vectors
+  and colors of anything, in 2D and 3D, with 30 easings (`"backOut"`, `"bounceOut"`...), delay, repeat, yoyo, chaining and
+  `await tween(...).finished`.
+- Not yet: the model is still drawn in the pose it was exported in; drawing it deformed by the animation (GPU skinning) comes next.
+  The new guide is `factoria docs read animation`.
+
 Games in the browser
 
 - Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder
