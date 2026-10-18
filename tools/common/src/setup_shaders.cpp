@@ -91,10 +91,7 @@ SetupComponent shaders_status(const SetupContext& ctx) {
                 std::string(kSetupSokolShdcCommit).substr(0, 7) + ", SHA-256 checked) into " + sokol_shdc_install_dir(ctx) + ".";
     if (!envPath.empty())
         c.problems.push_back("$SOKOL_SHDC names " + envPath + ", which is not a file: fix the path or unset the variable.");
-    if (const std::string note = defender_note(ctx, *bin); !note.empty()) {
-        c.details += " " + note;
-        c.problems.push_back(note);
-    }
+    if (const std::string note = defender_note(ctx, *bin); !note.empty()) c.problems.push_back(note);
     c.problems.push_back("Custom materials (*.material.json) are compiled with sokol-shdc: run `factoria setup shaders`.");
     return c;
 }
