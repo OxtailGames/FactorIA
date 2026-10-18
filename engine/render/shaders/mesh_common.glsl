@@ -14,6 +14,9 @@
 // the shadow pass, whose attributes must be contiguous). Skinned meshes use the _skin programs: joints and weights come
 // from vertex buffer 2 (locations 8, 9; 5, 6 in the shadow pass).
 //
+// alphaMode "clip" defines FA_ALPHA_CLIP: fs discards below alphaCutoff after surface(), and the shadow programs run
+// surface() too (shadow_vs outputs the varyings, shadow_fs includes the fragment resources) to cut the same holes.
+//
 // Every engine identifier starts with fa_ (FA_ for constants), so "names starting with fa_ are the engine's" is the one
 // rule a snippet follows. Uniform block bindings: vertex 0 fa_mesh_vs_params, 3 fa_skin (4 is left for the material's
 // vertex-stage block); fragment 1 fa_mesh_fs_params, 2 fa_lights (5 for the material). Views 0-5 and samplers 0-1 are
@@ -170,7 +173,9 @@ void main() {
 }
 @end
 
-@fs fs
+// The fragment resources and the standard surface: the main fragment shader includes this, and so does the shadow
+// fragment shader of an alphaMode "clip" material (it must run surface() to know what to discard).
+@block fa_fs_surface
 layout(binding=0) uniform texture2D fa_tex;             // base color
 layout(binding=1) uniform texture2D fa_shadow_tex;
 layout(binding=2) uniform texture2D fa_normal_tex;      // tangent-space normal map
@@ -197,23 +202,49 @@ layout(binding=1) uniform fa_mesh_fs_params {
     vec4 fa_time;               // x = seconds of game time since the scene started
 };
 
+in vec3 fa_world_pos;
+in vec3 fa_world_normal;
+in vec4 fa_world_tangent;
+in vec2 fa_uv;
+
+@include_block fa_types
+@include_block fa_user
+
+// What a MeshRenderer without a material draws: texture * color, normal map, metallic/roughness maps, occlusion,
+// emissive. surface() starts from it.
+Surface fa_standard_surface(in SurfaceInput i) {
+    Surface s;
+    vec4 albedo4 = texture(sampler2D(fa_tex, fa_smp), i.uv) * fa_base_color;
+    s.albedo = albedo4.rgb;
+    s.alpha = albedo4.a;
+    s.normal = i.world_normal;
+    if (fa_maps.z > 0.5) {
+        vec3 m = texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz * 2.0 - 1.0;
+        m.xy *= fa_maps.x;
+        s.normal = fa_tangent_normal(i, m);
+    }
+    vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv);
+    s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
+    s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
+    s.occlusion = 1.0 + fa_maps.y * (texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).r - 1.0);
+    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb;
+    return s;
+}
+@end
+
+@fs fs
+@include_block fa_fs_surface
+
 layout(binding=2) uniform fa_lights {
     vec4 fa_light_pos[32];      // xyz position (point/spot) or direction TO the light (directional); w range
     vec4 fa_light_color[32];    // rgb color * intensity; w type (0 directional, 1 point, 2 spot)
     vec4 fa_light_dir[32];      // xyz spot axis (direction light points); w cos(spot half angle)
 };
 
-in vec3 fa_world_pos;
-in vec3 fa_world_normal;
-in vec4 fa_world_tangent;
-in vec2 fa_uv;
 in vec4 fa_shadow_pos;
 out vec4 fa_frag_color;
 
 const float FA_PI = 3.14159265;
-
-@include_block fa_types
-@include_block fa_user
 
 float fa_shadow_factor(vec3 n, vec3 l) {
     if (fa_pbr.z < 0.5) { return 1.0; }
@@ -255,27 +286,6 @@ vec2 fa_env_brdf(float rough, float ndv) {
     return vec2(-1.04, 1.04) * a004 + r.zw;
 }
 
-// What a MeshRenderer without a material draws: texture * color, normal map, metallic/roughness maps, occlusion,
-// emissive. surface() starts from it.
-Surface fa_standard_surface(in SurfaceInput i) {
-    Surface s;
-    vec4 albedo4 = texture(sampler2D(fa_tex, fa_smp), i.uv) * fa_base_color;
-    s.albedo = albedo4.rgb;
-    s.alpha = albedo4.a;
-    s.normal = i.world_normal;
-    if (fa_maps.z > 0.5) {
-        vec3 m = texture(sampler2D(fa_normal_tex, fa_smp), i.uv).xyz * 2.0 - 1.0;
-        m.xy *= fa_maps.x;
-        s.normal = fa_tangent_normal(i, m);
-    }
-    vec4 mrt = texture(sampler2D(fa_mr_tex, fa_smp), i.uv);
-    s.metallic = clamp(fa_pbr.x * mrt.b, 0.0, 1.0);
-    s.roughness = clamp(fa_pbr.y * mrt.g, 0.05, 1.0);
-    s.occlusion = 1.0 + fa_maps.y * (texture(sampler2D(fa_occlusion_tex, fa_smp), i.uv).r - 1.0);
-    s.emission = fa_emissive.rgb + fa_model_emissive.rgb * texture(sampler2D(fa_emissive_tex, fa_smp), i.uv).rgb;
-    return s;
-}
-
 void main() {
     SurfaceInput i;
     i.world_pos = fa_world_pos;
@@ -287,6 +297,9 @@ void main() {
     i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
     Surface s = fa_standard_surface(i);
     surface(i, s);
+#ifdef FA_ALPHA_CLIP
+    if (s.alpha < alphaCutoff) { discard; }
+#endif
 
     vec3 result;
     if (fa_emissive.w > 0.5) {
@@ -364,16 +377,30 @@ layout(location=1) in vec4 fa_inst_m0;
 layout(location=2) in vec4 fa_inst_m1;
 layout(location=3) in vec4 fa_inst_m2;
 layout(location=4) in vec4 fa_inst_m3;
-#ifdef FA_HAS_VERTEX
+#if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
 layout(location=5) in vec3 fa_normal;
 layout(location=6) in vec2 fa_texcoord0;
 layout(location=7) in vec4 fa_tangent;
 #endif
+#ifdef FA_ALPHA_CLIP
+out vec3 fa_world_pos;
+out vec3 fa_world_normal;
+out vec4 fa_world_tangent;
+out vec2 fa_uv;
+#endif
 void main() {
     mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3);
-#ifdef FA_HAS_VERTEX
+#if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0);
+#ifdef FA_HAS_VERTEX
     vertex(v);
+#endif
+#ifdef FA_ALPHA_CLIP
+    fa_world_pos = v.world_pos;
+    fa_world_normal = v.world_normal;
+    fa_world_tangent = v.world_tangent;
+    fa_uv = v.uv;
+#endif
     gl_Position = fa_light_vp * vec4(v.world_pos, 1.0);
 #else
     gl_Position = fa_light_vp * (model * vec4(fa_position, 1.0));
@@ -391,16 +418,30 @@ layout(location=3) in vec4 fa_inst_m2;
 layout(location=4) in vec4 fa_inst_m3;
 layout(location=5) in vec4 fa_joints;
 layout(location=6) in vec4 fa_weights;
-#ifdef FA_HAS_VERTEX
+#if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
 layout(location=7) in vec3 fa_normal;
 layout(location=8) in vec2 fa_texcoord0;
 layout(location=9) in vec4 fa_tangent;
 #endif
+#ifdef FA_ALPHA_CLIP
+out vec3 fa_world_pos;
+out vec3 fa_world_normal;
+out vec4 fa_world_tangent;
+out vec2 fa_uv;
+#endif
 void main() {
     mat4 model = mat4(fa_inst_m0, fa_inst_m1, fa_inst_m2, fa_inst_m3) * fa_skin_matrix(fa_joints, fa_weights);
-#ifdef FA_HAS_VERTEX
+#if defined(FA_HAS_VERTEX) || defined(FA_ALPHA_CLIP)
     VertexData v = fa_vertex_data(model, fa_position, fa_normal, fa_tangent, fa_texcoord0);
+#ifdef FA_HAS_VERTEX
     vertex(v);
+#endif
+#ifdef FA_ALPHA_CLIP
+    fa_world_pos = v.world_pos;
+    fa_world_normal = v.world_normal;
+    fa_world_tangent = v.world_tangent;
+    fa_uv = v.uv;
+#endif
     gl_Position = fa_light_vp * vec4(v.world_pos, 1.0);
 #else
     gl_Position = fa_light_vp * (model * vec4(fa_position, 1.0));
@@ -408,10 +449,27 @@ void main() {
 }
 @end
 
-// alphaMode "clip" (running surface() here to discard below the cutoff) comes with the materials (package 3).
+// With alphaMode "clip" this also runs the material's surface() and discards below alphaCutoff, so the shadow has the
+// cutout's holes; without it the pass writes depth only and none of the material is part of the program.
 @fs shadow_fs
+#ifdef FA_ALPHA_CLIP
+@include_block fa_fs_surface
+#endif
 out vec4 fa_frag_color;
 void main() {
+#ifdef FA_ALPHA_CLIP
+    SurfaceInput i;
+    i.world_pos = fa_world_pos;
+    i.front_facing = gl_FrontFacing;
+    i.world_normal = normalize(fa_world_normal);
+    if (!i.front_facing) { i.world_normal = -i.world_normal; }
+    i.world_tangent = fa_world_tangent;
+    i.uv = fa_uv;
+    i.view_dir = normalize(fa_camera_pos.xyz - fa_world_pos);
+    Surface s = fa_standard_surface(i);
+    surface(i, s);
+    if (s.alpha < alphaCutoff) { discard; }
+#endif
     fa_frag_color = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
 }
 @end
