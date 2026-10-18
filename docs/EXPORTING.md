@@ -246,12 +246,13 @@ system images...).
 `$FACTORIA_HOME/tools/sokol-shdc/<commit>/` (what `factoria setup shaders` installs; `<commit>` is the pinned sokol-tools-bin
 commit, and the file is checked against its SHA-256 before it is kept). `setup.status` shows which one was found; a `$SOKOL_SHDC`
 that names nothing is reported as a problem rather than ignored. `tools/shaders/compile_shaders.sh` (engine developers) uses the
-same pin and the same folder. Some antivirus programs, Windows Defender among them, flag `sokol-shdc.exe` as a threat by
-mistake (a machine-learning false positive: it is an unsigned command-line compiler). If the file disappears or is quarantined,
-restore it from the protection history of your antivirus (or install again after allowing it), or point `SOKOL_SHDC` at a copy
-you trust; the SHA-256 in `fa/tooling/setup.h` lets you check that the file is the pinned one. Only the developer tools use it:
-exported games contain the compiled shaders, not sokol-shdc, and its licences (and those of what it links) are in
-`factoria docs licenses`.
+same pin and the same folder. **Windows Defender may remove `sokol-shdc.exe`.** It flags the pinned file as a threat by mistake
+(a known false positive, `Trojan:Win32/Bearfoos.B!ml`; the file is an unsigned command-line compiler, and the SHA-256 of the pinned
+Windows build is `43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb`, so you can check that a file is the one
+FactorIA pins). If the file vanishes or cannot be read, `setup.status` says `missing` and the install says why: restore it from
+Windows Security > Virus & threat protection > Protection history (or allow it there), or point `SOKOL_SHDC` at a copy you trust.
+Games never contain sokol-shdc, only the developer's computer needs it: exported games hold the compiled shaders, and its licences
+(and those of what it links) are in `factoria docs licenses`.
 
 **Which command-line tools.** The install pins revision 22.0 (`kSetupAndroidCmdlineTools` in `fa/tooling/setup.h`), the
 newest whose `sdkmanager` is still the classic Java program: `bin/sdkmanager` starts `SdkManagerCli` from `lib/*.jar`, it

@@ -230,3 +230,37 @@ TEST_CASE("setup shaders: setup.status and setup.install know the component") {
     REQUIRE_FALSE(r.ok);
     CHECK(has_text(r.error.hint, "shaders"));  // "did you mean"
 }
+
+TEST_CASE("setup shaders: on Windows the status and a vanished file explain the Defender false positive") {
+    Lab lab;
+    SetupContext win = lab.ctx("windows", "x64");
+    const SokolShdcBinary* bin = sokol_shdc_binary(win);
+    REQUIRE(bin != nullptr);
+    const SetupComponent c = shaders_status(win);
+    for (const std::string& text : {c.details, c.problems.front()}) {
+        CHECK(has_text(text, "false positive"));
+        CHECK(has_text(text, bin->sha256));
+        CHECK(has_text(text, "Protection history"));
+        CHECK(has_text(text, "SOKOL_SHDC"));
+        CHECK(has_text(text, "Games never contain"));
+    }
+    // Other hosts do not get the Windows text.
+    CHECK_FALSE(has_text(shaders_status(lab.ctx()).details, "Defender"));
+
+    // The file is gone right after the move (the antivirus removed it): the install says why.
+    const std::string body = "pretend this is sokol-shdc.exe";
+    const std::string sum = sha256_hex(body);
+    const SokolShdcBinary fake{"windows", "", "win32", sum.c_str()};
+    lab.served[url_of(fake, "sokol-shdc.exe")] = body;
+    SetupContext gone = lab.ctx("windows", "x64");
+    gone.progress = [&](const std::string& line) {  // the "still there?" line: the antivirus removes the file just before
+        if (has_text(line, "still there")) {
+            std::error_code ec;
+            stdfs::remove(stdfs::path(sokol_shdc_install_dir(gone)) / "sokol-shdc.exe", ec);
+        }
+    };
+    const SetupResult r = setup_detail::shaders_install_binary(gone, options(), &fake);
+    REQUIRE_FALSE(r.ok);
+    CHECK(has_text(r.error.message, "cannot be read"));
+    CHECK(has_text(r.error.hint, "Protection history"));
+}
