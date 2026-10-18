@@ -15,8 +15,9 @@ void ExportAssets::replace(const std::string& original, const std::string& shipp
     project.staged[shipped] = source;
 }
 
-Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report) {
-    ExportAssets ea{p, platform, files, p.dir / ".factoria" / "export-cache" / platform, Json(), report};
+Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report,
+                                 const SetupContext& setup) {
+    ExportAssets ea{p, platform, files, p.dir / ".factoria" / "export-cache" / platform, Json(), report, setup};
     const bool hasManifest = std::find(files.begin(), files.end(), assets::kManifestFile) != files.end();
     ea.manifest = Json::object({{"format", assets::kManifestFormat}});
     if (hasManifest) {
@@ -36,6 +37,7 @@ Result<void> prepare_game_assets(Project& p, const std::string& platform, std::v
         }
     }
 
+    if (auto r = convert_shaders(ea); !r.ok()) return r;  // first: a material that does not compile stops the export before slow steps
     if (auto r = convert_textures(ea); !r.ok()) return r;
     if (auto r = convert_audio(ea); !r.ok()) return r;
 
