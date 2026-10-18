@@ -10,9 +10,9 @@ fa_embed_files(fa_render fa_render_fonts embedded_fonts
 
 # Third-party implementation TUs: no warnings.
 if(MSVC)
-    set_source_files_properties(src/stb_impl.cpp src/cgltf_impl.cpp PROPERTIES COMPILE_OPTIONS "/w")
+    set_source_files_properties(src/stb_impl.cpp PROPERTIES COMPILE_OPTIONS "/w")
 else()
-    set_source_files_properties(src/stb_impl.cpp src/cgltf_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
+    set_source_files_properties(src/stb_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
 endif()
 if(APPLE)
     set_source_files_properties(src/readback_metal.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")

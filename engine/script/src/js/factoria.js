@@ -829,6 +829,15 @@
     applyImpulse(e, v) { const a = vecArr(v, 3, "physics.applyImpulse(entity, v)"); N.physicsApply(0, entityHandle(e, "applyImpulse"), a[0], a[1], a[2]); },
     applyForce(e, v) { const a = vecArr(v, 3, "physics.applyForce(entity, v)"); N.physicsApply(1, entityHandle(e, "applyForce"), a[0], a[1], a[2]); },
     setVelocity(e, v) { const a = vecArr(v, 3, "physics.setVelocity(entity, v)"); N.physicsApply(2, entityHandle(e, "setVelocity"), a[0], a[1], a[2]); },
+    // moveCharacter(entity, delta): moves an entity that has a CharacterController3D by `delta` (metres, this frame's walk plus
+    // your own gravity/jump) with collide-and-slide, step climbing and ground snapping. Returns the result of the move.
+    moveCharacter(e, delta) {
+      const d = vecArr(delta, 3, "physics.moveCharacter(entity, delta) `delta`");
+      const r = N.moveCharacter(entityHandle(e, "moveCharacter"), d[0], d[1], d[2]);
+      return { position: new Vec3(r.position[0], r.position[1], r.position[2]), moved: new Vec3(r.moved[0], r.moved[1], r.moved[2]),
+               isGrounded: r.isGrounded, groundNormal: new Vec3(r.groundNormal[0], r.groundNormal[1], r.groundNormal[2]),
+               ground: entityOf(r.ground), hitWall: r.hitWall, hitCeiling: r.hitCeiling };
+    },
   };
 
   const time = {
