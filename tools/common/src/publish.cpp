@@ -46,6 +46,9 @@ std::string scrub(std::string line, const std::vector<std::string>& secrets) {
 struct Game {
     stdfs::path dir;
     std::string name, slug, safeName, version = "0.1.0";
+    std::string bundleId, iosBuild;  // "id" of factoria.json (the bundle id and the Android package) and the iOS CFBundleVersion
+    int androidVersionCode = 0;
+    bool androidKeystore = false;    // export.android.signing.keystore is set: a release bundle is signed with it
     PublishSettings settings;
     std::vector<std::string> warnings;
 };
@@ -67,6 +70,14 @@ Result<Game> load_game(const std::string& projectDir, const std::string& store) 
     g.slug = tooling_detail::slugify(g.name, '-').empty() ? "game" : tooling_detail::slugify(g.name, '-');
     g.safeName = fs_safe_name(g.name);
     if (auto v = parsed->find("version"); v != parsed->end() && v->is_string() && !v->get<std::string>().empty()) g.version = v->get<std::string>();
+
+    if (auto id = parsed->find("id"); id != parsed->end() && id->is_string()) g.bundleId = id->get<std::string>();
+    {  // what the mobile stores need to know about the exports (a problem in "export" is project.export's to report)
+        const ExportSettingsParse exp = parse_export_settings(*parsed);
+        g.iosBuild = exp.settings.ios_build_number();
+        g.androidVersionCode = exp.settings.android_version_code();
+        g.androidKeystore = !exp.settings.android.signing.keystore.empty();
+    }
 
     PublishSettingsParse settings = parse_publish_settings(*parsed);
     for (const ExportSettingsIssue& w : settings.warnings) g.warnings.push_back(w.to_string());
@@ -95,7 +106,7 @@ Result<std::vector<std::string>> explicit_platforms(const PublishOptions& o) {
         const std::string normalized = name.empty() ? std::string() : normalize_export_platform(name);
         if (normalized == "android" || normalized == "ios")
             return err("publish." + o.store + ": '" + name + "' cannot be uploaded to " + o.store,
-                       "the publish.* commands upload the desktop exports (windows, macos, linux); mobile builds go to Google Play and the App Store.");
+                       "publish.steam, itch, epic and gog upload the desktop exports (windows, macos, linux); mobile builds go to Google Play and the App Store with publish.googleplay and publish.appstore.");
         if (normalized.empty())
             return err("publish." + o.store + ": unknown platform '" + name + "'", did_you_mean(name, publish_platforms()));
         if (std::find(out.begin(), out.end(), normalized) == out.end()) out.push_back(normalized);
@@ -113,6 +124,60 @@ void measure(const stdfs::path& dir, PublishUpload& up) {
         ++up.files;
         if (const auto size = it->file_size(ec); !ec) up.bytes += size;
     }
+}
+
+// ---- the built file of a mobile store ------------------------------------------------------------------------------
+
+// The .ipa (App Store Connect) or .aab (Google Play) to upload: the `artifact` option, else the file the export workflow
+// leaves under `outParent` (docs/EXPORTING.md, "Uploading to stores"). Both are zip files.
+Result<stdfs::path> find_mobile_artifact(const Store& store, const Game& g, const PublishOptions& o, const stdfs::path& outParent) {
+    const std::string who = "publish." + store.name + ": ";
+    const bool ios = store.mobile == "ios";
+    const std::string ext = ios ? ".ipa" : ".aab";
+    std::error_code ec;
+    stdfs::path file;
+    if (!o.artifact.empty()) {
+        file = stdfs::absolute(stdfs::path(o.artifact), ec).lexically_normal();
+        if (is_dir(file) && file.extension() == ".xcarchive")
+            return err(who + generic(file) + " is an Xcode archive, not an .ipa",
+                       "In Xcode: Window > Organizer > Archives > Distribute App > App Store Connect > Export, then pass the .ipa that Xcode writes.");
+        if (!is_file(file))
+            return err(who + "the artifact " + generic(file) + " does not exist", "Pass the path of the " + ext + " file (relative to the project), or leave `artifact` out to use the default place.");
+    } else if (ios) {
+        const stdfs::path named = outParent / (g.slug + ext);
+        file = named;
+        if (!is_file(file)) {  // the newest .ipa in the export folder
+            std::filesystem::file_time_type newest{};
+            file.clear();
+            for (stdfs::directory_iterator it(os_path(outParent), ec), end; !ec && it != end; it.increment(ec))
+                if (it->is_regular_file(ec) && it->path().extension() == ext)
+                    if (const auto t = it->last_write_time(ec); file.empty() || t > newest) { file = it->path(); newest = t; }
+        }
+        if (file.empty())
+            return err(who + "there is no .ipa to upload in " + generic(outParent),
+                       "factoria export --platform ios writes an Xcode project, not an .ipa. Build the .ipa in Xcode (Product > Archive, then Distribute App > App Store Connect > Export; "
+                       "docs/EXPORTING.md, \"App Store Connect\"), save it as " + generic(outParent / (g.slug + ext)) + ", or pass `artifact` with its path.");
+    } else {
+        file = outParent / (g.slug + "-android") / (g.slug + ext);
+        if (!is_file(file) && is_file(outParent / (g.slug + "-android") / (g.slug + "-debug" + ext))) file = outParent / (g.slug + "-android") / (g.slug + "-debug" + ext);
+        if (!is_file(file))
+            return err(who + "there is no bundle to upload: " + generic(file) + " does not exist",
+                       "Build the release bundle first: factoria export --platform android --format aab --release (project.export {\"platform\":\"android\",\"format\":\"aab\",\"release\":true}), "
+                       "which writes it there. Or pass `artifact` with the path of another .aab.");
+    }
+    if (file.extension() != ext) {
+        const bool apk = file.extension() == ".apk";
+        return err(who + generic(file) + " is not " + (ios ? "an .ipa" : "an .aab"),
+                   apk ? "Google Play takes an Android App Bundle, not an APK: factoria export --platform android --format aab --release."
+                       : "Pass the " + ext + " file" + (ios ? " that Xcode's Distribute App > App Store Connect > Export writes." : " that the Android export writes."));
+    }
+    std::ifstream in(os_path(file), std::ios::binary);
+    char magic[2] = {};
+    in.read(magic, 2);
+    if (magic[0] != 'P' || magic[1] != 'K')
+        return err(who + generic(file) + " is not a " + (ios ? "valid .ipa" : "valid .aab") + " (it is not a zip file)",
+                   std::string("Build it again; ") + (ios ? "an .ipa is the zip Xcode exports from an archive." : "an .aab is the zip Gradle's bundleRelease writes."));
+    return file;
 }
 
 // ---- the tool --------------------------------------------------------------------------------------------------
@@ -166,6 +231,10 @@ Result<ToolFound> find_tool(const Store& store, const PublishOptions& o) {
 // ---- running -----------------------------------------------------------------------------------------------
 
 Result<void> write_build_files(const Job& job) {
+    for (const stdfs::path& d : job.clearDirs) {
+        std::error_code ec;
+        stdfs::remove_all(os_path(d), ec);
+    }
     for (const stdfs::path& d : job.dirs) {
         std::error_code ec;
         stdfs::create_directories(os_path(d), ec);
@@ -218,6 +287,8 @@ Json PublishReport::to_json() const {
     return j;
 }
 
+static Result<PublishReport> run_store(const Store* store, Context& c, PublishReport report);
+
 Result<PublishReport> publish_project(const PublishOptions& options) {
     const Store* store = find_store(options.store);
     if (!store) return err("publish: unknown store '" + options.store + "'", did_you_mean(options.store, publish_stores()));
@@ -237,6 +308,38 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
     c.version = game->version;
     c.settings = game->settings;
     c.warnings = game->warnings;
+    c.bundleId = game->bundleId;
+    c.iosBuild = game->iosBuild;
+    c.androidVersionCode = game->androidVersionCode;
+    c.androidKeystore = game->androidKeystore;
+
+    // ---- the built file of a mobile store (App Store Connect, Google Play): one file, not export folders ----
+    if (!store->mobile.empty()) {
+        if (!options.platforms.empty() || !options.folders.empty())
+            return err(who + "`platforms` and `folders` do not apply: " + store->name + " uploads one " + (store->mobile == "ios" ? ".ipa" : ".aab") + " file",
+                       "Leave them out; pass `artifact` (relative to the project) to upload a file other than the default.");
+        const std::string host = options.host.empty() ? host_platform() : options.host;
+        if (store->macOnly && host != "macos" && !options.dryRun)
+            return err(who + "this computer is not a Mac (" + host + "): " + store->tool + " and altool exist only on macOS with Xcode",
+                       "Run it on a Mac (the .ipa can be built and uploaded there), or upload the .ipa from any Mac with Transporter (Mac App Store). `dryRun` works anywhere.");
+        std::error_code mec;
+        const stdfs::path outDir = stdfs::weakly_canonical(options.outDir.empty() ? game->dir / "build" / "export" : stdfs::path(options.outDir), mec);
+        auto file = find_mobile_artifact(*store, *game, c.options, outDir);
+        if (!file.ok()) return file.error();
+        c.artifact = stdfs::weakly_canonical(*file, mec);
+        c.artifactGiven = !options.artifact.empty();
+        PublishReport mobile;
+        mobile.store = store->name;
+        mobile.version = c.version;
+        mobile.dryRun = options.dryRun;
+        PublishUpload up;
+        up.platform = store->mobile;
+        up.folder = generic(c.artifact);
+        up.files = 1;
+        up.bytes = stdfs::file_size(os_path(c.artifact), mec);
+        mobile.uploads.push_back(std::move(up));
+        return run_store(store, c, std::move(mobile));
+    }
 
     // ---- which exports ----
     std::error_code ec;
@@ -296,6 +399,15 @@ Result<PublishReport> publish_project(const PublishOptions& options) {
         report.uploads.push_back(std::move(up));
     }
 
+    return run_store(store, c, std::move(report));
+}
+
+// The end shared by every store command: the tool, the store's own checks and build files, and (unless a dry run) the
+// runs. `report.uploads` says what goes where; the caller found the exports or the built file.
+static Result<PublishReport> run_store(const Store* store, Context& c, PublishReport report) {
+    const PublishOptions& options = c.options;
+    const std::string who = "publish." + store->name + ": ";
+    std::error_code ec;
     // ---- the tool, then the store's own checks and build files ----
     auto tool = find_tool(*store, c.options);  // c.options.env is never empty (set above)
     if (!tool.ok()) return tool.error();
@@ -398,7 +510,11 @@ CommandInfo store_command(const std::string& store) {
     info.name = "publish." + store;
     info.category = "publish";
     info.readOnly = false;
-    std::string props = R"({
+    const bool mobile = !find_store(store)->mobile.empty();  // appstore, googleplay: one built file, not export folders
+    std::string props = mobile ? R"({
+        "artifact":{"type":"string","description":"@ARTIFACT@"},
+        "out":{"type":"string","description":"Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export."},
+        "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result."})" : R"({
         "platforms":{"type":"array","items":{"type":"string"},"description":"Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning."},
         "out":{"type":"string","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
         "folders":{"type":"object","description":"Upload another folder for a platform, relative to the project: {\"windows\": \"dist/win\"}. Takes precedence over `out`."},
@@ -411,6 +527,16 @@ CommandInfo store_command(const std::string& store) {
     if (store == "gog")
         props += R"(,
         "branch":{"type":"string","description":"GOG branch to put the build on (Pipeline Builder --branch). Default: none, the build is only uploaded. 'master' is refused: Pipeline Builder cannot publish to it."})";
+    if (store == "googleplay")
+        props += R"(,
+        "track":{"type":"string","description":"Release track: internal, alpha, beta, production or the name of a closed testing track. Default: publish.googleplay.track, else internal."},
+        "releaseStatus":{"type":"string","enum":["draft","completed"],"description":"draft: the release waits in the Play Console until you roll it out; completed: it rolls out at once. Default: publish.googleplay.releaseStatus, else draft. A new app that was never published accepts only draft."})";
+    if (mobile) {
+        const std::string doc = store == "appstore"
+            ? "The .ipa to upload, relative to the project. Default: build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes it (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project."
+            : "The .aab to upload, relative to the project. Default: build/export/<game-slug>-android/<game-slug>.aab, which `factoria export --platform android --format aab --release` writes.";
+        props = replace_all(props, "@ARTIFACT@", doc);
+    }
     info.inputSchema = Json::parse("{\"type\":\"object\",\"properties\":{" + props.substr(1) + "}}");
 
     if (store == "steam") {
@@ -440,6 +566,28 @@ CommandInfo store_command(const std::string& store) {
             "command line, in the result or in the log. Epic accepts each BuildVersion once per artifact: raise the version for every upload. The export's .factoria-export and AI_CONTENT_DISCLOSURE.md are not "
             "uploaded. Returns {store, dryRun, uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, "
             "warnings[], nextSteps[]}; a failed BuildPatchTool is an error whose data is that report. Examples: {\"dryRun\":true}, {\"platforms\":[\"windows\"]}. Details: docs_read {\"name\":\"exporting\"}.";
+    } else if (store == "appstore") {
+        info.summary = "Upload the iOS build (.ipa) to App Store Connect / TestFlight (xcrun altool, macOS only).";
+        info.description =
+            "Runs `xcrun altool --upload-package <ipa> --type ios --apple-id <id> --bundle-id <id of factoria.json> --bundle-version <export.ios.buildNumber> --bundle-short-version-string <version> "
+            "--apiKey <key id> --apiIssuer <issuer id>`. The .ipa is NOT made by `factoria export --platform ios` (that writes an Xcode project): archive it in Xcode (Product > Archive, Distribute App > "
+            "App Store Connect > Export) and save it as build/export/<game-slug>.ipa, or pass `artifact`. Needs: factoria.json publish.appstore {appleId} (the number of the app in App Store Connect) and id "
+            "(the bundle id), Xcode (xcrun: PATH, FACTORIA_XCRUN, or publish.xcrun of ~/.factoria/export.json), macOS (other computers get a teaching error; dryRun works anywhere), and an App Store Connect API key "
+            "(role App Manager): FACTORIA_APPSTORE_API_KEY = path of AuthKey_<KeyID>.p8, FACTORIA_APPSTORE_API_KEY_ID, FACTORIA_APPSTORE_API_ISSUER (FACTORIA_NOTARY_API_KEY / _KEY_ID / _ISSUER of sign.macos also work). "
+            "The key stays a file outside the project: nothing of it is written, shown or logged. After the upload App Store Connect processes the build, then it shows in TestFlight. Returns {store, dryRun, uploaded, "
+            "version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed altool is an "
+            "error whose data is that report. Examples: {\"dryRun\":true}, {\"artifact\":\"build/export/space-dodge.ipa\"}. Details: docs_read {\"name\":\"exporting\"}.";
+    } else if (store == "googleplay") {
+        info.summary = "Upload the release Android App Bundle (.aab) to Google Play (fastlane supply).";
+        info.description =
+            "Runs `fastlane supply --aab <aab> --track <track> --release_status <draft|completed> --package_name <id of factoria.json> --json_key <service account key>` on the bundle "
+            "`factoria export --platform android --format aab --release` writes (build/export/<game-slug>-android/<game-slug>.aab), or on `artifact`. A bundle signed with the debug key (no "
+            "export.android.signing keystore, or a -debug.aab) is refused: Google Play rejects it. Needs: id (the package name), optionally factoria.json publish.googleplay {track (default internal), releaseStatus "
+            "(draft, the default, or completed), changelogs: {\"en-US\": \"store/whats-new-en.txt\"} (files of up to 500 characters, uploaded as the release notes)}, fastlane (PATH, FACTORIA_FASTLANE, or "
+            "publish.fastlane of ~/.factoria/export.json), and a Google Cloud service account JSON key with access to the app in the Play Console: its path in FACTORIA_GOOGLEPLAY_JSON_KEY (SUPPLY_JSON_KEY also works); "
+            "the key is never copied, written, shown or logged. The first bundle of a new app must be uploaded by hand in the Play Console; this command works from the second one. Returns {store, dryRun, "
+            "uploaded, version, tool, uploads[{platform, folder, destination, files, bytes, uploaded}], steps[{title, command, commandLine, files, ran, exitCode}], exitCode, log, warnings[], nextSteps[]}; a failed "
+            "fastlane is an error whose data is that report. Examples: {\"dryRun\":true}, {\"track\":\"beta\",\"releaseStatus\":\"completed\"}. Details: docs_read {\"name\":\"exporting\"}.";
     } else {
         info.summary = "Upload the desktop exports to GOG (Galaxy Pipeline Builder build-game, one project file per platform).";
         info.description =
@@ -483,6 +631,9 @@ void register_publish_commands(CommandRegistry& registry, const std::string& pro
             o.account = tooling_detail::arg_string(args, "account", false);
             if (auto it = args.find("appId"); it != args.end() && it->is_number_integer()) o.appId = std::to_string(it->get<long long>());
             o.branch = tooling_detail::arg_string(args, "branch", false);
+            o.track = tooling_detail::arg_string(args, "track", false);
+            o.releaseStatus = tooling_detail::arg_string(args, "releaseStatus", false);
+            if (std::string artifact = tooling_detail::arg_string(args, "artifact", false); !artifact.empty()) o.artifact = inside(artifact, "artifact");
             // Commands have no progress channel of their own: each line of the uploader goes to the log (stderr of `factoria call`
             // and `factoria mcp`, the editor console), already scrubbed of secrets.
             o.progress = [store](const std::string& line) { log(LogLevel::Info, "publish." + store, line); };

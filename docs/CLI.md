@@ -77,8 +77,9 @@ Prints the output folder, the built file, warnings and the next steps. The comma
 `out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export button for people; see
 [EXPORTING.md](EXPORTING.md).
 
-Uploading the desktop exports to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic` and
-`publish.gog` (`factoria call publish.itch '{"dryRun":true}'`) run the store's uploader; see [Uploading to stores](EXPORTING.md#uploading-to-stores).
+Uploading a build to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic`,
+`publish.gog` (desktop exports), `publish.appstore` and `publish.googleplay` (the iOS `.ipa` and the Android `.aab`) run the store's
+uploader (`factoria call publish.itch '{"dryRun":true}'`); see [Uploading to stores](EXPORTING.md#uploading-to-stores).
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio

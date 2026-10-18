@@ -3,6 +3,7 @@
 // fake uploader (test_tools/fake_store_tool.cpp) that records its arguments. No test talks to a real store.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <map>
@@ -88,7 +89,9 @@ struct Fixture {
     std::map<std::string, std::string> vars = {{"FACTORIA_STEAMCMD", kFakeTool},
                                                {"FACTORIA_BUTLER", kFakeTool},
                                                {"FACTORIA_BUILDPATCHTOOL", kFakeTool},
-                                               {"FACTORIA_GOG_PIPELINE_BUILDER", kFakeTool}};
+                                               {"FACTORIA_GOG_PIPELINE_BUILDER", kFakeTool},
+                                               {"FACTORIA_XCRUN", kFakeTool},
+                                               {"FACTORIA_FASTLANE", kFakeTool}};
 
     explicit Fixture(const char* publishJson = kFullPublish) {
         ScaffoldOptions so;
@@ -780,6 +783,367 @@ TEST_CASE("publish.gog: half a login, the master branch and a missing product id
     CHECK(has(e.message, "cannot publish to the Master branch"));
 }
 
+// ---- App Store Connect and Google Play --------------------------------------------------------------------------------
+
+const char* const kMobilePublish = R"({"id": "com.mystudio.spacedodge",
+    "export": {"ios": {"buildNumber": "42"}, "android": {"signing": {"keystore": "upload.jks", "alias": "upload"}}},
+    "publish": {"appstore": {"appleId": 6448277777},
+                "googleplay": {"changelogs": {"en-US": "store/whats-new-en.txt", "es-419": "store/whats-new-es.txt"}}}})";
+
+// The fixture plus what the mobile stores need: the .ipa archived in Xcode, the release .aab, the App Store Connect API key
+// (a .p8 file) and the Play service account key. The key files hold a marker that must never be shown anywhere.
+struct MobileFixture : Fixture {
+    std::string keys = tmp.sub("keys");
+    std::string p8 = stdfs::path(keys + "/AuthKey_ABCDE12345.p8").generic_string();
+    std::string serviceAccount = stdfs::path(keys + "/play.json").generic_string();
+    std::string ipa = stdfs::weakly_canonical(dir + "/build/export/space-dodge.ipa").generic_string();
+    std::string aab = stdfs::weakly_canonical(dir + "/build/export/space-dodge-android/space-dodge.aab").generic_string();
+
+    MobileFixture() : Fixture(kMobilePublish) {
+        testing::write_all(ipa, "PK\x03\x04 ipa");
+        testing::write_all(aab, "PK\x03\x04 aab");
+        testing::write_all(p8, "-----BEGIN PRIVATE KEY-----\nAPPSTORE-KEY-BODY\n-----END PRIVATE KEY-----\n");
+        testing::write_all(serviceAccount, R"({"type": "service_account", "client_email": "up@proj.iam.gserviceaccount.com", "private_key": "PLAY-KEY-BODY"})");
+        testing::write_all(dir + "/store/whats-new-en.txt", "Faster levels.\nNew boss.\n");
+        testing::write_all(dir + "/store/whats-new-es.txt", "Niveles mas rapidos.");
+        vars["FACTORIA_APPSTORE_API_KEY"] = p8;
+        vars["FACTORIA_APPSTORE_API_KEY_ID"] = "ABCDE12345";
+        vars["FACTORIA_APPSTORE_API_ISSUER"] = "11111111-2222-3333-4444-555555555555";
+        vars["FACTORIA_GOOGLEPLAY_JSON_KEY"] = serviceAccount;
+    }
+
+    PublishOptions store(const std::string& name, bool dryRun = true) const {
+        PublishOptions o = options(name);
+        o.dryRun = dryRun;
+        o.host = "macos";
+        return o;
+    }
+    // Changes factoria.json (the keystore setting, the changelogs...).
+    template <class F>
+    void edit(F change) const {
+        auto j = load_json_file(dir + "/factoria.json");
+        REQUIRE(j.ok());
+        change(*j);
+        REQUIRE(save_json_file(dir + "/factoria.json", *j).ok());
+    }
+};
+
+bool leaks_keys(const std::string& text) { return has(text, "APPSTORE-KEY-BODY") || has(text, "PLAY-KEY-BODY") || has(text, "BEGIN PRIVATE KEY"); }
+
+TEST_CASE("publish settings: appstore and googleplay are read, and every mistake teaches") {
+    auto parsed = parse_publish_settings(*parse_json(kMobilePublish));
+    CHECK(parsed.errors.empty());
+    CHECK(parsed.warnings.empty());
+    CHECK(parsed.settings.appstore.appleId == "6448277777");  // a number, kept whole (it does not fit 32 bits)
+    CHECK(parsed.settings.googleplay.track == "internal");    // the defaults
+    CHECK(parsed.settings.googleplay.releaseStatus == "draft");
+    CHECK(parsed.settings.googleplay.changelogs.at("es-419") == "store/whats-new-es.txt");
+
+    parsed = parse_publish_settings(*parse_json(R"({"publish": {
+        "appstore": {"appleId": "me@example.com", "teamId": "X"},
+        "googleplay": {"track": "my track", "releaseStatus": "complete", "changelogs": {"english": "a.txt", "en-US": 5}}}})"));
+    auto find = [&](const std::string& pointer) -> const ExportSettingsIssue* {
+        for (const auto& i : parsed.errors)
+            if (i.pointer == pointer) return &i;
+        return nullptr;
+    };
+    const auto* apple = find("/publish/appstore/appleId");
+    REQUIRE(apple);
+    CHECK(has(apple->hint, "General Information"));
+    REQUIRE(find("/publish/googleplay/track"));
+    const auto* status = find("/publish/googleplay/releaseStatus");
+    REQUIRE(status);
+    CHECK(has(status->hint, "Did you mean 'completed'?"));
+    const auto* locale = find("/publish/googleplay/changelogs/english");
+    REQUIRE(locale);
+    CHECK(has(locale->hint, "en-US"));
+    REQUIRE(find("/publish/googleplay/changelogs/en-US"));
+    REQUIRE(parsed.warnings.size() == 1);
+    CHECK(parsed.warnings[0].pointer == "/publish/appstore/teamId");
+}
+
+TEST_CASE("publish.appstore dry run: the exact altool command line, what is uploaded where, and no secret anywhere") {
+    MobileFixture f;
+    const PublishReport r = f.ok(f.store("appstore"));
+    CHECK(r.dryRun);
+    CHECK_FALSE(r.uploaded);
+    REQUIRE(r.steps.size() == 1);
+    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "altool", "--upload-package", f.ipa, "--type", "ios", "--apple-id", "6448277777", "--bundle-id", "com.mystudio.spacedodge",
+                                                         "--bundle-version", "42", "--bundle-short-version-string", "1.2.3", "--apiKey", "ABCDE12345", "--apiIssuer",
+                                                         "11111111-2222-3333-4444-555555555555"});
+    REQUIRE(r.uploads.size() == 1);
+    CHECK(r.uploads[0].platform == "ios");
+    CHECK(r.uploads[0].folder == f.ipa);
+    CHECK(r.uploads[0].files == 1);
+    CHECK(r.uploads[0].bytes > 0);
+    CHECK(has(r.uploads[0].destination, "App Store Connect app 6448277777 (com.mystudio.spacedodge), version 1.2.3 build 42"));
+    CHECK(has(r.to_json()["nextSteps"].dump(), "TestFlight"));
+    CHECK(has(r.to_json()["warnings"].dump(), "read from factoria.json"));
+    CHECK_FALSE(leaks_keys(r.to_json().dump()));
+    CHECK(f.export_dir("windows").size() > 0);  // desktop exports exist and are not what appstore uploads
+}
+
+TEST_CASE("publish.appstore: the notarization variables of sign.macos also work, and the newest .ipa of the export folder is used") {
+    MobileFixture f;
+    for (const char* v : {"FACTORIA_APPSTORE_API_KEY", "FACTORIA_APPSTORE_API_KEY_ID", "FACTORIA_APPSTORE_API_ISSUER"}) f.vars.erase(v);
+    f.vars["FACTORIA_NOTARY_API_KEY"] = f.p8;
+    f.vars["FACTORIA_NOTARY_API_KEY_ID"] = "ABCDE12345";
+    f.vars["FACTORIA_NOTARY_API_ISSUER"] = "issuer-uuid";
+    stdfs::rename(f.ipa, f.dir + "/build/export/factoria_player.ipa");  // what Xcode names it
+    const PublishReport r = f.ok(f.store("appstore"));
+    CHECK(has(r.uploads[0].folder, "/build/export/factoria_player.ipa"));
+    CHECK(r.steps[0].command.back() == "issuer-uuid");
+}
+
+TEST_CASE("publish.appstore: a real run starts altool with the key folder in its environment, and shows no secret") {
+    MobileFixture f;
+    ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
+    ScopedEnv names("FA_FAKE_TOOL_ENV", "API_PRIVATE_KEYS_DIR");
+    ScopedEnv print("FA_FAKE_TOOL_PRINT_ARGS", "1");
+    PublishOptions o = f.store("appstore", false);
+    std::string progress;
+    o.progress = [&](const std::string& line) { progress += line + "\n"; };
+    const PublishReport r = f.ok(o);
+    CHECK(r.uploaded);
+    CHECK(r.uploads[0].uploaded);
+    CHECK(r.exitCode == 0);
+    const auto calls = read_calls(f.record);
+    REQUIRE(calls.size() == 1);
+    CHECK(calls[0].args[0] == "altool");
+    CHECK(calls[0].args[2] == f.ipa);
+    CHECK(calls[0].env.at("API_PRIVATE_KEYS_DIR") == stdfs::path(f.keys).generic_string());
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(leaks_keys(text));
+}
+
+TEST_CASE("publish.appstore: a failing altool is a report with the reason to check") {
+    MobileFixture f;
+    ScopedEnv exitCode("FA_FAKE_TOOL_EXIT", "1");
+    const PublishReport r = f.ok(f.store("appstore", false));
+    CHECK(r.failed);
+    CHECK_FALSE(r.uploaded);
+    CHECK_FALSE(r.uploads[0].uploaded);
+    CHECK(has(r.failure, "failed"));
+    CHECK(has(r.failureHint, "Unable to authenticate"));
+}
+
+TEST_CASE("publish.appstore: missing settings, key, .ipa or Mac are teaching errors") {
+    {
+        MobileFixture f;
+        f.edit([](Json& j) { j["publish"].erase("appstore"); });
+        const Error e = f.fails(f.store("appstore"));
+        CHECK(has(e.message, "publish.appstore: factoria.json#/publish/appstore/appleId is not set"));
+        CHECK(has(e.hint, "General Information"));
+    }
+    {
+        MobileFixture f;
+        f.edit([](Json& j) { j.erase("id"); });
+        CHECK(has(f.fails(f.store("appstore")).message, "factoria.json#/id is not set"));
+    }
+    {
+        MobileFixture f;
+        f.edit([](Json& j) { j["version"] = "1.0-beta"; });
+        const Error e = f.fails(f.store("appstore"));
+        CHECK(has(e.message, "cannot be an iOS version"));
+        CHECK(has(e.hint, "1.2.3"));
+    }
+    {
+        MobileFixture f;
+        f.vars.erase("FACTORIA_APPSTORE_API_KEY_ID");
+        f.vars.erase("FACTORIA_APPSTORE_API_ISSUER");
+        const Error e = f.fails(f.store("appstore"));
+        CHECK(has(e.message, "FACTORIA_APPSTORE_API_KEY_ID (the Key ID), FACTORIA_APPSTORE_API_ISSUER (the Issuer ID)"));
+        CHECK_FALSE(has(e.message, "FACTORIA_APPSTORE_API_KEY (the path"));
+        CHECK(has(e.hint, "App Manager"));
+    }
+    {
+        MobileFixture f;
+        f.vars["FACTORIA_APPSTORE_API_KEY"] = f.keys + "/nope.p8";
+        CHECK(has(f.fails(f.store("appstore")).message, "which is not a file"));
+        testing::write_all(f.keys + "/mykey.p8", "x");
+        f.vars["FACTORIA_APPSTORE_API_KEY"] = f.keys + "/mykey.p8";
+        const Error e = f.fails(f.store("appstore"));
+        CHECK(has(e.message, "named 'mykey.p8'"));
+        CHECK(has(e.message, "AuthKey_ABCDE12345.p8"));
+    }
+    {
+        MobileFixture f;
+        stdfs::remove(f.ipa);
+        Error e = f.fails(f.store("appstore"));
+        CHECK(has(e.message, "there is no .ipa to upload"));
+        CHECK(has(e.hint, "Product > Archive"));
+        CHECK(has(e.hint, "space-dodge.ipa"));
+        PublishOptions o = f.store("appstore");
+        o.artifact = f.dir + "/MyGame.xcarchive";
+        stdfs::create_directories(o.artifact);
+        e = f.fails(o);
+        CHECK(has(e.message, "is an Xcode archive, not an .ipa"));
+        o.artifact = f.dir + "/store/whats-new-en.txt";
+        CHECK(has(f.fails(o).message, "is not an .ipa"));
+        testing::write_all(f.dir + "/fake.ipa", "not a zip");
+        o.artifact = f.dir + "/fake.ipa";
+        CHECK(has(f.fails(o).message, "not a zip file"));
+        o.platforms = {"windows"};
+        CHECK(has(f.fails(o).message, "`platforms` and `folders` do not apply"));
+    }
+    {
+        MobileFixture f;  // xcrun and altool exist only on macOS: a real run elsewhere is refused, a dry run still shows the plan
+        PublishOptions o = f.store("appstore", false);
+        o.host = "windows";
+        const Error e = f.fails(o);
+        CHECK(has(e.message, "this computer is not a Mac (windows)"));
+        CHECK(has(e.hint, "dryRun"));
+        o.dryRun = true;
+        CHECK(f.ok(o).steps.size() == 1);
+    }
+}
+
+TEST_CASE("publish.appstore: a missing xcrun says how to get Xcode") {
+    MobileFixture f;
+    PublishOptions o = f.store("appstore");
+    o.env = [](const std::string&) { return std::string(); };
+    if (which("xcrun").empty()) {
+        const Error e = f.fails(o);
+        CHECK(has(e.message, "xcrun was not found"));
+        CHECK(has(e.hint, "xcode-select --install"));
+        CHECK(has(e.hint, "FACTORIA_XCRUN"));
+    }
+}
+
+TEST_CASE("publish.googleplay dry run: the exact fastlane supply command line, the release notes files and no secret anywhere") {
+    MobileFixture f;
+    const PublishReport r = f.ok(f.store("googleplay"));
+    CHECK(r.dryRun);
+    REQUIRE(r.steps.size() == 1);
+    const std::string metadata = stdfs::weakly_canonical(f.dir).generic_string() + "/.factoria/publish/googleplay/metadata";
+    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "supply", "--aab", f.aab, "--track", "internal", "--release_status", "draft", "--package_name",
+                                                         "com.mystudio.spacedodge", "--json_key", f.serviceAccount, "--skip_upload_apk", "true", "--skip_upload_metadata",
+                                                         "true", "--skip_upload_images", "true", "--skip_upload_screenshots", "true", "--metadata_path", metadata});
+    REQUIRE(r.files.size() == 2);
+    CHECK(r.files[0] == metadata + "/en-US/changelogs/default.txt");
+    CHECK(testing::read_all(r.files[0]) == "Faster levels.\nNew boss.");
+    CHECK(testing::read_all(r.files[1]) == "Niveles mas rapidos.");
+    CHECK(r.uploads[0].platform == "android");
+    CHECK(r.uploads[0].folder == f.aab);
+    CHECK(has(r.uploads[0].destination, "Google Play com.mystudio.spacedodge, track internal (draft, version code 10203)"));
+    CHECK(has(r.to_json()["nextSteps"].dump(), "The release is a draft"));
+    CHECK_FALSE(leaks_keys(r.to_json().dump()));
+
+    // a language taken out of factoria.json does not stay in the metadata folder
+    f.edit([](Json& j) { j["publish"]["googleplay"]["changelogs"].erase("es-419"); });
+    const PublishReport again = f.ok(f.store("googleplay"));
+    CHECK(again.files.size() == 1);
+    CHECK_FALSE(stdfs::exists(metadata + "/es-419"));
+}
+
+TEST_CASE("publish.googleplay: track and status come from the arguments or factoria.json; without release notes none are uploaded") {
+    MobileFixture f;
+    f.edit([](Json& j) {
+        j["publish"]["googleplay"] = Json::object({{"track", "beta"}, {"releaseStatus", "completed"}});
+    });
+    PublishReport r = f.ok(f.store("googleplay"));
+    const std::vector<std::string>& c = r.steps[0].command;
+    CHECK(std::find(c.begin(), c.end(), "beta") != c.end());
+    CHECK(std::find(c.begin(), c.end(), "completed") != c.end());
+    CHECK(std::find(c.begin(), c.end(), "--skip_upload_changelogs") != c.end());
+    CHECK(std::find(c.begin(), c.end(), "--metadata_path") == c.end());
+    CHECK(r.files.empty());
+    CHECK(has(r.uploads[0].destination, "track beta (completed"));
+    CHECK(has(r.to_json()["nextSteps"].dump(), "rolling out on the 'beta' track"));
+
+    PublishOptions o = f.store("googleplay");
+    o.track = "production";
+    r = f.ok(o);
+    CHECK(has(r.to_json()["warnings"].dump(), "production track and rolls it out to everyone"));
+    o.releaseStatus = "draft";
+    CHECK(f.ok(o).warnings.empty());
+    o.track = "my closed test";
+    CHECK(has(f.fails(o).message, "is not a track name"));
+    o.track = "internal";
+    o.releaseStatus = "complete";
+    const Error e = f.fails(o);
+    CHECK(has(e.message, "'complete' is not a release status"));
+    CHECK(has(e.hint, "Did you mean 'completed'?"));
+}
+
+TEST_CASE("publish.googleplay: a real run starts fastlane once and shows no secret") {
+    MobileFixture f;
+    ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
+    PublishOptions o = f.store("googleplay", false);
+    std::string progress;
+    o.progress = [&](const std::string& line) { progress += line + "\n"; };
+    const PublishReport r = f.ok(o);
+    CHECK(r.uploaded);
+    CHECK(r.uploads[0].uploaded);
+    const auto calls = read_calls(f.record);
+    REQUIRE(calls.size() == 1);
+    CHECK(calls[0].args[0] == "supply");
+    CHECK(calls[0].args[2] == f.aab);
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(leaks_keys(text));
+}
+
+TEST_CASE("publish.googleplay: a debug-signed bundle is refused, a missing key, bundle or release note is a teaching error") {
+    {
+        MobileFixture f;  // the debug export is named <slug>-debug.aab
+        stdfs::rename(f.aab, f.dir + "/build/export/space-dodge-android/space-dodge-debug.aab");
+        const Error e = f.fails(f.store("googleplay"));
+        CHECK(has(e.message, "space-dodge-debug.aab is a debug build"));
+        CHECK(has(e.hint, "export --platform android --format aab --release"));
+    }
+    {
+        MobileFixture f;  // no keystore in factoria.json: the release export fell back to the debug key
+        f.edit([](Json& j) { j["export"]["android"].erase("signing"); });
+        Error e = f.fails(f.store("googleplay"));
+        CHECK(has(e.message, "export/android/signing/keystore is not set"));
+        CHECK(has(e.message, "debug key"));
+        CHECK(has(e.hint, "keytool"));
+        PublishOptions o = f.store("googleplay");  // a bundle signed some other way: passed by hand, FactorIA only warns
+        o.artifact = f.aab;
+        const PublishReport r = f.ok(o);
+        CHECK(has(r.to_json()["warnings"].dump(), "cannot tell how space-dodge.aab was signed"));
+    }
+    {
+        MobileFixture f;
+        f.vars.erase("FACTORIA_GOOGLEPLAY_JSON_KEY");
+        Error e = f.fails(f.store("googleplay"));
+        CHECK(has(e.message, "FACTORIA_GOOGLEPLAY_JSON_KEY is empty"));
+        CHECK(has(e.hint, "service account"));
+        f.vars["SUPPLY_JSON_KEY"] = f.serviceAccount;  // fastlane's own variable works too
+        CHECK(f.ok(f.store("googleplay")).steps.size() == 1);
+        f.vars["SUPPLY_JSON_KEY"] = f.keys + "/nope.json";
+        CHECK(has(f.fails(f.store("googleplay")).message, "which is not a file"));
+        testing::write_all(f.keys + "/oauth.json", R"({"installed": {"client_secret": "PLAY-KEY-BODY"}})");
+        f.vars["SUPPLY_JSON_KEY"] = f.keys + "/oauth.json";
+        e = f.fails(f.store("googleplay"));
+        CHECK(has(e.message, "is not a service account key"));
+        CHECK_FALSE(leaks_keys(e.to_string()));
+    }
+    {
+        MobileFixture f;
+        stdfs::remove(f.aab);
+        const Error e = f.fails(f.store("googleplay"));
+        CHECK(has(e.message, "there is no bundle to upload"));
+        CHECK(has(e.hint, "--format aab --release"));
+        PublishOptions o = f.store("googleplay");
+        testing::write_all(f.dir + "/app-release.apk", "PK");
+        o.artifact = f.dir + "/app-release.apk";
+        const Error apk = f.fails(o);
+        CHECK(has(apk.message, "is not an .aab"));
+        CHECK(has(apk.hint, "Android App Bundle, not an APK"));
+    }
+    {
+        MobileFixture f;
+        testing::write_all(f.dir + "/store/whats-new-es.txt", std::string(501, 'x'));
+        Error e = f.fails(f.store("googleplay"));
+        CHECK(has(e.message, "changelogs/es-419"));
+        CHECK(has(e.message, "has 501 characters"));
+        CHECK(has(e.hint, "500"));
+        stdfs::remove(f.dir + "/store/whats-new-es.txt");
+        CHECK(has(f.fails(f.store("googleplay")).message, "does not exist"));
+        f.edit([](Json& j) { j["publish"]["googleplay"]["changelogs"]["es-419"] = "../outside.txt"; });
+        CHECK(has(f.fails(f.store("googleplay")).message, "changelogs/es-419"));
+    }
+}
+
 // ---- the commands ---------------------------------------------------------------------------------------------------
 
 TEST_CASE("publish commands: documented, in the publish area, and their arguments are checked before anything runs") {
@@ -833,9 +1197,35 @@ TEST_CASE("publish commands: documented, in the publish area, and their argument
     CHECK(has(c.result["uploads"][0]["folder"].get<std::string>(), "/elsewhere-win"));
 }
 
+TEST_CASE("publish commands: the mobile stores take a file inside the project, not export folders") {
+    MobileFixture f;
+    CommandRegistry reg;
+    register_publish_commands(reg, f.dir);
+    const Json& gp = reg.info("publish.googleplay")->inputSchema["properties"];
+    CHECK(gp.contains("artifact"));
+    CHECK(gp.contains("track"));
+    CHECK(gp.contains("releaseStatus"));
+    CHECK_FALSE(gp.contains("platforms"));
+    CHECK(reg.info("publish.appstore")->inputSchema["properties"].contains("artifact"));
+    CHECK_FALSE(reg.info("publish.appstore")->inputSchema["properties"].contains("track"));
+
+    ScopedEnv tool("FACTORIA_FASTLANE", kFakeTool);
+    ScopedEnv cfg("FACTORIA_EXPORT_CONFIG", f.config);
+    ScopedEnv key("FACTORIA_GOOGLEPLAY_JSON_KEY", f.serviceAccount);
+    CommandResult c = reg.call("publish.googleplay", Json::object({{"artifact", "../elsewhere.aab"}}));
+    CHECK_FALSE(c.ok);
+    CHECK(c.error["code"] == "invalid_argument");
+    c = reg.call("publish.googleplay", Json::object({{"dryRun", true}, {"track", "beta"}, {"artifact", "build/export/space-dodge-android/space-dodge.aab"}}));
+    REQUIRE_MESSAGE(c.ok, c.error.dump());
+    CHECK(c.result["store"] == "googleplay");
+    CHECK(c.result["steps"][0]["command"][1] == "supply");
+    CHECK(has(c.result["uploads"][0]["destination"].get<std::string>(), "track beta"));
+    CHECK_FALSE(leaks_keys(c.result.dump()));
+}
+
 TEST_CASE("publish commands: they are registered with the other tooling commands") {
     Fixture f;
     CommandRegistry reg;
     register_tooling_commands(reg, f.dir);
-    for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog"}) CHECK_MESSAGE(reg.has(name), name);
+    for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog", "publish.appstore", "publish.googleplay"}) CHECK_MESSAGE(reg.has(name), name);
 }
