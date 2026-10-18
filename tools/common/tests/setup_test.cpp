@@ -146,6 +146,7 @@ struct World {
     int sdkmanagerExit = 0;                          // the exit code of the package install
     std::string sdkmanagerOutput;                    // its stderr when it fails
     bool jdkBundle = true;                           // the JDK archive has Contents/Home (macOS) inside
+    bool unpackWeb = true;                           // every package carries web/ (false: a release older than the web export)
     bool unpackIosLibs = true;                       // the macOS package carries mobile/ios (false: a broken release)
     bool pinnedListed = true;                        // Google's listing still has cmdline-tools;22.0 (false: only `latest`)
     std::string jdkContent = std::string(400, 'J');
@@ -316,6 +317,10 @@ struct World {
             const bool windows = name.find("windows") != std::string::npos;
             put(d / "FactorIA" / (windows ? "factoria_player.exe" : "factoria_player"), "player of " + name);
             for (const char* abi : {"arm64-v8a", "x86_64"}) put(d / "FactorIA" / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
+            if (unpackWeb) {  // every package carries the web player
+                put(d / "FactorIA" / "web" / "factoria_player.js", "glue of " + name);
+                put(d / "FactorIA" / "web" / "factoria_player.wasm", "wasm of " + name);
+            }
             if (name.find("macos") != std::string::npos && unpackIosLibs)
                 for (const char* sdk : {"iphoneos", "iphonesimulator"}) put(d / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
         } else if (starts_with(name, "cmake-")) {
@@ -1022,6 +1027,57 @@ TEST_CASE("setup players: a Windows download has Android only, so the iOS librar
     REQUIRE_MESSAGE(again.ok, again.error.message);
     CHECK(steps_of(again.report) == "mobile=skipped");
     CHECK(w.requested.size() == requested);
+}
+
+TEST_CASE("setup players: web comes from this machine's own package, only when asked for") {
+    World w;
+    w.serve_release();
+    SetupContext c = w.ctx("linux", "x64");
+    SetupInstallOptions o;
+    o.component = "players";
+    o.platforms = {"web"};
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    CHECK(steps_of(r.report) == "web=installed");
+    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-linux-x64.tar.gz")});
+    const stdfs::path web = w.h() / "players" / "0.1.3" / "web";
+    CHECK(testing::read_all(web / "factoria_player.js") == "glue of FactorIA-linux-x64.tar.gz");
+    CHECK(testing::read_all(web / "factoria_player.wasm") == "wasm of FactorIA-linux-x64.tar.gz");
+    CHECK(installed_player(c, "web") == (web / "factoria_player.js").string());
+    CHECK(installed_player(c, "windows").empty());  // nothing else came with it
+
+    const std::size_t requested = w.requested.size();
+    const SetupResult again = setup_install(o, c);
+    REQUIRE_MESSAGE(again.ok, again.error.message);
+    CHECK(steps_of(again.report) == "web=skipped");
+    CHECK(w.requested.size() == requested);
+
+    // Together with the other players: the host's package is fetched once more for web (it is not a default player).
+    World w2;
+    w2.serve_release();
+    SetupContext c2 = w2.ctx("windows", "x64");
+    SetupInstallOptions both;
+    both.component = "players";
+    both.platforms = {"windows", "web"};
+    const SetupResult r2 = setup_install(both, c2);
+    REQUIRE_MESSAGE(r2.ok, r2.error.message);
+    CHECK(steps_of(r2.report) == "player-windows=installed web=installed");
+    CHECK(w2.requested.size() == 2);  // the release, and one package for both
+}
+
+TEST_CASE("setup players: a package without web/ says the release is broken or too old") {
+    World w;
+    w.serve_release();
+    w.unpackWeb = false;
+    SetupContext c = w.ctx("linux", "x64");
+    SetupInstallOptions o;
+    o.component = "players";
+    o.platforms = {"web"};
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.message.find("web/factoria_player.js") != std::string::npos);
+    CHECK(r.error.hint.find("--player") != std::string::npos);
+    CHECK(installed_player(c, "web").empty());
 }
 
 TEST_CASE("setup players: a macOS package without the iOS libraries is a broken release") {

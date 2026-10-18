@@ -249,7 +249,7 @@ Result<void> convert_textures(ExportAssets& ea) {
         }
         groups[group].push_back({path, std::move(*img)});
     }
-    const int maxSide = ea.mobile() ? kMaxAtlasSideMobile : kMaxAtlasSideDesktop;
+    const int maxSide = ea.small_textures() ? kMaxAtlasSideMobile : kMaxAtlasSideDesktop;
     std::set<std::string> packed;  // paths that live in an atlas now
     std::vector<Page> atlases;
     for (auto& [group, members] : groups) {
