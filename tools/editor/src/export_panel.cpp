@@ -78,7 +78,7 @@ void Editor::poll_export() {
 void Editor::draw_export_window() {
     if (!showExport_ || !engine_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowSize(ImVec2(900, 720), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(fit_work_area(ImVec2(900, 720)), ImGuiCond_FirstUseEver);  // a small screen scrolls it
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (exportFocus_) {
