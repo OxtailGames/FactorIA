@@ -14,6 +14,7 @@ packages listed below.
 | Windows | Visual Studio 2022, workload "Desktop development with C++" | `powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Test` |
 | iOS (Simulator) | Full Xcode | `./scripts/build-ios.sh --simulator` |
 | Android (arm64 device) | Android NDK r27 or newer | `./scripts/build-android.sh` |
+| Web (WebAssembly, WebGL2) | Emscripten SDK 6.0.10 | `cmake --preset web-release && cmake --build --preset web-release` ("Web" below) |
 
 Each build writes to `build/<preset>/`. The `build/` folder is git-ignored.
 
@@ -65,6 +66,21 @@ the same components with your package manager.
   `build/cmake/android.toolchain.cmake`. If it is not set, `build-android.sh`
   also looks at `ANDROID_NDK_ROOT`, `ANDROID_NDK_LATEST_HOME`, and then the
   newest NDK under `$ANDROID_HOME/ndk` (or `$ANDROID_SDK_ROOT/ndk`).
+
+### Web
+
+- The Emscripten SDK, **pinned to 6.0.10** (CI and the release packages use the same version; newer ones are likely fine but untested):
+
+  ```bash
+  git clone https://github.com/emscripten-core/emsdk && cd emsdk
+  ./emsdk install 6.0.10 && ./emsdk activate 6.0.10     # emsdk.bat on Windows
+  source ./emsdk_env.sh                                  # emsdk_env.bat on Windows: sets EMSDK and puts emcc on PATH
+  ```
+
+- CMake 3.24+ and Ninja on the host (any host OS). The presets read the toolchain file from `$EMSDK`
+  (`$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`), so `EMSDK` must be set (`emsdk_env` does it).
+- No Python, Node or browser is needed to build. To look at the result you serve the folder and open it in a browser
+  (`platforms/web/smoke.mjs` does it headless, "Web" under "Presets" below).
 
 ## One command per platform
 
@@ -205,9 +221,30 @@ starts that build directory over, because CMake would otherwise keep using the o
 | `ios-simulator` | macOS | Xcode | Debug (`--config Release` to change) | no | iOS Simulator SDK |
 | `android-arm64` | any host with the NDK | Ninja | Debug | no | `ANDROID_NDK_HOME`, ABI arm64-v8a, API 26 |
 | `android-x86_64` | any host with the NDK | Ninja | Debug | no | Android emulator, ABI x86_64, API 26 |
+| `web-debug` | any host with the Emscripten SDK | Ninja | Debug | no | `EMSDK` set; WebAssembly, WebGL2; assertions on |
+| `web-release` | any host with the Emscripten SDK | Ninja | Release (`-O3`) | no | The web player: `build/web-release/player/factoria_player.{js,wasm}` |
 
 Desktop presets build the tools (`factoria` CLI, MCP server, AI agent, editor)
-and the unit tests. Mobile presets build the engine libraries and `factoria_player`.
+and the unit tests. Mobile and web presets build the engine libraries and `factoria_player`.
+
+### Web player
+
+```bash
+source emsdk/emsdk_env.sh                  # once per shell (emsdk_env.bat on Windows)
+cmake --preset web-release
+cmake --build --preset web-release         # build/web-release/player/factoria_player.js + .wasm
+```
+
+The result is the two files `platforms/web/shell.html` loads (`factoria export --platform web` copies them next to the page
+and the game's `game.pak`; docs/EXPORTING.md). A release build is about 6.5 MB of wasm (about 2.5 MB gzipped, which is what
+a web server sends) and 150 KB of JS. To try a game by hand, put `factoria_player.js`, `factoria_player.wasm`, a `game.pak`
+and the page (`shell.html` with `{{title}}`, `{{wasmBytes}}` and `{{pakBytes}}` filled in, saved as `index.html`) in one
+folder, serve it (`python -m http.server`; no special headers, the player uses no threads) and open it in a browser. To
+check it headless, with a software WebGL2: `node platforms/web/smoke.mjs <folder>` (Node 22+, Chrome, Chromium or Edge; it
+waits for the player's `60 frames rendered` line and fails on a page error or `console.error`).
+
+What is different from the other platforms (details in docs/MOBILE.md, "Web"): no threads, WebAssembly exceptions
+(`-fwasm-exceptions`), Box2D without SIMD, no native plugins, no `log.txt`, and the save folder in IndexedDB.
 
 Use the presets directly when you do not need the scripts:
 
@@ -372,6 +409,7 @@ and reports the others as skipped, with the reason:
 | `android` | any host with `ANDROID_NDK_HOME` (NDK r27+) | `factoria_player` for arm64-v8a |
 | `macos` | a Mac | macOS build + ctest |
 | `ios` | a Mac with Xcode | iOS Simulator app bundle with a demo game |
+| `web` | any host with `EMSDK` set (Emscripten 6.0.10), Node 22+ and Chrome or Chromium (`CHROME_BIN`) | the web player (`web-release`), the `factoria` CLI, a template game exported with `--platform web`, the zip checked as itch.io takes it (`index.html` at the root, at most 1000 files and 500 MB) and the export run in headless Chrome until `player: 60 frames rendered` (`scripts/web-smoke.sh`) |
 | `sniper` | Linux with Docker or Podman; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
 
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
@@ -404,6 +442,12 @@ changes it is merged by hand once its Release run is green.
 A newer push to the same pull request or branch cancels the older run.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
+
+The job `Web (Emscripten, headless Chrome)` installs the Emscripten SDK (cached), builds the web player and the CLI,
+exports a game with `factoria export --platform web` and runs `scripts/web-smoke.sh`: the zip check and the export opened
+in the runner's Chrome until the player has rendered its first frames. On failure it uploads the screenshot and the
+export. It runs when the mobile jobs do. `release.yml` builds the web player once and every release package carries it in
+`FactorIA/web/` (`factoria_player.js` and `.wasm`), like the Android libraries in `FactorIA/mobile/`.
 
 The mobile jobs also RUN the app: `ios` boots an iPhone simulator while `ios-build` builds the app, then runs it
 (`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM, installs the debug APK

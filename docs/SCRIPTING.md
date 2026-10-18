@@ -225,8 +225,8 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes: `LeftX LeftY RightX RightY`
   (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). `axis` has the deadzone applied (what the bindings see), `rawAxis`
   does not. Real pads are read in windowed runs only (Windows XInput, Linux joystick API, macOS/iOS GameController,
-  Android's input queue; web: not yet), so headless runs and tests stay deterministic. A pad that stays plugged in
-  survives the window losing focus (inputs are released meanwhile, and the pad reports its real state when focus is
+  Android's input queue, the browser's Gamepad API on the web), so headless runs and tests stay deterministic. A pad
+  that stays plugged in survives the window losing focus (inputs are released meanwhile, and the pad reports its real state when focus is
   back). Face buttons are positional: `A` is the bottom one, `B` right, `X` left, `Y` top, whatever the pad prints on
   them (a Switch Pro's bottom button, printed B, is `A`). On Linux each pad is identified by its USB/Bluetooth ids and
   translated through a mapping line in the SDL GameControllerDB format. Where the line comes from, first match wins:

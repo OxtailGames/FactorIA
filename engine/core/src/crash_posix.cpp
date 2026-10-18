@@ -6,11 +6,11 @@
 #include <TargetConditionals.h>
 #endif
 
-#if defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE) || !__has_include(<execinfo.h>)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__) || (defined(__APPLE__) && TARGET_OS_IPHONE) || !__has_include(<execinfo.h>)
 
 namespace fa::crash_detail {
 bool platform_install(const std::filesystem::path&, std::string& error) {
-    error = "crash reports are not written on this platform (no backtrace(): Android, iOS)";
+    error = "crash reports are not written on this platform (no backtrace(): Android, iOS, the web)";
     return false;
 }
 }  // namespace fa::crash_detail

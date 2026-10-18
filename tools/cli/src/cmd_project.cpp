@@ -159,28 +159,28 @@ Command make_validate_command() {
 Command make_export_command() {
     Command c;
     c.name = "export";
-    c.summary = "Package the game for a platform (desktop bundle, Android APK/AAB, iOS project).";
+    c.summary = "Package the game for a platform (desktop bundle, Android APK/AAB, iOS project, web page).";
     c.usage = "[project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]]";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
-               {"platform", "P", "linux, windows, macos, android or ios (default: this machine)."},
+               {"platform", "P", "linux, windows, macos, android, ios or web (default: this machine). web writes <out>/<slug>-web/ (index.html, the web player, game.pak) and <out>/<slug>-web.zip, the file to upload to itch.io as an HTML5 game."},
                {"out", "DIR", "Parent folder; the export lands in <out>/<slug>-<platform>/, replaced only when an export wrote it (default out: <project>/build/export)."},
                {"format", "FORMAT", "Android: apk (default; built with Gradle), aab (the Google Play bundle) or gradle (only write the Gradle project, no JDK or SDK needed). Default: export.android.format of factoria.json, else apk. Linux: appimage also builds <slug>-x86_64.AppImage, the game as one file (needs Linux x86_64 or WSL and `factoria setup appimage`)."},
                {"release", "", "Release build. Android: the release APK/AAB, signed with export.android.signing (passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json); without a keystore it is an error unless --allow-debug-key is given. Linux, Windows, macOS: the whole game in ONE file, game.pak, next to the executable instead of a game/ folder, with the scripts compiled to bytecode (export.scriptBytecode: false in factoria.json keeps them as source)."},
                {"allow-debug-key", "", "Android --release without export.android.signing: sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects it, so never upload that build."},
                {"engine-root", "DIR", "Android/iOS: compile the engine from this source checkout (\"source\" mode; default: $FACTORIA_ENGINE_DIR, else the prebuilt players, else the build-time source root)."},
                {"mobile-dir", "DIR", "Android/iOS: the prebuilt players (\"prebuilt\" mode; default: the mobile/ folder next to factoria)."},
-               {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria)."},
+               {"player", "PATH", "factoria_player binary to bundle (default: the one shipped next to factoria). web: the folder with factoria_player.js and factoria_player.wasm (default: web/ next to factoria, else the one `factoria setup players --platforms web` installed, else a web build of the source)."},
                {"json", "", "Machine-readable report."}};
     c.examples = {"factoria export --platform linux --release", "factoria export games/my-game --platform android --out dist/android",
-                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle", "factoria export --platform linux --format appimage"};
+                  "factoria export --platform android --format aab --release", "factoria export --platform android --format gradle", "factoria export --platform linux --format appimage", "factoria export --platform web"};
     c.run = [](Context& ctx) {
         std::string dir = resolve_project_dir(ctx, 0);
         std::string platform = ctx.args.str("platform");
         if (!platform.empty()) {
             std::string norm = normalize_export_platform(platform);
             if (norm.empty()) {
-                const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios"};
+                const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios", "web"};
                 throw UsageError("Unknown platform '" + platform + "'.", fa::did_you_mean(platform, platforms));
             }
             platform = norm;

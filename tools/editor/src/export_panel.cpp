@@ -78,7 +78,7 @@ void Editor::poll_export() {
 void Editor::draw_export_window() {
     if (!showExport_ || !engine_) return;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
-    ImGui::SetNextWindowSize(ImVec2(900, 720), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(fit_work_area(ImVec2(900, 720)), ImGuiCond_FirstUseEver);  // a small screen scrolls it
     ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y * 0.5f), ImGuiCond_Appearing,
                             ImVec2(0.5f, 0.5f));
     if (exportFocus_) {
@@ -224,9 +224,12 @@ void Editor::draw_export_window() {
                                       "export.android.format: changing it saves it in factoria.json (the same setting as Platform settings > Android).");
                 if (!exportSavedError_.empty()) ImGui::TextColored(kFailed, "factoria.json: %s", export_error_text(exportSavedError_).c_str());
             }
-            if (ImGui::SmallButton("Settings...")) open_platform_settings(*settings_tab_for_platform(t.platform));
-            at_track(std::string("export:settings:") + t.platform);
-            ImGui::SetItemTooltip("Platform settings for %s: icon and what this export needs.", t.label);
+            const std::optional<SettingsTab> settingsTab = settings_tab_for_platform(t.platform);  // the web has none
+            if (settingsTab) {
+                if (ImGui::SmallButton("Settings...")) open_platform_settings(*settingsTab);
+                at_track(std::string("export:settings:") + t.platform);
+                ImGui::SetItemTooltip("Platform settings for %s: icon and what this export needs.", t.label);
+            }
             if (export_needs_player(t.platform)) {
                 ImGui::SameLine();
                 const auto it = exportSettings_.players.find(t.platform);

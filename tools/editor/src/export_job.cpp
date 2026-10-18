@@ -11,7 +11,7 @@ namespace stdfs = std::filesystem;
 const std::vector<ExportTarget>& export_targets() {
     static const std::vector<ExportTarget> targets = {
         {"windows", "Windows", false}, {"macos", "macOS", false},  {"linux", "Linux", false},
-        {"android", "Android", true},  {"ios", "iOS", true},
+        {"android", "Android", true},  {"ios", "iOS", true},     {"web", "Web", false},
     };
     return targets;
 }
@@ -38,6 +38,9 @@ std::string export_target_note(const ExportTarget& target, const std::string& fo
         return "Builds the APK with Gradle (the first build downloads Gradle and the Android plugin), next to the Gradle project it writes.";
     }
     if (p == "ios") return "An Xcode project and build_ios.sh: build it on a Mac with Xcode afterwards (the next steps say how).";
+    if (p == "web")
+        return "A folder with index.html, the web player and game.pak, and a .zip of it to upload to itch.io as an HTML5 game. "
+               "Serve the folder over http to try it (the next steps say how).";
     if (p == "macos") return "An .app with the game and its player, ready to run and share.";
     return "A folder with the game and its player, ready to run and share.";
 }
@@ -61,7 +64,8 @@ ExportOptions export_options(const std::string& projectDir, const std::string& p
 
 bool export_needs_player(const std::string& platform) {
     const ExportTarget* t = find_export_target(platform);
-    return t && !t->mobile && normalize_export_platform(platform) != normalize_export_platform("");
+    // The web player is a folder of two files, not "another OS's factoria_player": its row offers the download instead.
+    return t && !t->mobile && std::string(t->platform) != "web" && normalize_export_platform(platform) != normalize_export_platform("");
 }
 
 ExportStatus check_export(const ExportOptions& options) {

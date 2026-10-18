@@ -18,7 +18,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
-#else
+#elif !defined(__EMSCRIPTEN__)
 #include <dlfcn.h>
 #endif
 #if defined(__ANDROID__)
@@ -239,6 +239,12 @@ bool load(Loaded& p, FaPluginInitFn init, std::string& error) {
             return false;
         }
         init = reinterpret_cast<FaPluginInitFn>(reinterpret_cast<void*>(GetProcAddress(h, "fa_plugin_init")));
+#elif defined(__EMSCRIPTEN__)
+        // A browser cannot load a native library at run time: there is no dlopen for a plugin's .so or .dll.
+        error = "cannot load " + p.library + ": native plugins do not run in a web export (WebAssembly cannot load native "
+                "libraries). Move the plugin's work to a script, or call a web API from a script; platform services use the "
+                "fake backend or none on the web";
+        return false;
 #else
         void* h = dlopen(p.library.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!h) {

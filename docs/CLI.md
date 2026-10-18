@@ -57,11 +57,11 @@ canonical layout is a warning (fix: `factoria call scene.format`).
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
 ### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
-Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project). Without `--platform` the
+Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
 that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
-`--player` selects the `factoria_player` binary to bundle. Android/iOS exports are `prebuilt` (the ready-made `mobile/`
+`--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the

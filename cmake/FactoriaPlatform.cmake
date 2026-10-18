@@ -36,4 +36,11 @@ else()
     set(FA_SOKOL_BACKEND SOKOL_GLCORE)
 endif()
 
+if(FA_PLATFORM STREQUAL "web")
+    # The engine throws fa::CommandError inside command handlers: WebAssembly exceptions (native, fast, in every current
+    # browser) instead of Emscripten's default of none. Compile and link flags have to agree, for the externals too.
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
+endif()
+
 message(STATUS "FactorIA: platform=${FA_PLATFORM} gfx=${FA_SOKOL_BACKEND} desktop=${FA_DESKTOP}")

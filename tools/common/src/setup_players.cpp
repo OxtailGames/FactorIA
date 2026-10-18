@@ -3,6 +3,10 @@
 //
 //   <home>/players/<version>/<windows|linux|macos>/factoria_player[.exe]
 //   <home>/players/<version>/mobile/   android/jniLibs/<abi>/libfactoria_player.so; ios/<sdk>/*.a
+//   <home>/players/<version>/web/      factoria_player.js + factoria_player.wasm (the player of the web export)
+//
+// web/ is in every release package (next to factoria, like the Android libraries), so it is installed only when asked for
+// (`--platforms web`), from the package of this machine's own OS.
 //
 // Both halves of mobile/ come from the macOS package, the only one that carries the iOS libraries (the Android ones are in
 // every package): so an iOS project can be exported from Windows and Linux too, without --mobile-dir.
@@ -37,6 +41,8 @@ std::string player_file_name(const std::string& os) { return os == "windows" ? "
 
 stdfs::path player_path(const SetupContext& ctx, const std::string& os) { return players_root(ctx) / os / player_file_name(os); }
 
+bool web_complete(const stdfs::path& web) { return is_file(web / "factoria_player.js") && is_file(web / "factoria_player.wasm"); }
+
 bool android_libs_complete(const stdfs::path& mobile) {
     for (const char* abi : kAndroidAbis)
         if (!is_file(mobile / "android" / "jniLibs" / abi / "libfactoria_player.so")) return false;
@@ -59,6 +65,7 @@ stdfs::path exe_mobile_dir(const SetupContext& ctx) {
 struct Selection {
     std::vector<std::string> desktop;  // OSes whose player is wanted
     bool mobile = false;
+    bool web = false;  // only when asked for: the download carries web/ next to factoria
 };
 
 // An export looks for the Android and the iOS libraries separately (in the folder next to factoria, then in the installed
@@ -83,6 +90,10 @@ int package_size_mb(const std::string& os) { return os == "windows" ? 13 : (os =
 
 std::string installed_player_path(const SetupContext& ctx, const std::string& platform) {
     const std::string os = to_lower(platform);
+    if (os == "web") {  // the path of factoria_player.js; factoria_player.wasm is next to it
+        const stdfs::path dir = players_root(ctx) / "web";
+        return web_complete(dir) ? (dir / "factoria_player.js").string() : std::string();
+    }
     if (os != "windows" && os != "linux" && os != "macos") return {};
     const stdfs::path p = player_path(ctx, os);
     return is_file(p) ? p.string() : std::string();
@@ -158,7 +169,7 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     if (opt.platforms.empty()) {
         sel = default_selection(ctx);
     } else {
-        const std::vector<std::string> valid = {"windows", "linux", "macos", "mobile"};
+        const std::vector<std::string> valid = {"windows", "linux", "macos", "mobile", "web"};
         for (const std::string& raw : opt.platforms) {
             std::string p = to_lower(raw);
             if (p == "win" || p == "win32") p = "windows";
@@ -166,6 +177,7 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             if (std::find(valid.begin(), valid.end(), p) == valid.end())
                 return in.fail("invalid_argument", make_error("Unknown platform '" + raw + "' for the players.", did_you_mean(raw, valid)));
             if (p == "mobile") sel.mobile = true;
+            else if (p == "web") sel.web = true;
             else if (std::find(sel.desktop.begin(), sel.desktop.end(), p) == sel.desktop.end()) sel.desktop.push_back(p);
         }
     }
@@ -194,7 +206,18 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
         in.add_step(s);
         needMobile = false;
     }
-    if (needDesktop.empty() && !needMobile) {
+    bool needWeb = sel.web;
+    if (needWeb && !opt.force && web_complete(root / "web")) {
+        SetupStep s;
+        s.id = "web";
+        s.title = "Web player";
+        s.outcome = "skipped";
+        s.detail = "already installed: " + (root / "web").string();
+        s.path = (root / "web").string();
+        in.add_step(s);
+        needWeb = false;
+    }
+    if (needDesktop.empty() && !needMobile && !needWeb) {
         if (in.report.steps.empty()) {
             SetupStep s;
             s.id = "players";
@@ -238,6 +261,8 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     // ---- one package per OS: the OSes asked for, plus the macOS one for the mobile libraries (the only package with the iOS ones)
     std::vector<std::string> packages = needDesktop;
     if (needMobile && std::find(packages.begin(), packages.end(), "macos") == packages.end()) packages.push_back("macos");
+    // The web player is in every package: this machine's own is the one to take it from.
+    if (needWeb && std::find(packages.begin(), packages.end(), ctx.host_os()) == packages.end()) packages.push_back(ctx.host_os());
     for (const std::string& os : packages) {
         StepTimer timer;
         const std::string name = package_name(os);
@@ -299,9 +324,28 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             s.seconds = timer.seconds();
             in.add_step(s);
         }
+        if (needWeb && os == ctx.host_os()) {
+            const stdfs::path src = top / "web";
+            if (!web_complete(src))
+                return in.fail("failed", make_error("The package " + name + " has no web/factoria_player.js and web/factoria_player.wasm inside.",
+                                                     "Report this: the release " + release->tag + " is broken, or too old to carry the web player (use a newer FactorIA, or build the "
+                                                     "web player yourself, see docs/BUILDING.md, and pass it with `factoria export --platform web --player <folder>`)."));
+            if (auto f = replace_dir(src, root / "web")) return in.fail(*f);
+            SetupStep s;
+            s.id = "web";
+            s.title = "Web player";
+            s.outcome = "installed";
+            s.detail = "from " + name + " of the release " + release->tag;
+            s.path = (root / "web").string();
+            const bool shared = std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end() || (needMobile && os == "macos");
+            s.downloadedBytes = shared ? 0 : bytes;  // the step that owns the download reports its size
+            s.seconds = timer.seconds();
+            in.add_step(s);
+        }
     }
     in.report.paths = {{"players", root.string()}};
     if (needMobile) in.report.paths.emplace_back("mobile", (root / "mobile").string());
+    if (needWeb) in.report.paths.emplace_back("web", (root / "web").string());
     in.report.nextSteps.push_back("`factoria export --platform <windows|linux|macos|android|ios>` now finds these players without --player or --mobile-dir.");
     return in.finish();
 }

@@ -191,7 +191,7 @@ Command make_setup_command() {
                           {"force", "", "Install the JDK and the command-line tools again even when they are found."}},
                          {"factoria setup android", "factoria setup android --accept-licenses"}));
     g.subs.push_back(sub("players", "Download the factoria_player of the other desktop OSes and the mobile libraries for this version.",
-                         {{"platforms", "LIST", "Comma-separated: windows, linux, macos, mobile (default: every desktop OS but this one, plus mobile when missing)."},
+                         {{"platforms", "LIST", "Comma-separated: windows, linux, macos, mobile, web (default: every desktop OS but this one, plus mobile when missing; web, the web export's player, only when asked for: every download has it next to factoria)."},
                           {"force", "", "Download again even when installed."}},
                          {"factoria setup players", "factoria setup players --platforms windows,linux"}));
     g.subs.push_back(sub("cmake", "Install CMake 3.24+ (for the iOS export) unless one is found.",
