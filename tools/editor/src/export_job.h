@@ -21,7 +21,7 @@
 namespace fa::editor {
 
 struct ExportTarget {
-    const char* platform;  // fa::export_project's name: windows | macos | linux | android | ios
+    const char* platform;  // fa::export_project's name: windows | macos | linux | android | ios | web
     const char* label;     // button text
     bool mobile;           // writes a Gradle / Xcode project that is built afterwards
 };

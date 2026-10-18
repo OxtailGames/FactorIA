@@ -136,6 +136,32 @@ Result<void> export_desktop(const ExportOptions& options, const Project& p, cons
                             const stdfs::path& outRoot, const std::vector<std::string>& files, const Image& icon,
                             ExportReport& report);
 
+// Packs `files` (project-relative; p.staged applies) into the pack `packFile`, scripts as bytecode unless
+// export.scriptBytecode is false (the release build of a desktop export, and every web export).
+Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report);
+
+// ---- web (export_web.cpp) ---------------------------------------------------------------------------
+
+// The web player: factoria_player.js and the factoria_player.wasm next to it (Emscripten output).
+struct WebPlayer {
+    stdfs::path js, wasm;
+    std::string from;  // "explicit" (--player), "package" (web/ next to factoria), "installed" (factoria setup players) or
+                       // "build" (a web build of the engine source)
+};
+
+// --player (a folder or factoria_player.js), else <factoria dir>/web, else `factoria setup players --platforms web`, else a
+// web build next to the factoria binary or in the checkout `sourceRoot`; an error that says how to get one.
+Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sourceRoot);
+
+// <outRoot>/{index.html, factoria_player.js, factoria_player.wasm, game.pak}. The page is platforms/web/shell.html with its
+// placeholders filled in (docs/EXPORTING.md, "Web").
+Result<void> export_web(const Project& p, const WebPlayer& player, const stdfs::path& outRoot, const std::vector<std::string>& files,
+                        ExportReport& report);
+
+// After the notices are in outRoot: <zipFile> holds the export folder (index.html at its root) for itch.io and other hosts. Sets
+// report.format and report.artifact; limits of itch.io are warnings.
+Result<void> zip_web(const stdfs::path& outRoot, const stdfs::path& zipFile, ExportReport& report);
+
 // ---- linux AppImage (export_appimage.cpp) -----------------------------------------------------------
 
 // What the plan decides for `format: "appimage"` on a Linux export: the tools `factoria setup appimage` installed and the file the
@@ -206,12 +232,15 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
 // assets/hero.png.ktx2: the engine loads such a twin in place of the original), add files or drop them.
 struct ExportAssets {
     Project& project;
-    const std::string& platform;       // linux | windows | macos | android | ios
+    const std::string& platform;       // linux | windows | macos | android | ios | web
     std::vector<std::string>& files;   // shipped project-relative paths (sorted again after the steps)
     stdfs::path cacheDir;              // <project>/.factoria/export-cache/<platform>: converted files, kept between exports
     Json manifest;                     // the assets.json that ships: import settings, no provenance; steps may add to it
     ExportReport& report;              // warnings
     bool mobile() const { return platform == "android" || platform == "ios"; }
+    // Devices whose GPUs may sample only 2048 px on a side (GLES3 phones, and browsers, which run on them too): atlas pages stay
+    // that small. The web otherwise ships PNGs like the desktop: WebGL2 guarantees no compressed texture format.
+    bool small_textures() const { return mobile() || platform == "web"; }
     // Ships `source` (an absolute file, usually under cacheDir) as `shipped`, in place of `original` ("" = an added file).
     void replace(const std::string& original, const std::string& shipped, const stdfs::path& source);
 };
