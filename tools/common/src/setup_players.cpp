@@ -2,7 +2,10 @@
 // release of this factoria's version (the same packages the editor's updater downloads).
 //
 //   <home>/players/<version>/<windows|linux|macos>/factoria_player[.exe]
-//   <home>/players/<version>/mobile/   android/jniLibs/<abi>/libfactoria_player.so; ios/<sdk>/*.a (macOS package only)
+//   <home>/players/<version>/mobile/   android/jniLibs/<abi>/libfactoria_player.so; ios/<sdk>/*.a
+//
+// Both halves of mobile/ come from the macOS package, the only one that carries the iOS libraries (the Android ones are in
+// every package): so an iOS project can be exported from Windows and Linux too, without --mobile-dir.
 //
 // A player must match the factoria that copies it into a game, which is why the folder carries the version.
 #include <algorithm>
@@ -46,10 +49,8 @@ bool ios_libs_complete(const stdfs::path& mobile) {
     return true;
 }
 
-// What the host's exports need from a mobile/ folder: Android always, iOS on a Mac.
-bool mobile_complete(const stdfs::path& mobile, const std::string& host) {
-    return android_libs_complete(mobile) && (host != "macos" || ios_libs_complete(mobile));
-}
+// A mobile/ folder with the libraries of both mobile platforms.
+bool mobile_complete(const stdfs::path& mobile) { return android_libs_complete(mobile) && ios_libs_complete(mobile); }
 
 stdfs::path exe_mobile_dir(const SetupContext& ctx) {
     return (ctx.executableDir.empty() ? executable_dir() : stdfs::path(ctx.executableDir)) / "mobile";
@@ -60,12 +61,19 @@ struct Selection {
     bool mobile = false;
 };
 
+// An export looks for the Android and the iOS libraries separately (in the folder next to factoria, then in the installed
+// one), so the Android-only mobile/ of a Windows or Linux download plus an installed iOS half is enough.
+bool mobile_covered(const SetupContext& ctx) {
+    const stdfs::path next = exe_mobile_dir(ctx), installed = players_root(ctx) / "mobile";
+    return (android_libs_complete(next) || android_libs_complete(installed)) && (ios_libs_complete(next) || ios_libs_complete(installed));
+}
+
 Selection default_selection(const SetupContext& ctx) {
     Selection s;
     const std::string host = ctx.host_os();
     for (const char* os : kDesktopOses)
         if (host != os) s.desktop.push_back(os);
-    s.mobile = !mobile_complete(exe_mobile_dir(ctx), host) && !mobile_complete(players_root(ctx) / "mobile", host);
+    s.mobile = !mobile_covered(ctx);
     return s;
 }
 
@@ -111,18 +119,21 @@ SetupComponent players_status(const SetupContext& ctx) {
         }
     }
     // The mobile libraries: the folder next to factoria (the download), else the installed one.
-    const bool nextOk = mobile_complete(mobileNext, host);
-    const bool installedOk = mobile_complete(mobileInstalled, host);
+    const bool nextOk = mobile_complete(mobileNext);
+    const bool installedOk = mobile_complete(mobileInstalled);
     if (nextOk) c.paths.emplace_back("mobile", mobileNext.string());
     else if (installedOk) c.paths.emplace_back("mobile", mobileInstalled.string());
     if (!nextOk) {
         ++wanted;
-        if (installedOk) {
+        if (mobile_covered(ctx)) {
             ++present;
             add(have, "mobile libraries");
         } else {
-            add(lack, std::string("mobile libraries") + (host == "macos" ? " (Android + iOS)" : " (Android)"));
-            c.installSizeMb += package_size_mb(host);
+            const bool androidOk = android_libs_complete(mobileNext) || android_libs_complete(mobileInstalled);
+            add(lack, androidOk ? "iOS libraries" : "mobile libraries (Android + iOS)");
+            // They come from the macOS package: no extra download when the macOS player is being fetched anyway.
+            const bool macosCounted = host != "macos" && !is_file(player_path(ctx, "macos"));
+            if (!macosCounted) c.installSizeMb += package_size_mb("macos");
         }
     } else {
         add(have, "mobile libraries (next to factoria)");
@@ -139,7 +150,6 @@ SetupComponent players_status(const SetupContext& ctx) {
 
 SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& opt) {
     Installer in(ctx, "players");
-    const std::string host = ctx.host_os();
     const std::string version = ctx.version();
     const stdfs::path root = players_root(ctx);
 
@@ -174,7 +184,7 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
         }
     }
     bool needMobile = sel.mobile;
-    if (needMobile && !opt.force && mobile_complete(root / "mobile", host)) {
+    if (needMobile && !opt.force && mobile_complete(root / "mobile")) {
         SetupStep s;
         s.id = "mobile";
         s.title = "Mobile libraries";
@@ -225,9 +235,9 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
     auto release = parse_github_release(*json);
     if (!release.ok()) return in.fail("failed", release.error());
 
-    // ---- one package per OS: the OSes asked for, plus this machine's for the mobile libraries
+    // ---- one package per OS: the OSes asked for, plus the macOS one for the mobile libraries (the only package with the iOS ones)
     std::vector<std::string> packages = needDesktop;
-    if (needMobile && std::find(packages.begin(), packages.end(), host) == packages.end()) packages.push_back(host);
+    if (needMobile && std::find(packages.begin(), packages.end(), "macos") == packages.end()) packages.push_back("macos");
     for (const std::string& os : packages) {
         StepTimer timer;
         const std::string name = package_name(os);
@@ -273,16 +283,17 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             s.seconds = timer.seconds();
             in.add_step(s);
         }
-        if (needMobile && os == host) {
+        if (needMobile && os == "macos") {
             const stdfs::path src = top / "mobile";
-            if (!is_dir(src) || !android_libs_complete(src))
-                return in.fail("failed", make_error("The package " + name + " has no mobile/android/jniLibs libraries inside.", "Report this: the release " + release->tag + " is broken."));
+            if (!is_dir(src) || !mobile_complete(src))
+                return in.fail("failed", make_error("The package " + name + " has no mobile/android/jniLibs and mobile/ios libraries inside.",
+                                                     "Report this: the release " + release->tag + " is broken."));
             if (auto f = replace_dir(src, root / "mobile")) return in.fail(*f);
             SetupStep s;
             s.id = "mobile";
             s.title = "Mobile libraries";
             s.outcome = "installed";
-            s.detail = std::string("Android") + (ios_libs_complete(root / "mobile") ? " and iOS" : "") + " libraries from " + name;
+            s.detail = "Android and iOS libraries from " + name;
             s.path = (root / "mobile").string();
             s.downloadedBytes = (std::find(needDesktop.begin(), needDesktop.end(), os) != needDesktop.end()) ? 0 : bytes;
             s.seconds = timer.seconds();
