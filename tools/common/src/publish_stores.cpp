@@ -375,7 +375,7 @@ Result<std::vector<Job>> plan_googleplay(Context& c) {
 
     // The bundle must be signed with an upload key of yours: a debug-signed one is refused by Google Play.
     const std::string file = c.artifact.filename().string();
-    if (file.size() > 10 && file.compare(file.size() - 10, 10, "-debug.aab") == 0)
+    if (file.ends_with("-debug.aab"))
         return err("googleplay: " + file + " is a debug build, signed with the debug key, which Google Play rejects",
                    "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool -genkeypair), set export.android.signing.keystore and .alias in factoria.json, "
                    "and build the release bundle: factoria export --platform android --format aab --release. See docs/MOBILE.md, \"Signing and release\".");
