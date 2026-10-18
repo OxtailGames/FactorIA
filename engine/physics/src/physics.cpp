@@ -107,6 +107,11 @@ std::optional<RaycastHit> Physics::shape_cast3d(World& world, const CastShape& s
     return impl_->p3d.shape_cast(world, shape, from, to, options);
 }
 
+std::optional<CharacterMoveResult> Physics::move_character(World& world, Entity e, Vec3 delta) {
+    return impl_->p3d.move_character(world, e, delta);
+}
+std::vector<std::string> Physics::problems3d() const { return impl_->p3d.problems(); }
+
 void Physics::apply_impulse(World& world, Entity e, Vec3 impulse) {
     if (impl_->p2d.has_body(e)) impl_->p2d.apply_impulse(world, e, impulse);
     else if (impl_->p3d.has_body(e)) impl_->p3d.apply_impulse(world, e, impulse);

@@ -1073,6 +1073,45 @@
       {
        "sig": "setVelocity(entity: Entity, v: Vec3Like): void",
        "doc": "Sets a body's velocity (same as writing RigidBody.velocity)."
+      },
+      {
+       "sig": "moveCharacter(entity: Entity, delta: Vec3Like): CharacterMove",
+       "doc": "Moves an entity that has a CharacterController3D by `delta` metres with collide-and-slide: it slides along walls, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit, snaps down onto the ground, pushes dynamic bodies and is stopped by ceilings. Call it once per frame from onFixedUpdate with the walk of that frame (speed * time.fixedDt) plus your own gravity and jump (keep a vertical speed in the script and reset it when isGrounded). Throws an Error that explains the fix when the entity has no CharacterController3D."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "CharacterMove",
+     "doc": "Result of physics.moveCharacter.",
+     "members": [
+      {
+       "sig": "position: Vec3",
+       "doc": "World position of the entity after the move."
+      },
+      {
+       "sig": "moved: Vec3",
+       "doc": "How far it actually moved (less than the delta when blocked)."
+      },
+      {
+       "sig": "isGrounded: boolean",
+       "doc": "Standing on walkable ground (a slope not steeper than slopeLimit) after the move."
+      },
+      {
+       "sig": "groundNormal: Vec3",
+       "doc": "Surface normal of that ground (zero when not grounded)."
+      },
+      {
+       "sig": "ground: Entity | null",
+       "doc": "The entity it stands on, null in the air."
+      },
+      {
+       "sig": "hitWall: boolean",
+       "doc": "Blocked by a wall or a slope too steep to climb during this move."
+      },
+      {
+       "sig": "hitCeiling: boolean",
+       "doc": "Bumped its head on something above."
       }
      ]
     },

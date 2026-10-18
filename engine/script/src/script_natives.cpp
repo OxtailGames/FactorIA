@@ -1640,6 +1640,28 @@ NATIVE(physicsApply) {  // (kind 0 impulse|1 force|2 velocity, entity, x, y, z)
     return JS_UNDEFINED;
 }
 
+NATIVE(moveCharacter) {  // (entity, dx, dy, dz) -> { position, moved, isGrounded, groundNormal, ground, hitWall, hitCeiling }
+    SETUP;
+    Entity e;
+    JSValue exc = JS_UNDEFINED;
+    if (!need_entity(I, ctx, argc > 0 ? argv[0] : JS_UNDEFINED, e, exc)) return exc;
+    Vec3 delta{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    if (!W.get<CharacterController3D>(e))
+        return throw_err(ctx, "physics.moveCharacter(entity, delta): entity '" + W.id_of(e) + "' has no CharacterController3D. Add the component "
+                              "(radius, height, stepOffset, slopeLimit) to the entity that walks, or use RigidBody3D.velocity for a physics body.");
+    auto r = I->host->physics().move_character(W, e, delta);
+    if (!r) return throw_err(ctx, "physics.moveCharacter(entity, delta): the character could not move (delta must be finite numbers; the entity must be enabled).");
+    JSValue o = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, o, "position", array_of(ctx, {r->position.x, r->position.y, r->position.z}));
+    JS_SetPropertyStr(ctx, o, "moved", array_of(ctx, {r->moved.x, r->moved.y, r->moved.z}));
+    JS_SetPropertyStr(ctx, o, "isGrounded", JS_NewBool(ctx, r->isGrounded));
+    JS_SetPropertyStr(ctx, o, "groundNormal", array_of(ctx, {r->groundNormal.x, r->groundNormal.y, r->groundNormal.z}));
+    JS_SetPropertyStr(ctx, o, "ground", r->isGrounded ? ent_val(ctx, r->ground) : JS_NULL);
+    JS_SetPropertyStr(ctx, o, "hitWall", JS_NewBool(ctx, r->hitWall));
+    JS_SetPropertyStr(ctx, o, "hitCeiling", JS_NewBool(ctx, r->hitCeiling));
+    return o;
+}
+
 // ---- camera / debug -----------------------------------------------------------------------------------------------
 NATIVE(cameraMain) {
     SETUP;
@@ -2074,7 +2096,7 @@ const Reg kRegs[] = {
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

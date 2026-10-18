@@ -61,6 +61,40 @@
 //     Coulomb friction. Bodies are processed in creation order => deterministic. Dynamic bodies need a RigidBody3D; a
 //     Collider3D alone is static. 3D events: contact begin/end between solid colliders (within 1 cm) and trigger
 //     overlaps. Impulse = approach speed (m/s). Kinematic bodies follow RigidBody3D.velocity and push dynamic bodies.
+//   * 3D SHAPES (Collider3D.shape): Box, Sphere, CAPSULE (radius + height tip to tip along the entity's local Y, so it
+//     rotates with the entity), CONVEX (the convex hull of the vertices of Collider3D.mesh: a primitive name or a
+//     .gltf/.glb path, read without the GPU by fa_scene's load_mesh_geometry, cached by name; clouds over 256 points are
+//     reduced to the 256 extreme points of well-spread directions) and MESH (the triangles of Collider3D.mesh, STATIC
+//     ONLY: a dynamic or kinematic body with a mesh collider is reported as a teaching problem, logged once, shown in
+//     debug_state["problem"] and Physics::problems3d(), and its collider is ignored). Box and Sphere keep their exact
+//     code; Capsule, Convex and Mesh ("general" shapes) are convex cores (a point, a segment or a hull) plus a rounding
+//     radius, tested with GJK distance (EPA when the cores overlap, plane normal for a flat triangle). A mesh is split
+//     into triangles by a BVH (median split, 4 triangles per leaf) so only the triangles near the other shape are
+//     tested, and rays walk the BVH. Rigid-body contacts of general shapes are manifolds like boxes: a capsule lying
+//     flat gets two end points, a box or hull on a mesh gets its low corners ray-probed onto the surface, everything
+//     else one point; a dynamic capsule/convex has the bounding-box inertia and its origin is its centre of mass.
+//     Rays against a capsule/convex use sphere tracing over GJK (a ray grazing under ~3 degrees may miss); mesh rays are
+//     exact (Moller-Trumbore). Every shape works with contacts against every other shape, raycast3d, shape_cast3d,
+//     overlap_sphere3d, is_touching3d, CCD, sleeping, events and debug_shapes/debug_state (Capsule / Convex / Mesh kinds).
+//   * 3D JOINTS (Joint3D on an entity with RigidBody3D + Collider3D): Hinge, Ball or Fixed between that body and
+//     Joint3D.connected (empty = the world). Anchors are local points (autoAnchor derives the connected one from the
+//     current pose); a hinge has an axis, optional limits (degrees, relative to the pose the joint was created in) and an
+//     optional motor (degrees/s, torque limit). A point constraint (3x3 effective-mass inverse, Baumgarte feedback) plus
+//     angular rows are solved in the same sequential-impulse loop as the contacts, linearised and warm started each
+//     sub-step, so a pendulum keeps its physical period. Joint3D.angle (degrees) is written back. Bodies that are part of a
+//     joint always turn (rotating rigid bodies) and never sleep; collideConnected=false (default) stops the pair from
+//     colliding. Jointed bodies are processed in creation order => deterministic. A joint that cannot be built (no body,
+//     itself, a connected entity without a body) is a teaching problem like a bad mesh collider.
+//   * 3D CHARACTER CONTROLLER (CharacterController3D): a kinematic capsule (radius, height, centre, stepOffset,
+//     slopeLimit degrees, skin) moved by Physics::move_character (script: physics.moveCharacter) or by its `velocity`
+//     field every step. Collide-and-slide: the capsule is swept like shape_cast3d, stops a skin short of what it hits
+//     and slides the rest along the surface (up to 5 times). A wall that is a step (<= stepOffset) is climbed (lift,
+//     forward at least 0.7 radius, drop); a surface steeper than slopeLimit acts as a wall (not climbed); going down it
+//     snaps back onto the ground (stepOffset + skin). On a walkable slope the walk follows the surface, so horizontal
+//     speed is kept. Result: position, moved, isGrounded, groundNormal, ground, hitWall, hitCeiling (also in
+//     CharacterController3D.isGrounded / groundNormal). Dynamic bodies in the way get the character's speed (a push);
+//     the controller has no gravity (the script adds its own) and is not carried by moving platforms (riders on top
+//     of it are). Other bodies see it as a kinematic capsule.
 //   * 3D ROTATION DYNAMICS: a dynamic BOX, or a dynamic SPHERE with RigidBody3D.rollWithMotion off, without
 //     RigidBody3D.lockRotation is a rigid body. Its inertia tensor is the solid box's (diagonal in the box frame from the
 //     scaled size and mass, rotated into the world through the orientation) or the solid sphere's (2/5 m r^2 about every
@@ -173,6 +207,17 @@ struct CastShape {
 // example, "did you mean" for a misspelt shape or key, and a note when the 3D name is used in 2D or the other way round.
 Result<CastShape> cast_shape_from_json(const Json& j, bool is3d);
 
+// Result of Physics::move_character: where the character ended up and what it stands on.
+struct CharacterMoveResult {
+    Vec3 position;        // entity world position after the move
+    Vec3 moved;           // the displacement actually done
+    bool isGrounded = false;
+    Vec3 groundNormal{0, 1, 0};
+    Entity ground;        // entity under the feet (null when airborne)
+    bool hitWall = false;     // slid along a wall or a slope too steep to climb
+    bool hitCeiling = false;  // bumped its head
+};
+
 class Physics {
 public:
     Physics();
@@ -206,6 +251,13 @@ public:
     std::optional<RaycastHit> shape_cast3d(World& world, const CastShape& shape, Vec3 from, Vec3 to,
                                            const RaycastOptions& options = {});
 
+    // ----- 3D character controller (CharacterController3D): moves the capsule by `delta` (meters) with move-and-slide
+    // at once and writes the Transform; nullopt if the entity has no controller. See the conventions above.
+    std::optional<CharacterMoveResult> move_character(World& world, Entity e, Vec3 delta);
+    // Problems found in the 3D colliders / joints / controllers (one teaching message each), e.g. a Mesh collider on a
+    // dynamic body. The bodies concerned are ignored. Messages are also logged once and listed in debug_state.
+    std::vector<std::string> problems3d() const;
+
     // ----- direct body control (applied immediately if the body exists)
     void apply_impulse(World& world, Entity e, Vec3 impulse);  // 2D uses x,y
     void apply_force(World& world, Entity e, Vec3 force);
@@ -226,9 +278,11 @@ public:
     Json debug_state(const World& world) const;
     // 2D shapes: `rotation` = degrees about Z, `euler` stays zero. 3D shapes: `euler` = the WORLD rotation of an
     // oriented box as euler degrees (pitch about X, yaw about Y, roll about Z; same convention as Transform.rotation,
-    // zero for spheres) and `rotation` = euler.z. `size` is the box's full local size (unrotated extents).
+    // zero for spheres) and `rotation` = euler.z. `size` is the box's full local size (unrotated extents). Capsule:
+    // size = {diameter, full height, diameter} along the entity's local Y. Convex and Mesh: `center` and `size` are the
+    // oriented bounding box of the model (draw it as a box; the triangles are in debug_state's `triangles`).
     struct DebugShape {
-        enum Kind { Box, Circle, Sphere } kind;
+        enum Kind { Box, Circle, Sphere, Capsule, Convex, Mesh } kind;
         Vec3 center;
         Vec3 size;
         float rotation;

@@ -420,17 +420,58 @@ struct RigidBody3D {
     bool lockRotation = false;        // contacts never spin the body (characters, upright crates, sliding balls)
 };
 
-enum class ColliderShape3D : std::int32_t { Box, Sphere };
+// Box and Sphere are the primitive shapes; Capsule is a segment along the entity's local Y plus a radius; Convex is the
+// convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only).
+enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh };
 struct Collider3D {
     ColliderShape3D shape = ColliderShape3D::Box;
     Vec3 size{1, 1, 1};               // box extents (full size, in the entity's rotated frame, scaled by Transform.scale)
-    float radius = 0.5f;              // sphere radius
+    float radius = 0.5f;              // sphere / capsule radius
+    float height = 2.0f;              // capsule: full height tip to tip along the entity's local Y (>= 2 * radius)
+    std::string mesh;                 // convex / mesh: primitive name or project-relative .gltf/.glb path
     Vec3 offset{0, 0, 0};             // shape centre from the entity origin; rotated and scaled with the entity
     bool isTrigger = false;
     float friction = 0.4f;
     float restitution = 0.0f;
     std::int32_t layer = 0;
     std::int32_t mask = -1;
+};
+
+// Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body
+// is always a rotating rigid body (lockRotation and rollWithMotion are ignored), and never falls asleep.
+enum class JointType3D : std::int32_t { Hinge, Ball, Fixed };
+struct Joint3D {
+    JointType3D type = JointType3D::Hinge;
+    Entity connected;                 // the other body; empty = the world (a fixed point)
+    Vec3 anchor{0, 0, 0};             // joint point in THIS entity's local space (scaled with it)
+    Vec3 connectedAnchor{0, 0, 0};    // joint point in the connected entity's local space (the world, when `connected` is empty)
+    bool autoAnchor = true;           // compute connectedAnchor so that the joint holds exactly where the bodies are
+    Vec3 axis{0, 0, 1};               // hinge axis in this entity's local space
+    bool useLimits = false;           // hinge: keep the angle within [lowerLimit, upperLimit]
+    float lowerLimit = -45.0f;        // degrees, relative to the pose the joint was created in
+    float upperLimit = 45.0f;
+    bool useMotor = false;            // hinge: drive the angle at motorSpeed
+    float motorSpeed = 0.0f;          // degrees/second of this body relative to the connected one, about the axis
+    float maxMotorTorque = 10.0f;     // N*m the motor may apply
+    bool collideConnected = false;    // false: the two joined bodies do not collide with each other
+    float angle = 0.0f;               // runtime: current hinge angle in degrees (read only)
+};
+
+// Kinematic capsule that moves and slides: walks along floors, up steps and slopes, stops at walls, pushes dynamic
+// bodies. Moved with physics.moveCharacter(entity, delta) or by `velocity`; the entity origin is the capsule centre
+// (plus `center`). Do not add a RigidBody3D / Collider3D to the same entity.
+struct CharacterController3D {
+    float radius = 0.4f;              // capsule radius (scaled by Transform.scale)
+    float height = 1.8f;              // capsule height tip to tip (>= 2 * radius)
+    Vec3 center{0, 0, 0};             // capsule centre from the entity origin
+    float stepOffset = 0.3f;          // highest step it climbs, meters
+    float slopeLimit = 45.0f;         // steepest walkable slope, degrees
+    float skin = 0.02f;               // gap kept to surfaces, meters
+    std::int32_t layer = 0;
+    std::int32_t mask = -1;
+    Vec3 velocity{0, 0, 0};           // m/s: if not zero, the character moves by velocity * dt every physics step
+    bool isGrounded = false;          // runtime: standing on walkable ground after the last move (read only)
+    Vec3 groundNormal{0, 1, 0};       // runtime: normal of that ground (read only)
 };
 
 // ---------------------------------------------------------------- audio ---
