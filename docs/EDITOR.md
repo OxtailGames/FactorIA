@@ -122,7 +122,7 @@ window, the editor's front for `factoria setup` ([EXPORTING.md, Setting up this 
 It runs the very same code (`fa::setup_install`), so what a button installs is what `factoria setup` and the `setup.install`
 command install.
 
-- **The window** lists the components (the AppImage tools of a Linux export are installed with `factoria setup appimage`, not from here yet), each with its state (**Installed**, **Partly installed**, **Not installed**,
+- **The window** lists the components (the AppImage tools of a Linux export and the shader compiler are installed with `factoria setup appimage` and `factoria setup shaders`, not from here yet), each with its state (**Installed**, **Partly installed**, **Not installed**,
   **Not needed here**), what was found, the paths, what is missing and how big the download is, and one button:
   **Install** (or **Reinstall** when it is installed already), or **Open App Store** for Xcode, which a program cannot
   install. **Show in Finder** opens the folder everything is installed into (`~/.factoria`, or `$FACTORIA_HOME`); **Check

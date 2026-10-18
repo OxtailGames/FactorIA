@@ -7,6 +7,7 @@
 //   setup_cmake.cpp    CMake for the iOS export
 //   setup_xcode.cpp    Xcode: status and guidance
 //   setup_appimage.cpp appimagetool + the AppImage runtime (Linux x86_64)
+//   setup_shaders.cpp  sokol-shdc, the shader compiler of custom materials (and where it is looked for)
 #pragma once
 
 #include <chrono>
@@ -16,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "fa/tooling/export.h"  // executable_dir()
 #include "fa/tooling/setup.h"
 #include "fa/tooling/setup_parse.h"
 
@@ -35,6 +37,11 @@ std::string format_bytes(std::uint64_t bytes);
 int megabytes(std::uint64_t bytes);
 
 inline std::string exe_suffix(const std::string& hostOs) { return hostOs == "windows" ? ".exe" : ""; }
+
+// The folder of the running factoria (where mobile/ and sokol-shdc are looked for), or the one a test set.
+inline stdfs::path exe_dir(const SetupContext& ctx) {
+    return ctx.executableDir.empty() ? executable_dir() : stdfs::path(ctx.executableDir);
+}
 
 bool is_file(const stdfs::path& p);
 bool is_dir(const stdfs::path& p);
@@ -138,6 +145,11 @@ SetupResult xcode_install(const SetupContext& ctx, const SetupInstallOptions& op
 SetupComponent appimage_status(const SetupContext& ctx);
 AppImageTools installed_appimage_path(const SetupContext& ctx);  // both empty when not installed
 SetupResult appimage_install(const SetupContext& ctx, const SetupInstallOptions& options);
+
+SetupComponent shaders_status(const SetupContext& ctx);
+SetupResult shaders_install(const SetupContext& ctx, const SetupInstallOptions& options);
+// The install of one given binary entry (tests pass one whose hash matches their fake download; null = unsupported).
+SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& options, const SokolShdcBinary* bin);
 
 // What the three installers and the status share about Java and the SDK folders.
 bool jdk_usable(const std::string& dir);        // bin/java + bin/javac + Java 17 or newer
