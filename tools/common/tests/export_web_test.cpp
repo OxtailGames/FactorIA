@@ -230,7 +230,8 @@ TEST_CASE("export web: a dry run reports the plan and writes nothing") {
     CHECK(plan->mode == "explicit");
     CHECK(plan->format == "zip");
     CHECK(plan->player == (stdfs::path(o.playerBinary) / "factoria_player.js").generic_string());
-    CHECK(plan->artifact == (stdfs::path(tmp.sub("out")) / "web-test-web.zip").generic_string());
+    // The export resolves its folder (RUNNER~1 on Windows runners, /var -> /private/var on macOS): compare resolved paths.
+    CHECK(stdfs::weakly_canonical(plan->artifact) == stdfs::weakly_canonical(stdfs::path(tmp.sub("out")) / "web-test-web.zip"));
     CHECK(plan->to_json()["mode"] == "explicit");
     CHECK_FALSE(stdfs::exists(tmp.sub("out")));
 }
