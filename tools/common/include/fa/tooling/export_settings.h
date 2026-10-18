@@ -68,11 +68,41 @@ struct AndroidExportSettings {
     bool operator==(const AndroidExportSettings&) const = default;
 };
 
+// One required-reason API category of the privacy manifest (PrivacyInfo.xcprivacy) with the reason codes the app gives for
+// it, e.g. {"DiskSpace", {"E174.1"}} (the NSPrivacyAccessedAPICategory prefix is left out).
+struct IosPrivacyApi {
+    std::string category;
+    std::vector<std::string> reasons;
+    bool operator==(const IosPrivacyApi&) const = default;
+};
+
+// One kind of data the app collects (NSPrivacyCollectedDataTypes).
+struct IosPrivacyCollectedData {
+    std::string type;                    // "PurchaseHistory" (the NSPrivacyCollectedDataType... name without the prefix)
+    bool linked = false;                 // linked to the user's identity
+    bool tracking = false;               // used to track the user
+    std::vector<std::string> purposes;   // "AppFunctionality" (the NSPrivacyCollectedDataTypePurpose... names without the prefix)
+    bool operator==(const IosPrivacyCollectedData&) const = default;
+};
+
+// export.ios.privacy: what a game or its plugins add to the privacy manifest. The engine's own required-reason APIs are
+// always declared (ios_engine_privacy_apis in fa/tooling/ios_privacy.h); nothing is collected and nothing tracks unless
+// these say so.
+struct IosPrivacySettings {
+    bool tracking = false;                        // NSPrivacyTracking
+    std::vector<std::string> trackingDomains;     // NSPrivacyTrackingDomains (what tracking needs)
+    std::vector<IosPrivacyApi> accessedApis;      // added to (merged with) the engine's
+    std::vector<IosPrivacyCollectedData> collectedData;
+    bool operator==(const IosPrivacySettings&) const = default;
+};
+
 struct IosExportSettings {
     std::string icon;
     std::string iconBackground = "#FFFFFF";  // "#RRGGBB": the App Store icon cannot be transparent
     std::string teamId;                      // development team, 10 letters/digits; "" = FA_IOS_DEVELOPMENT_TEAM
     std::string buildNumber;                 // CFBundleVersion; "" = the project's "version"
+    bool usesNonExemptEncryption = false;    // ITSAppUsesNonExemptEncryption in Info.plist
+    IosPrivacySettings privacy;
     bool operator==(const IosExportSettings&) const = default;
 };
 

@@ -10,6 +10,7 @@
 
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/ios_privacy.h"
 #include "fa/tooling/setup.h"
 #include "util.h"
 
@@ -354,7 +355,165 @@ struct Reader : tooling_detail::SettingsReader<ExportSettingsParse> {
                 else s.buildNumber = v;
             }
         }
-        unknown_keys(o, base, names_of({"icon", "iconBackground", "teamId", "buildNumber"}));
+        if (auto it = o.find("usesNonExemptEncryption"); it != o.end() && !it->is_null()) {
+            if (!it->is_boolean())
+                error(base + "/usesNonExemptEncryption", "expected true or false, got " + describe_json_value(*it),
+                      "Write true only when the game uses encryption beyond what iOS provides (HTTPS through the system is exempt); "
+                      "remove the key for the default, false.");
+            else
+                s.usesNonExemptEncryption = it->get<bool>();
+        }
+        if (const Json* pv = object_member(o, base, "privacy", "{\"accessedApis\": [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]}"))
+            privacy(*pv, base + "/privacy", s.privacy);
+        unknown_keys(o, base, names_of({"icon", "iconBackground", "teamId", "buildNumber", "usesNonExemptEncryption", "privacy"}));
+    }
+
+    // An array of strings, each checked against `allowed` (when not empty) with a "did you mean"; duplicates are dropped.
+    // Returns false (after recording the errors) when the array or an element is wrong.
+    bool take_names(const Json& obj, const std::string& base, const char* key, const std::string& hint,
+                    const std::vector<std::string>& allowed, std::vector<std::string>& out) {
+        auto it = obj.find(key);
+        if (it == obj.end() || it->is_null()) return true;
+        if (!it->is_array()) {
+            error(base + "/" + key, "expected an array of strings, got " + describe_json_value(*it), hint);
+            return false;
+        }
+        std::vector<std::string> names;
+        bool ok = true;
+        for (std::size_t i = 0; i < it->size(); ++i) {
+            const Json& e = (*it)[i];
+            const std::string ptr = base + "/" + key + "/" + std::to_string(i);
+            if (!e.is_string()) {
+                error(ptr, "expected a string, got " + describe_json_value(e), hint);
+                ok = false;
+                continue;
+            }
+            const std::string v = e.get<std::string>();
+            if (!allowed.empty() && std::find(allowed.begin(), allowed.end(), v) == allowed.end()) {
+                error(ptr, "'" + v + "' is not a value Apple accepts here", did_you_mean(v, allowed) + " " + hint);
+                ok = false;
+                continue;
+            }
+            if (std::find(names.begin(), names.end(), v) == names.end()) names.push_back(v);
+        }
+        if (ok) out = std::move(names);
+        return ok;
+    }
+
+    // export.ios.privacy: what the game adds to the privacy manifest (the engine's own entries are always there).
+    void privacy(const Json& o, const std::string& base, IosPrivacySettings& s) {
+        if (auto it = o.find("tracking"); it != o.end() && !it->is_null()) {
+            if (!it->is_boolean())
+                error(base + "/tracking", "expected true or false, got " + describe_json_value(*it),
+                      "Write true only when the app or an SDK in it tracks users (NSPrivacyTracking); the default is false.");
+            else
+                s.tracking = it->get<bool>();
+        }
+        take_names(o, base, "trackingDomains", "Write the domains that are used to track, e.g. [\"ads.example.com\"].", {}, s.trackingDomains);
+        if (s.tracking && s.trackingDomains.empty())
+            warn(base + "/tracking", "tracking is true but trackingDomains is empty",
+                 "Apple expects the domains that connect to tracking services in trackingDomains; list them, or set tracking back to false.");
+        std::vector<std::string> categoryNames;
+        for (const IosPrivacyApiCategory& c : ios_privacy_api_categories()) categoryNames.push_back(c.category);
+        if (auto it = o.find("accessedApis"); it != o.end() && !it->is_null()) {
+            const std::string hint = "Write [{\"category\": \"DiskSpace\", \"reasons\": [\"E174.1\"]}]; docs/MOBILE.md lists the categories and codes.";
+            if (!it->is_array()) {
+                error(base + "/accessedApis", "expected an array of objects, got " + describe_json_value(*it), hint);
+            } else {
+                std::vector<IosPrivacyApi> apis;
+                bool ok = true;
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    const Json& e = (*it)[i];
+                    const std::string ptr = base + "/accessedApis/" + std::to_string(i);
+                    if (!e.is_object()) {
+                        error(ptr, "expected an object, got " + describe_json_value(e), hint);
+                        ok = false;
+                        continue;
+                    }
+                    std::string category;
+                    if (!take_nonempty(e, ptr, "category", category, "Name the API category, e.g. \"DiskSpace\".")) {
+                        if (!e.contains("category")) error(ptr + "/category", "missing", "Name the API category, e.g. \"DiskSpace\".");
+                        ok = false;
+                        continue;
+                    }
+                    const auto known = std::find_if(ios_privacy_api_categories().begin(), ios_privacy_api_categories().end(),
+                                                    [&](const IosPrivacyApiCategory& c) { return c.category == category; });
+                    if (known == ios_privacy_api_categories().end()) {
+                        error(ptr + "/category", "'" + category + "' is not a required-reason API category", did_you_mean(category, categoryNames));
+                        ok = false;
+                        continue;
+                    }
+                    const std::string reasonHint = "Pick from " + join(known->reasons, ", ") + " (docs/MOBILE.md says what each one allows).";
+                    IosPrivacyApi api;
+                    api.category = category;
+                    if (!e.contains("reasons") || !e["reasons"].is_array() || e["reasons"].empty()) {
+                        error(ptr + "/reasons", "missing or empty: Apple wants at least one reason code per category", reasonHint);
+                        ok = false;
+                        continue;
+                    }
+                    if (!take_names(e, ptr, "reasons", reasonHint, known->reasons, api.reasons)) {
+                        ok = false;
+                        continue;
+                    }
+                    unknown_keys(e, ptr, names_of({"category", "reasons"}));
+                    apis.push_back(std::move(api));
+                }
+                if (ok) s.accessedApis = std::move(apis);
+            }
+        }
+        if (auto it = o.find("collectedData"); it != o.end() && !it->is_null()) {
+            const std::string hint = "Write [{\"type\": \"PurchaseHistory\", \"linked\": true, \"purposes\": [\"AppFunctionality\"]}].";
+            if (!it->is_array()) {
+                error(base + "/collectedData", "expected an array of objects, got " + describe_json_value(*it), hint);
+            } else {
+                std::vector<IosPrivacyCollectedData> items;
+                bool ok = true;
+                for (std::size_t i = 0; i < it->size(); ++i) {
+                    const Json& e = (*it)[i];
+                    const std::string ptr = base + "/collectedData/" + std::to_string(i);
+                    if (!e.is_object()) {
+                        error(ptr, "expected an object, got " + describe_json_value(e), hint);
+                        ok = false;
+                        continue;
+                    }
+                    std::string type;
+                    if (!take_nonempty(e, ptr, "type", type, "Name the kind of data, e.g. \"PurchaseHistory\".")) {
+                        if (!e.contains("type")) error(ptr + "/type", "missing", "Name the kind of data, e.g. \"PurchaseHistory\".");
+                        ok = false;
+                        continue;
+                    }
+                    if (std::find(ios_privacy_data_types().begin(), ios_privacy_data_types().end(), type) == ios_privacy_data_types().end()) {
+                        error(ptr + "/type", "'" + type + "' is not a data type of Apple's privacy manifest",
+                              did_you_mean(type, ios_privacy_data_types()) + " docs/MOBILE.md lists them.");
+                        ok = false;
+                        continue;
+                    }
+                    IosPrivacyCollectedData d;
+                    d.type = type;
+                    for (const char* flag : {"linked", "tracking"}) {
+                        auto f = e.find(flag);
+                        if (f == e.end() || f->is_null()) continue;
+                        if (!f->is_boolean()) {
+                            error(ptr + "/" + flag, "expected true or false, got " + describe_json_value(*f), hint);
+                            ok = false;
+                        } else {
+                            (std::string(flag) == "linked" ? d.linked : d.tracking) = f->get<bool>();
+                        }
+                    }
+                    const std::string purposeHint = "Pick from " + join(ios_privacy_purposes(), ", ") + ".";
+                    if (!e.contains("purposes") || !e["purposes"].is_array() || e["purposes"].empty()) {
+                        error(ptr + "/purposes", "missing or empty: Apple wants at least one purpose per collected data type", purposeHint);
+                        ok = false;
+                    } else if (!take_names(e, ptr, "purposes", purposeHint, ios_privacy_purposes(), d.purposes)) {
+                        ok = false;
+                    }
+                    unknown_keys(e, ptr, names_of({"type", "linked", "tracking", "purposes"}));
+                    items.push_back(std::move(d));
+                }
+                if (ok) s.collectedData = std::move(items);
+            }
+        }
+        unknown_keys(o, base, names_of({"tracking", "trackingDomains", "accessedApis", "collectedData"}));
     }
 };
 
@@ -723,6 +882,9 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
         sync_field(o, "iconBackground", before.ios.iconBackground, now.ios.iconBackground, def.ios.iconBackground);
         sync_field(o, "teamId", before.ios.teamId, now.ios.teamId, def.ios.teamId);
         sync_field(o, "buildNumber", before.ios.buildNumber, now.ios.buildNumber, def.ios.buildNumber);
+        sync_field(o, "usesNonExemptEncryption", before.ios.usesNonExemptEncryption, now.ios.usesNonExemptEncryption,
+                   def.ios.usesNonExemptEncryption);
+        // export.ios.privacy is edited in factoria.json only: a save leaves it as it is.
         finish("ios");
     }
     if (before.scriptBytecode != now.scriptBytecode) {
