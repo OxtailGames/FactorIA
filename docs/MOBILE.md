@@ -175,6 +175,11 @@ emulator, and Google Play refuses it. For release:
    `apksigner verify --print-certs`), and `--format aab --release` builds `<game>.aab`, the bundle **Google Play takes**
    (upload it in the Play Console; with Play App Signing the key above is your upload key).
 
+To upload the bundle from FactorIA: `publish.googleplay` runs `fastlane supply` with a service account key
+(`FACTORIA_GOOGLEPLAY_JSON_KEY`) and refuses a debug-signed bundle. The first bundle of a new app must be uploaded by hand in
+the Play Console; the service account, the track and the release notes are in
+[EXPORTING.md](EXPORTING.md#google-play) (`publish_googleplay {"dryRun":true}` shows the command).
+
 The passwords reach Gradle only as environment variables of its process: they are not in `gradle.properties`, `build.gradle`,
 `build.log` or any file of the export, nor on a command line. A release export without a keystore uses the debug key and
 warns; a keystore that does not exist, or missing passwords, are reported by the plan (`project.export` with `dryRun`)
@@ -406,7 +411,10 @@ example): one static library per SDK, and an entry point defined with `@_cdecl` 
 part of the iOS SDK (the manifest names system frameworks only).
 
 App Store: archive from Xcode (Product > Archive) with a distribution
-certificate and provisioning profile. The icon comes from the game's `icon` (without one the app has the default
+certificate and provisioning profile, and export the archive as an `.ipa` (Organizer > Distribute App > App Store Connect >
+Export). `publish.appstore` uploads that `.ipa` to App Store Connect and TestFlight with an App Store Connect API key: the key,
+the build number, the processing time and what to do in TestFlight are in [EXPORTING.md](EXPORTING.md#app-store-connect-testflight)
+(`publish_appstore {"dryRun":true}` shows the `xcrun altool` command; it runs on a Mac). The icon comes from the game's `icon` (without one the app has the default
 icon and the export warns); the launch screen is the plain `UILaunchScreen` of `Info.plist.in`, change it in Xcode
 if you want a branded one. Raise `export.ios.buildNumber` for every upload.
 
