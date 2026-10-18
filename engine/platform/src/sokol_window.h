@@ -15,6 +15,9 @@ void fa_sapp_window_size(int* w, int* h);
 bool fa_sapp_display_size(int* w, int* h);
 // Resizes the client area to w x h logical pixels (a window that is not full screen). false: this platform cannot (mobile).
 bool fa_sapp_set_window_size(int w, int h);
+// The part of the window the notch, rounded corners and home indicator cover, in framebuffer pixels (iOS: the safeAreaInsets of
+// sokol_app's view times the display scale). false: this platform has none to report; the values are left alone.
+bool fa_sapp_safe_insets(float* left, float* top, float* right, float* bottom);
 // Turns vsync on or off while running. false: this platform or graphics driver cannot (the state is unchanged).
 bool fa_sapp_set_vsync(bool on);
 

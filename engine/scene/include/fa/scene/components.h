@@ -67,6 +67,8 @@ enum class RenderSpace : std::int32_t { World, Screen };
 // `anchor` (screen space only) picks the screen point the position is relative
 // to: (0,0) top-left (default), (1,0) top-right, (0.5,0.5) center, (1,1)
 // bottom-right — so HUDs stay glued to screen edges on any aspect ratio.
+// `safeArea` (screen space only) makes the anchor name a point of the SAFE area instead of the whole screen: the screen
+// minus the notch, rounded corners and system bars of a phone (World::safe_insets, screen.safeArea in scripts).
 
 // How a 2D item is composited: alpha (default), additive (glow/neon, fire,
 // lasers), multiply (shadows, tinting).
@@ -87,6 +89,7 @@ struct Sprite {
     bool pixelArt = true;             // nearest-neighbour filtering when true, linear otherwise
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to (see above)
+    bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
 };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
@@ -116,6 +119,7 @@ struct Shape2D {
     Vec2 pivot{0.5f, 0.5f};           // every shape but line: anchor within the shape's size box: 0,0 = bottom-left, 1,1 = top-right
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
+    bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
     std::int32_t sides = 6;           // polygon: number of sides (3..64); vertices on the ellipse inscribed in the size box, first one up
     std::int32_t points = 5;          // star: number of tips (3..64); tips on the inscribed ellipse, first one up
     float innerRadius = 0.5f;         // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
@@ -133,6 +137,7 @@ struct Text {
     std::int32_t layer = 100;
     RenderSpace space = RenderSpace::World;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
+    bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
 };
 
 // Grid of tiles drawn from a tileset texture. Tile index -1 = empty.
@@ -173,6 +178,7 @@ struct ParticleEmitter {
     bool autoDestroy = false;         // destroy the entity once it stopped emitting and all particles died (one-shot effects)
     RenderSpace space = RenderSpace::World;  // screen: drawn in the HUD pass in design pixels (origin top-left); ignored when is3D
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to
+    bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
 };
 
 // -------------------------------------------------------------------- UI ---
@@ -189,6 +195,7 @@ struct UiBox {
     Vec2 size{320, 240};                      // [w, h] in design pixels (each kind sets its own default)
     Vec2 pivot{0.5f, 0.5f};                   // 0,0 = bottom-left, 1,1 = top-right (like Shape2D)
     Vec2 anchor{0, 0};                        // screen point the position is relative to
+    bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
     std::int32_t layer = 200;                 // draw order; labels draw at layer + 1, the focus ring at layer + 2
     Color color{0.16f, 0.18f, 0.24f, 0.92f};  // background tint, multiplied with `texture`
     std::string texture;                      // optional background image, drawn 9-slice with `slice`

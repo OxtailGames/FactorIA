@@ -229,6 +229,14 @@ struct Rect {
     constexpr bool operator==(const Rect&) const = default;
 };
 
+// Distances from the four edges of a rectangle (the screen) inwards. The "safe area" of a phone is the screen minus
+// these: the notch, rounded corners, status and navigation bars.
+struct EdgeInsets {
+    float left = 0, top = 0, right = 0, bottom = 0;
+    constexpr bool operator==(const EdgeInsets&) const = default;
+    constexpr bool zero() const { return left == 0 && top == 0 && right == 0 && bottom == 0; }
+};
+
 // ---------------------------------------------------------------------------
 // Quat — unit quaternion (x, y, z, w). Mostly internal (glTF, slerp); the
 // public API uses euler degrees.

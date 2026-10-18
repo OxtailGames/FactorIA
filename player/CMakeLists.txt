@@ -13,6 +13,8 @@
 #   FA_GAME_ORIENTATION  landscape|portrait|any  (default landscape)
 #   FA_IOS_DEVELOPMENT_TEAM  Apple team id for signing (optional; can be set in Xcode)
 #   FA_GAME_ASSET_CATALOG    an Assets.xcassets folder with an AppIcon set (optional), compiled into the app
+#   FA_GAME_PRIVACY_MANIFEST a PrivacyInfo.xcprivacy file (optional), copied to the root of the app bundle
+#   FA_GAME_NON_EXEMPT_ENCRYPTION  ON = ITSAppUsesNonExemptEncryption true in Info.plist (default OFF = false)
 #   FA_GAME_PLUGINS, FA_GAME_PLUGIN_DIR  the game's native plugins, linked into the app (platforms/ios/plugins.cmake)
 file(GLOB player_srcs CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
@@ -34,6 +36,8 @@ elseif(FA_PLATFORM STREQUAL "ios")
     set(FA_GAME_PROJECT_DIR "" CACHE PATH "Game folder (contains factoria.json) to copy into the app bundle")
     set(FA_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple developer team id used for signing")
     set(FA_GAME_ASSET_CATALOG "" CACHE PATH "Assets.xcassets folder with an AppIcon set, compiled into the app (optional)")
+    set(FA_GAME_PRIVACY_MANIFEST "" CACHE FILEPATH "PrivacyInfo.xcprivacy copied to the root of the app bundle (optional)")
+    option(FA_GAME_NON_EXEMPT_ENCRYPTION "ITSAppUsesNonExemptEncryption true in Info.plist" OFF)
 
     set(FA_PLIST_OUT ${CMAKE_CURRENT_BINARY_DIR}/Info.plist)
     include(${FA_ROOT}/platforms/ios/plist.cmake)  # fa_ios_configure_plist(): orientations + XML-escaped name -> Info.plist.in
@@ -61,6 +65,7 @@ elseif(FA_PLATFORM STREQUAL "ios")
         set_source_files_properties("${FA_GAME_ASSET_CATALOG}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
         set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
     endif()
+    fa_ios_add_privacy_manifest(factoria_player)
     target_link_libraries(factoria_player PRIVATE "-framework UIKit" "-framework CoreGraphics" "-framework Metal" "-framework MetalKit"
         "-framework QuartzCore" "-framework Foundation" "-framework AudioToolbox" "-framework AVFoundation")
     include(${FA_ROOT}/platforms/ios/plugins.cmake)

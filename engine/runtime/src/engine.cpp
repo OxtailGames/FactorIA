@@ -274,6 +274,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // Store answers and events reach scripts here, before anything else of the frame runs (never in the middle of a call).
     platform.frame();
     scripts.dispatch_platform();
+    scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
         physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics

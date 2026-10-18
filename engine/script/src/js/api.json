@@ -873,15 +873,23 @@
       },
       {
        "sig": "readonly text: string",
-       "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, already composed (shift, dead keys, IME), control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed()."
+       "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits."
       },
       {
        "sig": "showKeyboard(on?: boolean): void",
-       "doc": "Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown)."
+       "doc": "Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown). A text field does this by itself when it gets and loses focus."
       },
       {
        "sig": "readonly keyboardShown: boolean",
        "doc": "The last value given to showKeyboard() (false at start)."
+      },
+      {
+       "sig": "onBack(handler: () => boolean | void): () => void",
+       "doc": "The system Back button or gesture of Android (nothing else sends it; a test sends it with game.pressBack()). Handlers run newest first at the start of the frame; the first one that does not return false consumes the press, so a handler that closes a menu returns true (or nothing) and one that has nothing to close returns false. When no handler consumes it, or there is none, the game quits, which is what Back did before this event existed. A handler that throws is reported and counts as consumed. Handlers end with the scene, like ui.on. Returns the function that removes the handler. Example: input.onBack(() => { if (!menu.open) return false; menu.close(); return true; });"
+      },
+      {
+       "sig": "vibrate(seconds?: number): void",
+       "doc": "One pulse of the vibration motor of a phone, seconds above 0 and up to 5 (default 0.1): 0.02 to 0.05 is a tap, 0.2 a buzz. iOS cannot pick a length: a short pulse is a haptic tap, a long one the system vibration; iPads have no motor. Android needs the VIBRATE permission, which the FactorIA Android template declares. A no-op on desktop; a headless run or test records the pulse (game.vibrations()). Throws for anything but a number in range."
       },
       {
        "sig": "actions(): string[]",
@@ -1164,6 +1172,48 @@
       {
        "sig": "readonly current: string",
        "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "ScreenInsets",
+     "doc": "How far a notch, rounded corners and the system bars cover the screen from each edge, in design pixels.",
+     "members": [
+      {
+       "sig": "left: number",
+       "doc": ""
+      },
+      {
+       "sig": "top: number",
+       "doc": ""
+      },
+      {
+       "sig": "right: number",
+       "doc": ""
+      },
+      {
+       "sig": "bottom: number",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "ScreenAPI",
+     "doc": "The screen as the player sees it, in design pixels with the origin at the top-left and +Y down (like screen-space Text and UI). On a phone the safe area is the screen minus the notch, rounded corners and the system bars; everywhere else (desktop, headless, tests without game.setSafeArea) it is the whole screen. It follows rotation. Give HUD items `safeArea: true` to anchor them to it without any script.",
+     "members": [
+      {
+       "sig": "readonly size: Vec2",
+       "doc": "The design resolution (the same as game.screenSize)."
+      },
+      {
+       "sig": "readonly insets: ScreenInsets",
+       "doc": "{ left, top, right, bottom }: the distance in design pixels the notch, corners and bars cover from each edge. All 0 on a screen without cutouts."
+      },
+      {
+       "sig": "readonly safeArea: Rect",
+       "doc": "The part of the screen to keep text and buttons in, as a Rect { x, y, w, h } in design pixels: (x, y) is its TOP-LEFT corner and y grows downwards (unlike entity.bounds(), which is in the +Y-up world). Read it every frame or when needed: it changes when the phone rotates. Example: const a = screen.safeArea; button.position = [a.x + a.w - 20, a.y + 20];"
       }
      ]
     },
@@ -1979,6 +2029,12 @@
     },
     {
      "kind": "const",
+     "name": "screen",
+     "type": "ScreenAPI",
+     "doc": "The screen and its safe area."
+    },
+    {
+     "kind": "const",
      "name": "window",
      "type": "WindowAPI",
      "doc": "The game window: full screen, size, vsync, frame cap."
@@ -2381,6 +2437,18 @@
       {
        "sig": "typeText(text: string): void",
        "doc": "Types text as the keyboard would: input.text returns it until the next step(). Control characters are skipped, as the real keyboard does; press Enter and Backspace with keyDown()/keyUp() or tap()."
+      },
+      {
+       "sig": "pressBack(): void",
+       "doc": "Presses the system Back button of Android. The input.onBack handlers run at the next step(); when none consumes it the game asks to quit (game.quitRequested in game.state())."
+      },
+      {
+       "sig": "setSafeArea(insets: { left?: number; top?: number; right?: number; bottom?: number } | \"none\" | \"phone-portrait\" | \"phone-landscape\"): void",
+       "doc": "Pretends the device has a notch, rounded corners or system bars: insets in design pixels from each edge (0 for those left out), or the profile of a typical phone. screen.safeArea, screen.insets and the items with `safeArea: true` follow at once (take a step() before checking layout of UI widgets). A negative or non-number inset throws. Reset to \"none\" before every test."
+      },
+      {
+       "sig": "vibrations(): number[]",
+       "doc": "The pulses input.vibrate() asked for since the test started, in seconds, oldest first (cleared before each test)."
       },
       {
        "sig": "gamepad(index?: number): TestGamepad",

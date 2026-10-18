@@ -17,7 +17,7 @@ else()
 endif()
 if(APPLE)
     set_source_files_properties(src/sokol_impl_apple.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-w")
-    set_source_files_properties(src/headless_apple.mm src/gamepad_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    set_source_files_properties(src/headless_apple.mm src/gamepad_apple.mm src/mobile_apple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 if(FA_PLATFORM STREQUAL "linux")

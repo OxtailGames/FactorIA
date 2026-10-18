@@ -2,6 +2,43 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Phones and tablets
+
+- Change to know about: `factoria export --platform android --release` now stops when your game has no signing key,
+  because Google Play rejects an app signed with the debug key. The message tells you how to make a key. To try a release
+  build on your own phone anyway, add `--allow-debug-key` (the export command's `allowDebugKey` option).
+- Menus and heads-up displays can keep clear of the notch, rounded corners and system bars: switch on `safeArea` next to
+  `anchor` on a sprite, text, shape, particle emitter or interface widget, and it is placed against the free part of the
+  screen. Scripts can read it as `screen.safeArea`. You can try a notched phone without one with
+  `screen.set_safe_area {"profile":"phone-portrait"}`.
+- The Android Back button and gesture now reach your game as `input.onBack`: close a menu or go up one screen and the game
+  stays open. If nothing handles it the game closes, as before.
+- `input.vibrate()` makes a phone vibrate (a light tap on iPhones). Exported Android games include the permission for it.
+- Android games can raise the on-screen keyboard for text fields and receive what is typed. Keyboards that compose words
+  (predictive text, swipe typing, emoji, Asian languages) still cannot type into an Android game; physical keyboards work.
+- Tests can press Back, fake a notch and check vibrations without a device.
+- iPhone and iPad exports include the privacy file the App Store asks for (`PrivacyInfo.xcprivacy`), listing the few
+  system features FactorIA uses and saying that nothing is collected or tracked. If your game or a plugin collects data,
+  tracks players or uses more system features, add them under `export.ios.privacy` in `factoria.json`; mistakes in it are
+  reported with the fix. The app also says it uses no special encryption, so App Store Connect stops asking at every
+  upload (`export.ios.usesNonExemptEncryption` changes it).
+- `factoria setup players --platforms mobile` now also downloads the iPhone and iPad libraries on Windows and Linux, so
+  you can prepare an iOS project there without pointing at a macOS download. Building it still needs a Mac.
+- The mobile guide lists what to answer in Google Play's Data safety form and in App Store Connect's App Privacy section.
+
+Upload your phone builds
+
+- Upload your iOS build to TestFlight and App Store Connect from your AI or the command line (`publish.appstore`,
+  on a Mac): you archive the game in Xcode as before, FactorIA sends the `.ipa` with an App Store Connect API key. Run it
+  with `dryRun` first to see the exact command.
+- Upload your Android release bundle to Google Play (`publish.googleplay`, needs fastlane): pick the track (internal
+  testing by default), leave the release as a draft or roll it out, and send the "What's new" text per language from
+  files of your project. A bundle signed with the debug key is refused before anything is sent. Google Play still wants the
+  first bundle of a new app uploaded by hand.
+- Your keys stay in files outside the project and are never shown or logged.
+
 ## 0.1.6
 
 Menus and on-screen interface

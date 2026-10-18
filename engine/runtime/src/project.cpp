@@ -1130,6 +1130,74 @@ constexpr const char* kSchemaText =
               "type": "string",
               "pattern": "^([0-9]+(\\.[0-9]+){0,2})?$",
               "description": "Build number of the app (CFBundleVersion): up to three whole numbers separated by dots, e.g. \"42\" or \"1.2.3\"; it must grow with every App Store upload of the same version. Default: the project's \"version\"."
+            },
+            "usesNonExemptEncryption": {
+              "type": "boolean",
+              "description": "ITSAppUsesNonExemptEncryption in Info.plist: true only when the game uses encryption beyond what iOS provides (HTTPS and other system encryption are exempt). Default false, so App Store Connect does not ask the export-compliance question at every upload."
+            },
+            "privacy": {
+              "type": "object",
+              "description": "What the game adds to the privacy manifest PrivacyInfo.xcprivacy that the iOS export writes into the app. The engine's own required-reason APIs (file timestamps, system boot time) are always declared; nothing is collected and nothing tracks unless this says so. Add what your plugins or scripts do. See docs/MOBILE.md, \"Store privacy forms\".",
+              "properties": {
+                "tracking": {
+                  "type": "boolean",
+                  "description": "NSPrivacyTracking: true when the app or an SDK in it tracks users across other companies' apps and sites. Default false. Needs trackingDomains."
+                },
+                "trackingDomains": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "NSPrivacyTrackingDomains: the domains that connect to tracking services, e.g. [\"ads.example.com\"]. Default none."
+                },
+                "accessedApis": {
+                  "type": "array",
+                  "description": "Required-reason APIs the game's plugins or native code call, on top of the engine's. Each entry names a category and the reason codes that fit; entries for a category the engine already declares are merged with it.",
+                  "items": {
+                    "type": "object",
+                    "required": ["category", "reasons"],
+                    "properties": {
+                      "category": {
+                        "type": "string",
+                        "enum": ["FileTimestamp", "SystemBootTime", "DiskSpace", "UserDefaults", "ActiveKeyboards"],
+                        "description": "The API category (the NSPrivacyAccessedAPICategory name without the prefix)."
+                      },
+                      "reasons": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": { "type": "string", "pattern": "^[A-Z0-9]{4}\\.[0-9]$" },
+                        "description": "Apple's reason codes for the category, e.g. [\"E174.1\"] for DiskSpace. FileTimestamp: DDA9.1, C617.1, 3B52.1, 0A2A.1. SystemBootTime: 35F9.1, 8FFB.1, 3D61.1. DiskSpace: E174.1, 85F4.1, 7D9E.1, B728.1. UserDefaults: CA92.1, 1C8F.1, C56D.1, AC6B.1. ActiveKeyboards: 3EC4.1, 54BD.1."
+                      }
+                    }
+                  }
+                },
+                "collectedData": {
+                  "type": "array",
+                  "description": "Data the app collects (NSPrivacyCollectedDataTypes), for example the purchase history a store plugin reads. Default none: a game that sends nothing off the device collects nothing.",
+                  "items": {
+                    "type": "object",
+                    "required": ["type", "purposes"],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "description": "The kind of data, without the NSPrivacyCollectedDataType prefix: Name, EmailAddress, PhoneNumber, PhysicalAddress, OtherUserContactInfo, Health, Fitness, PaymentInfo, CreditInfo, OtherFinancialInfo, PreciseLocation, CoarseLocation, SensitiveInfo, Contacts, EmailsOrTextMessages, PhotosOrVideos, AudioData, GameplayContent, CustomerSupport, OtherUserContent, BrowsingHistory, SearchHistory, UserID, DeviceID, PurchaseHistory, ProductInteraction, AdvertisingData, OtherUsageData, CrashData, PerformanceData, OtherDiagnosticData, EnvironmentScanning, Hands, Head or OtherDataTypes."
+                      },
+                      "linked": {
+                        "type": "boolean",
+                        "description": "True when the data is linked to the user's identity. Default false."
+                      },
+                      "tracking": {
+                        "type": "boolean",
+                        "description": "True when the data is used to track the user. Default false."
+                      },
+                      "purposes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": { "type": "string", "enum": ["ThirdPartyAdvertising", "DeveloperAdvertising", "Analytics", "ProductPersonalization", "AppFunctionality", "Other"] },
+                        "description": "Why the data is collected (the NSPrivacyCollectedDataTypePurpose name without the prefix)."
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -1142,7 +1210,7 @@ constexpr const char* kSchemaText =
 )JSON"
     R"JSON(    "publish": {
       "type": "object",
-      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic and publish.gog commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
+      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic, publish.gog, publish.appstore and publish.googleplay commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD; the App Store Connect API key and the Google Play service account key are files named by FACTORIA_APPSTORE_API_KEY and FACTORIA_GOOGLEPLAY_JSON_KEY) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
       "properties": {
         "steam": {
           "type": "object",
@@ -1241,6 +1309,44 @@ constexpr const char* kSchemaText =
                 "type": "string"
               },
               "description": "Locale codes of the languages the game supports, e.g. [\"en-US\", \"fr-FR\"]. Default [\"en-US\"]."
+            }
+          }
+        },
+        "appstore": {
+          "type": "object",
+          "description": "App Store Connect / TestFlight (the .ipa is uploaded with xcrun altool; macOS only). The bundle id is the game's top-level \"id\".",
+          "properties": {
+            "appleId": {
+              "type": [
+                "string",
+                "integer"
+              ],
+              "description": "The app's Apple ID, the number under App Store Connect > your app > App Information > General Information (e.g. 6448277777; not an e-mail address). The App Store Connect API key is a file named by the environment variable FACTORIA_APPSTORE_API_KEY (with FACTORIA_APPSTORE_API_KEY_ID and FACTORIA_APPSTORE_API_ISSUER), never written here."
+            }
+          }
+        },
+        "googleplay": {
+          "type": "object",
+          "description": "Google Play (the release .aab is uploaded with fastlane supply). The package name is the game's top-level \"id\". The service account key is a file named by the environment variable FACTORIA_GOOGLEPLAY_JSON_KEY, never written here. The first bundle of a new app must be uploaded by hand in the Play Console.",
+          "properties": {
+            "track": {
+              "type": "string",
+              "description": "Release track: internal, alpha, beta, production, or the name of a closed testing track. Default \"internal\"."
+            },
+            "releaseStatus": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "completed"
+              ],
+              "description": "draft: the release waits in the Play Console until you roll it out; completed: it rolls out right away (an app that was never published accepts only draft). Default \"draft\"."
+            },
+            "changelogs": {
+              "type": "object",
+              "description": "The release notes (\"What's new\") per Google Play language: {\"en-US\": \"store/whats-new-en.txt\"}. Each value is the project-relative path of a text file of 1 to 500 characters. Default: no release notes uploaded.",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           }
         }

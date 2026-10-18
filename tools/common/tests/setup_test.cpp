@@ -146,6 +146,7 @@ struct World {
     int sdkmanagerExit = 0;                          // the exit code of the package install
     std::string sdkmanagerOutput;                    // its stderr when it fails
     bool jdkBundle = true;                           // the JDK archive has Contents/Home (macOS) inside
+    bool unpackIosLibs = true;                       // the macOS package carries mobile/ios (false: a broken release)
     bool pinnedListed = true;                        // Google's listing still has cmdline-tools;22.0 (false: only `latest`)
     std::string jdkContent = std::string(400, 'J');
     std::string toolsContent = std::string(500, 'T');
@@ -315,7 +316,7 @@ struct World {
             const bool windows = name.find("windows") != std::string::npos;
             put(d / "FactorIA" / (windows ? "factoria_player.exe" : "factoria_player"), "player of " + name);
             for (const char* abi : {"arm64-v8a", "x86_64"}) put(d / "FactorIA" / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
-            if (name.find("macos") != std::string::npos)
+            if (name.find("macos") != std::string::npos && unpackIosLibs)
                 for (const char* sdk : {"iphoneos", "iphonesimulator"}) put(d / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
         } else if (starts_with(name, "cmake-")) {
             const std::string top = name.substr(0, name.find(".tar.gz"));
@@ -976,9 +977,11 @@ TEST_CASE("setup players: platforms narrows the install; Windows and Linux hosts
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(steps_of(r.report) == "mobile=installed");
-    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-linux-x64.tar.gz")});  // the host's package holds the libraries
+    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-macos-universal.tar.gz")});  // the macOS package holds the iOS libraries
     CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "android" / "jniLibs" / "arm64-v8a" / "libfactoria_player.so"));
-    CHECK_FALSE(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios"));  // the Linux package has no iOS libraries
+    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios" / "iphoneos" / "libfactoria_player_main.a"));  // on a Linux host too
+    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios" / "iphonesimulator" / "libfactoria_player_main.a"));
+    CHECK_FALSE(is_there(w.h() / "players" / "0.1.3" / "macos"));  // only its mobile/ was asked for
     CHECK(installed_mobile_dir(c) == (w.h() / "players" / "0.1.3" / "mobile").string());
     // The mobile libraries are there, the other desktop players (windows, macos) are not.
     CHECK(setup_status(c, "players").components[0].state == "partial");
@@ -994,7 +997,46 @@ TEST_CASE("setup players: a Windows host wants the Linux and macOS players") {
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(steps_of(r.report) == "player-linux=installed player-macos=installed mobile=installed");
     CHECK(is_there(w.h() / "players" / "0.1.3" / "macos" / "factoria_player"));
-    CHECK(w.requested.size() == 4);  // the release, linux, macos, and windows for the mobile libraries
+    CHECK(w.requested.size() == 3);  // the release, linux, and macos (which also holds the mobile libraries)
+}
+
+TEST_CASE("setup players: a Windows download has Android only, so the iOS libraries are still fetched from the macOS package") {
+    World w;
+    w.serve_release();
+    for (const char* abi : {"arm64-v8a", "x86_64"}) put(stdfs::path(w.exeDir) / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
+    SetupContext c = w.ctx("windows", "x64");
+    const SetupComponent before = setup_status(c, "players").components[0];
+    CHECK(before.details.find("iOS libraries") != std::string::npos);
+    CHECK(before.details.find("mobile libraries (Android + iOS)") == std::string::npos);  // Android is there already
+    SetupInstallOptions o;
+    o.component = "players";
+    o.platforms = {"mobile"};
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_MESSAGE(r.ok, r.error.message);
+    CHECK(steps_of(r.report) == "mobile=installed");
+    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-macos-universal.tar.gz")});
+    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios" / "iphoneos" / "libfactoria_player_main.a"));
+    // Both halves are there now: the same request downloads nothing.
+    const std::size_t requested = w.requested.size();
+    const SetupResult again = setup_install(o, c);
+    REQUIRE_MESSAGE(again.ok, again.error.message);
+    CHECK(steps_of(again.report) == "mobile=skipped");
+    CHECK(w.requested.size() == requested);
+}
+
+TEST_CASE("setup players: a macOS package without the iOS libraries is a broken release") {
+    World w;
+    w.serve_release();
+    w.unpackIosLibs = false;
+    SetupContext c = w.ctx("linux", "x64");
+    SetupInstallOptions o;
+    o.component = "players";
+    o.platforms = {"mobile"};
+    const SetupResult r = setup_install(o, c);
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.message.find("mobile/ios") != std::string::npos);
+    CHECK(r.error.hint.find("broken") != std::string::npos);
+    CHECK_FALSE(is_there(w.h() / "players" / "0.1.3" / "mobile"));
 }
 
 TEST_CASE("setup players: a Mac can install a Windows player (.exe)") {
@@ -1140,7 +1182,9 @@ TEST_CASE("setup players: a real tar.gz is unpacked with the system tar") {
     Asset a;
     a.name = name;
     a.content = bytes;
-    w.publish({a});
+    Asset macos = a;  // the mobile libraries come from the macOS package: the same archive stands in for it on a Linux host
+    macos.name = "FactorIA-macos-universal.tar.gz";
+    w.publish({a, macos});
 
     SetupContext c;  // this machine: the real tar, the real host
     c.env = [&](const std::string& n) {

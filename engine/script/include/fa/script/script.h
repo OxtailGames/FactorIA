@@ -189,6 +189,10 @@ public:
     // Start of every engine frame, before the fixed steps: settles the promises of platform requests that were answered
     // since the last frame, then calls the platform.on listeners for the events that came in, then runs pending jobs.
     void dispatch_platform();
+    // The system Back button (Android; Input::on_back): when it arrived since the last frame, calls the input.onBack handlers
+    // and, when none consumes it (or there are none), asks the host to quit, which is what Back did before the event
+    // existed. Once per frame, with dispatch_platform().
+    void dispatch_back();
 
     // Developer tools.
     Result<Json> eval(std::string_view code);  // REPL in the game context; returns the value as JSON
