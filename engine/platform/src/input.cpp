@@ -241,6 +241,14 @@ void Input::on_mouse_wheel(float dy) {
 // touch devices unchanged. It lives here, not in the platform event handler, so every feed (a device, game.touch in
 // tests) behaves the same.
 void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
+    if (touch_control_of(id)) return on_touch_move(id, designPos);  // duplicate begin of a finger a control holds
+    for (auto it = touchControls_.rbegin(); it != touchControls_.rend(); ++it) {  // the later control wins an overlap
+        if (it->down || !it->rect.contains(designPos)) continue;
+        it->down = true;
+        it->finger = id;
+        lastDevice_ = InputDevice::Touch;
+        return on_touch_move(id, designPos);
+    }
     for (auto& t : touches_) {
         if (t.id == id) {  // duplicate begin: treat as move
             on_touch_move(id, designPos);
@@ -260,6 +268,17 @@ void Input::on_touch_begin(std::uint64_t id, Vec2 designPos) {
 }
 
 void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
+    if (TouchControl* c = touch_control_of(id)) {
+        if (c->stick) {
+            const float radius = std::max(1.0f, std::min(c->rect.w, c->rect.h) * 0.5f);
+            Vec2 v = (designPos - c->rect.center()) / radius;
+            v.y = -v.y;  // stick +Y is up, the screen's is down
+            const float len = std::sqrt(v.x * v.x + v.y * v.y);
+            c->value = len > 1.0f ? v / len : v;
+        }
+        lastDevice_ = InputDevice::Touch;
+        return update_touch_pad();
+    }
     for (auto& t : touches_)
         if (t.id == id) {
             t.position = designPos;
@@ -269,6 +288,12 @@ void Input::on_touch_move(std::uint64_t id, Vec2 designPos) {
 }
 
 void Input::on_touch_end(std::uint64_t id) {
+    if (TouchControl* c = touch_control_of(id)) {
+        c->down = false;
+        c->value = {};
+        lastDevice_ = InputDevice::Touch;
+        return update_touch_pad();
+    }
     auto it = std::find_if(touches_.begin(), touches_.end(), [&](const Touch& t) { return t.id == id; });
     if (it == touches_.end()) return;
     Vec2 last = it->position;
@@ -283,6 +308,49 @@ void Input::on_touch_end(std::uint64_t id) {
         on_mouse_button(MouseButton::Left, false);
     }
     lastDevice_ = InputDevice::Touch;
+}
+
+Input::TouchControl* Input::touch_control_of(std::uint64_t finger) {
+    for (TouchControl& c : touchControls_)
+        if (c.down && c.finger == finger) return &c;
+    return nullptr;
+}
+
+void Input::set_touch_controls(std::vector<TouchControl> controls) {
+    for (TouchControl& c : controls) {
+        c.down = false;
+        c.value = {};
+        for (const TouchControl& old : touchControls_)
+            if (old.id == c.id && old.down) {
+                c.down = true;
+                c.finger = old.finger;
+                c.value = c.stick == old.stick ? old.value : Vec2{};
+            }
+    }
+    touchControls_ = std::move(controls);
+    update_touch_pad();
+}
+
+// Edges like a real pad's: a button that went down or up since begin_frame() keeps its edge.
+void Input::update_touch_pad() {
+    Pad& pad = pads_[kMaxGamepads];
+    std::array<bool, size_t(GamepadButton::Count)> buttons{};
+    pad.axes.fill(0.0f);
+    for (const TouchControl& c : touchControls_) {
+        if (!c.down) continue;
+        if (!c.stick) {
+            buttons[size_t(c.button)] = true;
+            continue;
+        }
+        const size_t x = size_t(c.rightStick ? GamepadAxis::RightX : GamepadAxis::LeftX);
+        pad.axes[x] = c.value.x;
+        pad.axes[x + 1] = c.value.y;
+    }
+    for (size_t i = 0; i < buttons.size(); ++i) {
+        if (buttons[i] && !pad.buttons[i]) pad.pressedEdge[i] = true;
+        if (!buttons[i] && pad.buttons[i]) pad.releasedEdge[i] = true;
+    }
+    pad.buttons = buttons;
 }
 
 void Input::on_text(std::uint32_t codepoint) { text_.push_back(char32_t(codepoint)); }
@@ -362,6 +430,11 @@ void Input::release_all() {
     touchDown_ = false;
     primaryTouchDown_ = false;  // its mouse button was released above
     for (int i = 0; i < kMaxGamepads; ++i) on_gamepad_connected(i, false);
+    for (TouchControl& c : touchControls_) {
+        c.down = false;
+        c.value = {};
+    }
+    update_touch_pad();
 }
 
 // ---------------------------------------------------------------------------
@@ -703,7 +776,7 @@ bool Input::action_pressed(std::string_view action) const {
                 case Binding::Kind::Mouse: edge = edge || mouse_pressed(b.mouse); break;
                 case Binding::Kind::Touch: edge = edge || touchPressedEdge_; break;
                 case Binding::Kind::PadButton:
-                    for (int i = 0; i < kMaxGamepads; ++i) edge = edge || gamepad_pressed(i, b.button);
+                    for (const Pad& pad : pads_) edge = edge || pad.pressedEdge[size_t(b.button)];  // the touch pad too
                     break;
                 // An analog value has no event, only a level: it is a press when it is up now and was not at frame start.
                 case Binding::Kind::PadAxis: edge = edge || binding_value(b, false) >= kActionDownThreshold; break;
@@ -727,7 +800,7 @@ bool Input::action_released(std::string_view action) const {
                 case Binding::Kind::Mouse: edge = edge || mouse_released(b.mouse); break;
                 case Binding::Kind::Touch: edge = edge || touchReleasedEdge_; break;
                 case Binding::Kind::PadButton:
-                    for (int i = 0; i < kMaxGamepads; ++i) edge = edge || gamepad_released(i, b.button);
+                    for (const Pad& pad : pads_) edge = edge || pad.releasedEdge[size_t(b.button)];
                     break;
                 case Binding::Kind::PadAxis: break;  // was down and is not now: wasDown covers it
             }

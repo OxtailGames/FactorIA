@@ -71,6 +71,44 @@ std::vector<Item> controls(const World& w, Vec2 design) {
     return out;
 }
 
+// The on-screen gamepad: the rectangles of the active TouchStick / TouchButton widgets go to Input in creation order (a
+// later one wins an overlap, like the pointer); the touch pad's state comes back into their runtime fields.
+void touch_controls(World& w, Input& in, Vec2 design) {
+    static_assert(std::size_t(PadButton::RightThumb) + 1 == std::size_t(GamepadButton::Count), "PadButton mirrors GamepadButton");
+    if (w.entities_with(&World::type_of<TouchStick>()).empty() && w.entities_with(&World::type_of<TouchButton>()).empty()) {
+        if (!in.touch_controls().empty()) in.set_touch_controls({});
+        return;
+    }
+    std::vector<Input::TouchControl> list;
+    for (Entity e : w.entities()) {
+        const UiKind k = ui_kind(w, e);
+        if ((k != UiKind::TouchStick && k != UiKind::TouchButton) || !w.active_in_hierarchy(e)) continue;
+        Input::TouchControl c;
+        c.id = e.bits();
+        c.rect = *ui_rect(w, e, design);
+        if (const TouchStick* s = w.get<TouchStick>(e)) {
+            c.stick = true;
+            c.rightStick = s->stick == TouchStickSide::Right;
+        } else {
+            c.button = GamepadButton(w.get<TouchButton>(e)->button);
+        }
+        list.push_back(c);
+    }
+    in.set_touch_controls(std::move(list));
+    const bool touch = in.last_device() == InputDevice::Touch;
+    for (const Input::TouchControl& c : in.touch_controls()) {
+        const Entity e = Entity::from_bits(c.id);
+        if (TouchStick* s = w.get<TouchStick>(e)) {
+            s->value = c.value;
+            s->pressed = c.down;
+            s->shown = touch || !s->touchOnly;
+        } else if (TouchButton* b = w.get<TouchButton>(e)) {
+            b->pressed = c.down;
+            b->shown = touch || !b->touchOnly;
+        }
+    }
+}
+
 void reading_order(std::vector<Item>& items) {
     std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
         return a.rect.y != b.rect.y ? a.rect.y < b.rect.y : a.rect.x < b.rect.x;
@@ -141,8 +179,9 @@ bool UiSystem::set_focus(World& w, Entity e) {
     return true;
 }
 
-void UiSystem::update(World& w, const Input& in, Vec2 design, float dt, const VisualMeasure& measure) {
+void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMeasure& measure) {
     layout(w, design, measure);
+    touch_controls(w, in, design);
     clock_ += dt;
     const std::vector<Item> items = controls(w, design);  // creation order
     std::vector<Item> ordered = items;                    // reading order: top, then left
@@ -334,6 +373,14 @@ Json UiSystem::state(const World& w, Vec2 design) const {
             j["text"] = b->text;
         } else if (const TextField* f = w.get<TextField>(it.e)) {
             j["text"] = f->text;
+        } else if (const TouchStick* ts = w.get<TouchStick>(it.e)) {
+            j["value"] = to_json(ts->value);
+            j["pressed"] = ts->pressed;
+            j["visible"] = visible && ts->shown;
+        } else if (const TouchButton* tb = w.get<TouchButton>(it.e)) {
+            j["pressed"] = tb->pressed;
+            j["visible"] = visible && tb->shown;
+            if (!tb->text.empty()) j["text"] = tb->text;
         }
         list.push_back(std::move(j));
     }

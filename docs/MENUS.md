@@ -93,6 +93,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   test). Android's Back button is `input.onBack`: register one handler per open screen (options closes to the main menu,
   the pause menu resumes) that returns `true`, and let the root menu return `false` so Back leaves the game
   (docs/MOBILE.md, "Phone features").
+- **Phones: playing without a pad.** The menus already work by touch. For the game itself, add a `TouchStick` and a few
+  `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
+  uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
 
 ## The files
 

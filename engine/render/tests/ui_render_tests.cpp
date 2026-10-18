@@ -1,5 +1,5 @@
-// Drawing of the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList): 9-slice, state tints, labels,
-// focus ring, clipping. Interaction (focus, hover, values) is fa_ui's; here the runtime flags are set by hand.
+// Drawing of the game UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the on-screen gamepad): 9-slice,
+// state tints, labels, focus ring, clipping. Interaction (focus, hover, values) is fa_ui's; here the runtime flags are set by hand.
 #include "test_util.h"
 
 #include <algorithm>
@@ -186,4 +186,33 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
     CHECK(near(img.pixel(40, 165), Color::hex(0x40e040), 0.03f));  // a Shape2D under the list is cut at the same edge
     CHECK(near(img.pixel(40, 172), clear, 0.05f));
     expect_golden(img, "2d_widgets");
+}
+
+TEST_CASE("on-screen gamepad: discs, the knob follows the stick value, a hidden control draws nothing") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam"));
+    TouchStick& stick = widget<TouchStick>(w, "stick", 10, 10, 100, 100);  // centre (60, 60), radius 50
+    stick.color = Color::hex(0xe04040);
+    stick.knobColor = Color::hex(0x40e040);
+    stick.value = {1, 0};  // full tilt right: the knob (radius 22.5) is centred on the right edge
+    stick.shown = true;
+    TouchButton& held = widget<TouchButton>(w, "held", 130, 10, 60, 60);
+    held.color = Color::hex(0x4040e0);
+    held.pressed = true;
+    held.shown = true;
+    TouchButton& hidden = widget<TouchButton>(w, "hidden", 210, 10, 60, 60);
+    hidden.color = Color::hex(0xe0e040);
+
+    Image img = g.render(w);
+    const Color clear = Color{0.08f, 0.08f, 0.12f, 1};
+    CHECK(near(img.pixel(40, 60), Color::hex(0xe04040), 0.03f));  // the disc
+    CHECK(near(img.pixel(104, 60), Color::hex(0x40e040), 0.03f)); // the knob, moved right
+    CHECK(near(img.pixel(60, 60), Color::hex(0xe04040), 0.03f));  // the centre is uncovered
+    CHECK(near(img.pixel(12, 12), clear, 0.03f));                 // a corner of the box is outside the disc
+    const Color pressed = img.pixel(160, 40);
+    CHECK(pressed.b > clear.b + 0.2f);
+    CHECK(pressed.b < Color::hex(0x4040e0).b - 0.1f);             // held: darker than its colour
+    CHECK(near(img.pixel(240, 40), clear, 0.03f));                // not shown: not drawn
 }

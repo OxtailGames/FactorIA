@@ -243,6 +243,9 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   frees it. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
   `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
   (`docs/MOBILE.md`). Real pads tried so far: an Xbox Wireless Controller on macOS; Linux and Android not yet.
+  On phones the `TouchStick` and `TouchButton` components draw an on-screen pad whose fingers feed the same gamepad
+  bindings, so these actions work there unchanged (docs/MOBILE.md, "On-screen gamepad"); `gamepad(index)` does not
+  list it, and fingers on it are not in `touches`.
 - Options menus (rebinding, "press any key", button labels):
   - `actions()` lists the action names; `bindings(action)` the names bound to one (`["Space", "GamepadA"]`).
     `rebind(action, bindings)` replaces ALL of an action's bindings at once (`input.rebind("jump", ["Enter",

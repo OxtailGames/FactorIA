@@ -144,6 +144,8 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             return;
         }
         apply_expand(st->engine, app_framebuffer_width(), app_framebuffer_height());
+        // A phone is played by touch from the start: touch-only on-screen controls are drawn before the first finger.
+        if (app_is_mobile()) st->engine.input().set_last_device(InputDevice::Touch);
     };
     d.frame = [st](double dt) {
         if (!st->ok) return;

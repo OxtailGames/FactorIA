@@ -198,6 +198,32 @@ public:
     const std::vector<float>& vibrations() const { return vibrations_; }
     void clear_vibrations() { vibrations_.clear(); }
 
+    // -------- on-screen gamepad (the TouchStick and TouchButton components; fa_ui sets the controls every frame)
+    // A TouchControl is a region of the screen that takes the fingers landing in it for the TOUCH PAD: a virtual pad the
+    // action bindings read like any connected pad (GamepadA, GamepadLeftStickRight...), so a game reads the same actions
+    // on a phone as with a real pad. The touch pad has no number: gamepad_connected/down/axis(index) never see it and it
+    // does not make last_device() a gamepad (a finger is touch). A finger a control takes stays out of touches(), the
+    // "Touch" binding and the mouse until it lifts, so a game's own touch or mouse handling never sees the stick.
+    struct TouchControl {
+        std::uint64_t id = 0;  // stable from frame to frame (fa_ui uses the entity), so a held finger stays on its control
+        Rect rect;             // design pixels, top-left origin, +Y down
+        bool stick = false;    // true: a stick, false: a button
+        bool rightStick = false;                  // stick: drives the right stick instead of the left one
+        GamepadButton button = GamepadButton::A;  // button: the pad button it holds down
+        // State, written by Input:
+        bool down = false;     // a finger is on it
+        Vec2 value;            // stick: the finger's offset from the centre over the radius (half the shorter side),
+                               // length <= 1, +Y up; the stick axes take it raw, so the deadzone applies like on a pad
+        std::uint64_t finger = 0;
+    };
+    // Replaces the controls; when two overlap, the LATER one takes the finger. A control that keeps its id keeps its finger
+    // and state; a held control that is gone releases its button or stick (its finger is ignored until it lifts).
+    void set_touch_controls(std::vector<TouchControl> controls);
+    const std::vector<TouchControl>& touch_controls() const { return touchControls_; }
+    // What the player uses before any input arrives: the runtime says Touch on a phone or tablet, so touch-only on-screen
+    // controls are drawn from the first frame.
+    void set_last_device(InputDevice device) { lastDevice_ = device; }
+
     // -------- actions
     // Replaces all actions from the project's "input.actions" JSON object (and remembers that object: reset_bindings).
     // Returns problems (unknown binding names, with suggestions).
@@ -278,6 +304,8 @@ private:
                                             const std::vector<std::string>& candidates,
                                             std::vector<std::string>& problems) const;
     static std::string binding_name(const Binding& b);  // canonical spelling, the inverse of parse_binding
+    TouchControl* touch_control_of(std::uint64_t finger);  // the control holding `finger`, nullptr when none
+    void update_touch_pad();                               // the touch pad's buttons and axes from the held controls
 
     std::array<bool, size_t(Key::Count)> keys_{};
     std::array<bool, size_t(Key::Count)> prevKeys_{};
@@ -295,7 +323,10 @@ private:
     bool primaryTouchDown_ = false;  // the first finger is down and mirrored onto the mouse
     std::uint64_t primaryTouchId_ = 0;
     std::u32string text_;
-    std::array<Pad, kMaxGamepads> pads_;
+    // The numbered pads, then the touch pad (pads_[kMaxGamepads]): the bindings loop over all of them, the numbered
+    // queries stop before it.
+    std::array<Pad, kMaxGamepads + 1> pads_;
+    std::vector<TouchControl> touchControls_;
     float deadzone_ = 0.2f;
     InputDevice lastDevice_ = InputDevice::Keyboard;
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false;
