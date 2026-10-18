@@ -99,18 +99,12 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
     searched.push_back(generic(exeDir / "web"));
     if (const std::string installed = installed_player("web"); !installed.empty()) return player_in(stdfs::path(installed).parent_path(), "installed");
     searched.push_back("<FactorIA home>/players/<version>/web (`factoria setup players --platforms web`)");
-    // A web build of the engine source (Emscripten, preset web-release): in the build tree around factoria, or in the checkout.
-    std::vector<stdfs::path> roots;
-    stdfs::path up = exeDir;
-    for (int i = 0; i < 5 && !up.empty(); ++i, up = up.parent_path()) {
-        roots.push_back(up);
-        if (up == up.parent_path()) break;
-    }
-    if (!sourceRoot.empty()) roots.push_back(stdfs::path(sourceRoot) / "build");
-    for (const stdfs::path& root : roots)
+    // A web build of the engine source (Emscripten, preset web-release) in the checkout factoria was built from.
+    if (!sourceRoot.empty())
         for (const char* build : {"web-release", "web"})
-            if (const stdfs::path dir = root / build / "player"; has_player(dir)) return player_in(dir, "build");
-    searched.push_back("build/web-release/player (a web build of the engine source, near factoria or in the checkout)");
+            if (const stdfs::path dir = stdfs::path(sourceRoot) / "build" / build / "player"; has_player(dir))
+                return player_in(dir, "build");
+    searched.push_back(generic(stdfs::path(sourceRoot) / "build" / "web-release" / "player") + " (a web build of the engine source)");
     return err("export: no web player found: factoria_player.js and factoria_player.wasm are not in " + join(searched, ", "),
                "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the web player of this FactorIA "
                "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ folder with --player <folder>");

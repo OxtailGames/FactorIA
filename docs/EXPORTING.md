@@ -768,8 +768,8 @@ limits the export checks and warns about: at most 1000 files, 500 MB unpacked, 2
 2. `web/` next to the `factoria` binary: every FactorIA download has it, like `mobile/`.
 3. The one `factoria setup players --platforms web` installed (`<FactorIA home>/players/<version>/web/`, taken from the
    download of this machine's own OS; a factoria that has `web/` next to it never needs it).
-4. A web build of the engine source: `build/web-release/player/` (or `web/player/`) in the build tree around the
-   factoria binary or in the checkout it was built from ([BUILDING.md](BUILDING.md)).
+4. A web build of the engine source: `build/web-release/player/` (or `build/web/player/`) in the checkout factoria was
+   built from ([BUILDING.md](BUILDING.md)). A build directory elsewhere: pass its `player/` folder with `--player`.
 
 With none of them the export stops before writing anything and says which folders it looked in and the command that fixes
 it. `--json` and the plan (`dryRun`) report where the player came from as `mode` (`explicit`, `package`, `installed` or
