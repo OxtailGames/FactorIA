@@ -23,7 +23,6 @@ Result<void> convert_shaders(ExportAssets& ea) {
     ShaderCompileOptions options;
     options.setup = ea.setup;
     options.dialects = *dialects;
-    std::vector<std::string> snippets;
     for (const std::string& path : materials) {
         auto compiled = compile_material(ea.project.dir.string(), path, options);
         if (!compiled.ok()) return err("export: the shaders of " + path + " cannot be compiled: " + compiled.error().message, compiled.error().hint);
@@ -39,12 +38,9 @@ Result<void> convert_shaders(ExportAssets& ea) {
             if (!write_file(source, twin.dump(), &e)) return err("export: " + e);
             ea.replace("", shipped, source);
         }
-        snippets.push_back(compiled->material.shader);
+        std::erase(ea.files, compiled->material.shader);  // `materials` is a copy
+        ea.project.staged.erase(compiled->material.shader);
         ea.report.materials.push_back(path);
-    }
-    for (const std::string& s : snippets) {
-        ea.files.erase(std::remove(ea.files.begin(), ea.files.end(), s), ea.files.end());
-        ea.project.staged.erase(s);
     }
     return {};
 }

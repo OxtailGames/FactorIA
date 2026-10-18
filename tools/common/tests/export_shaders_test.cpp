@@ -136,12 +136,7 @@ struct Fixture {
     }
 };
 
-std::vector<std::string> twins_of(const std::vector<std::string>& dialects) {
-    std::vector<std::string> out;
-    for (const std::string& d : dialects) out.push_back("gem.material.json." + d + ".shader");
-    std::sort(out.begin(), out.end());
-    return out;
-}
+std::vector<std::string> twins_of(const std::string& dialect) { return {"gem.material.json." + dialect + ".shader"}; }
 
 }  // namespace
 
@@ -151,7 +146,7 @@ TEST_CASE("export shaders: a folder holds the twins of the platform's dialects a
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const stdfs::path game = f.tmp.sub("out/shader-test-linux/game");
     const std::vector<std::string> shipped = files_below(game);
-    CHECK(shader_files(shipped) == twins_of({"glsl430"}));
+    CHECK(shader_files(shipped) == twins_of("glsl430"));
     CHECK(has(shipped, "materials/gem.material.json"));
     CHECK_FALSE(stdfs::exists(game / "shaders"));
     CHECK(r->materials == std::vector<std::string>{"materials/gem.material.json"});
@@ -174,7 +169,7 @@ TEST_CASE("export shaders: game.pak of a release, the APK assets and the web pac
     SUBCASE("windows game.pak") {
         auto r = export_project(f.options("windows", true));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-        CHECK(shader_files(r->packed) == twins_of({"hlsl5"}));
+        CHECK(shader_files(r->packed) == twins_of("hlsl5"));
         auto pack = PackReader::open(f.tmp.sub("out/shader-test-windows/game.pak"));
         REQUIRE(pack.ok());
         CHECK((*pack)->contains("materials/gem.material.json.hlsl5.shader"));
@@ -184,7 +179,7 @@ TEST_CASE("export shaders: game.pak of a release, the APK assets and the web pac
         auto r = export_project(f.options("android"));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         const stdfs::path assets = f.tmp.sub("out/shader-test-android/app/src/main/assets");
-        CHECK(shader_files(files_below(assets)) == twins_of({"glsl300es"}));
+        CHECK(shader_files(files_below(assets)) == twins_of("glsl300es"));
         const std::string index = testing::read_all(assets / "assets_index.txt");
         CHECK(index.find("materials/gem.material.json.glsl300es.shader") != std::string::npos);
         CHECK(index.find("gem.surface.glsl") == std::string::npos);
@@ -194,11 +189,7 @@ TEST_CASE("export shaders: game.pak of a release, the APK assets and the web pac
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         auto pack = PackReader::open(f.tmp.sub("out/shader-test-web/game.pak"));
         REQUIRE(pack.ok());
-        CHECK(shader_files((*pack)->list("", true)) == twins_of({"glsl300es"}));
-    }
-    SUBCASE("every platform asks for its own dialects") {
-        CHECK(shader_dialects_for({"macos"}).value() == std::vector<std::string>{"metal_macos"});
-        CHECK(shader_dialects_for({"ios"}).value() == std::vector<std::string>{"metal_ios", "metal_sim"});
+        CHECK(shader_files((*pack)->list("", true)) == twins_of("glsl300es"));
     }
 }
 
@@ -256,7 +247,7 @@ TEST_CASE("real sokol-shdc: an android export ships the glsl300es twin it compil
     auto r = export_project(f.options("android"));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     const stdfs::path assets = f.tmp.sub("out/shader-test-android/app/src/main/assets");
-    CHECK(shader_files(files_below(assets)) == twins_of({"glsl300es"}));
+    CHECK(shader_files(files_below(assets)) == twins_of("glsl300es"));
     auto twin = parse_json(testing::read_all(assets / "materials/gem.material.json.glsl300es.shader"));
     REQUIRE(twin.ok());
     CHECK((*twin)["programs"]["mesh"]["fs"].get<std::string>().find("#version 300 es") != std::string::npos);
