@@ -10,7 +10,9 @@
 // the string tables (locales/<language>.json: missing, extra and misspelled keys, placeholders, plural forms), the `key`s of
 // scenes and prefabs, and whether the fonts have a glyph for every character the game shows (docs/LOCALIZATION.md,
 // "Checks"), scripts
-// (via optional hooks installed by the CLI once the script module exists: syntax, Script.props, misspelled hooks).
+// (via optional hooks installed by the CLI once the script module exists: syntax, Script.props, misspelled hooks), and every
+// custom material (*.material.json: the file against schemas/material.schema.json, then its snippet compiled for every shader
+// dialect when sokol-shdc is found; a warning says so when it is not; fa/tooling/shaders.h).
 #pragma once
 
 #include <functional>
@@ -19,6 +21,7 @@
 
 #include "fa/core/command.h"
 #include "fa/core/json.h"
+#include "fa/tooling/setup.h"
 
 namespace fa {
 
@@ -37,6 +40,7 @@ struct ValidationReport {
     std::vector<ValidationIssue> warnings;
     int scenesChecked = 0;
     int scriptsChecked = 0;
+    int materialsChecked = 0;  // *.material.json files (custom materials; their snippets are compiled when sokol-shdc is found)
     Json to_json() const;
     std::string to_text() const;  // multi-line, for the CLI
 };
@@ -58,6 +62,7 @@ struct ValidateOptions {
     ScriptHooksCheckHook hooksCheck;  // empty: behaviour method names are not checked
     ScriptCheckHook scriptCheck;      // empty: scripts are counted, not compiled
     bool checkScenes = true;      // load scenes into a temporary World
+    SetupContext shaderContext;   // where sokol-shdc is looked for and how it is started, for the snippets of custom materials (tests change it)
 };
 
 ValidationReport validate_project(const std::string& projectDir, const ValidateOptions& options = {});

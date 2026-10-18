@@ -19,7 +19,7 @@ namespace fa::cli {
 namespace {
 
 const std::vector<std::string>& components() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders"};
     return ids;
 }
 
@@ -143,7 +143,7 @@ int run_install(Context& ctx, const std::string& component) {
 Command make_setup_command() {
     Command g;
     g.name = "setup";
-    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools).";
+    g.summary = "Check this computer for exporting and install what is missing (Android JDK + SDK, players, CMake, AppImage tools, the shader compiler).";
     g.usage = "";
     g.details =
         "'factoria setup' shows what an export needs and whether this computer has it. 'factoria setup <component>' installs it into\n"
@@ -155,7 +155,9 @@ Command make_setup_command() {
         "  cmake    CMake 3.24+ for the iOS export (macOS), unless one is found.\n"
         "  xcode    macOS: checks Xcode; 'setup xcode' opens its App Store page and says what to do next.\n"
         "  appimage Linux x86_64 (and WSL): appimagetool and the AppImage runtime, so 'factoria export --platform linux --format appimage'\n"
-        "           also builds the game as one AppImage file.";
+        "           also builds the game as one AppImage file.\n"
+        "  shaders  sokol-shdc, the shader compiler of custom materials (*.material.json): the pinned build for this computer, checked\n"
+        "           against a SHA-256. Not needed when $SOKOL_SHDC or a sokol-shdc next to factoria is found (downloads carry one).";
     g.maxPositional = 1;
     g.flags = {{"json", "", "Machine-readable output."}};
     g.examples = {"factoria setup", "factoria setup android", "factoria setup android --accept-licenses", "factoria setup players",
@@ -199,6 +201,8 @@ Command make_setup_command() {
     g.subs.push_back(sub("xcode", "macOS: check Xcode and open its App Store page when it is missing.", {}, {"factoria setup xcode"}));
     g.subs.push_back(sub("appimage", "Linux x86_64: install appimagetool and the AppImage runtime that --format appimage exports build with.",
                          {{"force", "", "Download them again even when installed."}}, {"factoria setup appimage"}));
+    g.subs.push_back(sub("shaders", "Install the pinned sokol-shdc that custom materials are compiled with (not needed when a download of factoria carries it).",
+                         {{"force", "", "Download it again even when one is found."}}, {"factoria setup shaders"}));
     return g;
 }
 

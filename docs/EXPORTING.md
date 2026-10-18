@@ -193,6 +193,7 @@ factoria setup players --platforms windows,linux   # only these (windows, linux,
 factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
+factoria setup shaders                             # sokol-shdc, the shader compiler of custom materials (the downloads of factoria already have it)
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -202,6 +203,7 @@ factoria setup appimage                            # Linux x86_64 (and WSL): app
 | `players` with `--platforms web` | `web/` (`factoria_player.js` + `factoria_player.wasm`), from the download of this machine's own OS. Every download has `web/` next to `factoria`, so this is only for a factoria without it | about 15-33 MB | `--platform web` ([Web](#web)) |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
+| `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
@@ -214,6 +216,7 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
   players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/, web/ (only when asked for)
   tools/cmake/          CMake (CMake.app on macOS)
   tools/appimage/       appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64 (Linux x86_64 only)
+  tools/sokol-shdc/     <commit>/sokol-shdc[.exe] (folders of older commits are removed by the next install)
   export.json           machine settings: learns where the JDK and the SDK are (below)
 ```
 
@@ -238,6 +241,19 @@ records exactly that license (`android/sdk/licenses/android-sdk-license`, the li
 else: it does not run `sdkmanager --licenses`, which would also accept every other license Google lists (previews, Google TV,
 system images...).
 
+**The shader compiler.** Custom materials are compiled with sokol-shdc. FactorIA looks for it in this order: the file named by
+`$SOKOL_SHDC`, a `sokol-shdc` next to the `factoria` program (the downloads carry one), then
+`$FACTORIA_HOME/tools/sokol-shdc/<commit>/` (what `factoria setup shaders` installs; `<commit>` is the pinned sokol-tools-bin
+commit, and the file is checked against its SHA-256 before it is kept). `setup.status` shows which one was found; a `$SOKOL_SHDC`
+that names nothing is reported as a problem rather than ignored. `tools/shaders/compile_shaders.sh` (engine developers) uses the
+same pin and the same folder. **Windows Defender may remove `sokol-shdc.exe`.** It flags the pinned file as a threat by mistake
+(a known false positive, `Trojan:Win32/Bearfoos.B!ml`; the file is an unsigned command-line compiler, and the SHA-256 of the pinned
+Windows build is `43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb`, so you can check that a file is the one
+FactorIA pins). If the file vanishes or cannot be read, `setup.status` says `missing` and the install says why: restore it from
+Windows Security > Virus & threat protection > Protection history (or allow it there), or point `SOKOL_SHDC` at a copy you trust.
+Games never contain sokol-shdc, only the developer's computer needs it: exported games hold the compiled shaders, and its licences
+(and those of what it links) are in `factoria docs licenses`.
+
 **Which command-line tools.** The install pins revision 22.0 (`kSetupAndroidCmdlineTools` in `fa/tooling/setup.h`), the
 newest whose `sdkmanager` is still the classic Java program: `bin/sdkmanager` starts `SdkManagerCli` from `lib/*.jar`, it
 fetches only the packages it is asked for and keeps nothing but its package-list cache (about 4 MB) in `android/user`. The
@@ -252,9 +268,9 @@ Google's tools always run with `ANDROID_USER_HOME` inside the FactorIA folder.
 
 **What is trusted.** Downloads come only from `api.adoptium.net` and `github.com/adoptium` (JDK), `dl.google.com` (SDK),
 `api.github.com` and `github.com/OxtailGames/FactorIA/releases` (players), `github.com/Kitware/CMake` (CMake) and
-`github.com/AppImage` (appimagetool and the runtime; two pinned releases); a listing
+`github.com/AppImage` (appimagetool and the runtime; two pinned releases) and `raw.githubusercontent.com/floooh/sokol-tools-bin` (sokol-shdc; one pinned commit); a listing
 that points anywhere else is refused. Every file is checked against the checksum its publisher lists (SHA-256 from Adoptium,
-GitHub and Kitware, SHA-1 from Google's package list, a SHA-256 compiled into FactorIA for the two AppImage files) before it is unpacked, and a mismatch (code `checksum_mismatch`)
+GitHub and Kitware, SHA-1 from Google's package list, a SHA-256 compiled into FactorIA for the two AppImage files and for sokol-shdc) before it is unpacked, and a mismatch (code `checksum_mismatch`)
 installs nothing. Archives are unpacked next to their destination and moved into place only when complete, so an
 interrupted install never looks installed. The programs used are `curl` (macOS, Windows 10+ and most Linux have it;
 `HTTPS_PROXY` is honored), `tar` (macOS, Windows) and `tar` or `unzip` (Linux).

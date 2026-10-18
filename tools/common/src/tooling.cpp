@@ -15,6 +15,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_fs_commands(registry, projectDir);
     register_asset_commands(registry, projectDir);
     register_validate_commands(registry, projectDir);
+    register_shader_commands(registry, projectDir);
     register_translation_commands(registry, projectDir);
     register_export_commands(registry, projectDir);
     register_publish_commands(registry, projectDir);

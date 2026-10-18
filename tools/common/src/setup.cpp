@@ -1,6 +1,6 @@
 // `factoria setup`: the public API (status, install, what the export asks for), the JSON of the reports and the commands
 // "setup.status" / "setup.install". The installers are in setup_android.cpp, setup_players.cpp, setup_cmake.cpp,
-// setup_xcode.cpp and setup_appimage.cpp; the shared mechanics in setup_core.cpp.
+// setup_xcode.cpp, setup_appimage.cpp and setup_shaders.cpp; the shared mechanics in setup_core.cpp.
 #include "fa/tooling/setup.h"
 
 #include <algorithm>
@@ -28,7 +28,7 @@ std::string factoria_home(const ExportEnvLookup& env) {
 namespace {
 
 const std::vector<std::string>& component_ids() {
-    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage"};
+    static const std::vector<std::string> ids = {"android", "players", "cmake", "xcode", "appimage", "shaders"};
     return ids;
 }
 
@@ -112,7 +112,8 @@ SetupStatus setup_status(const SetupContext& ctx, const std::string& component, 
         else if (id == "players") st.components.push_back(setup_detail::players_status(ctx));
         else if (id == "cmake") st.components.push_back(setup_detail::cmake_status(ctx));
         else if (id == "xcode") st.components.push_back(setup_detail::xcode_status(ctx));
-        else st.components.push_back(setup_detail::appimage_status(ctx));
+        else if (id == "appimage") st.components.push_back(setup_detail::appimage_status(ctx));
+        else st.components.push_back(setup_detail::shaders_status(ctx));
     }
     return st;
 }
@@ -130,6 +131,7 @@ SetupResult setup_install(const SetupInstallOptions& options, const SetupContext
     if (options.component == "cmake") return setup_detail::cmake_install(ctx, options);
     if (options.component == "xcode") return setup_detail::xcode_install(ctx, options);
     if (options.component == "appimage") return setup_detail::appimage_install(ctx, options);
+    if (options.component == "shaders") return setup_detail::shaders_install(ctx, options);
     SetupResult r;
     r.report.component = options.component;
     r.code = "invalid_argument";
@@ -159,13 +161,14 @@ void register_setup_commands(CommandRegistry& registry) {
         info.name = "setup.status";
         info.category = "setup";
         info.readOnly = true;
-        info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools.";
+        info.summary = "Check what this computer has for exporting: the Android JDK and SDK, the players of other platforms, CMake, Xcode, the AppImage tools, sokol-shdc.";
         info.description =
             "Returns {home, host, components[]}; each component is {id, title, state, details, paths, problems[], installSizeMb, "
             "licenses[], canInstall}. Components: `android` (JDK + Android SDK for APK/AAB exports), `players` (the factoria_player of "
             "the other desktop OSes and the prebuilt Android/iOS libraries, from the GitHub release of this factoria's version), "
             "`cmake` (3.24+, for the iOS export on a Mac), `xcode` (macOS: status only, it cannot be installed by a program) and `appimage` "
-            "(appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with). "
+            "(appimagetool and the AppImage runtime, Linux x86_64 only: what `project.export` {platform: linux, format: appimage} builds an AppImage with) "
+            "and `shaders` (sokol-shdc, the shader compiler of custom materials: $SOKOL_SHDC, the one next to factoria or the pinned one under home/tools/sokol-shdc/). "
             "state is installed | missing | partial | unsupported (nothing to do on this computer). problems[] says what is missing and "
             "how to fix it; `setup.install` fixes everything except Xcode. `licenses` (android only, only while the Android SDK license "
             "is not accepted yet) holds {id, title, text}: the full license the user must read and agree to before `setup.install` "
@@ -175,7 +178,7 @@ void register_setup_commands(CommandRegistry& registry) {
         info.inputSchema = Json::parse(R"({
           "type":"object",
           "properties":{
-            "component":{"type":"string","enum":["android","players","cmake","xcode","appimage"],"description":"Only this component (default: all of them)."},
+            "component":{"type":"string","enum":["android","players","cmake","xcode","appimage","shaders"],"description":"Only this component (default: all of them)."},
             "fetchLicenses":{"type":"boolean","default":true,"description":"Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI)."}
           }})");
         registry.add(info, [cache](const Json& args) {
@@ -193,7 +196,7 @@ void register_setup_commands(CommandRegistry& registry) {
         info.name = "setup.install";
         info.category = "setup";
         info.readOnly = false;
-        info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools (or open Xcode's App Store page).";
+        info.summary = "Install what an export needs: the Android JDK + SDK, the players of other platforms, CMake, the AppImage tools, sokol-shdc (or open Xcode's App Store page).";
         info.description =
             "Downloads and installs one component into $FACTORIA_HOME (default ~/.factoria) and returns {component, changed, steps[], "
             "paths, nextSteps[], warnings[], seconds}; every step says whether it was installed or skipped because it was already there. "
@@ -209,13 +212,15 @@ void register_setup_commands(CommandRegistry& registry) {
             "Kitware (macOS only, for iOS exports) unless 3.24+ is found; force installs it anyway. `xcode` (macOS): cannot be "
             "installed by a program: it opens Xcode's App Store page and returns the steps the user must do (some need their password). "
             "`appimage` (Linux x86_64): appimagetool 1.9.1 and the AppImage runtime from github.com/AppImage, about 16 MB, into $FACTORIA_HOME/tools/appimage. "
+            "`shaders`: the pinned sokol-shdc (github.com/floooh/sokol-tools-bin, 8-12 MB depending on the computer) into $FACTORIA_HOME/tools/sokol-shdc/<commit>/, "
+            "for source builds and editor-less setups; downloads of factoria carry it. "
             "Every download is checked against the publisher's checksum (error code `checksum_mismatch` installs nothing). Other error "
             "codes: network, cancelled, unsupported, invalid_argument, failed; the data of the error holds the steps done so far. "
             "Example: {\"component\":\"android\",\"acceptLicenses\":true}.";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["component"],
           "properties":{
-            "component":{"type":"string","enum":["android","players","cmake","xcode","appimage"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only)."},
+            "component":{"type":"string","enum":["android","players","cmake","xcode","appimage","shaders"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only), shaders (sokol-shdc, compiles custom materials)."},
             "acceptLicenses":{"type":"boolean","default":false,"description":"android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user."},
             "platforms":{"type":"array","items":{"type":"string","enum":["windows","linux","macos","mobile","web"]},"description":"players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). \"web\" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for."},
             "force":{"type":"boolean","default":false,"description":"android, cmake, players: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}

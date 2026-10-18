@@ -11,9 +11,19 @@
 # relative to the including file (mesh_common.glsl: the mesh template every mesh program, built-in or a material's,
 # is made from; docs/design/CUSTOM_SHADERS.md).
 #
-# sokol-shdc is taken from $SOKOL_SHDC, else .cache/sokol-tools-bin (fetched with
-# git on first use; override the URL with SOKOL_TOOLS_BIN_URL).
+# sokol-shdc is taken from $SOKOL_SHDC, else from the pinned commit of github.com/floooh/sokol-tools-bin kept in
+# ${FACTORIA_HOME:-$HOME/.factoria}/tools/sokol-shdc/<commit>/ (the folder `factoria setup shaders` installs into: fetched
+# on first use, the one file for this computer, and refused unless its SHA-256 matches). The commit and the hashes are the
+# ones of tools/common/include/fa/tooling/setup.h (a test keeps them equal); the generated code must match
+# external/sokol/sokol_gfx.h, so a sokol update moves the pin, the committed headers and that header together.
 set -euo pipefail
+
+SHDC_COMMIT=b975d5642093d62e76a1e088bdae945d6d8b8ff2
+SHDC_SHA256_win32=43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb
+SHDC_SHA256_linux=f227db5b282dcaa8085796ba83cda217d3114cf34913ca6ba4b0103f25ccc779
+SHDC_SHA256_linux_arm64=c31155b7d340cd561b6fac8d8580c2377abd9140b25d7403c085cb1e700cea14
+SHDC_SHA256_osx=67e5c841a4ca58488e6592560dd8795c7b232a8805d2350ca346028541716252
+SHDC_SHA256_osx_arm64=2a807d62dffcc67a50a6ab51df57cde2fc8b23a3daf6207177d79e00fbd4086b
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC="$ROOT/engine/render/shaders"
@@ -25,24 +35,37 @@ host_dir() {
     local os arch
     os="$(uname -s)"; arch="$(uname -m)"
     case "$os" in
-        Linux)  echo "linux" ;;
+        Linux)  if [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]; then echo "linux_arm64"; else echo "linux"; fi ;;
         Darwin) if [ "$arch" = "arm64" ]; then echo "osx_arm64"; else echo "osx"; fi ;;
         MINGW*|MSYS*|CYGWIN*) echo "win32" ;;
         *) echo "unsupported OS $os" >&2; exit 1 ;;
     esac
 }
 
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
 SHDC="${SOKOL_SHDC:-}"
 if [ -z "$SHDC" ]; then
-    BIN_ROOT="$ROOT/.cache/sokol-tools-bin"
+    DIR="$(host_dir)"
     EXE="sokol-shdc"
-    [ "$(host_dir)" = "win32" ] && EXE="sokol-shdc.exe"
-    SHDC="$BIN_ROOT/bin/$(host_dir)/$EXE"
+    [ "$DIR" = "win32" ] && EXE="sokol-shdc.exe"
+    SHDC="${FACTORIA_HOME:-$HOME/.factoria}/tools/sokol-shdc/$SHDC_COMMIT/$EXE"
     if [ ! -x "$SHDC" ]; then
-        echo "sokol-shdc not found at $SHDC; fetching sokol-tools-bin..." >&2
-        mkdir -p "$ROOT/.cache"
-        git clone --depth 1 "${SOKOL_TOOLS_BIN_URL:-https://github.com/floooh/sokol-tools-bin}" "$BIN_ROOT"
-        chmod +x "$SHDC" 2>/dev/null || true
+        URL="https://raw.githubusercontent.com/floooh/sokol-tools-bin/$SHDC_COMMIT/bin/$DIR/$EXE"
+        echo "sokol-shdc not found at $SHDC; fetching $URL ..." >&2
+        mkdir -p "$(dirname "$SHDC")"
+        curl -fL --retry 3 -o "$SHDC.part" "$URL"
+        want="SHDC_SHA256_$DIR"
+        if [ "$(sha256_of "$SHDC.part")" != "${!want}" ]; then
+            rm -f "$SHDC.part"
+            echo "the downloaded sokol-shdc is not the pinned file (SHA-256 mismatch); nothing was installed." >&2
+            echo "Download it again, or set SOKOL_SHDC to a sokol-shdc you trust." >&2
+            exit 1
+        fi
+        chmod +x "$SHDC.part"
+        mv "$SHDC.part" "$SHDC"
     fi
 fi
 

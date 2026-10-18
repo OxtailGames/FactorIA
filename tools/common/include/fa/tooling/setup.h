@@ -1,6 +1,6 @@
 // One-click setup of everything an export needs: `factoria setup`, commands "setup.status" and "setup.install".
 //
-// FactorIA never only tells the user what to install when it can install it. Five components:
+// FactorIA never only tells the user what to install when it can install it. Six components:
 //   android   JDK 21 (Eclipse Temurin) + the Android SDK (the command-line tools revision pinned below, platform-tools,
 //             platform 36, build-tools 35.0.0) with its license accepted: what `factoria export --platform android` builds an
 //             APK/AAB with.
@@ -64,6 +64,24 @@ inline constexpr const char* kSetupAppimagetoolVersion = "1.9.1";
 inline constexpr const char* kSetupAppimagetoolSha256 = "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0";
 inline constexpr const char* kSetupAppImageRuntimeVersion = "20251108";  // github.com/AppImage/type2-runtime release tag
 inline constexpr const char* kSetupAppImageRuntimeSha256 = "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d";
+// sokol-shdc, the shader cross-compiler of custom materials (docs/design/CUSTOM_SHADERS.md): a pinned commit of
+// github.com/floooh/sokol-tools-bin (it has no release tags) and the SHA-256 of bin/<dir>/sokol-shdc[.exe] per host.
+// tools/shaders/compile_shaders.sh uses the same pin (a test keeps them equal); the generated code must match
+// external/sokol/sokol_gfx.h, so a sokol update moves this pin, the script and the committed headers together.
+inline constexpr const char* kSetupSokolShdcCommit = "b975d5642093d62e76a1e088bdae945d6d8b8ff2";
+struct SokolShdcBinary {
+    const char* host;      // "windows" | "linux" | "macos" (SetupContext::host_os)
+    const char* arch;      // "x64" | "aarch64" | "" (any: the Windows x64 binary also runs on Windows on Arm)
+    const char* dir;       // bin/<dir>/ in sokol-tools-bin
+    const char* sha256;
+};
+inline constexpr SokolShdcBinary kSetupSokolShdcBinaries[] = {
+    {"windows", "", "win32", "43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb"},
+    {"linux", "x64", "linux", "f227db5b282dcaa8085796ba83cda217d3114cf34913ca6ba4b0103f25ccc779"},
+    {"linux", "aarch64", "linux_arm64", "c31155b7d340cd561b6fac8d8580c2377abd9140b25d7403c085cb1e700cea14"},
+    {"macos", "x64", "osx", "67e5c841a4ca58488e6592560dd8795c7b232a8805d2350ca346028541716252"},
+    {"macos", "aarch64", "osx_arm64", "2a807d62dffcc67a50a6ab51df57cde2fc8b23a3daf6207177d79e00fbd4086b"},
+};
 
 // The folder everything is installed into: $FACTORIA_HOME when set, else <HOME>/.factoria
 // (%USERPROFILE%\.factoria on Windows). It is also where ai.json lives (export.json follows FACTORIA_HOME unless
@@ -147,7 +165,7 @@ struct SetupLicense {
 };
 
 struct SetupComponent {
-    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage"
+    std::string id;       // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders"
     std::string title;
     std::string state;    // "installed" | "missing" | "partial" | "unsupported" (nothing to do on this machine)
     std::string details;  // one or two sentences: what was found, what an install does
@@ -177,7 +195,7 @@ SetupStatus setup_status(const SetupContext& context = {}, const std::string& co
 // ---------------------------------------------------------------------------------------------------------------
 
 struct SetupInstallOptions {
-    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage"
+    std::string component;                 // "android" | "players" | "cmake" | "xcode" | "appimage" | "shaders"
     bool acceptLicenses = false;           // android: the user agreed to the Android SDK license
     std::vector<std::string> platforms;    // players: "windows" | "linux" | "macos" | "mobile" | "web"; empty = the default
     bool force = false;                    // reinstall even when it is found (android, cmake)
@@ -241,6 +259,14 @@ struct AppImageTools {
     std::string tool, runtime;
 };
 AppImageTools installed_appimage_tools(const SetupContext& context);
+
+// The sokol-shdc binary of this host's entry in kSetupSokolShdcBinaries; nullptr when the host has none.
+const SokolShdcBinary* sokol_shdc_binary(const SetupContext& context);
+// <home>/tools/sokol-shdc/<kSetupSokolShdcCommit>: where `setup shaders` installs sokol-shdc[.exe].
+std::string sokol_shdc_install_dir(const SetupContext& context);
+// The sokol-shdc to compile materials with: $SOKOL_SHDC, else sokol-shdc[.exe] next to the factoria executable (the
+// release downloads), else the one in sokol_shdc_install_dir; "" when none is there.
+std::string find_sokol_shdc(const SetupContext& context = {});
 
 // Registers "setup.status" (read-only) and "setup.install" (category "setup"). They need no project, so they are
 // registered with the tooling commands and with the project-less command set; the editor calls the C++ API above.

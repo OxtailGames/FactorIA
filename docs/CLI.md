@@ -86,7 +86,7 @@ Opens the visual editor (only in builds with the editor). It is AI-first: the vi
 are described in `docs/EDITOR.md`. There is no hand-editing UI; the AI Assistant and the Console run engine commands (`scene.spawn`,
 `scene.set_component`, `scene.import_ascii`, `audio.log`...), so everything the editor does can also be done with `factoria call`.
 
-### `factoria setup [android|players|cmake|xcode|appimage] [--accept-licenses] [--platforms LIST] [--force] [--json]`
+### `factoria setup [android|players|cmake|xcode|appimage|shaders] [--accept-licenses] [--platforms LIST] [--force] [--json]`
 Checks this computer for exporting and installs what is missing into `~/.factoria` (`$FACTORIA_HOME`), so nobody has to install
 a JDK or an SDK by hand. `factoria setup` alone prints what each component has (nothing is written or downloaded, except the
 Android license text with `--json`) and says which `factoria setup <component>` to run. `android` installs Eclipse Temurin
@@ -97,8 +97,9 @@ in a terminal, and without one refuses until `--accept-licenses` says you have r
 (`--platforms windows,linux,macos,mobile` narrows it).
 `cmake` installs CMake 3.31 for the iOS export unless a 3.24+ is found. `xcode` (macOS) checks Xcode, opens its App Store page
 when missing and lists what you do next (it never runs `sudo`). `appimage` (Linux x86_64, also WSL) installs appimagetool and the
-AppImage runtime, about 16 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`.
-`--force` installs again even when something is found.
+AppImage runtime, about 16 MB pinned by SHA-256, for `factoria export --platform linux --format appimage`. `shaders` installs sokol-shdc, the shader compiler of custom
+materials (8-12 MB, the build for this computer, pinned by commit and SHA-256); the downloads of factoria already carry
+one, so it is for source builds. `--force` installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and the commands for AIs (`setup.status`, `setup.install`):
 [EXPORTING.md](EXPORTING.md#setting-up-this-computer).
@@ -108,6 +109,7 @@ factoria setup android
 factoria setup android --accept-licenses
 factoria setup players --platforms windows,linux
 factoria setup appimage
+factoria setup shaders
 ```
 
 ## Running
