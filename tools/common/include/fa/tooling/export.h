@@ -27,6 +27,10 @@
 //              on Android, no NDK or CMake) is needed; the project templates come from the factoria binary (platforms/).
 //   source   : the engine is compiled from a source checkout (--engine-root, $FACTORIA_ENGINE_DIR, or the build-time
 //              source root of a development build), with that checkout's platforms/ templates.
+// Custom materials (*.material.json, fa/tooling/shaders.h) ship compiled: each gets <material>.json.<slang>.shader for the
+// shader dialects of the platform (windows hlsl5, linux glsl430, macos metal_macos, ios metal_ios and metal_sim, android and
+// web glsl300es) and the GLSL snippets they name are not shipped. A material that does not compile fails the export with the
+// errors `factoria validate` lists. ExportReport::materials lists them.
 // Every export also writes FACTORIA_NOTICES.txt (the licenses of the runtime inside the game, fa/tooling/notices.h):
 // next to the executable (linux, windows), in Contents/Resources (macos), in the APK assets (android), in game/ (ios).
 // A project with assets recorded as made with AI (provenance in assets.json) also gets AI_CONTENT_DISCLOSURE.md at the top
@@ -110,6 +114,8 @@ struct ExportReport {
     std::string pack;                      // release desktop export: the game's pack, as a path relative to the folder it is in
                                            // (game.pak: next to the executable, in Contents/Resources of a macOS app); else empty
     std::vector<std::string> packed;       // release desktop export: the project-relative paths in the pack, sorted
+    std::vector<std::string> materials;    // the *.material.json that ship (project-relative, sorted), each with its compiled
+                                           // shaders <material>.json.<slang>.shader for the platform's dialects
     std::vector<std::string> nextSteps;    // what the user does next, in order
     std::vector<std::string> warnings;     // non-fatal problems
     Json to_json() const;
