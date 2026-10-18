@@ -264,7 +264,16 @@ import { Behaviour, world, input, window, audio, physics, time, camera, debug, s
   - `text` is what the player typed this frame as UTF-8 (printable characters, emoji and accents included, no control
     keys: read Backspace/Enter/Escape with `keyPressed`). Empty most frames. `showKeyboard(on = true)` raises the on-screen
     keyboard on phones and tablets (a no-op on desktop, where the physical keyboard already types); `keyboardShown` is what
-    was asked for.
+    was asked for. A phone's keyboard may not deliver composed text (docs/MOBILE.md, "Phone features", lists the limits).
+  - `onBack(handler)` is Android's Back button or gesture: `handler()` returns `true` (or nothing) when it closed
+    something, `false` to let the next handler (the newest is asked first) or the system decide; if nobody consumes Back the
+    game leaves, as Android would have. It returns a function that removes the handler, and handlers end with the scene.
+    `vibrate(seconds = 0.1)` buzzes a phone (up to 5 s; on iOS only a short tap or the system buzz). No-ops where there
+    is no Back button or motor.
+  - `screen.safeArea` (a `Rect`), `screen.insets` (`{left, top, right, bottom}` lost at each edge) and `screen.size`, in
+    design pixels: what a notch, rounded corners and system bars leave free. The whole screen on desktop and headless.
+    Put `safeArea: true` on a Sprite, Shape2D, Text, ParticleEmitter or UI widget and its `anchor` is a corner or edge of
+    the safe area (docs/MENUS.md, "Phones: notch and Back"). Import it with `import { screen } from "factoria"`.
   - `mouse.visible` (default true) and `mouse.locked` (default false) hide the cursor and lock it to the window for mouse
     look; while locked, `mouse.delta` is the raw movement. The window follows the request every frame and re-locks after
     the game regains focus. A headless run and tests only record the values (and reset them between tests).
@@ -671,6 +680,11 @@ Options-menu tests: `game.typeText("héllo")` types characters (what `input.text
 characters are skipped) and `game.gamepad(i).setType("playstation")` plugs the pad in as that family, so
 `input.buttonName("jump")` answers "Cross" instead of "A". `rebind`, the cursor and the keyboard request are reset
 between tests. `window.*` setters throw in tests (no window): test the logic around them, not the toggle itself.
+
+Phone tests: `game.pressBack()` is the Back button (the next `game.step` runs the `input.onBack` handlers; with none
+consuming it the headless run asks to quit), `game.setSafeArea("phone-portrait")` fakes a notch (`"phone-landscape"`,
+`"none"`, or `{ top, left, right, bottom }` in design pixels) so `screen.safeArea` and every `safeArea: true` item move,
+and `game.vibrations()` lists the seconds `input.vibrate` was asked for. All three are cleared between tests.
 
 Each test FILE starts from fresh module instances (module-level state is
 re-created, tools are re-evaluated against them), an empty in-memory `storage`

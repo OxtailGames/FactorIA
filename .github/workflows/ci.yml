@@ -503,6 +503,22 @@ jobs:
               json.dump(scene, f, indent=2)
           PY
 
+      # What a phone adds to the scripts (tools/cli/tests/mobile_probe.js): the game logs its safe area, buzzes once through the
+      # Vibrator and consumes the Back button with input.onBack; scripts/android-smoke.sh sends KEYCODE_BACK and waits for that log
+      # line (FA_SMOKE_BACK below), and the game must stay alive.
+      - name: Add the mobile probe (safe area, vibration, Back)
+        run: |
+          cp tools/cli/tests/mobile_probe.js /tmp/ci-game/scripts/mobile_probe.js
+          python3 - <<'PY'
+          import json
+          path = "/tmp/ci-game/scenes/main.scene.json"
+          with open(path) as f:
+              scene = json.load(f)
+          scene["entities"].append({"id": "mobileProbe", "name": "Mobile probe", "components": {"Script": {"path": "scripts/mobile_probe.js"}}})
+          with open(path, "w") as f:
+              json.dump(scene, f, indent=2)
+          PY
+
       # Writes the Gradle project and runs ./gradlew assembleDebug in it (source mode: the engine is compiled from this
       # checkout for both ABIs); the APK lands next to the project as <slug>-debug.apk. FA_CI_PLUGINS (job env) is still
       # set: the export copies the plugin's android/ module into the project (plugins/example).
@@ -581,10 +597,15 @@ jobs:
       # the sum computed by the plugin's Java class through JNI, and the plugin's command; and what the Google Play backend
       # answers (tools/cli/tests/googleplay_probe.js). This image has no Google Play services, so Play Games sign-in
       # and Play Integrity are refused with `unavailable` by the Java code, and the status says so.
+      # FA_SMOKE_BACK: the line tools/cli/tests/mobile_probe.js logs when its input.onBack handler consumes the Back button; the
+      # smoke test sends `adb shell input keyevent KEYCODE_BACK` and needs that line once more, with the game still running.
       - name: Run the APK in the emulator (smoke test)
         uses: reactivecircus/android-emulator-runner@v2.38.0
         env:
+          FA_SMOKE_BACK: probe back=consumed
           FA_SMOKE_EXPECT: |
+            probe safearea=
+            probe vibrate=sent
             probe add=3
             probe info=.*"plugin":"example"
             Google Play backend ready

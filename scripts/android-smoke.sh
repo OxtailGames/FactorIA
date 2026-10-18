@@ -26,7 +26,11 @@
 #                 sends) relaunches the activity, which no configChanges value prevents: the old process ends cleanly
 #                 (no native signal) and the system starts the game again in a new process, which renders and has the
 #                 window focus.
-#   9. expect     optional, only when the environment variable FA_SMOKE_EXPECT is set: one extended regular expression
+#   9. back       optional, only when the environment variable FA_SMOKE_BACK is set to the text the game logs when its
+#                 input.onBack handler consumes the Back button: `input keyevent KEYCODE_BACK` must reach the game
+#                 (the line is logged once more), and the game stays alive and keeps the window focus (a Back that
+#                 nobody consumes would leave the game: Android's default, which the game here must not get).
+#  10. expect     optional, only when the environment variable FA_SMOKE_EXPECT is set: one extended regular expression
 #                 per line, and each must match a line of the log. CI uses it for what the game's own script logs when
 #                 it calls its native plugin (the Java class of the plugin answered through JNI).
 #
@@ -326,7 +330,23 @@ grep -m 1 -E "Process $OLD_PID exited cleanly" "$OUT/logcat.txt" | tee -a "$SUMM
 "$ADB" exec-out screencap -p >"$OUT/screen-relaunched.png" 2>/dev/null
 has_picture "$OUT/screen-relaunched.png" "relaunch"
 
-# ---- 9. expect ------------------------------------------------------------------------------------------------------
+# ---- 9. back --------------------------------------------------------------------------------------------------------
+# The Back button (engine/platform/src/mobile_android.cpp): the player consumes it and the game's input.onBack handler
+# decides. wait_for_log fails at once when the process ends, which is what an unconsumed Back (or a Back the player
+# did not see and Android handled by leaving the activity) looks like.
+if [ -n "${FA_SMOKE_BACK:-}" ]; then
+    BACK0="$(log_count "$FA_SMOKE_BACK")"
+    "$ADB" shell input keyevent KEYCODE_BACK
+    wait_for_log "$FA_SMOKE_BACK" 20 "$BACK0" ||
+        fail "back: 'input keyevent KEYCODE_BACK' never reached the game's input.onBack handler ('$FA_SMOKE_BACK' missing)"
+    grep -F -- "$FA_SMOKE_BACK" "$OUT/logcat.txt" | tail -n 1 | tee -a "$SUMMARY"
+    sleep 3
+    [ "$(app_pid)" = "$PID" ] || fail "back: the app process $PID is gone 3s after Back (now: '$(app_pid)'): Back was not consumed"
+    focus_has "$PKG" || fail "back: the game lost the window focus after Back: $(focus_line)"
+    note "back: KEYCODE_BACK reached input.onBack, the game consumed it and stayed"
+fi
+
+# ---- 10. expect -----------------------------------------------------------------------------------------------------
 # What the game itself has to have logged (FA_SMOKE_EXPECT, one pattern per line), checked against the whole log.
 if [ -n "${FA_SMOKE_EXPECT:-}" ]; then
     snapshot_log

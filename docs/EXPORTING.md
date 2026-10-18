@@ -344,7 +344,7 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | Android | `adaptiveIcon.monochrome` | none | Single-colour PNG with transparency; Android 13 tints it for themed icons. |
 | Android | `versionCode` | from `version`: `1.2.3` is `10203` | Whole number that grows with every Google Play upload. |
 | Android | `minSdk` / `targetSdk` | `26` / `36` | API levels; `26 <= minSdk <= targetSdk`. |
-| Android | `permissions` | none | Extra `<uses-permission>` names such as `android.permission.VIBRATE`. |
+| Android | `permissions` | none | Extra `<uses-permission>` names such as `android.permission.INTERNET`. `android.permission.VIBRATE` (for `input.vibrate`) is always in the manifest. |
 | Android | `signing.keystore` / `signing.alias` | none | Release signing key: the keystore file (project-relative or absolute; keystores are better kept outside the repository) and the key's alias. The passwords are never in the project (below). |
 | iOS | `iconBackground` | `#FFFFFF` | The App Store icon cannot be transparent: transparent pixels take this colour, and the PNG is written without an alpha channel. |
 | iOS | `teamId` | none | 10-character Apple Team ID for device builds. It is the default of `FA_IOS_DEVELOPMENT_TEAM`: that environment variable, when set, wins. |
