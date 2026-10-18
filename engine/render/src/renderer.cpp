@@ -773,7 +773,6 @@ void Renderer::Impl::render(World& world, float dt) {
         TextureAsset* textures[kMaxMaterialTextures]{};
     };
     auto material_inputs = [&](const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
-        if (!mat) return;
         pack_material_params(*mat, mi.mr->materialParams, in.params);
         for (std::size_t i = 0; i < mat->textures.size(); ++i) in.textures[i] = material_texture(*mat, int(i), mi.mr->materialParams, *assets);
     };

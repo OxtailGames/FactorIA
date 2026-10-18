@@ -236,6 +236,9 @@ struct MaterialAsset {
 // The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
 std::string backend_dialect(sg_backend backend);
 
+// The sg_shader_desc of a twin program (`programs.<name>` of factoria.shader/1) and the slots it declares in `slots` (its
+// shader is not made). The desc points into `program`, which must outlive it.
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& slots);
 // Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
 Result<MaterialProgram> make_material_program(const std::string& label, const Json& program);
 
