@@ -195,11 +195,11 @@ TEST_CASE("animator: setting `clip` switches with the fade field") {
     s.a->clip = "Slide";
     s.step();
     CHECK(s.a->rt.activeClip == "Slide");
-    CHECK(s.a->rt.fromClip == "Bend");
+    CHECK(s.a->rt.fromIndex >= 0);
     CHECK(s.a->rt.fadeElapsed == doctest::Approx(0.25f));
     s.step();
     s.step();
-    CHECK(s.a->rt.fromClip.empty());
+    CHECK(s.a->rt.fromIndex == -1);
 }
 
 TEST_CASE("animator: clip events fire exactly once per loop, in the step that passes them") {

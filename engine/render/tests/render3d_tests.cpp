@@ -1,6 +1,9 @@
 #include "test_util.h"
 
+#include <fstream>
 #include <vector>
+
+#include "fa/scene/animation.h"
 
 #include "mesh_batch.h"
 
@@ -336,4 +339,69 @@ TEST_CASE("3D PBR: metal and rough spheres, sky reflections and a normal-mapped 
     w.get<MeshRenderer>(floor)->normalScale = 0.0f;
     Image flat = g.render(w);
     CHECK(diff_images(img, flat, 4.0f / 255.0f).meanError > 0.002);
+}
+
+namespace {
+Entity add_rig(World& w, Vec3 pos, const char* clip) {
+    Entity e = make(w, "rig", pos);
+    w.add<MeshRenderer>(e).mesh = "assets/rig.gltf";
+    w.add<Animator>(e).clip = clip;
+    return e;
+}
+Entity setup_rig_scene(World& w) {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(fs::write_text("assets/rig.gltf", text).ok());
+    add_camera(w, {0.5f, 1.2f, 4}, {0.5f, 1.0f, 0});
+    Entity sun = add_light(w, LightType::Directional, {0, 5, 0}, {-40, 25, 0}, 1.0f);
+    add_mesh(w, "plane", {0, -0.01f, 0}, Color::hex(0x909090), {8, 1, 8});
+    return sun;
+}
+}  // namespace
+
+TEST_CASE("3D GPU skinning: bind pose, a clip at a known time, a cross-fade, shadows and batching") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity sun = setup_rig_scene(w);
+    w.get<Light>(sun)->castShadows = true;
+    Entity rig = add_rig(w, {0, 0, 0}, "Bend");
+    clear_recent_logs();
+    // Before the first fixed step there is no palette: the model shows in its bind pose (the straight bar).
+    Image bind = g.render(w);
+    CHECK(error_count() == 0);
+    CHECK(w.get<Animator>(rig)->palette.empty());
+    CHECK(g.renderer.stats().meshes == 2);
+    // Bend at 0.5 s: the tip is rotated 45 degrees about Z.
+    update_animators(w, 0.0f);
+    update_animators(w, 0.5f);
+    REQUIRE(w.get<Animator>(rig)->palette.size() == 2);
+    CHECK(w.get<Animator>(rig)->time == doctest::Approx(0.5f));
+    Image bend = g.render(w);
+    CHECK(error_count() == 0);
+    CHECK(diff_images(bind, bend, 4.0f / 255.0f).meanError > 0.002);
+    expect_golden(bend, "3d_skinned_bend");
+    // Mid cross-fade from Bend to Slide: a third picture.
+    REQUIRE(animator_play(w, rig, "Slide", 0.4f).ok());
+    update_animators(w, 0.2f);
+    Image fade = g.render(w);
+    CHECK(diff_images(bend, fade, 4.0f / 255.0f).meanError > 0.002);
+    expect_golden(fade, "3d_skinned_crossfade");
+    // Skinned meshes are never instanced together (each has its own palette): two rigs are two batches.
+    add_rig(w, {2, 0, 0}, "Bend");
+    update_animators(w, 0.1f);
+    g.render(w);
+    CHECK(g.renderer.stats().meshes == 3);
+    CHECK(g.renderer.stats().meshBatches == 3);  // the floor and the two rigs
+}
+
+TEST_CASE("skinned bounds cover every pose of the palette") {
+    std::vector<Mat4> palette = {Mat4::identity(), Mat4::translate({3, 0, 0})};
+    Vec3 lo, hi;
+    render::skinned_bounds(palette, {-1, 0, -1}, {1, 2, 1}, lo, hi);
+    CHECK(lo.x == doctest::Approx(-1));
+    CHECK(hi.x == doctest::Approx(4));
+    CHECK(hi.y == doctest::Approx(2));
+    render::skinned_bounds({}, {-1, 0, -1}, {1, 2, 1}, lo, hi);  // no palette: the mesh's own bounds
+    CHECK(hi.x == doctest::Approx(1));
 }

@@ -346,8 +346,7 @@ struct AnimatorRuntime {
     float prevTime = -1.0f;          // time of the previous step, the start of the window of events to fire (-1: the clip just started)
     float lastTime = 0.0f;           // value `time` had after the last update (a different value means a script seeked)
     bool finished = false;           // a non-looping clip reached its end (transitions with onFinish)
-    std::string fromClip;            // clip fading out (empty = no fade running)
-    int fromIndex = -1;
+    int fromIndex = -1;              // clip fading out (-1 = no fade running)
     float fromTime = 0.0f;
     bool fromLoop = true;
     float fadeElapsed = 0.0f, fadeDuration = 0.0f;

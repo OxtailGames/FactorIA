@@ -33,7 +33,7 @@ From a script:
 ```js
 const anim = hero.animator;
 anim.play("Run", 0.2);          // cross-fade 0.2 s from whatever pose it is in
-anim.crossFade("Idle");         // same, 0.2 s unless you pass another
+anim.play("Idle");               // fade = the component's `fade` (0.2 s by default)
 anim.speed = 1.5;               // faster
 anim.clip = "Jump";             // also switches, with the component's `fade`
 anim.stop();                    // bind pose, paused
@@ -116,6 +116,20 @@ rig (`load_skeleton`: nodes, skins, clips, and the `JOINTS_0`/`WEIGHTS_0` of eve
 samples clips (`sample_clip`, `blend_poses`, `skin_palette`), both testable without a GPU. LINEAR, STEP and CUBICSPLINE
 samplers are supported; morph-target weights are not read yet.
 
+## How it is drawn
+
+A skinned model with an `Animator` is drawn on the GPU: every vertex blends up to 4 joint matrices of the palette. Before
+the first fixed step there is no palette yet and the model shows in its bind pose. Limits and choices:
+
+- **At most 64 joints** (3x4 matrices, 192 vec4 uniforms: fits the 256 vec4 minimum of WebGL2/GLES3). Over the limit
+  the model is drawn in bind pose and a warning says so.
+- Shadows follow the animation (the shadow pass uses the same palette).
+- Each animated model is its own draw (a palette per entity): skinned entities never join an instanced batch, even with
+  the same model. Many static copies of a model (no Animator) still instance.
+- **Culling bounds:** the bounds of an animated model are the box of its bind pose carried by every joint of the palette,
+  joined. It is recomputed every frame, never too small, and a little generous when a joint moves far from its vertices.
+  The same box decides the camera and the shadow-light culling.
+
 ## Tweens
 
 ```js
@@ -168,6 +182,6 @@ export default class Hero extends Behaviour {
 
 ## Not there yet
 
-- Drawing a skinned model animated (GPU skinning) comes with the next renderer update; until then the model is drawn in its
-  bind pose even though the Animator already computes its pose and `palette`.
+- More than 64 joints: the model is drawn in its bind pose (not animated) and a warning names the limit; re-export it
+  with fewer joints. Only the first skin of a file is animated.
 - Morph targets, animation layers/masks and root motion are not supported.
