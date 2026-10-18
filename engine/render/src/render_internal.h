@@ -35,15 +35,19 @@ struct Vertex2D {
 };
 static_assert(sizeof(Vertex2D) == 32, "Vertex2D must be 32 bytes");
 
+// Vertex buffer 0 of every mesh pipeline. Per-instance data (the model matrix) is vertex buffer 1; skinning will add
+// joint indices and weights as a second per-vertex buffer (see Gpu::mesh_pipeline), leaving this struct alone.
 struct MeshVertex {
     float px, py, pz;
     float nx, ny, nz;
     float u, v;
+    float tx = 0, ty = 0, tz = 0, tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
 };
-static_assert(sizeof(MeshVertex) == 32, "MeshVertex must be 32 bytes");
+static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be 48 bytes");
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
-constexpr int kMaxLights = 8;
+constexpr int kMaxLights = 32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
+constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
 
 // ---------------------------------------------------------------------------
 // GPU resources
@@ -95,6 +99,16 @@ struct SubMesh {
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     Color baseColor{1, 1, 1, 1};
     TextureAsset* texture = nullptr;  // glTF base color texture (owned by Assets)
+    TextureAsset* normalTex = nullptr;     // glTF normalTexture
+    TextureAsset* mrTex = nullptr;         // glTF metallicRoughnessTexture (g = roughness, b = metallic)
+    TextureAsset* occlusionTex = nullptr;  // glTF occlusionTexture (r)
+    TextureAsset* emissiveTex = nullptr;   // glTF emissiveTexture
+    float normalScale = 1.0f;
+    float occlusionStrength = 1.0f;
+    // glTF pbrMetallicRoughness factors, used instead of MeshRenderer.metallic / roughness when `hasPbr`.
+    bool hasPbr = false;
+    float metallic = 0.0f, roughness = 0.6f;
+    Color emissiveFactor{0, 0, 0, 1};
     bool doubleSided = false;
     bool blended = false;
 };
@@ -305,6 +319,8 @@ public:
 
     sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
+    // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
+    // a PipelineKey bit and a second per-vertex buffer for joints and weights.
     sg_pipeline mesh_pipeline(bool blended, bool doubleSided);
     sg_pipeline sky_pipeline();
     sg_pipeline shadow_pipeline();

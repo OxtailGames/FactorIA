@@ -306,8 +306,8 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale` | Visible 3D objects. Primitives need no assets. Unless `unlit`, it needs a light to look right. |
-| `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. |
+| `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `normalMap`, `normalScale`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale` | Visible 3D objects with a PBR material. Primitives need no assets. Unless `unlit`, it needs a light to look right. glTF models bring their own material (section 9.9). |
+| `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. Up to 32 lights are used per frame (section 9.9). |
 
 **Physics**
 
@@ -742,6 +742,15 @@ A camera, a sun and a floor (the `3d-empty` template has only the camera; add th
 - Shadows: a directional `Light` with `"castShadows": true` casts them. `MeshRenderer.castShadows` and `receiveShadows` (both default true) control each object.
 - Fog: `settings.fogDensity` (0 = off) and `settings.fogColor` blend distant objects into the fog colour. `skyColor` and `horizonColor` paint the sky gradient behind a perspective camera.
 - Lighting: `ambientLight` lights every surface evenly. Add point or spot lights with `type: "point"` or `"spot"` (no shadows yet).
+
+Production 3D rendering (all automatic; there is nothing to switch on):
+
+- **PBR materials.** `metallic` and `roughness` drive Cook-Torrance (GGX) lighting. Metal reflects the sky: the engine builds a small environment from `settings.skyColor` and `settings.horizonColor` (rougher surfaces see a blurrier sky), so a shiny sphere looks right with no environment asset. `ambientLight` still lights the diffuse side. Lighting happens in gamma space (colours are not linearised), as in older scenes. A scene with a cleared sky and a bright `skyColor` therefore gives plastic a faint sheen and metals a bright rim: lower `skyColor`/`horizonColor` for a dark scene.
+- **Normal maps.** `MeshRenderer.normalMap` (a tangent-space map, glTF convention: +Y up, the usual blue-ish image) adds relief without triangles; `normalScale` (default 1) scales it, `uvScale` tiles it with the base texture. Primitives get their tangents from their UVs.
+- **glTF materials.** A model's own `baseColorFactor`/texture, `metallicFactor`/`roughnessFactor`, `metallicRoughnessTexture`, `normalTexture`, `occlusionTexture`, `emissiveFactor`/`emissiveTexture` (and `KHR_materials_emissive_strength`) are all used. A glTF material's metallic and roughness replace `MeshRenderer.metallic`/`roughness` (those apply to primitives and to models without a material); `color` still tints the base color, `emissive` adds to the glTF emission, and `normalMap` replaces the glTF normal map when set. Models without a TANGENT attribute get tangents generated from their UVs.
+- **Many objects.** Meshes outside the camera frustum are not drawn. Meshes with the same `mesh`, textures and material values (`color`, `metallic`, `roughness`, `emissive`, `unlit`, `receiveShadows`, `uvScale`, `normalMap`, `normalScale`) are drawn with ONE instanced draw call per mesh part, however many there are: 10 000 identical cubes cost one draw. Give each its own `color` and they stop sharing, so for crowds vary the Transform, not the material. `play.report` shows `meshes` (drawn), `meshesCulled`, `meshBatches` (groups drawn with one instanced draw) and `drawCalls`. Objects off screen still cast shadows into view while a shadow-casting light is on.
+- **Lights.** Up to 32 lights are used each frame. When a scene has more, the shadow-casting sun comes first, then the other directional lights, then point and spot lights by brightness over distance to the camera (the nearest and brightest are kept); `lightsDropped` in the stats says how many were left out. A light costs every lit pixel, so keep the lights that reach the camera few and give them a small `range`.
+- Not available yet: custom shaders per material, an environment map image for reflections, shadows from point and spot lights.
 
 ### 9.10 Save data
 

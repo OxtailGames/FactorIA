@@ -61,9 +61,12 @@ struct RenderStats {
     int shapes = 0;
     int textGlyphs = 0;
     int particles = 0;
-    int meshes = 0;
+    int meshes = 0;          // MeshRenderer entities drawn in the main pass (instances)
+    int meshesCulled = 0;    // MeshRenderer entities outside the camera frustum: not drawn in the main pass
+    int meshBatches = 0;     // instanced batches drawn (meshes with the same mesh, textures and material values share one)
     int triangles = 0;
-    int lights = 0;
+    int lights = 0;          // lights sent to the shader (at most 32)
+    int lightsDropped = 0;   // lights over the limit that were left out (the least relevant ones)
     double cpuMs = 0.0;
     Json to_json() const;
 };

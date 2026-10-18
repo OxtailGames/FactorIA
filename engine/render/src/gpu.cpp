@@ -31,6 +31,17 @@ sg_sampler make_sampler(sg_filter minmag, sg_filter mip, sg_wrap wrap, const cha
     d.label = label;
     return sg_make_sampler(&d);
 }
+
+// Vertex buffer 1: a 4x4 model matrix per instance in four consecutive attributes starting at `firstAttr`.
+void set_instance_layout(sg_pipeline_desc& d, int firstAttr) {
+    d.layout.buffers[1].stride = kMeshInstanceBytes;
+    d.layout.buffers[1].step_func = SG_VERTEXSTEP_PER_INSTANCE;
+    for (int i = 0; i < 4; ++i) {
+        d.layout.attrs[firstAttr + i].format = SG_VERTEXFORMAT_FLOAT4;
+        d.layout.attrs[firstAttr + i].buffer_index = 1;
+        d.layout.attrs[firstAttr + i].offset = i * 16;
+    }
+}
 }  // namespace
 
 bool Gpu::init(int sampleCount, std::string* error) {
@@ -167,6 +178,8 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided) {
     d.layout.attrs[ATTR_mesh_mesh_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_mesh_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    set_instance_layout(d, ATTR_mesh_mesh_inst_m0);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.pixel_format = kDepthFormat;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
@@ -207,6 +220,7 @@ sg_pipeline Gpu::shadow_pipeline() {
     d.shader = shadow_shader_;
     d.layout.attrs[ATTR_shadow_shadow_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.buffers[0].stride = sizeof(MeshVertex);  // position is the first member of MeshVertex
+    set_instance_layout(d, ATTR_shadow_shadow_inst_m0);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.pixel_format = SG_PIXELFORMAT_DEPTH;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
