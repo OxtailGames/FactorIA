@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -330,6 +331,48 @@ struct Light {
     float range = 10.0f;              // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;          // spot cone half-angle (degrees)
     bool castShadows = false;         // directional only for now
+};
+
+struct SkeletonAsset;  // skeleton.h
+
+// What the animation system (animation.h) keeps per Animator at run time. Never serialized; copying an Animator copies it.
+struct AnimatorRuntime {
+    std::shared_ptr<const SkeletonAsset> skeleton;
+    std::string skeletonPath;        // the model `skeleton` was loaded from
+    bool started = false;            // the first update ran (initial clip / state entered)
+    bool warned = false;             // a problem was already logged (once per animator)
+    std::string activeClip;          // clip the animator is playing (its `clip` field differing means a script changed it)
+    int clipIndex = -1;
+    float prevTime = -1.0f;          // time of the previous step, the start of the window of events to fire (-1: the clip just started)
+    float lastTime = 0.0f;           // value `time` had after the last update (a different value means a script seeked)
+    bool finished = false;           // a non-looping clip reached its end (transitions with onFinish)
+    std::string fromClip;            // clip fading out (empty = no fade running)
+    int fromIndex = -1;
+    float fromTime = 0.0f;
+    bool fromLoop = true;
+    float fadeElapsed = 0.0f, fadeDuration = 0.0f;
+    std::vector<std::string> triggers;  // trigger() calls, true for one update
+};
+
+// Skeletal animation of a skinned glTF model, played by the animation system every fixed step (headless runs too).
+struct Animator {
+    std::string model;                // glTF to animate; "" = the `mesh` of the MeshRenderer on the same entity
+    std::string clip;                 // clip playing now (glTF animation name); "" = bind pose
+    float speed = 1.0f;               // playback speed multiplier (1 = authored speed, 0 = frozen)
+    bool loop = true;
+    bool playing = true;
+    float fade = 0.2f;                // seconds of cross-fade when `clip` is changed by assignment
+    Json params = Json::object();     // state machine: parameters and their start values {"speed": 0, "jump": false}
+    Json states = Json::object();     // state machine: {"idle": {"clip": "Idle", "loop": true, "speed": 1, "onEnter": "event"}}
+    Json transitions = Json::array(); // state machine: [{"from": "idle", "to": "run", "when": "speed > 0.1", "fade": 0.2}]
+    Json events = Json::array();      // clip events: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]
+    std::string state;                // state machine: current state ("" = the first state of `states`)
+    float time = 0.0f;                // runtime: seconds into the current clip (assignable: seek)
+    Json values = Json::object();     // runtime: current value of every parameter
+    // Runtime, not reflected. The renderer reads `palette`: one skinning matrix per joint of skin 0 (jointGlobal *
+    // inverseBind, in the glTF's model space); empty while there is no skin. Written by update_animators (animation.h).
+    std::vector<Mat4> palette;
+    AnimatorRuntime rt;
 };
 
 // ------------------------------------------------------------- physics ---

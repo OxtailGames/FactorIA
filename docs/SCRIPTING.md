@@ -117,6 +117,7 @@ are not affected.
 | `send(method, ...args)` | calls `behaviour[method](...args)` if it exists |
 | `isGrounded(tolerance?)` | 2D or 3D physics: standing on something (contact normal up) |
 | `isTouching(direction, tolerance?)` | solid contact against the body on that side: `isTouching([1, 0])` = wall on the right, `[0, 1]` = ceiling (2D or 3D by body type) |
+| `animator` | skeletal animation of this entity's `Animator` component: `play(clip, fade?)`, `crossFade`, `stop()`, `set(name, value)`, `get`, `trigger`, `clips`, `duration(clip)`, `on(event, fn)`, `state`, `speed`, `time` (throws without an Animator; see [ANIMATION.md](ANIMATION.md)) |
 | `emitBurst(n)` | immediately spawn `n` particles from this entity's `ParticleEmitter` (no-op + warning without a renderer) |
 | `toJSON()` | entity JSON (as in scene files) |
 
@@ -386,6 +387,15 @@ The `Camera` component fields are live, for example `camera.main.get("Camera").b
 
 ### debug
 `line(a, b, color?)`, `rect(x, y, w, h, color?)`, `circle(center, r, color?)`, `text(screenPos, str, color?)`.
+
+### tween / ease / animator
+`tween(target, props, options?)` moves numbers, vectors and colors of any object over time and returns a `Tween`
+(`cancel()`, `pause()`, `resume()`, `next(...)`, `finished: Promise<boolean>`, `active`, `progress`); `tween(from, to, { onUpdate })`
+tweens a plain number; `ease` holds the easing functions (`ease.quadOut`; the names also work as strings,
+`ease: "backOut"`); `cancelTweens(target?)`. Options: `duration`, `delay`, `ease`, `repeat`, `yoyo`, `from`, `onStart`,
+`onUpdate`, `onComplete`. Tweens run on the game's clock: they pause with `time.scale = 0` and are deterministic in tests.
+`entity.animator` controls the `Animator` component (skinned glTF clips, cross-fades, clip events, state machine).
+Both are described with examples in [ANIMATION.md](ANIMATION.md).
 
 ### particles / ui
 - `particles.burst(entity, count)` (same as `entity.emitBurst(count)`) spawns particles now from a `ParticleEmitter`,

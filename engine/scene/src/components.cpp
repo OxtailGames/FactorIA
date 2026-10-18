@@ -399,6 +399,47 @@ void register_builtin_components(TypeRegistry& r) {
         .field("spotAngle", &Light::spotAngle, "Spot only: cone half-angle in degrees.").range(1, 89)
         .field("castShadows", &Light::castShadows, "Cast shadows. Only supported on directional lights for now.");
 
+    r.add<Animator>("Animator",
+                    "Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same "
+                    "entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state "
+                    "machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays "
+                    "match. Scripts: entity.animator.play(\"Run\", 0.2), .set(\"speed\", 3), .stop(); events reach "
+                    "world.on(name, ...).",
+                    "3D")
+        .field("model", &Animator::model,
+               "Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on "
+               "the same entity (usual case: leave it empty).")
+        .field("clip", &Animator::clip,
+               "Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches "
+               "clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).")
+        .field("speed", &Animator::speed, "Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.").range(0, 100)
+        .field("loop", &Animator::loop,
+               "true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.")
+        .field("playing", &Animator::playing, "Set false to pause, true to play.")
+        .field("fade", &Animator::fade, "Cross-fade seconds used when `clip` is changed by assignment (play() takes its own).").range(0, 60)
+        .field("params", &Animator::params,
+               "State machine parameters and their start values, an object such as {\"speed\": 0, \"grounded\": true}. "
+               "Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them.")
+        .field("states", &Animator::states,
+               "State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. "
+               "`onEnter` is the name of a game event sent when the state starts (world.on). Example: "
+               "{\"idle\": {\"clip\": \"Idle\"}, \"run\": {\"clip\": \"Run\", \"onEnter\": \"started_running\"}}.")
+        .field("transitions", &Animator::transitions,
+               "State machine transitions, an array checked in order every step; the first that matches fires. Each: "
+               "{from (a state, or \"*\"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is "
+               "conditions joined by \"&&\": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). "
+               "A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current "
+               "non-looping clip ended (alone or together with `when`).")
+        .field("events", &Animator::events,
+               "Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event "
+               "`name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). "
+               "Example: [{\"clip\": \"Walk\", \"time\": 0.3, \"name\": \"footstep\"}].")
+        .field("state", &Animator::state,
+               "State machine: the state the animator is in (the start state when set in the scene; empty = the first "
+               "state of `states`). Updated as transitions fire.")
+        .field("time", &Animator::time, "Runtime state: seconds into the current clip. Assigning it seeks (no events fire).").runtime_only()
+        .field("values", &Animator::values, "Runtime state: current value of every state machine parameter.").runtime_only();
+
     // ---------------------------------------------------------- Physics ---
     r.add<RigidBody2D>("RigidBody2D",
                        "Puts the entity under 2D physics (Box2D). Pair it with a Collider2D. Positions are simulated in "
