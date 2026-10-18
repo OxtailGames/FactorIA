@@ -68,6 +68,22 @@ TEST_CASE("notices: game scope leaves out the editor-only parts, all scope has e
     CHECK(all.find("license text missing") == std::string::npos);
 }
 
+TEST_CASE("notices: sokol-shdc and what it links are in the factoria notices, not in games") {
+    const std::string game = third_party_notices(NoticeScope::Game);
+    const std::string all = third_party_notices(NoticeScope::All);
+    for (const char* part : {"sokol-shdc (sokol-tools)", "glslang (in sokol-shdc)", "SPIRV-Cross (in sokol-shdc)",
+                             "SPIRV-Tools (in sokol-shdc)", "SPIRV-Headers (in sokol-shdc)", "Tint (in sokol-shdc)",
+                             "{fmt} (in sokol-shdc)", "getopt (in sokol-shdc)", "pystring (in sokol-shdc)"}) {
+        CAPTURE(part);
+        CHECK(all.find(std::string("\n") + part + " (") != std::string::npos);
+        CHECK(game.find(part) == std::string::npos);
+    }
+    CHECK(all.find("Andre Weissflog") != std::string::npos);                  // sokol-tools' MIT license
+    CHECK(all.find("The Dawn & Tint Authors") != std::string::npos);          // Tint
+    CHECK(all.find("Copyright 2020 The Khronos Group Inc") != std::string::npos);  // glslang
+    CHECK(all.find("Fredrik Kihlander") != std::string::npos);                // getopt
+}
+
 TEST_CASE("notices: readable as the 'licenses' document") {
     auto doc = read_doc("licenses");
     REQUIRE(doc.ok());

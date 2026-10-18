@@ -18,3 +18,5 @@ platforms/android/gradlew text eol=lf
 
 # KTX2 textures (an export writes them, tests/data holds a few): never touch their bytes.
 *.ktx2 binary
+# Licence texts are embedded in the factoria binary and embedded as they are: LF on every checkout.
+tools/shaders/licenses/*.txt text eol=lf
