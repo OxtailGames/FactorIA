@@ -151,12 +151,7 @@ double value_of(const Json& values, const std::string& token) {
     return it->is_number() ? it->get<double>() : 0.0;
 }
 
-std::string trim(std::string s) {
-    const auto notSpace = [](unsigned char c) { return !std::isspace(c); };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
-    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
-    return s;
-}
+std::string trim(std::string_view s) { return std::string(fa::trim(s)); }
 
 // One term: `name`, `!name`, or `lhs op rhs` (op > >= < <= == !=; each side a number, true/false or a parameter).
 bool eval_term(const std::string& term, const Json& values, const std::vector<std::string>& triggers) {
@@ -164,13 +159,13 @@ bool eval_term(const std::string& term, const Json& values, const std::vector<st
     for (const char* op : ops) {
         const std::size_t at = term.find(op);
         if (at == std::string::npos) continue;
-        const double l = value_of(values, trim(term.substr(0, at))), r = value_of(values, trim(term.substr(at + std::strlen(op))));
+        const double l = value_of(values, std::string(trim(term.substr(0, at)))), r = value_of(values, std::string(trim(term.substr(at + std::strlen(op)))));
         const std::string o = op;
         return o == ">=" ? l >= r : o == "<=" ? l <= r : o == "==" ? l == r : o == "!=" ? l != r : o == ">" ? l > r : l < r;
     }
     std::string name = term;
     bool negate = false;
-    if (!name.empty() && name[0] == '!') { negate = true; name = trim(name.substr(1)); }
+    if (!name.empty() && name[0] == '!') { negate = true; name = std::string(trim(std::string_view(name).substr(1))); }
     const bool trig = std::find(triggers.begin(), triggers.end(), name) != triggers.end();
     return (trig || value_of(values, name) != 0.0) != negate;
 }
@@ -179,7 +174,7 @@ bool eval_condition(const std::string& expr, const Json& values, const std::vect
     std::size_t start = 0;
     while (true) {
         const std::size_t at = expr.find("&&", start);
-        const std::string term = trim(expr.substr(start, at == std::string::npos ? std::string::npos : at - start));
+        const std::string term(trim(std::string_view(expr).substr(start, at == std::string::npos ? std::string::npos : at - start)));
         if (!term.empty() && !eval_term(term, values, triggers)) return false;
         if (at == std::string::npos) return true;
         start = at + 2;
@@ -210,9 +205,7 @@ bool resolve_skeleton(World& w, Entity e, Animator& a, std::string* why = nullpt
     if (path.empty()) return fail("no model: add a MeshRenderer whose `mesh` is a .gltf/.glb file, or set `model`");
     if (path == a.rt.skeletonPath && a.rt.skeleton) return true;
     if (path == a.rt.skeletonPath && !a.rt.skeleton) return fail("the model '" + path + "' could not be loaded");
-    const std::string ext = path.size() > 5 ? path.substr(path.size() - 5) : "";
-    const std::string ext4 = path.size() > 4 ? path.substr(path.size() - 4) : "";
-    if (ext != ".gltf" && ext4 != ".glb") return fail("'" + path + "' is not a .gltf/.glb file (a built-in shape has no skeleton)");
+    if (!ends_with(path, ".gltf") && !ends_with(path, ".glb")) return fail("'" + path + "' is not a .gltf/.glb file (a built-in shape has no skeleton)");
     a.rt.skeletonPath = path;
     a.rt.skeleton = nullptr;
     auto r = load_skeleton(path);
@@ -222,7 +215,6 @@ bool resolve_skeleton(World& w, Entity e, Animator& a, std::string* why = nullpt
 }
 
 void clear_fade(AnimatorRuntime& rt) {
-    rt.fromClip.clear();
     rt.fromIndex = -1;
     rt.fadeElapsed = rt.fadeDuration = 0.0f;
 }
@@ -244,7 +236,6 @@ Result<void> play_clip(World& w, Entity e, Animator& a, std::string_view clip, f
         return {};
     }
     if (fade > 0.0f && rt.clipIndex >= 0 && rt.clipIndex != idx) {
-        rt.fromClip = rt.activeClip;
         rt.fromIndex = rt.clipIndex;
         rt.fromTime = a.time;
         rt.fromLoop = a.loop;
@@ -453,9 +444,10 @@ Result<void> animator_play(World& w, Entity e, std::string_view clip, float fade
     return play_clip(w, e, **a, clip, std::max(0.0f, fade));
 }
 
-void animator_stop(World& w, Entity e) {
-    Animator* a = w.get<Animator>(e);
-    if (!a) return;
+Result<void> animator_stop(World& w, Entity e) {
+    auto an = animator_of(w, e, "animator.stop");
+    if (!an) return an.error();
+    Animator* a = *an;
     a->clip.clear();
     a->rt.activeClip.clear();
     a->rt.clipIndex = -1;
@@ -463,6 +455,7 @@ void animator_stop(World& w, Entity e) {
     a->time = a->rt.lastTime = 0.0f;
     a->playing = false;
     if (a->rt.skeleton) build_palette(*a);
+    return {};
 }
 
 Result<void> animator_set(World& w, Entity e, std::string_view name, const Json& value) {

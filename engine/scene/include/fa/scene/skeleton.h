@@ -80,6 +80,5 @@ struct SkeletonAsset {
 Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path);
 // Same, from bytes already in memory (tests, generated data). The file may reference only embedded buffers.
 Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std::string_view pathForErrors);
-void clear_skeleton_cache();
 
 }  // namespace fa

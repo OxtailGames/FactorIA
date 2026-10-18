@@ -10,6 +10,8 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/scene/gltf_file.h"
+#include "fa/scene/skeleton.h"
 #include "render_internal.h"
 
 namespace fa::render {
@@ -213,8 +215,7 @@ public:
             return false;
         }
         cgltf_options opts{};
-        opts.file.read = &MeshLoader::file_read;
-        opts.file.release = &MeshLoader::file_release;
+        gltf_use_fs(opts);
         cgltf_data* data = nullptr;
         cgltf_result r = cgltf_parse(&opts, bytes->data(), bytes->size(), &data);
         if (r != cgltf_result_success) {
@@ -250,6 +251,7 @@ public:
                 if (!read_primitive(prim, world, normalMat, verts, idx)) continue;
                 SubMesh sm = upload_submesh(verts, idx, path.c_str());
                 apply_material(prim.material, dir, data, sm);
+                if (node.skin) attach_skin(path, int(ni), int(pi), verts.size(), sm);
                 out.bmin = min(out.bmin, sm.bmin);
                 out.bmax = max(out.bmax, sm.bmax);
                 out.parts.push_back(sm);
@@ -263,20 +265,40 @@ public:
     }
 
 private:
-    static cgltf_result file_read(const cgltf_memory_options*, const cgltf_file_options*, const char* path,
-                                  cgltf_size* size, void** data) {
-        auto bytes = fs::read_bytes(path);
-        if (!bytes) return cgltf_result_file_not_found;
-        void* mem = std::malloc(bytes->size() ? bytes->size() : 1);
-        if (!mem) return cgltf_result_out_of_memory;
-        std::memcpy(mem, bytes->data(), bytes->size());
-        *size = bytes->size();
-        *data = mem;
-        return cgltf_result_success;
+    // Gives a part of a skinned glTF node its joints and weights (vertex buffer 2). Only skin 0 with at most
+    // kMaxSkinJoints joints is drawn skinned (the Animator's palette is skin 0); otherwise the part stays in bind pose.
+    void attach_skin(const std::string& path, int node, int primitive, std::size_t vertexCount, SubMesh& sm) {
+        if (!skeleton_) {
+            auto r = load_skeleton(path);
+            if (!r) return;
+            skeleton_ = *r;
+        }
+        for (const SkinVertices& sv : skeleton_->skinVertices) {
+            if (sv.node != node || sv.primitive != primitive || sv.joints.size() != vertexCount) continue;
+            const std::size_t joints = skeleton_->skins[std::size_t(sv.skin)].joints.size();
+            if (sv.skin != 0 || joints > std::size_t(kMaxSkinJoints)) {
+                FA_WARN("render", "{}: {} - drawn in bind pose, not animated. Skinning supports the first skin with at most {} joints; "
+                                  "re-export the model with fewer joints.", path,
+                        sv.skin != 0 ? std::string("only the first skin of a file is animated") : std::format("the skin has {} joints", joints),
+                        kMaxSkinJoints);
+                return;
+            }
+            std::vector<SkinVertex> v(vertexCount);
+            for (std::size_t i = 0; i < vertexCount; ++i)
+                for (std::size_t k = 0; k < 4; ++k) {
+                    v[i].joints[k] = std::uint8_t(sv.joints[i][k]);
+                    v[i].weights[k] = sv.weights[i][k];
+                }
+            sg_buffer_desc bd{};
+            bd.data = {v.data(), v.size() * sizeof(SkinVertex)};
+            bd.label = "skin";
+            sm.skinVb = sg_make_buffer(&bd);
+            sm.skin = sv.skin;
+            return;
+        }
     }
-    static void file_release(const cgltf_memory_options*, const cgltf_file_options*, void* data, cgltf_size) {
-        std::free(data);
-    }
+
+    std::shared_ptr<const SkeletonAsset> skeleton_;
 
     bool read_primitive(const cgltf_primitive& prim, const Mat4& world, const Mat4& normalMat,
                         std::vector<MeshVertex>& verts, std::vector<std::uint32_t>& idx) {
@@ -471,6 +493,7 @@ void Assets::destroy_mesh(MeshAsset& m) {
     for (auto& p : m.parts) {
         sg_destroy_buffer(p.vb);
         sg_destroy_buffer(p.ib);
+        if (p.skinVb.id) sg_destroy_buffer(p.skinVb);
     }
     m.parts.clear();
 }

@@ -2067,7 +2067,7 @@ declare module "factoria" {
      */
     emitBurst(count?: number): void;
     /**
-     * Skeletal animation of this entity's Animator component (play, crossFade, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
+     * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      */
     readonly animator: AnimatorAPI;
   }
@@ -3254,10 +3254,6 @@ declare module "factoria" {
      * Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
      */
     play(clip: string, fadeSeconds?: number): void;
-    /**
-     * Same as play() with a fade of 0.2 seconds unless given.
-     */
-    crossFade(clip: string, fadeSeconds?: number): void;
     /**
      * Pauses and returns to the bind pose (the model as exported).
      */

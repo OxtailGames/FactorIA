@@ -584,7 +584,7 @@
       },
       {
        "sig": "readonly animator: AnimatorAPI",
-       "doc": "Skeletal animation of this entity's Animator component (play, crossFade, set, trigger, clips, events). Throws if the entity has no Animator; entity.get(\"Animator\") answers null instead."
+       "doc": "Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get(\"Animator\") answers null instead."
       }
      ]
     },
@@ -2117,10 +2117,6 @@
       {
        "sig": "play(clip: string, fadeSeconds?: number): void",
        "doc": "Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist."
-      },
-      {
-       "sig": "crossFade(clip: string, fadeSeconds?: number): void",
-       "doc": "Same as play() with a fade of 0.2 seconds unless given."
       },
       {
        "sig": "stop(): void",

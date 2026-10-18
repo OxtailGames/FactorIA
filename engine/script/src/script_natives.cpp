@@ -598,14 +598,11 @@ NATIVE(animCall) {
     SETUP;
     ENTITY(e, 0);
     const std::string m = arg_str(ctx, argc, argv, 1);
-    Animator* an = W.get<Animator>(e);
-    if (!an)
-        return throw_err(ctx, "entity '" + W.id_of(e) + "' has no Animator component; add one: entity.add(\"Animator\", {clip: \"Idle\"}) next to a MeshRenderer with a skinned glTF");
     Result<void> r;
     if (m == "play") {
-        r = animator_play(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, an->fade)));
+        r = animator_play(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0.2)));
     } else if (m == "stop") {
-        animator_stop(W, e);
+        r = animator_stop(W, e);
     } else if (m == "set") {
         r = animator_set(W, e, arg_str(ctx, argc, argv, 2), I->to_json(argc > 3 ? argv[3] : JS_UNDEFINED));
     } else if (m == "trigger") {
