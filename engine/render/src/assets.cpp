@@ -25,7 +25,7 @@ void add_face(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, Vec3 
     const float sx[4] = {-1, 1, 1, -1}, sy[4] = {-1, -1, 1, 1};
     for (int i = 0; i < 4; ++i) {
         Vec3 p = center + r * (sx[i] * half) + u * (sy[i] * half);
-        v.push_back({p.x, p.y, p.z, n.x, n.y, n.z, uvs[i].x, uvs[i].y, 0, 0, 0, 1});
+        v.push_back({p.x, p.y, p.z, n.x, n.y, n.z, uvs[i].x, uvs[i].y});
     }
     idx.insert(idx.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
 }
@@ -50,7 +50,7 @@ void add_revolved(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, i
             float a = float(s) / float(segments) * kTau;
             float ca = std::cos(a), sa = std::sin(a);
             Vec3 n = normalize(Vec3{ringNormals[r].x * ca, ringNormals[r].y, ringNormals[r].x * sa});
-            v.push_back({rings[r].x * ca, rings[r].y, rings[r].x * sa, n.x, n.y, n.z, float(s) / float(segments), rings[r].z, 0, 0, 0, 1});
+            v.push_back({rings[r].x * ca, rings[r].y, rings[r].x * sa, n.x, n.y, n.z, float(s) / float(segments), rings[r].z});
         }
     }
     for (std::size_t r = 0; r + 1 < rings.size(); ++r) {
@@ -64,11 +64,11 @@ void add_revolved(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, i
 
 void add_disc(std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx, int segments, float radius, float y, float ny) {
     auto base = std::uint32_t(v.size());
-    v.push_back({0, y, 0, 0, ny, 0, 0.5f, 0.5f, 0, 0, 0, 1});
+    v.push_back({0, y, 0, 0, ny, 0, 0.5f, 0.5f});
     for (int s = 0; s <= segments; ++s) {
         float a = float(s) / float(segments) * kTau;
         float ca = std::cos(a), sa = std::sin(a);
-        v.push_back({radius * ca, y, radius * sa, 0, ny, 0, 0.5f + 0.5f * ca, 0.5f + 0.5f * sa, 0, 0, 0, 1});
+        v.push_back({radius * ca, y, radius * sa, 0, ny, 0, 0.5f + 0.5f * ca, 0.5f + 0.5f * sa});
     }
     for (int s = 0; s < segments; ++s) idx.insert(idx.end(), {base, base + 1 + std::uint32_t(s), base + 2 + std::uint32_t(s)});
 }
