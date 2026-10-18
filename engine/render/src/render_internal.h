@@ -402,6 +402,9 @@ public:
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
+    // Tests of the template hooks: meshes are drawn with these programs until materials exist (the caller keeps the
+    // built-in mesh_shader_/meshSkinShader_ and puts them back). ponytail: test seam, package 3 keys pipelines by shader.
+    void set_mesh_shaders(sg_shader mesh, sg_shader skin);
 
 private:
         sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);

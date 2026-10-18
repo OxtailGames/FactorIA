@@ -37,6 +37,12 @@
 
 namespace fa {
 
+class Renderer;
+namespace render {
+class Gpu;
+Gpu* renderer_gpu(Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
+}  // namespace render
+
 enum class ScaleMode : std::int32_t {
     Fit,      // keep aspect, letterbox (default)
     Stretch,  // fill the window, distort
@@ -188,6 +194,7 @@ public:
     struct Impl;
 
 private:
+    friend render::Gpu* render::renderer_gpu(Renderer& r);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     float textScale_ = 1.0f;
