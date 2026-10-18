@@ -641,6 +641,40 @@ What was built (docs/MOBILE.md is the reference):
   "on-screen gamepad: a JavaScript test plays the pad actions with two fingers"; `engine/render/tests/ui_render_tests.cpp`,
   "on-screen gamepad: discs, the knob follows the stick value, a hidden control draws nothing".
 
+## M17. Web export (L, high) — DONE (the `m17/web` PR)
+
+Closes E-07 and the web gamepad gap (docs/MOBILE.md).
+
+- An Emscripten preset and player (WebGL2), `export --platform web` writing `index.html`, the wasm and a data pack;
+  audio unlocked on the first input; `storage` in IndexedDB; gamepads through the browser Gamepad API.
+- A loading page with progress for the wasm and data download.
+
+Acceptance criteria:
+- CI builds the web player and runs an exported template in headless Chromium until its first frame renders.
+- The export is a zip that itch.io accepts as an HTML5 game.
+
+What was built (docs/EXPORTING.md "Web" and docs/BUILDING.md "Web" are the reference), in three worker branches merged
+into `m17/web`:
+- Player (`m17/web-player`): presets `web-release` / `web-debug` (Emscripten 6.0.10, pinned in docs/BUILDING.md), output
+  `build/web-release/player/factoria_player.{js,wasm}` (MODULARIZE, `createFactoriaPlayer`, no pthreads, so no COOP/COEP
+  headers, `-fwasm-exceptions`, Box2D without SIMD). The page `platforms/web/shell.html` (one file: streamed download
+  progress, plain-words errors, `{{title}}`, `{{wasmBytes}}`, `{{pakBytes}}`) writes the pack to `/game.pak`; main()
+  mounts it, restores the save folder `/save/<game id>` from IndexedDB (IDBFS) and starts the game, whose frames come from
+  requestAnimationFrame. `fs::user_dir_changed()` (called by `storage`) syncs to IndexedDB half a second later and at
+  once when the page hides. `audio_web.cpp` resumes the AudioContext on input until it runs; `gamepad_web.cpp` maps the
+  browser's standard layout; the system language from `navigator.languages`; `input.vibrate` is `navigator.vibrate`.
+  Plugins, processes, the crash reporter and the headless GPU are teaching stubs. `web` is a platform in factoria.json;
+  plugins without a `platforms` list default to the native platforms.
+- Export (`m17/web-export`): `factoria export --platform web` (aliases html5, browser, wasm; `project.export`; the
+  editor's Export window) writes `<out>/<slug>-web/` (index.html, the player, game.pak always, notices) and
+  `<out>/<slug>-web.zip` (index.html at its root, deterministic, deflated with the miniz basisu vendors). The player
+  comes from `--player`, `<factoria dir>/web/`, `factoria setup players --platforms web`, or a source build; textures
+  ship as PNG, atlas pages up to 2048 px. Tests: `tools/common/tests/export_web_test.cpp` (fake player) and setup tests.
+- CI and release (`m17/web-ci`): the `web` job of ci.yml builds the player and the CLI, runs `scripts/web-smoke.sh`
+  (exports the 2d-platformer, checks the zip against itch.io's limits, runs `platforms/web/smoke.mjs` in the runner's
+  headless Chrome until `player: 60 frames rendered`); `scripts/ci-local.sh web` does the same. release.yml builds the
+  player once (`web-player` job) and puts `FactorIA/web/` in every package, checked by exporting from the unpacked package.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
