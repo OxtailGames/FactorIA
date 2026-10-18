@@ -10,7 +10,6 @@
 #include "shaders/blit.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
-#include "shaders/shadow.glsl.h"
 #include "shaders/sky.glsl.h"
 
 namespace fa::render {
@@ -65,10 +64,10 @@ bool Gpu::init(int sampleCount, std::string* error) {
     quad_shader_ = sg_make_shader(quad_quad_shader_desc(backend));
     mesh_shader_ = sg_make_shader(mesh_mesh_shader_desc(backend));
     sky_shader_ = sg_make_shader(sky_sky_shader_desc(backend));
-    shadow_shader_ = sg_make_shader(shadow_shadow_shader_desc(backend));
+    shadow_shader_ = sg_make_shader(mesh_shadow_shader_desc(backend));
     blit_shader_ = sg_make_shader(blit_blit_shader_desc(backend));
     meshSkinShader_ = sg_make_shader(mesh_mesh_skin_shader_desc(backend));
-    shadowSkinShader_ = sg_make_shader(shadow_shadow_skin_shader_desc(backend));
+    shadowSkinShader_ = sg_make_shader(mesh_shadow_skin_shader_desc(backend));
     for (sg_shader s : {quad_shader_, mesh_shader_, sky_shader_, shadow_shader_, blit_shader_, meshSkinShader_, shadowSkinShader_}) {
         if (sg_query_shader_state(s) != SG_RESOURCESTATE_VALID) {
             if (error) {
@@ -129,6 +128,18 @@ void Gpu::shutdown() {
     bloomState_ = 0;
 }
 
+void Gpu::set_mesh_shader(sg_shader mesh) {
+    mesh_shader_ = mesh;
+    for (auto it = pipelines_.begin(); it != pipelines_.end();) {
+        if ((it->first.bits & ~7u) == 0x200u) {  // mesh_pipeline keys
+            sg_destroy_pipeline(it->second);
+            it = pipelines_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) return it->second;
@@ -187,12 +198,12 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned) {
     PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u)};
     sg_pipeline_desc d{};
     d.shader = skinned ? meshSkinShader_ : mesh_shader_;
-    d.layout.attrs[ATTR_mesh_mesh_position].format = SG_VERTEXFORMAT_FLOAT3;
-    d.layout.attrs[ATTR_mesh_mesh_normal].format = SG_VERTEXFORMAT_FLOAT3;
-    d.layout.attrs[ATTR_mesh_mesh_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
-    d.layout.attrs[ATTR_mesh_mesh_tangent].format = SG_VERTEXFORMAT_FLOAT4;
-    set_instance_layout(d, ATTR_mesh_mesh_inst_m0);
-    if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_joints, ATTR_mesh_mesh_skin_weights);
+    d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
+    d.layout.attrs[ATTR_mesh_mesh_fa_tangent].format = SG_VERTEXFORMAT_FLOAT4;
+    set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
+    if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.pixel_format = kDepthFormat;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
@@ -231,10 +242,10 @@ sg_pipeline Gpu::shadow_pipeline(bool skinned) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u)};
     sg_pipeline_desc d{};
     d.shader = skinned ? shadowSkinShader_ : shadow_shader_;
-    d.layout.attrs[ATTR_shadow_shadow_position].format = SG_VERTEXFORMAT_FLOAT3;
+    d.layout.attrs[ATTR_mesh_shadow_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.buffers[0].stride = sizeof(MeshVertex);  // position is the first member of MeshVertex
-    set_instance_layout(d, ATTR_shadow_shadow_inst_m0);
-    if (skinned) set_skin_layout(d, ATTR_shadow_shadow_skin_joints, ATTR_shadow_shadow_skin_weights);
+    set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
+    if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
     d.depth.pixel_format = SG_PIXELFORMAT_DEPTH;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
