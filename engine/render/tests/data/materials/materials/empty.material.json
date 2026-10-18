@@ -1,0 +1,5 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: surface() does nothing, so it renders like a plain MeshRenderer.",
+  "shader": "shaders/empty.surface.glsl"
+}

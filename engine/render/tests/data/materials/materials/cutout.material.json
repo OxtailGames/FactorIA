@@ -1,0 +1,9 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: alphaMode clip with a checkerboard mask; holes in the mesh and in its shadow.",
+  "shader": "shaders/cutout.surface.glsl",
+  "alphaMode": "clip",
+  "textures": {
+    "mask": { "default": "textures/checker.png", "sampler": "nearestRepeat", "doc": "Cutout mask: the red channel is the alpha (0 or 1)." }
+  }
+}
