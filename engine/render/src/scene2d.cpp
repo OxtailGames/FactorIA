@@ -4,6 +4,7 @@
 
 #include "fa/core/log.h"
 #include "fa/scene/tilemap.h"
+#include "fa/scene/ui_rect.h"
 #include "frame.h"
 
 namespace fa::render {
@@ -70,10 +71,11 @@ void polygon_shape(const QuadEmitter& em, const Vec2* p, int n, Vec2 centre, boo
     }
 }
 
-// Screen-space anchoring: moves the entity's translation by anchor * design size.
-void apply_anchor(Mat4& m, Vec2 anchor, const Frame& f) {
-    m.at(3, 0) += anchor.x * float(f.targetW);
-    m.at(3, 1) += anchor.y * float(f.targetH);
+// Screen-space anchoring: moves the entity's translation to the anchor point (the safe area when `safeArea`).
+void apply_anchor(Mat4& m, Vec2 anchor, bool safeArea, const World& world, const Frame& f) {
+    const Vec2 a = anchor_point(anchor, safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
+    m.at(3, 0) += a.x;
+    m.at(3, 1) += a.y;
 }
 
 bool axis_aligned(const Mat4& m) {
@@ -129,7 +131,7 @@ void gather_2d(World& world, Frame& f) {
         bool screen = s.space == RenderSpace::Screen;
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, f);
+        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
@@ -150,7 +152,7 @@ void gather_2d(World& world, Frame& f) {
         bool screen = s.space == RenderSpace::Screen;
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, f);
+        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
@@ -273,7 +275,7 @@ void gather_2d(World& world, Frame& f) {
         // follows the player's text size option; world-space Text is part of the world and does not.
         TextLayout lay = f.fonts->layout(t, screen ? t.fontSize * f.textScale : t.fontSize, eff);
         if (lay.quads.empty()) return;
-        if (screen) apply_anchor(m, t.anchor, f);
+        if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
             float ox = screen ? 0.0f : f.cam.visible.x, oy = screen ? 0.0f : f.cam.visible.y;

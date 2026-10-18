@@ -5,6 +5,7 @@
 #include <cmath>
 #include <unordered_map>
 
+#include "fa/scene/ui_rect.h"
 #include "frame.h"
 
 namespace fa::render {
@@ -164,7 +165,11 @@ void gather_particles(World& world, Frame& f) {
         if (st.particles.empty()) return;
         Mat4 m = world.world_matrix(e);
         const bool screen = screen_space(em);
-        const Vec3 anchor = screen ? Vec3{em.anchor.x * float(f.targetW), em.anchor.y * float(f.targetH), 0.0f} : Vec3{};
+        Vec3 anchor{};
+        if (screen) {
+            const Vec2 a = anchor_point(em.anchor, em.safeArea, Vec2{float(f.targetW), float(f.targetH)}, world.safe_insets());
+            anchor = Vec3{a.x, a.y, 0.0f};
+        }
 
         TextureAsset* tex = em.texture.empty() ? f.assets->white() : f.assets->texture(em.texture);
         QuadList& list = screen ? f.screen : f.world;

@@ -217,3 +217,65 @@ TEST_CASE("ui: a menu is driven by gamepad taps from a JavaScript test") {
     CHECK(t.result["passed"].get<int>() == 2);
     e.shutdown();
 }
+
+TEST_CASE("screen.set_safe_area: a notched phone moves the widgets anchored to the safe area, and only those") {
+    TempProject p("safearea");
+    p.write("scenes/main.scene.json", R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "safe", "components": { "Transform": { "position": [10, 10] },
+        "Button": { "text": "Safe", "size": [50, 20], "anchor": [0, 0], "safeArea": true } } },
+    { "id": "raw", "components": { "Transform": { "position": [10, 10] },
+        "Button": { "text": "Raw", "size": [50, 20], "anchor": [0, 0] } } }
+  ]
+})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    const CommandInfo* info = e.commands().info("screen.set_safe_area");
+    REQUIRE(info != nullptr);
+    CHECK_FALSE(info->readOnly);
+    CHECK(info->description.find("Example") != std::string::npos);
+    auto rect_of = [&](const char* id) {
+        e.step(1);
+        const auto state = e.commands().call("ui.state", Json::object());  // kept alive: the loop reads inside it
+        for (const Json& w : state.result["widgets"])
+            if (w["id"] == id) return w["rect"];
+        return Json();
+    };
+    const Json rawBase = rect_of("raw");
+    const Json safeBase = rect_of("safe");
+    CHECK(safeBase == rawBase);  // no notch: the whole screen, both anchored to its corner
+    auto r = e.commands().call("screen.set_safe_area", Json{{"profile", "phone-portrait"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const float top = r.result["insets"]["top"].get<float>();
+    CHECK(top > 0);
+    CHECK(rect_of("safe")[1].get<float>() == doctest::Approx(safeBase[1].get<float>() + top));  // moved down by the notch
+    CHECK(rect_of("raw") == rawBase);  // not anchored to the safe area: stays under the notch
+    r = e.commands().call("screen.set_safe_area", Json{{"left", 30}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(rect_of("safe")[0].get<float>() == doctest::Approx(safeBase[0].get<float>() + 30));
+    CHECK(rect_of("safe")[1] == safeBase[1]);
+    // mistakes teach
+    r = e.commands().call("screen.set_safe_area", Json{{"profile", "phone-portait"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["message"].get<std::string>().find("Did you mean 'phone-portrait'") != std::string::npos);
+    r = e.commands().call("screen.set_safe_area", Json{{"left", 400}});
+    REQUIRE_FALSE(r.ok);
+    CHECK_FALSE(r.error["hint"].get<std::string>().empty());
+    e.shutdown();
+}
+
+TEST_CASE("game.input back is the Back button: a script handler consumes it") {
+    TempProject p("back");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    e.commands().call("script.eval", Json{{"code", "globalThis.backs = 0; input.onBack(() => { globalThis.backs++; return true; })"}});
+    auto b = e.commands().call("game.input", Json{{"back", true}});
+    REQUIRE_MESSAGE(b.ok, b.error.dump());
+    e.step(1);
+    CHECK(e.commands().call("script.eval", Json{{"code", "globalThis.backs"}}).result["value"] == 1);
+    e.shutdown();
+}

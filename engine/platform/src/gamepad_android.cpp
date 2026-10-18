@@ -18,15 +18,13 @@
 // unit-tested (android_gamepads.cpp), this glue is only compiled by CI.
 #include <android/input.h>
 #include <android/keycodes.h>
-#include <android/native_activity.h>
-#include <jni.h>
 
 #include <chrono>
 #include <mutex>
 
+#include "android_jni.h"
 #include "fa/platform/android_gamepads.h"
 #include "fa/platform/gamepad.h"
-#include "sokol_app.h"
 
 namespace fa {
 
@@ -65,41 +63,11 @@ struct InputDeviceJni {
 };
 InputDeviceJni g_jni;
 
-JavaVM* java_vm() {
-    const auto* activity = static_cast<const ANativeActivity*>(sapp_android_get_native_activity());
-    return activity ? activity->vm : nullptr;
-}
-
-// The JNIEnv of this thread, attaching it to the VM the first time. The sokol_app loop thread is a plain pthread; it stays
-// attached until it ends, and `Detach` (a thread_local) detaches it then. A thread somebody else attached is left alone.
-JNIEnv* thread_env() {
-    struct Detach {
-        JavaVM* vm = nullptr;
-        ~Detach() {
-            if (vm) vm->DetachCurrentThread();
-        }
-    };
-    static thread_local Detach detach;
-    JavaVM* vm = java_vm();
-    if (!vm) return nullptr;
-    JNIEnv* env = nullptr;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) return env;
-    if (vm->AttachCurrentThread(&env, nullptr) != JNI_OK) return nullptr;
-    detach.vm = vm;
-    return env;
-}
-
-bool clear_exception(JNIEnv* env) {  // a JNI call that threw leaves the exception pending: clear it, report that it did
-    if (!env->ExceptionCheck()) return false;
-    env->ExceptionClear();
-    return true;
-}
-
 bool init_jni(JNIEnv* env) {
     if (g_jni.ready) return true;
     if (g_jni.failed) return false;
     jclass local = env->FindClass("android/view/InputDevice");  // a framework class: found from a native thread too
-    if (clear_exception(env) || !local) {
+    if (android_clear_exception(env) || !local) {
         g_jni.failed = true;
         return false;
     }
@@ -107,7 +75,7 @@ bool init_jni(JNIEnv* env) {
     env->DeleteLocalRef(local);
     g_jni.getDevice = env->GetStaticMethodID(g_jni.cls, "getDevice", "(I)Landroid/view/InputDevice;");
     g_jni.getMotionRange = env->GetMethodID(g_jni.cls, "getMotionRange", "(I)Landroid/view/InputDevice$MotionRange;");
-    if (clear_exception(env) || !g_jni.getDevice || !g_jni.getMotionRange) {
+    if (android_clear_exception(env) || !g_jni.getDevice || !g_jni.getMotionRange) {
         g_jni.failed = true;
         return false;
     }
@@ -121,12 +89,12 @@ enum class DeviceState { Unknown, Gone, Present };
 // InputDevice/MotionEvent are the AMOTION_EVENT_AXIS_* of the NDK.
 DeviceState query_device(JNIEnv* env, int deviceId, AndroidAxisCaps* caps) {
     jobject device = env->CallStaticObjectMethod(g_jni.cls, g_jni.getDevice, jint(deviceId));
-    if (clear_exception(env)) return DeviceState::Unknown;
+    if (android_clear_exception(env)) return DeviceState::Unknown;
     if (!device) return DeviceState::Gone;
     if (caps) {
         auto has = [&](int32_t axisId) {
             jobject range = env->CallObjectMethod(device, g_jni.getMotionRange, jint(axisId));
-            if (clear_exception(env)) return false;
+            if (android_clear_exception(env)) return false;
             if (!range) return false;
             env->DeleteLocalRef(range);
             return true;
@@ -161,7 +129,7 @@ void check_devices() {
 
     DeviceState states[kMaxGamepads] = {};
     AndroidAxisCaps caps[kMaxGamepads] = {};
-    if (JNIEnv* env = thread_env(); env && init_jni(env) && env->PushLocalFrame(32) == JNI_OK) {
+    if (JNIEnv* env = android_thread_env(); env && init_jni(env) && env->PushLocalFrame(32) == JNI_OK) {
         for (int i = 0; i < kMaxGamepads; ++i)
             if (ids[i] >= 0) states[i] = query_device(env, ids[i], wantsLayout[i] ? &caps[i] : nullptr);
         env->PopLocalFrame(nullptr);

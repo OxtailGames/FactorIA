@@ -4,7 +4,10 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 #include "fa/core/math.h"
 #include "fa/scene/components.h"
@@ -24,9 +27,21 @@ inline bool ui_is_control(UiKind k) { return k == UiKind::Button || k == UiKind:
 // The interactive part (font, colours, focused / hovered / pressed) of such a widget; nullptr for any other entity.
 const UiControl* ui_control(const World& w, Entity e);
 
+// The screen point an anchor names, in design pixels: {anchor.x * W, anchor.y * H} with designSize = {W, H}, or, when
+// `safeArea` is true, the same fractions of the safe rectangle (the screen minus `insets`): anchor [0, 0] is its top-left
+// corner, [1, 1] its bottom-right. The ONE definition behind drawing, layout, hit-testing and editor picking.
+Vec2 anchor_point(Vec2 anchor, bool safeArea, Vec2 designSize, const EdgeInsets& insets);
+
+// A "device profile" for tests and AI agents: the insets of a typical notched phone, as fractions of the design size.
+// Names: "none", "phone-portrait" (notch at the top, home indicator at the bottom), "phone-landscape" (notch on a side,
+// home indicator at the bottom). false (out alone) for any other name.
+bool safe_area_profile(std::string_view name, Vec2 designSize, EdgeInsets& out);
+const std::vector<std::string>& safe_area_profile_names();
+
 // The widget's rectangle: x, y = top-left, +Y down, from the world translation T of the entity:
-//   {T.x + anchor.x * W - pivot.x * size.x,  T.y + anchor.y * H - (1 - pivot.y) * size.y,  size.x, size.y}
-// with designSize = {W, H} (the renderer's target size). nullopt when `e` is no widget.
+//   {T.x + A.x - pivot.x * size.x,  T.y + A.y - (1 - pivot.y) * size.y,  size.x, size.y}
+// with A = anchor_point(anchor, safeArea, designSize, w.safe_insets()) and designSize = {W, H} (the renderer's target
+// size). nullopt when `e` is no widget.
 std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize);
 
 // The intersection of the rectangles of every ScrollList ANCESTOR of `e` (not `e` itself): what is drawn and hit-tested

@@ -8,6 +8,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/platform/input.h"
 #include "fa/scene/components.h"
 #include "fa/script/bytecode.h"
 #include "script_internal.h"
@@ -776,6 +777,21 @@ void ScriptSystem::dispatch_platform() {
     JS_FreeValue(I.ctx, av);
     JS_FreeValue(I.ctx, ev);
     I.run_jobs();
+}
+
+void ScriptSystem::dispatch_back() {
+    Impl& I = *impl_;
+    if (!I.host || !I.host->input().back_pressed()) return;
+    bool consumed = false;
+    if (I.initialized) {
+        JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "back");
+        JSValue r = I.call("input.onBack", "", fn, I.hooks.get(), {});
+        consumed = JS_ToBool(I.ctx, r) > 0;
+        JS_FreeValue(I.ctx, r);
+        JS_FreeValue(I.ctx, fn);
+        I.run_jobs();
+    }
+    if (!consumed) I.host->request_quit();
 }
 
 void ScriptSystem::update(float dt) {

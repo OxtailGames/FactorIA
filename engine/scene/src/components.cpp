@@ -24,6 +24,12 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. "
                "The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] "
                "and are placed by the Panel's layout.")
+        .field("safeArea", static_cast<bool T::*>(&UiBox::safeArea),
+               "Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, "
+               "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
+               "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
+               "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
+               "nothing. Default false.")
         .field("layer", static_cast<std::int32_t T::*>(&UiBox::layer),
                "Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at "
                "layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, "
@@ -182,7 +188,13 @@ void register_builtin_components(TypeRegistry& r) {
                     "Compositing: alpha (normal), additive (glow, neon, fire, lasers; brightens), multiply (darkens/tints).")
         .field("anchor", &Sprite::anchor,
                "Screen space only: screen point the position is relative to. [0,0] top-left (default), [1,0] top-right, "
-               "[0.5,0.5] center, [1,1] bottom-right. Keeps HUD elements glued to screen edges on any aspect ratio.");
+               "[0.5,0.5] center, [1,1] bottom-right. Keeps HUD elements glued to screen edges on any aspect ratio.")
+        .field("safeArea", &Sprite::safeArea,
+               "Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, "
+               "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
+               "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
+               "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
+               "nothing. Default false.");
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
@@ -229,6 +241,12 @@ void register_builtin_components(TypeRegistry& r) {
                     "Compositing: alpha (normal), additive (glow/neon), multiply (darken).")
         .field("anchor", &Shape2D::anchor,
                "Screen space only: screen point the position is relative to ([0,0] top-left, [1,1] bottom-right).")
+        .field("safeArea", &Shape2D::safeArea,
+               "Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, "
+               "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
+               "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
+               "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
+               "nothing. Default false.")
         .field("sides", &Shape2D::sides, "polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon).").range(3, 64)
         .field("points", &Shape2D::points, "star only: number of tips (5 = the classic star).").range(3, 64)
         .field("innerRadius", &Shape2D::innerRadius,
@@ -264,7 +282,13 @@ void register_builtin_components(TypeRegistry& r) {
         .field("anchor", &Text::anchor,
                "Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, "
                "[0.5,0] top-center, [1,1] bottom-right). Combine with pivot, e.g. anchor [1,0] + pivot [1,1] + "
-               "position [-20, 20] = right-aligned 20px from the top-right corner.");
+               "position [-20, 20] = right-aligned 20px from the top-right corner.")
+        .field("safeArea", &Text::safeArea,
+               "Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, "
+               "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
+               "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
+               "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
+               "nothing. Default false.");
 
     r.add<Tilemap>("Tilemap",
                    "A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is the TOP row. "
@@ -324,7 +348,13 @@ void register_builtin_components(TypeRegistry& r) {
                     "negative gravity y falls down the screen. Ignored (treated as world) when is3D is true.")
         .field("anchor", &ParticleEmitter::anchor,
                "Screen space only: screen point the position is relative to ([0,0] top-left, [1,0] top-right, [0.5,0.5] "
-               "center, [1,1] bottom-right).");
+               "center, [1,1] bottom-right).")
+        .field("safeArea", &ParticleEmitter::safeArea,
+               "Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, "
+               "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
+               "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
+               "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
+               "nothing. Default false.");
 
     // --------------------------------------------------------------- 3D ---
     r.add<MeshRenderer>("MeshRenderer",

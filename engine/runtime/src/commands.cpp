@@ -481,6 +481,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). "
            "touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); "
            "the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. "
+           "{\"back\":true} presses the system Back button of Android: the input.onBack handlers of the game run at the next "
+           "frame, and when none consumes it the game asks to quit (game.state shows quitRequested). "
            "The input is applied now and seen by the next frame (game.step). Example: game.input {\"press\":[\"jump\"]}",
            parse_schema(R"({"type":"object","properties":{
                "action":{"type":"string","description":"Action name (with `down`)."},
@@ -490,7 +492,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                "release":{"type":"array","items":{"type":"string"}},
                "mouse":{"type":"object","description":"{position:[x,y] in design pixels, left/right/middle: bool}."},
                "gamepad":{"type":["object","array"],"description":"{index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads."},
-               "touch":{"type":["object","array"],"description":"{id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers."}}})"),
+               "touch":{"type":["object","array"],"description":"{id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers."},
+               "back":{"type":"boolean","description":"true: press the system Back button (Android)."}}})"),
            false, "game"},
           [&engine, &I](const Json& a) {
               std::string err;
@@ -514,6 +517,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               std::vector<std::string> problems;  // the valid parts are applied; the rest is reported with a hint
               if (a.contains("gamepad")) apply_gamepad_json(I.input, a["gamepad"], problems);
               if (a.contains("touch")) apply_touch_json(I.input, a["touch"], problems);
+              if (a.value("back", false)) I.input.on_back();
               if (!problems.empty())
                   throw CommandError("invalid_argument", join(problems, "\n"),
                                      "gamepad: {\"index\":0,\"buttons\":{\"A\":true},\"axes\":{\"LeftX\":-1}}; "
@@ -603,6 +607,44 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine](const Json& a) {  // the schema has already checked the range
               engine.set_text_scale(a.at("scale").get<float>());
               return Json::object({{"textScale", engine.text_scale()}});
+          });
+
+    I.commands.add({"screen.set_safe_area", "Pretend the device has a notch, rounded corners or system bars (a notched phone, headless).",
+           "The safe area is the part of the screen a notch, rounded corners and the system bars of a phone leave free; items with "
+           "`safeArea: true` are anchored to it and screen.safeArea in scripts reports it. A real phone reports it by itself; a "
+           "headless run, a test or the editor has none (the whole screen), so this sets one to check a layout: either a "
+           "`profile` (\"phone-portrait\": notch at the top and home indicator at the bottom; \"phone-landscape\": notch on a "
+           "side; \"none\"), as fractions of the design size, or insets in design pixels from each edge (`left`, `top`, `right`, "
+           "`bottom`, default 0). Take a game.step and a game.screenshot to see the result. A windowed run on a phone overwrites it "
+           "every frame with the device's real value. Example: screen.set_safe_area {\"profile\":\"phone-portrait\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "profile":{"type":"string","description":"none, phone-portrait or phone-landscape. Replaces left/top/right/bottom."},
+               "left":{"type":"number","minimum":0,"default":0,"description":"Design pixels covered at the left edge."},
+               "top":{"type":"number","minimum":0,"default":0,"description":"Design pixels covered at the top edge."},
+               "right":{"type":"number","minimum":0,"default":0,"description":"Design pixels covered at the right edge."},
+               "bottom":{"type":"number","minimum":0,"default":0,"description":"Design pixels covered at the bottom edge."}}})"),
+           false, "screen"},
+          [&engine](const Json& a) {
+              World& w = engine.world();
+              const Vec2 size = engine.renderer() && engine.renderer()->initialized()
+                                    ? Vec2{float(engine.renderer()->target_width()), float(engine.renderer()->target_height())}
+                                    : Vec2{float(engine.project().width), float(engine.project().height)};
+              EdgeInsets e{a.value("left", 0.0f), a.value("top", 0.0f), a.value("right", 0.0f), a.value("bottom", 0.0f)};
+              if (a.contains("profile")) {
+                  const std::string name = a["profile"].is_string() ? a["profile"].get<std::string>() : std::string();
+                  if (!safe_area_profile(name, size, e))
+                      throw CommandError("invalid_argument", "Unknown profile " + describe_json_value(a["profile"]) + ". " +
+                                                                 did_you_mean(name, safe_area_profile_names()),
+                                         "Use one of: " + join(safe_area_profile_names(), ", ") + "; or pass left, top, right, bottom.");
+              }
+              if (e.left + e.right >= size.x || e.top + e.bottom >= size.y)
+                  throw CommandError("invalid_argument", "The insets leave no safe area on a " + std::to_string(int(size.x)) + " x " +
+                                                             std::to_string(int(size.y)) + " screen.",
+                                     "left + right must be less than the width and top + bottom less than the height.");
+              w.set_safe_insets(e);
+              return Json::object({{"insets", Json::object({{"left", e.left}, {"top", e.top}, {"right", e.right}, {"bottom", e.bottom}})},
+                                   {"safeArea", Json::object({{"x", e.left}, {"y", e.top}, {"w", size.x - e.left - e.right},
+                                                              {"h", size.y - e.top - e.bottom}})}});
           });
 
     I.commands.add({"audio.log", "List the sounds played so far (clip path, frame, volume, bus, source entity), oldest first.",

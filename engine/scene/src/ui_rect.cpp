@@ -44,12 +44,33 @@ const UiControl* ui_control(const World& w, Entity e) {
     return ui_is_control(ui_kind(w, e)) ? static_cast<const UiControl*>(ui_box(w, e)) : nullptr;
 }
 
+Vec2 anchor_point(Vec2 anchor, bool safeArea, Vec2 designSize, const EdgeInsets& insets) {
+    if (!safeArea) return {anchor.x * designSize.x, anchor.y * designSize.y};
+    return {insets.left + anchor.x * (designSize.x - insets.left - insets.right),
+            insets.top + anchor.y * (designSize.y - insets.top - insets.bottom)};
+}
+
+const std::vector<std::string>& safe_area_profile_names() {
+    static const std::vector<std::string> names = {"none", "phone-portrait", "phone-landscape"};
+    return names;
+}
+
+bool safe_area_profile(std::string_view name, Vec2 designSize, EdgeInsets& out) {
+    if (name == "none") out = {};
+    // iPhone 15 in points: 393 x 852, notch area 59 at the top and home indicator 34 at the bottom; turned, 59 on each
+    // side and 21 at the bottom.
+    else if (name == "phone-portrait") out = {0, designSize.y * (59.0f / 852.0f), 0, designSize.y * (34.0f / 852.0f)};
+    else if (name == "phone-landscape") out = {designSize.x * (59.0f / 852.0f), 0, designSize.x * (59.0f / 852.0f), designSize.y * (21.0f / 393.0f)};
+    else return false;
+    return true;
+}
+
 std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize) {
     const UiBox* b = ui_box(w, e);
     if (!b) return std::nullopt;
     const Vec3 t = w.world_matrix(e).translation();
-    return Rect{t.x + b->anchor.x * designSize.x - b->pivot.x * b->size.x,
-                t.y + b->anchor.y * designSize.y - (1.0f - b->pivot.y) * b->size.y, b->size.x, b->size.y};
+    const Vec2 a = anchor_point(b->anchor, b->safeArea, designSize, w.safe_insets());
+    return Rect{t.x + a.x - b->pivot.x * b->size.x, t.y + a.y - (1.0f - b->pivot.y) * b->size.y, b->size.x, b->size.y};
 }
 
 Rect ui_intersect(const Rect& a, const Rect& b) {

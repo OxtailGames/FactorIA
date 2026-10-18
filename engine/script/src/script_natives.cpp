@@ -21,6 +21,7 @@
 #include "fa/render/renderer.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/localize.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 #include "fa/ui/ui.h"
@@ -1350,6 +1351,48 @@ NATIVE(inButtonName) {  // (bindingOrAction, pad)
     return JS_NewString(ctx, in.button_name(n, pad).c_str());
 }
 
+NATIVE(inVibrate) {  // (seconds)
+    SETUP;
+    I->host->input().vibrate(static_cast<float>(arg_num(ctx, argc, argv, 0)));
+    return JS_UNDEFINED;
+}
+
+NATIVE(screenInsets) {  // [left, top, right, bottom] of the safe area, in design pixels
+    SETUP;
+    const EdgeInsets& e = W.safe_insets();
+    return array_of(ctx, {e.left, e.top, e.right, e.bottom});
+}
+
+NATIVE(testSafeInsets) {  // (left, top, right, bottom): the device a test pretends to run on
+    SETUP;
+    W.set_safe_insets(EdgeInsets{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+                                 static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))});
+    return JS_UNDEFINED;
+}
+
+Vec2 design_size(Impl* I);
+
+NATIVE(testSafeProfile) {  // (name) -> "" or what is wrong
+    SETUP;
+    const std::string name = arg_str(ctx, argc, argv, 0);
+    EdgeInsets e;
+    if (!safe_area_profile(name, design_size(I), e))
+        return JS_NewString(ctx, ("unknown profile '" + name + "'. " + did_you_mean(name, safe_area_profile_names())).c_str());
+    W.set_safe_insets(e);
+    return JS_NewString(ctx, "");
+}
+
+NATIVE(testBack) {
+    SETUP;
+    I->host->input().on_back();
+    return JS_UNDEFINED;
+}
+
+NATIVE(testVibrations) {
+    SETUP;
+    return I->from_json(Json(I->host->input().vibrations()));
+}
+
 NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown, value?): sets when given; returns the state
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
@@ -1965,6 +2008,7 @@ NATIVE(resetInput) {
         if (it != ps["input"].end() && it->is_number()) dz = it->get<double>();
     }
     in.set_gamepad_deadzone(static_cast<float>(dz));
+    W.set_safe_insets({});  // a test that pretended to be a notched phone starts the next one on a plain screen
     in.reset_options();  // a test that rebound an action, hid the cursor or showed the keyboard starts the next one clean
     return JS_UNDEFINED;
 }
@@ -1996,7 +2040,7 @@ const Reg kRegs[] = {
     R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 4),
     R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
     R(inLastDevice, 0), R(inPadType, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowSet, 3),
-    R(testText, 1),
+    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5),
