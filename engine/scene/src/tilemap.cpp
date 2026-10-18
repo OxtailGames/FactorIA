@@ -17,15 +17,31 @@ std::string number_text(double v) {
     return std::to_string(v);
 }
 
-// A tile index as the renderer and physics see it: whole numbers >= 0; anything else (strings, null, -1, nonsense) is empty.
+// A tile value as the renderer and physics see it: whole numbers >= 0 (index plus flag bits); anything else (strings,
+// null, -1, nonsense) is empty.
 int tile_value(const Json& v) {
     if (!v.is_number()) return -1;
     const double d = v.get<double>();
-    if (!(d >= 0.0) || d > 1e9) return -1;
+    if (!(d >= 0.0) || d > double(kTileFlagMask | kTileIndexMask)) return -1;
     return static_cast<int>(d);
 }
 
 }  // namespace
+
+int make_tile(int index, int turns, bool flipX, bool flipY) {
+    if (index < 0) return -1;
+    int flags = 0;
+    switch (((turns % 4) + 4) % 4) {
+        case 1: flags = kTileTranspose | kTileFlipX; break;
+        case 2: flags = kTileFlipX | kTileFlipY; break;
+        case 3: flags = kTileTranspose | kTileFlipY; break;
+        default: break;
+    }
+    // The mirrors come after the turn: they toggle the final x / y mirror.
+    if (flipX) flags ^= kTileFlipX;
+    if (flipY) flags ^= kTileFlipY;
+    return (index & kTileIndexMask) | flags;
+}
 
 TilemapSize tilemap_size(const Tilemap& tm) {
     TilemapSize size;
@@ -93,10 +109,10 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
         std::size_t bad = 0;
         for (std::size_t i = 0; i < tm.solidTiles.size(); ++i) {
             const Json& v = tm.solidTiles[i];
-            if (v.is_number() && v.get<double>() == std::floor(v.get<double>())) continue;
+            if (v.is_number() && v.get<double>() == std::floor(v.get<double>()) && v.get<double>() < double(kTileFlipX)) continue;
             if (++bad <= kMaxReported)
                 err("/solidTiles/" + std::to_string(i), "solidTiles entry " + std::to_string(i) + " must be an integer tile index, got " + describe_json_value(v),
-                    "List tile numbers of the tileset, e.g. [0, 1, 2].");
+                    "List plain tile numbers of the tileset, e.g. [0, 1, 2]; flip and rotate flags are not part of them (a flipped solid tile is still solid).");
         }
         if (bad > kMaxReported) err("/solidTiles", "... and " + std::to_string(bad - kMaxReported) + " more invalid solidTiles entries");
     }
@@ -123,7 +139,12 @@ std::vector<TilemapIssue> check_tilemap(const Tilemap& tm) {
             double d = v.get<double>();
             if (d != std::floor(d)) problem = "tile index " + number_text(d) + " is not a whole number";
             else if (d < -1) problem = "tile index " + number_text(d) + " is invalid";
-            if (!problem.empty()) hint = "Tile indices count from 0 in the tileset (left-to-right, top-to-bottom); -1 = empty.";
+            else if (d > double(kTileFlagMask | kTileIndexMask))
+                problem = "tile value " + number_text(d) + " is too large: an index below " + std::to_string(kTileFlipX) +
+                          " plus at most the three flip flags";
+            if (!problem.empty())
+                hint = "Tile indices count from 0 in the tileset (left-to-right, top-to-bottom); -1 = empty. To flip or rotate a tile add "
+                       "268435456 (flipX), 536870912 (flipY) and/or 1073741824 (transpose) to its index.";
         } else if (v.is_string()) {
             problem = "tile is the string " + describe_json_value(v) + " but tiles must be integers";
             hint = kAsciiHint;

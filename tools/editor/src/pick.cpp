@@ -31,7 +31,7 @@ VisualFootprint marker(const char* component, int layer, Vec2 center, Vec2 half)
 
 // The world matrix the renderer draws a part with: screen-space parts get their anchor added to the translation.
 Mat4 part_matrix(const World& w, Entity e, const VisualFootprint& part, Vec2 designSize) {
-    Mat4 m = w.world_matrix(e);
+    Mat4 m = part.space == RenderSpace::Screen ? w.world_matrix(e) : visual_world_matrix(w, e);  // world parts: moved by Parallax
     if (part.space == RenderSpace::Screen) {
         const Vec2 a = anchor_point(part.anchor, part.safeArea, designSize, w.safe_insets());
         m.at(3, 0) += a.x;

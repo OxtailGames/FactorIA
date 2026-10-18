@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "box2d/box2d.h"
@@ -99,6 +100,9 @@ private:
     void sync_entity(World& world, Entity e, RigidBody2D* rb, Collider2D* col);
     void build_body(World& world, Body& b, RigidBody2D* rb, Collider2D* col, const WorldPose& pose);
     void sync_tilemaps(World& world);
+    void sync_joints(World& world);   // Joint2D components <-> Box2D joints
+    void read_joints(World& world);   // reaction force, angle and translation back into the components
+    void destroy_joint(std::uint64_t key);
     void push_state(World& world, Entity e, Body& b, RigidBody2D* rb);
     void writeback(World& world, Entity e, Body& b, RigidBody2D* rb);
     void collect_events(World& world);
@@ -117,10 +121,24 @@ private:
         std::uint64_t seen = 0;
     };
 
+    // A Joint2D as built in Box2D. `shape` is what forces a rebuild (type, bodies, anchors, axis, collideConnected); `tuning`
+    // (limits, motor, spring, length) is applied to the live joint when it changes.
+    struct JointRec {
+        b2JointId joint = b2_nullJointId;
+        std::uint64_t shape = 0, tuning = 0;
+        JointType2D type = JointType2D::Revolute;
+        float referenceAngle = 0.0f;  // relative body angle when the joint was made (radians): joint angle 0
+        float restLength = 0.0f;      // distance joints: the anchors' distance when the joint was made (meters)
+        std::uint64_t seen = 0;
+    };
+
     PhysicsSettings settings_;
     bool inited_ = false;
     b2WorldId world_ = b2_nullWorldId;
+    b2BodyId ground_ = b2_nullBodyId;  // static body at the origin: the other end of a Joint2D with no `connected`
     const World* lastWorld_ = nullptr;
+    std::unordered_map<std::uint64_t, JointRec> joints_;  // by the entity that owns the Joint2D
+    std::unordered_set<std::uint64_t> jointWarned_;       // entities whose broken Joint2D was already reported
     std::unordered_map<std::uint64_t, Body> bodies_;
     std::unordered_map<std::uint64_t, TileBody> tiles_;
     std::unordered_map<std::uint64_t, ShapeInfo> shapes_;

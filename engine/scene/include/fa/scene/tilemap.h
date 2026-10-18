@@ -15,6 +15,28 @@
 
 namespace fa {
 
+// FLIPPED AND ROTATED TILES. A tile value is the tileset index in its low 28 bits plus three flag bits above them, so one
+// integer in `Tilemap.tiles` says which image and how it is turned (the same three operations as Tiled's flip flags):
+//   kTileFlipX       268435456 (1 << 28)  mirror left-right
+//   kTileFlipY       536870912 (1 << 29)  mirror top-bottom
+//   kTileTranspose  1073741824 (1 << 30)  mirror across the top-left to bottom-right diagonal
+// The image is transposed FIRST, then mirrored in x, then in y. A 90 degree clockwise turn is transpose + flipX, 180 is
+// flipX + flipY, 270 (90 counter-clockwise) is transpose + flipY. Flags never change which tile it is: -1 stays empty,
+// `solidTiles` and the tileset range check look at the index only, so a flipped solid tile is still solid. Build values
+// with make_tile() (or in scene.import_ascii legends: {"tile": 3, "flipX": true, "rotate": 90}).
+constexpr int kTileFlipX = 1 << 28;
+constexpr int kTileFlipY = 1 << 29;
+constexpr int kTileTranspose = 1 << 30;
+constexpr int kTileIndexMask = kTileFlipX - 1;
+constexpr int kTileFlagMask = kTileFlipX | kTileFlipY | kTileTranspose;
+
+// The tileset index of a tile value (flags removed); -1 stays -1.
+inline int tile_index(int value) { return value < 0 ? -1 : (value & kTileIndexMask); }
+// The flag bits of a tile value (0 for -1).
+inline int tile_flags(int value) { return value < 0 ? 0 : (value & kTileFlagMask); }
+// `index` turned `turns` quarter turns clockwise (any integer, wrapped to 0..3), then mirrored in x and/or y.
+int make_tile(int index, int turns = 0, bool flipX = false, bool flipY = false);
+
 // One problem found in the data of a Tilemap component.
 struct TilemapIssue {
     bool error = true;        // false = warning
@@ -32,7 +54,8 @@ struct TilemapIssue {
 //     makes the whole list ONE row, or tiles / height columns when only height is set; a missing height (0) is the
 //     number of rows needed for the list at that width. Extra entries beyond width*height are ignored, missing ones
 //     are -1.
-// Entries that are not numbers, and negative numbers, are -1 (empty).
+// Entries that are not numbers, and negative numbers, are -1 (empty). Entries keep their flip/rotate flag bits (see
+// kTileFlipX): tile_index() says which tile, tile_flags() how it is turned.
 struct TilemapSize {
     int width = 0;               // tiles per row
     int height = 0;              // number of rows

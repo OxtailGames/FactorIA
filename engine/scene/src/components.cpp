@@ -201,7 +201,63 @@ void register_builtin_components(TypeRegistry& r) {
                "rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole "
                "screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps "
                "HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes "
-               "nothing. Default false.");
+               "nothing. Default false.")
+        .field("slice", &Sprite::slice,
+               "9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With "
+               "a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch "
+               "along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. "
+               "[0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. "
+               "Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing "
+               "through Panel.texture and Panel.slice.")
+        .field("lit", &Sprite::lit,
+               "World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
+               "(its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture "
+               "says, whatever lights exist. At most 16 lights shade a frame (see Light2D).")
+        .asset_field("normalMap", &Sprite::normalMap, "texture",
+                     "Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right "
+                     "and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). "
+                     "It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. "
+                     "Ignored unless `lit` is true.");
+
+    r.add<Parallax>("Parallax",
+                    "Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so "
+                    "far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves "
+                    "like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 "
+                    "is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the "
+                    "drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports "
+                    "where it is drawn. Deterministic: it depends only on the camera position.",
+                    "2D")
+        .field("factor", &Parallax::factor, "[x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object).")
+        .field("repeatX", &Parallax::repeatX,
+               "Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background "
+               "strip never runs out. The copies are drawn only where the camera sees them.")
+        .field("repeatY", &Parallax::repeatY, "Sprite only. Same as repeatX, up and down.")
+        .field("repeatSize", &Parallax::repeatSize,
+               "Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value "
+               "to overlap soft edges, a larger one for gaps.")
+        .field("offset", &Parallax::offset, "Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame).")
+        .runtime_only().read_only();
+
+    r.add<Light2D>("Light2D",
+                   "A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by "
+                   "SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, "
+                   "scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one "
+                   "direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame "
+                   "(the same on every graphics backend): directional lights first, then the point lights nearest to the camera. "
+                   "The light sits at the entity's position (Transform) and ignores layers.",
+                   "2D")
+        .enum_field("type", &Light2D::type, {"point", "directional"},
+                    "point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the same everywhere, "
+                    "coming from the opposite of `direction`.")
+        .field("color", &Light2D::color, "Light colour. Accepts [r,g,b,a], \"#rrggbb\" or a name (alpha is ignored).")
+        .field("intensity", &Light2D::intensity, "Strength: multiplies color. 1 = full colour at the lamp; above 1 over-brightens.").range(0, 100)
+        .field("radius", &Light2D::radius, "Point lights: distance in world units at which the light has faded to nothing.").range(0, 100000)
+        .field("falloff", &Light2D::falloff, "Point lights: fade curve exponent. 1 = linear, 2 (default) = smooth, higher = a tight bright core.").range(0.01f, 16)
+        .field("height", &Light2D::height,
+               "Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp "
+               "grazes the surface and shows relief, a high one lights it flatly.").range(0, 100000)
+        .field("direction", &Light2D::direction, "Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down).")
+        .field("elevation", &Light2D::elevation, "Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).").range(0, 90);
 
     r.add<SpriteAnimator>("SpriteAnimator",
                           "Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it "
@@ -313,12 +369,23 @@ void register_builtin_components(TypeRegistry& r) {
         .field("height", &Tilemap::height,
                "Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.").range(0, 65536)
         .field("tiles", &Tilemap::tiles,
-               "Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width "
-               "and height) or an array of rows (the size comes from the rows). -1 = empty.")
+               "Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width "
+               "and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, "
+               "optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), "
+               "536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed "
+               "first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, "
+               "180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. "
+               "scene.import_ascii legends write these for you: {\"tile\": 3, \"rotate\": 90, \"flipX\": true}.")
         .field("solidTiles", &Tilemap::solidTiles,
-               "List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides.")
+               "List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A "
+               "flipped or rotated copy of a solid tile is still solid. Empty = nothing collides.")
         .field("color", &Tilemap::color, "Tint multiplied with the tileset.")
-        .field("layer", &Tilemap::layer, "Draw order. Defaults below sprites (-10).");
+        .field("layer", &Tilemap::layer, "Draw order. Defaults below sprites (-10).")
+        .field("lit", &Tilemap::lit,
+               "true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false.")
+        .asset_field("normalMap", &Tilemap::normalMap, "texture",
+                     "Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); "
+                     "flipped and rotated tiles turn their normals with them. Empty = flat tiles.");
 
     r.add<ParticleEmitter>("ParticleEmitter",
                            "Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color "
@@ -473,6 +540,55 @@ void register_builtin_components(TypeRegistry& r) {
         .field("oneWay", &Collider2D::oneWay,
                "One-way platform: only blocks bodies landing on it from above (the entity's +Y side); bodies can jump "
                "up through it from below and pass sideways.");
+
+    r.add<Joint2D>("Joint2D",
+                   "A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring "
+                   "of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity "
+                   "and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to "
+                   "pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity "
+                   "is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or "
+                   "collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. "
+                   "Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to "
+                   "`connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.",
+                   "Physics")
+        .enum_field("type", &Joint2D::type, {"revolute", "distance", "prismatic", "weld"},
+                    "revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart "
+                    "(a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative "
+                    "to each other. weld: the bodies stay rigidly together (soft with springHertz > 0).")
+        .field("connected", &Joint2D::connected,
+               "Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.")
+        .field("anchor", &Joint2D::anchor, "Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin.")
+        .field("connectedAnchor", &Joint2D::connectedAnchor,
+               "Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge "
+               "both anchors name the same spot in the world when the joint is created.")
+        .field("axis", &Joint2D::axis, "Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x.")
+        .field("collideConnected", &Joint2D::collideConnected, "true: the two joined bodies still collide with each other (default false).")
+        .field("length", &Joint2D::length, "Distance only: rest length in world units. 0 = the distance between the anchors when the joint is created.").range(0, 1000000)
+        .field("enableLimit", &Joint2D::enableLimit, "Limit the motion: revolute angle, prismatic translation, or distance length (needs enableSpring to stretch).")
+        .field("lowerLimit", &Joint2D::lowerLimit,
+               "Lower limit: revolute degrees (between -178 and 178, 0 = the pose at creation), prismatic translation in world units "
+               "(0 = anchors coincide), distance minimum length in world units.")
+        .field("upperLimit", &Joint2D::upperLimit, "Upper limit, same units as lowerLimit.")
+        .field("enableMotor", &Joint2D::enableMotor,
+               "Drive the joint at motorSpeed with at most maxMotorTorque. Revolute and prismatic; a distance joint motor works only with enableSpring.")
+        .field("motorSpeed", &Joint2D::motorSpeed, "Target speed: revolute degrees per second (positive = counter-clockwise), prismatic / distance world units per second.")
+        .field("maxMotorTorque", &Joint2D::maxMotorTorque,
+               "Strongest push the motor may apply: a torque for a revolute joint, a force for prismatic and distance joints (the same units as "
+               "physics.applyForce). 0 = the motor does nothing.").range(0, 1e12f)
+        .field("enableSpring", &Joint2D::enableSpring,
+               "Revolute, prismatic, distance: make the free motion springy, pulling towards the rest pose (angle 0, translation 0, `length`).")
+        .field("springHertz", &Joint2D::springHertz,
+               "Spring stiffness in cycles per second (about 1 = a slow bounce, 5 = stiff). Weld joints: 0 = rigid, above 0 = a soft weld "
+               "(no enableSpring needed).").range(0, 1000)
+        .field("dampingRatio", &Joint2D::dampingRatio, "Spring damping: 0 = bounces on, 1 = settles without overshoot.").range(0, 100)
+        .field("reactionForce", &Joint2D::reactionForce,
+               "Runtime: the force [x, y] the joint applied last step to hold the bodies (same units as physics.applyForce). Compare it with a limit to break a rope.")
+        .runtime_only().read_only()
+        .field("reactionTorque", &Joint2D::reactionTorque, "Runtime: the torque the joint applied last step.").runtime_only().read_only()
+        .field("angle", &Joint2D::angle, "Runtime: revolute and weld: the current joint angle in degrees (0 = the pose at creation).")
+        .runtime_only().read_only()
+        .field("translation", &Joint2D::translation, "Runtime: prismatic: the current slide position; distance: the current length, in world units.")
+        .runtime_only().read_only();
 
     r.add<RigidBody3D>("RigidBody3D",
                        "Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a "
@@ -806,7 +922,9 @@ void register_builtin_components(TypeRegistry& r) {
     r.add<SceneSettings>("SceneSettings",
                          "Scene-wide settings stored under \"settings\" in the scene file: lighting, fog, gravity and background music.",
                          "Scene")
-        .field("ambientLight", &SceneSettings::ambientLight, "Base light added to all lit 3D surfaces so shadows are not pitch black.")
+        .field("ambientLight", &SceneSettings::ambientLight, "Base light added to all lit 3D surfaces so shadows are not pitch black. It is also the base light of lit 2D visuals "
+               "(Sprite.lit, Tilemap.lit): a lit sprite shows its texture multiplied by this colour plus the Light2D lights. "
+               "Raise it to [1, 1, 1] and the lit sprites look unlit.")
         .field("gravity2D", &SceneSettings::gravity2D, "2D gravity [x, y] in world units/s^2 (default 980 pixels/s^2 downwards).")
         .field("gravity3D", &SceneSettings::gravity3D, "3D gravity [x, y, z] in m/s^2 (default 9.81 downwards).")
         .field("fogColor", &SceneSettings::fogColor, "Color distant 3D objects fade to.")
