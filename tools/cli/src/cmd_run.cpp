@@ -6,6 +6,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/shaders.h"
 
 namespace fa::cli {
 
@@ -77,6 +78,7 @@ Command make_run_command() {
         fs::set_project_root(dir);
         EngineConfig cfg;
         cfg.projectDir = dir;
+        cfg.shaderCompiler = make_engine_shader_compiler(dir);
         cfg.scene = a.str("scene");
         cfg.width = a.integer("width", 0);
         cfg.height = a.integer("height", 0);
