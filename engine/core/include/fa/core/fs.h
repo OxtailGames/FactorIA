@@ -30,6 +30,17 @@ const std::filesystem::path& project_root();
 void set_user_dir(const std::filesystem::path& dir);
 const std::filesystem::path& user_dir();
 
+// Tell the platform that the game wrote something in user_dir() (a save game). Does nothing on desktop and mobile, where
+// the folder is on disk. On the web the folder lives in browser memory: this schedules copying it to the browser's
+// IndexedDB (a few writes in a row become one copy, and a closing tab flushes it), so saves survive a reload.
+void user_dir_changed();
+#if defined(__EMSCRIPTEN__)
+// Web only, once before the game starts: mounts the browser's IndexedDB at `dir`, loads what an earlier run saved there and
+// then calls done() (the load is asynchronous; main() returns and done() starts the game). A browser that has no
+// IndexedDB (private windows of some browsers) still calls done(): saves then last until the tab closes, with a warning.
+void restore_user_dir(const std::filesystem::path& dir, void (*done)());
+#endif
+
 // Creates a fresh, empty scratch directory under the system temp folder, named <prefix>_<process id>_<n>. Unique per
 // process and call, so concurrent processes (parallel test runs, several agents building and testing at once) never
 // share one. The caller removes it when done.

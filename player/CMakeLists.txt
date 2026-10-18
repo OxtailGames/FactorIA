@@ -2,6 +2,8 @@
 #   Desktop : executable `factoria_player [projectDir]` (see main.cpp)
 #   Android : SHARED library libfactoria_player.so loaded by NativeActivity
 #             (android.app.lib_name = factoria_player, see platforms/android)
+#   Web     : factoria_player.js + factoria_player.wasm (Emscripten, MODULARIZE, createFactoriaPlayer), run by
+#             platforms/web/shell.html, which writes the game pack to /game.pak first (main.cpp)
 #   iOS     : app bundle; the game is copied to <app>/game when FA_GAME_PROJECT_DIR is set
 #
 # iOS / bundle options (cache variables, set by `factoria export --platform ios`):
@@ -27,6 +29,25 @@ if(FA_PLATFORM STREQUAL "android")
     # 16 KB memory pages, so the segments are aligned to 0x4000 (NDK r28+ does it by default, r27 does not).
     target_link_options(factoria_player PRIVATE -Wl,-z,max-page-size=16384)
     target_link_libraries(factoria_player PRIVATE android log EGL GLESv3)
+elseif(FA_PLATFORM STREQUAL "web")
+    add_executable(factoria_player ${player_srcs})
+    # The contract with the page (platforms/web/shell.html): a factory function createFactoriaPlayer(moduleOverrides) that
+    # resolves to the module; no pthreads, so no SharedArrayBuffer and no COOP/COEP headers are needed on the host.
+    #   FORCE_FILESYSTEM + idbfs.js    the save folder lives in IndexedDB (fs_web.cpp)
+    #   EXPORTED_RUNTIME_METHODS       FS: the page writes /game.pak
+    #   EXPORTED_FUNCTIONS             main, the save-restored callback of fs_web.cpp, and the two stack helpers the JS runtime
+    #                                  needs (without them this Emscripten fails to link with "undefined symbol")
+    #   ALLOW_MEMORY_GROWTH            the pack and the assets live in memory; the heap grows as needed
+    #   STACK_SIZE                     QuickJS and the layout code recurse deeper than the 64 KB default allows
+    #   ENVIRONMENT=web                no node/worker glue
+    target_link_options(factoria_player PRIVATE
+        -sMODULARIZE=1 -sEXPORT_NAME=createFactoriaPlayer -sENVIRONMENT=web
+        -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
+        -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=67108864
+        -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS -lidbfs.js
+        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_emscripten_stack_get_current,__emscripten_stack_restore
+        -sEXIT_RUNTIME=0)
+    target_link_options(factoria_player PRIVATE "$<$<CONFIG:Debug>:-sASSERTIONS=1>")
 elseif(FA_PLATFORM STREQUAL "ios")
     set(FA_GAME_BUNDLE_ID "com.factoria.player" CACHE STRING "iOS bundle identifier (reverse DNS)")
     set(FA_GAME_NAME "FactorIA Player" CACHE STRING "Game display name")

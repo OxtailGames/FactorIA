@@ -132,7 +132,8 @@
           "macos",
           "linux",
           "ios",
-          "android"
+          "android",
+          "web"
         ]
       }
     },
@@ -168,7 +169,8 @@
                 "macos",
                 "linux",
                 "ios",
-                "android"
+                "android",
+                "web"
               ]
             }
           }
@@ -237,7 +239,8 @@
                   "macos",
                   "linux",
                   "ios",
-                  "android"
+                  "android",
+                  "web"
                 ]
               },
               "additionalProperties": {

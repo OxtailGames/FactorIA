@@ -8,9 +8,188 @@
   Next to it: factoria_player.js (Emscripten, MODULARIZE=1, EXPORT_NAME=createFactoriaPlayer), factoria_player.wasm and
   game.pak. The page downloads the wasm and the pack with progress, writes the pack to /game.pak in the module's file
   system and starts the player, which loads /game.pak.
-  Placeholder until the web player lands: the m17 web-player package replaces this file.
+
+  The page is one self-contained file: no external URLs, nothing to host but the four files above (any static host works;
+  no special headers are needed, the player uses no threads).
+
+  What the page and the player agree on (docs/MOBILE.md, "Web"):
+    Module.canvas      the <canvas id="canvas"> that fills the window (sokol_app follows its CSS size and devicePixelRatio)
+    Module.wasmBinary  the downloaded wasm, so the page shows its progress
+    Module.preRun      writes the pack to /game.pak before main() runs
+    Module.faFatal     the player calls it with a message when the game cannot start (missing pack, broken project)
+    Module.faReady     the player calls it when the game starts drawing: the loading screen goes away
 -->
 <html lang="en">
-<head><meta charset="utf-8"><title>{{title}}</title></head>
-<body><canvas id="canvas"></canvas></body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>{{title}}</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1115; color: #e8eaf0;
+               font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { position: fixed; inset: 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+         -webkit-touch-callout: none; touch-action: none; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none;
+            -webkit-tap-highlight-color: transparent; }
+  #screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; padding: 24px; text-align: center; background: #0f1115; z-index: 2; }
+  #screen[hidden] { display: none; }
+  #name { font-size: clamp(20px, 5vw, 34px); font-weight: 600; margin: 0; }
+  #bar { width: min(420px, 80vw); height: 8px; border-radius: 4px; background: #262b36; overflow: hidden; }
+  #fill { height: 100%; width: 0; background: #4f9dff; transition: width .15s linear; }
+  #status { color: #9aa3b5; font-size: 14px; min-height: 1.4em; }
+  #error { max-width: min(560px, 90vw); padding: 14px 16px; border-radius: 8px; background: #3a1a1f; color: #ffd9de;
+           border: 1px solid #7a2c38; text-align: left; white-space: pre-wrap; word-break: break-word;
+           -webkit-user-select: text; user-select: text; }
+  #error[hidden] { display: none; }
+  #retry { padding: 8px 18px; border-radius: 6px; border: 0; background: #4f9dff; color: #fff; font: inherit; cursor: pointer; }
+  #retry[hidden] { display: none; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+<div id="screen">
+  <h1 id="name">{{title}}</h1>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="status">Loading...</div>
+  <div id="error" hidden></div>
+  <button id="retry" hidden onclick="location.reload()">Try again</button>
+</div>
+<script>
+(function () {
+  'use strict';
+  var WASM_BYTES = parseInt('{{wasmBytes}}', 10) || 0;  // 0 when the placeholder was not filled in: the server's Content-Length is used
+  var PAK_BYTES = parseInt('{{pakBytes}}', 10) || 0;
+
+  var screenEl = document.getElementById('screen');
+  var fillEl = document.getElementById('fill');
+  var statusEl = document.getElementById('status');
+  var errorEl = document.getElementById('error');
+  var retryEl = document.getElementById('retry');
+  var canvas = document.getElementById('canvas');
+  var failed = false;
+
+  function showError(text) {
+    if (failed) return;
+    failed = true;
+    screenEl.hidden = false;
+    document.getElementById('bar').hidden = true;
+    statusEl.textContent = 'The game could not start.';
+    errorEl.textContent = text;
+    errorEl.hidden = false;
+    retryEl.hidden = false;
+    if (window.console) console.error(text);
+  }
+
+  // WebGL2 is what the engine draws with. Say so in plain words instead of showing a black page.
+  function hasWebGL2() {
+    try {
+      var c = document.createElement('canvas');
+      return !!(c.getContext('webgl2'));
+    } catch (e) { return false; }
+  }
+
+  // Downloads `url` with progress. `expected` is the size the exporter wrote into the page (0: unknown); the server's
+  // Content-Length wins when it sends one (a compressed response has none that matches, so the page's size is preferred).
+  function download(url, expected, onProgress) {
+    return fetch(url).then(function (res) {
+      if (!res.ok) throw new Error('The server answered "' + res.status + ' ' + res.statusText + '" for ' + url + '.');
+      var total = expected || parseInt(res.headers.get('content-length') || '0', 10) || 0;
+      if (!res.body || !res.body.getReader) {  // an old browser: no streaming, no progress inside the file
+        return res.arrayBuffer().then(function (b) { onProgress(b.byteLength, b.byteLength); return new Uint8Array(b); });
+      }
+      var reader = res.body.getReader();
+      var buffer = total ? new Uint8Array(total) : null;
+      var chunks = [];
+      var got = 0;
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) {
+            if (buffer && got === total) return buffer;
+            if (buffer && got < total) return buffer.subarray(0, got);
+            var out = new Uint8Array(got), at = 0;
+            for (var i = 0; i < chunks.length; i++) { out.set(chunks[i], at); at += chunks[i].length; }
+            return out;
+          }
+          var chunk = r.value;
+          if (buffer && got + chunk.length <= total) { buffer.set(chunk, got); }
+          else {  // more bytes than announced: keep everything in chunks from here on
+            if (buffer) { chunks.push(buffer.subarray(0, got)); buffer = null; }
+            chunks.push(chunk);
+          }
+          got += chunk.length;
+          onProgress(got, Math.max(total, got));
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+
+  function start() {
+    if (!hasWebGL2()) {
+      showError('This browser or device cannot run WebGL 2, which the game draws with.\n' +
+                'Try an up-to-date Chrome, Edge, Firefox or Safari, and make sure hardware acceleration is on in its settings.');
+      return;
+    }
+    if (typeof fetch !== 'function' || typeof WebAssembly !== 'object') {
+      showError('This browser is too old to run the game (it has no WebAssembly). Please update it or use another one.');
+      return;
+    }
+    var wasmDone = 0, pakDone = 0, wasmTotal = WASM_BYTES, pakTotal = PAK_BYTES;
+    function progress() {
+      var total = (wasmTotal || 0) + (pakTotal || 0), done = wasmDone + pakDone;
+      if (total > 0) fillEl.style.width = Math.min(99, Math.round(done * 100 / total)) + '%';
+      var mb = function (n) { return (n / 1048576).toFixed(1); };
+      statusEl.textContent = total > 0 ? 'Loading... ' + mb(done) + ' / ' + mb(total) + ' MB' : 'Loading...';
+    }
+    var wasmP = download('factoria_player.wasm', WASM_BYTES, function (d, t) { wasmDone = d; wasmTotal = t; progress(); });
+    var pakP = download('game.pak', PAK_BYTES, function (d, t) { pakDone = d; pakTotal = t; progress(); });
+    var scriptP = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'factoria_player.js';
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('Could not load factoria_player.js.')); };
+      document.head.appendChild(s);
+    });
+    Promise.all([wasmP, pakP, scriptP]).then(function (r) {
+      var wasm = r[0], pak = r[1];
+      statusEl.textContent = 'Starting...';
+      fillEl.style.width = '100%';
+      return createFactoriaPlayer({
+        canvas: canvas,
+        wasmBinary: wasm,
+        // The pack goes into the module's in-memory file system before main() runs. writeFile hands the array over
+        // without a second copy, so the page holds the game once.
+        preRun: [function (mod) {
+          mod.FS.writeFile('/game.pak', pak, { canOwn: true });
+          pak = null;
+        }],
+        print: function (t) { if (window.console) console.log(t); },
+        printErr: function (t) { if (window.console) console.warn(t); },
+        faFatal: showError,
+        faReady: function () { if (!failed) screenEl.hidden = true; canvas.focus(); },
+        onAbort: function (what) {
+          showError('The game stopped because of an unexpected error' + (what ? ' (' + what + ')' : '') +
+                    '. Reload the page to try again; if it keeps happening, tell the game\'s maker.');
+        }
+      });
+    }).catch(function (e) {
+      var m = e && e.message ? e.message : String(e);
+      showError('Could not download or start the game.\n' + m + '\n' +
+                'Check your connection and reload the page. If you opened index.html straight from a folder, serve the ' +
+                'folder over http instead (a file:// page cannot load the game files).');
+    });
+  }
+
+  // A touch on the page must not scroll or zoom it.
+  document.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
+  canvas.addEventListener('mousedown', function () { canvas.focus(); });
+  start();
+})();
+</script>
+</body>
 </html>

@@ -297,3 +297,8 @@ TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
     stdfs::remove_all(a);
     stdfs::remove_all(b);
 }
+
+// The web build copies the save folder to the browser's storage here; everywhere else the folder is on disk and this does nothing.
+TEST_CASE("fs: user_dir_changed is a no-op outside the web build") {
+    CHECK_NOTHROW(fs::user_dir_changed());
+}

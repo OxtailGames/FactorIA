@@ -13,7 +13,8 @@
 //   Android  key and motion events of the NativeActivity input queue, taken through sokol_app's native event hook
 //            (android_gamepad_event below). An unplugged pad is noticed, and Z/RZ told apart as stick or triggers,
 //            by asking android.view.InputDevice through JNI about every 2 s (see gamepad_android.cpp).
-//   web      none yet: poll_gamepads() does nothing.
+//   web      the browser Gamepad API (gamepad_web.cpp): pads with the "standard" mapping, which every current browser gives
+//            Xbox, PlayStation, Switch Pro and Steam Deck pads. Like everywhere, a pad is hidden until a button is pressed.
 // Slots that have no pad are probed only every couple of seconds, so unplugged slots cost nothing. A pad that stays
 // plugged in survives the window losing focus: Input::release_all() disconnects it, and the next poll connects it
 // again with its current state.

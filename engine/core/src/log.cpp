@@ -17,6 +17,9 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #endif
+#ifdef __EMSCRIPTEN__
+#include <emscripten/console.h>
+#endif
 
 namespace fa {
 namespace {
@@ -66,6 +69,13 @@ void write_stderr(const LogEntry& e, LogFormat format) {
     } else {
         line = format_log_line(e);
     }
+#ifdef __EMSCRIPTEN__
+    // The browser console, by level (stderr would show every line as an error there).
+    if (e.level == LogLevel::Error) emscripten_console_error(line.c_str());
+    else if (e.level == LogLevel::Warn) emscripten_console_warn(line.c_str());
+    else emscripten_console_log(line.c_str());
+    return;
+#endif
     line += '\n';
     std::fwrite(line.data(), 1, line.size(), stderr);
     std::fflush(stderr);
@@ -195,6 +205,9 @@ namespace detail {
     std::string text = std::format("Assertion failed: {} -- {} ({}:{})", cond, msg, file, line);
     // Log first so sinks (and the ring buffer) see it, then print directly in case the log level hides errors.
     log(LogLevel::Error, "assert", text);
+#ifdef __EMSCRIPTEN__
+    emscripten_console_error(text.c_str());
+#endif
     std::fprintf(stderr, "%s\n", text.c_str());
     std::fflush(stderr);
     std::abort();

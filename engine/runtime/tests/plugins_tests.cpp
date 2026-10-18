@@ -1,5 +1,6 @@
 // Native plugins (fa/runtime/plugins.h) through the static registration path: the same FaPluginApi a DLL gets, without a
 // library to build. tools/cli/tests/plugin_test.py loads a real one (factoria run, export, the exported game).
+#include <algorithm>
 #include <doctest.h>
 
 #include <cstdio>
@@ -194,7 +195,10 @@ TEST_CASE("plugins: factoria.json errors name the field and say how to fix it") 
     REQUIRE(ok->plugins.size() == 2);
     CHECK(ok->plugins[0].name == "alpha");  // sorted
     CHECK(ok->plugin_platforms(ok->plugins[0]) == std::vector<std::string>{"android", "ios"});
-    CHECK(ok->plugin_platforms(ok->plugins[1]).size() == 5);
+    CHECK(ok->plugin_platforms(ok->plugins[1]).size() == 5);  // every native platform; a browser cannot load a plugin
+    const auto all = ok->plugin_platforms(ok->plugins[1]);
+    CHECK(std::find(all.begin(), all.end(), "web") == all.end());
+    CHECK(platform_names().back() == "web");
 
     auto bad = load(R"({"Steam": {"path": "s"}})");
     REQUIRE_FALSE(bad.ok());
