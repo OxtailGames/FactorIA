@@ -19,6 +19,21 @@ Better looking 3D, and much bigger 3D scenes
 - The render statistics (`play.report`) now also count `meshesCulled`, `meshBatches` and `lightsDropped`.
 - Not yet: your own shaders for a material, and an environment picture for reflections.
 
+More for 2D games
+
+- Flipped and rotated tiles: a tile number can carry a flip or turn, so one picture serves four directions. In
+  `scene.import_ascii` a legend entry accepts `flipX`, `flipY` and `rotate` (0, 90, 180, 270). Collision follows the
+  plain tile number.
+- 9-slice sprites: give a `Sprite` a `slice` (left, top, right, bottom in pixels of the picture) and it stretches like a
+  button background, corners intact. It works with flips and with pictures packed in an atlas.
+- 2D lights: a `Light2D` entity (point or directional) lights the sprites and tilemaps that set `lit`. Add a
+  `normalMap` and the sprite shows bumps that react to the light. `SceneSettings.ambientLight` is the unlit brightness.
+  Up to 16 lights at once; the nearest to the camera win.
+- Parallax: a `Parallax` component makes a far background move slower than the camera (or faster, for foreground), and
+  a sprite can repeat endlessly with `repeatX` / `repeatY`.
+- Joints: a `Joint2D` on a body ties it to the world or another body as a hinge (revolute), rope (distance), slider
+  (prismatic) or glue (weld), with limits, motors and springs. Scripts can read the reaction force and switch a motor.
+
 Games in the browser
 
 - Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder

@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
@@ -86,13 +87,7 @@ bool axis_aligned(const Mat4& m) {
 
 // The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it).
 Mat4 draw_matrix(const World& world, Entity e, bool screen) {
-    Mat4 m = world.world_matrix(e);
-    if (!screen)
-        if (const Parallax* p = world.get<Parallax>(e)) {
-            m.at(3, 0) += p->offset.x;
-            m.at(3, 1) += p->offset.y;
-        }
-    return m;
+    return screen ? world.world_matrix(e) : visual_world_matrix(world, e);
 }
 
 // The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the

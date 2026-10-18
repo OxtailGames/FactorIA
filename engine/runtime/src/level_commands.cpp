@@ -161,7 +161,7 @@ struct LegendEntry {
 
 void parse_tile(LegendEntry& e, const Json& v, const std::string& what) {
     int t = 0;
-    if (!as_int(v, t) || t < -1 || t > (kTileFlagMask | kTileIndexMask))
+    if (!as_int(v, t) || t < -1)
         bad_arg(what + " must be an integer tile index >= -1, got " + describe_json_value(v),
                 "Tile indices count from 0 in the tileset (left-to-right, top-to-bottom); -1 means empty. To flip or rotate a tile "
                 "use the object form: {\"tile\": 3, \"rotate\": 90, \"flipX\": true}.");

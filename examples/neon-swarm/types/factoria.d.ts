@@ -1710,6 +1710,88 @@ declare module "factoria" {
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
      */
     safeArea: boolean;
+    /**
+     * 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     */
+    lit: boolean;
+    /**
+     * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (asset path: texture)
+     */
+    normalMap: string;
+  }
+  /**
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+   * 
+   * Category: 2D
+   */
+  export interface ParallaxComponent {
+    /**
+     * [x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object).
+     */
+    get factor(): Vec2;
+    set factor(value: Vec2Like);
+    /**
+     * Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background strip never runs out. The copies are drawn only where the camera sees them.
+     */
+    repeatX: boolean;
+    /**
+     * Sprite only. Same as repeatX, up and down.
+     */
+    repeatY: boolean;
+    /**
+     * Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value to overlap soft edges, a larger one for gaps.
+     */
+    get repeatSize(): Vec2;
+    set repeatSize(value: Vec2Like);
+    /**
+     * Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only.
+     */
+    readonly offset: Vec2;
+  }
+  /**
+   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+   * 
+   * Category: 2D
+   */
+  export interface Light2DComponent {
+    /**
+     * point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the same everywhere, coming from the opposite of `direction`.
+     */
+    type: "point" | "directional";
+    /**
+     * Light colour. Accepts [r,g,b,a], "#rrggbb" or a name (alpha is ignored).
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Strength: multiplies color. 1 = full colour at the lamp; above 1 over-brightens.
+     */
+    intensity: number;
+    /**
+     * Point lights: distance in world units at which the light has faded to nothing.
+     */
+    radius: number;
+    /**
+     * Point lights: fade curve exponent. 1 = linear, 2 (default) = smooth, higher = a tight bright core.
+     */
+    falloff: number;
+    /**
+     * Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp grazes the surface and shows relief, a high one lights it flatly.
+     */
+    height: number;
+    /**
+     * Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down).
+     */
+    direction: number;
+    /**
+     * Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).
+     */
+    elevation: number;
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
@@ -1907,11 +1989,11 @@ declare module "factoria" {
      */
     height: number;
     /**
-     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. Returns a plain-object COPY; assign a new value to write.
+     * Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. Returns a plain-object COPY; assign a new value to write.
      */
     tiles: any;
     /**
-     * List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
+     * List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
      */
     solidTiles: any;
     /**
@@ -1923,6 +2005,14 @@ declare module "factoria" {
      * Draw order. Defaults below sprites (-10).
      */
     layer: number;
+    /**
+     * true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false.
+     */
+    lit: boolean;
+    /**
+     * Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); flipped and rotated tiles turn their normals with them. Empty = flat tiles. (asset path: texture)
+     */
+    normalMap: string;
   }
   /**
    * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
@@ -2032,7 +2122,7 @@ declare module "factoria" {
     safeArea: boolean;
   }
   /**
-   * Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) a Light to be visible.
+   * Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) a Light to be visible.
    * 
    * Category: 3D
    */
@@ -2046,16 +2136,24 @@ declare module "factoria" {
      */
     texture: string;
     /**
+     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. (asset path: texture)
+     */
+    normalMap: string;
+    /**
+     * How strong the normal map is: 0 = flat, 1 = as authored.
+     */
+    normalScale: number;
+    /**
      * Base color, multiplied with the texture.
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * 0 = plastic/stone, 1 = metal.
+     * 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead.
      */
     metallic: number;
     /**
-     * 0 = mirror-smooth, 1 = fully rough/matte.
+     * 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.
      */
     roughness: number;
     /**
@@ -2205,6 +2303,97 @@ declare module "factoria" {
      * One-way platform: only blocks bodies landing on it from above (the entity's +Y side); bodies can jump up through it from below and pass sideways.
      */
     oneWay: boolean;
+  }
+  /**
+   * A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to `connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.
+   * 
+   * Category: Physics
+   */
+  export interface Joint2DComponent {
+    /**
+     * revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0).
+     */
+    type: "revolute" | "distance" | "prismatic" | "weld";
+    /**
+     * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     */
+    get connected(): Entity | null;
+    set connected(value: EntityLike);
+    /**
+     * Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created.
+     */
+    get connectedAnchor(): Vec2;
+    set connectedAnchor(value: Vec2Like);
+    /**
+     * Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x.
+     */
+    get axis(): Vec2;
+    set axis(value: Vec2Like);
+    /**
+     * true: the two joined bodies still collide with each other (default false).
+     */
+    collideConnected: boolean;
+    /**
+     * Distance only: rest length in world units. 0 = the distance between the anchors when the joint is created.
+     */
+    length: number;
+    /**
+     * Limit the motion: revolute angle, prismatic translation, or distance length (needs enableSpring to stretch).
+     */
+    enableLimit: boolean;
+    /**
+     * Lower limit: revolute degrees (between -178 and 178, 0 = the pose at creation), prismatic translation in world units (0 = anchors coincide), distance minimum length in world units.
+     */
+    lowerLimit: number;
+    /**
+     * Upper limit, same units as lowerLimit.
+     */
+    upperLimit: number;
+    /**
+     * Drive the joint at motorSpeed with at most maxMotorTorque. Revolute and prismatic; a distance joint motor works only with enableSpring.
+     */
+    enableMotor: boolean;
+    /**
+     * Target speed: revolute degrees per second (positive = counter-clockwise), prismatic / distance world units per second.
+     */
+    motorSpeed: number;
+    /**
+     * Strongest push the motor may apply: a torque for a revolute joint, a force for prismatic and distance joints (the same units as physics.applyForce). 0 = the motor does nothing.
+     */
+    maxMotorTorque: number;
+    /**
+     * Revolute, prismatic, distance: make the free motion springy, pulling towards the rest pose (angle 0, translation 0, `length`).
+     */
+    enableSpring: boolean;
+    /**
+     * Spring stiffness in cycles per second (about 1 = a slow bounce, 5 = stiff). Weld joints: 0 = rigid, above 0 = a soft weld (no enableSpring needed).
+     */
+    springHertz: number;
+    /**
+     * Spring damping: 0 = bounces on, 1 = settles without overshoot.
+     */
+    dampingRatio: number;
+    /**
+     * Runtime: the force [x, y] the joint applied last step to hold the bodies (same units as physics.applyForce). Compare it with a limit to break a rope. Read-only.
+     */
+    readonly reactionForce: Vec2;
+    /**
+     * Runtime: the torque the joint applied last step. Read-only.
+     */
+    readonly reactionTorque: number;
+    /**
+     * Runtime: revolute and weld: the current joint angle in degrees (0 = the pose at creation). Read-only.
+     */
+    readonly angle: number;
+    /**
+     * Runtime: prismatic: the current slide position; distance: the current length, in world units. Read-only.
+     */
+    readonly translation: number;
   }
   /**
    * Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
@@ -3052,7 +3241,7 @@ declare module "factoria" {
    */
   export interface SceneSettingsComponent {
     /**
-     * Base light added to all lit 3D surfaces so shadows are not pitch black.
+     * Base light added to all lit 3D surfaces so shadows are not pitch black. It is also the base light of lit 2D visuals (Sprite.lit, Tilemap.lit): a lit sprite shows its texture multiplied by this colour plus the Light2D lights. Raise it to [1, 1, 1] and the lit sprites look unlit.
      */
     get ambientLight(): Color;
     set ambientLight(value: ColorLike);
@@ -3100,6 +3289,8 @@ declare module "factoria" {
     Transform: TransformComponent;
     Camera: CameraComponent;
     Sprite: SpriteComponent;
+    Parallax: ParallaxComponent;
+    Light2D: Light2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
     Shape2D: Shape2DComponent;
     Text: TextComponent;
@@ -3109,6 +3300,7 @@ declare module "factoria" {
     Light: LightComponent;
     RigidBody2D: RigidBody2DComponent;
     Collider2D: Collider2DComponent;
+    Joint2D: Joint2DComponent;
     RigidBody3D: RigidBody3DComponent;
     Collider3D: Collider3DComponent;
     AudioSource: AudioSourceComponent;
@@ -3129,16 +3321,19 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
+    Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number };
     Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    MeshRenderer: { mesh?: string; texture?: string; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
+    Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
     Collider3D: { shape?: "box" | "sphere"; size?: Vec3Like; radius?: number; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
