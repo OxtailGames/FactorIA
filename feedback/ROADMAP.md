@@ -372,6 +372,11 @@ Closes F-03, F-04, F-05, F-06 and the run-time part of H-06.
 
 - glTF skins and animation clips (the loader flattens nodes and reads neither `skins` nor `animations`): GPU skinning,
   an animator with clips, blending and events; a tween/easing JS module; a small state machine.
+  Built so far (docs/ANIMATION.md): GPU-free skeleton and clip reading (`fa/scene/skeleton.h`), the `Animator` component
+  with cross-fades, clip events and a JSON state machine (`fa/scene/animation.h`, run in the fixed step, joint matrices in
+  `Animator::palette`), `entity.animator`, `tween` / `ease`. Still open: GPU skinning (joints/weights attributes, skinned
+  pipeline, uploading `palette`) and the golden image of `engine/render/tests/data/skinned_two_bone.gltf` playing two clips
+  and blending; morph targets, layers/masks, root motion; hot reload of a changed .gltf under a running Animator.
 - Rendering (Blinn-Phong, `kMaxLights = 8`, no culling today): normal maps, glTF metallic-roughness PBR with image-based
   lighting, frustum culling, instancing, more lights, custom shaders per material.
 - Physics (`Collider3D` is box or sphere, no joints): capsule, convex and triangle-mesh colliders; Box2D's joints exposed

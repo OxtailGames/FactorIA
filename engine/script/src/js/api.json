@@ -581,6 +581,10 @@
       {
        "sig": "emitBurst(count?: number): void",
        "doc": "Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless)."
+      },
+      {
+       "sig": "readonly animator: AnimatorAPI",
+       "doc": "Skeletal animation of this entity's Animator component (play, crossFade, set, trigger, clips, events). Throws if the entity has no Animator; entity.get(\"Animator\") answers null instead."
       }
      ]
     },
@@ -2106,6 +2110,308 @@
      "doc": "Localization: t(key, args), language, setLanguage, languages, systemLanguages, on(\"change\") (docs/LOCALIZATION.md)."
     },
     {
+     "kind": "interface",
+     "name": "AnimatorAPI",
+     "doc": "Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set(\"speed\", 3)`; `hero.animator.on(\"footstep\", () => audio.play(\"assets/step.wav\"))`.",
+     "members": [
+      {
+       "sig": "play(clip: string, fadeSeconds?: number): void",
+       "doc": "Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist."
+      },
+      {
+       "sig": "crossFade(clip: string, fadeSeconds?: number): void",
+       "doc": "Same as play() with a fade of 0.2 seconds unless given."
+      },
+      {
+       "sig": "stop(): void",
+       "doc": "Pauses and returns to the bind pose (the model as exported)."
+      },
+      {
+       "sig": "set(name: string, value: number | boolean): void",
+       "doc": "Sets a state machine parameter declared in the Animator's `params`. The transitions read it on the next step."
+      },
+      {
+       "sig": "get(name: string): number | boolean",
+       "doc": "Current value of a state machine parameter."
+      },
+      {
+       "sig": "trigger(name: string): void",
+       "doc": "Makes the parameter `name` true for the next step only (one-shot input like \"jump\" or \"hurt\"). It does not need to be declared."
+      },
+      {
+       "sig": "readonly clips: string[]",
+       "doc": "Names of the animation clips of the model."
+      },
+      {
+       "sig": "duration(clip: string): number",
+       "doc": "Length of a clip in seconds."
+      },
+      {
+       "sig": "on(event: string, fn: (data: { id: string; clip?: string; time?: number; state?: string }, source: Entity | null) => void): () => void",
+       "doc": "Listens to a game event of THIS entity's animator: a clip event from the Animator's `events`, a state's `onEnter` name, or \"anim.finished\". Returns the unsubscribe function. world.on(name, fn) hears every entity."
+      },
+      {
+       "sig": "readonly state: string",
+       "doc": "State machine: the current state."
+      },
+      {
+       "sig": "clip: string",
+       "doc": "The clip playing now. Assigning switches clips with the component's `fade`."
+      },
+      {
+       "sig": "time: number",
+       "doc": "Seconds into the current clip. Assigning seeks (no events fire for the jump)."
+      },
+      {
+       "sig": "speed: number",
+       "doc": "Playback speed multiplier."
+      },
+      {
+       "sig": "loop: boolean",
+       "doc": "Start over at the end of the clip. false stops on the last pose and sends \"anim.finished\"."
+      },
+      {
+       "sig": "playing: boolean",
+       "doc": "false pauses, true resumes."
+      },
+      {
+       "sig": "readonly component: Components[\"Animator\"]",
+       "doc": "The Animator component view (model, params, states, transitions, events...)."
+      }
+     ]
+    },
+    {
+     "kind": "alias",
+     "name": "EaseFn",
+     "type": "(t: number) => number",
+     "doc": "An easing function: maps progress 0..1 to eased progress (0 at 0, 1 at 1; back and elastic overshoot in between)."
+    },
+    {
+     "kind": "alias",
+     "name": "EaseName",
+     "type": "\"linear\" | \"quadIn\" | \"quadOut\" | \"quadInOut\" | \"cubicIn\" | \"cubicOut\" | \"cubicInOut\" | \"quartIn\" | \"quartOut\" | \"quartInOut\" | \"quintIn\" | \"quintOut\" | \"quintInOut\" | \"sineIn\" | \"sineOut\" | \"sineInOut\" | \"expoIn\" | \"expoOut\" | \"expoInOut\" | \"circIn\" | \"circOut\" | \"circInOut\" | \"backIn\" | \"backOut\" | \"backInOut\" | \"elasticIn\" | \"elasticOut\" | \"elasticInOut\" | \"bounceIn\" | \"bounceOut\" | \"bounceInOut\"",
+     "doc": "Name of a built-in easing: linear, or quad / cubic / quart / quint / sine / expo / circ / back / elastic / bounce followed by In, Out or InOut."
+    },
+    {
+     "kind": "interface",
+     "name": "EaseAPI",
+     "doc": "The built-in easing functions by name (ease.quadOut, ease.bounceOut...). tween() also accepts the name as a string.",
+     "members": [
+      {
+       "sig": "readonly linear: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quadIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quadOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quadInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly cubicIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly cubicOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly cubicInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quartIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quartOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quartInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quintIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quintOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly quintInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly sineIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly sineOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly sineInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly expoIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly expoOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly expoInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly circIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly circOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly circInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly backIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly backOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly backInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly elasticIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly elasticOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly elasticInOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly bounceIn: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly bounceOut: EaseFn",
+       "doc": ""
+      },
+      {
+       "sig": "readonly bounceInOut: EaseFn",
+       "doc": ""
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TweenOptions",
+     "doc": "Options of tween().",
+     "members": [
+      {
+       "sig": "duration?: number",
+       "doc": "Seconds per play (default 1)."
+      },
+      {
+       "sig": "delay?: number",
+       "doc": "Seconds to wait before it starts (default 0)."
+      },
+      {
+       "sig": "ease?: EaseName | EaseFn",
+       "doc": "Easing (default \"linear\"). inOut easings play the in curve for the first half and its mirror image for the second."
+      },
+      {
+       "sig": "repeat?: number",
+       "doc": "Extra plays after the first (0 = once, Infinity = forever)."
+      },
+      {
+       "sig": "yoyo?: boolean",
+       "doc": "Every second play runs backwards."
+      },
+      {
+       "sig": "from?: any",
+       "doc": "Start values instead of the current ones, same shape as the end values: { x: 0 }. For tween(from, to, ...) the start is the first argument."
+      },
+      {
+       "sig": "onStart?: (tween: Tween) => void",
+       "doc": "Called once when the delay is over and it starts moving (start values are read here)."
+      },
+      {
+       "sig": "onUpdate?: (value: number, tween: Tween) => void",
+       "doc": "Called after every update. `value` is the eased progress (can overshoot with back/elastic); for tween(from, to) it is the current number."
+      },
+      {
+       "sig": "onComplete?: (tween: Tween) => void",
+       "doc": "Called when the last play ends (never for a cancelled tween)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "Tween",
+     "doc": "A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.",
+     "members": [
+      {
+       "sig": "readonly active: boolean",
+       "doc": "false once it completed or was cancelled."
+      },
+      {
+       "sig": "readonly progress: number",
+       "doc": "0..1 over all plays (after the delay)."
+      },
+      {
+       "sig": "readonly finished: Promise<boolean>",
+       "doc": "Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code."
+      },
+      {
+       "sig": "cancel(): this",
+       "doc": "Stops it where it is (values stay as they are) and cancels the tweens chained after it."
+      },
+      {
+       "sig": "pause(): this",
+       "doc": "Freezes it."
+      },
+      {
+       "sig": "resume(): this",
+       "doc": "Continues after pause()."
+      },
+      {
+       "sig": "onComplete(fn: (tween: Tween) => void): this",
+       "doc": "Adds a completion callback."
+      },
+      {
+       "sig": "next(target: object, props: object, options?: TweenOptions): Tween",
+       "doc": "Starts another tween when this one completes (chain): `tween(a, {x: 1}).next(a, {y: 1}).next(b, {a: 0})`. Returns the NEW tween. Cancelling this one cancels the chain."
+      }
+     ]
+    },
+    {
+     "kind": "const",
+     "name": "ease",
+     "type": "EaseAPI",
+     "doc": "Built-in easing functions."
+    },
+    {
      "kind": "function",
      "sig": "vec2(x?: number | Vec2Like, y?: number): Vec2",
      "doc": "Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3)."
@@ -2119,6 +2425,21 @@
      "kind": "function",
      "sig": "color(r?: number | ColorLike, g?: number, b?: number, a?: number): Color",
      "doc": "Creates a Color from components 0..1 or \"#rrggbb\"."
+    },
+    {
+     "kind": "function",
+     "sig": "tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween",
+     "doc": "Moves numbers, vectors and colors of `target` to the end values in `props` over time. Targets: a component view (`tween(sprite, {color: \"#ff0000\"})`), a vector (`tween(entity.position, {y: 5})`), a color, or a plain object. A vector end value is [x, y, z], {x, y, z} or a Vec; a color is \"#rrggbb\", [r, g, b, a] or {r, g, b, a}. Start values are read when the delay ends. Driven by the game clock (fixed step, time.scale), never by the wall clock. Example: `await tween(entity.position, {y: 3}, {duration: 0.5, ease: \"backOut\"}).finished`."
+    },
+    {
+     "kind": "function",
+     "sig": "tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween",
+     "doc": "Tweens a plain number from `from` to `to`, calling options.onUpdate(value) every step (for a counter, a health bar value...)."
+    },
+    {
+     "kind": "function",
+     "sig": "cancelTweens(target?: object): void",
+     "doc": "Cancels every running tween, or only those whose target is `target`."
     }
    ]
   },

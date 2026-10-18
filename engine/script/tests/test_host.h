@@ -8,6 +8,7 @@
 #include "fa/core/i18n.h"
 #include "fa/physics/physics.h"
 #include "fa/platform/input.h"
+#include "fa/scene/animation.h"
 #include "fa/scene/localize.h"
 #include "fa/scene/serialize.h"
 #include "fa/script/script.h"
@@ -120,6 +121,7 @@ struct TestHost : ScriptHost {
             scripts.dispatch_back();
             scripts.fixed_update(dt);
             ph.step(w, dt);
+            update_animators(w, dt);
             scripts.dispatch_events();
             scripts.update(dt);
             au.update(w, dt);

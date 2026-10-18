@@ -307,6 +307,7 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | Component | Key fields | Typical use |
 |---|---|---|
 | `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale` | Visible 3D objects. Primitives need no assets. Unless `unlit`, it needs a light to look right. |
+| `Animator` | `clip`, `speed`, `loop`, `playing`, `fade`, `events`, and a state machine: `params`, `states`, `transitions` | Plays the clips of a skinned glTF on the entity with the MeshRenderer, blends between them, sends clip events, switches state from parameters. Script: `entity.animator.play("Run", 0.2)`, `.set("speed", 3)`. Section 9.25, [ANIMATION.md](ANIMATION.md). |
 | `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. |
 
 **Physics**
@@ -1222,6 +1223,34 @@ When you write menus of your own, the same rules apply:
   plural forms, `key`s no table has, and every character no font of the language can draw (`U+65E5 '日'`). To send the
   strings to translators, `factoria call i18n.export` writes a CSV or XLIFF file and `i18n.import` reads it back.
 
+### 9.25 Animated characters, state machines and tweens
+
+Full reference: `docs_read {"name":"animation"}` (docs/ANIMATION.md). A skinned glTF/GLB with named animation clips plays
+through the `Animator` component, on the entity that has the model's `MeshRenderer`:
+
+```json
+{ "id": "hero", "components": {
+    "MeshRenderer": { "mesh": "assets/models/hero.glb" },
+    "Animator": {
+      "clip": "Idle",
+      "events": [{ "clip": "Run", "time": 0.25, "name": "footstep" }, { "clip": "Run", "time": 0.75, "name": "footstep" }],
+      "params": { "speed": 0 },
+      "states": { "idle": { "clip": "Idle" }, "run": { "clip": "Run" } },
+      "transitions": [ { "from": "idle", "to": "run", "when": "speed > 0.1", "fade": 0.15 },
+                       { "from": "run", "to": "idle", "when": "speed <= 0.1" } ] } } }
+```
+
+```js
+hero.animator.set("speed", Math.abs(vx));                       // the state machine does the rest
+hero.animator.play("Attack", 0.1);                                // or drive clips by hand: cross-fade 0.1 s
+hero.animator.on("footstep", () => audio.play("assets/sounds/step.wav"));
+```
+
+Animation runs in the fixed step, so headless tests and replays match (`game.step(60)` then check
+`hero.animator.state` / `.time`). `import { tween, ease } from "factoria"` moves any number, vector or color over time
+(2D and 3D): `tween(panel.position, { x: 0 }, { duration: 0.4, ease: "backOut" })`, `await tween(...).finished`.
+The GPU skinning that draws the model deformed comes with a renderer update; the Animator already computes the pose.
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -1377,6 +1406,7 @@ The same format works with `factoria call --input` and `factoria session --input
 
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
+- `factoria docs read animation` (MCP `docs_read {"name":"animation"}`): the Animator component (clips, cross-fades, events, state machine) and `tween` / `ease`.
 - `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
 - `factoria docs read menus` (MCP `docs_read {"name":"menus"}`): a main menu, options, credits, a loading screen

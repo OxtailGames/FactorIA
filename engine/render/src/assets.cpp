@@ -202,6 +202,8 @@ public:
             if (!node.mesh) continue;
             Mat4 world;
             cgltf_node_transform_world(&node, world.m);
+            // glTF: the transform of a skinned mesh node is ignored (the joints place the mesh); it is drawn in bind pose.
+            if (node.skin) world = Mat4::identity();
             Mat4 normalMat = world.inverse().transposed();
             for (cgltf_size pi = 0; pi < node.mesh->primitives_count; ++pi) {
                 const cgltf_primitive& prim = node.mesh->primitives[pi];
