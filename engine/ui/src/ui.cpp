@@ -378,7 +378,7 @@ Json UiSystem::state(const World& w, Vec2 design) const {
             j["pressed"] = ts->pressed;
             j["visible"] = visible && ts->shown;
         } else if (const TouchButton* tb = w.get<TouchButton>(it.e)) {
-            j["pressed"] = tb->pressed;
+            j["pressed"] = tb->pressed;  // a finger holds it (the pointer never presses a touch control)
             j["visible"] = visible && tb->shown;
             if (!tb->text.empty()) j["text"] = tb->text;
         }

@@ -83,6 +83,12 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
                "Runtime: the pointer is held down on this widget.").runtime_only().read_only();
 }
 
+// touchOnly of TouchStick and TouchButton.
+constexpr const char* kTouchOnlyDoc =
+    "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice \"touch\"; "
+    "a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on "
+    "the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).";
+
 }  // namespace
 
 void register_builtin_components(TypeRegistry& r) {
@@ -613,11 +619,7 @@ void register_builtin_components(TypeRegistry& r) {
         ui_box_fields(stick)
             .enum_field("stick", &TouchStick::stick, {"left", "right"}, "Which stick of the touch pad it moves.")
             .field("knobColor", &TouchStick::knobColor, "Colour of the knob, a disc 45% as wide as the stick.")
-            .field("touchOnly", &TouchStick::touchOnly,
-                   "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "
-                   "\"touch\"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard "
-                   "and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop "
-                   "previews, screenshots, tests).")
+            .field("touchOnly", &TouchStick::touchOnly, kTouchOnlyDoc)
             .field("value", &TouchStick::value,
                    "Runtime: the finger's offset from the centre over the radius [x, y], length <= 1, +Y up; [0, 0] when no "
                    "finger holds it. Before the deadzone; read actions (input.vector) for the value the game should use.")
@@ -644,11 +646,7 @@ void register_builtin_components(TypeRegistry& r) {
             .asset_field("font", &TouchButton::font, "font", "Font of the label: project path of a .ttf, empty = the built-in font.")
             .field("fontSize", &TouchButton::fontSize, "Label glyph height in design pixels.").range(1, 4096)
             .field("textColor", &TouchButton::textColor, "Label colour.")
-            .field("touchOnly", &TouchButton::touchOnly,
-                   "true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "
-                   "\"touch\"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard "
-                   "and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop "
-                   "previews, screenshots, tests).")
+            .field("touchOnly", &TouchButton::touchOnly, kTouchOnlyDoc)
             .field("pressed", &TouchButton::pressed, "Runtime: a finger holds the button.").runtime_only().read_only()
             .field("shown", &TouchButton::shown, "Runtime: drawn this frame (see touchOnly).").runtime_only().read_only();
     }
