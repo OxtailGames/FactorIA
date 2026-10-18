@@ -4,6 +4,25 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+3D physics: new shapes, joints and a character controller
+
+- 3D colliders can now be capsules (`shape: "capsule"` with `radius` and `height`), convex shapes (`"convex"`, the
+  smallest solid that wraps a model) and triangle meshes (`"mesh"`, the exact surface of a model, for terrain, ramps and
+  level geometry). For the last two, set `Collider3D.mesh` to a primitive name or to your `.glb`/`.gltf` file, usually
+  the same as the entity's `MeshRenderer.mesh`. All shapes collide with each other, and raycasts, shape casts, triggers,
+  sleeping and the physics debug view work with all of them.
+- A mesh collider is for things that never move. Put it on a body that moves and the engine tells you once, in plain
+  words, to use a convex collider or several boxes and capsules instead.
+- Joints: add a `Joint3D` to an entity that has a body to make a hinge (doors, pendulums, wheels, with optional angle
+  limits and a motor), a ball joint (chains, shoulders) or a fixed joint, hanging from the world or from another body.
+  A swinging pendulum keeps its real period.
+- Character controller: add `CharacterController3D` to an entity and call `physics.moveCharacter(entity, delta)` each
+  frame. It slides along walls, steps up stairs and kerbs (`stepOffset`), refuses slopes steeper than `slopeLimit`, stays
+  on the ground going down a ramp, pushes crates, and tells you if it is on the ground (`isGrounded`, `groundNormal`).
+  You add your own gravity and jump.
+- Limits for now: a model with more than 256 vertices used as a convex collider is simplified to 256 points, jointed
+  bodies never fall asleep, and the character is not carried by moving platforms.
+
 Games in the browser
 
 - Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder

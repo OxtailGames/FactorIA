@@ -717,6 +717,44 @@ declare module "factoria" {
      * Sets a body's velocity (same as writing RigidBody.velocity).
      */
     setVelocity(entity: Entity, v: Vec3Like): void;
+    /**
+     * Moves an entity that has a CharacterController3D by `delta` metres with collide-and-slide: it slides along walls, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit, snaps down onto the ground, pushes dynamic bodies and is stopped by ceilings. Call it once per frame from onFixedUpdate with the walk of that frame (speed * time.fixedDt) plus your own gravity and jump (keep a vertical speed in the script and reset it when isGrounded). Throws an Error that explains the fix when the entity has no CharacterController3D.
+     */
+    moveCharacter(entity: Entity, delta: Vec3Like): CharacterMove;
+  }
+
+  /**
+   * Result of physics.moveCharacter.
+   */
+  export interface CharacterMove {
+    /**
+     * World position of the entity after the move.
+     */
+    position: Vec3;
+    /**
+     * How far it actually moved (less than the delta when blocked).
+     */
+    moved: Vec3;
+    /**
+     * Standing on walkable ground (a slope not steeper than slopeLimit) after the move.
+     */
+    isGrounded: boolean;
+    /**
+     * Surface normal of that ground (zero when not grounded).
+     */
+    groundNormal: Vec3;
+    /**
+     * The entity it stands on, null in the air.
+     */
+    ground: Entity | null;
+    /**
+     * Blocked by a wall or a slope too steep to climb during this move.
+     */
+    hitWall: boolean;
+    /**
+     * Bumped its head on something above.
+     */
+    hitCeiling: boolean;
   }
 
   /**
@@ -2207,7 +2245,7 @@ declare module "factoria" {
     oneWay: boolean;
   }
   /**
-   * Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
+   * Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a simple physics character (for a controller that slides, climbs steps and checks slopes use CharacterController3D instead). Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
    * 
    * Category: Physics
    */
@@ -2256,26 +2294,34 @@ declare module "factoria" {
     lockRotation: boolean;
   }
   /**
-   * Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale.
+   * Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh. Boxes, capsules and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or kinematic body with one is reported as an error and ignored.
    * 
    * Category: Physics
    */
   export interface Collider3DComponent {
     /**
-     * Shape type; uses size (box) or radius (sphere).
+     * box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain).
      */
-    shape: "box" | "sphere";
+    shape: "box" | "sphere" | "capsule" | "convex" | "mesh";
     /**
      * box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.
      */
     get size(): Vec3;
     set size(value: Vec3Like);
     /**
-     * sphere: radius in meters.
+     * sphere and capsule: radius in meters.
      */
     radius: number;
     /**
-     * Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity.
+     * capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius).
+     */
+    height: number;
+    /**
+     * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn.
+     */
+    mesh: string;
+    /**
+     * Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits).
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
@@ -2299,6 +2345,126 @@ declare module "factoria" {
      * Bitmask of layers this collider collides with. -1 = all layers.
      */
     mask: number;
+  }
+  /**
+   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+   * 
+   * Category: Physics
+   */
+  export interface Joint3DComponent {
+    /**
+     * hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all.
+     */
+    type: "hinge" | "ball" | "fixed";
+    /**
+     * The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D.
+     */
+    get connected(): Entity | null;
+    set connected(value: EntityLike);
+    /**
+     * Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge.
+     */
+    get anchor(): Vec3;
+    set anchor(value: Vec3Like);
+    /**
+     * Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true.
+     */
+    get connectedAnchor(): Vec3;
+    set connectedAnchor(value: Vec3Like);
+    /**
+     * true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together).
+     */
+    autoAnchor: boolean;
+    /**
+     * hinge: the rotation axis [x, y, z] in THIS entity's local space (normalized).
+     */
+    get axis(): Vec3;
+    set axis(value: Vec3Like);
+    /**
+     * hinge: keep the angle between lowerLimit and upperLimit.
+     */
+    useLimits: boolean;
+    /**
+     * hinge: lowest angle in degrees, relative to the pose the joint was created in (0 there).
+     */
+    lowerLimit: number;
+    /**
+     * hinge: highest angle in degrees (same reference).
+     */
+    upperLimit: number;
+    /**
+     * hinge: drive the joint at motorSpeed (a wheel, an opening door).
+     */
+    useMotor: boolean;
+    /**
+     * hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis.
+     */
+    motorSpeed: number;
+    /**
+     * hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more.
+     */
+    maxMotorTorque: number;
+    /**
+     * false (default): the two joined bodies do not collide with each other. true: they do.
+     */
+    collideConnected: boolean;
+    /**
+     * Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only.
+     */
+    readonly angle: number;
+  }
+  /**
+   * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
+   * 
+   * Category: Physics
+   */
+  export interface CharacterController3DComponent {
+    /**
+     * Capsule radius in meters (scaled by Transform.scale).
+     */
+    radius: number;
+    /**
+     * Capsule height in meters from tip to tip (never less than 2 * radius).
+     */
+    height: number;
+    /**
+     * Capsule centre [x, y, z] from the entity origin, in meters.
+     */
+    get center(): Vec3;
+    set center(value: Vec3Like);
+    /**
+     * Highest step in meters the character walks up (and the distance it snaps down to stay on the ground).
+     */
+    stepOffset: number;
+    /**
+     * Steepest slope in degrees the character can walk up; steeper surfaces count as walls.
+     */
+    slopeLimit: number;
+    /**
+     * Gap in meters kept between the capsule and the surfaces it touches; avoids jitter and tunnelling.
+     */
+    skin: number;
+    /**
+     * Collision category of the character, 0..31.
+     */
+    layer: number;
+    /**
+     * Bitmask of layers the character collides with. -1 = all layers.
+     */
+    mask: number;
+    /**
+     * Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion.
+     */
+    get velocity(): Vec3;
+    set velocity(value: Vec3Like);
+    /**
+     * Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only.
+     */
+    readonly isGrounded: boolean;
+    /**
+     * Runtime: the normal of the ground under the character after the last move (up when airborne). Read-only.
+     */
+    readonly groundNormal: Vec3;
   }
   /**
    * Plays a sound clip from the entity. Set playOnStart to start automatically, or set `playing` from a script to trigger it.
@@ -3111,6 +3277,8 @@ declare module "factoria" {
     Collider2D: Collider2DComponent;
     RigidBody3D: RigidBody3DComponent;
     Collider3D: Collider3DComponent;
+    Joint3D: Joint3DComponent;
+    CharacterController3D: CharacterController3DComponent;
     AudioSource: AudioSourceComponent;
     AudioListener: AudioListenerComponent;
     Panel: PanelComponent;
@@ -3140,7 +3308,9 @@ declare module "factoria" {
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere"; size?: Vec3Like; radius?: number; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
+    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
+    CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; fit?: boolean };
