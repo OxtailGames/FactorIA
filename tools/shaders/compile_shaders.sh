@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates the shader headers with sokol-shdc: engine/render/shaders/<name>.glsl -> engine/render/src/shaders/
-# <name>.glsl.h. The
-# generated headers are committed, so normal builds never need this script; run it after editing a .glsl file and
-# commit the result.
+# <name>.glsl.h. The generated headers are committed, so normal builds never need this script; run it after editing a
+# .glsl file and commit the result. (Custom material test fixtures are compiled by the tooling: FA_UPDATE_FIXTURES=1.)
 #
 #   tools/shaders/compile_shaders.sh            # all shaders
 #   tools/shaders/compile_shaders.sh mesh quad  # only these
