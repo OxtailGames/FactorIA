@@ -79,10 +79,12 @@ repository, not only the one where it was agreed:
   work into packages, reviews and integrates the results, runs the full test
   suite, commits and pushes.
 - **Workers — `sonnet`.** Implement features and fixes (Agent tool with
-  `model: "sonnet"`). One work package per worker, each in its own git worktree
-  or its own build dir (`build/agent-<name>`, `-j8`), with tests and docs.
-- **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`): code searches,
-  regenerating docs/typings, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
+  `model: "sonnet"`, `effort: "medium"`). One work package per worker, each in
+  its own git worktree or its own build dir (`build/agent-<name>`, `-j8`), with
+  tests and docs.
+- **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`,
+  `effort: "max"`): code searches, regenerating docs/typings,
+  ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
 
 ## Finishing a task (every session on this project)
 
