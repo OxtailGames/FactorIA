@@ -1,0 +1,630 @@
+shaders:
+  -
+    slang: glsl300es
+    programs:
+      -
+        name: mesh
+        vertex_func:
+          path: out/m_fa_mat_mesh_glsl300es_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_mesh_glsl300es_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            glsl_name: fa_position
+          -
+            slot: 1
+            type: vec3
+            base_type: Float
+            glsl_name: fa_normal
+          -
+            slot: 2
+            type: vec2
+            base_type: Float
+            glsl_name: fa_texcoord0
+          -
+            slot: 3
+            type: vec4
+            base_type: Float
+            glsl_name: fa_tangent
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m0
+          -
+            slot: 5
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m1
+          -
+            slot: 6
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m2
+          -
+            slot: 7
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m3
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 160
+            struct_name: fa_mesh_vs_params
+            inst_name: _46
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 10
+                offset: 0
+                glsl_name: fa_mesh_vs_params
+          -
+            slot: 4
+            stage: vertex
+            size: 32
+            struct_name: fa_material_vs
+            inst_name: _55
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material_vs
+          -
+            slot: 1
+            stage: fragment
+            size: 192
+            struct_name: fa_mesh_fs_params
+            inst_name: _127
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 12
+                offset: 0
+                glsl_name: fa_mesh_fs_params
+          -
+            slot: 2
+            stage: fragment
+            size: 1536
+            struct_name: fa_lights
+            inst_name: _642
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 96
+                offset: 0
+                glsl_name: fa_lights
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: fa_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 1
+              stage: fragment
+              name: fa_shadow_tex
+              multisampled: false
+              type: 2d
+              sample_type: unfilterable_float
+          -
+            texture:
+              slot: 2
+              stage: fragment
+              name: fa_normal_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 3
+              stage: fragment
+              name: fa_mr_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 4
+              stage: fragment
+              name: fa_occlusion_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 5
+              stage: fragment
+              name: fa_emissive_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+        samplers:
+          -
+            slot: 1
+            stage: fragment
+            name: fa_shadow_smp
+            sampler_type: nonfiltering
+          -
+            slot: 0
+            stage: fragment
+            name: fa_smp
+            sampler_type: filtering
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: fa_tex_fa_smp
+            view_name: fa_tex
+            sampler_name: fa_smp
+            view_slot: 0
+            sampler_slot: 0
+            glsl_name: fa_tex_fa_smp
+          -
+            slot: 1
+            stage: fragment
+            name: fa_normal_tex_fa_smp
+            view_name: fa_normal_tex
+            sampler_name: fa_smp
+            view_slot: 2
+            sampler_slot: 0
+            glsl_name: fa_normal_tex_fa_smp
+          -
+            slot: 2
+            stage: fragment
+            name: fa_mr_tex_fa_smp
+            view_name: fa_mr_tex
+            sampler_name: fa_smp
+            view_slot: 3
+            sampler_slot: 0
+            glsl_name: fa_mr_tex_fa_smp
+          -
+            slot: 3
+            stage: fragment
+            name: fa_occlusion_tex_fa_smp
+            view_name: fa_occlusion_tex
+            sampler_name: fa_smp
+            view_slot: 4
+            sampler_slot: 0
+            glsl_name: fa_occlusion_tex_fa_smp
+          -
+            slot: 4
+            stage: fragment
+            name: fa_emissive_tex_fa_smp
+            view_name: fa_emissive_tex
+            sampler_name: fa_smp
+            view_slot: 5
+            sampler_slot: 0
+            glsl_name: fa_emissive_tex_fa_smp
+          -
+            slot: 5
+            stage: fragment
+            name: fa_shadow_tex_fa_shadow_smp
+            view_name: fa_shadow_tex
+            sampler_name: fa_shadow_smp
+            view_slot: 1
+            sampler_slot: 1
+            glsl_name: fa_shadow_tex_fa_shadow_smp
+      -
+        name: mesh_skin
+        vertex_func:
+          path: out/m_fa_mat_mesh_skin_glsl300es_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_mesh_skin_glsl300es_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            glsl_name: fa_position
+          -
+            slot: 1
+            type: vec3
+            base_type: Float
+            glsl_name: fa_normal
+          -
+            slot: 2
+            type: vec2
+            base_type: Float
+            glsl_name: fa_texcoord0
+          -
+            slot: 3
+            type: vec4
+            base_type: Float
+            glsl_name: fa_tangent
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m0
+          -
+            slot: 5
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m1
+          -
+            slot: 6
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m2
+          -
+            slot: 7
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m3
+          -
+            slot: 8
+            type: vec4
+            base_type: Float
+            glsl_name: fa_joints
+          -
+            slot: 9
+            type: vec4
+            base_type: Float
+            glsl_name: fa_weights
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 160
+            struct_name: fa_mesh_vs_params
+            inst_name: _51
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 10
+                offset: 0
+                glsl_name: fa_mesh_vs_params
+          -
+            slot: 4
+            stage: vertex
+            size: 32
+            struct_name: fa_material_vs
+            inst_name: _60
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material_vs
+          -
+            slot: 3
+            stage: vertex
+            size: 3072
+            struct_name: fa_skin
+            inst_name: _197
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 192
+                offset: 0
+                glsl_name: fa_skin
+          -
+            slot: 1
+            stage: fragment
+            size: 192
+            struct_name: fa_mesh_fs_params
+            inst_name: _127
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 12
+                offset: 0
+                glsl_name: fa_mesh_fs_params
+          -
+            slot: 2
+            stage: fragment
+            size: 1536
+            struct_name: fa_lights
+            inst_name: _642
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 96
+                offset: 0
+                glsl_name: fa_lights
+        views:
+          -
+            texture:
+              slot: 0
+              stage: fragment
+              name: fa_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 1
+              stage: fragment
+              name: fa_shadow_tex
+              multisampled: false
+              type: 2d
+              sample_type: unfilterable_float
+          -
+            texture:
+              slot: 2
+              stage: fragment
+              name: fa_normal_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 3
+              stage: fragment
+              name: fa_mr_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 4
+              stage: fragment
+              name: fa_occlusion_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+          -
+            texture:
+              slot: 5
+              stage: fragment
+              name: fa_emissive_tex
+              multisampled: false
+              type: 2d
+              sample_type: float
+        samplers:
+          -
+            slot: 1
+            stage: fragment
+            name: fa_shadow_smp
+            sampler_type: nonfiltering
+          -
+            slot: 0
+            stage: fragment
+            name: fa_smp
+            sampler_type: filtering
+        texture_sampler_pairs:
+          -
+            slot: 0
+            stage: fragment
+            name: fa_tex_fa_smp
+            view_name: fa_tex
+            sampler_name: fa_smp
+            view_slot: 0
+            sampler_slot: 0
+            glsl_name: fa_tex_fa_smp
+          -
+            slot: 1
+            stage: fragment
+            name: fa_normal_tex_fa_smp
+            view_name: fa_normal_tex
+            sampler_name: fa_smp
+            view_slot: 2
+            sampler_slot: 0
+            glsl_name: fa_normal_tex_fa_smp
+          -
+            slot: 2
+            stage: fragment
+            name: fa_mr_tex_fa_smp
+            view_name: fa_mr_tex
+            sampler_name: fa_smp
+            view_slot: 3
+            sampler_slot: 0
+            glsl_name: fa_mr_tex_fa_smp
+          -
+            slot: 3
+            stage: fragment
+            name: fa_occlusion_tex_fa_smp
+            view_name: fa_occlusion_tex
+            sampler_name: fa_smp
+            view_slot: 4
+            sampler_slot: 0
+            glsl_name: fa_occlusion_tex_fa_smp
+          -
+            slot: 4
+            stage: fragment
+            name: fa_emissive_tex_fa_smp
+            view_name: fa_emissive_tex
+            sampler_name: fa_smp
+            view_slot: 5
+            sampler_slot: 0
+            glsl_name: fa_emissive_tex_fa_smp
+          -
+            slot: 5
+            stage: fragment
+            name: fa_shadow_tex_fa_shadow_smp
+            view_name: fa_shadow_tex
+            sampler_name: fa_shadow_smp
+            view_slot: 1
+            sampler_slot: 1
+            glsl_name: fa_shadow_tex_fa_shadow_smp
+      -
+        name: shadow
+        vertex_func:
+          path: out/m_fa_mat_shadow_glsl300es_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_shadow_glsl300es_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            glsl_name: fa_position
+          -
+            slot: 1
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m0
+          -
+            slot: 2
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m1
+          -
+            slot: 3
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m2
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m3
+          -
+            slot: 5
+            type: vec3
+            base_type: Float
+            glsl_name: fa_normal
+          -
+            slot: 6
+            type: vec2
+            base_type: Float
+            glsl_name: fa_texcoord0
+          -
+            slot: 7
+            type: vec4
+            base_type: Float
+            glsl_name: fa_tangent
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 160
+            struct_name: fa_mesh_vs_params
+            inst_name: _38
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 10
+                offset: 0
+                glsl_name: fa_mesh_vs_params
+          -
+            slot: 4
+            stage: vertex
+            size: 32
+            struct_name: fa_material_vs
+            inst_name: _47
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material_vs
+      -
+        name: shadow_skin
+        vertex_func:
+          path: out/m_fa_mat_shadow_skin_glsl300es_vertex.glsl
+          is_binary: false
+          entry_point: main
+        fragment_func:
+          path: out/m_fa_mat_shadow_skin_glsl300es_fragment.glsl
+          is_binary: false
+          entry_point: main
+        attrs:
+          -
+            slot: 0
+            type: vec3
+            base_type: Float
+            glsl_name: fa_position
+          -
+            slot: 1
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m0
+          -
+            slot: 2
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m1
+          -
+            slot: 3
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m2
+          -
+            slot: 4
+            type: vec4
+            base_type: Float
+            glsl_name: fa_inst_m3
+          -
+            slot: 5
+            type: vec4
+            base_type: Float
+            glsl_name: fa_joints
+          -
+            slot: 6
+            type: vec4
+            base_type: Float
+            glsl_name: fa_weights
+          -
+            slot: 7
+            type: vec3
+            base_type: Float
+            glsl_name: fa_normal
+          -
+            slot: 8
+            type: vec2
+            base_type: Float
+            glsl_name: fa_texcoord0
+          -
+            slot: 9
+            type: vec4
+            base_type: Float
+            glsl_name: fa_tangent
+        uniform_blocks:
+          -
+            slot: 0
+            stage: vertex
+            size: 160
+            struct_name: fa_mesh_vs_params
+            inst_name: _43
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 10
+                offset: 0
+                glsl_name: fa_mesh_vs_params
+          -
+            slot: 4
+            stage: vertex
+            size: 32
+            struct_name: fa_material_vs
+            inst_name: _52
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 2
+                offset: 0
+                glsl_name: fa_material_vs
+          -
+            slot: 3
+            stage: vertex
+            size: 3072
+            struct_name: fa_skin
+            inst_name: _189
+            glsl_uniforms:
+              -
+                type: vec4
+                array_count: 192
+                offset: 0
+                glsl_name: fa_skin

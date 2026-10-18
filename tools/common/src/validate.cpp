@@ -22,6 +22,7 @@
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
+#include "fa/tooling/shaders.h"
 #include "assets_internal.h"
 #include "localization_check.h"
 #include "util.h"
@@ -432,7 +433,7 @@ Json ValidationReport::to_json() const {
     Json e = Json::array(), w = Json::array();
     for (const auto& i : errors) e.push_back(i.to_json());
     for (const auto& i : warnings) w.push_back(i.to_json());
-    return Json::object({{"ok", ok}, {"errors", e}, {"warnings", w}, {"scenesChecked", scenesChecked}, {"scriptsChecked", scriptsChecked}});
+    return Json::object({{"ok", ok}, {"errors", e}, {"warnings", w}, {"scenesChecked", scenesChecked}, {"scriptsChecked", scriptsChecked}, {"materialsChecked", materialsChecked}});
 }
 
 std::string ValidationReport::to_text() const {
@@ -440,7 +441,8 @@ std::string ValidationReport::to_text() const {
     for (const auto& i : errors) o << "error: " << i.to_string() << "\n";
     for (const auto& i : warnings) o << "warning: " << i.to_string() << "\n";
     o << (ok ? "OK" : "FAILED") << ": " << errors.size() << " error(s), " << warnings.size() << " warning(s), "
-      << scenesChecked << " scene(s), " << scriptsChecked << " script(s) checked.\n";
+      << scenesChecked << " scene(s), " << scriptsChecked << " script(s)"
+      << (materialsChecked ? ", " + std::to_string(materialsChecked) + " material(s)" : std::string()) << " checked.\n";
     return o.str();
 }
 
@@ -516,6 +518,9 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     // String tables, the `key`s scenes use, and whether the fonts have a glyph for every character (not with a broken section).
     if (c.projectFileRead && c.localization.ok())
         localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.report);
+
+    // Custom materials: the *.material.json files and their snippets (all dialects).
+    validate_materials(c.dir, options.shaderContext, c.report);
 
     // Scripts: everything under scripts/ and tools/ plus referenced paths.
     for (const char* folder : {"scripts", "tools"}) {

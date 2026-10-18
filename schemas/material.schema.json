@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factoria.dev/schemas/material.schema.json",
+  "title": "FactorIA material (*.material.json)",
+  "description": "A custom material: a GLSL surface snippet the engine injects into its mesh shader, plus the typed parameters and textures the snippet reads. MeshRenderer.material names the file and MeshRenderer.materialParams overrides values per entity. `factoria validate` and the `shader.compile` command check this file and compile the snippet; `material.info` describes a material.",
+  "type": "object",
+  "required": ["format", "shader"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "Optional schema reference for editors." },
+    "format": { "const": "factoria.material/1", "description": "File format identifier. Always \"factoria.material/1\"." },
+    "doc": { "type": "string", "description": "What the material looks like and what it is for (shown by material.info)." },
+    "shader": { "type": "string", "description": "Project-relative path of the GLSL snippet that defines `void surface(in SurfaceInput i, inout Surface s)` and optionally `void vertex(inout VertexData v)`, e.g. \"shaders/water.surface.glsl\"." },
+    "lighting": { "enum": ["pbr", "unlit"], "default": "pbr", "description": "\"pbr\": the engine's Cook-Torrance lighting, fog and sky reflection. \"unlit\": the surface albedo is drawn as it is (plus emission and fog)." },
+    "alphaMode": { "enum": ["opaque", "clip", "blend"], "default": "opaque", "description": "\"opaque\": alpha is ignored. \"clip\": fragments with alpha below the float param `alphaCutoff` (added automatically, default 0.5; declare it yourself to change default, range or doc) are discarded, in the shadow pass too. \"blend\": drawn with the blended meshes, far to near." },
+    "doubleSided": { "type": "boolean", "default": false, "description": "Draw back faces too." },
+    "params": {
+      "type": "object",
+      "description": "Parameters the snippet reads as global variables named like the key (at most 16, each padded to a vec4; laid out in alphabetical order). Names are GLSL identifiers that do not start with fa_ and are not GLSL keywords.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "default", "doc"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "enum": ["float", "vec2", "vec3", "vec4", "color"], "description": "float, vec2, vec3, vec4, or color (a vec4 the editor shows as a color picker)." },
+          "default": { "type": ["number", "array"], "items": { "type": "number" }, "minItems": 2, "maxItems": 4, "description": "A number for float, an array of 2, 3 or 4 numbers for vec2, vec3, vec4 and color." },
+          "min": { "type": "number", "description": "Smallest sensible value (the editor slider's start); also checked against the default." },
+          "max": { "type": "number", "description": "Largest sensible value (the editor slider's end); also checked against the default." },
+          "doc": { "type": "string", "minLength": 1, "description": "What the parameter does and its unit. Required: AIs read it through material.info." }
+        }
+      }
+    },
+    "textures": {
+      "type": "object",
+      "description": "Textures the snippet samples in the fragment stage (at most 4). In GLSL: `texture(sampler2D(name, name_smp), uv)`. Same naming rules as params.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["doc"],
+        "additionalProperties": false,
+        "properties": {
+          "default": { "type": "string", "description": "Project-relative texture used when an entity gives none." },
+          "sampler": { "enum": ["linear", "linearRepeat", "nearest", "nearestRepeat"], "default": "linear", "description": "Filtering and wrapping of the sampler." },
+          "doc": { "type": "string", "minLength": 1, "description": "What the texture holds (channels, color space). Required." }
+        }
+      }
+    }
+  }
+}
