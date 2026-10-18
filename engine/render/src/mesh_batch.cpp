@@ -32,10 +32,11 @@ auto material_key(const MeshItem& a) {
                            r.emissive.r, r.emissive.g, r.emissive.b, r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y,
                            r.normalScale);
 }
-}  // namespace
 
+// Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
 bool same_material(const MeshItem& a, const MeshItem& b) { return material_key(a) == material_key(b); }
 bool material_less(const MeshItem& a, const MeshItem& b) { return material_key(a) < material_key(b); }
+}  // namespace
 
 void build_batches(std::vector<MeshItem>& items, bool sortByMaterial, std::vector<MeshBatch>& batches,
                    std::vector<Mat4>& mainMats, std::vector<Mat4>& shadowMats) {

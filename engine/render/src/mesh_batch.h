@@ -24,10 +24,6 @@ struct MeshItem {
 // clip volume of `viewProj`. Conservative: a box near a frustum corner may pass. `zeroToOne` = D3D/Metal depth range.
 bool box_in_frustum(const Mat4& viewProj, bool zeroToOne, Vec3 bmin, Vec3 bmax, const Mat4& model);
 
-// Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.
-bool same_material(const MeshItem& a, const MeshItem& b);
-bool material_less(const MeshItem& a, const MeshItem& b);
-
 // A run of items drawn with one instanced draw per mesh part. The model matrices of the visible items sit at
 // mainMats[mainFirst .. +mainCount), those of the shadow casters at shadowMats[shadowFirst .. +shadowCount).
 struct MeshBatch {

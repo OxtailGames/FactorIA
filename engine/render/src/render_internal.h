@@ -41,7 +41,7 @@ struct MeshVertex {
     float px, py, pz;
     float nx, ny, nz;
     float u, v;
-    float tx, ty, tz, tw;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
+    float tx = 0, ty = 0, tz = 0, tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
 };
 static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be 48 bytes");
 
