@@ -11,6 +11,7 @@
 #include <mutex>
 
 #include "fa/core/fs.h"
+#include "fa/scene/gltf_file.h"
 
 namespace fa {
 
@@ -75,6 +76,11 @@ void read_node_rest(const cgltf_node& n, SkelNode& out) {
 
 }  // namespace
 
+void gltf_use_fs(cgltf_options& opts) {
+    opts.file.read = &file_read;
+    opts.file.release = &file_release;
+}
+
 int SkeletonAsset::find_clip(std::string_view name) const {
     for (std::size_t i = 0; i < clips.size(); ++i)
         if (clips[i].name == name) return int(i);
@@ -90,8 +96,7 @@ std::vector<std::string> SkeletonAsset::clip_names() const {
 Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std::string_view pathView) {
     const std::string path(pathView);
     cgltf_options opts{};
-    opts.file.read = &file_read;
-    opts.file.release = &file_release;
+    gltf_use_fs(opts);
     cgltf_data* data = nullptr;
     cgltf_result r = cgltf_parse(&opts, bytes.data(), bytes.size(), &data);
     if (r != cgltf_result_success)
@@ -214,12 +219,11 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
                 float w[4] = {1, 0, 0, 0};
                 if (v < jnt->count) cgltf_accessor_read_uint(jnt, v, j, 4);
                 if (v < wgt->count) cgltf_accessor_read_float(wgt, v, w, 4);
-                float sum = w[0] + w[1] + w[2] + w[3];
                 for (int k = 0; k < 4; ++k) {
                     if (j[k] >= jointCount) { j[k] = 0; w[k] = 0; }  // a bad index must not read outside the palette
                     sv.joints[v][k] = std::uint16_t(j[k]);
                 }
-                sum = w[0] + w[1] + w[2] + w[3];
+                const float sum = w[0] + w[1] + w[2] + w[3];
                 for (int k = 0; k < 4; ++k) sv.weights[v][k] = sum > 1e-8f ? w[k] / sum : (k == 0 ? 1.0f : 0.0f);
             }
             out.skinVertices.push_back(std::move(sv));
@@ -256,11 +260,6 @@ Result<std::shared_ptr<const SkeletonAsset>> load_skeleton(std::string_view path
     std::lock_guard lock(g_cacheMutex);
     cache()[path] = CacheEntry{mtime, asset};
     return asset;
-}
-
-void clear_skeleton_cache() {
-    std::lock_guard lock(g_cacheMutex);
-    cache().clear();
 }
 
 }  // namespace fa

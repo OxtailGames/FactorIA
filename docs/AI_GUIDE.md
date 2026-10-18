@@ -1258,7 +1258,8 @@ hero.animator.on("footstep", () => audio.play("assets/sounds/step.wav"));
 Animation runs in the fixed step, so headless tests and replays match (`game.step(60)` then check
 `hero.animator.state` / `.time`). `import { tween, ease } from "factoria"` moves any number, vector or color over time
 (2D and 3D): `tween(panel.position, { x: 0 }, { duration: 0.4, ease: "backOut" })`, `await tween(...).finished`.
-The GPU skinning that draws the model deformed comes with a renderer update; the Animator already computes the pose.
+The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
+Each animated model is its own draw call, so keep crowds of animated characters modest.
 
 ## 10. Tests
 

@@ -351,7 +351,7 @@ declare module "factoria" {
      */
     emitBurst(count?: number): void;
     /**
-     * Skeletal animation of this entity's Animator component (play, crossFade, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
+     * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
      */
     readonly animator: AnimatorAPI;
   }
@@ -1539,10 +1539,6 @@ declare module "factoria" {
      */
     play(clip: string, fadeSeconds?: number): void;
     /**
-     * Same as play() with a fade of 0.2 seconds unless given.
-     */
-    crossFade(clip: string, fadeSeconds?: number): void;
-    /**
      * Pauses and returns to the bind pose (the model as exported).
      */
     stop(): void;
@@ -2253,7 +2249,7 @@ declare module "factoria" {
     safeArea: boolean;
   }
   /**
-   * Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) a Light to be visible.
+   * Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) a Light to be visible.
    * 
    * Category: 3D
    */
@@ -2267,16 +2263,24 @@ declare module "factoria" {
      */
     texture: string;
     /**
+     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. (asset path: texture)
+     */
+    normalMap: string;
+    /**
+     * How strong the normal map is: 0 = flat, 1 = as authored.
+     */
+    normalScale: number;
+    /**
      * Base color, multiplied with the texture.
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * 0 = plastic/stone, 1 = metal.
+     * 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead.
      */
     metallic: number;
     /**
-     * 0 = mirror-smooth, 1 = fully rough/matte.
+     * 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.
      */
     roughness: number;
     /**
@@ -3416,7 +3420,7 @@ declare module "factoria" {
     Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    MeshRenderer: { mesh?: string; texture?: string; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
     Animator: { model?: string; clip?: string; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; events?: any; state?: string; time?: number; values?: any };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };

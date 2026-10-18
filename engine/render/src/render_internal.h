@@ -48,6 +48,15 @@ static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be 48 bytes");
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
 constexpr int kMaxLights = 32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
 constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
+// Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
+// palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
+// that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
+constexpr int kMaxSkinJoints = 64;
+struct SkinVertex {
+    std::uint8_t joints[4];
+    float weights[4];
+};
+static_assert(sizeof(SkinVertex) == 20, "SkinVertex must be 20 bytes");
 
 // ---------------------------------------------------------------------------
 // GPU resources
@@ -93,6 +102,8 @@ const char* pixel_format_name(sg_pixel_format format);  // "RGBA8", "BC7", "ASTC
 
 struct SubMesh {
     sg_buffer vb{};
+    sg_buffer skinVb{};               // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
+    int skin = -1;                    // index of the glTF skin that deforms it (-1 = not skinned)
     sg_buffer ib{};
     int vertexCount = 0;
     int indexCount = 0;
@@ -321,9 +332,9 @@ public:
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
-    sg_pipeline mesh_pipeline(bool blended, bool doubleSided);
+    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false);
     sg_pipeline sky_pipeline();
-    sg_pipeline shadow_pipeline();
+    sg_pipeline shadow_pipeline(bool skinned = false);
     sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount);
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
@@ -354,6 +365,7 @@ public:
     bool shadows_supported() const { return shadowsSupported_; }
 
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
+    sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
 
 private:

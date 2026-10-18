@@ -41,7 +41,7 @@ void update_animators(World& world, float dt);
 // of that fade. Errors list the clip names ("did you mean").
 Result<void> animator_play(World& world, Entity e, std::string_view clip, float fadeSeconds);
 // Back to the bind pose and paused.
-void animator_stop(World& world, Entity e);
+Result<void> animator_stop(World& world, Entity e);
 // Sets a state machine parameter (number or bool). Unknown names are an error that lists the declared ones.
 Result<void> animator_set(World& world, Entity e, std::string_view name, const Json& value);
 // Makes a parameter true for the next update only (a one-shot input such as "jump").

@@ -172,16 +172,19 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
 - `skeleton.h` (`load_skeleton`, cached per path + modification time) reads a glTF with cgltf through `fa::fs`: the node
   hierarchy with rest poses, skins (joints, inverse bind matrices), animation clips (translation / rotation / scale channels;
   LINEAR, STEP, CUBICSPLINE) and the `JOINTS_0` / `WEIGHTS_0` of skinned primitives (`SkinVertices`, matched to the renderer's
-  loader by node and primitive index). The renderer draws a skinned mesh in bind pose: the loader ignores the transform of a skinned node, as the
-  glTF spec says.
+  loader by node and primitive index). The renderer loader ignores the transform of a skinned node (glTF spec) and keeps
+  each skinned part's joints/weights in vertex buffer 2 (`SubMesh::skinVb`, `SkinVertex`, at most `kMaxSkinJoints` = 64).
 - `animation.h` samples clips into a `Pose`, blends poses and builds the skinning palette. `update_animators(world, dt)` runs
   every `Animator`: state machine, clip time, cross-fade, clip events (pushed to `world.events().game`), then the palette.
 - **When it runs:** the runtime calls it once per FIXED step, after `physics.step` and before `scripts.dispatch_events`, with
   `fixedDt * time.scale` (not at all while the scale is 0). Events therefore reach `world.on` in the step that produced them and
   headless runs are deterministic. The variable-rate render step never advances animation.
 - **What the renderer reads:** `Animator::palette` (components.h), a runtime-only vector with one matrix per joint of skin 0,
-  `jointGlobal * inverseBind` in the glTF's model space (vertices of a skinned mesh are not transformed by their node). A GPU
-  skinning pass uploads it as the joint matrices and takes per-vertex joints/weights from `SkeletonAsset::skinVertices`.
+  `jointGlobal * inverseBind` in the glTF's model space (vertices of a skinned mesh are not transformed by their node). The renderer
+  (`renderer.cpp`) packs it into the `mesh_skin` / `shadow_skin` uniform (64 joints x 3 rows of a 3x4 matrix) and draws with the
+  second program of mesh.glsl / shadow.glsl (`mesh_skin`, `shadow_skin`: only the vertex stage differs, the lighting code is
+  shared). Skinned items carry the Animator pointer in their material key so they never join an instanced batch, and their
+  culling box is `skinned_bounds` (the bind box carried by every joint, joined).
 - The tween module (`tween`, `ease`) is JavaScript (`factoria.js`), advanced by the script system's update with the scaled `dt`,
   so it shares the game clock with timers.
 Game-maker docs: [ANIMATION.md](ANIMATION.md).
