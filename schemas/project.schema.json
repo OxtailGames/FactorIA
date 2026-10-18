@@ -668,7 +668,7 @@
     },
     "publish": {
       "type": "object",
-      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic and publish.gog commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
+      "description": "Where the game is sold, for the publish.steam, publish.itch, publish.epic, publish.gog, publish.appstore and publish.googleplay commands (`factoria call publish.steam '{\"dryRun\":true}'`): the ids of the game in each store. Only the stores you publish to need an entry. Nothing secret goes here: passwords, API keys and client secrets are environment variables (BUTLER_API_KEY, FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD; the App Store Connect API key and the Google Play service account key are files named by FACTORIA_APPSTORE_API_KEY and FACTORIA_GOOGLEPLAY_JSON_KEY) or the stores' tools keep the login themselves. Steam's app id is the one in steam_appid.txt. Unknown keys give a warning with a \"did you mean\". See docs/EXPORTING.md, \"Uploading to stores\".",
       "properties": {
         "steam": {
           "type": "object",
@@ -767,6 +767,44 @@
                 "type": "string"
               },
               "description": "Locale codes of the languages the game supports, e.g. [\"en-US\", \"fr-FR\"]. Default [\"en-US\"]."
+            }
+          }
+        },
+        "appstore": {
+          "type": "object",
+          "description": "App Store Connect / TestFlight (the .ipa is uploaded with xcrun altool; macOS only). The bundle id is the game's top-level \"id\".",
+          "properties": {
+            "appleId": {
+              "type": [
+                "string",
+                "integer"
+              ],
+              "description": "The app's Apple ID, the number under App Store Connect > your app > App Information > General Information (e.g. 6448277777; not an e-mail address). The App Store Connect API key is a file named by the environment variable FACTORIA_APPSTORE_API_KEY (with FACTORIA_APPSTORE_API_KEY_ID and FACTORIA_APPSTORE_API_ISSUER), never written here."
+            }
+          }
+        },
+        "googleplay": {
+          "type": "object",
+          "description": "Google Play (the release .aab is uploaded with fastlane supply). The package name is the game's top-level \"id\". The service account key is a file named by the environment variable FACTORIA_GOOGLEPLAY_JSON_KEY, never written here. The first bundle of a new app must be uploaded by hand in the Play Console.",
+          "properties": {
+            "track": {
+              "type": "string",
+              "description": "Release track: internal, alpha, beta, production, or the name of a closed testing track. Default \"internal\"."
+            },
+            "releaseStatus": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "completed"
+              ],
+              "description": "draft: the release waits in the Play Console until you roll it out; completed: it rolls out right away (an app that was never published accepts only draft). Default \"draft\"."
+            },
+            "changelogs": {
+              "type": "object",
+              "description": "The release notes (\"What's new\") per Google Play language: {\"en-US\": \"store/whats-new-en.txt\"}. Each value is the project-relative path of a text file of 1 to 500 characters. Default: no release notes uploaded.",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
           }
         }

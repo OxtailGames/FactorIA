@@ -11,7 +11,7 @@
 namespace fa {
 
 const std::vector<std::string>& publish_stores() {
-    static const std::vector<std::string> stores = {"steam", "itch", "epic", "gog"};
+    static const std::vector<std::string> stores = {"steam", "itch", "epic", "gog", "appstore", "googleplay"};
     return stores;
 }
 
@@ -158,6 +158,50 @@ struct Reader : tooling_detail::SettingsReader<PublishSettingsParse> {
         }
         unknown_keys(o, base, {"productId", "clientId", "languages"});
     }
+
+    void appstore(const Json& o, const std::string& base, AppStorePublishSettings& s) {
+        if (auto it = o.find("appleId"); it != o.end() && !it->is_null()) {
+            // The Apple ID of an app is a number of about ten digits (more than 32 bits), often copied as text.
+            const std::string v = it->is_string() ? it->get<std::string>() : it->is_number_integer() ? std::to_string(it->get<long long>()) : std::string();
+            if (v.size() < 6 || v.size() > 15 || !std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; }))
+                error(base + "/appleId", "expected the app's Apple ID (a whole number), got " + describe_json_value(*it),
+                      "It is the number under App Store Connect > your app > App Information > General Information > Apple ID, e.g. 6448277777 (not your Apple account's e-mail and not the bundle id).");
+            else
+                s.appleId = v;
+        }
+        unknown_keys(o, base, {"appleId"});
+    }
+
+    void googleplay(const Json& o, const std::string& base, GooglePlayPublishSettings& s) {
+        std::string track;
+        if (text(o, base, "track", track, "Use internal, alpha, beta or production (or the name of a closed testing track you created in the Play Console), e.g. \"internal\".")) {
+            static const std::regex re("^[A-Za-z0-9_.-]{1,64}$");
+            if (!std::regex_match(track, re))
+                error(base + "/track", "'" + track + "' is not a track name", "Use internal, alpha, beta or production, or the name of a closed testing track (letters, digits and . _ - only).");
+            else
+                s.track = track;
+        }
+        std::string status;
+        if (text(o, base, "releaseStatus", status, "Use \"draft\" (the release waits in the Play Console until you roll it out) or \"completed\" (it rolls out right away).")) {
+            if (status != "draft" && status != "completed")
+                error(base + "/releaseStatus", "'" + status + "' is not a release status", did_you_mean(status, std::vector<std::string>{"draft", "completed"}));
+            else
+                s.releaseStatus = status;
+        }
+        if (const Json* logs = object_member(o, base, "changelogs", "{\"en-US\": \"store/whats-new-en.txt\"}"))
+            for (auto it = logs->begin(); it != logs->end(); ++it) {
+                const std::string pointer = base + "/changelogs/" + tooling_detail::escape_token(it.key());
+                static const std::regex re("^[a-z]{2,3}(-[A-Za-z0-9]{2,4})?$");
+                if (!std::regex_match(it.key(), re))
+                    error(pointer, "'" + it.key() + "' is not a Google Play language code", "Use the codes of the Play Console, e.g. \"en-US\", \"es-419\", \"fr-FR\".");
+                else if (!it.value().is_string() || trim(it.value().get<std::string>()).empty())
+                    error(pointer, "expected the path of a text file, got " + describe_json_value(it.value()),
+                          "Write the \"What's new\" text (up to 500 characters) in a file of the project and give its path relative to factoria.json, e.g. \"store/whats-new-en.txt\".");
+                else
+                    s.changelogs[it.key()] = it.value().get<std::string>();
+            }
+        unknown_keys(o, base, {"track", "releaseStatus", "changelogs"});
+    }
 };
 
 }  // namespace
@@ -170,7 +214,7 @@ PublishSettingsParse parse_publish_settings(const Json& pj) {
     if (it == pj.end() || it->is_null()) return r.result;
     if (!it->is_object()) {
         r.error("/publish", "expected an object with one entry per store, got " + describe_json_value(*it),
-                "Write it as {\"itch\": {\"game\": \"user/game\"}}; stores: steam, itch, epic, gog.");
+                "Write it as {\"itch\": {\"game\": \"user/game\"}}; stores: " + join(publish_stores(), ", ") + ".");
         return r.result;
     }
     const Json& pub = *it;
@@ -179,6 +223,8 @@ PublishSettingsParse parse_publish_settings(const Json& pj) {
     if (const Json* o = r.object_member(pub, "/publish", "itch", "{\"game\": \"user/game\"}")) r.itch(*o, "/publish/itch", s.itch);
     if (const Json* o = r.object_member(pub, "/publish", "epic", "{\"organizationId\": \"...\", \"productId\": \"...\"}")) r.epic(*o, "/publish/epic", s.epic);
     if (const Json* o = r.object_member(pub, "/publish", "gog", "{\"productId\": \"1234567890\"}")) r.gog(*o, "/publish/gog", s.gog);
+    if (const Json* o = r.object_member(pub, "/publish", "appstore", "{\"appleId\": \"6448277777\"}")) r.appstore(*o, "/publish/appstore", s.appstore);
+    if (const Json* o = r.object_member(pub, "/publish", "googleplay", "{\"track\": \"internal\", \"releaseStatus\": \"draft\"}")) r.googleplay(*o, "/publish/googleplay", s.googleplay);
     return r.result;
 }
 
