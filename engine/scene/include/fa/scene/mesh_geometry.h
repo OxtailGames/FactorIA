@@ -26,7 +26,7 @@ struct MeshGeometry {
 // close one.
 Result<std::shared_ptr<const MeshGeometry>> load_mesh_geometry(const std::string& mesh);
 
-// True for the built-in primitive names above (case-insensitive).
-bool is_primitive_mesh(const std::string& name);
+// The name a mesh is cached under: primitive names lower-cased, paths as written. Use it as a key for per-mesh data.
+std::string mesh_key(const std::string& mesh);
 
 }  // namespace fa

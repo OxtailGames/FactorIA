@@ -14,9 +14,6 @@ constexpr float kManifoldGap = 0.003f;  // manifold points this far above the su
 constexpr float kProbeLift = 0.2f;      // mesh manifolds probe the surface from this far above each candidate point (m)
 constexpr float kLowBand = 0.05f;       // ...for candidates this close to the lowest one (m)
 
-Vec3 to_world(const Vec3* ax, Vec3 v) { return ax[0] * v.x + ax[1] * v.y + ax[2] * v.z; }
-Vec3 to_frame(const Vec3* ax, Vec3 v) { return {dot(v, ax[0]), dot(v, ax[1]), dot(v, ax[2])}; }
-
 Vec3 core_centre(const Core& c) {
     return c.kind == Core::Segment ? (c.a + c.b) * 0.5f : (c.kind == Core::Triangle ? (c.a + c.b + c.c) / 3.0f : c.a);
 }
@@ -48,7 +45,7 @@ void Physics3D::aabb(const Body& b, Vec3& lo, Vec3& hi) {
             e = Vec3{std::fabs(b.ax[1].x), std::fabs(b.ax[1].y), std::fabs(b.ax[1].z)} * b.segHalf + Vec3{b.radius};
             break;
         default:
-            if (b.kind != Body::Kind::Box) centre = b.center + to_world(b.ax, b.lcenter);
+            if (b.kind != Body::Kind::Box) centre = b.center + frame_to_world(b.ax, b.lcenter);
             e = {std::fabs(b.ax[0].x) * b.half.x + std::fabs(b.ax[1].x) * b.half.y + std::fabs(b.ax[2].x) * b.half.z,
                  std::fabs(b.ax[0].y) * b.half.x + std::fabs(b.ax[1].y) * b.half.y + std::fabs(b.ax[2].y) * b.half.z,
                  std::fabs(b.ax[0].z) * b.half.x + std::fabs(b.ax[1].z) * b.half.y + std::fabs(b.ax[2].z) * b.half.z};
@@ -151,11 +148,11 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
     Vec3 mlo{1e30f, 1e30f, 1e30f}, mhi{-1e30f, -1e30f, -1e30f};
     for (int i = 0; i < 8; ++i) {
         const Vec3 corner{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z};
-        const Vec3 l = to_frame(mesh.ax, corner - mesh.center) / mesh.gscale;
+        const Vec3 l = world_to_frame(mesh.ax, corner - mesh.center) / mesh.gscale;
         mlo = min(mlo, l);
         mhi = max(mhi, l);
     }
-    auto world = [&](Vec3 v) { return mesh.center + to_world(mesh.ax, v * mesh.gscale); };
+    auto world = [&](Vec3 v) { return mesh.center + frame_to_world(mesh.ax, v * mesh.gscale); };
     d.query(mlo, mhi, [&](std::uint32_t tri) {
         Core T;
         T.kind = Core::Triangle;
@@ -176,7 +173,7 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
                            other.ax[2] * ((i & 4) ? other.half.z : -other.half.z));
     } else {
         for (const Vec3& v : other.data->hull)
-            cand.push_back(other.center + to_world(other.ax, v * other.gscale));
+            cand.push_back(other.center + frame_to_world(other.ax, v * other.gscale));
     }
     float lowest = 1e30f;
     for (const Vec3& p : cand) lowest = std::min(lowest, dot(p, n));
@@ -189,13 +186,13 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
     for (const auto& [h, idx] : low) {
         if (count >= kMaxPts) break;
         const Vec3 p = cand[idx];
-        const Vec3 org = to_frame(mesh.ax, p + n * kProbeLift - mesh.center) / mesh.gscale;
-        const Vec3 dir = to_frame(mesh.ax, -n) / mesh.gscale;
+        const Vec3 org = world_to_frame(mesh.ax, p + n * kProbeLift - mesh.center) / mesh.gscale;
+        const Vec3 dir = world_to_frame(mesh.ax, -n) / mesh.gscale;
         float t = 0.0f;
         std::uint32_t tri = 0;
         Vec3 nl;
         if (!ray_triangles(d, org, dir, kProbeLift + kLowBand, t, tri, nl)) continue;
-        const Vec3 nw = normalize(to_world(mesh.ax, nl / mesh.gscale));
+        const Vec3 nw = normalize(frame_to_world(mesh.ax, nl / mesh.gscale));
         if (dot(nw, n) < 0.8f) continue;  // a wall or a steep neighbour: not part of this face contact
         const float depth = kProbeLift - t;
         if (depth < -kManifoldGap) continue;
@@ -224,7 +221,6 @@ void Physics3D::add_capsule_points(const Body& a, const Body& b, Contact& c) {
     if (std::fabs(dot(u, c.normal)) > 0.3f) return;
     Body probe;
     probe.kind = Body::Kind::Sphere;
-    probe.box = false;
     probe.hasShape = true;
     probe.enabled = true;
     probe.radius = cap->radius;
@@ -309,12 +305,12 @@ static bool ray_core(const Core& core, Vec3 origin, Vec3 d, float maxT, float& t
 bool Physics3D::ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal) {
     if (b.kind == Body::Kind::Mesh) {
         if (!b.data) return false;
-        const Vec3 org = to_frame(b.ax, origin - b.center) / b.gscale;
-        const Vec3 d = to_frame(b.ax, dir) / b.gscale;  // not unit: t stays in world meters
+        const Vec3 org = world_to_frame(b.ax, origin - b.center) / b.gscale;
+        const Vec3 d = world_to_frame(b.ax, dir) / b.gscale;  // not unit: t stays in world meters
         std::uint32_t tri = 0;
         Vec3 nl;
         if (!ray_triangles(*b.data, org, d, maxT, t, tri, nl)) return false;
-        normal = normalize(to_world(b.ax, nl / b.gscale));
+        normal = normalize(frame_to_world(b.ax, nl / b.gscale));
         if (dot(normal, dir) > 0.0f) normal = -normal;
         return true;
     }
@@ -322,7 +318,7 @@ bool Physics3D::ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float
 }
 
 std::shared_ptr<const ShapeData> Physics3D::shape_data(const std::string& mesh, bool bvh, std::string& problem) {
-    const std::string key = std::string(bvh ? "M:" : "H:") + (is_primitive_mesh(mesh) ? to_lower(mesh) : mesh);
+    const std::string key = std::string(bvh ? "M:" : "H:") + mesh_key(mesh);
     if (auto it = shapes_.find(key); it != shapes_.end()) return it->second;
     auto geometry = load_mesh_geometry(mesh);
     if (!geometry) {

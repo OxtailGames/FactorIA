@@ -15,8 +15,8 @@ constexpr float kMinMove = 1e-5f;
 constexpr float kGroundProbe = 0.04f;  // grounded when the ground is closer than skin + this (m)
 }  // namespace
 
-void Physics3D::move_character_body(World& world, Body& b, const CharacterController3D& cc, Vec3 delta,
-                                    CharacterMoveResult& out) {
+CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 delta) {
+    CharacterMoveResult out;
     const float walk = std::cos(radians(b.slopeLimit));
     const float skin = b.skin;
     const std::size_t self = std::size_t(&b - bodies_.data());
@@ -92,9 +92,8 @@ void Physics3D::move_character_body(World& world, Body& b, const CharacterContro
                 const Vec3 flat{rest.x, 0.0f, rest.z};
                 rest = flat - Vec3{0, 1, 0} * (dot(flat, n) / n.y);
             } else {
-                if (n.y > 0.05f) out.hitWall = true;
                 if (n.y < -0.05f) out.hitCeiling = true;
-                if (std::fabs(n.y) <= 0.05f) out.hitWall = true;
+                else out.hitWall = true;
                 if (canStep && b.stepOffset > 1e-4f && n.y >= -0.05f) {
                     // Step up: lift, go forward, drop back; keep it only if it lands on walkable ground.
                     const Vec3 flat{rest.x, 0.0f, rest.z};
@@ -138,7 +137,6 @@ void Physics3D::move_character_body(World& world, Body& b, const CharacterContro
         return hit.body >= 0 && hit.normal.y >= walk;
     };
 
-    out = CharacterMoveResult{};
     depenetrate();
     Hit ground;
     const bool wasGrounded = probe_ground(ground);
@@ -181,18 +179,15 @@ void Physics3D::move_character_body(World& world, Body& b, const CharacterContro
         c->isGrounded = out.isGrounded;
         c->groundNormal = out.groundNormal;
     }
-    (void)cc;
+    return out;
 }
 
 std::optional<CharacterMoveResult> Physics3D::move_character(World& world, Entity e, Vec3 delta) {
     sync(world);
     auto it = index_.find(e.bits());
     if (it == index_.end() || !bodies_[it->second].character || !bodies_[it->second].enabled) return std::nullopt;
-    const CharacterController3D* cc = world.get<CharacterController3D>(e);
-    if (!cc || !std::isfinite(delta.x + delta.y + delta.z)) return std::nullopt;
-    CharacterMoveResult out;
-    move_character_body(world, bodies_[it->second], *cc, delta, out);
-    return out;
+    if (!std::isfinite(delta.x + delta.y + delta.z)) return std::nullopt;
+    return move_character_body(world, bodies_[it->second], delta);
 }
 
 }  // namespace fa::detail

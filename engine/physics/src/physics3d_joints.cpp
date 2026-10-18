@@ -18,10 +18,6 @@ namespace fa::detail {
 namespace {
 constexpr float kBeta = 0.2f;        // fraction of a position error removed per sub-step
 constexpr float kMaxBias = 10.0f;    // fastest correction of a position error (m/s)
-constexpr Vec3 kWorldAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-
-Vec3 to_world(const Vec3* ax, Vec3 v) { return ax[0] * v.x + ax[1] * v.y + ax[2] * v.z; }
-Vec3 to_frame(const Vec3* ax, Vec3 v) { return {dot(v, ax[0]), dot(v, ax[1]), dot(v, ax[2])}; }
 
 Vec3 any_perpendicular(Vec3 a) {
     const Vec3 pick = std::fabs(a.x) < 0.6f ? Vec3{1, 0, 0} : (std::fabs(a.y) < 0.6f ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
@@ -29,36 +25,42 @@ Vec3 any_perpendicular(Vec3 a) {
 }
 
 float wrap_pi(float a) {
-    const float twoPi = 6.28318530718f;
-    a = std::fmod(a + 3.14159265359f, twoPi);
-    if (a < 0.0f) a += twoPi;
-    return a - 3.14159265359f;
+    a = std::fmod(a + kPi, kTau);
+    if (a < 0.0f) a += kTau;
+    return a - kPi;
 }
 }  // namespace
+
+// An impulse at offset r from the body's centre, and a pure angular impulse.
+void Physics3D::push_at(Body& b, Vec3 r, Vec3 impulse) {
+    b.vel += impulse * b.invMass;
+    b.angVel += inv_inertia_mul(b, cross(r, impulse)) * kRadToDeg;
+}
+void Physics3D::push_ang(Body& b, Vec3 L) { b.angVel += inv_inertia_mul(b, L) * kRadToDeg; }
 
 // Joint state from the poses the bodies have now: the anchors in each body's local frame (relative to its centre), the
 // hinge axis and a reference vector (angle 0), the relative rotation of a fixed joint.
 void Physics3D::build_joint(JointState& j, const Body& a, const Body* b, const Joint3D& jt) {
     const Vec3 scaleA = a.localScale;
     const Vec3 originA = a.center - a.offset;
-    const Vec3 anchorW = originA + to_world(a.rot, jt.anchor * scaleA);
+    const Vec3 anchorW = originA + frame_to_world(a.rot, jt.anchor * scaleA);
     j.anchorA = jt.anchor * scaleA - a.localOffset;
     if (b) {
-        j.anchorB = jt.autoAnchor ? to_frame(b->rot, anchorW - b->center) : jt.connectedAnchor * b->localScale - b->localOffset;
+        j.anchorB = jt.autoAnchor ? world_to_frame(b->rot, anchorW - b->center) : jt.connectedAnchor * b->localScale - b->localOffset;
     } else {
         j.anchorB = jt.autoAnchor ? anchorW : jt.connectedAnchor;
     }
     Vec3 axis = normalize(jt.axis);
     if (length_sq(axis) < 0.5f) axis = {0, 0, 1};
     j.axisA = axis;
-    const Vec3 aw = to_world(a.rot, axis);
-    j.axisB = b ? to_frame(b->rot, aw) : aw;
+    const Vec3 aw = frame_to_world(a.rot, axis);
+    j.axisB = b ? world_to_frame(b->rot, aw) : aw;
     j.refA = any_perpendicular(axis);
-    const Vec3 rw = to_world(a.rot, j.refA);
-    j.refB = b ? to_frame(b->rot, rw) : rw;
+    const Vec3 rw = frame_to_world(a.rot, j.refA);
+    j.refB = b ? world_to_frame(b->rot, rw) : rw;
     for (int i = 0; i < 3; ++i) {
-        const Vec3 bi = b ? b->rot[i] : kWorldAxes[i];
-        j.relCol[i] = to_frame(a.rot, bi);
+        const Vec3 bi = b ? b->rot[i] : kIdentityAxes[i];
+        j.relCol[i] = world_to_frame(a.rot, bi);
     }
     j.angle = 0.0f;
     j.pImp = j.aImp = {};
@@ -108,7 +110,7 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
             if (j.problem != previousProblem) FA_ERROR("physics", "{}", j.problem);
             continue;
         }
-        const bool changed = fresh || j.sigType != jt->type || j.sigConnected != jt->connected || j.sigAnchor != jt->anchor ||
+        const bool changed = fresh || j.type != jt->type || j.conn != jt->connected || j.sigAnchor != jt->anchor ||
                              j.sigConnAnchor != jt->connectedAnchor || j.sigAxis != jt->axis ||
                              j.sigAuto != jt->autoAnchor || j.seqA != a.seq || j.seqB != (b ? b->seq : 0);
         j.seqA = a.seq;
@@ -121,17 +123,14 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
         j.useMotor = jt->useMotor;
         j.motorSpeed = radians(jt->motorSpeed);
         j.maxTorque = std::max(jt->maxMotorTorque, 0.0f);
-        j.collide = jt->collideConnected;
         if (changed) {
             build_joint(j, a, b, *jt);
-            j.sigType = jt->type;
-            j.sigConnected = jt->connected;
             j.sigAnchor = jt->anchor;
             j.sigConnAnchor = jt->connectedAnchor;
             j.sigAxis = jt->axis;
             j.sigAuto = jt->autoAnchor;
         }
-        if (!j.collide && b) {
+        if (!jt->collideConnected && b) {
             a.noCollide.push_back(b->seq);
             bodies_[index_[jt->connected.bits()]].noCollide.push_back(a.seq);
         }
@@ -146,9 +145,9 @@ void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
 // Hinge angle: rotation of A relative to B about the axis, continuous (unwrapped against the previous value).
 static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, const Vec3& refA, const Vec3& refB, bool hasB,
                          float previous) {
-    const Vec3 aw = to_world(RA, axisA);
-    const Vec3 ra = to_world(RA, refA);
-    Vec3 rb = hasB ? to_world(RB, refB) : refB;
+    const Vec3 aw = frame_to_world(RA, axisA);
+    const Vec3 ra = frame_to_world(RA, refA);
+    Vec3 rb = hasB ? frame_to_world(RB, refB) : refB;
     rb = rb - aw * dot(rb, aw);
     if (length_sq(rb) < 1e-8f) return previous;
     const float theta = std::atan2(dot(cross(ra, rb), aw), dot(ra, rb));  // B relative to A
@@ -158,7 +157,6 @@ static float hinge_angle(const Vec3* RA, const Vec3* RB, const Vec3& axisA, cons
 
 bool Physics3D::prepare_joints(float h) {
     bool any = false;
-    static const Vec3 identity[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
     for (auto& [key, j] : joints_) {
         if (!j.active) continue;
         auto ia = index_.find(j.e.bits());
@@ -171,9 +169,9 @@ bool Physics3D::prepare_joints(float h) {
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
         if (A.invMass + (B ? B->invMass : 0.0f) <= 0.0f && !A.rotDyn && !(B && B->rotDyn)) { j.active = false; continue; }  // nothing can move
         const Vec3* RA = A.rot;
-        const Vec3* RB = B ? B->rot : identity;
-        j.rA = to_world(RA, j.anchorA);
-        j.rB = B ? to_world(RB, j.anchorB) : Vec3{};
+        const Vec3* RB = B ? B->rot : kIdentityAxes;
+        j.rA = frame_to_world(RA, j.anchorA);
+        j.rB = B ? frame_to_world(RB, j.anchorB) : Vec3{};
         const Vec3 pA = A.center + j.rA, pB = B ? B->center + j.rB : j.anchorB;
         Vec3 bias = (pB - pA) * (-kBeta / h);
         const float bl = length(bias);
@@ -198,9 +196,9 @@ bool Physics3D::prepare_joints(float h) {
             if (B) k += dot(t, inv_inertia_mul(*B, t));
             return std::max(k, 1e-9f);
         };
-        j.aw = to_world(RA, j.axisA);
+        j.aw = frame_to_world(RA, j.axisA);
         if (j.type == JointType3D::Hinge) {
-            const Vec3 bw = B ? to_world(RB, j.axisB) : j.axisB;
+            const Vec3 bw = B ? frame_to_world(RB, j.axisB) : j.axisB;
             const Vec3 e = cross(j.aw, bw);
             j.t1 = any_perpendicular(j.aw);
             j.t2 = cross(j.aw, j.t1);
@@ -212,8 +210,8 @@ bool Physics3D::prepare_joints(float h) {
         } else if (j.type == JointType3D::Fixed) {
             Vec3 e{};
             for (int i = 0; i < 3; ++i) {
-                const Vec3 desired = to_world(RA, j.relCol[i]);
-                e += cross(desired, B ? B->rot[i] : identity[i]) * 0.5f;
+                const Vec3 desired = frame_to_world(RA, j.relCol[i]);
+                e += cross(desired, B ? B->rot[i] : kIdentityAxes[i]) * 0.5f;
             }
             j.fixBias = e;
             j.k1 = ang_k({1, 0, 0});
@@ -221,18 +219,13 @@ bool Physics3D::prepare_joints(float h) {
             j.kAxis = ang_k({0, 0, 1});
         }
         // Warm start.
-        auto push = [&](Body* b, Vec3 r, Vec3 impulse) {
-            b->vel += impulse * b->invMass;
-            b->angVel += inv_inertia_mul(*b, cross(r, impulse)) * kRadToDeg;
-        };
-        auto push_ang = [&](Body* b, Vec3 L) { b->angVel += inv_inertia_mul(*b, L) * kRadToDeg; };
-        push(&A, j.rA, -j.pImp);
-        if (B) push(B, j.rB, j.pImp);
+        push_at(A, j.rA, -j.pImp);
+        if (B) push_at(*B, j.rB, j.pImp);
         Vec3 L{};
         if (j.type == JointType3D::Hinge) L = j.t1 * j.aImp.x + j.t2 * j.aImp.y + j.aw * (j.lowImp + j.upImp + j.motorImp);
         else if (j.type == JointType3D::Fixed) L = j.aImp;
-        push_ang(&A, L);
-        if (B) push_ang(B, -L);
+        push_ang(A, L);
+        if (B) push_ang(*B, -L);
         any = true;
     }
     return any;
@@ -243,14 +236,9 @@ void Physics3D::solve_joints(float h) {
         if (!j.active) continue;
         Body& A = bodies_[j.ia];
         Body* B = j.hasB ? &bodies_[j.ib] : nullptr;
-        auto push = [&](Body* b, Vec3 r, Vec3 impulse) {
-            b->vel += impulse * b->invMass;
-            b->angVel += inv_inertia_mul(*b, cross(r, impulse)) * kRadToDeg;
-        };
-        auto push_ang = [&](Body* b, Vec3 L) { b->angVel += inv_inertia_mul(*b, L) * kRadToDeg; };
         auto apply_ang = [&](Vec3 L) {  // +L on A, -L on B
-            push_ang(&A, L);
-            if (B) push_ang(B, -L);
+            push_ang(A, L);
+            if (B) push_ang(*B, -L);
         };
         auto wr = [&]() { return (A.angVel - (B ? B->angVel : Vec3{})) * kDegToRad; };
         // Point: the two anchors move together.
@@ -260,8 +248,8 @@ void Physics3D::solve_joints(float h) {
             const Vec3 rhs = j.pBias - (vB - vA);
             const Vec3 P{dot(j.kinv[0], rhs), dot(j.kinv[1], rhs), dot(j.kinv[2], rhs)};
             j.pImp += P;
-            push(&A, j.rA, -P);
-            if (B) push(B, j.rB, P);
+            push_at(A, j.rA, -P);
+            if (B) push_at(*B, j.rB, P);
         }
         if (j.type == JointType3D::Hinge) {
             const float gain = kBeta / h;
@@ -313,14 +301,13 @@ void Physics3D::solve_joints(float h) {
 }
 
 void Physics3D::finish_joints(World& world) {
-    static const Vec3 identity[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
     for (auto& [key, j] : joints_) {
         if (!j.active || j.type != JointType3D::Hinge) continue;
         auto ia = index_.find(j.e.bits());
         if (ia == index_.end()) continue;
         const Body& A = bodies_[ia->second];
         auto ib = j.seqB != 0 ? index_.find(j.conn.bits()) : index_.end();
-        const Vec3* RB = ib != index_.end() ? bodies_[ib->second].rot : identity;
+        const Vec3* RB = ib != index_.end() ? bodies_[ib->second].rot : kIdentityAxes;
         j.angle = hinge_angle(A.rot, RB, j.axisA, j.refA, j.refB, ib != index_.end(), j.angle);
         if (Joint3D* jt = world.get<Joint3D>(j.e)) jt->angle = degrees(j.angle);
     }

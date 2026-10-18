@@ -102,21 +102,21 @@ std::shared_ptr<ShapeData> make_shape_data(std::shared_ptr<const MeshGeometry> g
     const MeshGeometry& g = *d->geometry;
     if (hull) d->hull = reduce_cloud(g.positions);
     if (bvh) {
-        d->triangles = int(g.indices.size() / 3);
+        const int triangles = int(g.indices.size() / 3);
         Builder b{*d, {}, {}, {}};
-        b.centroid.resize(d->triangles);
-        b.lo.resize(d->triangles);
-        b.hi.resize(d->triangles);
-        for (int t = 0; t < d->triangles; ++t) {
+        b.centroid.resize(triangles);
+        b.lo.resize(triangles);
+        b.hi.resize(triangles);
+        for (int t = 0; t < triangles; ++t) {
             const Vec3 p = g.positions[g.indices[t * 3]], q = g.positions[g.indices[t * 3 + 1]],
                        r = g.positions[g.indices[t * 3 + 2]];
             b.lo[t] = min(p, min(q, r));
             b.hi[t] = max(p, max(q, r));
             b.centroid[t] = (p + q + r) / 3.0f;
         }
-        d->order.resize(d->triangles);
+        d->order.resize(triangles);
         std::iota(d->order.begin(), d->order.end(), 0u);
-        if (d->triangles > 0) b.build(0, d->triangles);
+        if (triangles > 0) b.build(0, triangles);
     }
     return d;
 }
@@ -427,12 +427,8 @@ EpaResult epa(const Core& A, const Core& B, const GjkResult& g) {
     const Vec3 v0 = b - a, v1 = c - a, v2 = p - a;
     const float d00 = dot(v0, v0), d01 = dot(v0, v1), d11 = dot(v1, v1), d20 = dot(v2, v0), d21 = dot(v2, v1);
     const float den = d00 * d11 - d01 * d01;
-    float u = 1.0f / 3.0f, w = 1.0f / 3.0f;
     if (std::fabs(den) > 1e-14f) {
-        const float vv = (d11 * d20 - d01 * d21) / den, ww = (d00 * d21 - d01 * d20) / den;
-        u = 1.0f - vv - ww;
-        w = ww;
-        const float v = vv;
+        const float v = (d11 * d20 - d01 * d21) / den, w = (d00 * d21 - d01 * d20) / den, u = 1.0f - v - w;
         res.pa = vs[f.i[0]].a * u + vs[f.i[1]].a * v + vs[f.i[2]].a * w;
         res.pb = vs[f.i[0]].b * u + vs[f.i[1]].b * v + vs[f.i[2]].b * w;
     } else {
