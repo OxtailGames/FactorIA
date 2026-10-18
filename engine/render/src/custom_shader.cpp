@@ -49,6 +49,13 @@ std::string text_of(const Json& j, const char* key) {
     return s ? *s : std::string();
 }
 
+// The array `key` of `j` (by reference: the desc points at the strings inside), or an empty one.
+const Json& list_of(const Json& j, const char* key) {
+    static const Json none = Json::array();
+    auto it = j.find(key);
+    return it != j.end() && it->is_array() ? *it : none;
+}
+
 template <class E>
 bool pick(const std::string& name, std::initializer_list<std::pair<const char*, E>> table, E& out) {
     for (const auto& [n, v] : table)
@@ -60,7 +67,7 @@ sg_shader_stage stage_of(const Json& j) { return text_of(j, "stage") == "vertex"
 
 }  // namespace
 
-Result<MaterialProgram> make_material_program(const std::string& label, const Json& program) {
+Result<sg_shader_desc> material_shader_desc(const std::string& label, const Json& program, MaterialProgram& out) {
     const std::string where = "the program '" + label + "'";
     auto bad = [&](const std::string& what) {
         return make_error(where + " of the shader twin is malformed: " + what,
@@ -85,8 +92,7 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
         fn->d3d11_target = cstr_or_null(fj, "d3d11_target");
     }
 
-    MaterialProgram out;
-    for (const Json& a : refl->value("attrs", Json::array())) {
+    for (const Json& a : list_of(*refl, "attrs")) {
         const int slot = int_or(a, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_VERTEX_ATTRIBUTES) return bad("an attribute slot outside 0.." + std::to_string(SG_MAX_VERTEX_ATTRIBUTES - 1));
         sg_shader_vertex_attr& at = desc.attrs[slot];
@@ -96,7 +102,7 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
         at.hlsl_sem_name = cstr_or_null(a, "hlsl_sem_name");
         at.hlsl_sem_index = std::uint8_t(int_or(a, "hlsl_sem_index"));
     }
-    for (const Json& u : refl->value("uniform_blocks", Json::array())) {
+    for (const Json& u : list_of(*refl, "uniform_blocks")) {
         const int slot = int_or(u, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_UNIFORMBLOCK_BINDSLOTS) return bad("a uniform block slot outside 0.." + std::to_string(SG_MAX_UNIFORMBLOCK_BINDSLOTS - 1));
         sg_shader_uniform_block& ub = desc.uniform_blocks[slot];
@@ -106,7 +112,7 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
         ub.hlsl_register_b_n = std::uint8_t(int_or(u, "hlsl_register_b_n"));
         ub.msl_buffer_n = std::uint8_t(int_or(u, "msl_buffer_n"));
         int n = 0;
-        for (const Json& g : u.value("glsl_uniforms", Json::array())) {
+        for (const Json& g : list_of(u, "glsl_uniforms")) {
             if (n >= SG_MAX_UNIFORMBLOCK_MEMBERS) return bad("a uniform block with too many members");
             sg_uniform_type type = SG_UNIFORMTYPE_FLOAT4;
             if (!pick<sg_uniform_type>(text_of(g, "type"),
@@ -120,7 +126,7 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
         out.ubMask |= 1u << slot;
         out.ubSize[slot] = ub.size;
     }
-    for (const Json& v : refl->value("views", Json::array())) {
+    for (const Json& v : list_of(*refl, "views")) {
         auto t = v.find("texture");
         if (t == v.end() || !t->is_object()) return bad("a view that is not a texture (storage buffers and images are not supported)");
         const int slot = int_or(*t, "slot", -1);
@@ -137,9 +143,9 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
                                          {"uint", SG_IMAGESAMPLETYPE_UINT}, {"unfilterable_float", SG_IMAGESAMPLETYPE_UNFILTERABLE_FLOAT}},
                                         tv.sample_type))
             return bad("the texture sample type '" + text_of(*t, "sample_type") + "'");
-        if (slot < 32) out.viewMask |= 1u << slot;
+        out.viewMask |= 1u << slot;
     }
-    for (const Json& s : refl->value("samplers", Json::array())) {
+    for (const Json& s : list_of(*refl, "samplers")) {
         const int slot = int_or(s, "slot", -1);
         if (slot < 0 || slot >= SG_MAX_SAMPLER_BINDSLOTS) return bad("a sampler slot outside 0.." + std::to_string(SG_MAX_SAMPLER_BINDSLOTS - 1));
         sg_shader_sampler& sm = desc.samplers[slot];
@@ -153,13 +159,21 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
         out.samplerMask |= 1u << slot;
     }
     int pairs = 0;
-    for (const Json& p : refl->value("texture_sampler_pairs", Json::array())) {
+    for (const Json& p : list_of(*refl, "texture_sampler_pairs")) {
         if (pairs >= SG_MAX_TEXTURE_SAMPLER_PAIRS) return bad("too many texture-sampler pairs");
         desc.texture_sampler_pairs[pairs++] = {stage_of(p), std::uint8_t(int_or(p, "view_slot")), std::uint8_t(int_or(p, "sampler_slot")),
                                                cstr_or_null(p, "glsl_name")};
     }
 
-    out.shader = sg_make_shader(&desc);
+    return desc;
+}
+
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program) {
+    MaterialProgram out;
+    auto made = material_shader_desc(label, program, out);
+    if (!made.ok()) return made.error();
+    const std::string where = "the program '" + label + "'";
+    out.shader = sg_make_shader(&*made);
     if (sg_query_shader_state(out.shader) != SG_RESOURCESTATE_VALID) {
         sg_destroy_shader(out.shader);
         return make_error("the graphics driver rejected " + where + " (backend " + backend_dialect(sg_query_backend()) + "; the sokol log lines above have the driver message)",
@@ -172,7 +186,6 @@ Result<MaterialProgram> make_material_program(const std::string& label, const Js
 void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]) {
     const int n = std::min<int>(int(m.params.size()), kMaxMaterialParams);
     for (int i = 0; i < n; ++i) {
-        std::memset(out[i], 0, sizeof(out[i]));
         const MaterialParamDef& p = m.params[std::size_t(i)];
         std::memcpy(out[i], p.def, sizeof(p.def));
         auto it = overrides.is_object() ? overrides.find(p.name) : overrides.end();
