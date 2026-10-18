@@ -455,12 +455,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("uvScale", &MeshRenderer::uvScale, "Texture tiling [u, v]; 2 repeats the texture twice.")
         .asset_field("material", &MeshRenderer::material, "material",
                      "Project-relative path of a custom material, a *.material.json file (e.g. \"materials/water.material.json\"), "
-                     "or \"\" (default) for the standard PBR material. A material file declares params, textures, an alphaMode "
-                     "(opaque, clip or blend) and GLSL snippets under shaders/ that change the surface (colour, emission, alpha, "
-                     "normal) or the vertices; the engine compiles it for each graphics backend. `factoria shader.compile` "
-                     "compiles a material and reports errors with file:line, `factoria material.info` lists its params and "
-                     "textures. The material's alphaMode wins over color.a < 1 (it decides opaque, cut-out or blended), and a "
-                     "material with `unlit: true` forces unlit lighting. A broken material draws magenta and logs why.")
+                     "or \"\" (default) for the standard PBR material. The material file names a GLSL snippet whose surface() "
+                     "changes what the standard material computed (albedo, alpha, normal, emission...) and whose optional vertex() "
+                     "moves the vertices, and declares its params, textures, lighting (pbr or unlit) and alphaMode (opaque, clip "
+                     "or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles it "
+                     "and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces "
+                     "unlit lighting. A material that does not compile draws magenta and logs why.")
         .field("materialParams", &MeshRenderer::materialParams,
                "Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the "
                "material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths "
