@@ -1206,3 +1206,36 @@ TEST_CASE("engine: game.notices() lists the runtime's third-party parts for a cr
     CHECK_FALSE(tools);
     e.shutdown();
 }
+
+TEST_CASE("engine: Animator advances in the fixed step, sends clip events to scripts and honours game.paused") {
+    const char* scene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "cam", "components": { "Camera": {} } },
+    { "id": "hero", "components": { "MeshRenderer": { "mesh": "assets/rig.gltf" },
+        "Animator": { "clip": "Bend", "events": [{ "clip": "Bend", "time": 0.5, "name": "half" }] } } },
+    { "id": "game", "components": { "Script": { "path": "scripts/game.js" } } }
+  ]
+})";
+    TempProject p("animator", kProject, scene);
+    {
+        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        p.write("assets/rig.gltf", text);
+    }
+    p.write("scripts/game.js", "import { Behaviour, world } from 'factoria';\n"
+                               "export default class Game extends Behaviour { halves = []; onStart() { world.on('half', () => this.halves.push(world.frame)); } }\n");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto num = [&](const char* code) { return e.scripts().eval(code).value().get<double>(); };
+    e.step(31);  // 0.5 s at 60 steps per second: the event fires in the step that passes it
+    CHECK(num("world.find('game').behaviour.halves.length") == 1);
+    CHECK(num("world.find('hero').get('Animator').time") == doctest::Approx(31.0 / 60.0).epsilon(0.01));
+    CHECK(e.world().get<Animator>(e.world().find_by_id("hero"))->palette.size() == 2);
+    REQUIRE(e.scripts().eval("game.paused = true").ok());
+    const double t0 = num("world.find('hero').get('Animator').time");
+    e.step(20);
+    CHECK(num("world.find('hero').get('Animator').time") == t0);  // frozen with time.scale 0
+    e.shutdown();
+}

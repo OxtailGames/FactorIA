@@ -674,6 +674,36 @@ TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and 
     CHECK(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 0 }, [0, 0], [1, 1])").find("positive") != std::string::npos);
 }
 
+TEST_CASE("physics.moveCharacter walks a CharacterController3D, reads its fields and teaches when it is missing") {
+    TestHost h("movecharacter");
+    REQUIRE(h.start());
+    ev_ok(h, "world.spawn({id:'floor', components:{Transform:{position:[0,-0.5,0]}, Collider3D:{size:[40,1,40]}}})");
+    ev_ok(h, "world.spawn({id:'wall', components:{Transform:{position:[3,2,0]}, Collider3D:{size:[1,4,20]}}})");
+    ev_ok(h, "world.spawn({id:'hero', components:{Transform:{position:[0,1,0]}, CharacterController3D:{radius:0.4, height:1.8}}})");
+    ev_ok(h, "world.spawn({id:'rod', components:{Transform:{position:[0,5,0]}, Collider3D:{shape:'capsule', radius:0.2, height:1}, RigidBody3D:{}}})");
+    h.step_frames(1);
+    CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).isGrounded") == true);
+    CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).ground.id") == "floor");
+    CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).groundNormal.y").get<double>() == doctest::Approx(1.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.moveCharacter('hero', [1, 0, 0]).moved.x").get<double>() == doctest::Approx(1.0).epsilon(0.01));
+    CHECK(ev_ok(h, "world.find('hero').get('CharacterController3D').isGrounded") == true);
+    CHECK(ev_ok(h, "physics.moveCharacter('hero', [5, 0, 0]).hitWall") == true);  // the wall stops it
+    CHECK(ev_ok(h, "world.find('hero').position.x").get<double>() < 2.2);
+    auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
+    const std::string m = ev_err(h, "physics.moveCharacter('rod', [1, 0, 0])");
+    CHECK(has(m, "CharacterController3D"));
+    CHECK(has(m, "'rod'"));
+    // the new collider fields read and write like any other
+    CHECK(ev_ok(h, "world.find('rod').get('Collider3D').shape") == "capsule");
+    CHECK(ev_ok(h, "world.find('rod').get('Collider3D').height").get<double>() == doctest::Approx(1.0));
+    // a joint names its partner by entity id and reports its angle
+    ev_ok(h, "world.spawn({id:'hinge', components:{Transform:{position:[0,8,0]}, Collider3D:{size:[1,1,1]}, RigidBody3D:{}, Joint3D:{type:'hinge', connected:'floor', autoAnchor:true}}})");
+    h.step_frames(2);
+    CHECK(ev_ok(h, "world.find('hinge').get('Joint3D').type") == "hinge");
+    CHECK(ev_ok(h, "world.find('hinge').get('Joint3D').connected.id") == "floor");
+    CHECK(ev_ok(h, "typeof world.find('hinge').get('Joint3D').angle") == "number");
+}
+
 TEST_CASE("setting an entity's position from JS on a body that fell asleep teleports a live body") {
     TestHost h("sleepteleport");
     REQUIRE(h.start());

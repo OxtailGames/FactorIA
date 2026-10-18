@@ -133,9 +133,18 @@ std::vector<VisualFootprint> visual_footprints(const World& W, Entity e, const V
     return out;
 }
 
+Mat4 visual_world_matrix(const World& W, Entity e) {
+    Mat4 m = W.world_matrix(e);
+    if (const Parallax* p = W.get<Parallax>(e)) {
+        m.at(3, 0) += p->offset.x;
+        m.at(3, 1) += p->offset.y;
+    }
+    return m;
+}
+
 std::optional<Rect> entity_world_rect(const World& W, Entity e, const VisualMeasure& measure) {
     const std::vector<VisualFootprint> parts = visual_footprints(W, e, measure, false);
-    const Mat4 m = W.world_matrix(e);
+    const Mat4 m = visual_world_matrix(W, e);
     bool any = false;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     for (const VisualFootprint& part : parts) {

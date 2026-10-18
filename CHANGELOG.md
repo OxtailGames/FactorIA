@@ -4,6 +4,69 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Better looking 3D, and much bigger 3D scenes
+
+- Materials look like real materials: `metallic` and `roughness` now use physically based shading, and shiny surfaces
+  reflect the sky of your scene (`skyColor` and `horizonColor`), so a metal sphere looks like metal without any extra
+  file. Scenes you already have look close to before, with a faint sheen on plastic and stone.
+- Normal maps: give a `MeshRenderer` a `normalMap` picture to add bumps, scratches or bricks without extra triangles, and
+  `normalScale` to make them stronger or softer.
+- glTF models keep their materials: metallic and roughness (with their textures), normal maps, ambient occlusion and
+  glowing parts are read from the file. Models without tangents get them generated.
+- Big scenes are cheaper: anything outside the camera's view is skipped, and many copies of the same mesh with the same
+  material are drawn together. Ten thousand identical cubes now cost one draw.
+- Up to 32 lights at once instead of 8. With more, the engine keeps the sun and the brightest, nearest lights.
+- The render statistics (`play.report`) now also count `meshesCulled`, `meshBatches` and `lightsDropped`.
+- Not yet: your own shaders for a material, and an environment picture for reflections.
+
+Animation
+
+- 3D models with skeletons: a glTF/GLB with named animation clips plays through the new `Animator` component, which goes on
+  the entity with the model's `MeshRenderer`. Switch clips with a smooth cross-fade (`entity.animator.play("Run", 0.2)`),
+  change the speed, and get an event when a clip reaches a moment you chose (a footstep at 0.3 s) with `world.on`.
+- A small state machine is built in: list the parameters, the states (a clip each) and the transitions in the scene file
+  (`"when": "speed > 0.1"`), then your script only sets values: `entity.animator.set("speed", 3)`. Animation runs in the
+  fixed step, so tests and replays give the same result every time.
+- New `tween` and `ease` in the scripting API: slide a menu in, fade a sprite, grow a pickup. Works on numbers, vectors
+  and colors of anything, in 2D and 3D, with 30 easings (`"backOut"`, `"bounceOut"`...), delay, repeat, yoyo, chaining and
+  `await tween(...).finished`.
+- Animated models are drawn deformed by the animation, shadows included (up to 64 joints per model; a model with more
+  is drawn in its bind pose and a warning says so). The new guide is `factoria docs read animation`.
+
+3D physics: new shapes, joints and a character controller
+
+- 3D colliders can now be capsules (`shape: "capsule"` with `radius` and `height`), convex shapes (`"convex"`, the
+  smallest solid that wraps a model) and triangle meshes (`"mesh"`, the exact surface of a model, for terrain, ramps and
+  level geometry). For the last two, set `Collider3D.mesh` to a primitive name or to your `.glb`/`.gltf` file, usually
+  the same as the entity's `MeshRenderer.mesh`. All shapes collide with each other, and raycasts, shape casts, triggers,
+  sleeping and the physics debug view work with all of them.
+- A mesh collider is for things that never move. Put it on a body that moves and the engine tells you once, in plain
+  words, to use a convex collider or several boxes and capsules instead.
+- Joints: add a `Joint3D` to an entity that has a body to make a hinge (doors, pendulums, wheels, with optional angle
+  limits and a motor), a ball joint (chains, shoulders) or a fixed joint, hanging from the world or from another body.
+  A swinging pendulum keeps its real period.
+- Character controller: add `CharacterController3D` to an entity and call `physics.moveCharacter(entity, delta)` each
+  frame. It slides along walls, steps up stairs and kerbs (`stepOffset`), refuses slopes steeper than `slopeLimit`, stays
+  on the ground going down a ramp, pushes crates, and tells you if it is on the ground (`isGrounded`, `groundNormal`).
+  You add your own gravity and jump.
+- Limits for now: a model with more than 256 vertices used as a convex collider is simplified to 256 points, jointed
+  bodies never fall asleep, and the character is not carried by moving platforms.
+
+More for 2D games
+
+- Flipped and rotated tiles: a tile number can carry a flip or turn, so one picture serves four directions. In
+  `scene.import_ascii` a legend entry accepts `flipX`, `flipY` and `rotate` (0, 90, 180, 270). Collision follows the
+  plain tile number.
+- 9-slice sprites: give a `Sprite` a `slice` (left, top, right, bottom in pixels of the picture) and it stretches like a
+  button background, corners intact. It works with flips and with pictures packed in an atlas.
+- 2D lights: a `Light2D` entity (point or directional) lights the sprites and tilemaps that set `lit`. Add a
+  `normalMap` and the sprite shows bumps that react to the light. `SceneSettings.ambientLight` is the unlit brightness.
+  Up to 16 lights at once; the nearest to the camera win.
+- Parallax: a `Parallax` component makes a far background move slower than the camera (or faster, for foreground), and
+  a sprite can repeat endlessly with `repeatX` / `repeatY`.
+- Joints: a `Joint2D` on a body ties it to the world or another body as a hinge (revolute), rope (distance), slider
+  (prismatic) or glue (weld), with limits, motors and springs. Scripts can read the reaction force and switch a motor.
+
 Games in the browser
 
 - Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder

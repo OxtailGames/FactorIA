@@ -3,9 +3,11 @@
 #include <cmath>
 
 #include "fa/core/log.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/tilemap.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
+#include "nine_slice.h"
 
 namespace fa::render {
 
@@ -83,6 +85,92 @@ bool axis_aligned(const Mat4& m) {
            std::fabs(m.at(1, 2)) < 1e-4f && std::fabs(m.at(2, 0)) < 1e-4f && std::fabs(m.at(2, 1)) < 1e-4f;
 }
 
+// The matrix a world-space visual is drawn with: its world matrix moved by Parallax.offset (screen space ignores it).
+Mat4 draw_matrix(const World& world, Entity e, bool screen) {
+    return screen ? world.world_matrix(e) : visual_world_matrix(world, e);
+}
+
+// The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the
+// entity's local space (y up). The shader needs the angle of the right axis in the world and whether up lies to its left
+// (a right-handed frame) or to its right (the picture is mirrored): em.mode = kModeLit (+1 mirrored), em.aux = angle.
+void set_light_frame(QuadEmitter& em, const Mat4& m, Vec2 right, Vec2 up) {
+    const Vec3 t = m.transform_dir({right.x, right.y, 0.0f});
+    const Vec3 b = m.transform_dir({up.x, up.y, 0.0f});
+    em.mode = float(kModeLit) + (t.x * b.y - t.y * b.x < 0.0f ? 1.0f : 0.0f);
+    em.aux = std::atan2(t.y, t.x);
+}
+
+// Where the tile image's right and top edges point to after the tile flags (see tilemap.h), in the tile's local space (y up).
+// The image is transposed, then mirrored in x, then in y; the mirrors and the transpose are done in y-down picture
+// coordinates, as the flags are defined.
+void tile_axes(int flags, Vec2& right, Vec2& up) {
+    Vec2 v[2] = {{1, 0}, {0, -1}};  // picture right and up, y down
+    for (Vec2& a : v) {
+        if (flags & kTileTranspose) a = {a.y, a.x};
+        if (flags & kTileFlipX) a.x = -a.x;
+        if (flags & kTileFlipY) a.y = -a.y;
+    }
+    right = {v[0].x, -v[0].y};
+    up = {v[1].x, -v[1].y};
+}
+
+// The source position (fractions of the tile image, y down) shown at a corner of the tile (fractions of the tile, y down).
+Vec2 tile_source(int flags, float px, float py) {
+    if (flags & kTileFlipY) py = 1.0f - py;
+    if (flags & kTileFlipX) px = 1.0f - px;
+    if (flags & kTileTranspose) std::swap(px, py);
+    return {px, py};
+}
+
+}  // namespace
+
+void update_parallax(World& world, Vec2 camPos) {
+    world.each<Parallax>([&](Entity, Parallax& p) { p.offset = {camPos.x * (1.0f - p.factor.x), camPos.y * (1.0f - p.factor.y)}; });
+}
+
+namespace {
+
+// Collects the Light2D entities of the frame into f.lights2d: directional lights first, then point lights nearest to
+// the camera, at most kMaxLights2D.
+void gather_lights(World& world, Frame& f) {
+    f.lights2d.clear();
+    f.ambient2d = world.settings().ambientLight;
+    struct Candidate {
+        Light2DData data;
+        float key;  // -1 directional, else the squared distance to the camera
+    };
+    std::vector<Candidate> found;
+    const Vec2 cam = f.cam.position.xy();
+    world.each<Light2D>([&](Entity e, Light2D& l) {
+        if (!entity_active(world, e) || l.intensity <= 0.0f) return;
+        Candidate c{};
+        c.data.color[0] = l.color.r * l.intensity;
+        c.data.color[1] = l.color.g * l.intensity;
+        c.data.color[2] = l.color.b * l.intensity;
+        c.data.color[3] = std::max(l.falloff, 0.01f);
+        if (l.type == Light2DType::Directional) {
+            const float d = radians(l.direction), el = radians(std::clamp(l.elevation, 0.0f, 90.0f));
+            c.data.pos[0] = -std::cos(d) * std::cos(el);  // towards the light = against its travel direction
+            c.data.pos[1] = -std::sin(d) * std::cos(el);
+            c.data.pos[2] = std::sin(el);
+            c.data.pos[3] = -1.0f;
+            c.key = -1.0f;
+        } else {
+            if (l.radius <= 0.0f) return;
+            const Vec3 p = world.world_matrix(e).translation();
+            c.data.pos[0] = p.x;
+            c.data.pos[1] = p.y;
+            c.data.pos[2] = std::max(l.height, 0.0f);
+            c.data.pos[3] = l.radius;
+            c.key = (p.x - cam.x) * (p.x - cam.x) + (p.y - cam.y) * (p.y - cam.y);
+        }
+        found.push_back(c);
+    });
+    std::stable_sort(found.begin(), found.end(), [](const Candidate& a, const Candidate& b) { return a.key < b.key; });
+    if (found.size() > std::size_t(kMaxLights2D)) found.resize(std::size_t(kMaxLights2D));
+    for (const Candidate& c : found) f.lights2d.push_back(c.data);
+}
+
 }  // namespace
 
 void update_animators(World& world, Frame& f, bool advance) {
@@ -116,6 +204,9 @@ void gather_2d(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
 
+    update_parallax(world, f.cam.position.xy());
+    gather_lights(world, f);
+
     // ---- sprites ----
     world.each<Sprite>([&](Entity e, Sprite& s) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
@@ -127,20 +218,82 @@ void gather_2d(World& world, Frame& f) {
             if (s.texture.empty()) size = {size.x > 0 ? size.x : 32.0f, size.y > 0 ? size.y : 32.0f};
             else size = {size.x > 0 ? size.x : r.w, size.y > 0 ? size.y : r.h};
         }
-        Mat4 m = world.world_matrix(e);
         bool screen = s.space == RenderSpace::Screen;
+        Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
         if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear, s.blend, clip);
-        QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
-        const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);  // inside the atlas when packed
-        float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
-        if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
-        if (s.flipX) std::swap(u0, u1);
-        if (s.flipY) std::swap(v0, v1);
-        em.rect(-s.pivot.x * size.x, -s.pivot.y * size.y, (1 - s.pivot.x) * size.x, (1 - s.pivot.y) * size.y, u0, v0, u1, v1);
+        const bool lit = s.lit && !screen;
+        if (lit) list.set_lit(s.normalMap.empty() ? nullptr : assets.texture(s.normalMap));
+        const bool nine = !s.texture.empty() && (s.slice.x > 0 || s.slice.y > 0 || s.slice.z > 0 || s.slice.w > 0);
+        const float bx0 = -s.pivot.x * size.x, bx1 = (1 - s.pivot.x) * size.x, by0 = -s.pivot.y * size.y, by1 = (1 - s.pivot.y) * size.y;
+
+        // One copy of the sprite drawn with matrix `mm`.
+        auto draw = [&](const Mat4& mm) {
+            QuadEmitter em{list, mm, screen, pack_color(s.color), kModeTextured, 0};
+            if (lit) set_light_frame(em, mm, {s.flipX ? -1.0f : 1.0f, 0.0f}, {0.0f, s.flipY ? -1.0f : 1.0f});
+            if (nine) {
+                // 9-slice: the borders keep their texture size (1 pixel = 1 unit), the rest stretches. Geometry is laid out
+                // unflipped from the top row down, then mirrored about the sprite box for flipX / flipY.
+                float border[4], uvBorder[4];
+                nine_slice_fit(s.slice, r.w, r.h, size.x, size.y, border, uvBorder);
+                const float xs[4] = {bx0, bx0 + border[0], bx1 - border[2], bx1};
+                const float ys[4] = {by1, by1 - border[1], by0 + border[3], by0};
+                const float us[4] = {0, uvBorder[0], 1 - uvBorder[2], 1}, vs[4] = {0, uvBorder[1], 1 - uvBorder[3], 1};
+                auto mx = [&](float x) { return s.flipX ? bx0 + bx1 - x : x; };
+                auto my = [&](float y) { return s.flipY ? by0 + by1 - y : y; };
+                for (int j = 0; j < 3; ++j)
+                    for (int i = 0; i < 3; ++i) {
+                        if (xs[i + 1] <= xs[i] || ys[j + 1] >= ys[j]) continue;  // an empty border
+                        const Vec2 lo = tex->uv(r.x + us[i] * r.w, r.y + vs[j] * r.h);  // inside the atlas when packed
+                        const Vec2 hi = tex->uv(r.x + us[i + 1] * r.w, r.y + vs[j + 1] * r.h);
+                        em.rect(mx(xs[i]), my(ys[j + 1]), mx(xs[i + 1]), my(ys[j]), lo.x, lo.y, hi.x, hi.y);
+                    }
+                return;
+            }
+            const Vec2 lo = tex->uv(r.x, r.y), hi = tex->uv(r.x + r.w, r.y + r.h);  // inside the atlas when packed
+            float u0 = lo.x, u1 = hi.x, v0 = lo.y, v1 = hi.y;
+            if (s.texture.empty()) { u0 = v0 = 0; u1 = v1 = 1; }
+            if (s.flipX) std::swap(u0, u1);
+            if (s.flipY) std::swap(v0, v1);
+            em.rect(bx0, by0, bx1, by1, u0, v0, u1, v1);
+        };
+
+        const Parallax* par = screen ? nullptr : world.get<Parallax>(e);
+        if (par && (par->repeatX || par->repeatY) && !f.cam.perspective) {
+            // A repeating background: copies every `step` world units along x and/or y, only those the camera can see.
+            float minX = 1e30f, maxX = -1e30f, minY = 1e30f, maxY = -1e30f;
+            for (int c = 0; c < 4; ++c) {
+                const Vec3 p = m.transform_point({(c & 1) ? bx1 : bx0, (c & 2) ? by1 : by0, 0.0f});
+                minX = std::min(minX, p.x); maxX = std::max(maxX, p.x);
+                minY = std::min(minY, p.y); maxY = std::max(maxY, p.y);
+            }
+            const Rect view = f.cam.visible;
+            auto range = [&](bool on, float requested, float lo, float hi, float viewLo, float viewHi, float& step, int& n0, int& n1) {
+                step = 0.0f; n0 = n1 = 0;
+                if (!on) return;
+                step = requested > 0.0f ? requested : hi - lo;
+                if (step < 1e-3f) { step = 0.0f; return; }
+                n0 = int(std::ceil((viewLo - hi) / step));
+                n1 = int(std::floor((viewHi - lo) / step));
+                n1 = std::min(n1, n0 + 63);  // at most 64 copies per axis
+            };
+            float stepX, stepY;
+            int x0, x1, y0, y1;
+            range(par->repeatX, par->repeatSize.x, minX, maxX, view.x, view.x + view.w, stepX, x0, x1);
+            range(par->repeatY, par->repeatSize.y, minY, maxY, view.y, view.y + view.h, stepY, y0, y1);
+            for (int iy = y0; iy <= y1; ++iy)
+                for (int ix = x0; ix <= x1; ++ix) {
+                    Mat4 mm = m;
+                    mm.at(3, 0) += float(ix) * stepX;
+                    mm.at(3, 1) += float(iy) * stepY;
+                    draw(mm);
+                }
+        } else {
+            draw(m);
+        }
         list.end_item();
         ++f.stats->sprites;
     });
@@ -148,8 +301,8 @@ void gather_2d(World& world, Frame& f) {
     // ---- shapes ----
     world.each<Shape2D>([&](Entity e, Shape2D& s) {
         if (!entity_active(world, e) || s.color.a <= 0.0f) return;
-        Mat4 m = world.world_matrix(e);
         bool screen = s.space == RenderSpace::Screen;
+        Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
         if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
@@ -231,9 +384,10 @@ void gather_2d(World& world, Frame& f) {
         float tw = tm.tileSize.x, th = tm.tileSize.y;
         // columns = 0 (the default) means: as many whole tiles as fit across the tileset image.
         int cols = std::max(1, tileset_columns(tm, tex->width));
-        Mat4 m = world.world_matrix(e);
+        Mat4 m = draw_matrix(world, e, false);
         QuadList& list = f.world;
         list.begin_item(tm.layer, secondary_key(f, m, false), tex, SamplerKind::Nearest);
+        if (tm.lit) list.set_lit(tm.normalMap.empty() ? nullptr : assets.texture(tm.normalMap));
         QuadEmitter em{list, m, false, pack_color(tm.color), kModeTextured, 0};
         float texW = float(std::max(1, tex->width)), texH = float(std::max(1, tex->height));
         bool cull = !f.cam.perspective;
@@ -241,8 +395,9 @@ void gather_2d(World& world, Frame& f) {
         view.x -= 1; view.y -= 1; view.w += 2; view.h += 2;
         for (int r = 0; r < h; ++r) {
             for (int c = 0; c < w; ++c) {
-                int idx = grid.tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
-                if (idx < 0) continue;
+                const int value = grid.tiles[std::size_t(r) * std::size_t(w) + std::size_t(c)];
+                if (value < 0) continue;
+                const int idx = tile_index(value), flags = tile_flags(value);
                 float x0 = float(c) * tw, y1 = -float(r) * th, x1 = x0 + tw, y0 = y1 - th;
                 if (cull) {
                     Vec3 a = em.xf(x0, y0), b = em.xf(x1, y1);
@@ -250,7 +405,23 @@ void gather_2d(World& world, Frame& f) {
                     if (!box.overlaps(view)) continue;
                 }
                 float px = float(idx % cols) * tw, py = float(idx / cols) * th;
-                em.rect(x0, y0, x1, y1, px / texW, py / texH, (px + tw) / texW, (py + th) / texH);
+                if (tm.lit) {  // a turned tile turns its normals with it
+                    Vec2 right, up;
+                    tile_axes(flags, right, up);
+                    set_light_frame(em, m, right, up);
+                }
+                if (flags == 0) {
+                    em.rect(x0, y0, x1, y1, px / texW, py / texH, (px + tw) / texW, (py + th) / texH);
+                } else {
+                    // Corners top-left, bottom-left, bottom-right, top-right of the tile show these spots of its image.
+                    static const float kCorner[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
+                    Vec2 uv[4];
+                    for (int k = 0; k < 4; ++k) {
+                        const Vec2 s = tile_source(flags, kCorner[k][0], kCorner[k][1]);
+                        uv[k] = {(px + s.x * tw) / texW, (py + s.y * th) / texH};
+                    }
+                    em.rect_uv(x0, y0, x1, y1, uv);
+                }
             }
         }
         list.end_item();
@@ -259,8 +430,8 @@ void gather_2d(World& world, Frame& f) {
     // ---- text ----
     world.each<Text>([&](Entity e, Text& t) {
         if (!entity_active(world, e) || t.text.empty() || t.color.a <= 0.0f || t.fontSize <= 0.0f) return;
-        Mat4 m = world.world_matrix(e);
         bool screen = t.space == RenderSpace::Screen;
+        Mat4 m = draw_matrix(world, e, screen);
         Rect clip;
         if (screen && !screen_clip(world, e, f, clip)) return;
         float scale = matrix_scale_x(m);

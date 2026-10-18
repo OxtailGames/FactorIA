@@ -5,6 +5,9 @@
 // mode 2 = anti-aliased ring            (aux = inner radius as a fraction of the outer radius)
 // mode 3 = soft round particle          (smooth radial falloff)
 // mode 4 = glyph                        (single-channel coverage texture * color)
+// mode 5 = lit textured quad            (texture * color * (ambient + 2D lights); aux = angle in radians of the picture's
+//                                        right axis in the world, for the normal map)
+// mode 6 = like 5, but the picture is mirrored: its up axis lies to the right of its right axis
 // mode + 8 = same shading, but the output is converted for MULTIPLY blending (dst * out.rgb):
 //            rgb = mix(1, rgb, alpha) so alpha fades the darkening in (blend: src=DST_COLOR, dst=ZERO).
 @module quad
@@ -22,23 +25,67 @@ layout(location=3) in vec2 params0;
 out vec2 uv;
 out vec4 color;
 out vec2 params;
+out vec2 world_xy;
 
 void main() {
     gl_Position = view_proj * vec4(position, 1.0);
     uv = texcoord0;
     color = color0;
     params = params0;
+    world_xy = position.xy;
 }
 @end
 
 @fs fs
 layout(binding=0) uniform texture2D tex;
+layout(binding=1) uniform texture2D normal_tex;   // lit quads: the normal map (a 1x1 image when unused)
 layout(binding=0) uniform sampler smp;
+
+// Only read by lit quads (mode 5, 6). 16 lights: 35 vec4s, far below the WebGL2 / GLES3 minimum of 224.
+layout(binding=1) uniform quad_fs_params {
+    vec4 lit;                  // x = number of lights, y = 1 when normal_tex is a real normal map
+    vec4 ambient;              // rgb
+    vec4 normal_uv;            // normal map uv = uv * xy + zw
+    vec4 light_pos[16];        // point: xyz position (z = height), w radius; directional: xyz unit vector TO the light, w = -1
+    vec4 light_color[16];      // rgb color * intensity; w falloff exponent
+};
 
 in vec2 uv;
 in vec4 color;
 in vec2 params;
+in vec2 world_xy;
 out vec4 frag_color;
+
+vec3 lit_color(vec4 base, float mode) {
+    vec3 n = vec3(0.0, 0.0, 1.0);
+    bool use_normal = lit.y > 0.5;
+    if (use_normal) {
+        vec3 s = texture(sampler2D(normal_tex, smp), uv * normal_uv.xy + normal_uv.zw).xyz * 2.0 - 1.0;
+        float a = params.y;
+        vec2 t = vec2(cos(a), sin(a));
+        vec2 b = vec2(-t.y, t.x) * (mode > 5.5 ? -1.0 : 1.0);
+        n = normalize(vec3(s.x * t + s.y * b, max(s.z, 0.05)));
+    }
+    vec3 total = ambient.rgb;
+    for (int i = 0; i < 16; i++) {
+        if (float(i) >= lit.x) { break; }
+        vec4 lp = light_pos[i];
+        vec4 lc = light_color[i];
+        vec3 l;
+        float att = 1.0;
+        if (lp.w < 0.0) {
+            l = lp.xyz;
+        } else {
+            vec2 d = lp.xy - world_xy;
+            float dist = length(d);
+            att = pow(clamp(1.0 - dist / max(lp.w, 0.001), 0.0, 1.0), lc.w);
+            l = vec3(d, lp.z) / max(length(vec3(d, lp.z)), 0.0001);
+        }
+        float ndl = use_normal ? max(dot(n, l), 0.0) : 1.0;
+        total += lc.rgb * (att * ndl);
+    }
+    return base.rgb * total;
+}
 
 void main() {
     float mode = params.x;
@@ -46,6 +93,9 @@ void main() {
     if (mul) mode -= 8.0;
     if (mode < 0.5) {
         frag_color = texture(sampler2D(tex, smp), uv) * color;
+    } else if (mode > 4.5) {
+        vec4 base = texture(sampler2D(tex, smp), uv) * color;
+        frag_color = vec4(lit_color(base, mode), base.a);
     } else if (mode > 3.5) {
         frag_color = vec4(color.rgb, color.a * texture(sampler2D(tex, smp), uv).r);
     } else {

@@ -37,10 +37,10 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 ```
 engine/            runtime modules (ship inside every game)
   core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h), UTF-8 decoding and encoding (utf8.h), string tables, plural rules and language matching (i18n.h)
-  scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h)
+  scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h), glTF skeletons and clips (skeleton.h) and the Animator system (animation.h), GPU-free model reader for colliders (mesh_geometry.h)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder)
-  physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes with rigid-body rotation, continuous collision, shape casts)
+  physics/         fa_physics  Box2D v3 (2D) + simple 3D (spheres, oriented boxes, capsules, convex hulls, static triangle meshes, rigid-body rotation, hinge/ball/fixed joints, character controller, continuous collision, shape casts)
   audio/           fa_audio    mixer, wav/ogg/mp3, null device + recording
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
@@ -166,6 +166,28 @@ Text has ONE layout too: `Fonts::layout` (`render/src/fonts.cpp`) draws screen a
 SheenBidi reordering, line breaking), so tests can look at glyph ids and positions; `fa/render/fonts.h` is its coverage check
 for tools. Fallback fonts and the text size option live on the `Renderer` (`set_fallback_fonts`, `set_text_scale`). Details for
 game makers: [TEXT.md](TEXT.md).
+
+### Animation
+Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests never need a renderer:
+- `skeleton.h` (`load_skeleton`, cached per path + modification time) reads a glTF with cgltf through `fa::fs`: the node
+  hierarchy with rest poses, skins (joints, inverse bind matrices), animation clips (translation / rotation / scale channels;
+  LINEAR, STEP, CUBICSPLINE) and the `JOINTS_0` / `WEIGHTS_0` of skinned primitives (`SkinVertices`, matched to the renderer's
+  loader by node and primitive index). The renderer loader ignores the transform of a skinned node (glTF spec) and keeps
+  each skinned part's joints/weights in vertex buffer 2 (`SubMesh::skinVb`, `SkinVertex`, at most `kMaxSkinJoints` = 64).
+- `animation.h` samples clips into a `Pose`, blends poses and builds the skinning palette. `update_animators(world, dt)` runs
+  every `Animator`: state machine, clip time, cross-fade, clip events (pushed to `world.events().game`), then the palette.
+- **When it runs:** the runtime calls it once per FIXED step, after `physics.step` and before `scripts.dispatch_events`, with
+  `fixedDt * time.scale` (not at all while the scale is 0). Events therefore reach `world.on` in the step that produced them and
+  headless runs are deterministic. The variable-rate render step never advances animation.
+- **What the renderer reads:** `Animator::palette` (components.h), a runtime-only vector with one matrix per joint of skin 0,
+  `jointGlobal * inverseBind` in the glTF's model space (vertices of a skinned mesh are not transformed by their node). The renderer
+  (`renderer.cpp`) packs it into the `mesh_skin` / `shadow_skin` uniform (64 joints x 3 rows of a 3x4 matrix) and draws with the
+  second program of mesh.glsl / shadow.glsl (`mesh_skin`, `shadow_skin`: only the vertex stage differs, the lighting code is
+  shared). Skinned items carry the Animator pointer in their material key so they never join an instanced batch, and their
+  culling box is `skinned_bounds` (the bind box carried by every joint, joined).
+- The tween module (`tween`, `ease`) is JavaScript (`factoria.js`), advanced by the script system's update with the scaled `dt`,
+  so it shares the game clock with timers.
+Game-maker docs: [ANIMATION.md](ANIMATION.md).
 
 ### UI
 Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`, `TextField`, `ScrollList` in

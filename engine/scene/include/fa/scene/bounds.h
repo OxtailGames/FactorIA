@@ -62,6 +62,11 @@ struct VisualFootprint {
 std::vector<VisualFootprint> visual_footprints(const World& w, Entity e, const VisualMeasure& measure = {},
                                                bool includeScreenSpace = true);
 
+// The world matrix the WORLD-SPACE visuals of `e` are drawn with: world_matrix(e) moved by Parallax.offset (the shift the
+// renderer applied for the camera this frame; zero without a Parallax). Use it, not world_matrix, to place visual_footprints
+// in the world. A Parallax with repeatX / repeatY is measured at its base copy.
+Mat4 visual_world_matrix(const World& w, Entity e);
+
 // The world-space axis-aligned rectangle (x, y = the minimum corner, +Y up) around the world-space visuals of `e`
 // after the entity's world matrix (rotation, scale, parents). nullopt when there are none. Screen-space visuals are
 // skipped. This is `entity.bounds()`.
