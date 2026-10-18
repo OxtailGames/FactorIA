@@ -1254,6 +1254,18 @@ Show the languages of the game: which is current, which strings each lacks compa
 
 Returns {enabled, default, current, languages: [{code, name, file, loaded, keys, missing, missingKeys}], systemLanguages}. `enabled` is false when factoria.json has no "localization" section (then there is nothing else). Each language has one string table, file locales/<code>.json; `loaded` is false when the file is missing or broken (its strings come from the fallback languages: see the log). `keys` counts the strings of the table, `missing` the keys of the default language's table that this one lacks (missingKeys lists up to 20 of them), `name` is the table's "$name" or the code. systemLanguages is the player's system languages in a game with its own window and empty in headless runs. Example: i18n.state {}
 
+## material
+
+### `material.info`
+
+Describe a custom material: lighting, alpha mode, params with types, defaults, ranges and docs, textures, programs and compile state.
+
+Reads a *.material.json (schemas/material.schema.json) and returns {material, doc, shader, lighting, alphaMode, doubleSided, params: [{name, type, default, min?, max?, doc, implicit?}], textures: [{name, default, sampler, doc}], programs, compile: {state, dialect, toolFound}}. params are listed in the order of the uniform block (alphabetical); `implicit` marks alphaCutoff, which alphaMode "clip" adds by itself. `programs` are the shader programs the material makes: mesh and mesh_skin, plus shadow and shadow_skin when the snippet defines vertex() or the alpha mode is clip. compile.state is "compiled" when the cache holds this exact material for this machine's dialect, else "not_compiled" (run shader.compile); nothing is compiled by this command. A material file with errors returns them (JSON pointer, message, fix). Example: {"material": "materials/water.material.json"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/water.material.json. |
+
 ## physics
 
 ### `physics.raycast`
@@ -1765,6 +1777,19 @@ Returns {home, host, components[]}; each component is {id, title, state, details
 |---|---|---|---|
 | `component` | string ["android","players","cmake","xcode","appimage","shaders"] | no | Only this component (default: all of them). |
 | `fetchLicenses` | boolean | no | Download the Android SDK license text when the license is not accepted yet (a network request). false = skip it (a polling UI). Default true. |
+
+## shader
+
+### `shader.compile`
+
+Compile a custom material's GLSL snippet for the dialects of some platforms and report errors with file, line and fixes.
+
+Checks the material file (*.material.json, schemas/material.schema.json) and compiles its snippet with sokol-shdc, injected into the engine's mesh shader, for every shader dialect of the platforms asked (default: all six: hlsl5 for Windows, glsl430 for Linux, metal_macos, metal_ios and metal_sim for macOS and iOS, glsl300es for Android and web). Some errors exist in one dialect only (a gradient inside a loop is fine in GLSL and refused by HLSL), so compile for the platforms you ship. Returns {ok, material, dialects, errors: [{file, line, column, message, hint, source}], cached}: a snippet error is mapped to the line of your snippet, with the offending line in `source` and a fix in `hint` (an unknown field of Surface gets "did you mean albedo?", texture(waves, uv) gets the separate-sampler form); a mistake in the material file has a JSON `pointer` instead of a line. Fix the file and call again until ok, then look at the result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an unchanged material compiles instantly. Needs sokol-shdc: `factoria setup shaders` installs it, or set SOKOL_SHDC. The snippet is GLSL 450 (Vulkan style) with no @ tags and no main: `void surface(in SurfaceInput i, inout Surface s)` is required, `void vertex(inout VertexData v)` optional. Params are globals named like the JSON keys; textures are sampled with texture(sampler2D(name, name_smp), uv); names starting with fa_ are the engine's. Example: {"material": "materials/water.material.json", "platforms": ["windows", "web"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `material` | string | yes | Project-relative path of the material, e.g. materials/water.material.json (the .material.json suffix may be left out). |
+| `platforms` | array | no | Platforms whose shader dialects to compile for. Omit for all. |
 
 ## sign
 
