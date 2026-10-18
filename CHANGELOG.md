@@ -18,7 +18,11 @@ Phones and tablets
 - `input.vibrate()` makes a phone vibrate (a light tap on iPhones). Exported Android games include the permission for it.
 - Android games can raise the on-screen keyboard for text fields and receive what is typed. Keyboards that compose words
   (predictive text, swipe typing, emoji, Asian languages) still cannot type into an Android game; physical keyboards work.
-- Tests can press Back, fake a notch and check vibrations without a device.
+- An on-screen gamepad for games made for a controller: add a `TouchStick` and a few `TouchButton`s to a scene and players
+  move with the thumb and press A, B... on the screen. They press the same gamepad buttons and stick a real controller
+  does, so your game needs no other change. Several fingers work at once, the controls stay clear of the notch, and they
+  only show while the player is using touch (they hide when a real controller or keyboard is used).
+- Tests can press Back, fake a notch, check vibrations and touch the on-screen gamepad without a device.
 - iPhone and iPad exports include the privacy file the App Store asks for (`PrivacyInfo.xcprivacy`), listing the few
   system features FactorIA uses and saying that nothing is collected or tracked. If your game or a plugin collects data,
   tracks players or uses more system features, add them under `export.ios.privacy` in `factoria.json`; mistakes in it are

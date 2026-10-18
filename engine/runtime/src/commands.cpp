@@ -578,14 +578,16 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                    {"logs", list}});
           });
 
-    I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList) and which has focus.",
+    I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton) and which has focus.",
            "Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
            "value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy "
            "are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {\"mouse\": "
            "{\"position\": [x, y], \"left\": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and "
            "ui_submit actions (game.input {\"press\": [\"ui_down\"]}). `visible` is false when a ScrollList clips the widget away "
-           "entirely. `value` is a Toggle's boolean or a Slider's number; `text` is a Button's text, a Toggle's or Slider's label "
-           "or a TextField's contents. `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
+           "entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). "
+           "`value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton "
+           "is a finger holding it (drive one with game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a "
+           "Toggle's or Slider's label or a TextField's contents. `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
           [&engine, &I](const Json&) {
               Json state = I.ui.state(I.world, I.design_size());

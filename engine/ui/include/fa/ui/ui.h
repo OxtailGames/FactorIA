@@ -31,8 +31,10 @@ class UiSystem {
 public:
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
     // and pushes ui.* events. `dt` is REAL (unscaled) seconds: the UI works while time.scale is 0. `designSize` is the
-    // renderer's target size (anchors are relative to it).
-    void update(World& world, const Input& input, Vec2 designSize, float dt, const VisualMeasure& measure);
+    // renderer's target size (anchors are relative to it). It also hands the rectangles of the active TouchStick and
+    // TouchButton widgets to input.set_touch_controls (fingers landing before the next frame hit what is drawn now) and
+    // writes their runtime fields (value, pressed, shown) back from the touch pad.
+    void update(World& world, Input& input, Vec2 designSize, float dt, const VisualMeasure& measure);
 
     // Lays out Panel (layout != none) and ScrollList children only. update() calls it first; the runtime calls it again
     // right before drawing so changes a script made during the frame are drawn in place.
@@ -46,7 +48,7 @@ public:
 
     // The ui.state command: {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed,
     // interactable, visible, value?, text?}]} in reading order (top, then left). `visible` is false when a ScrollList
-    // clips the widget away entirely.
+    // clips the widget away entirely, or for a TouchStick / TouchButton that is not shown.
     Json state(const World& world, Vec2 designSize) const;
 
     // Scene load: no focus, no hover, no press.

@@ -1042,7 +1042,7 @@ declare module "factoria" {
   }
 
   /**
-   * Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI). The UI keeps working while time.scale is 0.
+   * Game UI: widget events, focus, text measurement. Widgets are the components Panel, Button, Toggle, Slider, TextField and ScrollList (see docs/SCRIPTING.md, UI); TouchStick and TouchButton, the on-screen gamepad, send no events: they press gamepad bindings (docs/MOBILE.md). The UI keeps working while time.scale is 0.
    */
   export interface UIAPI {
     /**
@@ -2357,7 +2357,7 @@ declare module "factoria" {
    */
   export interface PanelComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2372,7 +2372,7 @@ declare module "factoria" {
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
-     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
      */
     safeArea: boolean;
     /**
@@ -2430,7 +2430,7 @@ declare module "factoria" {
    */
   export interface ButtonComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2445,7 +2445,7 @@ declare module "factoria" {
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
-     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
      */
     safeArea: boolean;
     /**
@@ -2520,7 +2520,7 @@ declare module "factoria" {
    */
   export interface ToggleComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2535,7 +2535,7 @@ declare module "factoria" {
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
-     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
      */
     safeArea: boolean;
     /**
@@ -2614,7 +2614,7 @@ declare module "factoria" {
    */
   export interface SliderComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2629,7 +2629,7 @@ declare module "factoria" {
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
-     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
      */
     safeArea: boolean;
     /**
@@ -2724,7 +2724,7 @@ declare module "factoria" {
    */
   export interface TextFieldComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2739,7 +2739,7 @@ declare module "factoria" {
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
-     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
      */
     safeArea: boolean;
     /**
@@ -2826,7 +2826,7 @@ declare module "factoria" {
    */
   export interface ScrollListComponent {
     /**
-     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240). A Panel with fit = true recomputes it every frame.
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
      */
     get size(): Vec2;
     set size(value: Vec2Like);
@@ -2841,7 +2841,7 @@ declare module "factoria" {
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
-     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
      */
     safeArea: boolean;
     /**
@@ -2879,6 +2879,152 @@ declare module "factoria" {
      * Pixels scrolled per mouse-wheel notch.
      */
     scrollSpeed: number;
+  }
+  /**
+   * On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. A finger that lands on it moves a stick of the TOUCH PAD, a virtual gamepad the action bindings read like a real one, so actions bound to GamepadLeftStickLeft/Right/Up/Down (or the right stick) work with no change to the game; the default ui_* actions include the left stick, so it also walks menus. Full tilt is the edge of the disc (half the shorter side); the pad deadzone (input.deadzone) applies like on a real stick. That finger is the stick's until it lifts, even outside the disc: it is not in input.touches, the Touch binding or the mouse. Several fingers work at once (a stick and buttons). Defaults: 200 x 200, inside the safe area, shown only while the player uses touch (touchOnly).
+   * 
+   * Category: UI
+   */
+  export interface TouchStickComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * Which stick of the touch pad it moves.
+     */
+    stick: "left" | "right";
+    /**
+     * Colour of the knob, a disc 45% as wide as the stick.
+     */
+    get knobColor(): Color;
+    set knobColor(value: ColorLike);
+    /**
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     */
+    touchOnly: boolean;
+    /**
+     * Runtime: the finger's offset from the centre over the radius [x, y], length <= 1, +Y up; [0, 0] when no finger holds it. Before the deadzone; read actions (input.vector) for the value the game should use. Read-only.
+     */
+    readonly value: Vec2;
+    /**
+     * Runtime: a finger holds the stick. Read-only.
+     */
+    readonly pressed: boolean;
+    /**
+     * Runtime: drawn this frame (see touchOnly). Read-only.
+     */
+    readonly shown: boolean;
+  }
+  /**
+   * On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an optional label. While a finger holds it, `button` of the TOUCH PAD is down, a virtual gamepad the action bindings read like a real one: a TouchButton with button "A" fires every action bound to GamepadA, with no change to the game. The finger is the button's until it lifts, even if it slides off, and it is not in input.touches, the Touch binding or the mouse. Several fingers work at once. Defaults: 96 x 96, inside the safe area, shown only while the player uses touch (touchOnly). It is not focusable and sends no ui events.
+   * 
+   * Category: UI
+   */
+  export interface TouchButtonComponent {
+    /**
+     * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     */
+    get size(): Vec2;
+    set size(value: Vec2Like);
+    /**
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     */
+    get pivot(): Vec2;
+    set pivot(value: Vec2Like);
+    /**
+     * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     */
+    safeArea: boolean;
+    /**
+     * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     */
+    layer: number;
+    /**
+     * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     */
+    texture: string;
+    /**
+     * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.
+     */
+    button: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb";
+    /**
+     * Label centred on the button, e.g. "A" or "Jump". Empty (default) draws none.
+     */
+    text: string;
+    /**
+     * Font of the label: project path of a .ttf, empty = the built-in font. (asset path: font)
+     */
+    font: string;
+    /**
+     * Label glyph height in design pixels.
+     */
+    fontSize: number;
+    /**
+     * Label colour.
+     */
+    get textColor(): Color;
+    set textColor(value: ColorLike);
+    /**
+     * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     */
+    touchOnly: boolean;
+    /**
+     * Runtime: a finger holds the button. Read-only.
+     */
+    readonly pressed: boolean;
+    /**
+     * Runtime: drawn this frame (see touchOnly). Read-only.
+     */
+    readonly shown: boolean;
   }
   /**
    * Attaches JavaScript behaviour to the entity. `path` is an ES module whose default export is a class extending Behaviour (see docs/SCRIPTING.md).
@@ -2973,6 +3119,8 @@ declare module "factoria" {
     Slider: SliderComponent;
     TextField: TextFieldComponent;
     ScrollList: ScrollListComponent;
+    TouchStick: TouchStickComponent;
+    TouchButton: TouchButtonComponent;
     Script: ScriptComponent;
     SceneSettings: SceneSettingsComponent;
   }
@@ -3001,6 +3149,8 @@ declare module "factoria" {
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
     TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number };
+    TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
+    TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; textColor?: ColorLike; touchOnly?: boolean };
     Script: { path?: string; props?: any; enabled?: boolean };
     SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number };
   }

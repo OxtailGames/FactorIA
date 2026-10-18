@@ -12,6 +12,8 @@ const char* ui_kind_name(UiKind k) {
         case UiKind::Slider: return "Slider";
         case UiKind::TextField: return "TextField";
         case UiKind::ScrollList: return "ScrollList";
+        case UiKind::TouchStick: return "TouchStick";
+        case UiKind::TouchButton: return "TouchButton";
         case UiKind::None: break;
     }
     return "";
@@ -24,6 +26,8 @@ UiKind ui_kind(const World& w, Entity e) {
     if (w.has<TextField>(e)) return UiKind::TextField;
     if (w.has<ScrollList>(e)) return UiKind::ScrollList;
     if (w.has<Panel>(e)) return UiKind::Panel;
+    if (w.has<TouchStick>(e)) return UiKind::TouchStick;
+    if (w.has<TouchButton>(e)) return UiKind::TouchButton;
     return UiKind::None;
 }
 
@@ -35,6 +39,8 @@ const UiBox* ui_box(const World& w, Entity e) {
         case UiKind::Slider: return w.get<Slider>(e);
         case UiKind::TextField: return w.get<TextField>(e);
         case UiKind::ScrollList: return w.get<ScrollList>(e);
+        case UiKind::TouchStick: return w.get<TouchStick>(e);
+        case UiKind::TouchButton: return w.get<TouchButton>(e);
         case UiKind::None: break;
     }
     return nullptr;

@@ -617,3 +617,79 @@ TEST_CASE("ui actions: the defaults are installed unless the project defines the
     t.tap_key(Key::X);
     CHECK(t.events() == V{"ui.click:a"});
 }
+
+// ------------------------------------------------------------------------------------------------ on-screen gamepad --
+TEST_CASE("on-screen gamepad: a stick and a button feed the pad actions, several fingers at once, and keep their fingers") {
+    Ui t;
+    t.in.set_actions(ui_with_default_actions(Json::parse(R"({
+        "move_left": ["A", "GamepadLeftStickLeft"], "move_right": ["D", "GamepadLeftStickRight"],
+        "move_up": ["GamepadLeftStickUp"], "aim_right": ["GamepadRightStickRight"],
+        "jump": ["Space", "GamepadA"], "fire": ["MouseLeft", "Touch"]})")));
+    t.in.set_gamepad_deadzone(0.0f);  // the raw stick values reach the actions
+    const Entity stick = t.add<TouchStick>("stick", {10, 80}, {80, 80});  // centre (50, 120), radius 40
+    const Entity jump = t.add<TouchButton>("jump", {240, 100}, {60, 60});
+    t.frame();
+    CHECK_FALSE(t.w.get<TouchStick>(stick)->shown);  // touchOnly: hidden until the player touches the screen
+    REQUIRE(t.in.touch_controls().size() == 2);
+
+    t.in.on_touch_begin(1, {50, 120});  // the stick's centre
+    t.in.on_touch_move(1, {90, 120});   // its right edge: full tilt
+    t.in.on_touch_begin(2, {270, 130}); // a second finger on the button
+    CHECK(t.in.action_value("move_right") == doctest::Approx(1.0f));
+    CHECK(t.in.action_value("move_left") == 0.0f);
+    CHECK(t.in.action_value("aim_right") == 0.0f);  // the left stick, not the right one
+    CHECK(t.in.action_pressed("jump"));
+    CHECK_FALSE(t.in.action_down("fire"));  // the fingers belong to the pad: no Touch binding, no mouse
+    CHECK_FALSE(t.in.mouse_down(MouseButton::Left));
+    CHECK(t.in.touches().empty());
+    CHECK_FALSE(t.in.gamepad_connected(0));  // the touch pad has no number
+    CHECK(t.in.last_device() == InputDevice::Touch);
+    t.frame();
+    CHECK(t.w.get<TouchStick>(stick)->shown);
+    CHECK(t.w.get<TouchStick>(stick)->pressed);
+    CHECK(t.w.get<TouchStick>(stick)->value.x == doctest::Approx(1.0f));
+    CHECK(t.w.get<TouchButton>(jump)->pressed);
+    CHECK(t.ui.state(t.w, t.design)["widgets"][0]["kind"] == "TouchStick");
+
+    t.in.on_touch_move(1, {0, 70});  // outside the disc, up-left: still the stick's, clamped to full tilt
+    CHECK(t.in.action_value("move_left") == doctest::Approx(0.7071f).epsilon(0.001));
+    CHECK(t.in.action_value("move_up") == doctest::Approx(0.7071f).epsilon(0.001));
+    t.in.on_touch_end(2);
+    CHECK(t.in.action_released("jump"));
+    t.in.on_touch_end(1);
+    CHECK(t.in.action_value("move_left") == 0.0f);
+    t.frame();
+    CHECK_FALSE(t.w.get<TouchStick>(stick)->pressed);
+    CHECK(t.w.get<TouchStick>(stick)->value == Vec2{0, 0});
+
+    t.in.on_touch_begin(3, {160, 20});  // a finger anywhere else is an ordinary touch
+    CHECK(t.in.action_down("fire"));
+    CHECK(t.in.touches().size() == 1);
+    t.in.on_touch_end(3);
+    t.frame();
+
+    t.in.on_touch_begin(4, {270, 130});
+    t.frame();
+    CHECK(t.in.action_down("jump"));
+    t.w.set_active(jump, false);  // a held control that goes away lets go of its button
+    t.frame();
+    CHECK_FALSE(t.in.action_down("jump"));
+    t.in.on_touch_end(4);  // its finger was the button's: it never becomes a touch
+    CHECK(t.in.touches().empty());
+
+    t.in.set_actions(ui_with_default_actions(Json::parse(R"({"right_jump": ["GamepadRightStickUp"]})")));
+    t.w.get<TouchStick>(stick)->stick = TouchStickSide::Right;
+    t.frame();
+    t.in.on_touch_begin(5, {50, 80});  // the top edge of the right stick
+    CHECK(t.in.action_value("right_jump") == doctest::Approx(1.0f));
+    t.in.release_all();  // focus lost: the stick lets go too
+    CHECK(t.in.action_value("right_jump") == 0.0f);
+
+    t.in.on_key(Key::A, true);  // the player switched to the keyboard: touch-only controls hide
+    t.frame();
+    CHECK_FALSE(t.w.get<TouchStick>(stick)->shown);
+    CHECK(t.ui.state(t.w, t.design)["widgets"][0]["visible"] == false);
+    t.w.get<TouchStick>(stick)->touchOnly = false;  // forced: shown with any device
+    t.frame();
+    CHECK(t.w.get<TouchStick>(stick)->shown);
+}
