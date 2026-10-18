@@ -1,4 +1,5 @@
-// Uploading exports to stores: the commands publish.steam, publish.itch, publish.epic and publish.gog.
+// Uploading exports to stores: the commands publish.steam, publish.itch, publish.epic, publish.gog, publish.appstore and
+// publish.googleplay.
 //
 // A store command takes the folders `project.export` wrote (<project>/build/export/<game-slug>-<platform>/, desktop platforms only)
 // and runs the store's own uploader on them. FactorIA writes what the uploader reads (Steam's build scripts, GOG's project
@@ -7,13 +8,17 @@
 //   itch  : butler push <folder> <user>/<game>:<channel> --userversion <version>      (one channel per platform)
 //   epic  : BuildPatchTool -mode=UploadBinary ... -ClientSecretEnvVar=...             (one artifact per platform)
 //   gog   : GOGGalaxyPipelineBuilder build-game <project.json> ...                    (one project file per platform)
+// The two mobile stores upload ONE built file instead of export folders (the .ipa you archived in Xcode, the release .aab):
+//   appstore   : xcrun altool --upload-package <ipa> --type ios --apple-id ... --apiKey ... --apiIssuer ...  (macOS only)
+//   googleplay : fastlane supply --aab <aab> --track internal --package_name ... --json_key <service account>
 // `dryRun` writes those files, runs nothing and returns the exact command lines.
 //
 // Where things live (docs/EXPORTING.md, "Uploading to stores"):
 //   * the ids of your game in the stores: the "publish" section of factoria.json (parse_publish_settings), checked by
 //     `factoria validate`. Steam's app id is NOT repeated there: it is the one in steam_appid.txt (docs/PLATFORM.md).
 //   * secrets: environment variables (FACTORIA_EPIC_CLIENT_SECRET, FACTORIA_GOG_USERNAME / FACTORIA_GOG_PASSWORD,
-//     BUTLER_API_KEY) or the tools' own cached logins. Never factoria.json, never printed, never in a log.
+//     BUTLER_API_KEY; the App Store Connect API key and the Play service account are FILES whose path is in an
+//     environment variable, FACTORIA_APPSTORE_API_KEY / FACTORIA_GOOGLEPLAY_JSON_KEY) or the tools' own cached logins. Never factoria.json, never printed, never in a log.
 //   * the tools: found like the Android toolchain (a FACTORIA_<TOOL> environment variable, "publish" in
 //     ~/.factoria/export.json, then PATH). Nothing is downloaded.
 #pragma once
@@ -32,7 +37,7 @@
 
 namespace fa {
 
-// "steam", "itch", "epic", "gog": the stores that have a publish.<store> command.
+// "steam", "itch", "epic", "gog", "appstore", "googleplay": the stores that have a publish.<store> command.
 const std::vector<std::string>& publish_stores();
 // "windows", "macos", "linux": the exports a store command uploads (mobile uploads are separate).
 const std::vector<std::string>& publish_platforms();
@@ -63,11 +68,23 @@ struct GogPublishSettings {
     std::vector<std::string> languages = {"en-US"};
 };
 
+struct AppStorePublishSettings {
+    std::string appleId;                          // the app's numeric Apple ID in App Store Connect (App Information > General Information)
+};
+
+struct GooglePlayPublishSettings {
+    std::string track = "internal";               // internal | alpha | beta | production, or the name of a custom closed track
+    std::string releaseStatus = "draft";          // draft | completed
+    std::map<std::string, std::string> changelogs;  // Play locale (en-US) -> project-relative text file: the "What's new" of the release
+};
+
 struct PublishSettings {
     SteamPublishSettings steam;
     ItchPublishSettings itch;
     EpicPublishSettings epic;
     GogPublishSettings gog;
+    AppStorePublishSettings appstore;
+    GooglePlayPublishSettings googleplay;
 };
 
 // The itch.io channel of `platform`: the configured one, else "windows", "mac" or "linux".
@@ -88,7 +105,7 @@ PublishSettingsParse parse_publish_settings(const Json& projectJson);
 // ---------------------------------------------------------------------------
 
 struct PublishOptions {
-    std::string store;                            // steam | itch | epic | gog
+    std::string store;                            // steam | itch | epic | gog | appstore | googleplay
     std::string projectDir;                       // folder containing factoria.json
     std::vector<std::string> platforms;           // windows | macos | linux ("" = every one that has an export and is set up for the store)
     std::string outDir;                           // parent folder of the exports ("" = <projectDir>/build/export)
@@ -97,6 +114,9 @@ struct PublishOptions {
     std::string account;                          // steam: login name (else publish.steam.account)
     std::string appId;                            // steam: app id (else steam_appid.txt)
     std::string branch;                           // steam: beta branch to set live (else publish.steam.branch); gog: branch to publish to
+    std::string artifact;                         // appstore / googleplay: the .ipa / .aab to upload ("" = build/export/<slug>.ipa, build/export/<slug>-android/<slug>.aab)
+    std::string track, releaseStatus;             // googleplay: release track and draft|completed (else publish.googleplay.track / .releaseStatus)
+    std::string host;                             // "" = this computer ("macos" | "windows" | "linux"); only tests change it (appstore runs on macOS only)
     std::function<void(const std::string& line)> progress;  // optional: each line the uploader prints (the same lines go to the log)
     const CancelFlag* cancel = nullptr;           // optional: set to true to stop the uploader (its process tree is killed)
     ExportEnvLookup env = system_export_env();    // environment variables (secrets, tool paths); only tests change it
@@ -142,7 +162,7 @@ struct PublishReport {
 // uploader that fails is NOT an Error: the report has `failed`, `failure`, the uploads that did go through and the log.
 Result<PublishReport> publish_project(const PublishOptions& options);
 
-// Registers publish.steam, publish.itch, publish.epic and publish.gog (-> MCP tools publish_steam..., `factoria call`,
+// Registers publish.steam, publish.itch, publish.epic, publish.gog, publish.appstore and publish.googleplay (-> MCP tools publish_steam..., `factoria call`,
 // editor console, fa.call) for the project at `projectDir`. Each runs publish_project(); a failed uploader is a command
 // error whose `data` is the report.
 void register_publish_commands(CommandRegistry& registry, const std::string& projectDir);

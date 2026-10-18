@@ -914,9 +914,10 @@ Details in [MOBILE.md](MOBILE.md).
 
 ## Uploading to stores
 
-Four commands upload the desktop exports to a store with the store's own uploader. They are commands like
-`project.export` (MCP tools `publish_steam`, `publish_itch`, `publish_epic`, `publish_gog`; also
-`factoria call publish.steam '{"dryRun":true}'` and the editor console), so an AI can ship a build. FactorIA writes the
+Six commands upload a build to a store with the store's own uploader: four for the desktop exports, two for the mobile
+builds. They are commands like `project.export` (MCP tools `publish_steam`, `publish_itch`, `publish_epic`, `publish_gog`,
+`publish_appstore`, `publish_googleplay`; also `factoria call publish.steam '{"dryRun":true}'` and the editor console), so an
+AI can ship a build. FactorIA writes the
 build files and runs the tool; it never downloads or installs the tool, never takes a password, and never writes a secret
 to a file of the project.
 
@@ -926,11 +927,13 @@ to a file of the project.
 | `publish.itch` | `butler` | a channel of your itch.io page |
 | `publish.epic` | `BuildPatchTool` (`-mode=UploadBinary`) | an artifact of your Epic product |
 | `publish.gog` | `GOGGalaxyPipelineBuilder build-game` | a GOG build of your product |
+| `publish.appstore` | `xcrun altool --upload-package` (macOS only) | App Store Connect / TestFlight: the one `.ipa` |
+| `publish.googleplay` | `fastlane supply` | a track of your app in Google Play: the one `.aab` |
 
-They upload the folders `project.export` wrote: `<project>/build/export/<game-slug>-<platform>` for `windows`, `macos` and
-`linux`. Export every platform first (`project_export {"platform":"windows"}`, ...). Android and iOS are not uploaded
-here: they go through Google Play and App Store Connect ([Android](#android), [iOS](#ios)). Everything in the export is
-uploaded (the game, `FACTORIA_NOTICES.txt`, which must stay) except `.factoria-export` and `AI_CONTENT_DISCLOSURE.md`,
+The first four upload the folders `project.export` wrote: `<project>/build/export/<game-slug>-<platform>` for `windows`,
+`macos` and `linux`. Export every platform first (`project_export {"platform":"windows"}`, ...). The mobile builds are one
+file each, not a folder: see [App Store Connect (TestFlight)](#app-store-connect-testflight) and
+[Google Play](#google-play) below. Everything in a desktop export is uploaded (the game, `FACTORIA_NOTICES.txt`, which must stay) except `.factoria-export` and `AI_CONTENT_DISCLOSURE.md`,
 which belong to the export, not to the game. Show the AI content disclosure on the store page by hand when the game needs
 it ([AI content disclosure](#ai-content-disclosure)).
 
@@ -944,6 +947,8 @@ Arguments (all optional; every command has `dryRun`):
 | `dryRun` | `true`: write the build files and return the exact command lines and what would be uploaded where. Nothing is started or sent. |
 | `account`, `appId`, `branch` | `publish.steam` only: the Steam account (default `publish.steam.account`), the app id (default the number in `steam_appid.txt`) and the beta branch to set live (default `publish.steam.branch`). |
 | `branch` | `publish.gog` only: the GOG branch to put the build on (Pipeline Builder `--branch`). |
+| `artifact` | `publish.appstore` and `publish.googleplay` only: the `.ipa` / `.aab` to upload, inside the project. They take no `platforms` or `folders`. |
+| `track`, `releaseStatus` | `publish.googleplay` only: the release track (`internal`, `alpha`, `beta`, `production`, or a closed testing track) and `draft` or `completed` (default `publish.googleplay.track` / `.releaseStatus`, else `internal` and `draft`). |
 
 The result is `{store, dryRun, uploaded, version, tool, toolFrom, uploads, steps, files, warnings, nextSteps}` plus, after
 a real run, `exitCode` and `log`. `uploads` has one entry per platform: `{platform, folder, destination, files, bytes,
@@ -960,6 +965,8 @@ publish_itch {"dryRun":true}
 publish_steam {"platforms":["windows","linux"],"branch":"beta"}
 publish_epic {"platforms":["windows"]}
 publish_gog {"branch":"testing"}
+publish_appstore {"dryRun":true}
+publish_googleplay {"track":"internal","releaseStatus":"draft"}
 ```
 
 Always run the dry run first; it also checks the tool, the ids and the exports, and it shows the files written to
@@ -982,6 +989,10 @@ FactorIA cannot create your pages, products or credentials. Each store has somet
   <https://dev.epicgames.com/docs/epic-games-store/publishing-tools/uploading-binaries/bpt-instructions-160>.
 - **GOG**: a product with its product id in the GOG Developer Portal, and Pipeline Builder access for your account. Docs:
   <https://docs.gog.com/pb-quick-start/> and <https://docs.gog.com/pb-build-game/>.
+- **App Store Connect**: an Apple Developer Program membership, the app (My Apps > +, with the bundle id of the game's `id`),
+  and an App Store Connect API key ([App Store Connect (TestFlight)](#app-store-connect-testflight)).
+- **Google Play**: a Play Console developer account, the app (with the game's `id` as its package name), the **first bundle
+  uploaded by hand**, and a service account with access to the app ([Google Play](#google-play)).
 
 ### Store ids: `publish` in `factoria.json`
 
@@ -995,7 +1006,9 @@ warning with a "did you mean".
   "itch": { "game": "mystudio/space-dodge", "channels": { "windows": "windows", "macos": "mac", "linux": "linux" } },
   "epic": { "organizationId": "o-abc123", "productId": "0123abcd", "clientId": "xyz",
             "artifacts": { "windows": "<artifact id>", "macos": "<artifact id>", "linux": "<artifact id>" } },
-  "gog": { "productId": "1234567890", "clientId": "5555", "languages": ["en-US", "fr-FR"] }
+  "gog": { "productId": "1234567890", "clientId": "5555", "languages": ["en-US", "fr-FR"] },
+  "appstore": { "appleId": "6448277777" },
+  "googleplay": { "track": "internal", "releaseStatus": "draft", "changelogs": { "en-US": "store/whats-new-en.txt" } }
 }
 ```
 
@@ -1011,6 +1024,10 @@ warning with a "did you mean".
 | `gog.productId` | The product id of the game in the GOG Developer Portal. |
 | `gog.clientId` | GALAXY client id of the product (optional). |
 | `gog.languages` | Locale codes of the game's languages. Default `["en-US"]`. |
+| `appstore.appleId` | The app's Apple ID: the number under App Store Connect > your app > App Information > General Information (about ten digits; not the e-mail of your account). The bundle id is the game's `id`. |
+| `googleplay.track` | `internal` (default), `alpha`, `beta`, `production`, or the name of a closed testing track. The package name is the game's `id`. |
+| `googleplay.releaseStatus` | `draft` (default: the release waits in the Play Console until you roll it out) or `completed` (it rolls out at once). |
+| `googleplay.changelogs` | `{Play language: file}`, e.g. `{"en-US": "store/whats-new-en.txt"}`: the release notes, plain text files of the project, 1 to 500 characters each. Default: none uploaded. |
 
 Store ids are copied from the partner sites as text or numbers. Unknown platforms are rejected with a "did you mean"
 (`windws` -> `windows`), and `android` and `ios` with the reason.
@@ -1025,6 +1042,8 @@ or a log (the value is replaced by `<redacted>`), and never placed on a command 
 | Steam | the account password and the Steam Guard approval | not given to FactorIA: run `steamcmd +login <account>` once in a terminal; steamcmd keeps the login (`config/config.vdf`) and the next run needs no password. |
 | itch.io | the API key | `butler login` once (butler keeps it in its own config folder), or the environment variable `BUTLER_API_KEY`. |
 | Epic | the client secret | the environment variable `FACTORIA_EPIC_CLIENT_SECRET`. It reaches the tool in its environment and the command line only names the variable (`-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET`). |
+| App Store Connect | the API key | a `.p8` file outside the project: `FACTORIA_APPSTORE_API_KEY` is its path, `FACTORIA_APPSTORE_API_KEY_ID` its Key ID and `FACTORIA_APPSTORE_API_ISSUER` the Issuer ID (`FACTORIA_NOTARY_API_KEY`, `_KEY_ID`, `_ISSUER` of [`sign.macos`](#signing-and-notarizing-for-macos) work too). The file is never read, copied or shown: altool finds it in the folder named by its own `API_PRIVATE_KEYS_DIR`. |
+| Google Play | the service account key | a JSON file outside the project: `FACTORIA_GOOGLEPLAY_JSON_KEY` (or fastlane's `SUPPLY_JSON_KEY`) is its path. FactorIA checks that it is a service account key and passes the path to fastlane; the content is never shown. |
 | GOG | the GOG account | the sign-in Pipeline Builder cached (run it once by hand), or `FACTORIA_GOG_USERNAME` and `FACTORIA_GOG_PASSWORD` (both or neither). Pipeline Builder only accepts the password as an argument, so it is visible in the process list while the upload runs; the shown command line has it replaced by `<redacted>`. |
 
 ### Finding the tools
@@ -1039,6 +1058,8 @@ finds none the command fails with the store's download page, the variable and th
 | butler | `FACTORIA_BUTLER` | `butler` | <https://itch.io/docs/butler/installing.html> |
 | BuildPatchTool | `FACTORIA_BUILDPATCHTOOL` | `buildPatchTool` | the Dev Portal (Build Patch Tool page of the docs above) |
 | GOGGalaxyPipelineBuilder | `FACTORIA_GOG_PIPELINE_BUILDER` | `galaxyPipelineBuilder` | <https://docs.gog.com/pb-quick-start/> |
+| xcrun (Xcode; altool is part of it) | `FACTORIA_XCRUN` | `xcrun` | Xcode from the Mac App Store, then `xcode-select --install` |
+| fastlane | `FACTORIA_FASTLANE` | `fastlane` | <https://docs.fastlane.tools/getting-started/android/setup/> (`gem install fastlane` or `brew install fastlane`) |
 
 ```json
 { "format": "factoria.export-config/1", "publish": { "steamcmd": "C:/Tools/steamcmd/steamcmd.exe", "butler": "~/butler" } }
@@ -1093,6 +1114,79 @@ game's executable as the primary file task) and `ignore.txt` into `.factoria/pub
 `GOGGalaxyPipelineBuilder build-game <json> --ignore_list <ignore.txt> --version <version> [--branch <branch>]` once per platform
 (macOS is `osx` for GOG). A build is not live until you publish it from the Developer Portal (Builds & Branches); Pipeline Builder
 cannot publish to the *master* branch, so `branch: "master"` is refused.
+
+### App Store Connect (TestFlight)
+
+`publish.appstore` uploads the `.ipa` of your iOS build with `xcrun altool --upload-package <ipa> --type ios --apple-id
+<appleId> --bundle-id <id> --bundle-version <export.ios.buildNumber> --bundle-short-version-string <version> --apiKey
+<Key ID> --apiIssuer <Issuer ID>`. It runs on **macOS with Xcode only**; on another computer a real run is refused with the
+reason, and `dryRun` still shows the plan.
+
+**The `.ipa` is yours to make.** `factoria export --platform ios` writes an Xcode project (`build_ios.sh`), not an `.ipa`.
+Build it once per release:
+
+1. `./build_ios.sh` and open `build/FactorIA.xcodeproj` (or `FA_IOS_DEVELOPMENT_TEAM=<team> ./build_ios.sh`).
+2. In Xcode: set Signing & Capabilities > Team, pick **Any iOS Device (arm64)**, then Product > Archive.
+3. In the Organizer: Distribute App > **App Store Connect** > Export (not Upload: FactorIA uploads it). Save the `.ipa` as
+   `build/export/<game-slug>.ipa` (inside the project, next to the exports; the newest `.ipa` of `build/export` is used when
+   that name is missing), or pass `artifact`.
+
+The version and build number must be the ones in the `.ipa`: they come from `factoria.json` (`version`, `export.ios.buildNumber`;
+the bundle id is `id`), so export, archive and publish with the same `factoria.json`. App Store Connect takes each build
+number once per version: raise `export.ios.buildNumber` for every upload.
+
+**The API key** (once, in App Store Connect > Users and Access > Integrations > App Store Connect API > Team Keys): generate a
+key with the **App Manager** role, download `AuthKey_<Key ID>.p8` (Apple lets you download it once; keep it outside the
+project and do not rename it), and note the Key ID and the Issuer ID of that page. Then:
+
+```
+export FACTORIA_APPSTORE_API_KEY=~/keys/AuthKey_ABCDE12345.p8
+export FACTORIA_APPSTORE_API_KEY_ID=ABCDE12345
+export FACTORIA_APPSTORE_API_ISSUER=11111111-2222-3333-4444-555555555555
+```
+
+Add `"publish": {"appstore": {"appleId": "6448277777"}}` to `factoria.json` (the app must exist in App Store Connect first,
+with the same bundle id), run `publish_appstore {"dryRun":true}`, then `publish_appstore {}`.
+
+**After the upload** App Store Connect *processes* the build: it takes a few minutes to an hour, you get an e-mail if it is
+rejected (a missing `ITSAppUsesNonExemptEncryption`, an icon with transparency, an unsupported architecture...), and then the
+build appears under your app > TestFlight. Internal testers get it once you add them to a group; external testers need
+Apple's beta review. To release to the store, pick the build on the version page of the App Store tab and submit it. None
+of this is done by FactorIA.
+
+### Google Play
+
+`publish.googleplay` uploads the release bundle with `fastlane supply --aab <aab> --track <track> --release_status
+<draft|completed> --package_name <id> --json_key <service account key>`. The bundle is the one `factoria export --platform
+android --format aab --release` writes (`build/export/<game-slug>-android/<game-slug>.aab`), or `artifact`. It runs on any
+computer that has fastlane.
+
+- **A debug-signed bundle is refused.** Google Play rejects it, so `publish.googleplay` fails before anything is sent when
+  the file is a `-debug.aab`, or when `export.android.signing.keystore` is not set in `factoria.json` (the release export
+  then fell back to the debug key). Create the keystore ([MOBILE.md](MOBILE.md#signing-and-release)) and export again. A bundle you
+  signed some other way can be passed as `artifact`; FactorIA only warns, because it cannot see how a file was signed.
+- **The first bundle of a new app is uploaded by hand.** Google Play requires it: in the Play Console create the app (its
+  package name is the game's `id`), complete the app setup, and upload the first `.aab` yourself under Testing > Internal
+  testing > Create new release. The API works from the second bundle on. Until the app is published it accepts only
+  `"releaseStatus": "draft"` (the default).
+- **The service account** (once): in the Play Console > Users and permissions, invite a service account with permission to
+  release to the tracks you use (create it in Google Cloud: IAM > Service accounts, enable the *Google Play Android Developer
+  API* in that project, and add a JSON key). Keep the key file outside the project and set `FACTORIA_GOOGLEPLAY_JSON_KEY` to
+  its path. Access takes a while to apply after the invitation.
+- **Draft or completed.** `draft` (the default) leaves a release in the Play Console that you review and roll out;
+  `completed` rolls it out right away. `track: "production"` with `completed` publishes to everyone: the dry run warns.
+- **Release notes.** `publish.googleplay.changelogs` maps a Play language to a text file of the project; the files are
+  copied to `.factoria/publish/googleplay/metadata/<language>/changelogs/default.txt` on every call and uploaded with the
+  release. Only the release notes are uploaded: the listing text, images and screenshots stay as they are in the Play Console.
+  Each language must already be added to the store listing.
+- **Version codes.** Google Play takes each `versionCode` once: raise `version` (or `export.android.versionCode`) in
+  `factoria.json` before every release export. The data safety form and the other store forms stay in the Play Console.
+
+```
+publish_googleplay {"dryRun":true}
+-> steps[0].commandLine: fastlane supply --aab .../space-dodge.aab --track internal --release_status draft --package_name com.mystudio.spacedodge --json_key ~/keys/play.json ...
+-> uploads: android -> Google Play com.mystudio.spacedodge, track internal (draft, version code 10203), 1 file, 24.1 MB
+```
 
 ### Testing without a store
 

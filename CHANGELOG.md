@@ -28,6 +28,17 @@ Phones and tablets
   you can prepare an iOS project there without pointing at a macOS download. Building it still needs a Mac.
 - The mobile guide lists what to answer in Google Play's Data safety form and in App Store Connect's App Privacy section.
 
+Upload your phone builds
+
+- Upload your iOS build to TestFlight and App Store Connect from your AI or the command line (`publish.appstore`,
+  on a Mac): you archive the game in Xcode as before, FactorIA sends the `.ipa` with an App Store Connect API key. Run it
+  with `dryRun` first to see the exact command.
+- Upload your Android release bundle to Google Play (`publish.googleplay`, needs fastlane): pick the track (internal
+  testing by default), leave the release as a draft or roll it out, and send the "What's new" text per language from
+  files of your project. A bundle signed with the debug key is refused before anything is sent. Google Play still wants the
+  first bundle of a new app uploaded by hand.
+- Your keys stay in files outside the project and are never shown or logged.
+
 ## 0.1.6
 
 Menus and on-screen interface
