@@ -265,7 +265,8 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
         p.hasPlatformsField = true;
         for (auto& e : j["platforms"])
             if (e.is_string()) p.platforms.push_back(e.get<std::string>());
-        if (std::find(p.platforms.begin(), p.platforms.end(), platform) == p.platforms.end())
+        // "platforms" lists the stores and operating systems of a game; the web is a way to put it on a page, not a store.
+        if (platform != "web" && std::find(p.platforms.begin(), p.platforms.end(), platform) == p.platforms.end())
             warnings.push_back("factoria.json \"platforms\" does not list '" + platform +
                                "'; exporting anyway (add it to silence this warning)");
     }
@@ -287,7 +288,7 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
         if (!build.ok()) return build.error();
         p.plugins.push_back({plugin.name, build.value()});
     }
-    if (p.settings.icon_for(platform).empty())
+    if (platform != "web" && p.settings.icon_for(platform).empty())  // a web export has no icon to set
         warnings.push_back("No icon is set for " + platform + ", so the app gets the platform's default icon. Set \"icon\" in "
                            "factoria.json (a square PNG or JPG, 1024x1024 recommended), or \"export." + platform +
                            ".icon\" for this platform only");
@@ -514,6 +515,8 @@ struct Plan {
     stdfs::path outParent, outRoot;  // absolute; outRoot = outParent/<slug>-<platform>, replaced by the export (absent,
                                      // empty or an earlier export: check_replaceable)
     stdfs::path player;              // desktop
+    WebPlayer web;                   // web
+    stdfs::path webZip;              // web: <outParent>/<slug>-web.zip, next to the export folder
     MobileSetup mobile;              // android/ios
     Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
     AndroidPlan android;             // android
@@ -527,7 +530,7 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
     Plan plan;
     plan.platform = normalize_export_platform(options.platform);
     if (plan.platform.empty())
-        return err("export: unknown platform '" + options.platform + "'", "use one of: linux, windows, macos, android, ios");
+        return err("export: unknown platform '" + options.platform + "'", "use one of: linux, windows, macos, android, ios, web");
     auto project = load_and_validate(options, plan.platform, plan.warnings);
     if (!project.ok()) return project.error();
     plan.project = std::move(project.value());
@@ -554,6 +557,11 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         auto setup = resolve_mobile(options, plan.platform);
         if (!setup.ok()) return setup.error();
         plan.mobile = std::move(setup.value());
+    } else if (plan.platform == "web") {
+        auto web = find_web_player(options, options.buildSourceRoot.empty() ? std::string(FA_SOURCE_ROOT) : options.buildSourceRoot);
+        if (!web.ok()) return web.error();
+        plan.web = std::move(web.value());
+        plan.webZip = plan.outParent / (slug + "-web.zip");
     } else {
         auto player = find_player(options, plan.platform);
         if (!player.ok()) return player.error();
@@ -567,6 +575,7 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         if (!options.format.empty() && !appimage)
             plan.warnings.push_back("The format '" + options.format + "' only applies to android (apk, aab, gradle) and linux (appimage); " + plan.platform +
                                     " has a single format, so it is ignored");
+        if (plan.platform == "web") return plan;  // no icon: the page is the game's face
         const std::string rel = p.settings.icon_for(plan.platform);
         std::error_code iconEc;
         if (forExport || (!rel.empty() && !stdfs::is_regular_file(p.dir / rel, iconEc))) {
@@ -620,6 +629,7 @@ std::string normalize_export_platform(const std::string& name) {
     if (n == "linux") return "linux";
     if (n == "android") return "android";
     if (n == "ios" || n == "iphone") return "ios";
+    if (n == "web" || n == "html5" || n == "browser" || n == "wasm") return "web";
     return {};
 }
 
@@ -666,7 +676,12 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
     out.platform = plan.platform;
     out.outputDir = generic(plan.outRoot);
     if (plan.platform == "android" || plan.platform == "ios") out.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
-    else out.player = generic(plan.player);
+    else if (plan.platform == "web") {
+        out.mode = plan.web.from;
+        out.player = generic(plan.web.js);
+        out.format = "zip";
+        out.artifact = generic(plan.webZip);
+    } else out.player = generic(plan.player);
     if (plan.appimage.enabled) {
         out.format = "appimage";
         out.artifact = generic(plan.appimage.artifact);
@@ -726,11 +741,14 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         report.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
         r = platform == "android" ? export_android(p, plan.mobile, plan.android, outRoot, files, report)
                                   : export_ios(options, p, plan.mobile, outRoot, files, plan.icon, report);
+    } else if (platform == "web") {
+        r = export_web(p, plan.web, outRoot, files, report);
     } else {
         r = export_desktop(options, p, platform, plan.player, outRoot, files, plan.icon, report);
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);
+    if (r.ok() && platform == "web") r = zip_web(outRoot, plan.webZip, report);  // after the notices: they ship in the zip
     if (r.ok() && plan.appimage.enabled) {  // the folder is complete by now: a failed appimagetool leaves it, like a failed Gradle build leaves its project
         r = build_appimage(options, p, plan.appimage, outRoot, report);
         keepOutput = !r.ok();
@@ -758,7 +776,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
     info.name = "project.export";
     info.category = "project";
     info.readOnly = false;
-    info.summary = "Package the game for a platform: a desktop bundle, an Android APK/AAB, or an iOS project.";
+    info.summary = "Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).";
     info.description =
         "Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a "
         "fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an "
@@ -780,9 +798,13 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is "
         "(<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` \"appimage\" also builds the whole game as one "
         "<out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the "
-        "folder export stays). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
+        "folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, "
+        "found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms [\"web\"], else a web build of "
+        "the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with "
+        "index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format \"zip\"; `mode` says where the player came from: explicit, package, "
+        "installed or build). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes "
         "FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). "
-        "Returns {outputDir, mode (android/ios), format and artifact (android), notices, files[], nextSteps[], "
+        "Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], "
         "warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and "
         "writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, "
         "format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), "
@@ -792,7 +814,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
-        "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
+        "platform":{"type":"string","description":"linux, windows, macos, android, ios or web (aliases win, mac, osx, html5 also work). web: a folder with index.html, the web player and game.pak, plus <slug>-web.zip next to it for itch.io. Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
         "format":{"type":"string","enum":["apk","aab","gradle","appimage"],"description":"Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
         "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
@@ -804,7 +826,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         o.projectDir = projectDir;
         o.platform = tooling_detail::arg_string(args, "platform", false);
         if (!o.platform.empty() && normalize_export_platform(o.platform).empty()) {
-            const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios"};
+            const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios", "web"};
             throw CommandError("invalid_argument", "Unknown platform '" + o.platform + "'.", did_you_mean(o.platform, platforms));
         }
         // Inside the project only, like fs.*: the export folder is deleted and rewritten on every call (when an export

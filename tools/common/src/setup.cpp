@@ -217,7 +217,7 @@ void register_setup_commands(CommandRegistry& registry) {
           "properties":{
             "component":{"type":"string","enum":["android","players","cmake","xcode","appimage"],"description":"What to install: android (JDK + Android SDK), players (other platforms' factoria_player + mobile libraries), cmake (iOS export), xcode (guidance only), appimage (appimagetool + runtime for the Linux AppImage export; Linux x86_64 only)."},
             "acceptLicenses":{"type":"boolean","default":false,"description":"android: the user has read the Android SDK license (setup.status components[].licenses) and agreed to it. Without it the install refuses with license_required. Never set it without asking the user."},
-            "platforms":{"type":"array","items":{"type":"string","enum":["windows","linux","macos","mobile"]},"description":"players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it)."},
+            "platforms":{"type":"array","items":{"type":"string","enum":["windows","linux","macos","mobile","web"]},"description":"players: which players to install (default: every desktop OS but this one, plus the mobile libraries when this factoria has none next to it). \"web\" installs the web export's player (factoria_player.js + .wasm); every download carries it next to factoria, so it is only fetched when asked for."},
             "force":{"type":"boolean","default":false,"description":"android, cmake, players: install again even when it is found (a JDK or CMake that is already there is used otherwise)."}
           }})");
         registry.add(info, [cache](const Json& args) {

@@ -5,14 +5,15 @@ function is available to tools as `fa::export_project` (`fa/tooling/export.h`), 
 `project.export`, and in the editor as the **Export** button ([From the editor](#from-the-editor)).
 
 ```bash
-factoria export [project] --platform <linux|windows|macos|android|ios> [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]]
+factoria export [project] --platform <linux|windows|macos|android|ios|web> [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]]
                 [--player PATH] [--engine-root DIR | --mobile-dir DIR]
 ```
 
 `--format` is for Android (`apk` by default, `aab` for Google Play, `gradle` for only the project): see [Android](#android);
 for Linux, `appimage` also builds the game as one AppImage file: see [Linux: AppImage](#linux-appimage).
 `--release` on Linux, Windows and macOS puts the whole game in ONE file, `game.pak`, with the scripts compiled to bytecode: see
-[Release build](#release-build-gamepak). On Android it builds the release APK/AAB.
+[Release build](#release-build-gamepak). On Android it builds the release APK/AAB. `--platform web` writes a page, the web
+player and `game.pak`, plus a zip itch.io takes as an HTML5 game: see [Web](#web).
 
 Before anything is written the project is validated: `factoria.json` must exist,
 `name` must be set, `mainScene` must exist and `id` must be a reverse-DNS
@@ -25,7 +26,7 @@ The result goes to `<out>/<game-slug>-<platform>/` (default `--out`:
 `<project>/build/export`). That folder is deleted and recreated on every
 export, but only when it is empty or an export wrote it: a folder of yours that happens to have that name is never
 deleted ([Replacing an earlier export](#replacing-an-earlier-export)). `--json` prints the report: `outputDir`, `mode` (Android and iOS only, see [Mobile exports](#mobile-exports-prebuilt-or-source)),
-`format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built; Linux with `appimage`: the AppImage),
+`format` and `artifact` (Android: the format, and the absolute path of the APK/AAB that was built; Linux with `appimage`: the AppImage; web: `zip` and the zip), `mode` also tells where the web player came from,
 `notices` (see [License notices](#license-notices)), `pack` and `packed` (a `--release` desktop export: the pack and the paths in it), `files`
 (what is on disk, so a release export lists `game.pak`, not the files in it), `nextSteps`, `warnings`. A game with AI-made assets also
 gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](#ai-content-disclosure)).
@@ -36,13 +37,13 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
 `gradle`; Linux: `appimage`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
-`release`. It returns the report (`outputDir`, `mode`, `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `files`, `nextSteps`, `warnings`); an
+`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
 export would replace), `mode` (Android, iOS), `format` and `artifact` (Android, Linux with `appimage`), `toolchain` (Android with `apk` or `aab`:
 `jdk`, `jdkFrom`, `jdkMajor`, `sdk` and `sdkFrom`, the JDK and SDK the build would use and where they were found), `player`
-(desktop) and `warnings`, or the error the export would give, including a missing JDK or SDK, a missing keystore or
+(desktop; web: its `factoria_player.js`) and `warnings`, or the error the export would give, including a missing JDK or SDK, a missing keystore or
 password for `--release` (`fa::plan_export` in C++). `--player`, `--engine-root` and `--mobile-dir` are CLI-only: the command uses the `factoria_player` and the `mobile/`
 folder next to the running binary, or `$FACTORIA_ENGINE_DIR` when it is set.
 
@@ -54,7 +55,7 @@ project_export {"platform":"android","dryRun":true}
 ## From the editor
 
 The editor's toolbar has an **Export** button (also File > Export Game...). It opens the **Export game** window: one
-button per platform (Windows, macOS, Linux, Android, iOS), each running this same export, never a separate one.
+button per platform (Windows, macOS, Linux, Android, iOS, Web), each running this same export, never a separate one.
 
 - **Output folder**: the parent folder of the exports, `<project>/build/export` by default. Type a path (relative to
   the project), press **Choose...** for the system's folder dialog or **Default** to go back; **Show in Finder** (Explorer
@@ -71,7 +72,7 @@ button per platform (Windows, macOS, Linux, Android, iOS), each running this sam
 - **Android format**: the Android row's **Format** menu picks `apk`, `aab` or `gradle` (`export.android.format`) and saves
   it in `factoria.json` at once, without waiting for Save in the settings window.
 - **Set up buttons**: a row that cannot run because this computer lacks something FactorIA installs shows the button that
-  installs it (**Install Android build tools**, **Download Windows player**, **Download mobile libraries**, **Install CMake**,
+  installs it (**Install Android build tools**, **Download Windows player**, **Download mobile libraries**, **Download web player**, **Install CMake**,
   **Open App Store (Xcode)**): the editor's front for [`factoria setup`](#setting-up-this-computer).
 - **Each platform's row** says what an export there writes (hover **Ready** for the folder and the player), or why it
   cannot run here, with the error and hint `factoria export` would print: a desktop player missing for another OS, no
@@ -188,7 +189,7 @@ factoria setup                                     # what this computer has and 
 factoria setup android                             # JDK 21 + Android SDK; shows the Android SDK license and asks first
 factoria setup android --accept-licenses           # you have read the license and accept it (scripts)
 factoria setup players                             # the players of the other desktop OSes + the Android/iOS libraries, for this version
-factoria setup players --platforms windows,linux   # only these (windows, linux, macos, mobile)
+factoria setup players --platforms windows,linux   # only these (windows, linux, macos, mobile, web)
 factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
@@ -198,6 +199,7 @@ factoria setup appimage                            # Linux x86_64 (and WSL): app
 |---|---|---|---|
 | `android` | Eclipse Temurin JDK 21, the Android command-line tools (revision 22.0, the classic Java `sdkmanager`), `platform-tools`, `platforms;android-36`, `build-tools;35.0.0`, the Android SDK license | about 500 MB (0.9 GB on disk) | `--platform android` (APK/AAB through Gradle) |
 | `players` | `factoria_player` of every desktop OS but this one, and `mobile/` (the Android and iOS libraries, from the macOS package, on any OS), from the GitHub release of this factoria's version | about 60 MB | `--platform windows\|linux\|macos` for another OS; Android and iOS without the engine source |
+| `players` with `--platforms web` | `web/` (`factoria_player.js` + `factoria_player.wasm`), from the download of this machine's own OS. Every download has `web/` next to `factoria`, so this is only for a factoria without it | about 15-33 MB | `--platform web` ([Web](#web)) |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
@@ -209,7 +211,7 @@ Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.
   android/jdk/          Eclipse Temurin 21
   android/sdk/          cmdline-tools/22.0, platform-tools, platforms/android-36, build-tools/35.0.0, licenses/
   android/user/         what Google's tools keep for themselves ($ANDROID_USER_HOME): about 4 MB (sdkmanager's package-list cache) with the pinned tools, about 250 MB if the fallback below applies
-  players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/
+  players/<version>/    windows/factoria_player.exe, linux/factoria_player, macos/factoria_player, mobile/, web/ (only when asked for)
   tools/cmake/          CMake (CMake.app on macOS)
   tools/appimage/       appimagetool-<version>-x86_64.AppImage and runtime-<version>-x86_64 (Linux x86_64 only)
   export.json           machine settings: learns where the JDK and the SDK are (below)
@@ -722,6 +724,73 @@ the exported exe with `signtool` to publish under your own name:
 ```
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a my-game.exe
 ```
+
+## Web
+
+`factoria export --platform web` writes a game that runs in a browser (WebGL2 and WebAssembly). The player is the engine
+compiled with Emscripten (`factoria_player.js` + `factoria_player.wasm`); the game travels in ONE `game.pak`, like a
+desktop [release build](#release-build-gamepak) (scripts as bytecode unless `export.scriptBytecode` is false), whether or
+not you pass `--release`.
+
+```bash
+factoria export --platform web                    # build/export/<slug>-web/ and build/export/<slug>-web.zip
+factoria export --platform web --player path/to/web-player-folder
+```
+
+```
+build/export/
+  my-game-web/                 the folder: any web host serves it as it is
+    index.html                 the loading page (progress for the wasm and the pack), then the game
+    factoria_player.js         the Emscripten glue
+    factoria_player.wasm       the engine
+    game.pak                   the whole game
+    FACTORIA_NOTICES.txt       the licenses of the engine inside the game ([License notices](#license-notices))
+    .factoria-export           marker (see Replacing an earlier export); not in the zip
+    AI_CONTENT_DISCLOSURE.md   only for a game with AI-made assets; not in the zip
+  my-game-web.zip              the same files with index.html at the root of the zip
+```
+
+**Trying it.** A browser does not run `index.html` from a file (it fetches the wasm and the pack), so serve the folder
+over http, e.g. `python -m http.server 8080 --directory build/export/my-game-web` and open `http://localhost:8080/`. The
+export prints this command as its first next step.
+
+**itch.io.** The zip is what itch.io takes as an HTML5 game: create a project of kind *HTML*, upload `my-game-web.zip`,
+tick *This file will be played in the browser* and set the viewport size (itch.io's page for HTML5 games lists the
+limits the export checks and warns about: at most 1000 files, 500 MB unpacked, 200 MB for one file, paths of at most
+240 characters). Any other web host serves the folder: send `.wasm` as `application/wasm` (almost every host does).
+`factoria publish` does not push the web export yet; upload the zip by hand or run
+`butler push build/export/my-game-web.zip <user>/<game>:html5`.
+
+**Where the player comes from.** The export looks, in this order, for a folder holding both `factoria_player.js` and
+`factoria_player.wasm`:
+
+1. `--player <folder>` (or the path of `factoria_player.js`; the CLI only. The editor and `project.export` use 2 to 4).
+2. `web/` next to the `factoria` binary: every FactorIA download has it, like `mobile/`.
+3. The one `factoria setup players --platforms web` installed (`<FactorIA home>/players/<version>/web/`, taken from the
+   download of this machine's own OS; a factoria that has `web/` next to it never needs it).
+4. A web build of the engine source: `build/web-release/player/` (or `web/player/`) in the build tree around the
+   factoria binary or in the checkout it was built from ([BUILDING.md](BUILDING.md)).
+
+With none of them the export stops before writing anything and says which folders it looked in and the command that fixes
+it. `--json` and the plan (`dryRun`) report where the player came from as `mode` (`explicit`, `package`, `installed` or
+`build`), the `factoria_player.js` used as `player`, and the zip as `artifact` (`format` is `zip`).
+
+**The page.** `index.html` is `platforms/web/shell.html`, embedded in the factoria binary, with `{{title}}` (the game's
+`name`, HTML-escaped), `{{wasmBytes}}` and `{{pakBytes}}` (the sizes of the two downloads, for the progress bar when the
+server sends no `Content-Length`) replaced. A placeholder this factoria does not know stays as it is, with a warning.
+
+**What differs from the other exports.**
+
+- **Textures** stay PNG (the `auto` compression is `none`, as on desktop): WebGL2 guarantees no compressed format (ASTC
+  and ETC2 are mostly phones, BC7 mostly desktops, and a browser tells the page only at run time), so a KTX2 file would be
+  decoded to RGBA in the browser anyway. A texture can still ask for `"compression": "uastc"` in its import settings.
+  Atlas pages are at most 2048 px, like on phones: browsers run there too.
+- **Audio** is not changed by the web: WAV, OGG and QOA all decode in the player. Prefer OGG or QOA for long sounds, since
+  every byte is downloaded before the game starts.
+- **No icon** and no `export.web` settings: the page and the browser tab are the game's face. The `platforms` list of
+  `factoria.json` is not checked for `web`.
+- **Size** is the cost of the web: the wasm player plus the whole pack is downloaded before the first frame. `factoria
+  validate` already warns about big files; the zip is deflated, so a host that compresses (gzip, brotli) saves little more.
 
 ## Mobile exports: prebuilt or source
 
