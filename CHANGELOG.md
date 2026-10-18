@@ -2,6 +2,21 @@
 
 The editor shows these notes when it offers an update, and each release on GitHub uses its section. Newest first.
 
+## Unreleased
+
+Phones and tablets
+
+- Menus and heads-up displays can keep clear of the notch, rounded corners and system bars: switch on `safeArea` next to
+  `anchor` on a sprite, text, shape, particle emitter or interface widget, and it is placed against the free part of the
+  screen. Scripts can read it as `screen.safeArea`. You can try a notched phone without one with
+  `screen.set_safe_area {"profile":"phone-portrait"}`.
+- The Android Back button and gesture now reach your game as `input.onBack`: close a menu or go up one screen and the game
+  stays open. If nothing handles it the game closes, as before.
+- `input.vibrate()` makes a phone vibrate (a light tap on iPhones). Exported Android games include the permission for it.
+- Android games can raise the on-screen keyboard for text fields and receive what is typed. Keyboards that compose words
+  (predictive text, swipe typing, emoji, Asian languages) still cannot type into an Android game; physical keyboards work.
+- Tests can press Back, fake a notch and check vibrations without a device.
+
 ## 0.1.6
 
 Menus and on-screen interface

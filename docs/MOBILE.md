@@ -419,8 +419,8 @@ The platform layer maps touches to the same `Input` object scripts use:
   UI and scripts written for the mouse work unchanged (this is done by `Input` itself, so `game.touch` in tests and
   any other feed behave the same);
 - input actions bound to `"Touch"` or `"MouseLeft"` in `factoria.json` fire on touch;
-- there is no on-screen keyboard or on-screen gamepad yet: bind touch to actions
-  and build on-screen buttons as entities that read touches.
+- there is no on-screen gamepad: bind touch to actions and build on-screen buttons as entities that read touches. The
+  on-screen keyboard, the Back button, the notch and vibration are in "Phone features" below.
 - Physical gamepads: iOS (and macOS) read them through the GameController framework (extended gamepads: MFi, Xbox,
   PlayStation, Switch Pro). The framework names the buttons by position, like the engine (`A` is the bottom one). A pad
   keeps its slot while connected, an unplugged pad frees it (logged as `gamepad: pad 0 connected: Controller (Xbox
@@ -434,8 +434,8 @@ The platform layer maps touches to the same `Input` object scripts use:
   `BRAKE`/`GAS`, D-pad `HAT_X`/`HAT_Y`). Android's own key layouts already give pads the Xbox naming, so there is no
   mapping table; the face buttons are positional like everywhere (`GamepadA` is the bottom one). The engine takes
   these events through sokol_app's `sapp_desc.android.native_event_cb` hook (installed by `to_sapp_desc()`) and
-  marks them handled, so pad buttons never act as Back or touches. System Back (the Back key or gesture) is not
-  taken: it still leaves the app. Pads fill slots 0..3 in the order they first send an event.
+  marks them handled, so pad buttons never act as Back or touches. System Back (the Back key or gesture) is a
+  separate event, `input.onBack` (see "Phone features"). Pads fill slots 0..3 in the order they first send an event.
   The NDK has no device enumeration, so `gamepad_android.cpp` asks `android.view.InputDevice` through JNI when a pad is
   new, about every 2 s, and when the app is back after a pause. `getDevice(id)` returning null means the pad was
   unplugged: its slot is freed (the game sees it disconnect, the other pads keep their numbers, the next pad takes the
@@ -447,3 +447,80 @@ The platform layer maps touches to the same `Input` object scripts use:
   on a device: the decisions are unit tested on every OS, the JNI glue is only built by CI.
 - Losing focus or backgrounding releases all inputs and fires `Suspended`/`Resumed`; pads that are still connected
   report their real state again afterwards.
+
+## Phone features
+
+What a phone has that a desktop does not, in the scripts (`import { screen, input } from "factoria"`). Every call is a
+safe no-op on desktop, and a headless run records it, so a game can be tested without a device.
+
+### Notch and system bars: the safe area
+
+`screen.safeArea` is the part of the screen a notch, rounded corners, the camera hole, the home indicator and the system bars
+leave free, as a `Rect` in design pixels (y down). `screen.insets` is the same as four numbers (`left`, `top`, `right`,
+`bottom`: how much each edge loses) and `screen.size` is the design size. On a phone they follow the device, also when it is
+turned; on desktop and in a headless run the safe area is the whole screen.
+
+The scene follows it without a line of script: set `safeArea: true` next to `anchor` on a `Sprite`, `Shape2D`, `Text`,
+`ParticleEmitter` or a UI widget (`Button`, `Panel`, ...) and the anchor is a corner or an edge of the safe area instead of
+the screen. A score in the top left corner (`anchor: [0, 0]`, `safeArea: true`) never hides under the notch; a background
+(`safeArea: false`, the default) still fills the whole screen. Layouts, hit testing, drawing and the editor use the same rule.
+
+- Android: the window insets of the decor view (system bars and display cutout; API 30+ `WindowInsets.getInsets`, older
+  releases `getSystemWindowInset*` and the API 28 `DisplayCutout`). The game is full screen, so the bars only count when
+  the user pulls them in. Read again about every 15 frames and on every resize and rotation.
+- iOS: `UIView.safeAreaInsets` of the game view, the same way.
+- A phone that reports nothing (an old Android) gets the whole screen.
+
+To look at a layout without the phone, pretend to have a notch: `game.setSafeArea("phone-portrait")` (or
+`"phone-landscape"`, `"none"`, or `{ top: 40, left: 10 }` in design pixels) in a script test, or the command
+`screen.set_safe_area {"profile":"phone-portrait"}` followed by `game.step` and `game.screenshot`. The profiles are an iPhone
+15 (393 x 852 points: 59 at the top and 34 at the bottom; turned, 59 on each side and 21 at the bottom) as fractions of the
+design size. The test hook ends with each test.
+
+### The Back button
+
+Android's Back (the key or the gesture) reaches the game as `input.onBack(handler)`. The newest handler is asked first and
+the first one that does not return `false` consumes Back (return `true`, or nothing); if none consumes it, the game
+leaves, which is what Android would have done. Close the pause menu, go up one screen, and let the main menu return
+`false`:
+
+```js
+const off = input.onBack(() => {
+  if (!pauseMenu.visible) return false; // nothing to close here: ask the next handler, or leave
+  pauseMenu.close();
+  return true;
+});
+```
+
+Handlers end with the scene, like `ui.on`; call the returned function to remove one earlier. In a test, `game.pressBack()`
+sends it (the command `game.input {"back": true}` does the same). iOS and desktop have no Back button: nothing calls it.
+The exported manifest sets `android:enableOnBackInvokedCallback="false"`: from Android 16 an app that targets API 36 gets
+Back through the new predictive-back callback instead of a key event (and a `NativeActivity` would simply finish), and
+this attribute asks for the key event, which is what the engine reads. The game therefore has no predictive-back
+animation. Not tried on an Android 16 device or emulator.
+
+### Vibration
+
+`input.vibrate(seconds = 0.1)` buzzes the phone for up to 5 seconds. Android uses the `Vibrator` service (`VibrationEffect`
+on API 26+), and the exported manifest always carries the `VIBRATE` permission (a normal permission: nothing to ask the
+player). iOS cannot choose the length: up to 0.05 s is a light tap, up to 0.15 s a medium one, up to 0.3 s a heavy one,
+and anything longer the system vibration (about half a second). Devices without a motor (tablets, iPads, the emulator)
+do nothing. A headless run records the calls: `game.vibrations()` in a test returns the list of seconds asked for.
+
+### The on-screen keyboard
+
+A `TextField` with focus raises the keyboard by itself and hides it when it loses the focus; `input.showKeyboard(on)` does
+it from a script. What is typed arrives in `input.text` (and Enter, Backspace as `keyPressed`).
+
+- iOS: sokol_app's hidden text field. Composed text (accents, dictation, swipe typing) arrives; a character outside the
+  Basic Multilingual Plane (emoji) is dropped by sokol_app. Verified in the source only: the iOS keyboard was not run on a
+  device for this change.
+- Android: a `NativeActivity` has no text editor, so the keyboard is shown with `InputMethodManager` on the decor view
+  (`showSoftInput`, `toggleSoftInput` as a fallback; the NativeActivity method sokol_app uses does nothing on many
+  devices) and what is typed comes as key events, from which the engine asks Android for the character the key makes. That
+  gives letters, digits, punctuation, Space, Enter and Backspace in the keyboard's layout, and accents through dead keys.
+  Limits: a keyboard that composes words or emoji (predictive text, swipe, CJK input methods, emoji panels, voice typing)
+  cannot send them to a `NativeActivity`, and some keyboards send nothing until a hardware-style key is pressed. A hardware
+  keyboard works the same way (also on a tablet). Written against the NDK headers and checked for syntax only: it was not
+  run on a device or in the emulator, and the calls are made from the game's thread instead of the Android UI thread, which
+  works on the releases known to the author but is not guaranteed by Android.

@@ -86,6 +86,13 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   language's own name in `"$name"`: it is what the Language button shows.
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
   section 9.22.
+- **Phones: notch and Back.** A panel or text pinned to a screen edge (a top bar, a corner button, the "Loading..." text)
+  hides under a notch or the home indicator; set `safeArea: true` next to its `anchor` and the anchor is that edge of
+  the safe area instead. The centred menu panels above need nothing. To check it without a phone, run
+  `screen.set_safe_area {"profile":"phone-portrait"}`, then `game.step` and `game.screenshot` (or `game.setSafeArea` in a
+  test). Android's Back button is `input.onBack`: register one handler per open screen (options closes to the main menu,
+  the pause menu resumes) that returns `true`, and let the root menu return `false` so Back leaves the game
+  (docs/MOBILE.md, "Phone features").
 
 ## The files
 

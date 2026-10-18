@@ -207,7 +207,8 @@ TEST_CASE("android export: no icon means the default icon and a warning; no sign
     const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
     CHECK(manifest.find("android:icon") == std::string::npos);
     CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
-    CHECK(manifest.find("<uses-permission") == std::string::npos);
+    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") != std::string::npos);  // input.vibrate(), always
+    CHECK(manifest.find("android.permission.INTERNET") == std::string::npos);                                   // anything else is opt-in
     CHECK_FALSE(stdfs::exists(root / "app/src/main/res/mipmap-mdpi"));
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.signing") == std::string::npos);
     const std::string gradle = testing::read_all(root / "app/build.gradle");
