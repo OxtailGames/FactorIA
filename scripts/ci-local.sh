@@ -16,6 +16,9 @@
 #            smoke test under Wine (catches Windows API/backend bugs; MSVC-only
 #            quirks need the Windows host).
 #   android  factoria_player for arm64-v8a (needs ANDROID_NDK_HOME, NDK r27+).
+#   web      Web player (Emscripten, preset web-release; needs EMSDK set), the factoria CLI, a template game exported with
+#            `factoria export --platform web`, the zip checked as itch.io takes it and the export run in headless Chrome
+#            until the first frames render (scripts/web-smoke.sh; needs Node 22+ and Chrome/Chromium or CHROME_BIN).
 #   macos    macOS build + ctest (only on a Mac).
 #   sniper   Linux release programs built in the Steam Runtime sniper SDK container, checked and run in the sniper
 #            runtime image (scripts/build-sniper.sh; needs Docker or Podman). Not part of the default set: it pulls
@@ -152,6 +155,30 @@ job_sniper() {
     fi
 }
 
+job_web() {
+    note "web"
+    if [ -z "${EMSDK:-}" ] || [ ! -f "$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" ]; then
+        record web SKIP "set EMSDK: source emsdk_env.sh of an activated Emscripten SDK 6.0.10 (docs/BUILDING.md, \"Web\")"; return
+    fi
+    local major; major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
+    if [ -z "$major" ] || [ "$major" -lt 22 ]; then record web SKIP "needs Node 22+ (the emsdk ships one: \$EMSDK/node/*/bin)"; return; fi
+    if [ -z "${CHROME_BIN:-}" ] && ! command -v google-chrome >/dev/null && ! command -v chromium >/dev/null \
+        && ! command -v chromium-browser >/dev/null && ! command -v chrome >/dev/null; then
+        record web SKIP "needs Chrome or Chromium (or CHROME_BIN=/path/to/chrome)"; return
+    fi
+    run_logged "$LOGDIR/web-player.log" bash -c "cmake --preset web-release && cmake --build --preset web-release -j $JOBS" \
+        || { record web FAIL "web player (see $LOGDIR/web-player.log)"; return; }
+    local b=build/ci-web-tools
+    run_logged "$LOGDIR/web-cli.log" bash -c "cmake -S . -B $b -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF \
+        && cmake --build $b --target factoria -j $JOBS" \
+        || { record web FAIL "factoria CLI (see $LOGDIR/web-cli.log)"; return; }
+    if run_logged "$LOGDIR/web-smoke.log" ./scripts/web-smoke.sh "$b/tools/cli/factoria" build/web-release/player build/ci-web-smoke; then
+        record web PASS "web player, export, zip check, first frames in headless Chrome"
+    else
+        record web FAIL "see $LOGDIR/web-smoke.log"
+    fi
+}
+
 job_macos() {
     note "macos"
     [ "$HOST" = "Darwin" ] || { record macos SKIP "needs a Mac (run this script on macOS)"; return; }
@@ -174,12 +201,12 @@ job_ios() {
     fi
 }
 
-ALL=(linux windows android macos ios)
+ALL=(linux windows android web macos ios)
 SELECTED=("$@")
 [ ${#SELECTED[@]} -eq 0 ] && SELECTED=("${ALL[@]}")
 for j in "${SELECTED[@]}"; do
     case "$j" in
-        linux|windows|android|macos|ios|sniper) "job_$j" ;;
+        linux|windows|android|web|macos|ios|sniper) "job_$j" ;;
         *) echo "unknown job '$j' (valid: ${ALL[*]} sniper)"; exit 2 ;;
     esac
 done
