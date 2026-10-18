@@ -187,8 +187,63 @@ struct TextLayout {
 // ---------------------------------------------------------------------------
 struct PipelineKey {
     std::uint32_t bits = 0;
-    bool operator<(const PipelineKey& o) const { return bits < o.bits; }
+    std::uint32_t shader = 0;  // sg_shader id of a custom material program (0 = the built-in one)
+    bool operator<(const PipelineKey& o) const { return bits != o.bits ? bits < o.bits : shader < o.shader; }
 };
+
+// ---------------------------------------------------------------------------
+// Custom materials (MeshRenderer.material, docs/design/CUSTOM_SHADERS.md)
+// ---------------------------------------------------------------------------
+class Assets;
+constexpr int kMaxMaterialParams = 16, kMaxMaterialTextures = 4;  // each a vec4 of the fa_material block (fa/tooling/shaders.h kMaterialMaxParams)
+constexpr int kMaterialFirstView = 6, kMaterialFirstSampler = 2, kMaterialUbVertex = 4, kMaterialUbFragment = 5;
+
+// One program of a twin (mesh, mesh_skin, shadow, shadow_skin) and what its reflection declares: a draw binds and applies
+// only those slots (sokol rejects a binding the shader does not declare, and a declared uniform block left unapplied).
+struct MaterialProgram {
+    sg_shader shader{};                  // id 0 = the material has no such program
+    std::uint32_t ubMask = 0, viewMask = 0, samplerMask = 0;  // bit n = slot n is declared
+    std::uint32_t ubSize[SG_MAX_UNIFORMBLOCK_BINDSLOTS]{};   // bytes of each declared uniform block
+    bool has_ub(int slot) const { return (ubMask >> slot) & 1u; }
+};
+enum MaterialProgramId : int { kProgMesh, kProgMeshSkin, kProgShadow, kProgShadowSkin, kProgCount };
+
+struct MaterialParamDef {
+    std::string name;
+    int components = 1;  // 1..4
+    float def[4]{0, 0, 0, 0};
+};
+struct MaterialTextureDef {
+    std::string name;
+    TextureAsset* defaultTex = nullptr;
+    SamplerKind sampler = SamplerKind::Linear;
+};
+
+struct MaterialAsset {
+    std::string path;     // the .material.json
+    std::string snippet;  // its `shader` file (a change of it reloads the material)
+    std::string lighting = "pbr", alphaMode = "opaque";
+    bool doubleSided = false;
+    std::vector<MaterialParamDef> params;      // in the order of the twin's "params" (the packing order)
+    std::vector<MaterialTextureDef> textures;  // in the order of the twin's "textures" (views 6+i, samplers 2+i)
+    MaterialProgram programs[kProgCount];
+    bool ok = false;      // false = drawn with the error material
+    std::string error;    // the last build error (kept while an older good build still draws)
+    int generation = 0;   // counts successful builds
+    std::unordered_set<std::string> warned;  // params already complained about
+};
+
+// The dialect name of a sokol backend ("hlsl5", "glsl430"...); "" for an unsupported one.
+std::string backend_dialect(sg_backend backend);
+
+// Builds the shader of a twin program; on failure the Error says what the twin/driver rejected.
+Result<MaterialProgram> make_material_program(const std::string& label, const Json& program);
+
+// Packs the params of `m` (defaults overlaid by `overrides`, a MeshRenderer.materialParams object) into one vec4 each.
+// A value of the wrong shape or an unknown name is warned about once per material and keeps the default.
+void pack_material_params(MaterialAsset& m, const Json& overrides, float out[kMaxMaterialParams][4]);
+// The texture bound as texture `i` of `m`: the override path in `overrides` (loaded by `assets`), else the default.
+TextureAsset* material_texture(MaterialAsset& m, int i, const Json& overrides, Assets& assets);
 
 // ---------------------------------------------------------------------------
 // Batches (CPU side, before upload)
@@ -283,6 +338,11 @@ public:
     TextureAsset* texture(const std::string& path);       // never null (placeholder on failure)
     TextureAsset* white();                                 // 1x1 white
     MeshAsset* mesh(const std::string& name);             // never null (cube placeholder on failure)
+    // A custom material (a *.material.json), built on first use; never null. A material that failed to build has ok == false
+    // (the failure is in report() and logged once) and is drawn with the error material.
+    MaterialAsset* material(const std::string& path);
+    // How a material gets its twin (empty = read `<path>.<dialect>.shader` through fa::fs). Kept across clear().
+    void set_shader_compiler(ShaderCompiler compiler) { shaderCompiler_ = std::move(compiler); }
     bool has_loaded(const std::string& path) const;
     void reload(const std::string& path);
     void clear();
@@ -305,6 +365,8 @@ private:
     void use_placeholder(TextureAsset& t);
     MeshAsset* load_mesh(const std::string& name);
     void destroy_mesh(MeshAsset& m);
+    void build_material(MaterialAsset& m);
+    Result<void> build_material_checked(MaterialAsset& m);
     std::string missing_hint(const std::string& path, std::string_view ext) const;
 
     Gpu& gpu_;
@@ -316,6 +378,8 @@ private:
     std::unique_ptr<MeshAsset> placeholderMesh_;
     std::vector<Failure> failures_;
     std::unordered_map<std::string, std::string> meshSources_;  // mesh key -> source file (for reload)
+    std::unordered_map<std::string, std::unique_ptr<MaterialAsset>> materials_;
+    ShaderCompiler shaderCompiler_;
 };
 
 bool build_primitive(const std::string& name, std::vector<MeshVertex>& v, std::vector<std::uint32_t>& idx);
@@ -367,9 +431,14 @@ public:
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
     // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
     // a PipelineKey bit and a second per-vertex buffer for joints and weights.
-    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false);
+    // `shader` = a program of a custom material (the pipeline is keyed by it); default = the built-in mesh program.
+    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false, sg_shader shader = {});
     sg_pipeline sky_pipeline();
-    sg_pipeline shadow_pipeline(bool skinned = false);
+    // `fullVertex` (custom shadow programs: vertex() or alphaMode "clip") also reads normal, texcoord0 and tangent from
+    // vertex buffer 0, at locations 5, 6, 7 (skinned: 7, 8, 9) as shadow_vs of mesh_common.glsl declares them.
+    sg_pipeline shadow_pipeline(bool skinned = false, sg_shader shader = {}, bool fullVertex = false);
+    // Destroys a custom material program together with the pipelines made from it.
+    void destroy_shader(sg_shader shader);
     sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount);
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
@@ -402,9 +471,6 @@ public:
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
-    // Tests of the template hooks: unskinned meshes are drawn with this program until materials exist (the caller keeps
-    // the built-in mesh_shader_ and puts it back). ponytail: test seam, package 3 keys pipelines by shader.
-    void set_mesh_shader(sg_shader mesh);
 
 private:
         sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
