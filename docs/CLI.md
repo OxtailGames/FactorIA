@@ -56,7 +56,7 @@ canonical layout is a warning (fix: `factoria call scene.format`).
 `Script.props` keys that do not exist on the behaviour (typos) and a placeholder `types/factoria.d.ts` are reported as
 warnings. `--fix-types` regenerates `types/factoria.d.ts` from the engine (same as `factoria api --dts --project .`).
 
-### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
+### `factoria export [project] [--platform P] [--format apk|aab|gradle|appimage] [--out DIR] [--release [--allow-debug-key]] [--player PATH] [--engine-root DIR] [--mobile-dir DIR] [--json]`
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
@@ -65,7 +65,7 @@ that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-e
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
-Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build; Gradle's
+Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build (without a keystore it fails; `--allow-debug-key` signs with the debug key for tests on your own device); Gradle's
 output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
 `--release` on linux, windows and macos puts the whole game in one `game.pak` next to the executable instead of a `game/` folder, with the
 scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](EXPORTING.md#release-build-gamepak)).
