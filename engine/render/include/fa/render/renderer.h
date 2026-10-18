@@ -85,6 +85,8 @@ struct RenderStats {
     int triangles = 0;
     int lights = 0;          // lights sent to the shader (at most 32)
     int lightsDropped = 0;   // lights over the limit that were left out (the least relevant ones)
+    int materials = 0;       // distinct custom materials (MeshRenderer.material) drawn with their own shaders
+    std::vector<std::string> materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
     double cpuMs = 0.0;
     Json to_json() const;
 };

@@ -128,16 +128,16 @@ void Gpu::shutdown() {
     bloomState_ = 0;
 }
 
-void Gpu::set_mesh_shader(sg_shader mesh) {
-    mesh_shader_ = mesh;
+void Gpu::destroy_shader(sg_shader shader) {
     for (auto it = pipelines_.begin(); it != pipelines_.end();) {
-        if ((it->first.bits & ~7u) == 0x200u) {  // mesh_pipeline keys
+        if (it->first.shader == shader.id) {
             sg_destroy_pipeline(it->second);
             it = pipelines_.erase(it);
         } else {
             ++it;
         }
     }
+    sg_destroy_shader(shader);
 }
 
 sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
@@ -194,10 +194,10 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend) {
     return find_or_make(key, d);
 }
 
-sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned) {
-    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u)};
+sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_shader shader) {
+    PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
     sg_pipeline_desc d{};
-    d.shader = skinned ? meshSkinShader_ : mesh_shader_;
+    d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
     d.layout.attrs[ATTR_mesh_mesh_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_normal].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.attrs[ATTR_mesh_mesh_fa_texcoord0].format = SG_VERTEXFORMAT_FLOAT2;
@@ -238,12 +238,18 @@ sg_pipeline Gpu::sky_pipeline() {
     return find_or_make(key, d);
 }
 
-sg_pipeline Gpu::shadow_pipeline(bool skinned) {
-    PipelineKey key{0x400u | (skinned ? 1u : 0u)};
+sg_pipeline Gpu::shadow_pipeline(bool skinned, sg_shader shader, bool fullVertex) {
+    PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     sg_pipeline_desc d{};
-    d.shader = skinned ? shadowSkinShader_ : shadow_shader_;
+    d.shader = shader.id ? shader : (skinned ? shadowSkinShader_ : shadow_shader_);
     d.layout.attrs[ATTR_mesh_shadow_fa_position].format = SG_VERTEXFORMAT_FLOAT3;
     d.layout.buffers[0].stride = sizeof(MeshVertex);  // position is the first member of MeshVertex
+    if (fullVertex) {  // offsets are the packed ones of MeshVertex: attributes of buffer 0 in location order
+        const int first = skinned ? 7 : 5;
+        d.layout.attrs[first].format = SG_VERTEXFORMAT_FLOAT3;      // normal
+        d.layout.attrs[first + 1].format = SG_VERTEXFORMAT_FLOAT2;  // texcoord0
+        d.layout.attrs[first + 2].format = SG_VERTEXFORMAT_FLOAT4;  // tangent
+    }
     set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
