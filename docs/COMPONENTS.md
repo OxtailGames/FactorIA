@@ -206,6 +206,26 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
 | `castShadows` | bool | `false` | Cast shadows. Only supported on directional lights for now. |
 
+### Animator
+
+Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | `""` | Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty). |
+| `clip` | string | `""` | Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported). |
+| `speed` | float | `1.0` | Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen. Range 0.0..100.0. |
+| `loop` | bool | `true` | true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event. |
+| `playing` | bool | `true` | Set false to pause, true to play. |
+| `fade` | float | `0.2` | Cross-fade seconds used when `clip` is changed by assignment (play() takes its own). Range 0.0..60.0. |
+| `params` | json | `{}` | State machine parameters and their start values, an object such as {"speed": 0, "grounded": true}. Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them. |
+| `states` | json | `{}` | State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. |
+| `transitions` | json | `[]` | State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). |
+| `events` | json | `[]` | Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. |
+| `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
+| `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
+| `values` | json | `{}` | Runtime state: current value of every state machine parameter. Runtime-only (not saved). |
+
 ## Physics
 
 ### RigidBody2D
@@ -2046,6 +2066,10 @@ declare module "factoria" {
      * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
      */
     emitBurst(count?: number): void;
+    /**
+     * Skeletal animation of this entity's Animator component (play, crossFade, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
+     */
+    readonly animator: AnimatorAPI;
   }
 
   /**
@@ -3223,6 +3247,208 @@ declare module "factoria" {
   export const i18n: I18nAPI;
 
   /**
+   * Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
+   */
+  export interface AnimatorAPI {
+    /**
+     * Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
+     */
+    play(clip: string, fadeSeconds?: number): void;
+    /**
+     * Same as play() with a fade of 0.2 seconds unless given.
+     */
+    crossFade(clip: string, fadeSeconds?: number): void;
+    /**
+     * Pauses and returns to the bind pose (the model as exported).
+     */
+    stop(): void;
+    /**
+     * Sets a state machine parameter declared in the Animator's `params`. The transitions read it on the next step.
+     */
+    set(name: string, value: number | boolean): void;
+    /**
+     * Current value of a state machine parameter.
+     */
+    get(name: string): number | boolean;
+    /**
+     * Makes the parameter `name` true for the next step only (one-shot input like "jump" or "hurt"). It does not need to be declared.
+     */
+    trigger(name: string): void;
+    /**
+     * Names of the animation clips of the model.
+     */
+    readonly clips: string[];
+    /**
+     * Length of a clip in seconds.
+     */
+    duration(clip: string): number;
+    /**
+     * Listens to a game event of THIS entity's animator: a clip event from the Animator's `events`, a state's `onEnter` name, or "anim.finished". Returns the unsubscribe function. world.on(name, fn) hears every entity.
+     */
+    on(event: string, fn: (data: { id: string; clip?: string; time?: number; state?: string }, source: Entity | null) => void): () => void;
+    /**
+     * State machine: the current state.
+     */
+    readonly state: string;
+    /**
+     * The clip playing now. Assigning switches clips with the component's `fade`.
+     */
+    clip: string;
+    /**
+     * Seconds into the current clip. Assigning seeks (no events fire for the jump).
+     */
+    time: number;
+    /**
+     * Playback speed multiplier.
+     */
+    speed: number;
+    /**
+     * Start over at the end of the clip. false stops on the last pose and sends "anim.finished".
+     */
+    loop: boolean;
+    /**
+     * false pauses, true resumes.
+     */
+    playing: boolean;
+    /**
+     * The Animator component view (model, params, states, transitions, events...).
+     */
+    readonly component: Components["Animator"];
+  }
+
+  /**
+   * An easing function: maps progress 0..1 to eased progress (0 at 0, 1 at 1; back and elastic overshoot in between).
+   */
+  export type EaseFn = (t: number) => number;
+
+  /**
+   * Name of a built-in easing: linear, or quad / cubic / quart / quint / sine / expo / circ / back / elastic / bounce followed by In, Out or InOut.
+   */
+  export type EaseName = "linear" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "elasticIn" | "elasticOut" | "elasticInOut" | "bounceIn" | "bounceOut" | "bounceInOut";
+
+  /**
+   * The built-in easing functions by name (ease.quadOut, ease.bounceOut...). tween() also accepts the name as a string.
+   */
+  export interface EaseAPI {
+    readonly linear: EaseFn;
+    readonly quadIn: EaseFn;
+    readonly quadOut: EaseFn;
+    readonly quadInOut: EaseFn;
+    readonly cubicIn: EaseFn;
+    readonly cubicOut: EaseFn;
+    readonly cubicInOut: EaseFn;
+    readonly quartIn: EaseFn;
+    readonly quartOut: EaseFn;
+    readonly quartInOut: EaseFn;
+    readonly quintIn: EaseFn;
+    readonly quintOut: EaseFn;
+    readonly quintInOut: EaseFn;
+    readonly sineIn: EaseFn;
+    readonly sineOut: EaseFn;
+    readonly sineInOut: EaseFn;
+    readonly expoIn: EaseFn;
+    readonly expoOut: EaseFn;
+    readonly expoInOut: EaseFn;
+    readonly circIn: EaseFn;
+    readonly circOut: EaseFn;
+    readonly circInOut: EaseFn;
+    readonly backIn: EaseFn;
+    readonly backOut: EaseFn;
+    readonly backInOut: EaseFn;
+    readonly elasticIn: EaseFn;
+    readonly elasticOut: EaseFn;
+    readonly elasticInOut: EaseFn;
+    readonly bounceIn: EaseFn;
+    readonly bounceOut: EaseFn;
+    readonly bounceInOut: EaseFn;
+  }
+
+  /**
+   * Options of tween().
+   */
+  export interface TweenOptions {
+    /**
+     * Seconds per play (default 1).
+     */
+    duration?: number;
+    /**
+     * Seconds to wait before it starts (default 0).
+     */
+    delay?: number;
+    /**
+     * Easing (default "linear"). inOut easings play the in curve for the first half and its mirror image for the second.
+     */
+    ease?: EaseName | EaseFn;
+    /**
+     * Extra plays after the first (0 = once, Infinity = forever).
+     */
+    repeat?: number;
+    /**
+     * Every second play runs backwards.
+     */
+    yoyo?: boolean;
+    /**
+     * Start values instead of the current ones, same shape as the end values: { x: 0 }. For tween(from, to, ...) the start is the first argument.
+     */
+    from?: any;
+    /**
+     * Called once when the delay is over and it starts moving (start values are read here).
+     */
+    onStart?: (tween: Tween) => void;
+    /**
+     * Called after every update. `value` is the eased progress (can overshoot with back/elastic); for tween(from, to) it is the current number.
+     */
+    onUpdate?: (value: number, tween: Tween) => void;
+    /**
+     * Called when the last play ends (never for a cancelled tween).
+     */
+    onComplete?: (tween: Tween) => void;
+  }
+
+  /**
+   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.
+   */
+  export interface Tween {
+    /**
+     * false once it completed or was cancelled.
+     */
+    readonly active: boolean;
+    /**
+     * 0..1 over all plays (after the delay).
+     */
+    readonly progress: number;
+    /**
+     * Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code.
+     */
+    readonly finished: Promise<boolean>;
+    /**
+     * Stops it where it is (values stay as they are) and cancels the tweens chained after it.
+     */
+    cancel(): this;
+    /**
+     * Freezes it.
+     */
+    pause(): this;
+    /**
+     * Continues after pause().
+     */
+    resume(): this;
+    /**
+     * Adds a completion callback.
+     */
+    onComplete(fn: (tween: Tween) => void): this;
+    /**
+     * Starts another tween when this one completes (chain): `tween(a, {x: 1}).next(a, {y: 1}).next(b, {a: 0})`. Returns the NEW tween. Cancelling this one cancels the chain.
+     */
+    next(target: object, props: object, options?: TweenOptions): Tween;
+  }
+
+  /**
+   * Built-in easing functions.
+   */
+  export const ease: EaseAPI;
+
+  /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
    */
   export function vec2(x?: number | Vec2Like, y?: number): Vec2;
@@ -3236,6 +3462,21 @@ declare module "factoria" {
    * Creates a Color from components 0..1 or "#rrggbb".
    */
   export function color(r?: number | ColorLike, g?: number, b?: number, a?: number): Color;
+
+  /**
+   * Moves numbers, vectors and colors of `target` to the end values in `props` over time. Targets: a component view (`tween(sprite, {color: "#ff0000"})`), a vector (`tween(entity.position, {y: 5})`), a color, or a plain object. A vector end value is [x, y, z], {x, y, z} or a Vec; a color is "#rrggbb", [r, g, b, a] or {r, g, b, a}. Start values are read when the delay ends. Driven by the game clock (fixed step, time.scale), never by the wall clock. Example: `await tween(entity.position, {y: 3}, {duration: 0.5, ease: "backOut"}).finished`.
+   */
+  export function tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
+
+  /**
+   * Tweens a plain number from `from` to `to`, calling options.onUpdate(value) every step (for a counter, a health bar value...).
+   */
+  export function tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween;
+
+  /**
+   * Cancels every running tween, or only those whose target is `target`.
+   */
+  export function cancelTweens(target?: object): void;
 
   // ---- Components (generated from the engine's reflection registry) ----
   /**
@@ -3816,6 +4057,65 @@ declare module "factoria" {
      * Cast shadows. Only supported on directional lights for now.
      */
     castShadows: boolean;
+  }
+  /**
+   * Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+   * 
+   * Category: 3D
+   */
+  export interface AnimatorComponent {
+    /**
+     * Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty).
+     */
+    model: string;
+    /**
+     * Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).
+     */
+    clip: string;
+    /**
+     * Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.
+     */
+    speed: number;
+    /**
+     * true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.
+     */
+    loop: boolean;
+    /**
+     * Set false to pause, true to play.
+     */
+    playing: boolean;
+    /**
+     * Cross-fade seconds used when `clip` is changed by assignment (play() takes its own).
+     */
+    fade: number;
+    /**
+     * State machine parameters and their start values, an object such as {"speed": 0, "grounded": true}. Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them. Returns a plain-object COPY; assign a new value to write.
+     */
+    params: any;
+    /**
+     * State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. Returns a plain-object COPY; assign a new value to write.
+     */
+    states: any;
+    /**
+     * State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). Returns a plain-object COPY; assign a new value to write.
+     */
+    transitions: any;
+    /**
+     * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     */
+    events: any;
+    /**
+     * State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire.
+     */
+    state: string;
+    /**
+     * Runtime state: seconds into the current clip. Assigning it seeks (no events fire).
+     */
+    time: number;
+    /**
+     * Runtime state: current value of every state machine parameter. Returns a plain-object COPY; assign a new value to write.
+     */
+    values: any;
   }
   /**
    * Puts the entity under 2D physics (Box2D). Pair it with a Collider2D. Positions are simulated in world units; gravity comes from the scene settings (gravity2D).
@@ -4811,6 +5111,7 @@ declare module "factoria" {
     ParticleEmitter: ParticleEmitterComponent;
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
+    Animator: AnimatorComponent;
     RigidBody2D: RigidBody2DComponent;
     Collider2D: Collider2DComponent;
     RigidBody3D: RigidBody3DComponent;
@@ -4841,6 +5142,7 @@ declare module "factoria" {
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
+    Animator: { model?: string; clip?: string; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; events?: any; state?: string; time?: number; values?: any };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
