@@ -20,6 +20,8 @@ set(FA_GAME_ORIENTATION "landscape" CACHE STRING "landscape | portrait | any")
 set(FA_GAME_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/game" CACHE PATH "Game folder (contains factoria.json) copied into the app bundle")
 set(FA_IOS_DEVELOPMENT_TEAM "" CACHE STRING "Apple developer team id used for signing")
 set(FA_GAME_ASSET_CATALOG "" CACHE PATH "Assets.xcassets folder with an AppIcon set, compiled into the app (optional)")
+set(FA_GAME_PRIVACY_MANIFEST "" CACHE FILEPATH "PrivacyInfo.xcprivacy copied to the root of the app bundle (optional)")
+option(FA_GAME_NON_EXEMPT_ENCRYPTION "ITSAppUsesNonExemptEncryption true in Info.plist" OFF)
 
 # Info.plist: the same template and orientation rules as the app built from the engine source.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/plist.cmake)
@@ -68,6 +70,8 @@ if(FA_GAME_ASSET_CATALOG)
     set_source_files_properties("${FA_GAME_ASSET_CATALOG}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(factoria_player PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
 endif()
+# The privacy manifest (PrivacyInfo.xcprivacy next to build_ios.sh) goes to the root of the app bundle.
+fa_ios_add_privacy_manifest(factoria_player)
 # The archives are linked by path, in any order (the linker resolves symbols across all of them; `main` comes from
 # sokol_app inside the platform archive). The frameworks are those of engine/platform/CMakeLists.txt (iOS) and
 # player/CMakeLists.txt: keep the lists in sync when the engine starts using another one.

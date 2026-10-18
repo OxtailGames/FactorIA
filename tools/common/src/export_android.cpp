@@ -258,10 +258,17 @@ Result<AndroidPlan> plan_android(const ExportOptions& o, const Project& p, const
                            "computer > Remember on this computer), which writes " + machine_export_config_path(env) + ". Passwords are never "
                            "stored in the project or in the exported files; Gradle gets them as environment variables.");
             warnings.insert(warnings.end(), config.warnings.begin(), config.warnings.end());
+        } else if (!o.allowDebugKey) {
+            return err("factoria.json#/export/android/signing: a release build has no keystore to sign with, and an app signed with the debug key is "
+                       "one Google Play rejects",
+                       "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool -genkeypair -v -keystore <file> "
+                       "-alias <alias> -keyalg RSA -keysize 2048 -validity 10000; keep it outside the repository and never lose it) and set "
+                       "export.android.signing.keystore and .alias in factoria.json. To try a release build on your own device with the debug key "
+                       "instead, export with allowDebugKey: true (factoria export --allow-debug-key); do not upload that build.");
         } else {
-            warnings.push_back("This release build is signed with the debug key because export.android.signing has no keystore: fine to test on "
-                               "a device, but Google Play rejects it. Create a keystore (the editor's Platform settings > Android > Create "
-                               "keystore..., or keytool -genkeypair) and set export.android.signing.keystore and .alias in factoria.json");
+            warnings.push_back("This release build is signed with the debug key because allowDebugKey is on and export.android.signing has no "
+                               "keystore: fine to test on a device, but Google Play rejects it. Create a keystore (the editor's Platform settings > "
+                               "Android > Create keystore..., or keytool -genkeypair) and set export.android.signing.keystore and .alias in factoria.json");
         }
     }
     return a;
@@ -276,7 +283,9 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
     const int versionCode = s.versionCode > 0 ? s.versionCode : android_version_code_from(p.version);
 
     std::vector<std::string> permissions;
-    for (const std::string& perm : s.permissions) permissions.push_back("<uses-permission android:name=\"" + xml_escape(perm) + "\" />");
+    for (const std::string& perm : s.permissions)
+        if (perm != "android.permission.VIBRATE")  // the manifest template always has it (input.vibrate)
+            permissions.push_back("<uses-permission android:name=\"" + xml_escape(perm) + "\" />");
     std::string signingProperties;
     if (!a.keystore.empty())
         signingProperties = "# Release signing (export.android.signing in factoria.json). The passwords are NOT stored here: set the environment\n"
@@ -455,7 +464,7 @@ Result<void> build_android(const ExportOptions& o, const Project& p, const Mobil
                                      : "  (the engine is located via factoria.engineDir in gradle.properties: " + generic(setup.engine) + ")")};
         if (o.release)
             steps.push_back("Release builds are signed with the keystore of export.android.signing (set FACTORIA_ANDROID_KEYSTORE_PASSWORD and "
-                            "FACTORIA_ANDROID_KEY_PASSWORD first), or with the debug key when none is set; Google Play takes a bundle: " + wrapper +
+                            "FACTORIA_ANDROID_KEY_PASSWORD first; with none, allowDebugKey uses the debug key); Google Play takes a bundle: " + wrapper +
                             " bundleRelease. See docs/MOBILE.md (Signing)");
         report.nextSteps.insert(report.nextSteps.begin(), steps.begin(), steps.end());
         return {};

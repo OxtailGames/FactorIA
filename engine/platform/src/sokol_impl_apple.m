@@ -57,3 +57,20 @@ bool fa_sapp_set_vsync(bool on) {
     return false;
 #endif
 }
+
+bool fa_sapp_safe_insets(float* left, float* top, float* right, float* bottom) {
+#if TARGET_OS_IPHONE
+    // UIView.safeAreaInsets (iOS 11): points, relative to the view, which covers the screen. They are zero until the view
+    // is in a window and follow the rotation. Points times the display scale are framebuffer pixels.
+    if (_sapp.ios.view == nil) return false;
+    const UIEdgeInsets insets = _sapp.ios.view.safeAreaInsets;
+    const float scale = _sapp.dpi_scale;
+    *left = (float)insets.left * scale;
+    *top = (float)insets.top * scale;
+    *right = (float)insets.right * scale;
+    *bottom = (float)insets.bottom * scale;
+    return true;
+#else
+    return false;
+#endif
+}

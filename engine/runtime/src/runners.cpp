@@ -25,10 +25,34 @@ struct WindowedState {
 };
 
 void apply_input_requests(WindowedState& st) {
-    const Input& in = st.engine.input();
+    Input& in = st.engine.input();
     if (in.mouse_visible() != st.mouseVisible) app_show_mouse(st.mouseVisible = in.mouse_visible());
     if (in.mouse_locked() != st.mouseLocked) app_lock_mouse(st.mouseLocked = in.mouse_locked());
     if (in.keyboard_shown() != st.keyboardShown) app_show_keyboard(st.keyboardShown = in.keyboard_shown());
+    for (float seconds : in.vibrations()) app_vibrate(seconds);  // headless runs keep the list; a window plays it
+    in.clear_vibrations();
+}
+
+// The device's safe area (notch, rounded corners, system bars) as insets of the renderer's target, in design pixels: the
+// platform reports framebuffer pixels, and with letterboxing the picture covers only part of the framebuffer, so the two
+// corners of the safe rectangle go through the same mapping the pointer does and are clamped to the picture.
+void apply_safe_insets(WindowedState& st) {
+    Renderer* r = st.engine.renderer();
+    if (!r || !r->initialized()) return;
+    EdgeInsets out;
+    const EdgeInsets px = app_safe_insets();
+    const int fbW = app_framebuffer_width(), fbH = app_framebuffer_height();
+    if (!px.zero() && fbW > 0 && fbH > 0) {
+        const ScaleMode mode = st.engine.project().scaleMode;
+        const Vec2 topLeft = r->framebuffer_to_design({px.left, px.top}, fbW, fbH, mode);
+        const Vec2 bottomRight = r->framebuffer_to_design({float(fbW) - px.right, float(fbH) - px.bottom}, fbW, fbH, mode);
+        const float tw = float(r->target_width()), th = float(r->target_height());
+        out.left = std::clamp(topLeft.x, 0.0f, tw);
+        out.top = std::clamp(topLeft.y, 0.0f, th);
+        out.right = std::clamp(tw - bottomRight.x, 0.0f, tw);
+        out.bottom = std::clamp(th - bottomRight.y, 0.0f, th);
+    }
+    st.engine.world().set_safe_insets(out);
 }
 
 // Expand mode: the visible area grows on the long axis to match the window aspect.
@@ -124,6 +148,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
     d.frame = [st](double dt) {
         if (!st->ok) return;
         if (AppWindowControl* window = st->engine.runtime_impl().appWindow.get()) window->throttle();  // window.frameCap
+        apply_safe_insets(*st);  // before the frame: layout and drawing read it
         st->engine.frame(dt);
         apply_input_requests(*st);
         // Run marker: ONE info line after the 60th drawn frame. The device smoke tests (scripts/ios-smoke.sh,
@@ -179,11 +204,11 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     }
     {
         // Misspelled entry fields used to be ignored silently ("pres" => nothing pressed).
-        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch"};
+        static const std::vector<std::string> known = {"press", "release", "keys", "mouse", "gamepad", "touch", "back"};
         for (auto it = entry.begin(); it != entry.end(); ++it)
             if (std::find(known.begin(), known.end(), it.key()) == known.end())
                 note("unknown field '" + it.key() + "' (ignored). " + did_you_mean(it.key(), known) +
-                     " A frame entry takes press, release, keys, mouse, gamepad and touch.");
+                     " A frame entry takes press, release, keys, mouse, gamepad, touch and back.");
     }
     for (const char* key : {"press", "release"}) {
         if (!entry.contains(key)) continue;
@@ -225,6 +250,13 @@ void apply_replay_entry(Engine::Impl& I, const Json& entry, std::vector<std::str
     std::vector<std::string> pads;  // gamepad / touch problems come back without the frame prefix
     if (entry.contains("gamepad")) apply_gamepad_json(I.input, entry["gamepad"], pads);
     if (entry.contains("touch")) apply_touch_json(I.input, entry["touch"], pads);
+    if (entry.contains("back")) {
+        if (entry["back"].is_boolean()) {
+            if (entry["back"].get<bool>()) I.input.on_back();
+        } else {
+            note("'back' must be true (press the system Back button)");
+        }
+    }
     for (const std::string& m : pads) note(m);
 }
 

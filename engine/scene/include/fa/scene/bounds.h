@@ -43,6 +43,7 @@ struct VisualFootprint {
     RenderSpace space = RenderSpace::World;      // Screen: design pixels, origin top-left, local y flipped (see below)
     std::int32_t layer = 0;                      // the component's draw layer
     Vec2 anchor{0, 0};                           // Screen space only: the component's anchor (fraction of the design size)
+    bool safeArea = false;                       // Screen space only: the anchor is relative to the safe area (anchor_point)
     // The drawn box in local space (y up), as 4 corners around the quad: what to outline and to hit-test. For a Diamond it is
     // the size box the tips touch; for a Line the stroked segment; for a Circle its bounding square.
     std::array<Vec2, 4> box{};
@@ -55,8 +56,9 @@ struct VisualFootprint {
 // `includeScreenSpace` is false. Empty when the entity draws nothing (an empty map, a zero-length line, empty text).
 // `active` and colour alpha are ignored.
 //
-// Screen space: the renderer draws these with local y negated and the translation moved by `anchor` * design size, so a
-// point (lx, ly) of the box lands at world_matrix * (lx, -ly) + anchor * designSize. Callers that need that do it themselves.
+// Screen space: the renderer draws these with local y negated and the translation moved by the anchor point, so a
+// point (lx, ly) of the box lands at world_matrix * (lx, -ly) + anchor_point(anchor, safeArea, designSize, insets)
+// (ui_rect.h; plain anchor * designSize without safeArea). Callers that need that do it themselves.
 std::vector<VisualFootprint> visual_footprints(const World& w, Entity e, const VisualMeasure& measure = {},
                                                bool includeScreenSpace = true);
 

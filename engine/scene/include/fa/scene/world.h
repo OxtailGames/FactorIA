@@ -142,6 +142,12 @@ public:
     const SceneSettings& settings() const { return settings_; }
     WorldEvents& events() { return events_; }
     Rng& rng() { return rng_; }
+    // The part of the screen covered by a notch, rounded corners or system bars, in DESIGN pixels (the renderer's target
+    // size, origin top-left). The windowed runtime sets it every frame from the device; a headless run or a test sets
+    // it to try a "notched device". Anchored items with `safeArea` stay inside what is left (anchor_point, ui_rect.h).
+    // Survives clear() and scene loads: it describes the device, not the scene.
+    const EdgeInsets& safe_insets() const { return safeInsets_; }
+    void set_safe_insets(const EdgeInsets& insets) { safeInsets_ = insets; }
 
     std::uint64_t frame() const { return frame_; }
     double time() const { return time_; }  // simulated seconds since scene start
@@ -170,6 +176,7 @@ private:
     SceneSettings settings_;
     WorldEvents events_;
     Rng rng_;
+    EdgeInsets safeInsets_;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;
     std::string scenePath_;

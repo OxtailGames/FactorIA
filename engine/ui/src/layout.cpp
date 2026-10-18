@@ -148,9 +148,10 @@ std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     for (const VisualFootprint& f : visual_footprints(w, e, measure, true)) {
         if (f.space != RenderSpace::Screen) continue;
-        for (const Vec2& p : f.box) {  // the renderer draws a local point (lx, ly) at world_matrix * (lx, -ly) + anchor * design
+        for (const Vec2& p : f.box) {  // the renderer draws a local point (lx, ly) at world_matrix * (lx, -ly) + the anchor point
             const Vec3 q = m.transform_point({p.x, -p.y, 0.0f});
-            const float sx = q.x + f.anchor.x * designSize.x, sy = q.y + f.anchor.y * designSize.y;
+            const Vec2 a = anchor_point(f.anchor, f.safeArea, designSize, w.safe_insets());
+            const float sx = q.x + a.x, sy = q.y + a.y;
             x0 = any ? std::min(x0, sx) : sx;
             y0 = any ? std::min(y0, sy) : sy;
             x1 = any ? std::max(x1, sx) : sx;

@@ -21,6 +21,8 @@
 	<string>@FA_GAME_VERSION@</string>
 	<key>CFBundleVersion</key>
 	<string>@FA_GAME_BUILD_VALUE@</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	@FA_IOS_NON_EXEMPT_ENCRYPTION@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>MinimumOSVersion</key>

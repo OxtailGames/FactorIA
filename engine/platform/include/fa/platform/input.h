@@ -116,6 +116,10 @@ public:
     void on_touch_move(std::uint64_t id, Vec2 designPos);
     void on_touch_end(std::uint64_t id);
     void on_text(std::uint32_t codepoint);
+    // The system Back button or gesture (Android). An edge: back_pressed() is true until the next begin_frame(). Scripts
+    // get it as input.onBack; when none of their handlers consumes it, the runtime asks the game to quit (what Back did
+    // before there was an event). Tests and replays call it too.
+    void on_back() { backEdge_ = true; }
     // Gamepads (index 0..kMaxGamepads-1; out-of-range indices are ignored). A button or axis event also marks the pad
     // connected. Disconnecting releases its buttons (with release edges) and zeroes its axes. Axis values are clamped
     // (sticks -1..1 with +Y up, triggers 0..1). The platform's poll_gamepads() feeds these; tests and replays call them.
@@ -127,7 +131,7 @@ public:
     // comes back keeps its type. Out-of-range indices are ignored.
     void set_gamepad_type(int index, GamepadType type);
     // Test isolation (and nothing else): bindings back to the project's, cursor visible and unlocked, on-screen keyboard
-    // hidden, last device the keyboard, every pad generic.
+    // hidden, last device the keyboard, every pad generic, no pending Back press, no recorded vibration.
     void reset_options();
     // Focus lost or a test reset: releases everything (keys, mouse, touches, pad buttons and axes) and disconnects every
     // pad. A windowed run reconnects the pads that are really there on the next poll_gamepads().
@@ -146,6 +150,7 @@ public:
     const std::vector<Touch>& touches() const { return touches_; }
     const std::u32string& text_input() const { return text_; }  // typed characters this frame
     std::string text_utf8() const;  // the same, as UTF-8
+    bool back_pressed() const { return backEdge_; }  // Back arrived since the last begin_frame()
 
     // -------- gamepad queries (index outside 0..kMaxGamepads-1: not connected, nothing down, axes 0)
     bool gamepad_connected(int index) const;
@@ -186,6 +191,12 @@ public:
     // On-screen keyboard wanted (phones and tablets; desktop ignores it). Default false.
     bool keyboard_shown() const { return keyboardShown_; }
     void set_keyboard_shown(bool shown) { keyboardShown_ = shown; }
+
+    // -------- vibration (the REQUESTED pulses, in seconds, oldest first; the windowed runtime plays them on a phone and
+    // clears the list, headless runs and tests keep them so they can check what the game asked for)
+    void vibrate(float seconds);
+    const std::vector<float>& vibrations() const { return vibrations_; }
+    void clear_vibrations() { vibrations_.clear(); }
 
     // -------- actions
     // Replaces all actions from the project's "input.actions" JSON object (and remembers that object: reset_bindings).
@@ -288,6 +299,8 @@ private:
     float deadzone_ = 0.2f;
     InputDevice lastDevice_ = InputDevice::Keyboard;
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false;
+    bool backEdge_ = false;
+    std::vector<float> vibrations_;
     Json projectActions_;  // what the last set_actions() was given (reset_bindings)
     std::unordered_map<std::string, std::vector<Binding>> actions_;
     // Action overrides: only `true` entries are stored (setting false erases and

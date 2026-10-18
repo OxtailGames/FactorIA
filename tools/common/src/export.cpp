@@ -770,7 +770,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "
         "\"apk\" (default) or \"aab\" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports "
         "it as `artifact`; \"gradle\" only writes the project and builds nothing. `release` builds the release variant "
-        "(signed with export.android.signing, else with the debug key and a warning); on linux, windows and macos it packs the whole "
+        "(signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole "
         "game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode "
         "unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake "
         "project and build_ios.sh. Android and iOS have a mode, reported as `mode`: \"prebuilt\" (the engine is the "
@@ -795,7 +795,8 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         "platform":{"type":"string","description":"linux, windows, macos, android or ios (aliases win, mac, osx also work). Default: the machine running factoria."},
         "out":{"type":"string","description":"Parent folder of the export, relative to the project folder and inside it. Default: build/export."},
         "format":{"type":"string","enum":["apk","aab","gradle","appimage"],"description":"Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it."},
-        "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore the debug key is used, with a warning). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
+        "release":{"type":"boolean","description":"Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script.","default":false},
+        "allowDebugKey":{"type":"boolean","description":"Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android).","default":false},
         "dryRun":{"type":"boolean","description":"Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing.","default":false}
       }})");
     registry.add(info, [projectDir](const Json& args) {
@@ -817,6 +818,7 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         if (!o.format.empty() && std::find(all_export_formats().begin(), all_export_formats().end(), o.format) == all_export_formats().end())
             throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, all_export_formats()));
         o.release = tooling_detail::arg_bool(args, "release", false);
+        o.allowDebugKey = tooling_detail::arg_bool(args, "allowDebugKey", false);
         if (tooling_detail::arg_bool(args, "dryRun", false)) {
             auto plan = plan_export(o);
             if (!plan.ok()) throw CommandError("failed", plan.error().message, plan.error().hint);

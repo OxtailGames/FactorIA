@@ -57,10 +57,12 @@ struct ExportOptions {
     std::string projectDir;     // folder containing factoria.json
     std::string platform;       // linux | windows | macos | android | ios ("" = the platform running factoria)
     std::string outDir;         // parent folder of the export ("" = <projectDir>/build/export)
-    bool release = false;       // android: builds the release APK/AAB (signed with export.android.signing, else with the
-                                // debug key and a warning). linux/windows/macos: the game ships as ONE archive, game.pak,
-                                // with the scripts as bytecode (export.scriptBytecode). ios: only changes the build
-                                // commands of the script
+    bool release = false;       // android: builds the release APK/AAB (signed with export.android.signing; without a
+                                // keystore it is an error unless allowDebugKey). linux/windows/macos: the game ships as
+                                // ONE archive, game.pak, with the scripts as bytecode (export.scriptBytecode). ios: only
+                                // changes the build commands of the script
+    bool allowDebugKey = false; // android release without a keystore: sign with the debug key (fine to try on a device,
+                                // Google Play rejects it) instead of failing
     std::string playerBinary;   // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode

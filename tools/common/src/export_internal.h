@@ -169,7 +169,7 @@ struct AndroidPlan {
     stdfs::path artifact;                // <outRoot>/<slug>[-debug].apk|aab; empty for "gradle"
     // Release signing (apk/aab only): the keystore of export.android.signing resolved against the project folder, its
     // alias, and the passwords (environment variables win over ~/.factoria/export.json). Empty keystore = signed with
-    // the debug key, with a warning.
+    // the debug key (only when ExportOptions::allowDebugKey, with a warning).
     std::string keystore, alias;
     AndroidSigningSecrets secrets;
     // The icons, decoded once by the plan (empty/none = no icon set).

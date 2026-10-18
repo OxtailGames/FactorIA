@@ -9,6 +9,7 @@
 #include "fa/platform/app.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/sokol_entry.h"
+#include "mobile_impl.h"
 #include "sokol_window.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -29,6 +30,8 @@ struct AppState {
     bool vsync = true;  // as asked for: AppDesc::vsync, then app_set_vsync
     bool touchLogged = false;  // the first touch is logged once (the mobile smoke tests wait for it)
     int fbW = 0, fbH = 0;
+    EdgeInsets insets;  // app_safe_insets(): asked of the platform at start, on resize and every few frames
+    int framesToInsets = 0;
 };
 AppState g;
 
@@ -94,10 +97,18 @@ void emit(AppEvent::Type type, int w = 0, int h = 0) {
     g.desc.event(e);
 }
 
+// The system moves the notch with the rotation and the bars with the window, and says so late (or not at all): ask again
+// a few times a second. Desktop windows have none and skip the call.
+void refresh_insets() {
+    g.framesToInsets = 15;
+    if (app_is_mobile()) g.insets = mobile_safe_insets();
+}
+
 void on_init() {
     g.active = true;
     g.fbW = sapp_width();
     g.fbH = sapp_height();
+    refresh_insets();
     if (g.desc.init) g.desc.init();
 }
 
@@ -106,6 +117,8 @@ void on_frame() {
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
     if (g.desc.input && g.focused) poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
+    if (g.desc.input) mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
+    if (--g.framesToInsets <= 0) refresh_insets();
     if (g.desc.frame) g.desc.frame(dt);
 }
 
@@ -179,6 +192,7 @@ void on_event(const sapp_event* e) {
         case SAPP_EVENTTYPE_RESIZED:
             g.fbW = e->framebuffer_width;
             g.fbH = e->framebuffer_height;
+            refresh_insets();
             emit(AppEvent::Type::Resized, e->framebuffer_width, e->framebuffer_height);
             break;
         case SAPP_EVENTTYPE_UNFOCUSED:
@@ -257,7 +271,7 @@ sapp_desc to_sapp_desc(const AppDesc& desc) {
     s.depth_format = SAPP_PIXELFORMAT_DEPTH_STENCIL;
     s.logger.func = fa_sokol_log_func;
 #if defined(__ANDROID__)
-    s.android.native_event_cb = android_gamepad_event;  // pads: see gamepad_android.cpp
+    s.android.native_event_cb = mobile_native_event;  // pads, keys and Back: see gamepad_android.cpp, mobile_android.cpp
     // sokol_app asks for an OpenGL ES 3.1 context on Android by default. The engine's shaders are GLSL ES 3.00 and
     // use no 3.1 feature, but not every GL stack offers 3.1 (the emulator's software GPU is 3.0: eglCreateContext
     // fails with EGL_BAD_CONFIG and sokol aborts at startup), so ask for 3.0; drivers may still return a newer context.
@@ -300,7 +314,9 @@ void app_request_quit() { sapp_request_quit(); }
 void app_set_title(const std::string& title) { sapp_set_window_title(title.c_str()); }
 void app_show_mouse(bool show) { sapp_show_mouse(show); }
 void app_lock_mouse(bool lock) { sapp_lock_mouse(lock); }
-void app_show_keyboard(bool show) { sapp_show_keyboard(show); }
+void app_show_keyboard(bool show) { mobile_show_keyboard(show); }
+EdgeInsets app_safe_insets() { return g.insets; }
+void app_vibrate(float seconds) { mobile_vibrate(seconds); }
 
 bool app_is_fullscreen() { return app_is_mobile() || sapp_is_fullscreen(); }
 void app_set_fullscreen(bool on) {

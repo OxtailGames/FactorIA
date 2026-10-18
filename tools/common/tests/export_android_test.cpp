@@ -175,7 +175,9 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
     CHECK(gradle.find("FACTORIA_ANDROID_KEYSTORE_PASSWORD") != std::string::npos);  // read from the environment only
     const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
     CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
-    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") != std::string::npos);
+    const std::string vibrate = "<uses-permission android:name=\"android.permission.VIBRATE\" />";
+    CHECK(manifest.find(vibrate) != std::string::npos);
+    CHECK(manifest.find(vibrate, manifest.find(vibrate) + 1) == std::string::npos);  // the template's, not listed twice
     CHECK(manifest.find("<uses-permission android:name=\"android.permission.INTERNET\" />") != std::string::npos);
     CHECK(manifest.find("android:icon=\"@mipmap/ic_launcher\"") != std::string::npos);
     CHECK(manifest.find("android:roundIcon=\"@mipmap/ic_launcher_round\"") != std::string::npos);
@@ -207,7 +209,8 @@ TEST_CASE("android export: no icon means the default icon and a warning; no sign
     const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
     CHECK(manifest.find("android:icon") == std::string::npos);
     CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
-    CHECK(manifest.find("<uses-permission") == std::string::npos);
+    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") != std::string::npos);  // input.vibrate(), always
+    CHECK(manifest.find("android.permission.INTERNET") == std::string::npos);                                   // anything else is opt-in
     CHECK_FALSE(stdfs::exists(root / "app/src/main/res/mipmap-mdpi"));
     CHECK(testing::read_all(root / "gradle.properties").find("factoria.signing") == std::string::npos);
     const std::string gradle = testing::read_all(root / "app/build.gradle");
@@ -419,7 +422,18 @@ TEST_CASE("android export: format and artifact in the plan, the report and the c
     }
     SUBCASE("release drops the -debug") {
         o.release = true;
-        // A release without a keystore is signed with the debug key, with a warning.
+        // A release without a keystore is an error; allowDebugKey signs it with the debug key, with a warning.
+        auto refused = plan_export(o);
+        REQUIRE_FALSE(refused.ok());
+        CHECK(refused.error().message.find("factoria.json#/export/android/signing") != std::string::npos);
+        CHECK(refused.error().message.find("no keystore") != std::string::npos);
+        CHECK(refused.error().hint.find("keytool -genkeypair") != std::string::npos);
+        CHECK(refused.error().hint.find("allowDebugKey") != std::string::npos);
+        CHECK(refused.error().hint.find("--allow-debug-key") != std::string::npos);
+        o.format = "gradle";  // only the Gradle project: nothing is signed, so nothing to refuse
+        CHECK(plan_export(o).ok());
+        o.format = "apk";
+        o.allowDebugKey = true;
         auto plan = plan_export(o);
         REQUIRE(plan.ok());
         CHECK(stdfs::weakly_canonical(plan->artifact).generic_string() == out + "/space-dodge.apk");
@@ -429,6 +443,7 @@ TEST_CASE("android export: format and artifact in the plan, the report and the c
         o.format = "aab";
         CHECK(artifact(o) == std::make_pair(std::string("aab"), out + "/space-dodge-debug.aab"));
         o.release = true;
+        o.allowDebugKey = true;  // no keystore in this game
         CHECK(artifact(o).second == out + "/space-dodge.aab");
     }
     SUBCASE("the format of factoria.json is the default and the option wins; case does not matter") {
@@ -756,7 +771,11 @@ TEST_CASE("android export: the format picks the Gradle task and the file name") 
     CHECK(any_contains(debug->nextSteps, "Upload"));
     CHECK(any_contains(debug->nextSteps, "bundletool"));
 
-    o.release = true;  // no keystore: signed with the debug key, said in a warning
+    o.release = true;  // no keystore: an error, unless the debug key is allowed (then signed with it, said in a warning)
+    auto refused = export_project(o);
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().hint.find("allowDebugKey") != std::string::npos);
+    o.allowDebugKey = true;
     auto release = export_project(o);
     REQUIRE_MESSAGE(release.ok(), (release.ok() ? "" : release.error().to_string()));
     CHECK(fake_gradle_record(release->outputDir).find("args=bundleRelease --console=plain") != std::string::npos);
