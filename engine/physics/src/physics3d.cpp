@@ -47,12 +47,6 @@ const char* type_name(BodyType t) {
     }
 }
 
-constexpr Vec3 kIdentityAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-
-// Box frame <-> world: v.x * ax0 + v.y * ax1 + v.z * ax2, and its transpose.
-Vec3 frame_to_world(const Vec3* ax, Vec3 v) { return ax[0] * v.x + ax[1] * v.y + ax[2] * v.z; }
-Vec3 world_to_frame(const Vec3* ax, Vec3 v) { return {dot(v, ax[0]), dot(v, ax[1]), dot(v, ax[2])}; }
-
 // Euler degrees (pitch about X, yaw about Y, roll about Z; R = Ry * Rx * Rz like Transform.rotation) of a unit basis.
 Vec3 euler_of(const Vec3* ax) {
     const float sp = clamp(-ax[2].y, -1.0f, 1.0f);
@@ -338,14 +332,14 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
     Contact c;
     if (!a.hasShape || !b.hasShape) return c;
     if (a.general() || b.general()) return collide_general(a, b, margin, manifold);
-    if (!a.box && !b.box) {
+    if (a.kind != Body::Kind::Box && b.kind != Body::Kind::Box) {
         Vec3 d = b.center - a.center;
         float dist = length(d);
         c.depth = a.radius + b.radius - dist;
         c.normal = dist > 1e-6f ? d / dist : Vec3{0, 1, 0};
         c.point = a.center + c.normal * a.radius;
         c.hit = c.depth > -margin;
-    } else if (a.box && b.box) {
+    } else if (a.kind == Body::Kind::Box && b.kind == Body::Kind::Box) {
         if (a.rotated || b.rotated) {
             box_box_sat(a, b, margin, c, manifold);
             return c;
@@ -377,7 +371,7 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
                 }
             }
         }
-    } else if (a.box) {
+    } else if (a.kind == Body::Kind::Box) {
         sphere_box(a, b, margin, c);
     } else {
         sphere_box(b, a, margin, c);
@@ -546,29 +540,25 @@ void Physics3D::sync(World& world) {
                 default: break;
             }
             b.kind = kind;
-            b.box = kind == Body::Kind::Box;
             b.data = shapeData;
             b.meshName = (!cc && b.data) ? col->mesh : std::string();
             b.gscale = {1, 1, 1};
             b.segHalf = 0.0f;
             b.lcenter = {};
-            if (cc) {
-                b.radius = std::max(cc->radius * flat, 1e-3f);
-                b.segHalf = std::max(cc->height * as.y * 0.5f - b.radius, 0.0f);
+            if (kind == Body::Kind::Capsule) {  // a collider capsule and a character's capsule are the same shape
+                b.radius = std::max((cc ? cc->radius : col->radius) * flat, 1e-3f);
+                b.segHalf = std::max((cc ? cc->height : col->height) * as.y * 0.5f - b.radius, 0.0f);
                 b.half = {b.radius, b.segHalf + b.radius, b.radius};
-                b.stepOffset = std::max(cc->stepOffset * as.y, 0.0f);
-                b.slopeLimit = clamp(cc->slopeLimit, 0.0f, 89.0f);
-                b.skin = std::max(cc->skin, 1e-3f);
-            } else if (kind == Body::Kind::Capsule) {
-                b.radius = std::max(col->radius * flat, 1e-3f);
-                b.segHalf = std::max(col->height * as.y * 0.5f - b.radius, 0.0f);
-                b.half = {b.radius, b.segHalf + b.radius, b.radius};
+                if (cc) {
+                    b.stepOffset = std::max(cc->stepOffset * as.y, 0.0f);
+                    b.slopeLimit = clamp(cc->slopeLimit, 0.0f, 89.0f);
+                    b.skin = std::max(cc->skin, 1e-3f);
+                }
             } else if (b.data) {
                 const MeshGeometry& g = *b.data->geometry;
                 b.gscale = {std::max(as.x, 1e-3f), std::max(as.y, 1e-3f), std::max(as.z, 1e-3f)};
-                b.half = (g.bmax - g.bmin) * 0.5f * b.gscale;
+                b.half = max((g.bmax - g.bmin) * 0.5f * b.gscale, Vec3{1e-3f});
                 b.lcenter = (g.bmax + g.bmin) * 0.5f * b.gscale;
-                b.half = max(b.half, Vec3{1e-3f});
                 b.radius = 0.0f;
             } else {
                 b.half = {std::max(col->size.x * as.x * 0.5f, 1e-3f), std::max(col->size.y * as.y * 0.5f, 1e-3f),
@@ -862,8 +852,7 @@ void Physics3D::step(World& world, float dt) {
         if (!bodies_[i].character || !bodies_[i].enabled) continue;
         const CharacterController3D* cc = world.get<CharacterController3D>(bodies_[i].e);
         if (!cc || cc->velocity == Vec3{}) continue;
-        CharacterMoveResult res;
-        move_character_body(world, bodies_[i], *cc, cc->velocity * dt, res);
+        move_character_body(world, bodies_[i], cc->velocity * dt);
     }
     const Vec3 g = world.settings().gravity3D;
     if (g != lastGravity_) {  // a body asleep on the old gravity would hover on the new one
@@ -904,7 +893,6 @@ void Physics3D::step(World& world, float dt) {
     }
 
     auto movable = [](const Body& b) { return b.type != BodyType::Static; };
-    auto half_extent = [](const Body& b) { return min_half_extent(b); };
     auto live_dyn = [](const Body& b) { return b.type == BodyType::Dynamic && !b.asleep; };
     std::vector<std::size_t> riders;
     std::vector<Vec3> disp(n);
@@ -946,12 +934,12 @@ void Physics3D::step(World& world, float dt) {
                 if (!b.enabled || !b.hasShape || b.trigger) continue;
                 const bool dynA = a.type == BodyType::Dynamic, dynB = b.type == BodyType::Dynamic;
                 if ((!dynA && !dynB) || !filters_pass(a, b)) continue;
-                const bool bMoves = !dynA || (dynB && half_extent(b) < half_extent(a));  // b is the mover
+                const bool bMoves = !dynA || (dynB && min_half_extent(b) < min_half_extent(a));  // b is the mover
                 Body& mover = bMoves ? b : a;
                 Body& target = bMoves ? a : b;
                 const Vec3 rel = bMoves ? disp[k] - disp[i] : disp[i] - disp[k];
                 const Vec3 moverSpin = spin_over(mover), targetSpin = spin_over(target);
-                const float he = half_extent(mover);
+                const float he = min_half_extent(mover);
                 float t = 1.0f;
                 if (length(rel) + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin) > he &&
                     sweep(mover, rel, moverSpin, target, targetSpin, t) && t < tFirst)
@@ -1206,7 +1194,7 @@ void Physics3D::step(World& world, float dt) {
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b)) continue;
-        const float reach = !b.hasShape ? 0.0f : (b.kind != Body::Kind::Sphere ? bound_radius(b) : b.radius);  // fastest point of the shape
+        const float reach = !b.hasShape ? 0.0f : bound_radius(b);  // fastest point of the shape
         const bool calm = std::max(length(b.vel), length(b.angVel) * kDegToRad * reach) < kSleepSpeed;
         b.sleepTime = calm ? b.sleepTime + dt : 0.0f;
         if (b.sleepTime < kTimeToSleep || hold[i] || b.jointed) ready[find_root(i)] = 0;
@@ -1284,14 +1272,14 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
             od = world_to_frame(b.ax, d);
         }
         {   // origin inside this collider: skip it
-            bool inside = b.box ? (org.x > lo.x && org.x < hi.x && org.y > lo.y && org.y < hi.y &&
+            bool inside = b.kind == Body::Kind::Box ? (org.x > lo.x && org.x < hi.x && org.y > lo.y && org.y < hi.y &&
                                    org.z > lo.z && org.z < hi.z)
                                 : length_sq(origin - b.center) < b.radius * b.radius;
             if (inside) continue;
         }
         float t = 0.0f;
         Vec3 nrm;
-        if (b.box) {
+        if (b.kind == Body::Kind::Box) {
             float tmin = 0.0f, tmax = bestT;
             int axisHit = -1;
             float sgnHit = 0.0f;
@@ -1350,8 +1338,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
     Body probe;  // the swept shape as a body: axis-aligned, no entity
     probe.hasShape = true;
     probe.enabled = true;
-    probe.box = shape.kind == CastShape::Kind::Box;
-    probe.kind = probe.box ? Body::Kind::Box : Body::Kind::Sphere;
+    probe.kind = shape.kind == CastShape::Kind::Box ? Body::Kind::Box : Body::Kind::Sphere;
     probe.half = {std::max(shape.size.x * 0.5f, 1e-3f), std::max(shape.size.y * 0.5f, 1e-3f),
                   std::max(shape.size.z * 0.5f, 1e-3f)};
     probe.radius = std::max(shape.radius, 1e-3f);
@@ -1408,7 +1395,6 @@ bool Physics3D::is_touching(World& world, Entity e, Vec3 dir, float tolerance) {
 std::vector<Entity> Physics3D::overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask) {
     std::vector<Entity> out;
     Body probe;
-    probe.box = false;
     probe.kind = Body::Kind::Sphere;
     probe.hasShape = true;
     probe.radius = std::max(radius, 0.0f);

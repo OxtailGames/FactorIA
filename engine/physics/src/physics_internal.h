@@ -20,6 +20,10 @@ inline std::uint64_t mask_bits(std::int32_t mask) { return mask == -1 ? ~0ull : 
 
 // An entity marked by World::destroy() is gone for physics at once (no body, no collisions, no query hits), although
 // World::flush() only erases it at the end of the frame. Use this instead of World::alive() for anything physical.
+constexpr Vec3 kIdentityAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+// Basis <-> world: v.x * ax0 + v.y * ax1 + v.z * ax2, and its transpose.
+inline Vec3 frame_to_world(const Vec3* ax, Vec3 v) { return ax[0] * v.x + ax[1] * v.y + ax[2] * v.z; }
+inline Vec3 world_to_frame(const Vec3* ax, Vec3 v) { return {dot(v, ax[0]), dot(v, ax[1]), dot(v, ax[2])}; }
 inline bool live(const World& world, Entity e) { return world.alive(e) && !world.pending_destroy(e); }
 
 // World-space pose helpers (position, rotation about Z in degrees, scale) from World::world_matrix.
@@ -180,7 +184,6 @@ private:
         BodyType type = BodyType::Static;
         bool hasRigid = false;
         bool hasShape = false;
-        bool box = true;
         bool trigger = false;
         bool enabled = true;
         float mass = 1.0f, invMass = 1.0f;
@@ -188,7 +191,7 @@ private:
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
         // Shape: Box and Sphere have their own exact code; Capsule, Convex and Mesh go through the convex cores of
-        // shape3d.h (`general()`). `box` is true only for Kind::Box.
+        // shape3d.h (`general()`). 
         enum class Kind { Box, Sphere, Capsule, Convex, Mesh } kind = Kind::Box;
         bool general() const { return kind >= Kind::Capsule; }
         Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents along its own axes (scaled); capsule / convex / mesh: bounding box
@@ -239,7 +242,7 @@ private:
         // the body and the bodies that touched it wake up.
         struct Sig {
             BodyType type;
-            bool enabled, hasShape, box, trigger, rotDyn;
+            bool enabled, hasShape, trigger, rotDyn;
             float mass, gravityScale, radius;
             Vec3 half, offset, ax[3];
             std::int32_t layer, mask;
@@ -250,7 +253,7 @@ private:
             bool operator==(const Sig&) const = default;
         };
         Sig sig() const {
-            return {type, enabled, hasShape, box, trigger, rotDyn, mass, gravityScale, radius, half, offset,
+            return {type, enabled, hasShape, trigger, rotDyn, mass, gravityScale, radius, half, offset,
                     {ax[0], ax[1], ax[2]}, layer, mask, kind, segHalf, gscale, data.get()};
         }
     };
@@ -341,15 +344,13 @@ private:
         std::size_t ia = 0, ib = 0;        // body indices for the current step
         bool active = false;               // both bodies exist and the settings are usable
         JointType3D type = JointType3D::Hinge;
-        bool useLimits = false, useMotor = false, collide = false;
+        bool useLimits = false, useMotor = false;
         float lower = 0.0f, upper = 0.0f, motorSpeed = 0.0f, maxTorque = 0.0f;  // radians, rad/s
         Vec3 anchorA, anchorB;             // local to each body (B: a world point when seqB == 0)
         Vec3 axisA, axisB;                 // hinge axis in each body's local frame
         Vec3 refA, refB;                   // hinge reference vector (angle 0) in each body's local frame
         Vec3 relCol[3];                    // fixed: R_A^T R_B when the joint was created
         // What the state above was built from; any change rebuilds it from the poses the bodies have now.
-        JointType3D sigType = JointType3D::Hinge;
-        Entity sigConnected;
         Vec3 sigAnchor, sigConnAnchor, sigAxis;
         bool sigAuto = true;
         // Accumulated impulses (warm start of the next sub-step).
@@ -358,7 +359,7 @@ private:
         float angle = 0.0f;                // radians, this body relative to the connected one about the axis
         // Per sub-step cache (prepare_joints).
         Vec3 rA, rB, pBias, kinv[3], aw, t1, t2, fixBias;
-        float k1 = 1.0f, k2 = 1.0f, kAxis = 1.0f, angBias = 0.0f;
+        float k1 = 1.0f, k2 = 1.0f, kAxis = 1.0f;
         bool hasB = false;
         std::string problem;               // why the joint is inactive ("" = none)
         std::uint64_t seen = 0;
@@ -369,12 +370,14 @@ private:
     void solve_joints(float h);
     void finish_joints(World& world);
     static void build_joint(JointState& j, const Body& a, const Body* b, const Joint3D& jt);
+    static void push_at(Body& b, Vec3 r, Vec3 impulse);  // impulse at offset r from the centre
+    static void push_ang(Body& b, Vec3 L);               // pure angular impulse
 
     // ---- shapes of meshes, shared by every collider of the same mesh
     std::map<std::string, std::shared_ptr<ShapeData>> shapes_;
     std::shared_ptr<const ShapeData> shape_data(const std::string& mesh, bool bvh, std::string& problem);
     float lastDt_ = 1.0f / 60.0f;       // the last step's dt (character pushes turn a move into a speed)
-    void move_character_body(World& world, Body& b, const CharacterController3D& cc, Vec3 delta, CharacterMoveResult& out);
+    CharacterMoveResult move_character_body(World& world, Body& b, Vec3 delta);
 };
 
 }  // namespace fa::detail
