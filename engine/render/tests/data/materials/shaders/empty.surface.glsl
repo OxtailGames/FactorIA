@@ -1,0 +1,1 @@
+void surface(in SurfaceInput i, inout Surface s) {}

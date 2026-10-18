@@ -1,0 +1,8 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: vertex() moves every vertex by a world-space offset (also in the shadow pass).",
+  "shader": "shaders/lift.surface.glsl",
+  "params": {
+    "offset": { "type": "vec3", "default": [0.8, 1.2, 0.0], "doc": "World-space displacement in meters." }
+  }
+}
