@@ -283,7 +283,9 @@ Result<void> export_android(const Project& p, const MobileSetup& setup, const An
     const int versionCode = s.versionCode > 0 ? s.versionCode : android_version_code_from(p.version);
 
     std::vector<std::string> permissions;
-    for (const std::string& perm : s.permissions) permissions.push_back("<uses-permission android:name=\"" + xml_escape(perm) + "\" />");
+    for (const std::string& perm : s.permissions)
+        if (perm != "android.permission.VIBRATE")  // the manifest template always has it (input.vibrate)
+            permissions.push_back("<uses-permission android:name=\"" + xml_escape(perm) + "\" />");
     std::string signingProperties;
     if (!a.keystore.empty())
         signingProperties = "# Release signing (export.android.signing in factoria.json). The passwords are NOT stored here: set the environment\n"

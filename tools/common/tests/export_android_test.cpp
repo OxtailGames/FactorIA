@@ -175,7 +175,9 @@ TEST_CASE("android export: the Gradle project follows the settings and ships the
     CHECK(gradle.find("FACTORIA_ANDROID_KEYSTORE_PASSWORD") != std::string::npos);  // read from the environment only
     const std::string manifest = testing::read_all(root / "app/src/main/AndroidManifest.xml");
     CHECK(manifest.find("android:appCategory=\"game\"") != std::string::npos);
-    CHECK(manifest.find("<uses-permission android:name=\"android.permission.VIBRATE\" />") != std::string::npos);
+    const std::string vibrate = "<uses-permission android:name=\"android.permission.VIBRATE\" />";
+    CHECK(manifest.find(vibrate) != std::string::npos);
+    CHECK(manifest.find(vibrate, manifest.find(vibrate) + 1) == std::string::npos);  // the template's, not listed twice
     CHECK(manifest.find("<uses-permission android:name=\"android.permission.INTERNET\" />") != std::string::npos);
     CHECK(manifest.find("android:icon=\"@mipmap/ic_launcher\"") != std::string::npos);
     CHECK(manifest.find("android:roundIcon=\"@mipmap/ic_launcher_round\"") != std::string::npos);
