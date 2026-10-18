@@ -175,7 +175,8 @@ the AI can write in the file and the reverse.
 - **Android signing**: the keystore file (project-relative or absolute) with **Choose...**, the key alias, and the
   passwords' status (set by the `FACTORIA_ANDROID_KEYSTORE_PASSWORD` / `FACTORIA_ANDROID_KEY_PASSWORD` environment
   variables, saved on this computer, or not set: the password itself is never shown). A release build without a
-  keystore is signed with the debug key, which is fine for a phone but not for Google Play.
+  keystore fails (an app signed with the debug key is one Google Play rejects); to try one on a phone with the debug key,
+  export from the command line with `--allow-debug-key`.
 - **Create keystore...** makes a signing key with the JDK's `keytool` (a PKCS12 keystore with one key valid for about 27
   years; the password is handed to `keytool` through its environment, never as an argument): choose the file (default
   `keys/upload.keystore`), alias, password, your name or studio, and optionally organization and country. It can keep

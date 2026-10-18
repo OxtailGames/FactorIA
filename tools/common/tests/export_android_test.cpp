@@ -419,7 +419,18 @@ TEST_CASE("android export: format and artifact in the plan, the report and the c
     }
     SUBCASE("release drops the -debug") {
         o.release = true;
-        // A release without a keystore is signed with the debug key, with a warning.
+        // A release without a keystore is an error; allowDebugKey signs it with the debug key, with a warning.
+        auto refused = plan_export(o);
+        REQUIRE_FALSE(refused.ok());
+        CHECK(refused.error().message.find("factoria.json#/export/android/signing") != std::string::npos);
+        CHECK(refused.error().message.find("no keystore") != std::string::npos);
+        CHECK(refused.error().hint.find("keytool -genkeypair") != std::string::npos);
+        CHECK(refused.error().hint.find("allowDebugKey") != std::string::npos);
+        CHECK(refused.error().hint.find("--allow-debug-key") != std::string::npos);
+        o.format = "gradle";  // only the Gradle project: nothing is signed, so nothing to refuse
+        CHECK(plan_export(o).ok());
+        o.format = "apk";
+        o.allowDebugKey = true;
         auto plan = plan_export(o);
         REQUIRE(plan.ok());
         CHECK(stdfs::weakly_canonical(plan->artifact).generic_string() == out + "/space-dodge.apk");
@@ -429,6 +440,7 @@ TEST_CASE("android export: format and artifact in the plan, the report and the c
         o.format = "aab";
         CHECK(artifact(o) == std::make_pair(std::string("aab"), out + "/space-dodge-debug.aab"));
         o.release = true;
+        o.allowDebugKey = true;  // no keystore in this game
         CHECK(artifact(o).second == out + "/space-dodge.aab");
     }
     SUBCASE("the format of factoria.json is the default and the option wins; case does not matter") {
@@ -756,7 +768,11 @@ TEST_CASE("android export: the format picks the Gradle task and the file name") 
     CHECK(any_contains(debug->nextSteps, "Upload"));
     CHECK(any_contains(debug->nextSteps, "bundletool"));
 
-    o.release = true;  // no keystore: signed with the debug key, said in a warning
+    o.release = true;  // no keystore: an error, unless the debug key is allowed (then signed with it, said in a warning)
+    auto refused = export_project(o);
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().hint.find("allowDebugKey") != std::string::npos);
+    o.allowDebugKey = true;
     auto release = export_project(o);
     REQUIRE_MESSAGE(release.ok(), (release.ok() ? "" : release.error().to_string()));
     CHECK(fake_gradle_record(release->outputDir).find("args=bundleRelease --console=plain") != std::string::npos);
