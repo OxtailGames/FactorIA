@@ -459,6 +459,7 @@ void Renderer::update(World& world, float dt) {
     // Camera queries (world_to_screen, screen_to_world, screen_ray) must not depend on drawing:
     // the runtime skips drawing in headless/test runs, so refresh the camera here as well.
     im.lastCam = im.build_camera(world);
+    update_parallax(world, im.lastCam.position.xy());  // entity.bounds() of a parallax layer follows the camera in headless runs too
     im.updated = true;
 }
 
@@ -829,10 +830,26 @@ void Renderer::Impl::render(World& world, float dt) {
             const int x1 = std::clamp(int(std::lround(r.x + r.w)), x0, targetW), y1 = std::clamp(int(std::lround(r.y + r.h)), y0, targetH);
             sg_apply_scissor_rect(x0, y0, x1 - x0, y1 - y0, true);
         };
+        // fragment uniforms of the 2D lights: the same for every lit batch except the normal map's uv transform
+        quad_quad_fs_params_t unlit{};
+        quad_quad_fs_params_t litUniforms{};
+        litUniforms.lit[0] = float(fr.lights2d.size());
+        litUniforms.ambient[0] = fr.ambient2d.r; litUniforms.ambient[1] = fr.ambient2d.g; litUniforms.ambient[2] = fr.ambient2d.b;
+        for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kMaxLights2D); ++i) {
+            std::memcpy(litUniforms.light_pos[i], fr.lights2d[i].pos, sizeof(float) * 4);
+            std::memcpy(litUniforms.light_color[i], fr.lights2d[i].color, sizeof(float) * 4);
+        }
         for (const QuadBatch& qb : batches) {
             apply_clip(qb.clip);
             sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend));
             apply_uniforms(UB_quad_vs_params, u);
+            if (qb.lit) {
+                litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
+                if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
+                apply_uniforms(UB_quad_quad_fs_params, litUniforms);
+            } else {
+                apply_uniforms(UB_quad_quad_fs_params, unlit);
+            }
             std::uint32_t done = 0;
             while (done < qb.quadCount) {
                 std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
@@ -841,6 +858,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
                 b.index_buffer = gpu.quad_index_buffer();
                 b.views[VIEW_quad_tex] = qb.tex->gpu_view();
+                b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
                 b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
                 sg_apply_bindings(&b);
                 sg_draw(0, int(n * 6), 1);
@@ -857,10 +875,13 @@ void Renderer::Impl::render(World& world, float dt) {
         quad_vs_params_t u{};
         copy_mat(u.view_proj, fr.cam.viewProj);
         apply_uniforms(UB_quad_vs_params, u);
+        quad_quad_fs_params_t unlit{};
+        apply_uniforms(UB_quad_quad_fs_params, unlit);
         sg_bindings b{};
         b.vertex_buffers[0] = vbuf;
         b.vertex_buffer_offsets[0] = int(lineFirst * sizeof(Vertex2D));
         b.views[VIEW_quad_tex] = assets->white()->view;
+        b.views[VIEW_quad_normal_tex] = assets->white()->view;
         b.samplers[SMP_quad_smp] = gpu.sampler(SamplerKind::Nearest);
         sg_apply_bindings(&b);
         sg_draw(0, int(fr.debugLines.size()), 1);

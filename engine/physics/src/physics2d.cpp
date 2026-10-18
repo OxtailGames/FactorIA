@@ -72,7 +72,7 @@ std::uint64_t hash_tilemap(const Tilemap& tm, const WorldPose& pose) {
     h.add(scale_key(pose.scale.x)); h.add(scale_key(pose.scale.y));
     auto add_json = [&](const Json& j, auto&& self) -> void {
         if (j.is_array()) { for (const Json& c : j) self(c, self); h.add(std::uint8_t(0xff)); }
-        else if (j.is_number()) h.add(int(j.get<double>()));
+        else if (j.is_number()) h.add(tile_index(int(j.get<double>())));  // flip / rotate flags do not change the collision
     };
     add_json(tm.tiles, add_json);
     h.add(std::uint8_t(0xee));
@@ -387,7 +387,7 @@ void Physics2D::sync_tilemaps(World& world) {
             }
             const int w = grid.width, hgt = grid.height;
             auto is_solid = [&](int c, int r) {
-                int t = grid.at(c, r);
+                const int t = tile_index(grid.at(c, r));  // a flipped or rotated solid tile is still solid
                 return t >= 0 && std::binary_search(solid.begin(), solid.end(), t);
             };
             // Horizontal runs per row, then merge identical runs of consecutive rows into taller boxes.

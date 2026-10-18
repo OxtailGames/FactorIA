@@ -44,13 +44,13 @@ Json parse_schema(const char* text) {
 bool as_int(const Json& j, int& out) {
     if (j.is_number_integer() || j.is_number_unsigned()) {
         long long v = j.get<long long>();
-        if (v < -1000000000LL || v > 1000000000LL) return false;
+        if (v < -1000000000LL || v > 2147483647LL) return false;
         out = int(v);
         return true;
     }
     if (j.is_number_float()) {
         double d = j.get<double>();
-        if (d == std::floor(d) && std::fabs(d) < 1e9) {
+        if (d == std::floor(d) && d >= -1e9 && d <= 2147483647.0) {
             out = int(d);
             return true;
         }
@@ -161,9 +161,10 @@ struct LegendEntry {
 
 void parse_tile(LegendEntry& e, const Json& v, const std::string& what) {
     int t = 0;
-    if (!as_int(v, t) || t < -1)
+    if (!as_int(v, t) || t < -1 || t > (kTileFlagMask | kTileIndexMask))
         bad_arg(what + " must be an integer tile index >= -1, got " + describe_json_value(v),
-                "Tile indices count from 0 in the tileset (left-to-right, top-to-bottom); -1 means empty.");
+                "Tile indices count from 0 in the tileset (left-to-right, top-to-bottom); -1 means empty. To flip or rotate a tile "
+                "use the object form: {\"tile\": 3, \"rotate\": 90, \"flipX\": true}.");
     e.hasTile = true;
     e.tile = t;
 }
@@ -188,13 +189,30 @@ void parse_prefab(LegendEntry& e, const Json& v, const std::string& where) {
 }
 
 void parse_object_entry(LegendEntry& e, const Json& v, const std::string& where) {
-    static const std::vector<std::string> kKeys = {"tile", "prefab", "id", "overrides", "offset"};
+    static const std::vector<std::string> kKeys = {"tile", "flipX", "flipY", "rotate", "prefab", "id", "overrides", "offset"};
     for (auto k = v.begin(); k != v.end(); ++k)
         if (std::find(kKeys.begin(), kKeys.end(), k.key()) == kKeys.end())
             bad_arg(where + " has the unknown key '" + k.key() + "'. " + did_you_mean(k.key(), kKeys),
-                    "A legend object looks like {\"tile\": 0} or {\"prefab\": \"prefabs/coin.prefab.json\", "
+                    "A legend object looks like {\"tile\": 0}, {\"tile\": 3, \"rotate\": 90, \"flipX\": true} or {\"prefab\": \"prefabs/coin.prefab.json\", "
                     "\"id\": \"player\", \"overrides\": {...}, \"offset\": [0, 4]}.");
     if (v.contains("tile")) parse_tile(e, v["tile"], where + ".tile");
+    // Flip and rotate flags of the tile (fa/scene/tilemap.h): the tile is turned `rotate` degrees clockwise, then mirrored.
+    if (v.contains("flipX") || v.contains("flipY") || v.contains("rotate")) {
+        if (!e.hasTile || e.tile < 0)
+            bad_arg(where + " has flipX / flipY / rotate but no tile to turn", "Add \"tile\": <index>, e.g. {\"tile\": 3, \"rotate\": 90}.");
+        for (const char* k : {"flipX", "flipY"})
+            if (v.contains(k) && !v[k].is_boolean())
+                bad_arg(where + "." + k + " must be true or false, got " + describe_json_value(v[k]), "Example: \"" + std::string(k) + "\": true.");
+        int turns = 0;
+        if (v.contains("rotate")) {
+            int deg = 0;
+            if (!as_int(v["rotate"], deg) || deg % 90 != 0)
+                bad_arg(where + ".rotate must be 0, 90, 180 or 270 (degrees clockwise), got " + describe_json_value(v["rotate"]),
+                        "Example: \"rotate\": 90. Any multiple of 90 is accepted, negative turns counter-clockwise.");
+            turns = deg / 90;
+        }
+        e.tile = make_tile(tile_index(e.tile), turns, v.value("flipX", false), v.value("flipY", false));
+    }
     if (v.contains("prefab")) parse_prefab(e, v["prefab"], where);
     if (e.prefab.empty()) {
         for (const char* k : {"id", "overrides", "offset"})
@@ -514,10 +532,10 @@ void check_tileset(Tilemap& tm, const Request& q, const std::vector<LegendEntry>
     const int count = tileset_tile_count(tm, img->width, img->height);
     if (count <= 0 || maxTile < count) return;
     for (const LegendEntry& e : legend) {
-        if (!e.hasTile || e.tile < count || e.uses == 0) continue;
+        if (!e.hasTile || tile_index(e.tile) < count || e.uses == 0) continue;
         throw CommandError(
             "invalid_argument",
-            "legend['" + e.glyph + "'] uses tile " + std::to_string(e.tile) + " but the tileset '" + tm.tileset + "' (" +
+            "legend['" + e.glyph + "'] uses tile " + std::to_string(tile_index(e.tile)) + " but the tileset '" + tm.tileset + "' (" +
                 std::to_string(img->width) + "x" + std::to_string(img->height) + " px) holds only " + std::to_string(count) +
                 " tiles (indices 0.." + std::to_string(count - 1) + ") with tileSize [" + std::to_string(int(tm.tileSize.x)) +
                 ", " + std::to_string(int(tm.tileSize.y)) + "] and columns " + std::to_string(tileset_columns(tm, img->width)),
@@ -566,7 +584,7 @@ Json apply_import(World& W, bool flushNow, const Request& q, const Grid& grid, s
     for (const Cell& cell : cells)
         if (cell.tile >= 0) {
             ++tileCount;
-            maxTile = std::max(maxTile, cell.tile);
+            maxTile = std::max(maxTile, tile_index(cell.tile));
         }
 
     // ---- 2. Change the world. Any failure from here restores the tilemap and removes the new objects.
@@ -878,7 +896,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                "rows":{"type":"array","minItems":1,"items":{"type":"string"},
                        "description":"The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length."},
                "legend":{"type":"object",
-                         "description":"Glyph -> tile index (integer, -1 = empty) or {tile?: int, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here."},
+                         "description":"Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0|90|180|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here."},
                "tilemap":{"type":"object",
                           "description":"Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend."},
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},
