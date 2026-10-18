@@ -237,15 +237,14 @@ TEST_CASE("setup shaders: on Windows the status and a vanished file explain the 
     const SokolShdcBinary* bin = sokol_shdc_binary(win);
     REQUIRE(bin != nullptr);
     const SetupComponent c = shaders_status(win);
-    for (const std::string& text : {c.details, c.problems.front()}) {
-        CHECK(has_text(text, "false positive"));
-        CHECK(has_text(text, bin->sha256));
-        CHECK(has_text(text, "Protection history"));
-        CHECK(has_text(text, "SOKOL_SHDC"));
-        CHECK(has_text(text, "Games never contain"));
-    }
+    const std::string& text = c.problems.front();
+    CHECK(has_text(text, "false positive"));
+    CHECK(has_text(text, bin->sha256));
+    CHECK(has_text(text, "Protection history"));
+    CHECK(has_text(text, "SOKOL_SHDC"));
+    CHECK(has_text(text, "Games never contain"));
     // Other hosts do not get the Windows text.
-    CHECK_FALSE(has_text(shaders_status(lab.ctx()).details, "Defender"));
+    for (const std::string& p : shaders_status(lab.ctx()).problems) CHECK_FALSE(has_text(p, "Defender"));
 
     // The file is gone right after the move (the antivirus removed it): the install says why.
     const std::string body = "pretend this is sokol-shdc.exe";
