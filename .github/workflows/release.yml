@@ -32,6 +32,7 @@
 # per ABI; static archives per iOS SDK) and every package carries them in FactorIA/mobile/ (Android in all packages, iOS
 # in the macOS one), so `factoria export --platform android|ios` works from the download without the engine source
 # (docs/EXPORTING.md). The smoke tests export from the unpacked package and build with Gradle / Xcode.
+# Web: `web-player` builds factoria_player.js + .wasm with Emscripten once and every package carries them in FactorIA/web/.
 name: Release
 
 on:
@@ -148,9 +149,67 @@ jobs:
           path: mobile
           if-no-files-found: error
 
+  # The web player (factoria_player.js + .wasm), built once with Emscripten (the SDK version of docs/BUILDING.md, "Web") and
+  # carried by every package in FactorIA/web/, so `factoria export --platform web` works from the download. Like the
+  # Android libraries it does not depend on the game: the game is game.pak next to the page.
+  web-player:
+    name: Web player (Emscripten)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      EMSDK_VERSION: 6.0.10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-webplayer-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-webplayer-
+
+      - name: Restore the Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}  # the same key as ci.yml
+
+      - name: Install the Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Build the web player (web-release)
+        run: |
+          EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
+          cmake --preset web-release
+          cmake --build --preset web-release
+
+      # The layout of the packages: FactorIA/web/factoria_player.js and .wasm (both are needed; the page is embedded in factoria).
+      - name: Stage the player
+        run: |
+          mkdir -p web
+          cp build/web-release/player/factoria_player.js build/web-release/player/factoria_player.wasm web/
+          ls -l web
+          test -s web/factoria_player.js && test -s web/factoria_player.wasm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-player
+          path: web
+          if-no-files-found: error
+
   package:
     name: Package (${{ matrix.os }})
-    needs: [mobile-android, mobile-ios]
+    needs: [mobile-android, mobile-ios, web-player]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -263,6 +322,13 @@ jobs:
           pattern: ${{ runner.os == 'macOS' && 'mobile-*' || 'mobile-android-*' }}
           path: dist/FactorIA/mobile
           merge-multiple: true
+
+      # FactorIA/web/: the web player, in every package.
+      - name: Add the prebuilt web player
+        uses: actions/download-artifact@v4
+        with:
+          name: web-player
+          path: dist/FactorIA/web
 
       # FactorIA-<os>.zip (.tar.gz on macOS and Linux) with one folder, FactorIA/, inside.
       - name: Package
@@ -423,6 +489,17 @@ jobs:
             for sdk in iphoneos iphonesimulator; do test -s "$tmp/FactorIA/mobile/ios/$sdk/libfactoria_player_main.a"; done
           fi
           du -sh "$tmp/FactorIA/mobile"
+
+      # The web player made it into the package, and `factoria export --platform web` finds it there (web/ next to factoria).
+      - name: Check the web player in the package
+        run: |
+          tmp="${RUNNER_TEMP//\\//}/smoke"
+          test -s "$tmp/FactorIA/web/factoria_player.js"
+          test -s "$tmp/FactorIA/web/factoria_player.wasm"
+          du -sh "$tmp/FactorIA/web"
+          "$tmp/FactorIA/factoria${{ matrix.exe }}" export "$tmp/g" --platform web --out "$tmp/export-web"
+          zip="$(ls "$tmp"/export-web/*-web.zip)"
+          cmake -E tar tf "$zip" | grep -qx "index.html"
 
       # The export builds the APK, so it needs a JDK 17+ (it reads JAVA_HOME) next to the runner's Android SDK.
       - name: Set up JDK 17
