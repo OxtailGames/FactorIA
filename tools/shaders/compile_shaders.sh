@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Regenerates engine/render/src/shaders/*.glsl.h from engine/render/shaders/*.glsl
-# with sokol-shdc. The generated headers are committed, so normal builds never
-# need this script; run it after editing a .glsl file and commit the result.
+# Regenerates the shader headers with sokol-shdc: engine/render/shaders/<name>.glsl -> engine/render/src/shaders/
+# <name>.glsl.h, and the test materials engine/render/tests/shaders/<name>.glsl -> <name>.glsl.h next to them. The
+# generated headers are committed, so normal builds never need this script; run it after editing a .glsl file and
+# commit the result.
 #
 #   tools/shaders/compile_shaders.sh            # all shaders
 #   tools/shaders/compile_shaders.sh mesh quad  # only these
+#
+# Only top files (the ones declaring an @program) are compiled. The others are templates they @include, with paths
+# relative to the including file (mesh_common.glsl: the mesh template every mesh program, built-in or a material's,
+# is made from; docs/design/CUSTOM_SHADERS.md).
 #
 # sokol-shdc is taken from $SOKOL_SHDC, else .cache/sokol-tools-bin (fetched with
 # git on first use; override the URL with SOKOL_TOOLS_BIN_URL).
@@ -13,6 +18,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC="$ROOT/engine/render/shaders"
 OUT="$ROOT/engine/render/src/shaders"
+TESTS="$ROOT/engine/render/tests/shaders"
 SLANG="glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl"
 
 host_dir() {
@@ -41,11 +47,16 @@ if [ -z "$SHDC" ]; then
 fi
 
 mkdir -p "$OUT"
-if [ "$#" -gt 0 ]; then names=("$@"); else names=($(cd "$SRC" && ls *.glsl | sed 's/\.glsl$//')); fi
-
-for name in "${names[@]}"; do
-    echo "shdc: $name.glsl -> src/shaders/$name.glsl.h"
-    "$SHDC" --input "$SRC/$name.glsl" --output "$OUT/$name.glsl.h" --slang "$SLANG" \
-        --format sokol --ifdef --no-log-cmdline
+compiled=0
+for input in "$SRC"/*.glsl "$TESTS"/*.glsl; do
+    [ -f "$input" ] || continue
+    name="$(basename "$input" .glsl)"
+    if [ "$#" -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
+    grep -q '^@program' "$input" || continue  # a template, compiled through the files that include it
+    if [ "$(dirname "$input")" = "$TESTS" ]; then output="$TESTS/$name.glsl.h"; else output="$OUT/$name.glsl.h"; fi
+    echo "shdc: ${input#"$ROOT"/} -> ${output#"$ROOT"/}"
+    "$SHDC" --input "$input" --output "$output" --slang "$SLANG" --format sokol --ifdef --no-log-cmdline
+    compiled=$((compiled + 1))
 done
+[ "$compiled" -gt 0 ] || { echo "no shader matches: $*" >&2; exit 1; }
 echo "done."

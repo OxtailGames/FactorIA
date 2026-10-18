@@ -144,7 +144,12 @@ that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
 HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annotated for
-`sokol-shdc`; generated headers are committed (`tools/shaders/`).
+`sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
+`mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
+`@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
+the programs. `mesh.glsl` is that top file with an empty `surface()`; custom materials will be the same with their own
+snippet ([design](design/CUSTOM_SHADERS.md)). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
+fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
 
 ### Textures
 An export replaces a texture `x.png` by its twin `x.png.ktx2` (Basis Universal, written by `fa_tooling`'s
@@ -181,8 +186,8 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   headless runs are deterministic. The variable-rate render step never advances animation.
 - **What the renderer reads:** `Animator::palette` (components.h), a runtime-only vector with one matrix per joint of skin 0,
   `jointGlobal * inverseBind` in the glTF's model space (vertices of a skinned mesh are not transformed by their node). The renderer
-  (`renderer.cpp`) packs it into the `mesh_skin` / `shadow_skin` uniform (64 joints x 3 rows of a 3x4 matrix) and draws with the
-  second program of mesh.glsl / shadow.glsl (`mesh_skin`, `shadow_skin`: only the vertex stage differs, the lighting code is
+  (`renderer.cpp`) packs it into the `fa_skin` uniform (64 joints x 3 rows of a 3x4 matrix) and draws with the
+  skinned programs of the mesh template (`mesh_skin`, `shadow_skin`: only the vertex stage differs, the lighting code is
   shared). Skinned items carry the Animator pointer in their material key so they never join an instanced batch, and their
   culling box is `skinned_bounds` (the bind box carried by every joint, joined).
 - The tween module (`tween`, `ease`) is JavaScript (`factoria.js`), advanced by the script system's update with the scaled `dt`,

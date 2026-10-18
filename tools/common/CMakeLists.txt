@@ -27,8 +27,12 @@ file(GLOB FA_EMBED_LICENSES CONFIGURE_DEPENDS LIST_DIRECTORIES false ${FA_ROOT}/
      ${FA_ROOT}/external/*/COPYING ${FA_ROOT}/external/harfbuzz/src/ms-use/COPYING
      ${FA_ROOT}/external/*/LICENSES/* ${FA_ROOT}/engine/render/assets/fonts/*.txt)
 list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
+# The mesh shader template (engine/render/shaders/*_common.glsl, @included by every mesh program): custom materials are
+# compiled against it (docs/design/CUSTOM_SHADERS.md), also by an installed factoria without the engine source.
+file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
 set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
+    ${FA_EMBED_SHADER_TEMPLATES}
     ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h)
 if(FA_EMBED_ALL)
     fa_embed_files(fa_tooling fa::embedded fa_embedded_files BASE ${FA_ROOT} FILES ${FA_EMBED_ALL})
