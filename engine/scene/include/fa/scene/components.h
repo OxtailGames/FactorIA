@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -90,6 +91,9 @@ struct Sprite {
     BlendMode blend = BlendMode::Alpha;
     Vec2 anchor{0, 0};                // screen space only: screen point the position is relative to (see above)
     bool safeArea = false;              // screen space only: the anchor names a point of the safe area (see above)
+    Vec4 slice{0, 0, 0, 0};           // 9-slice borders in texture pixels [left, top, right, bottom] (0 = stretch the whole region)
+    bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
+    std::string normalMap;            // tangent-space normal map with the same layout as `texture` ("" = flat); needs lit
 };
 
 // Grid-based flipbook over a sprite sheet. Requires Sprite on the same entity;
@@ -148,10 +152,38 @@ struct Tilemap {
     std::int32_t columns = 0;         // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
     std::int32_t width = 0;           // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
     std::int32_t height = 0;          // map height in tiles (flat tiles)
-    Json tiles = Json::array();       // row-major tile indices, row 0 = TOP row; array of ints (width*height) or array of rows
-    Json solidTiles = Json::array();  // tile indices that collide (empty = none collide)
+    Json tiles = Json::array();       // row-major tile values, row 0 = TOP row; array of ints (width*height) or array of rows.
+                                      // A value is the tile index plus optional flip/rotate flag bits (fa/scene/tilemap.h)
+    Json solidTiles = Json::array();  // tile indices that collide (empty = none collide); flags are not part of them
     Color color{1, 1, 1, 1};
     std::int32_t layer = -10;
+    bool lit = false;                 // shaded by Light2D entities and SceneSettings.ambientLight
+    std::string normalMap;            // normal map image with the same layout as the tileset ("" = flat); needs lit
+};
+
+// Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so
+// far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 moves with the
+// world as usual, 0 stays glued to the camera (sky), between 0 and 1 is behind the action, above 1 in front of it.
+// With the camera at (0, 0) the entity is exactly where its Transform says. Only world-space visuals are shifted.
+struct Parallax {
+    Vec2 factor{0.5f, 0.5f};          // [x, y] fraction of the camera movement the layer follows
+    bool repeatX = false;             // Sprite only: tile the sprite endlessly along world x so the background never ends
+    bool repeatY = false;             // Sprite only: same along world y
+    Vec2 repeatSize{0, 0};            // distance between repeats; 0 = the sprite's own size on that axis
+    Vec2 offset{0, 0};                // runtime: the shift applied to the drawing this frame (written by the renderer)
+};
+
+// A light for lit 2D visuals (Sprite.lit, Tilemap.lit). Only lit visuals react to it; everything else is drawn as before.
+enum class Light2DType : std::int32_t { Point, Directional };
+struct Light2D {
+    Light2DType type = Light2DType::Point;
+    Color color{1, 1, 1, 1};
+    float intensity = 1.0f;           // multiplies color; above 1 over-brightens
+    float radius = 300.0f;            // point: distance in world units where the light has faded to nothing
+    float falloff = 2.0f;             // point: how fast it fades: brightness = (1 - distance/radius)^falloff
+    float height = 80.0f;             // point: height above the drawing plane in world units; lower = more grazing normal-map relief
+    float direction = 270.0f;         // directional: degrees the light travels towards (0 = right, 90 = up, 270 = down)
+    float elevation = 45.0f;          // directional: degrees above the drawing plane (90 = straight at the picture)
 };
 
 struct ParticleEmitter {
@@ -310,6 +342,8 @@ struct TouchButton : UiBox {
 struct MeshRenderer {
     std::string mesh = "cube";
     std::string texture;              // base color texture ("" = none / glTF material)
+    std::string normalMap;            // tangent-space normal map ("" = none / glTF normalTexture)
+    float normalScale = 1.0f;         // strength of the normal map
     Color color{1, 1, 1, 1};          // base color (multiplied with texture)
     float metallic = 0.0f;
     float roughness = 0.6f;
@@ -328,6 +362,47 @@ struct Light {
     float range = 10.0f;              // point/spot attenuation distance (meters)
     float spotAngle = 30.0f;          // spot cone half-angle (degrees)
     bool castShadows = false;         // directional only for now
+};
+
+struct SkeletonAsset;  // skeleton.h
+
+// What the animation system (animation.h) keeps per Animator at run time. Never serialized; copying an Animator copies it.
+struct AnimatorRuntime {
+    std::shared_ptr<const SkeletonAsset> skeleton;
+    std::string skeletonPath;        // the model `skeleton` was loaded from
+    bool started = false;            // the first update ran (initial clip / state entered)
+    bool warned = false;             // a problem was already logged (once per animator)
+    std::string activeClip;          // clip the animator is playing (its `clip` field differing means a script changed it)
+    int clipIndex = -1;
+    float prevTime = -1.0f;          // time of the previous step, the start of the window of events to fire (-1: the clip just started)
+    float lastTime = 0.0f;           // value `time` had after the last update (a different value means a script seeked)
+    bool finished = false;           // a non-looping clip reached its end (transitions with onFinish)
+    int fromIndex = -1;              // clip fading out (-1 = no fade running)
+    float fromTime = 0.0f;
+    bool fromLoop = true;
+    float fadeElapsed = 0.0f, fadeDuration = 0.0f;
+    std::vector<std::string> triggers;  // trigger() calls, true for one update
+};
+
+// Skeletal animation of a skinned glTF model, played by the animation system every fixed step (headless runs too).
+struct Animator {
+    std::string model;                // glTF to animate; "" = the `mesh` of the MeshRenderer on the same entity
+    std::string clip;                 // clip playing now (glTF animation name); "" = bind pose
+    float speed = 1.0f;               // playback speed multiplier (1 = authored speed, 0 = frozen)
+    bool loop = true;
+    bool playing = true;
+    float fade = 0.2f;                // seconds of cross-fade when `clip` is changed by assignment
+    Json params = Json::object();     // state machine: parameters and their start values {"speed": 0, "jump": false}
+    Json states = Json::object();     // state machine: {"idle": {"clip": "Idle", "loop": true, "speed": 1, "onEnter": "event"}}
+    Json transitions = Json::array(); // state machine: [{"from": "idle", "to": "run", "when": "speed > 0.1", "fade": 0.2}]
+    Json events = Json::array();      // clip events: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]
+    std::string state;                // state machine: current state ("" = the first state of `states`)
+    float time = 0.0f;                // runtime: seconds into the current clip (assignable: seek)
+    Json values = Json::object();     // runtime: current value of every parameter
+    // Runtime, not reflected. The renderer reads `palette`: one skinning matrix per joint of skin 0 (jointGlobal *
+    // inverseBind, in the glTF's model space); empty while there is no skin. Written by update_animators (animation.h).
+    std::vector<Mat4> palette;
+    AnimatorRuntime rt;
 };
 
 // ------------------------------------------------------------- physics ---
@@ -359,6 +434,35 @@ struct Collider2D {
     bool oneWay = false;              // one-way platform: only blocks bodies coming from above (+Y side of the entity)
 };
 
+// A Box2D joint between this entity's body and another one (or the world). Put it on the body entity; both entities need a
+// RigidBody2D or Collider2D. Lengths and anchors are in world units (pixels), angles in degrees; gameplay never sees meters.
+// Anchors are in the entity's local space and scaled with its Transform.scale, like Collider2D.offset. Revolute angles are
+// measured from the relative angle of the two bodies when the joint was created (0 = the creation pose); prismatic
+// translation is 0 where the two anchors coincide.
+enum class JointType2D : std::int32_t { Revolute, Distance, Prismatic, Weld };
+struct Joint2D {
+    JointType2D type = JointType2D::Revolute;
+    Entity connected = kNullEntity;   // the other body; empty = fixed to the world (connectedAnchor is then a world position)
+    Vec2 anchor{0, 0};                // joint point in this entity's local space
+    Vec2 connectedAnchor{0, 0};       // joint point in the connected entity's local space (a world position when `connected` is empty)
+    Vec2 axis{1, 0};                  // prismatic: slide direction in this entity's local space (normalised by the engine)
+    bool collideConnected = false;    // the two bodies still collide with each other
+    float length = 0.0f;              // distance: rest length; 0 = the distance between the anchors when the joint is created
+    bool enableLimit = false;
+    float lowerLimit = 0.0f;          // revolute: degrees; prismatic: translation; distance: minimum length (world units)
+    float upperLimit = 0.0f;          // revolute: degrees; prismatic: translation; distance: maximum length (world units)
+    bool enableMotor = false;         // revolute and prismatic: drive towards motorSpeed; distance: needs enableSpring
+    float motorSpeed = 0.0f;          // revolute: degrees/s; prismatic and distance: world units/s
+    float maxMotorTorque = 0.0f;      // largest torque (revolute) or force (prismatic, distance) the motor may use
+    bool enableSpring = false;        // revolute, prismatic, distance: soft constraint along the free axis
+    float springHertz = 0.0f;         // spring stiffness in cycles per second; weld: 0 = rigid, above 0 = soft
+    float dampingRatio = 0.0f;        // 0 = bounces forever, 1 = no overshoot
+    Vec2 reactionForce{0, 0};         // runtime: force the joint applies to hold the bodies together
+    float reactionTorque = 0.0f;      // runtime: torque the joint applies
+    float angle = 0.0f;               // runtime: revolute and weld: current joint angle in degrees
+    float translation = 0.0f;         // runtime: prismatic: slide position; distance: current length (world units)
+};
+
 // Simple 3D physics for arcade games: spheres and oriented boxes (they follow the entity's world rotation), automatic
 // continuous collision. Dynamic boxes are rigid bodies: contacts apply torque (inertia tensor from size and mass), so
 // they tip over, tumble and settle; lockRotation keeps a box upright. A sphere is an arcade rolling ball while
@@ -376,17 +480,58 @@ struct RigidBody3D {
     bool lockRotation = false;        // contacts never spin the body (characters, upright crates, sliding balls)
 };
 
-enum class ColliderShape3D : std::int32_t { Box, Sphere };
+// Box and Sphere are the primitive shapes; Capsule is a segment along the entity's local Y plus a radius; Convex is the
+// convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only).
+enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh };
 struct Collider3D {
     ColliderShape3D shape = ColliderShape3D::Box;
     Vec3 size{1, 1, 1};               // box extents (full size, in the entity's rotated frame, scaled by Transform.scale)
-    float radius = 0.5f;              // sphere radius
+    float radius = 0.5f;              // sphere / capsule radius
+    float height = 2.0f;              // capsule: full height tip to tip along the entity's local Y (>= 2 * radius)
+    std::string mesh;                 // convex / mesh: primitive name or project-relative .gltf/.glb path
     Vec3 offset{0, 0, 0};             // shape centre from the entity origin; rotated and scaled with the entity
     bool isTrigger = false;
     float friction = 0.4f;
     float restitution = 0.0f;
     std::int32_t layer = 0;
     std::int32_t mask = -1;
+};
+
+// Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body
+// is always a rotating rigid body (lockRotation and rollWithMotion are ignored), and never falls asleep.
+enum class JointType3D : std::int32_t { Hinge, Ball, Fixed };
+struct Joint3D {
+    JointType3D type = JointType3D::Hinge;
+    Entity connected;                 // the other body; empty = the world (a fixed point)
+    Vec3 anchor{0, 0, 0};             // joint point in THIS entity's local space (scaled with it)
+    Vec3 connectedAnchor{0, 0, 0};    // joint point in the connected entity's local space (the world, when `connected` is empty)
+    bool autoAnchor = true;           // compute connectedAnchor so that the joint holds exactly where the bodies are
+    Vec3 axis{0, 0, 1};               // hinge axis in this entity's local space
+    bool useLimits = false;           // hinge: keep the angle within [lowerLimit, upperLimit]
+    float lowerLimit = -45.0f;        // degrees, relative to the pose the joint was created in
+    float upperLimit = 45.0f;
+    bool useMotor = false;            // hinge: drive the angle at motorSpeed
+    float motorSpeed = 0.0f;          // degrees/second of this body relative to the connected one, about the axis
+    float maxMotorTorque = 10.0f;     // N*m the motor may apply
+    bool collideConnected = false;    // false: the two joined bodies do not collide with each other
+    float angle = 0.0f;               // runtime: current hinge angle in degrees (read only)
+};
+
+// Kinematic capsule that moves and slides: walks along floors, up steps and slopes, stops at walls, pushes dynamic
+// bodies. Moved with physics.moveCharacter(entity, delta) or by `velocity`; the entity origin is the capsule centre
+// (plus `center`). Do not add a RigidBody3D / Collider3D to the same entity.
+struct CharacterController3D {
+    float radius = 0.4f;              // capsule radius (scaled by Transform.scale)
+    float height = 1.8f;              // capsule height tip to tip (>= 2 * radius)
+    Vec3 center{0, 0, 0};             // capsule centre from the entity origin
+    float stepOffset = 0.3f;          // highest step it climbs, meters
+    float slopeLimit = 45.0f;         // steepest walkable slope, degrees
+    float skin = 0.02f;               // gap kept to surfaces, meters
+    std::int32_t layer = 0;
+    std::int32_t mask = -1;
+    Vec3 velocity{0, 0, 0};           // m/s: if not zero, the character moves by velocity * dt every physics step
+    bool isGrounded = false;          // runtime: standing on walkable ground after the last move (read only)
+    Vec3 groundNormal{0, 1, 0};       // runtime: normal of that ground (read only)
 };
 
 // ---------------------------------------------------------------- audio ---

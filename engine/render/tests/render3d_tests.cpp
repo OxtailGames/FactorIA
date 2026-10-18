@@ -1,5 +1,12 @@
 #include "test_util.h"
 
+#include <fstream>
+#include <vector>
+
+#include "fa/scene/animation.h"
+
+#include "mesh_batch.h"
+
 using namespace fa;
 using namespace fa::test;
 
@@ -128,4 +135,273 @@ TEST_CASE("glTF loading builds meshes from a GLB") {
     CHECK(g.renderer.stats().triangles == 1);
     Color c = img.pixel(160, 100);
     CHECK(c.g > c.r);
+}
+
+// ---------------------------------------------------------------------------
+// M18: production 3D rendering (culling, instancing, lights, tangents, PBR + IBL)
+// ---------------------------------------------------------------------------
+namespace {
+// Tiled "domes" normal map (tangent space, +Y up, glTF convention): a grid of round bumps.
+void write_dome_normal_map(const char* path) {
+    const int size = 64, cells = 2, cell = size / cells;
+    Image img;
+    img.width = img.height = size;
+    img.rgba.resize(std::size_t(size) * size * 4);
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            float lx = (float(x % cell) + 0.5f) / float(cell) * 2.0f - 1.0f;
+            float ly = -((float(y % cell) + 0.5f) / float(cell) * 2.0f - 1.0f);  // image y is down, tangent-space y is up
+            float r2 = lx * lx + ly * ly;
+            Vec3 n = r2 < 1.0f ? normalize(Vec3{lx * 1.6f, ly * 1.6f, 1.0f}) : Vec3{0, 0, 1};
+            std::uint8_t* p = &img.rgba[(std::size_t(y) * size + x) * 4];
+            p[0] = std::uint8_t(std::lround((n.x * 0.5f + 0.5f) * 255.0f));
+            p[1] = std::uint8_t(std::lround((n.y * 0.5f + 0.5f) * 255.0f));
+            p[2] = std::uint8_t(std::lround((n.z * 0.5f + 0.5f) * 255.0f));
+            p[3] = 255;
+        }
+    }
+    REQUIRE(save_png(img, path).ok());
+}
+}  // namespace
+
+TEST_CASE("10 000 instanced cubes draw in one draw call per material part") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 120, 0.5f}, {0, 0, 0});
+    add_light(w, LightType::Directional, {0, 5, 0}, {-60, 20, 0}, 1.0f);
+    std::vector<Entity> cubes;
+    for (int z = 0; z < 100; ++z)
+        for (int x = 0; x < 100; ++x)
+            cubes.push_back(add_mesh(w, "cube", {float(x) - 49.5f, 0, float(z) - 49.5f}, Color::hex(0xe04040), {0.6f, 0.6f, 0.6f}));
+    Image img = g.render(w);
+    RenderStats s = g.renderer.stats();
+    CHECK(s.meshes == 10000);
+    CHECK(s.meshesCulled == 0);
+    CHECK(s.meshBatches == 1);
+    CHECK(s.triangles == 12 * 10000);
+    CHECK(s.drawCalls == 2);  // the sky + one instanced draw for the cube's only part
+    Color mid = img.pixel(160, 90);
+    CHECK(mid.r > mid.b);  // the red cubes cover the middle of the frame
+    // A second material makes a second batch and a second draw, nothing more.
+    for (std::size_t i = 0; i < cubes.size(); i += 2) w.get<MeshRenderer>(cubes[i])->color = Color::hex(0x40e040);
+    g.render(w);
+    s = g.renderer.stats();
+    CHECK(s.meshes == 10000);
+    CHECK(s.meshBatches == 2);
+    CHECK(s.drawCalls == 3);
+    CHECK(s.to_json()["meshBatches"] == 2);
+}
+
+TEST_CASE("meshes outside the camera frustum are not submitted") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 2, 8}, {0, 0, 0});
+    add_mesh(w, "cube", {0, 0, 0}, Color::hex(0xc0c0c0));
+    for (int i = 0; i < 50; ++i) add_mesh(w, "cube", {float(i), 0, 30}, Color::hex(0xc0c0c0));        // behind the camera
+    for (int i = 0; i < 50; ++i) add_mesh(w, "cube", {-500, 0, float(i)}, Color::hex(0xc0c0c0));      // far to the left
+    Entity sun = add_light(w, LightType::Directional, {0, 5, 0}, {-60, 20, 0}, 1.0f);
+    g.render(w);
+    RenderStats s = g.renderer.stats();
+    CHECK(s.meshes == 1);
+    CHECK(s.meshesCulled == 100);
+    CHECK(s.triangles == 12);
+    CHECK(s.drawCalls == 2);  // sky + the one visible cube: the 100 others cost no draw at all
+    // With a shadow-casting sun the off-screen cubes still cast: the shadow pass draws them, the main pass does not.
+    w.get<Light>(sun)->castShadows = true;
+    g.render(w);
+    s = g.renderer.stats();
+    CHECK(s.meshes == 1);
+    CHECK(s.meshesCulled == 100);
+    CHECK(s.drawCalls == 3);  // shadow (one instanced draw) + sky + main
+}
+
+TEST_CASE("frustum test of a box, both depth conventions") {
+    for (bool z01 : {false, true}) {
+        Mat4 vp = Mat4::perspective(60.0f, 1.0f, 0.1f, 100.0f, z01);  // camera at the origin looking down -Z
+        Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
+        CHECK(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, -10})));
+        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, 10})));      // behind
+        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({100, 0, -10})));   // to the side
+        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, -200})));    // beyond far
+        CHECK(fa::render::box_in_frustum(vp, z01, lo * 50.0f, hi * 50.0f, Mat4::translate({0, 0, -20})));  // contains the camera
+    }
+}
+
+TEST_CASE("lights over the limit: the most relevant ones are kept") {
+    using fa::render::LightData;
+    std::vector<LightData> lights;
+    for (int i = 0; i < 40; ++i) {
+        LightData l;
+        l.rank = i == 39 ? 0 : 2;
+        l.score = float(i);
+        lights.push_back(l);
+    }
+    int dropped = fa::render::select_lights(lights, fa::render::kMaxLights);
+    CHECK(dropped == 8);
+    REQUIRE(lights.size() == 32);
+    CHECK(lights[0].rank == 0);       // the shadow caster first
+    CHECK(lights[1].score == 38.0f);  // then the most relevant
+    CHECK(lights.back().score == 8.0f);  // scores 0..7 are the ones gone
+    // Through the renderer: 40 point lights, 32 reach the shader.
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    add_camera(w, {0, 3, 7}, {0, 0, 0});
+    add_mesh(w, "sphere", {0, 0, 0}, Color::hex(0xd0d0d0));
+    for (int i = 0; i < 40; ++i) add_light(w, LightType::Point, {float(i) - 20, 2, 0}, {0, 0, 0}, 0.2f);
+    g.render(w);
+    CHECK(g.renderer.stats().lights == 32);
+    CHECK(g.renderer.stats().lightsDropped == 8);
+}
+
+TEST_CASE("primitives have unit tangents across their normals, with a handedness") {
+    for (const char* name : {"cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad"}) {
+        std::vector<fa::render::MeshVertex> v;
+        std::vector<std::uint32_t> idx;
+        REQUIRE(fa::render::build_primitive(name, v, idx));
+        for (const auto& x : v) {
+            Vec3 n{x.nx, x.ny, x.nz}, t{x.tx, x.ty, x.tz};
+            INFO(std::string(name) << " n=" << n.x << "," << n.y << "," << n.z << " t=" << t.x << "," << t.y << "," << t.z);
+            CHECK(length(t) == doctest::Approx(1.0f).epsilon(1e-3));
+            CHECK(std::fabs(dot(n, t)) < 1e-3f);
+            CHECK(std::fabs(std::fabs(x.tw) - 1.0f) < 1e-6f);
+        }
+    }
+    // The +Z face of the cube: u grows along +X, v (up) along +Y, so the tangent is +X and the frame is right-handed.
+    std::vector<fa::render::MeshVertex> v;
+    std::vector<std::uint32_t> idx;
+    REQUIRE(fa::render::build_primitive("cube", v, idx));
+    CHECK(v[0].nz == 1.0f);
+    CHECK(v[0].tx == doctest::Approx(1.0f));
+    CHECK(v[0].tw == 1.0f);
+}
+
+TEST_CASE("glTF materials: emissiveFactor lights a black surface") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    const char* gltf = R"({
+      "asset":{"version":"2.0"},
+      "scene":0,"scenes":[{"nodes":[0]}],
+      "nodes":[{"mesh":0,"scale":[2,2,2]}],
+      "meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],
+      "materials":[{"pbrMetallicRoughness":{"baseColorFactor":[0,0,0,1],"metallicFactor":0},"emissiveFactor":[1,0,0],"doubleSided":true}],
+      "buffers":[{"byteLength":36,"uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA"}],
+      "bufferViews":[{"buffer":0,"byteLength":36}],
+      "accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}]
+    })";
+    REQUIRE(fs::write_text("assets/emissive_tri.gltf", gltf).ok());
+    World w;
+    add_camera(w, {0.5f, 0.5f, 4}, {0.5f, 0.5f, 0});
+    Entity e = make(w, "model", {-0.5f, -0.5f, 0});
+    w.add<MeshRenderer>(e).mesh = "assets/emissive_tri.gltf";
+    add_light(w, LightType::Directional, {0, 5, 0}, {-30, 0, 0}, 1.0f);
+    clear_recent_logs();
+    Image img = g.render(w);
+    CHECK(error_count() == 0);
+    Color c = img.pixel(160, 100);
+    CHECK(c.r > 0.9f);
+    CHECK(c.g < 0.2f);
+}
+
+TEST_CASE("3D PBR: metal and rough spheres, sky reflections and a normal-mapped floor") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    write_dome_normal_map("assets/normal_domes.png");
+    World w;
+    add_camera(w, {0, 3.2f, 7.5f}, {0, 0.3f, 0});
+    w.settings().ambientLight = Color{0.12f, 0.13f, 0.16f, 1};
+    Entity floor = add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0xa08060), {14, 1, 14});
+    {
+        auto& m = *w.get<MeshRenderer>(floor);
+        m.normalMap = "assets/normal_domes.png";
+        m.uvScale = {7, 7};
+        m.roughness = 0.45f;
+    }
+    const Color gold = Color::hex(0xe8b84a), red = Color::hex(0xd03030);
+    for (int i = 0; i < 4; ++i) {  // back row: metal, roughness 0.1 .. 0.8
+        Entity s = add_mesh(w, "sphere", {-2.7f + 1.8f * float(i), 0, -1.2f}, gold);
+        w.get<MeshRenderer>(s)->metallic = 1.0f;
+        w.get<MeshRenderer>(s)->roughness = 0.1f + 0.7f * float(i) / 3.0f;
+    }
+    for (int i = 0; i < 4; ++i) {  // front row: plastic, roughness 0.1 .. 0.8
+        Entity s = add_mesh(w, "sphere", {-2.7f + 1.8f * float(i), -0.1f, 1.2f}, red, {0.8f, 0.8f, 0.8f});
+        w.get<MeshRenderer>(s)->roughness = 0.1f + 0.7f * float(i) / 3.0f;
+    }
+    add_light(w, LightType::Directional, {0, 5, 0}, {-50, 25, 0}, 0.9f);
+    add_light(w, LightType::Point, {-3, 2.5f, 2.5f}, {0, 0, 0}, 1.0f, Color::hex(0xffc080));
+    Image img = g.render(w);
+    CHECK(g.renderer.stats().meshes == 9);
+    CHECK(g.renderer.stats().meshBatches == 1 + 4 + 4);
+    expect_golden(img, "3d_pbr_normalmap_ibl");
+    // The normal map matters: with normalScale 0 the floor is flat shaded and the picture changes.
+    w.get<MeshRenderer>(floor)->normalScale = 0.0f;
+    Image flat = g.render(w);
+    CHECK(diff_images(img, flat, 4.0f / 255.0f).meanError > 0.002);
+}
+
+namespace {
+Entity add_rig(World& w, Vec3 pos, const char* clip) {
+    Entity e = make(w, "rig", pos);
+    w.add<MeshRenderer>(e).mesh = "assets/rig.gltf";
+    w.add<Animator>(e).clip = clip;
+    return e;
+}
+Entity setup_rig_scene(World& w) {
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(fs::write_text("assets/rig.gltf", text).ok());
+    add_camera(w, {0.5f, 1.2f, 4}, {0.5f, 1.0f, 0});
+    Entity sun = add_light(w, LightType::Directional, {0, 5, 0}, {-40, 25, 0}, 1.0f);
+    add_mesh(w, "plane", {0, -0.01f, 0}, Color::hex(0x909090), {8, 1, 8});
+    return sun;
+}
+}  // namespace
+
+TEST_CASE("3D GPU skinning: bind pose, a clip at a known time, a cross-fade, shadows and batching") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity sun = setup_rig_scene(w);
+    w.get<Light>(sun)->castShadows = true;
+    Entity rig = add_rig(w, {0, 0, 0}, "Bend");
+    clear_recent_logs();
+    // Before the first fixed step there is no palette: the model shows in its bind pose (the straight bar).
+    Image bind = g.render(w);
+    CHECK(error_count() == 0);
+    CHECK(w.get<Animator>(rig)->palette.empty());
+    CHECK(g.renderer.stats().meshes == 2);
+    // Bend at 0.5 s: the tip is rotated 45 degrees about Z.
+    update_animators(w, 0.0f);
+    update_animators(w, 0.5f);
+    REQUIRE(w.get<Animator>(rig)->palette.size() == 2);
+    CHECK(w.get<Animator>(rig)->time == doctest::Approx(0.5f));
+    Image bend = g.render(w);
+    CHECK(error_count() == 0);
+    CHECK(diff_images(bind, bend, 4.0f / 255.0f).meanError > 0.002);
+    expect_golden(bend, "3d_skinned_bend");
+    // Mid cross-fade from Bend to Slide: a third picture.
+    REQUIRE(animator_play(w, rig, "Slide", 0.4f).ok());
+    update_animators(w, 0.2f);
+    Image fade = g.render(w);
+    CHECK(diff_images(bend, fade, 4.0f / 255.0f).meanError > 0.002);
+    expect_golden(fade, "3d_skinned_crossfade");
+    // Skinned meshes are never instanced together (each has its own palette): two rigs are two batches.
+    add_rig(w, {2, 0, 0}, "Bend");
+    update_animators(w, 0.1f);
+    g.render(w);
+    CHECK(g.renderer.stats().meshes == 3);
+    CHECK(g.renderer.stats().meshBatches == 3);  // the floor and the two rigs
+}
+
+TEST_CASE("skinned bounds cover every pose of the palette") {
+    std::vector<Mat4> palette = {Mat4::identity(), Mat4::translate({3, 0, 0})};
+    Vec3 lo, hi;
+    render::skinned_bounds(palette, {-1, 0, -1}, {1, 2, 1}, lo, hi);
+    CHECK(lo.x == doctest::Approx(-1));
+    CHECK(hi.x == doctest::Approx(4));
+    CHECK(hi.y == doctest::Approx(2));
+    render::skinned_bounds({}, {-1, 0, -1}, {1, 2, 1}, lo, hi);  // no palette: the mesh's own bounds
+    CHECK(hi.x == doctest::Approx(1));
 }

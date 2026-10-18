@@ -68,6 +68,36 @@ Draws a textured (or solid color) quad. Use `region` to pick a frame from a spri
 | `blend` | enum: alpha \\| additive \\| multiply | `"alpha"` | Compositing: alpha (normal), additive (glow, neon, fire, lasers; brightens), multiply (darkens/tints). |
 | `anchor` | vec2 | `[0.0,0.0]` | Screen space only: screen point the position is relative to. [0,0] top-left (default), [1,0] top-right, [0.5,0.5] center, [1,1] bottom-right. Keeps HUD elements glued to screen edges on any aspect ratio. |
 | `safeArea` | bool | `false` | Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false. |
+| `slice` | vec4 | `[0.0,0.0,0.0,0.0]` | 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice. |
+| `lit` | bool | `false` | World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D). |
+| `normalMap` | asset (texture) | `""` | Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. |
+
+### Parallax
+
+Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `factor` | vec2 | `[0.5,0.5]` | [x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object). |
+| `repeatX` | bool | `false` | Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background strip never runs out. The copies are drawn only where the camera sees them. |
+| `repeatY` | bool | `false` | Sprite only. Same as repeatX, up and down. |
+| `repeatSize` | vec2 | `[0.0,0.0]` | Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value to overlap soft edges, a larger one for gaps. |
+| `offset` | vec2 | `[0.0,0.0]` | Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only. Runtime-only (not saved). |
+
+### Light2D
+
+A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | enum: point \\| directional | `"point"` | point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the same everywhere, coming from the opposite of `direction`. |
+| `color` | color | `[1.0,1.0,1.0,1.0]` | Light colour. Accepts [r,g,b,a], "#rrggbb" or a name (alpha is ignored). |
+| `intensity` | float | `1.0` | Strength: multiplies color. 1 = full colour at the lamp; above 1 over-brightens. Range 0.0..100.0. |
+| `radius` | float | `300.0` | Point lights: distance in world units at which the light has faded to nothing. Range 0.0..100000.0. |
+| `falloff` | float | `2.0` | Point lights: fade curve exponent. 1 = linear, 2 (default) = smooth, higher = a tight bright core. Range 0.01..16.0. |
+| `height` | float | `80.0` | Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp grazes the surface and shows relief, a high one lights it flatly. Range 0.0..100000.0. |
+| `direction` | float | `270.0` | Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down). |
+| `elevation` | float | `45.0` | Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it). Range 0.0..90.0. |
 
 ### SpriteAnimator
 
@@ -136,10 +166,12 @@ A grid of tiles drawn from a tileset texture; tile index -1 is empty. Row 0 is t
 | `columns` | int | `0` | Number of tile columns in the tileset texture (used to find a tile's source rectangle). Optional: 0 (the default) derives it from the tileset texture, as many whole tiles of tileSize.x as fit across its width. Set it only when the image has a different layout. Range 0.0..4096.0. |
 | `width` | int | `0` | Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it). Range 0.0..65536.0. |
 | `height` | int | `0` | Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows. Range 0.0..65536.0. |
-| `tiles` | json | `[]` | Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. |
-| `solidTiles` | json | `[]` | List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides. |
+| `tiles` | json | `[]` | Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. |
+| `solidTiles` | json | `[]` | List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Tint multiplied with the tileset. |
 | `layer` | int | `-10` | Draw order. Defaults below sprites (-10). |
+| `lit` | bool | `false` | true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false. |
+| `normalMap` | asset (texture) | `""` | Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); flipped and rotated tiles turn their normals with them. Empty = flat tiles. |
 
 ### ParticleEmitter
 
@@ -176,15 +208,17 @@ Emits short-lived particles (smoke, sparks, explosions). Particles interpolate s
 
 ### MeshRenderer
 
-Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) a Light to be visible.
+Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) a Light to be visible.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `mesh` | string | `"cube"` | Built-in shape name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad") or a project-relative path to a .gltf/.glb model (e.g. "assets/models/ship.glb"). |
 | `texture` | asset (texture) | `""` | Base color texture. Empty = none (or the glTF material). |
+| `normalMap` | asset (texture) | `""` | Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. |
+| `normalScale` | float | `1.0` | How strong the normal map is: 0 = flat, 1 = as authored. Range 0.0..4.0. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Base color, multiplied with the texture. |
-| `metallic` | float | `0.0` | 0 = plastic/stone, 1 = metal. Range 0.0..1.0. |
-| `roughness` | float | `0.6` | 0 = mirror-smooth, 1 = fully rough/matte. Range 0.0..1.0. |
+| `metallic` | float | `0.0` | 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead. Range 0.0..1.0. |
+| `roughness` | float | `0.6` | 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead. Range 0.0..1.0. |
 | `emissive` | color | `[0.0,0.0,0.0,1.0]` | Light emitted by the surface regardless of lighting (glow). Black = none. |
 | `unlit` | bool | `false` | true = ignore lighting and draw the flat base color. |
 | `castShadows` | bool | `true` | Cast shadows from shadow-casting lights. |
@@ -203,6 +237,26 @@ A light source for 3D meshes. A directional light shines along the entity's forw
 | `range` | float | `10.0` | Point/spot only: distance in meters where the light fades to zero. Range 0.01..100000.0. |
 | `spotAngle` | float | `30.0` | Spot only: cone half-angle in degrees. Range 1.0..89.0. |
 | `castShadows` | bool | `false` | Cast shadows. Only supported on directional lights for now. |
+
+### Animator
+
+Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model` | string | `""` | Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty). |
+| `clip` | string | `""` | Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported). |
+| `speed` | float | `1.0` | Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen. Range 0.0..100.0. |
+| `loop` | bool | `true` | true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event. |
+| `playing` | bool | `true` | Set false to pause, true to play. |
+| `fade` | float | `0.2` | Cross-fade seconds used when `clip` is changed by assignment (play() takes its own). Range 0.0..60.0. |
+| `params` | json | `{}` | State machine parameters and their start values, an object such as {"speed": 0, "grounded": true}. Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them. |
+| `states` | json | `{}` | State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. |
+| `transitions` | json | `[]` | State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). |
+| `events` | json | `[]` | Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. |
+| `state` | string | `""` | State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire. |
+| `time` | float | `0.0` | Runtime state: seconds into the current clip. Assigning it seeks (no events fire). Runtime-only (not saved). |
+| `values` | json | `{}` | Runtime state: current value of every state machine parameter. Runtime-only (not saved). |
 
 ## Physics
 
@@ -239,9 +293,36 @@ Collision shape for 2D physics. Without a RigidBody2D the collider acts as a sta
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers (bit i = layer i). |
 | `oneWay` | bool | `false` | One-way platform: only blocks bodies landing on it from above (the entity's +Y side); bodies can jump up through it from below and pass sideways. |
 
+### Joint2D
+
+A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to `connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | enum: revolute \\| distance \\| prismatic \\| weld | `"revolute"` | revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0). |
+| `connected` | entity |  | Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position. |
+| `anchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin. |
+| `connectedAnchor` | vec2 | `[0.0,0.0]` | Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created. |
+| `axis` | vec2 | `[1.0,0.0]` | Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x. |
+| `collideConnected` | bool | `false` | true: the two joined bodies still collide with each other (default false). |
+| `length` | float | `0.0` | Distance only: rest length in world units. 0 = the distance between the anchors when the joint is created. Range 0.0..1000000.0. |
+| `enableLimit` | bool | `false` | Limit the motion: revolute angle, prismatic translation, or distance length (needs enableSpring to stretch). |
+| `lowerLimit` | float | `0.0` | Lower limit: revolute degrees (between -178 and 178, 0 = the pose at creation), prismatic translation in world units (0 = anchors coincide), distance minimum length in world units. |
+| `upperLimit` | float | `0.0` | Upper limit, same units as lowerLimit. |
+| `enableMotor` | bool | `false` | Drive the joint at motorSpeed with at most maxMotorTorque. Revolute and prismatic; a distance joint motor works only with enableSpring. |
+| `motorSpeed` | float | `0.0` | Target speed: revolute degrees per second (positive = counter-clockwise), prismatic / distance world units per second. |
+| `maxMotorTorque` | float | `0.0` | Strongest push the motor may apply: a torque for a revolute joint, a force for prismatic and distance joints (the same units as physics.applyForce). 0 = the motor does nothing. Range 0.0..999999995904.0. |
+| `enableSpring` | bool | `false` | Revolute, prismatic, distance: make the free motion springy, pulling towards the rest pose (angle 0, translation 0, `length`). |
+| `springHertz` | float | `0.0` | Spring stiffness in cycles per second (about 1 = a slow bounce, 5 = stiff). Weld joints: 0 = rigid, above 0 = a soft weld (no enableSpring needed). Range 0.0..1000.0. |
+| `dampingRatio` | float | `0.0` | Spring damping: 0 = bounces on, 1 = settles without overshoot. Range 0.0..100.0. |
+| `reactionForce` | vec2 | `[0.0,0.0]` | Runtime: the force [x, y] the joint applied last step to hold the bodies (same units as physics.applyForce). Compare it with a limit to break a rope. Read-only. Runtime-only (not saved). |
+| `reactionTorque` | float | `0.0` | Runtime: the torque the joint applied last step. Read-only. Runtime-only (not saved). |
+| `angle` | float | `0.0` | Runtime: revolute and weld: the current joint angle in degrees (0 = the pose at creation). Read-only. Runtime-only (not saved). |
+| `translation` | float | `0.0` | Runtime: prismatic: the current slide position; distance: the current length, in world units. Read-only. Runtime-only (not saved). |
+
 ### RigidBody3D
 
-Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
+Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a simple physics character (for a controller that slides, climbs steps and checks slopes use CharacterController3D instead). Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -258,19 +339,60 @@ Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it wi
 
 ### Collider3D
 
-Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale.
+Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh. Boxes, capsules and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or kinematic body with one is reported as an error and ignored.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `shape` | enum: box \\| sphere | `"box"` | Shape type; uses size (box) or radius (sphere). |
+| `shape` | enum: box \\| sphere \\| capsule \\| convex \\| mesh | `"box"` | box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain). |
 | `size` | vec3 | `[1.0,1.0,1.0]` | box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale. |
-| `radius` | float | `0.5` | sphere: radius in meters. |
-| `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity. |
+| `radius` | float | `0.5` | sphere and capsule: radius in meters. |
+| `height` | float | `2.0` | capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius). Range 0.002..100000.0. |
+| `mesh` | string | `""` | convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn. |
+| `offset` | vec3 | `[0.0,0.0,0.0]` | Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits). |
 | `isTrigger` | bool | `false` | true = sensor: reports overlaps but does not block movement. |
 | `friction` | float | `0.4` | Surface friction; 0 = ice, 1 = grippy. Range 0.0..10.0. |
 | `restitution` | float | `0.0` | Bounciness: 0 = none, 1 = perfectly elastic. Range 0.0..1.0. |
 | `layer` | int | `0` | Collision category of this collider, 0..31. Range 0.0..31.0. |
 | `mask` | int | `-1` | Bitmask of layers this collider collides with. -1 = all layers. |
+
+### Joint3D
+
+Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | enum: hinge \\| ball \\| fixed | `"hinge"` | hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all. |
+| `connected` | entity |  | The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D. |
+| `anchor` | vec3 | `[0.0,0.0,0.0]` | Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge. |
+| `connectedAnchor` | vec3 | `[0.0,0.0,0.0]` | Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true. |
+| `autoAnchor` | bool | `true` | true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together). |
+| `axis` | vec3 | `[0.0,0.0,1.0]` | hinge: the rotation axis [x, y, z] in THIS entity's local space (normalized). |
+| `useLimits` | bool | `false` | hinge: keep the angle between lowerLimit and upperLimit. |
+| `lowerLimit` | float | `-45.0` | hinge: lowest angle in degrees, relative to the pose the joint was created in (0 there). Range -360.0..360.0. |
+| `upperLimit` | float | `45.0` | hinge: highest angle in degrees (same reference). Range -360.0..360.0. |
+| `useMotor` | bool | `false` | hinge: drive the joint at motorSpeed (a wheel, an opening door). |
+| `motorSpeed` | float | `0.0` | hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis. |
+| `maxMotorTorque` | float | `10.0` | hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more. Range 0.0..1000000.0. |
+| `collideConnected` | bool | `false` | false (default): the two joined bodies do not collide with each other. true: they do. |
+| `angle` | float | `0.0` | Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only. Runtime-only (not saved). |
+
+### CharacterController3D
+
+A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `radius` | float | `0.4` | Capsule radius in meters (scaled by Transform.scale). Range 0.01..100.0. |
+| `height` | float | `1.8` | Capsule height in meters from tip to tip (never less than 2 * radius). Range 0.02..1000.0. |
+| `center` | vec3 | `[0.0,0.0,0.0]` | Capsule centre [x, y, z] from the entity origin, in meters. |
+| `stepOffset` | float | `0.3` | Highest step in meters the character walks up (and the distance it snaps down to stay on the ground). Range 0.0..10.0. |
+| `slopeLimit` | float | `45.0` | Steepest slope in degrees the character can walk up; steeper surfaces count as walls. Range 0.0..89.0. |
+| `skin` | float | `0.02` | Gap in meters kept between the capsule and the surfaces it touches; avoids jitter and tunnelling. Range 0.001..1.0. |
+| `layer` | int | `0` | Collision category of the character, 0..31. Range 0.0..31.0. |
+| `mask` | int | `-1` | Bitmask of layers the character collides with. -1 = all layers. |
+| `velocity` | vec3 | `[0.0,0.0,0.0]` | Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion. |
+| `isGrounded` | bool | `false` | Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only. Runtime-only (not saved). |
+| `groundNormal` | vec3 | `[0.0,1.0,0.0]` | Runtime: the normal of the ground under the character after the last move (up when airborne). Read-only. Runtime-only (not saved). |
 
 ## Audio
 
@@ -517,7 +639,7 @@ Scene-wide settings stored under "settings" in the scene file: lighting, fog, gr
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `ambientLight` | color | `[0.25,0.25,0.3,1.0]` | Base light added to all lit 3D surfaces so shadows are not pitch black. |
+| `ambientLight` | color | `[0.25,0.25,0.3,1.0]` | Base light added to all lit 3D surfaces so shadows are not pitch black. It is also the base light of lit 2D visuals (Sprite.lit, Tilemap.lit): a lit sprite shows its texture multiplied by this colour plus the Light2D lights. Raise it to [1, 1, 1] and the lit sprites look unlit. |
 | `gravity2D` | vec2 | `[0.0,-980.0]` | 2D gravity [x, y] in world units/s^2 (default 980 pixels/s^2 downwards). |
 | `gravity3D` | vec3 | `[0.0,-9.81,0.0]` | 3D gravity [x, y, z] in m/s^2 (default 9.81 downwards). |
 | `fogColor` | color | `[0.5,0.6,0.7,1.0]` | Color distant 3D objects fade to. |
@@ -1482,7 +1604,7 @@ Author a tile level as text. `rows` is the map, one string per row, ONE CHARACTE
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `rows` | array | yes | The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length. |
-| `legend` | object | yes | Glyph -> tile index (integer, -1 = empty) or {tile?: int, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
+| `legend` | object | yes | Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0\|90\|180\|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here. |
 | `tilemap` | object | no | Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend. |
 | `entity` | string | no | Id of the tilemap entity: created if missing, updated if it exists. Default "tilemap". |
 | `replace` | boolean | no | Destroy the objects spawned by earlier imports into this tilemap (tag tilemap:<entity>) first, so re-importing does not duplicate them. false keeps them. Default true. |
@@ -2044,6 +2166,10 @@ declare module "factoria" {
      * Immediately spawns `count` particles at this entity's ParticleEmitter (works with emitting = false). No-op with a warning when there is no renderer (headless).
      */
     emitBurst(count?: number): void;
+    /**
+     * Skeletal animation of this entity's Animator component (play, set, trigger, clips, events). Throws if the entity has no Animator; entity.get("Animator") answers null instead.
+     */
+    readonly animator: AnimatorAPI;
   }
 
   /**
@@ -2411,6 +2537,44 @@ declare module "factoria" {
      * Sets a body's velocity (same as writing RigidBody.velocity).
      */
     setVelocity(entity: Entity, v: Vec3Like): void;
+    /**
+     * Moves an entity that has a CharacterController3D by `delta` metres with collide-and-slide: it slides along walls, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit, snaps down onto the ground, pushes dynamic bodies and is stopped by ceilings. Call it once per frame from onFixedUpdate with the walk of that frame (speed * time.fixedDt) plus your own gravity and jump (keep a vertical speed in the script and reset it when isGrounded). Throws an Error that explains the fix when the entity has no CharacterController3D.
+     */
+    moveCharacter(entity: Entity, delta: Vec3Like): CharacterMove;
+  }
+
+  /**
+   * Result of physics.moveCharacter.
+   */
+  export interface CharacterMove {
+    /**
+     * World position of the entity after the move.
+     */
+    position: Vec3;
+    /**
+     * How far it actually moved (less than the delta when blocked).
+     */
+    moved: Vec3;
+    /**
+     * Standing on walkable ground (a slope not steeper than slopeLimit) after the move.
+     */
+    isGrounded: boolean;
+    /**
+     * Surface normal of that ground (zero when not grounded).
+     */
+    groundNormal: Vec3;
+    /**
+     * The entity it stands on, null in the air.
+     */
+    ground: Entity | null;
+    /**
+     * Blocked by a wall or a slope too steep to climb during this move.
+     */
+    hitWall: boolean;
+    /**
+     * Bumped its head on something above.
+     */
+    hitCeiling: boolean;
   }
 
   /**
@@ -3221,6 +3385,204 @@ declare module "factoria" {
   export const i18n: I18nAPI;
 
   /**
+   * Plays the clips of a skinned glTF on an entity with an Animator component (entity.animator). The engine advances it in the fixed step, so animation, its events and state machine transitions are deterministic. Example: `hero.animator.set("speed", 3)`; `hero.animator.on("footstep", () => audio.play("assets/step.wav"))`.
+   */
+  export interface AnimatorAPI {
+    /**
+     * Starts a clip (a glTF animation name, see `clips`), cross-fading from the current pose over `fadeSeconds` (default: the component's `fade`; 0 cuts). Playing the clip that already plays does not restart it. Throws with the clip names when it does not exist.
+     */
+    play(clip: string, fadeSeconds?: number): void;
+    /**
+     * Pauses and returns to the bind pose (the model as exported).
+     */
+    stop(): void;
+    /**
+     * Sets a state machine parameter declared in the Animator's `params`. The transitions read it on the next step.
+     */
+    set(name: string, value: number | boolean): void;
+    /**
+     * Current value of a state machine parameter.
+     */
+    get(name: string): number | boolean;
+    /**
+     * Makes the parameter `name` true for the next step only (one-shot input like "jump" or "hurt"). It does not need to be declared.
+     */
+    trigger(name: string): void;
+    /**
+     * Names of the animation clips of the model.
+     */
+    readonly clips: string[];
+    /**
+     * Length of a clip in seconds.
+     */
+    duration(clip: string): number;
+    /**
+     * Listens to a game event of THIS entity's animator: a clip event from the Animator's `events`, a state's `onEnter` name, or "anim.finished". Returns the unsubscribe function. world.on(name, fn) hears every entity.
+     */
+    on(event: string, fn: (data: { id: string; clip?: string; time?: number; state?: string }, source: Entity | null) => void): () => void;
+    /**
+     * State machine: the current state.
+     */
+    readonly state: string;
+    /**
+     * The clip playing now. Assigning switches clips with the component's `fade`.
+     */
+    clip: string;
+    /**
+     * Seconds into the current clip. Assigning seeks (no events fire for the jump).
+     */
+    time: number;
+    /**
+     * Playback speed multiplier.
+     */
+    speed: number;
+    /**
+     * Start over at the end of the clip. false stops on the last pose and sends "anim.finished".
+     */
+    loop: boolean;
+    /**
+     * false pauses, true resumes.
+     */
+    playing: boolean;
+    /**
+     * The Animator component view (model, params, states, transitions, events...).
+     */
+    readonly component: Components["Animator"];
+  }
+
+  /**
+   * An easing function: maps progress 0..1 to eased progress (0 at 0, 1 at 1; back and elastic overshoot in between).
+   */
+  export type EaseFn = (t: number) => number;
+
+  /**
+   * Name of a built-in easing: linear, or quad / cubic / quart / quint / sine / expo / circ / back / elastic / bounce followed by In, Out or InOut.
+   */
+  export type EaseName = "linear" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "elasticIn" | "elasticOut" | "elasticInOut" | "bounceIn" | "bounceOut" | "bounceInOut";
+
+  /**
+   * The built-in easing functions by name (ease.quadOut, ease.bounceOut...). tween() also accepts the name as a string.
+   */
+  export interface EaseAPI {
+    readonly linear: EaseFn;
+    readonly quadIn: EaseFn;
+    readonly quadOut: EaseFn;
+    readonly quadInOut: EaseFn;
+    readonly cubicIn: EaseFn;
+    readonly cubicOut: EaseFn;
+    readonly cubicInOut: EaseFn;
+    readonly quartIn: EaseFn;
+    readonly quartOut: EaseFn;
+    readonly quartInOut: EaseFn;
+    readonly quintIn: EaseFn;
+    readonly quintOut: EaseFn;
+    readonly quintInOut: EaseFn;
+    readonly sineIn: EaseFn;
+    readonly sineOut: EaseFn;
+    readonly sineInOut: EaseFn;
+    readonly expoIn: EaseFn;
+    readonly expoOut: EaseFn;
+    readonly expoInOut: EaseFn;
+    readonly circIn: EaseFn;
+    readonly circOut: EaseFn;
+    readonly circInOut: EaseFn;
+    readonly backIn: EaseFn;
+    readonly backOut: EaseFn;
+    readonly backInOut: EaseFn;
+    readonly elasticIn: EaseFn;
+    readonly elasticOut: EaseFn;
+    readonly elasticInOut: EaseFn;
+    readonly bounceIn: EaseFn;
+    readonly bounceOut: EaseFn;
+    readonly bounceInOut: EaseFn;
+  }
+
+  /**
+   * Options of tween().
+   */
+  export interface TweenOptions {
+    /**
+     * Seconds per play (default 1).
+     */
+    duration?: number;
+    /**
+     * Seconds to wait before it starts (default 0).
+     */
+    delay?: number;
+    /**
+     * Easing (default "linear"). inOut easings play the in curve for the first half and its mirror image for the second.
+     */
+    ease?: EaseName | EaseFn;
+    /**
+     * Extra plays after the first (0 = once, Infinity = forever).
+     */
+    repeat?: number;
+    /**
+     * Every second play runs backwards.
+     */
+    yoyo?: boolean;
+    /**
+     * Start values instead of the current ones, same shape as the end values: { x: 0 }. For tween(from, to, ...) the start is the first argument.
+     */
+    from?: any;
+    /**
+     * Called once when the delay is over and it starts moving (start values are read here).
+     */
+    onStart?: (tween: Tween) => void;
+    /**
+     * Called after every update. `value` is the eased progress (can overshoot with back/elastic); for tween(from, to) it is the current number.
+     */
+    onUpdate?: (value: number, tween: Tween) => void;
+    /**
+     * Called when the last play ends (never for a cancelled tween).
+     */
+    onComplete?: (tween: Tween) => void;
+  }
+
+  /**
+   * A running tween, returned by tween(). Driven by the game clock: pauses with time.scale = 0, identical in headless runs.
+   */
+  export interface Tween {
+    /**
+     * false once it completed or was cancelled.
+     */
+    readonly active: boolean;
+    /**
+     * 0..1 over all plays (after the delay).
+     */
+    readonly progress: number;
+    /**
+     * Resolves true when it completes and false when it is cancelled (also when the scene changes). `await tween(...).finished` in async code.
+     */
+    readonly finished: Promise<boolean>;
+    /**
+     * Stops it where it is (values stay as they are) and cancels the tweens chained after it.
+     */
+    cancel(): this;
+    /**
+     * Freezes it.
+     */
+    pause(): this;
+    /**
+     * Continues after pause().
+     */
+    resume(): this;
+    /**
+     * Adds a completion callback.
+     */
+    onComplete(fn: (tween: Tween) => void): this;
+    /**
+     * Starts another tween when this one completes (chain): `tween(a, {x: 1}).next(a, {y: 1}).next(b, {a: 0})`. Returns the NEW tween. Cancelling this one cancels the chain.
+     */
+    next(target: object, props: object, options?: TweenOptions): Tween;
+  }
+
+  /**
+   * Built-in easing functions.
+   */
+  export const ease: EaseAPI;
+
+  /**
    * Creates a Vec2: vec2(1, 2), vec2([1, 2]), vec2({x, y}), vec2(3) = (3, 3).
    */
   export function vec2(x?: number | Vec2Like, y?: number): Vec2;
@@ -3234,6 +3596,21 @@ declare module "factoria" {
    * Creates a Color from components 0..1 or "#rrggbb".
    */
   export function color(r?: number | ColorLike, g?: number, b?: number, a?: number): Color;
+
+  /**
+   * Moves numbers, vectors and colors of `target` to the end values in `props` over time. Targets: a component view (`tween(sprite, {color: "#ff0000"})`), a vector (`tween(entity.position, {y: 5})`), a color, or a plain object. A vector end value is [x, y, z], {x, y, z} or a Vec; a color is "#rrggbb", [r, g, b, a] or {r, g, b, a}. Start values are read when the delay ends. Driven by the game clock (fixed step, time.scale), never by the wall clock. Example: `await tween(entity.position, {y: 3}, {duration: 0.5, ease: "backOut"}).finished`.
+   */
+  export function tween(target: object, props: { [property: string]: number | string | readonly number[] | { [channel: string]: number } }, options?: TweenOptions): Tween;
+
+  /**
+   * Tweens a plain number from `from` to `to`, calling options.onUpdate(value) every step (for a counter, a health bar value...).
+   */
+  export function tween(from: number, to: number, options: TweenOptions & { onUpdate: (value: number, tween: Tween) => void }): Tween;
+
+  /**
+   * Cancels every running tween, or only those whose target is `target`.
+   */
+  export function cancelTweens(target?: object): void;
 
   // ---- Components (generated from the engine's reflection registry) ----
   /**
@@ -3404,6 +3781,88 @@ declare module "factoria" {
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
      */
     safeArea: boolean;
+    /**
+     * 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice.
+     */
+    get slice(): Vec3 & { w: number };
+    set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
+    /**
+     * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     */
+    lit: boolean;
+    /**
+     * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (asset path: texture)
+     */
+    normalMap: string;
+  }
+  /**
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
+   * 
+   * Category: 2D
+   */
+  export interface ParallaxComponent {
+    /**
+     * [x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object).
+     */
+    get factor(): Vec2;
+    set factor(value: Vec2Like);
+    /**
+     * Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background strip never runs out. The copies are drawn only where the camera sees them.
+     */
+    repeatX: boolean;
+    /**
+     * Sprite only. Same as repeatX, up and down.
+     */
+    repeatY: boolean;
+    /**
+     * Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value to overlap soft edges, a larger one for gaps.
+     */
+    get repeatSize(): Vec2;
+    set repeatSize(value: Vec2Like);
+    /**
+     * Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only.
+     */
+    readonly offset: Vec2;
+  }
+  /**
+   * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
+   * 
+   * Category: 2D
+   */
+  export interface Light2DComponent {
+    /**
+     * point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the same everywhere, coming from the opposite of `direction`.
+     */
+    type: "point" | "directional";
+    /**
+     * Light colour. Accepts [r,g,b,a], "#rrggbb" or a name (alpha is ignored).
+     */
+    get color(): Color;
+    set color(value: ColorLike);
+    /**
+     * Strength: multiplies color. 1 = full colour at the lamp; above 1 over-brightens.
+     */
+    intensity: number;
+    /**
+     * Point lights: distance in world units at which the light has faded to nothing.
+     */
+    radius: number;
+    /**
+     * Point lights: fade curve exponent. 1 = linear, 2 (default) = smooth, higher = a tight bright core.
+     */
+    falloff: number;
+    /**
+     * Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp grazes the surface and shows relief, a high one lights it flatly.
+     */
+    height: number;
+    /**
+     * Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down).
+     */
+    direction: number;
+    /**
+     * Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).
+     */
+    elevation: number;
   }
   /**
    * Flipbook animation over a grid sprite sheet. Requires a Sprite on the same entity; it overwrites Sprite.region every frame. Frames are numbered row-major from the top-left.
@@ -3601,11 +4060,11 @@ declare module "factoria" {
      */
     height: number;
     /**
-     * Tile indices, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. Returns a plain-object COPY; assign a new value to write.
+     * Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. Returns a plain-object COPY; assign a new value to write.
      */
     tiles: any;
     /**
-     * List of tile indices that block movement (static colliders are generated for them). Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
+     * List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
      */
     solidTiles: any;
     /**
@@ -3617,6 +4076,14 @@ declare module "factoria" {
      * Draw order. Defaults below sprites (-10).
      */
     layer: number;
+    /**
+     * true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false.
+     */
+    lit: boolean;
+    /**
+     * Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); flipped and rotated tiles turn their normals with them. Empty = flat tiles. (asset path: texture)
+     */
+    normalMap: string;
   }
   /**
    * Emits short-lived particles (smoke, sparks, explosions). Particles interpolate size and color over their lifetime.
@@ -3726,7 +4193,7 @@ declare module "factoria" {
     safeArea: boolean;
   }
   /**
-   * Draws a 3D mesh with a simple PBR-style material. Needs a perspective Camera and (unless unlit) a Light to be visible.
+   * Draws a 3D mesh with a PBR material (GGX highlights, sky reflections, normal maps; glTF materials are read). Needs a perspective Camera and (unless unlit) a Light to be visible.
    * 
    * Category: 3D
    */
@@ -3740,16 +4207,24 @@ declare module "factoria" {
      */
     texture: string;
     /**
+     * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. (asset path: texture)
+     */
+    normalMap: string;
+    /**
+     * How strong the normal map is: 0 = flat, 1 = as authored.
+     */
+    normalScale: number;
+    /**
      * Base color, multiplied with the texture.
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * 0 = plastic/stone, 1 = metal.
+     * 0 = plastic/stone, 1 = metal. glTF models use their own metallic value and metallicRoughnessTexture instead.
      */
     metallic: number;
     /**
-     * 0 = mirror-smooth, 1 = fully rough/matte.
+     * 0 = mirror-smooth, 1 = fully rough/matte. glTF models use their own roughness and metallicRoughnessTexture instead.
      */
     roughness: number;
     /**
@@ -3806,6 +4281,65 @@ declare module "factoria" {
      * Cast shadows. Only supported on directional lights for now.
      */
     castShadows: boolean;
+  }
+  /**
+   * Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
+   * 
+   * Category: 3D
+   */
+  export interface AnimatorComponent {
+    /**
+     * Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty).
+     */
+    model: string;
+    /**
+     * Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).
+     */
+    clip: string;
+    /**
+     * Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.
+     */
+    speed: number;
+    /**
+     * true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.
+     */
+    loop: boolean;
+    /**
+     * Set false to pause, true to play.
+     */
+    playing: boolean;
+    /**
+     * Cross-fade seconds used when `clip` is changed by assignment (play() takes its own).
+     */
+    fade: number;
+    /**
+     * State machine parameters and their start values, an object such as {"speed": 0, "grounded": true}. Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them. Returns a plain-object COPY; assign a new value to write.
+     */
+    params: any;
+    /**
+     * State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. Returns a plain-object COPY; assign a new value to write.
+     */
+    states: any;
+    /**
+     * State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). Returns a plain-object COPY; assign a new value to write.
+     */
+    transitions: any;
+    /**
+     * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     */
+    events: any;
+    /**
+     * State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire.
+     */
+    state: string;
+    /**
+     * Runtime state: seconds into the current clip. Assigning it seeks (no events fire).
+     */
+    time: number;
+    /**
+     * Runtime state: current value of every state machine parameter. Returns a plain-object COPY; assign a new value to write.
+     */
+    values: any;
   }
   /**
    * Puts the entity under 2D physics (Box2D). Pair it with a Collider2D. Positions are simulated in world units; gravity comes from the scene settings (gravity2D).
@@ -3901,7 +4435,98 @@ declare module "factoria" {
     oneWay: boolean;
   }
   /**
-   * Simple 3D physics body for arcade games (spheres and oriented boxes). Pair it with a Collider3D. Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
+   * A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to `connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.
+   * 
+   * Category: Physics
+   */
+  export interface Joint2DComponent {
+    /**
+     * revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0).
+     */
+    type: "revolute" | "distance" | "prismatic" | "weld";
+    /**
+     * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     */
+    get connected(): Entity | null;
+    set connected(value: EntityLike);
+    /**
+     * Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin.
+     */
+    get anchor(): Vec2;
+    set anchor(value: Vec2Like);
+    /**
+     * Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created.
+     */
+    get connectedAnchor(): Vec2;
+    set connectedAnchor(value: Vec2Like);
+    /**
+     * Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x.
+     */
+    get axis(): Vec2;
+    set axis(value: Vec2Like);
+    /**
+     * true: the two joined bodies still collide with each other (default false).
+     */
+    collideConnected: boolean;
+    /**
+     * Distance only: rest length in world units. 0 = the distance between the anchors when the joint is created.
+     */
+    length: number;
+    /**
+     * Limit the motion: revolute angle, prismatic translation, or distance length (needs enableSpring to stretch).
+     */
+    enableLimit: boolean;
+    /**
+     * Lower limit: revolute degrees (between -178 and 178, 0 = the pose at creation), prismatic translation in world units (0 = anchors coincide), distance minimum length in world units.
+     */
+    lowerLimit: number;
+    /**
+     * Upper limit, same units as lowerLimit.
+     */
+    upperLimit: number;
+    /**
+     * Drive the joint at motorSpeed with at most maxMotorTorque. Revolute and prismatic; a distance joint motor works only with enableSpring.
+     */
+    enableMotor: boolean;
+    /**
+     * Target speed: revolute degrees per second (positive = counter-clockwise), prismatic / distance world units per second.
+     */
+    motorSpeed: number;
+    /**
+     * Strongest push the motor may apply: a torque for a revolute joint, a force for prismatic and distance joints (the same units as physics.applyForce). 0 = the motor does nothing.
+     */
+    maxMotorTorque: number;
+    /**
+     * Revolute, prismatic, distance: make the free motion springy, pulling towards the rest pose (angle 0, translation 0, `length`).
+     */
+    enableSpring: boolean;
+    /**
+     * Spring stiffness in cycles per second (about 1 = a slow bounce, 5 = stiff). Weld joints: 0 = rigid, above 0 = a soft weld (no enableSpring needed).
+     */
+    springHertz: number;
+    /**
+     * Spring damping: 0 = bounces on, 1 = settles without overshoot.
+     */
+    dampingRatio: number;
+    /**
+     * Runtime: the force [x, y] the joint applied last step to hold the bodies (same units as physics.applyForce). Compare it with a limit to break a rope. Read-only.
+     */
+    readonly reactionForce: Vec2;
+    /**
+     * Runtime: the torque the joint applied last step. Read-only.
+     */
+    readonly reactionTorque: number;
+    /**
+     * Runtime: revolute and weld: the current joint angle in degrees (0 = the pose at creation). Read-only.
+     */
+    readonly angle: number;
+    /**
+     * Runtime: prismatic: the current slide position; distance: the current length, in world units. Read-only.
+     */
+    readonly translation: number;
+  }
+  /**
+   * Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a simple physics character (for a controller that slides, climbs steps and checks slopes use CharacterController3D instead). Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
    * 
    * Category: Physics
    */
@@ -3950,26 +4575,34 @@ declare module "factoria" {
     lockRotation: boolean;
   }
   /**
-   * Collision shape for 3D physics (box or sphere). Boxes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale.
+   * Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh. Boxes, capsules and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or kinematic body with one is reported as an error and ignored.
    * 
    * Category: Physics
    */
   export interface Collider3DComponent {
     /**
-     * Shape type; uses size (box) or radius (sphere).
+     * box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain).
      */
-    shape: "box" | "sphere";
+    shape: "box" | "sphere" | "capsule" | "convex" | "mesh";
     /**
      * box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.
      */
     get size(): Vec3;
     set size(value: Vec3Like);
     /**
-     * sphere: radius in meters.
+     * sphere and capsule: radius in meters.
      */
     radius: number;
     /**
-     * Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity.
+     * capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius).
+     */
+    height: number;
+    /**
+     * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn.
+     */
+    mesh: string;
+    /**
+     * Shape center offset [x, y, z] from the entity origin, scaled and rotated with the entity (for convex and mesh: where the model's own origin sits).
      */
     get offset(): Vec3;
     set offset(value: Vec3Like);
@@ -3993,6 +4626,126 @@ declare module "factoria" {
      * Bitmask of layers this collider collides with. -1 = all layers.
      */
     mask: number;
+  }
+  /**
+   * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
+   * 
+   * Category: Physics
+   */
+  export interface Joint3DComponent {
+    /**
+     * hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all.
+     */
+    type: "hinge" | "ball" | "fixed";
+    /**
+     * The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D.
+     */
+    get connected(): Entity | null;
+    set connected(value: EntityLike);
+    /**
+     * Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge.
+     */
+    get anchor(): Vec3;
+    set anchor(value: Vec3Like);
+    /**
+     * Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true.
+     */
+    get connectedAnchor(): Vec3;
+    set connectedAnchor(value: Vec3Like);
+    /**
+     * true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together).
+     */
+    autoAnchor: boolean;
+    /**
+     * hinge: the rotation axis [x, y, z] in THIS entity's local space (normalized).
+     */
+    get axis(): Vec3;
+    set axis(value: Vec3Like);
+    /**
+     * hinge: keep the angle between lowerLimit and upperLimit.
+     */
+    useLimits: boolean;
+    /**
+     * hinge: lowest angle in degrees, relative to the pose the joint was created in (0 there).
+     */
+    lowerLimit: number;
+    /**
+     * hinge: highest angle in degrees (same reference).
+     */
+    upperLimit: number;
+    /**
+     * hinge: drive the joint at motorSpeed (a wheel, an opening door).
+     */
+    useMotor: boolean;
+    /**
+     * hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis.
+     */
+    motorSpeed: number;
+    /**
+     * hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more.
+     */
+    maxMotorTorque: number;
+    /**
+     * false (default): the two joined bodies do not collide with each other. true: they do.
+     */
+    collideConnected: boolean;
+    /**
+     * Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only.
+     */
+    readonly angle: number;
+  }
+  /**
+   * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
+   * 
+   * Category: Physics
+   */
+  export interface CharacterController3DComponent {
+    /**
+     * Capsule radius in meters (scaled by Transform.scale).
+     */
+    radius: number;
+    /**
+     * Capsule height in meters from tip to tip (never less than 2 * radius).
+     */
+    height: number;
+    /**
+     * Capsule centre [x, y, z] from the entity origin, in meters.
+     */
+    get center(): Vec3;
+    set center(value: Vec3Like);
+    /**
+     * Highest step in meters the character walks up (and the distance it snaps down to stay on the ground).
+     */
+    stepOffset: number;
+    /**
+     * Steepest slope in degrees the character can walk up; steeper surfaces count as walls.
+     */
+    slopeLimit: number;
+    /**
+     * Gap in meters kept between the capsule and the surfaces it touches; avoids jitter and tunnelling.
+     */
+    skin: number;
+    /**
+     * Collision category of the character, 0..31.
+     */
+    layer: number;
+    /**
+     * Bitmask of layers the character collides with. -1 = all layers.
+     */
+    mask: number;
+    /**
+     * Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion.
+     */
+    get velocity(): Vec3;
+    set velocity(value: Vec3Like);
+    /**
+     * Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only.
+     */
+    readonly isGrounded: boolean;
+    /**
+     * Runtime: the normal of the ground under the character after the last move (up when airborne). Read-only.
+     */
+    readonly groundNormal: Vec3;
   }
   /**
    * Plays a sound clip from the entity. Set playOnStart to start automatically, or set `playing` from a script to trigger it.
@@ -4746,7 +5499,7 @@ declare module "factoria" {
    */
   export interface SceneSettingsComponent {
     /**
-     * Base light added to all lit 3D surfaces so shadows are not pitch black.
+     * Base light added to all lit 3D surfaces so shadows are not pitch black. It is also the base light of lit 2D visuals (Sprite.lit, Tilemap.lit): a lit sprite shows its texture multiplied by this colour plus the Light2D lights. Raise it to [1, 1, 1] and the lit sprites look unlit.
      */
     get ambientLight(): Color;
     set ambientLight(value: ColorLike);
@@ -4794,6 +5547,8 @@ declare module "factoria" {
     Transform: TransformComponent;
     Camera: CameraComponent;
     Sprite: SpriteComponent;
+    Parallax: ParallaxComponent;
+    Light2D: Light2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
     Shape2D: Shape2DComponent;
     Text: TextComponent;
@@ -4801,10 +5556,14 @@ declare module "factoria" {
     ParticleEmitter: ParticleEmitterComponent;
     MeshRenderer: MeshRendererComponent;
     Light: LightComponent;
+    Animator: AnimatorComponent;
     RigidBody2D: RigidBody2DComponent;
     Collider2D: Collider2DComponent;
+    Joint2D: Joint2DComponent;
     RigidBody3D: RigidBody3DComponent;
     Collider3D: Collider3DComponent;
+    Joint3D: Joint3DComponent;
+    CharacterController3D: CharacterController3DComponent;
     AudioSource: AudioSourceComponent;
     AudioListener: AudioListenerComponent;
     Panel: PanelComponent;
@@ -4823,18 +5582,24 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
+    Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
+    Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number };
     Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    MeshRenderer: { mesh?: string; texture?: string; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
+    MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
+    Animator: { model?: string; clip?: string; speed?: number; loop?: boolean; playing?: boolean; fade?: number; params?: any; states?: any; transitions?: any; events?: any; state?: string; time?: number; values?: any };
     RigidBody2D: { type?: "static" | "dynamic" | "kinematic"; gravityScale?: number; linearDamping?: number; angularDamping?: number; fixedRotation?: boolean; bullet?: boolean; velocity?: Vec2Like; angularVelocity?: number };
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
+    Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere"; size?: Vec3Like; radius?: number; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number };
+    Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean };
+    CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; fit?: boolean };

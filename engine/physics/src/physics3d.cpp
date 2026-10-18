@@ -5,9 +5,15 @@
 // else (arcade rolling spheres, locked bodies, kinematic and static bodies) keeps the original torque-free single-point
 // solver. An unrotated box keeps the exact axis-aligned code paths. Calm dynamic bodies fall asleep in islands, a box
 // turning in the air precesses (gyroscopic_step), and the sub-step motion is swept for impacts, rotation included.
+// Capsules, convex hulls and triangle meshes (physics3d_shapes.cpp) share all of this through collide(); joints are in
+// physics3d_joints.cpp and the character controller in physics3d_character.cpp.
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <unordered_set>
+
+#include "fa/core/log.h"
+#include "fa/scene/mesh_geometry.h"
 
 #include "physics_internal.h"
 
@@ -40,12 +46,6 @@ const char* type_name(BodyType t) {
         default: return "dynamic";
     }
 }
-
-constexpr Vec3 kIdentityAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
-
-// Box frame <-> world: v.x * ax0 + v.y * ax1 + v.z * ax2, and its transpose.
-Vec3 frame_to_world(const Vec3* ax, Vec3 v) { return ax[0] * v.x + ax[1] * v.y + ax[2] * v.z; }
-Vec3 world_to_frame(const Vec3* ax, Vec3 v) { return {dot(v, ax[0]), dot(v, ax[1]), dot(v, ax[2])}; }
 
 // Euler degrees (pitch about X, yaw about Y, roll about Z; R = Ry * Rx * Rz like Transform.rotation) of a unit basis.
 Vec3 euler_of(const Vec3* ax) {
@@ -138,15 +138,6 @@ Quat turned(Quat q, Vec3 w, float seconds) {
     return normalize(Quat{w.x * s, w.y * s, w.z * s, std::cos(half)} * q);
 }
 
-// Axis-aligned bounds of a shape (for the sweep broad phase); an unturned box has the identity frame, so this is `half`.
-void bounds_of(const Vec3* ax, bool box, Vec3 center, Vec3 half, float radius, Vec3& lo, Vec3& hi) {
-    const Vec3 e = !box ? Vec3{radius}
-                        : Vec3{std::fabs(ax[0].x) * half.x + std::fabs(ax[1].x) * half.y + std::fabs(ax[2].x) * half.z,
-                               std::fabs(ax[0].y) * half.x + std::fabs(ax[1].y) * half.y + std::fabs(ax[2].y) * half.z,
-                               std::fabs(ax[0].z) * half.x + std::fabs(ax[1].z) * half.y + std::fabs(ax[2].z) * half.z};
-    lo = center - e;
-    hi = center + e;
-}
 }  // namespace
 
 void Physics3D::reset() {
@@ -182,6 +173,7 @@ void Physics3D::wake_touching(std::uint64_t seq) {
 }
 
 bool Physics3D::filters_pass(const Body& a, const Body& b) {
+    if (!a.noCollide.empty() && std::find(a.noCollide.begin(), a.noCollide.end(), b.seq) != a.noCollide.end()) return false;
     return (category_bits(a.layer) & mask_bits(b.mask)) != 0 && (category_bits(b.layer) & mask_bits(a.mask)) != 0;
 }
 
@@ -339,14 +331,15 @@ void Physics3D::face_manifold(const Body& ref, int refAxis, Vec3 refNormal, cons
 Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin, bool manifold) {
     Contact c;
     if (!a.hasShape || !b.hasShape) return c;
-    if (!a.box && !b.box) {
+    if (a.general() || b.general()) return collide_general(a, b, margin, manifold);
+    if (a.kind != Body::Kind::Box && b.kind != Body::Kind::Box) {
         Vec3 d = b.center - a.center;
         float dist = length(d);
         c.depth = a.radius + b.radius - dist;
         c.normal = dist > 1e-6f ? d / dist : Vec3{0, 1, 0};
         c.point = a.center + c.normal * a.radius;
         c.hit = c.depth > -margin;
-    } else if (a.box && b.box) {
+    } else if (a.kind == Body::Kind::Box && b.kind == Body::Kind::Box) {
         if (a.rotated || b.rotated) {
             box_box_sat(a, b, margin, c, manifold);
             return c;
@@ -378,7 +371,7 @@ Physics3D::Contact Physics3D::collide(const Body& a, const Body& b, float margin
                 }
             }
         }
-    } else if (a.box) {
+    } else if (a.kind == Body::Kind::Box) {
         sphere_box(a, b, margin, c);
     } else {
         sphere_box(b, a, margin, c);
@@ -398,14 +391,14 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3
     const float travel = len + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin);
     if (!(travel > 0.0f) || !std::isfinite(travel)) return false;
     Vec3 mlo, mhi, tlo, thi;
-    bounds_of(mover.ax, mover.box, mover.center, mover.half, mover.radius, mlo, mhi);
-    bounds_of(target.ax, target.box, target.center, target.half, target.radius, tlo, thi);
-    if (moverSpin != Vec3{}) { mlo = mover.center - Vec3{length(mover.half)}; mhi = mover.center + Vec3{length(mover.half)}; }
-    if (targetSpin != Vec3{}) { tlo = target.center - Vec3{length(target.half)}; thi = target.center + Vec3{length(target.half)}; }
+    aabb(mover, mlo, mhi);
+    aabb(target, tlo, thi);
+    if (moverSpin != Vec3{}) { mlo = mover.center - Vec3{bound_radius(mover)}; mhi = mover.center + Vec3{bound_radius(mover)}; }
+    if (targetSpin != Vec3{}) { tlo = target.center - Vec3{bound_radius(target)}; thi = target.center + Vec3{bound_radius(target)}; }
     const Vec3 slo = min(mlo, mlo + disp), shi = max(mhi, mhi + disp);  // broad phase: swept bounds vs target bounds
     if (slo.x > thi.x || shi.x < tlo.x || slo.y > thi.y || shi.y < tlo.y || slo.z > thi.z || shi.z < tlo.z)
         return false;
-    const float extent = mover.box ? 2.0f * std::min({mover.half.x, mover.half.y, mover.half.z}) : 2.0f * mover.radius;
+    const float extent = 2.0f * min_half_extent(mover);
     const float steps = std::min(std::ceil(travel / (0.5f * extent)), 100000.0f);
     const int n = std::max(int(steps), 1);
     const Vec3 from = mover.center;
@@ -458,10 +451,15 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3
 
 void Physics3D::sync(World& world) {
     const std::uint64_t stamp = stepCounter_;
+    std::unordered_set<std::uint64_t> joinTargets;  // bodies another entity's Joint3D is attached to: they turn too
+    for (Entity e : world.entities())
+        if (const Joint3D* j = world.get<Joint3D>(e); j && !j->connected.is_null()) joinTargets.insert(j->connected.bits());
     for (Entity e : world.entities()) {
         RigidBody3D* rb = world.get<RigidBody3D>(e);
         Collider3D* col = world.get<Collider3D>(e);
-        if ((!rb && !col) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
+        CharacterController3D* cc = world.get<CharacterController3D>(e);
+        Joint3D* jt = world.get<Joint3D>(e);
+        if ((!rb && !col && !cc) || world.pending_destroy(e)) continue;  // pending destroy: never seen -> swept below
         const std::uint64_t key = e.bits();
         WorldPose pose = world_pose(world, e);
         auto it = index_.find(key);
@@ -492,7 +490,8 @@ void Physics3D::sync(World& world) {
         Body& b = bodies_[it->second];
         const Body::Sig before = b.sig();
         b.seen = stamp;
-        b.type = rb ? rb->type : BodyType::Static;
+        b.localScale = pose.scale;
+        b.type = cc ? BodyType::Kinematic : (rb ? rb->type : BodyType::Static);
         b.hasRigid = rb != nullptr;
         b.mass = rb ? std::max(rb->mass, 1e-4f) : 1.0f;
         b.invMass = b.type == BodyType::Dynamic ? 1.0f / b.mass : 0.0f;
@@ -500,22 +499,83 @@ void Physics3D::sync(World& world) {
         b.damping = rb ? std::max(rb->linearDamping, 0.0f) : 0.0f;
         b.rollWithMotion = rb ? rb->rollWithMotion : false;
         b.angDamping = rb ? std::max(rb->angularDamping, 0.0f) : 0.0f;
-        b.hasShape = col != nullptr;
+        // A collider that cannot be used (a Mesh on a moving body, a missing mesh) is reported once and ignored.
+        std::string problem;
+        std::shared_ptr<const ShapeData> shapeData;
+        if (col && !cc) {
+            const bool isStatic = !rb || rb->type == BodyType::Static;
+            if (col->shape == ColliderShape3D::Mesh && !isStatic)
+                problem = std::format(
+                    "entity '{}' has a Collider3D with shape \"mesh\" on a {} RigidBody3D. Triangle meshes are only for "
+                    "static level geometry (a moving body has no inside to push out of). Use shape \"convex\" for a "
+                    "moving body, or build it from several boxes/capsules, or set the RigidBody3D type to static.",
+                    world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
+            else if (col->shape == ColliderShape3D::Convex || col->shape == ColliderShape3D::Mesh) {
+                std::string why;
+                shapeData = shape_data(col->mesh, col->shape == ColliderShape3D::Mesh, why);
+                if (!shapeData) problem = std::format("entity '{}': Collider3D shape \"{}\": {}", world.id_of(e),
+                                                      col->shape == ColliderShape3D::Mesh ? "mesh" : "convex", why);
+            }
+        }
+        if (problem != b.problem) {
+            b.problem = problem;
+            if (!problem.empty()) FA_ERROR("physics", "{}", problem);
+        }
+        const bool usable = col && !cc && problem.empty();
+        b.hasShape = usable || cc;
+        b.character = cc != nullptr;
+        b.jointed = (jt != nullptr && rb != nullptr && !cc) || (rb && joinTargets.count(e.bits()) != 0);
+        b.noCollide.clear();
         const Vec3 oldOffset = b.offset;
-        if (col) {
+        if (usable || cc) {
             Vec3 as{std::fabs(pose.scale.x), std::fabs(pose.scale.y), std::fabs(pose.scale.z)};
-            b.box = col->shape == ColliderShape3D::Box;
-            b.half = {std::max(col->size.x * as.x * 0.5f, 1e-3f), std::max(col->size.y * as.y * 0.5f, 1e-3f),
-                      std::max(col->size.z * as.z * 0.5f, 1e-3f)};
-            b.radius = std::max(col->radius * std::max({as.x, as.y, as.z}), 1e-3f);
+            const float flat = std::max(as.x, as.z);
+            Body::Kind kind = Body::Kind::Box;
+            if (cc) kind = Body::Kind::Capsule;
+            else switch (col->shape) {
+                case ColliderShape3D::Sphere: kind = Body::Kind::Sphere; break;
+                case ColliderShape3D::Capsule: kind = Body::Kind::Capsule; break;
+                case ColliderShape3D::Convex: kind = Body::Kind::Convex; break;
+                case ColliderShape3D::Mesh: kind = Body::Kind::Mesh; break;
+                default: break;
+            }
+            b.kind = kind;
+            b.data = shapeData;
+            b.meshName = (!cc && b.data) ? col->mesh : std::string();
+            b.gscale = {1, 1, 1};
+            b.segHalf = 0.0f;
+            b.lcenter = {};
+            if (kind == Body::Kind::Capsule) {  // a collider capsule and a character's capsule are the same shape
+                b.radius = std::max((cc ? cc->radius : col->radius) * flat, 1e-3f);
+                b.segHalf = std::max((cc ? cc->height : col->height) * as.y * 0.5f - b.radius, 0.0f);
+                b.half = {b.radius, b.segHalf + b.radius, b.radius};
+                if (cc) {
+                    b.stepOffset = std::max(cc->stepOffset * as.y, 0.0f);
+                    b.slopeLimit = clamp(cc->slopeLimit, 0.0f, 89.0f);
+                    b.skin = std::max(cc->skin, 1e-3f);
+                }
+            } else if (b.data) {
+                const MeshGeometry& g = *b.data->geometry;
+                b.gscale = {std::max(as.x, 1e-3f), std::max(as.y, 1e-3f), std::max(as.z, 1e-3f)};
+                b.half = max((g.bmax - g.bmin) * 0.5f * b.gscale, Vec3{1e-3f});
+                b.lcenter = (g.bmax + g.bmin) * 0.5f * b.gscale;
+                b.radius = 0.0f;
+            } else {
+                b.half = {std::max(col->size.x * as.x * 0.5f, 1e-3f), std::max(col->size.y * as.y * 0.5f, 1e-3f),
+                          std::max(col->size.z * as.z * 0.5f, 1e-3f)};
+                b.radius = std::max(col->radius * std::max({as.x, as.y, as.z}), 1e-3f);
+            }
             // Orientation = the entity's world rotation (columns normalised, so scale only sizes the box). An unturned
             // entity keeps the identity frame and the exact axis-aligned paths. ponytail: a sheared world matrix (a
             // non-uniformly scaled, rotated parent) has non-orthogonal columns, which are used as if orthonormal.
             const Vec3* r = pose.axis;
             Vec3 ownAx[3];
-            // Boxes and spheres without rollWithMotion (the arcade rolling model) are rigid bodies turned by contacts.
-            const bool wantRot = rb && rb->type == BodyType::Dynamic && (b.box || !rb->rollWithMotion) && !col->isTrigger &&
-                                 !rb->lockRotation;
+            // Boxes, capsules, hulls and spheres without rollWithMotion (the arcade rolling model) are rigid bodies turned
+            // by contacts; a jointed body must turn too (the joint holds it by a point away from its centre).
+            const bool trig = cc ? false : col->isTrigger;
+            const bool lockRot = rb && rb->lockRotation;
+            const bool wantRot = rb && !cc && rb->type == BodyType::Dynamic && !trig &&
+                                 (b.jointed || (!lockRot && (kind != Body::Kind::Sphere || !rb->rollWithMotion)));
             if (wantRot) {
                 // A rotating box keeps its quaternion between steps; only a Transform.rotation that differs from what
                 // the solver wrote last (or a parent in the way) makes it re-read the orientation from the Transform.
@@ -529,28 +589,34 @@ void Physics3D::sync(World& world) {
                 axes_of(b.orient, ownAx);
                 r = ownAx;
                 const float m = b.mass, hx2 = b.half.x * b.half.x, hy2 = b.half.y * b.half.y, hz2 = b.half.z * b.half.z;
-                if (b.box) b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
+                if (kind != Body::Kind::Sphere) b.invI = {3.0f / (m * (hy2 + hz2)), 3.0f / (m * (hx2 + hz2)), 3.0f / (m * (hx2 + hy2))};
                 else b.invI = Vec3{2.5f / (m * b.radius * b.radius)};  // solid sphere: I = 2/5 m r^2
             }
             b.rotDyn = wantRot;
             const bool turned = is_turned(r);
-            b.localOffset = col->offset * pose.scale;
+            const Vec3 off = cc ? cc->center : col->offset;
+            b.localOffset = off * pose.scale;
             b.offset = turned ? frame_to_world(r, b.localOffset) : b.localOffset;
-            b.rotated = b.box && turned;
-            for (int i = 0; i < 3; ++i) b.ax[i] = b.rotated ? r[i] : kIdentityAxes[i];
-            b.trigger = col->isTrigger;
-            b.friction = std::max(col->friction, 0.0f);
-            b.restitution = std::max(col->restitution, 0.0f);
-            b.layer = col->layer;
-            b.mask = col->mask;
+            b.rotated = kind != Body::Kind::Sphere && turned;
+            for (int i = 0; i < 3; ++i) {
+                b.ax[i] = b.rotated ? r[i] : kIdentityAxes[i];
+                b.rot[i] = r[i];
+            }
+            b.trigger = trig;
+            b.friction = cc ? 0.0f : std::max(col->friction, 0.0f);
+            b.restitution = cc ? 0.0f : std::max(col->restitution, 0.0f);
+            b.layer = cc ? cc->layer : col->layer;
+            b.mask = cc ? cc->mask : col->mask;
         } else {
             b.offset = {};
             b.localOffset = {};
             b.rotated = false;
             b.rotDyn = false;
             b.trigger = false;
+            b.data = nullptr;
+            for (int i = 0; i < 3; ++i) b.rot[i] = pose.axis[i];
         }
-        b.rollMu = (rb && col && rb->type == BodyType::Dynamic && rb->rollWithMotion && !b.box)
+        b.rollMu = (rb && usable && rb->type == BodyType::Dynamic && rb->rollWithMotion && b.kind == Body::Kind::Sphere)
                        ? std::max(rb->rollingFriction, 0.0f) : -1.0f;
         if (b.offset != oldOffset) {  // offset edited, or turned/scaled with the entity: the shape follows the origin
             b.center += b.offset - oldOffset;
@@ -602,6 +668,7 @@ void Physics3D::sync(World& world) {
         index_.clear();
         for (std::size_t i = 0; i < bodies_.size(); ++i) index_[bodies_[i].e.bits()] = i;
     }
+    sync_joints(world, stamp);
 }
 
 // Rebuilds the collision frame (basis, offset) of a rotating box from its quaternion.
@@ -610,8 +677,11 @@ void Physics3D::refresh_frame(Body& b) {
     axes_of(b.orient, r);
     const bool turned = is_turned(r);
     const Vec3 oldOffset = b.offset;
-    b.rotated = b.box && turned;
-    for (int i = 0; i < 3; ++i) b.ax[i] = b.rotated ? r[i] : kIdentityAxes[i];
+    b.rotated = b.kind != Body::Kind::Sphere && turned;
+    for (int i = 0; i < 3; ++i) {
+        b.ax[i] = b.rotated ? r[i] : kIdentityAxes[i];
+        b.rot[i] = r[i];
+    }
     b.offset = turned ? frame_to_world(r, b.localOffset) : b.localOffset;
     if (b.offset != oldOffset) b.originDirty = true;  // the entity origin hangs off the (offset) collider centre
 }
@@ -771,11 +841,18 @@ void Physics3D::step(World& world, float dt) {
         lastWorld_ = &world;
     }
     ++stepCounter_;
+    lastDt_ = dt;
     sync(world);
     const std::size_t n = bodies_.size();
     if (n == 0) {
         touching_.clear();
         return;
+    }
+    for (std::size_t i = 0; i < n; ++i) {  // characters with a velocity walk first, so what they push moves this step
+        if (!bodies_[i].character || !bodies_[i].enabled) continue;
+        const CharacterController3D* cc = world.get<CharacterController3D>(bodies_[i].e);
+        if (!cc || cc->velocity == Vec3{}) continue;
+        move_character_body(world, bodies_[i], cc->velocity * dt);
     }
     const Vec3 g = world.settings().gravity3D;
     if (g != lastGravity_) {  // a body asleep on the old gravity would hover on the new one
@@ -816,7 +893,6 @@ void Physics3D::step(World& world, float dt) {
     }
 
     auto movable = [](const Body& b) { return b.type != BodyType::Static; };
-    auto half_extent = [](const Body& b) { return b.box ? std::min({b.half.x, b.half.y, b.half.z}) : b.radius; };
     auto live_dyn = [](const Body& b) { return b.type == BodyType::Dynamic && !b.asleep; };
     std::vector<std::size_t> riders;
     std::vector<Vec3> disp(n);
@@ -847,7 +923,7 @@ void Physics3D::step(World& world, float dt) {
     // Pairs that already overlap at the start (deeper than a touch) are left to the contact solver.
     auto first_impact = [&](float span) {
         auto spin_over = [&](const Body& b) {
-            return b.box && b.rotDyn && live_dyn(b) ? b.angVel * (kDegToRad * span) : Vec3{};  // a sphere turns in place
+            return b.kind != Body::Kind::Sphere && b.rotDyn && live_dyn(b) ? b.angVel * (kDegToRad * span) : Vec3{};  // a sphere turns in place
         };
         float tFirst = 1.0f;
         for (std::size_t i = 0; i < n; ++i) {
@@ -858,12 +934,12 @@ void Physics3D::step(World& world, float dt) {
                 if (!b.enabled || !b.hasShape || b.trigger) continue;
                 const bool dynA = a.type == BodyType::Dynamic, dynB = b.type == BodyType::Dynamic;
                 if ((!dynA && !dynB) || !filters_pass(a, b)) continue;
-                const bool bMoves = !dynA || (dynB && half_extent(b) < half_extent(a));  // b is the mover
+                const bool bMoves = !dynA || (dynB && min_half_extent(b) < min_half_extent(a));  // b is the mover
                 Body& mover = bMoves ? b : a;
                 Body& target = bMoves ? a : b;
                 const Vec3 rel = bMoves ? disp[k] - disp[i] : disp[i] - disp[k];
                 const Vec3 moverSpin = spin_over(mover), targetSpin = spin_over(target);
-                const float he = half_extent(mover);
+                const float he = min_half_extent(mover);
                 float t = 1.0f;
                 if (length(rel) + turning_reach(mover, moverSpin) + turning_reach(target, targetSpin) > he &&
                     sweep(mover, rel, moverSpin, target, targetSpin, t) && t < tFirst)
@@ -926,7 +1002,8 @@ void Physics3D::step(World& world, float dt) {
                 rigid.push_back(rc);
             }
         }
-        const int iterations = rigid.empty() ? kIterations : kRigidIterations;
+        const bool jointsOn = positional && prepare_joints(h);
+        const int iterations = (rigid.empty() && !jointsOn) ? kIterations : kRigidIterations;
         for (int it = 0; it < iterations; ++it) {
             for (std::size_t i = 0; i < n && it < kIterations; ++i) {
                 Body& a = bodies_[i];
@@ -957,6 +1034,7 @@ void Physics3D::step(World& world, float dt) {
                 if (positional && it < kIterations) correct_position(bodies_, rc);
                 solve_velocity(bodies_, rc, (it & 1) != 0);
             }
+            if (jointsOn) solve_joints(h);
         }
         if (positional) {  // remember the solution as the next sub-step's starting point
             warm_.clear();
@@ -988,7 +1066,7 @@ void Physics3D::step(World& world, float dt) {
             b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
             if (b.damping > 0.0f) b.vel *= 1.0f / (1.0f + h * b.damping);
             if (b.angDamping > 0.0f) b.angVel *= 1.0f / (1.0f + h * b.angDamping);
-            if (b.rotDyn && b.box && b.angVel != Vec3{}) {  // a box turning in the air precesses like a real one
+            if (b.rotDyn && b.kind != Body::Kind::Sphere && b.angVel != Vec3{}) {  // a box turning in the air precesses like a real one
                 const Vec3 w = world_to_frame(b.ax, b.angVel * kDegToRad);
                 const Vec3 turned = gyroscopic_step(w, {1.0f / b.invI.x, 1.0f / b.invI.y, 1.0f / b.invI.z}, h);
                 b.angVel = frame_to_world(b.ax, turned) * kRadToDeg;
@@ -1096,7 +1174,7 @@ void Physics3D::step(World& world, float dt) {
     // ---- rolling: spheres on the ground spin to match their horizontal motion
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
-        if (!b.enabled || !live_dyn(b) || b.box || !b.hasShape || b.trigger) continue;
+        if (!b.enabled || !live_dyn(b) || b.kind != Body::Kind::Sphere || !b.hasShape || b.trigger) continue;
         if (!b.rollWithMotion || !supported[i]) continue;
         // axis = up x v = (vz, 0, -vx); rate = |v| / r (rad/s) -> deg/s along that axis => components (vz, 0, -vx) / r
         const float k = degrees(1.0f) / b.radius;
@@ -1116,10 +1194,10 @@ void Physics3D::step(World& world, float dt) {
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b)) continue;
-        const float reach = !b.hasShape ? 0.0f : (b.box ? length(b.half) : b.radius);  // fastest point of the shape
+        const float reach = !b.hasShape ? 0.0f : bound_radius(b);  // fastest point of the shape
         const bool calm = std::max(length(b.vel), length(b.angVel) * kDegToRad * reach) < kSleepSpeed;
         b.sleepTime = calm ? b.sleepTime + dt : 0.0f;
-        if (b.sleepTime < kTimeToSleep || hold[i]) ready[find_root(i)] = 0;
+        if (b.sleepTime < kTimeToSleep || hold[i] || b.jointed) ready[find_root(i)] = 0;
     }
     for (std::size_t i = 0; i < n; ++i) {
         Body& b = bodies_[i];
@@ -1160,6 +1238,7 @@ void Physics3D::step(World& world, float dt) {
             b.lastVel = b.vel;
         }
     }
+    finish_joints(world);
 }
 
 // ------------------------------------------------------------- queries ----
@@ -1174,6 +1253,16 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
         if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
+        if (b.general()) {  // capsule / convex / mesh
+            float t = 0.0f;
+            Vec3 gn;
+            if (ray_body(b, origin, d, bestT, t, gn) && t <= bestT) {
+                bestT = t;
+                best = &b;
+                bestN = gn;
+            }
+            continue;
+        }
         // A turned box is tested in its own frame (same distances); an unturned one in world space, exactly as before.
         Vec3 lo = b.center - b.half, hi = b.center + b.half, org = origin, od = d;
         if (b.rotated) {
@@ -1183,14 +1272,14 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
             od = world_to_frame(b.ax, d);
         }
         {   // origin inside this collider: skip it
-            bool inside = b.box ? (org.x > lo.x && org.x < hi.x && org.y > lo.y && org.y < hi.y &&
+            bool inside = b.kind == Body::Kind::Box ? (org.x > lo.x && org.x < hi.x && org.y > lo.y && org.y < hi.y &&
                                    org.z > lo.z && org.z < hi.z)
                                 : length_sq(origin - b.center) < b.radius * b.radius;
             if (inside) continue;
         }
         float t = 0.0f;
         Vec3 nrm;
-        if (b.box) {
+        if (b.kind == Body::Kind::Box) {
             float tmin = 0.0f, tmax = bestT;
             int axisHit = -1;
             float sgnHit = 0.0f;
@@ -1249,7 +1338,7 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
     Body probe;  // the swept shape as a body: axis-aligned, no entity
     probe.hasShape = true;
     probe.enabled = true;
-    probe.box = shape.kind == CastShape::Kind::Box;
+    probe.kind = shape.kind == CastShape::Kind::Box ? Body::Kind::Box : Body::Kind::Sphere;
     probe.half = {std::max(shape.size.x * 0.5f, 1e-3f), std::max(shape.size.y * 0.5f, 1e-3f),
                   std::max(shape.size.z * 0.5f, 1e-3f)};
     probe.radius = std::max(shape.radius, 1e-3f);
@@ -1306,7 +1395,7 @@ bool Physics3D::is_touching(World& world, Entity e, Vec3 dir, float tolerance) {
 std::vector<Entity> Physics3D::overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask) {
     std::vector<Entity> out;
     Body probe;
-    probe.box = false;
+    probe.kind = Body::Kind::Sphere;
     probe.hasShape = true;
     probe.radius = std::max(radius, 0.0f);
     probe.center = center;
@@ -1368,20 +1457,39 @@ void Physics3D::debug_state(const World& world, Json& out) const {
         Json shapes = Json::array();
         if (b.hasShape) {
             Json s = Json::object();
-            if (b.box) {
-                s["kind"] = "box";
-                s["size"] = Json::array({b.half.x * 2, b.half.y * 2, b.half.z * 2});
-                const Vec3 rot = b.rotated ? euler_of(b.ax) : Vec3{};  // world rotation, euler degrees (like Transform)
-                s["rotation"] = Json::array({rot.x, rot.y, rot.z});
-            } else {
-                s["kind"] = "sphere";
-                s["radius"] = b.radius;
+            const Vec3 rot = b.rotated ? euler_of(b.ax) : Vec3{};  // world rotation, euler degrees (like Transform)
+            switch (b.kind) {
+                case Body::Kind::Box:
+                    s["kind"] = "box";
+                    s["size"] = Json::array({b.half.x * 2, b.half.y * 2, b.half.z * 2});
+                    s["rotation"] = Json::array({rot.x, rot.y, rot.z});
+                    break;
+                case Body::Kind::Sphere:
+                    s["kind"] = "sphere";
+                    s["radius"] = b.radius;
+                    break;
+                case Body::Kind::Capsule:
+                    s["kind"] = "capsule";
+                    s["radius"] = b.radius;
+                    s["height"] = (b.segHalf + b.radius) * 2.0f;
+                    s["rotation"] = Json::array({rot.x, rot.y, rot.z});
+                    break;
+                default:
+                    s["kind"] = b.kind == Body::Kind::Convex ? "convex" : "mesh";
+                    s["mesh"] = b.meshName;
+                    s["triangles"] = b.data ? int(b.data->geometry->indices.size() / 3) : 0;
+                    s["size"] = Json::array({b.half.x * 2, b.half.y * 2, b.half.z * 2});  // bounding box
+                    s["rotation"] = Json::array({rot.x, rot.y, rot.z});
+                    break;
             }
             s["offset"] = Json::array({b.offset.x, b.offset.y, b.offset.z});
             s["trigger"] = b.trigger;
             shapes.push_back(s);
         }
         j["shapes"] = shapes;
+        if (b.character) j["character"] = true;
+        if (b.jointed) j["jointed"] = true;
+        if (!b.problem.empty()) j["problem"] = b.problem;
         out.push_back(j);
     }
 }
@@ -1389,11 +1497,22 @@ void Physics3D::debug_state(const World& world, Json& out) const {
 void Physics3D::debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const {
     for (const Body& b : bodies_) {
         if (!b.enabled || !b.hasShape || !live(world, b.e)) continue;
-        if (b.box) {
-            const Vec3 rot = b.rotated ? euler_of(b.ax) : Vec3{};
-            out.push_back({Physics::DebugShape::Box, b.center, b.half * 2.0f, rot.z, b.trigger, rot});
-        } else {
-            out.push_back({Physics::DebugShape::Sphere, b.center, Vec3{b.radius * 2.0f}, 0.0f, b.trigger});
+        const Vec3 rot = b.rotated ? euler_of(b.ax) : Vec3{};
+        switch (b.kind) {
+            case Body::Kind::Box:
+                out.push_back({Physics::DebugShape::Box, b.center, b.half * 2.0f, rot.z, b.trigger, rot});
+                break;
+            case Body::Kind::Sphere:
+                out.push_back({Physics::DebugShape::Sphere, b.center, Vec3{b.radius * 2.0f}, 0.0f, b.trigger});
+                break;
+            case Body::Kind::Capsule:  // size = {diameter, full height, diameter} along the entity's local Y
+                out.push_back({Physics::DebugShape::Capsule, b.center, Vec3{b.radius * 2.0f, (b.segHalf + b.radius) * 2.0f, b.radius * 2.0f},
+                               rot.z, b.trigger, rot});
+                break;
+            default:  // convex / mesh: the oriented bounding box of the model (centre moved to the box's centre)
+                out.push_back({b.kind == Body::Kind::Convex ? Physics::DebugShape::Convex : Physics::DebugShape::Mesh,
+                               b.center + frame_to_world(b.ax, b.lcenter), b.half * 2.0f, rot.z, b.trigger, rot});
+                break;
         }
     }
 }

@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready) and M17 (web export) are done; M18-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready), M17 (web export) and M18 (animation and production 3D) are done; M19-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -113,7 +113,7 @@ Left open:
 - `TextField`: the caret stays at the end (no caret movement, selection or IME composition). The Steam Deck floating
   keyboard is M12; mobile on-screen keyboard polish is M16.
 - Layout and hit-tests ignore the rotation and scale of UI entities; a `Sprite` inside a container needs an explicit
-  `size` (texture sizes are not measured by the layout). 9-slice for `Sprite` is M18.
+  `size` (texture sizes are not measured by the layout). 9-slice for `Sprite` came with M18 (`Sprite.slice`).
 - Window control on macOS, iOS, Android and a real Linux desktop is compiled in CI but was not run on those systems
   (Windows was). Android pads always report `generic`; X11 `displaySize` is the whole screen, not the usable area; on
   macOS vsync off tears but keeps the display's frame rate (sokol paces frames with a display link).
@@ -321,8 +321,8 @@ Left open:
   work of M10/M14.
 - Video import: waits for M19's video player, which decides the format.
 - Importers: OBJ polygons are triangulated as fans (concave faces come out wrong); Aseprite blend modes are composed as
-  normal and tilemap layers are skipped (both warn); PSD imports the flattened image only; FBX skins and animations wait
-  for M18.
+  normal and tilemap layers are skipped (both warn); PSD imports the flattened image only; FBX skins and animations are not
+  imported (M18 plays skins and clips from glTF/GLB only).
 - Providers: Meshy makes untextured preview meshes only; ElevenLabs music is instrumental; seeds are honoured by `fake`
   and `asset-command` only, reference images by OpenAI and `fake` only (the others warn).
 - Audio: normalization has no limiter (the gain is capped so the peak stays under -1 dBFS); Android and iOS never
@@ -366,22 +366,29 @@ Left open:
 - The player exports `_emscripten_stack_get_current` and `__emscripten_stack_restore` by hand: Emscripten 6.0.10 does not
   link without them, cause not found. `web-debug` configures but was not compiled.
 
-## M18. Animation and production 3D (L, high for 3D games)
+## M18. Animation and production 3D (L, high for 3D games) — DONE (the `m18/integration` PR)
 
-Closes F-03, F-04, F-05, F-06 and the run-time part of H-06.
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M18.
 
-- glTF skins and animation clips (the loader flattens nodes and reads neither `skins` nor `animations`): GPU skinning,
-  an animator with clips, blending and events; a tween/easing JS module; a small state machine.
-- Rendering (Blinn-Phong, `kMaxLights = 8`, no culling today): normal maps, glTF metallic-roughness PBR with image-based
-  lighting, frustum culling, instancing, more lights, custom shaders per material.
-- Physics (`Collider3D` is box or sphere, no joints): capsule, convex and triangle-mesh colliders; Box2D's joints exposed
-  in 2D (revolute, distance, prismatic, weld) and hinge/ball joints in 3D; a character controller.
-- 2D: flipped and rotated tile indices, 9-slice (shared with M10), 2D lights with normal maps, parallax layers.
-
-Acceptance criteria:
-- A skinned glTF sample plays two clips and blends between them (golden image).
-- 10 000 instanced cubes draw in one draw call per material; off-screen meshes are not submitted (render stats).
-- A capsule body walks up a triangle-mesh ramp; a revolute-joint pendulum keeps its period.
+Left open:
+- Custom shaders per material: not built. It needs a design for compiling a game's shaders at export or run time for
+  D3D11, Metal, GL, GLES3 and WebGL2 (sokol-shdc is a developer tool, not part of the runtime).
+- Rendering ran on D3D11 (WARP) and Linux llvmpipe only: never on Metal, a GLES3 phone or WebGL2. IBL is a procedural
+  sky approximation (no environment texture or prefiltered cubemap); lighting stays in gamma space; the shadow map still
+  fits every caster (no cascades), so shadows of big scenes are blurry. Blended meshes only batch with neighbours in their
+  far-to-near order. glTF materials with a `pbrMetallicRoughness` block use their own metallic/roughness, not
+  `MeshRenderer`'s.
+- Animation: at most 64 joints and only the first skin per model (more = bind pose and a warning); no morph targets,
+  layers/masks or root motion; node animation of meshes without a skin is ignored; a changed .gltf is not reloaded under
+  a running Animator; starting a clip during a cross-fade drops the older outgoing clip. Every animated model is its own
+  draw call (not instanced).
+- 3D physics: convex hulls over 256 vertices are reduced to 256 extreme points; dynamic capsule/convex bodies use the
+  inertia of their bounding box; a box or hull on a mesh rests on ray-probed corners (no full manifold); rays that graze a
+  capsule or hull under ~3 degrees can miss; jointed bodies never sleep; the character controller is not carried by
+  moving platforms; the collider mesh cache is not refreshed when a file changes while the game runs.
+- 2D: at most 16 `Light2D` per frame, no spot lights, shadows or per-layer lights, no lit screen-space sprites;
+  `Parallax` repeats Sprites only; `debug_state` does not list `Joint2D`s and rebuilding a body resets its joint's
+  reference angle; the `scene.import_ascii` flip/rotate legend keys have no test of their own.
 
 ## M19. Runtime features (M each, medium; take them when a game needs them)
 

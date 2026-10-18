@@ -675,6 +675,49 @@ into `m17/web`:
   headless Chrome until `player: 60 frames rendered`); `scripts/ci-local.sh web` does the same. release.yml builds the
   player once (`web-player` job) and puts `FactorIA/web/` in every package, checked by exporting from the unpacked package.
 
+## M18. Animation and production 3D (L, high for 3D games) — DONE (the `m18/integration` PR)
+
+Closes F-03, F-04, F-05, F-06 and the run-time part of H-06.
+
+Acceptance criteria:
+- A skinned glTF sample plays two clips and blends between them (golden image).
+- 10 000 instanced cubes draw in one draw call per material; off-screen meshes are not submitted (render stats).
+- A capsule body walks up a triangle-mesh ramp; a revolute-joint pendulum keeps its period.
+
+What was built, in four worker branches merged into `m18/integration` (docs/AI_GUIDE.md 9.9, 9.18, 9.25, 9.26 and
+docs/ANIMATION.md are the reference):
+- Rendering (`m18/render3d`): `mesh.glsl` is Cook-Torrance GGX PBR with a procedural sky IBL (`skyColor`,
+  `horizonColor`) and a Karis environment BRDF; glTF metallic-roughness, normal, occlusion and emissive textures (and
+  `KHR_materials_emissive_strength`); `MeshRenderer.normalMap` / `normalScale`; `MeshVertex` is 48 bytes with a tangent
+  (glTF TANGENT or generated per triangle). Frustum culling, then instanced batches (same mesh, textures and material
+  values; the model matrix per instance in vertex buffer 1; the shadow pass instanced too); the CPU side is GPU-free in
+  `render/src/mesh_batch.{h,cpp}`. `kMaxLights` 32 in a separate `mesh_lights` uniform block; beyond it the shadow caster,
+  then directional lights, then point/spot lights by brightness over distance. Stats: `meshesCulled`, `meshBatches`,
+  `lightsDropped`. Tests in `render/tests/render3d_tests.cpp` (10 000 cubes = one draw, 100 culled, golden
+  `3d_pbr_normalmap_ibl`; `3d_primitives` and `3d_shadows_fog` regenerated).
+- Animation (`m18/anim`): `fa/scene/skeleton.h` reads skins, rest poses and clips (LINEAR, STEP, CUBICSPLINE) and the
+  per-vertex joints/weights GPU-free; the cgltf implementation moved to fa_scene and every glTF reader goes through
+  `fa::fs` (`fa/scene/gltf_file.h`). The `Animator` component (`fa/scene/animation.h`) runs in the fixed step after
+  physics: cross-fades, clip events and `anim.finished` on `world.events().game`, a JSON state machine (`params`,
+  `states`, `transitions` with `when` conditions, triggers, `onFinish`) and the joint palette. Scripts: `entity.animator`
+  and `tween` / `ease` / `cancelTweens` in "factoria" (ticked with the timers). GPU skinning: a second program in
+  `mesh.glsl` and `shadow.glsl` (`mesh_skin`, `shadow_skin`; the fragment shader is shared), joints and weights in vertex
+  buffer 2, 64 joints as 3x4 matrices; skinned items are never instanced and are culled with `skinned_bounds`. Tests in
+  `scene/tests/test_animation.cpp`, `script/tests/test_animation_script.cpp`, a runtime test, and the goldens
+  `3d_skinned_bend` and `3d_skinned_crossfade` of `render/tests/data/skinned_two_bone.gltf`.
+- 3D physics (`m18/physics3d`): `Collider3D` shapes `capsule`, `convex` and `mesh` (static only; BVH) with the `mesh`
+  field read GPU-free by `fa/scene/mesh_geometry.h`; GJK/EPA in `physics/src/shape3d.cpp`. `Joint3D` (hinge, ball, fixed;
+  limits and motor) in the sequential-impulse loop; `CharacterController3D` with `physics.moveCharacter(entity, delta)`.
+  Tests in `physics/tests/test_physics3d_shapes.cpp`: every shape pair, a 6400-triangle ramp climbed by the controller and
+  by a capsule body, a hinge pendulum within 1.5% of the analytic period, bit-identical reruns.
+- 2D (`m18/2d`): tile flag bits (flip X, flip Y, transpose: `make_tile`, `tile_index`, `tile_flags` in
+  `fa/scene/tilemap.h`; `flipX`/`flipY`/`rotate` in `scene.import_ascii` legends), `Sprite.slice` (9-slice shared with the
+  UI through `render/src/nine_slice.h`), `Light2D` with `Sprite`/`Tilemap` `lit` and `normalMap` (16 lights per frame,
+  `quad.glsl`), `Parallax` (`visual_world_matrix` in `bounds.h` keeps bounds and picking right) and `Joint2D` (Box2D
+  revolute, distance, prismatic, weld; limits, motor, spring, reaction force). Tests in
+  `physics/tests/test_joints2d.cpp` (revolute pendulum within 2%) and `render/tests/render2d_features_tests.cpp` (goldens
+  `2d_tile_flags`, `2d_sprite_nine_slice`, `2d_lit_normal_map`, `2d_parallax`).
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

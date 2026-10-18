@@ -306,8 +306,9 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 
 | Component | Key fields | Typical use |
 |---|---|---|
-| `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale` | Visible 3D objects. Primitives need no assets. Unless `unlit`, it needs a light to look right. |
-| `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. |
+| `MeshRenderer` | `mesh` (cube, sphere, plane, cylinder, capsule, cone, quad, or a .glb/.gltf path), `color`, `texture`, `normalMap`, `normalScale`, `metallic`, `roughness`, `emissive`, `unlit`, `castShadows`, `receiveShadows`, `uvScale` | Visible 3D objects with a PBR material. Primitives need no assets. Unless `unlit`, it needs a light to look right. glTF models bring their own material (section 9.9). |
+| `Animator` | `clip`, `speed`, `loop`, `playing`, `fade`, `events`, and a state machine: `params`, `states`, `transitions` | Plays the clips of a skinned glTF on the entity with the MeshRenderer, blends between them, sends clip events, switches state from parameters. Script: `entity.animator.play("Run", 0.2)`, `.set("speed", 3)`. Section 9.25, [ANIMATION.md](ANIMATION.md). |
+| `Light` | `type` (directional, point, spot), `color`, `intensity`, `range`, `spotAngle`, `castShadows` (directional only) | Lighting and shadows. A directional light points along the entity's -Z axis after its rotation. Up to 32 lights are used per frame (section 9.9). |
 
 **Physics**
 
@@ -316,7 +317,9 @@ This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPON
 | `RigidBody2D` | `type` (static, dynamic, kinematic), `velocity` [x,y], `angularVelocity` (degrees/s), `gravityScale`, `fixedRotation`, `bullet`, `linearDamping`, `angularDamping` | Moves an entity under 2D physics. A static body never moves. |
 | `Collider2D` | `shape` (box, circle, capsule), `size`, `radius`, `offset`, `isTrigger`, `oneWay`, `friction`, `restitution`, `density`, `layer` (0..31), `mask` (-1 = all layers) | Collision shape. With `isTrigger: true` it reports overlaps and does not block. With `oneWay: true` it is a one-way platform (section 9.5). |
 | `RigidBody3D` | `type`, `mass`, `velocity` [x,y,z], `angularVelocity` (degrees/s about x, y, z), `lockRotation`, `angularDamping`, `rollWithMotion`, `rollingFriction`, `gravityScale`, `linearDamping` | A simple 3D body. A dynamic **box** is a rigid body: collisions and friction turn it (it tips over a ledge, tumbles, settles on a face), so put `"lockRotation": true` on a character or a crate that must stay upright. A sphere is an arcade rolling ball by default (`rollWithMotion`, contacts never turn it); with `"rollWithMotion": false` it is a rigid body too and real friction rolls and spins it. Box colliders follow `Transform.rotation`. Fast bodies are swept against every solid collider, so they do not tunnel. |
-| `Collider3D` | `shape` (box, sphere), `size`, `radius`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. |
+| `Collider3D` | `shape` (box, sphere, capsule, convex, mesh), `size`, `radius`, `height`, `mesh`, `offset`, `isTrigger`, `friction`, `restitution`, `layer`, `mask` | 3D collision. Boxes are oriented: they follow the entity's world rotation (parents included). `size` and `offset` are scaled by `Transform.scale`, and `offset` is rotated with the entity. `capsule` is `radius` + `height` (tip to tip) along the entity's local Y. `convex` is the hull of `mesh`'s vertices; `mesh` uses its triangles and is for STATIC level geometry only (section 9.18). `mesh` is a primitive name (cube, sphere, plane, cylinder, capsule, cone, quad) or a .gltf/.glb path, usually the same as `MeshRenderer.mesh`. |
+| `Joint3D` | `type` (hinge, ball, fixed), `connected` (entity id, empty = the world), `anchor`, `connectedAnchor`, `autoAnchor`, `axis`, `useLimits`, `lowerLimit`, `upperLimit` (degrees), `useMotor`, `motorSpeed` (degrees/s), `maxMotorTorque`, `collideConnected`, `angle` (read-only) | Joins this entity's `RigidBody3D` to another body: doors, pendulums, wheels, ragdoll limbs, chains (section 9.18). Needs a `Collider3D` on the same entity. |
+| `CharacterController3D` | `radius`, `height`, `center`, `stepOffset`, `slopeLimit` (degrees), `skin`, `layer`, `mask`, `velocity`, `isGrounded` and `groundNormal` (read-only) | A walking capsule moved by `physics.moveCharacter` (section 9.18): slides along walls, climbs steps, refuses steep slopes, sticks to the ground going down, pushes crates. No `RigidBody3D` or `Collider3D` on the same entity. |
 
 **UI (menus and settings screens; screen space only, section 9.22)**
 
@@ -376,7 +379,7 @@ The most-used members of the `"factoria"` module. The full list is in `docs_read
 | `screen` | `safeArea` (a `Rect` in design pixels: what a phone's notch, rounded corners and system bars leave free; the whole screen on desktop and headless), `insets` (`{left, top, right, bottom}`), `size`. Put `safeArea: true` beside `anchor` on a Sprite, Shape2D, Text, ParticleEmitter or UI widget to anchor it to the safe area. Test with `game.setSafeArea("phone-portrait")` / `screen_set_safe_area` (`docs_read {"name":"mobile"}`) |
 | `window` | `available`, `fullscreen` / `setFullscreen(on)`, `size` / `setSize(w, h)`, `displaySize`, `resolutions()`, `vsync` / `setVsync(on)`, `frameCap` (0 or 15..1000). Getters work everywhere; setters need a real window (not headless, not tests) and throw a teaching error otherwise, so check `window.available`. Phones and tablets are always full screen. Save the choice with `storage` |
 | `audio` | `play(path, {volume, pitch, pan, loop, bus})` (bus defaults to `"sfx"`), `stop(id)`, `stopAll()`, `music(path, {volume, fade})`, `stopMusic(fade)`, `setVolume(bus, v)`, `getVolume(bus)` |
-| `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity` |
+| `physics` | `raycast(from, to, {mask, ignore, ignoreTriggers})`, `raycast3d(origin, dir, maxDistance, {mask, ignore, ignoreTriggers})`, `shapeCast(shape, from, to, {mask, ignore, ignoreTriggers})`, `overlapCircle(center, r, {mask})`, `overlapBox(rect, {mask})`, `overlapSphere(center, r, {mask})`, `applyImpulse`, `applyForce`, `setVelocity`, `moveCharacter(entity, delta)` |
 | `time`, `camera`, `debug` | `time.dt`, `time.fixedDt`, `time.elapsed`, `time.scale` (0 = paused: physics, particles, animators, timers and `onUpdate` stop; audio and the UI go on), `time.unscaledDt`; `camera.main`, `worldToScreen`, `screenToWorld`; `debug.line`, `debug.rect`, `debug.circle`, `debug.text`, `debug.box`, `debug.sphere` |
 | `scene`, `game`, `storage` | `scene.load(path)` (deferred to the end of the frame), `scene.current`; `game.quit()`, `game.paused` (= `time.scale` 0), `game.project`, `game.screenSize`, `game.platform` (`"windows"`, `"android"`...), `game.notices()` (the runtime's third-party parts, for credits); `storage.get(key, fallback)`, `storage.set(key, value)`, `storage.remove(key)` |
 | `session` | A plain object that survives scene loads for the whole run (section 9.15) |
@@ -646,7 +649,7 @@ factoria call scene.import_ascii @level1.json          # args in a file; or MCP 
 ```
 
 - `rows` is the map: one string per row, ONE CHARACTER PER TILE, all rows the same length, row 0 is the TOP row. `.` and a space are empty tiles unless the legend defines them.
-- `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile. A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
+- `legend` maps each character to a tile index (an integer, `-1` = empty) or to an object `{"tile"?, "flipX"?, "flipY"?, "rotate"?, "prefab"?, "id"?, "overrides"?, "offset"?}`. A glyph with a `tile` draws that tile (`flipX`, `flipY` and `rotate` 0/90/180/270 clockwise turn it, section 9.26). A glyph with a `prefab` spawns that prefab at the CENTRE of its cell (a glyph may have both). `overrides` patches the prefab's components for that glyph (`{"Script": {"props": {"speed": 60}}}`), and `offset` `[dx, dy]` shifts the object from the cell centre in world units (a 96 px flag that must stand on the ground, for instance).
 - `tilemap` holds the Tilemap fields for a new tilemap (`tileset`, `tileSize`, `columns`, `solidTiles`, `color`, `layer`). You do not need `columns`: left at 0 (the default) it is derived from the tileset image, as many whole tiles of `tileSize[0]` as fit across it. Pass it only for an image with another layout. If an earlier import set `columns` explicitly and you now change `tileset` or `tileSize` without `columns`, it goes back to 0 (the result says so in `notes`). The grid (`tiles`, `width`, `height`) always comes from `rows`.
 - `entity` (default `"tilemap"`) is the id of the Tilemap entity: created when missing, updated when it exists. Use another id for a second layer, such as a background.
 - `position` and `anchor` (`top-left`, `bottom-left` or `center`) place the map: `anchor` says which point of the map sits at `position`. With `bottom-left` at `[0, 0]` the level's floor starts at y = 0. Without them a new tilemap has its top-left corner at the origin, and an existing one stays where it is.
@@ -742,6 +745,15 @@ A camera, a sun and a floor (the `3d-empty` template has only the camera; add th
 - Shadows: a directional `Light` with `"castShadows": true` casts them. `MeshRenderer.castShadows` and `receiveShadows` (both default true) control each object.
 - Fog: `settings.fogDensity` (0 = off) and `settings.fogColor` blend distant objects into the fog colour. `skyColor` and `horizonColor` paint the sky gradient behind a perspective camera.
 - Lighting: `ambientLight` lights every surface evenly. Add point or spot lights with `type: "point"` or `"spot"` (no shadows yet).
+
+Production 3D rendering (all automatic; there is nothing to switch on):
+
+- **PBR materials.** `metallic` and `roughness` drive Cook-Torrance (GGX) lighting. Metal reflects the sky: the engine builds a small environment from `settings.skyColor` and `settings.horizonColor` (rougher surfaces see a blurrier sky), so a shiny sphere looks right with no environment asset. `ambientLight` still lights the diffuse side. Lighting happens in gamma space (colours are not linearised), as in older scenes. A scene with a cleared sky and a bright `skyColor` therefore gives plastic a faint sheen and metals a bright rim: lower `skyColor`/`horizonColor` for a dark scene.
+- **Normal maps.** `MeshRenderer.normalMap` (a tangent-space map, glTF convention: +Y up, the usual blue-ish image) adds relief without triangles; `normalScale` (default 1) scales it, `uvScale` tiles it with the base texture. Primitives get their tangents from their UVs.
+- **glTF materials.** A model's own `baseColorFactor`/texture, `metallicFactor`/`roughnessFactor`, `metallicRoughnessTexture`, `normalTexture`, `occlusionTexture`, `emissiveFactor`/`emissiveTexture` (and `KHR_materials_emissive_strength`) are all used. A glTF material's metallic and roughness replace `MeshRenderer.metallic`/`roughness` (those apply to primitives and to models without a material); `color` still tints the base color, `emissive` adds to the glTF emission, and `normalMap` replaces the glTF normal map when set. Models without a TANGENT attribute get tangents generated from their UVs.
+- **Many objects.** Meshes outside the camera frustum are not drawn. Meshes with the same `mesh`, textures and material values (`color`, `metallic`, `roughness`, `emissive`, `unlit`, `receiveShadows`, `uvScale`, `normalMap`, `normalScale`) are drawn with ONE instanced draw call per mesh part, however many there are: 10 000 identical cubes cost one draw. Give each its own `color` and they stop sharing, so for crowds vary the Transform, not the material. `play.report` shows `meshes` (drawn), `meshesCulled`, `meshBatches` (groups drawn with one instanced draw) and `drawCalls`. Objects off screen still cast shadows into view while a shadow-casting light is on.
+- **Lights.** Up to 32 lights are used each frame. When a scene has more, the shadow-casting sun comes first, then the other directional lights, then point and spot lights by brightness over distance to the camera (the nearest and brightest are kept); `lightsDropped` in the stats says how many were left out. A light costs every lit pixel, so keep the lights that reach the camera few and give them a small `range`.
+- Not available yet: custom shaders per material, an environment map image for reflections, shadows from point and spot lights.
 
 ### 9.10 Save data
 
@@ -985,6 +997,27 @@ To make something spin without rolling, set `RigidBody3D.angularVelocity` (degre
 - **Fast bodies do not tunnel.** A body that would move relative to another body (static, kinematic or dynamic) by more than about half its smallest size in one physics sub-step (a 60 m/s bullet sphere, two spheres flying at each other, a fast kinematic wall) is swept in relative motion and stopped at the time of impact. The contacts are resolved there (stop, bounce, slide) and the rest of the sub-step continues with the new velocities, so a fast body that hits a ramp keeps sliding along it instead of losing the rest of its move. This is automatic. A turning box is swept through its own rotation within the sub-step too (a long thin rod spinning at 40 rad/s cannot swing through a thin wall, and after one end hits, the rest of the sub-step still catches the other end swinging in). Up to 32 impacts per sub-step are resolved this way; with more (a ball bouncing a thousand times a second between two walls a hand apart) the rest of the move waits for the next sub-step instead of being applied unswept, so the body can only fall slightly behind in time, never tunnel.
 - **Shape casts.** The 3D shape cast sweeps a sphere or an axis-aligned box from one point to another and returns the first collider it touches (oriented boxes and spheres included), with the distance the centre travelled, the contact point and the surface normal. Colliders that already overlap the shape at the start are skipped, like a raycast that starts inside a collider; `mask`, `ignore` and `ignoreTriggers` work as for raycasts.
 
+- **Collider shapes: capsule, convex, mesh.** `Collider3D.shape` also takes `capsule` (`radius`, `height` tip to tip, along the entity's local Y: the shape for a character or a rod), `convex` (the convex hull of the vertices of `mesh`, for a rock, a crate with chamfers or any dynamic prop) and `mesh` (the triangles of `mesh`, for terrain, ramps and level geometry). `mesh` is a primitive name or a project-relative .gltf/.glb path, usually the same as the entity's `MeshRenderer.mesh`; `Transform.scale` scales it. **A `mesh` collider must be static**: with a dynamic or kinematic `RigidBody3D` it is ignored and the engine logs one error saying so (use `convex`, or several boxes and capsules, for a moving body). Every shape collides with every other one, and works with raycasts, shape casts, `overlapSphere`, `isTouching`, fast-body sweeps, sleeping, events and the physics debug draw. Limits: a convex hull from a model with over 256 vertices is reduced to 256 extreme points, a dynamic capsule or convex body has the inertia of its bounding box and rotates about its collider centre, a box lying on a mesh rests on its low corners, and a raycast that grazes a capsule or hull at under about 3 degrees can miss.
+- **Joints.** Add `Joint3D` to an entity that has a `RigidBody3D` and a `Collider3D`: `"Joint3D": {"type": "hinge", "anchor": [0, 0.5, 0], "axis": [0, 0, 1]}` hangs it from a pivot at that point (in the entity's own axes) of the world; `connected` names another entity (it needs a body too) to hinge the two together, and `autoAnchor: true` then pins them where the anchor is now. `hinge` turns about `axis`, with `useLimits` (`lowerLimit`/`upperLimit` in degrees, measured from the pose the joint started in) and an optional motor (`useMotor`, `motorSpeed` degrees/s, `maxMotorTorque`); `ball` pins a point and leaves the rotation free (chains, ragdoll shoulders); `fixed` welds. The pair does not collide unless `collideConnected` is true. `Joint3D.angle` (read-only, degrees) is the hinge angle. A swinging body keeps its real pendulum period. Jointed bodies never fall asleep. A joint that cannot be built (no body, `connected` is itself or has no body) is reported once with how to fix it, and the body is not held.
+- **Character controller.** Put `CharacterController3D` on an entity (no `RigidBody3D`, no `Collider3D`: the controller is its own capsule) and move it from `onFixedUpdate`:
+
+```js
+import { Behaviour, physics, input, time, vec3 } from "factoria";
+
+export default class Walker extends Behaviour {
+  vy = 0;
+  onFixedUpdate() {
+    const dt = time.fixedDt;
+    const walk = input.axis("move_left", "move_right") * 4, side = input.axis("move_up", "move_down") * 4;
+    const r = physics.moveCharacter(this.entity, vec3(walk * dt, this.vy * dt, side * dt));
+    if (r.isGrounded) this.vy = input.pressed("jump") ? 6 : -1;   // r.groundNormal, r.ground (entity), r.hitWall, r.hitCeiling
+    else this.vy -= 9.81 * dt;
+  }
+}
+```
+
+  `radius`, `height`, `stepOffset` (highest step it climbs), `slopeLimit` (steepest slope it walks, degrees) and `skin` (small gap kept to surfaces) are fields of the component. It slides along walls instead of stopping, climbs steps up to `stepOffset`, treats slopes steeper than `slopeLimit` like walls, snaps down onto the ground when walking off a ramp, and pushes dynamic bodies it walks into. It has no gravity of its own: keep a vertical speed in the script. Setting `CharacterController3D.velocity` (m/s) instead moves it every physics step without a script call. It is not carried by moving platforms.
+
 ### 9.19 3D ground checks and raycasts
 
 ```js
@@ -1222,6 +1255,49 @@ When you write menus of your own, the same rules apply:
   plural forms, `key`s no table has, and every character no font of the language can draw (`U+65E5 '日'`). To send the
   strings to translators, `factoria call i18n.export` writes a CSV or XLIFF file and `i18n.import` reads it back.
 
+### 9.25 Animated characters, state machines and tweens
+
+Full reference: `docs_read {"name":"animation"}` (docs/ANIMATION.md). A skinned glTF/GLB with named animation clips plays
+through the `Animator` component, on the entity that has the model's `MeshRenderer`:
+
+```json
+{ "id": "hero", "components": {
+    "MeshRenderer": { "mesh": "assets/models/hero.glb" },
+    "Animator": {
+      "clip": "Idle",
+      "events": [{ "clip": "Run", "time": 0.25, "name": "footstep" }, { "clip": "Run", "time": 0.75, "name": "footstep" }],
+      "params": { "speed": 0 },
+      "states": { "idle": { "clip": "Idle" }, "run": { "clip": "Run" } },
+      "transitions": [ { "from": "idle", "to": "run", "when": "speed > 0.1", "fade": 0.15 },
+                       { "from": "run", "to": "idle", "when": "speed <= 0.1" } ] } } }
+```
+
+```js
+hero.animator.set("speed", Math.abs(vx));                       // the state machine does the rest
+hero.animator.play("Attack", 0.1);                                // or drive clips by hand: cross-fade 0.1 s
+hero.animator.on("footstep", () => audio.play("assets/sounds/step.wav"));
+```
+
+Animation runs in the fixed step, so headless tests and replays match (`game.step(60)` then check
+`hero.animator.state` / `.time`). `import { tween, ease } from "factoria"` moves any number, vector or color over time
+(2D and 3D): `tween(panel.position, { x: 0 }, { duration: 0.4, ease: "backOut" })`, `await tween(...).finished`.
+The model is drawn deformed on the GPU (up to 64 joints; more joints = bind pose plus a warning), shadows included.
+Each animated model is its own draw call, so keep crowds of animated characters modest.
+
+### 9.26 2D production: flipped tiles, 9-slice, lights, parallax, joints
+
+- **Flipped and rotated tiles.** A tile value in `Tilemap.tiles` is the index plus flag bits: `+268435456` flip X, `+536870912` flip Y, `+1073741824` transpose (applied first, then X, then Y). Turn 90 degrees clockwise = `1342177280 + i`, 180 = `805306368 + i`, 90 counter-clockwise = `1610612736 + i`. `solidTiles`, the tileset range check and collision use the plain index only. In `scene.import_ascii` a legend object takes `{"tile": 3, "flipX": true, "flipY": false, "rotate": 90}` (rotate is clockwise: 0, 90, 180, 270) so you never write the numbers.
+- **9-slice sprites.** `Sprite.slice` = `[left, top, right, bottom]` in pixels of the picture (of the `region` when set). The corners keep their size, the edges and centre stretch to `size`. Works with `flipX/flipY`, `region` and atlas textures. A size smaller than the corners shrinks them evenly.
+- **Lights.** Add `Light2D` entities (`type` point or directional, `color`, `intensity`, `radius`, `falloff`, `height` for point lights, `direction` and `elevation` for directional ones). Only a `Sprite` or `Tilemap` with `lit: true` is lit; the base brightness is `SceneSettings.ambientLight`. `Sprite.normalMap` (needs `lit`) gives bumps; the normal map may be another size or packed in an atlas. At most 16 lights per frame (WebGL2 and GLES3 uniform limit): directional lights first, then the point lights nearest the camera. Lights ignore layers and cast no shadows. Unlit sprites cost nothing extra.
+- **Parallax.** `Parallax.factor` 1 follows the world, 0 sticks to the screen, 0.5 moves at half the camera's speed (use a value above 1 for a foreground). `repeatX` / `repeatY` with `repeatSize` tile a Sprite endlessly over the view. It works with the camera follow of 9.6: the offset is computed from the camera position each frame, so `entity.bounds()` and the editor pick follow it and replays stay deterministic.
+- **Joints.** `Joint2D` goes on the body entity. `connected` is another entity with a body, or empty to pin to the world (then `connectedAnchor` is a world position). `anchor` is on this entity, `connectedAnchor` on the other, in local pixels. Types: `revolute` (hinge; `enableLimit` with `lowerLimit`/`upperLimit` in degrees, 0 = the pose at creation), `distance` (a rope of `length`, 0 = the starting distance; `enableSpring` with `springHertz`/`dampingRatio` makes it elastic), `prismatic` (slides along `axis`, limits in pixels), `weld` (glue). `enableMotor` with `motorSpeed` (degrees/s or px/s) and `maxMotorTorque`. Limits, motor and spring change live from scripts; the type, anchors, axis and `connected` rebuild the joint. `reactionForce`, `reactionTorque`, `angle` and `translation` are read-only runtime fields.
+
+```js
+const j = this.entity.get("Joint2D");
+j.enableMotor = true; j.motorSpeed = 180;        // a wheel starts spinning
+if (Math.hypot(j.reactionForce.x, j.reactionForce.y) > 5000) this.world.destroy(this.entity); // a rope that takes too much
+```
+
 ## 10. Tests
 
 Each test file starts with fresh module state, an empty `session` and storage, and the project's start scene and seed, so results are deterministic. Drive the game through inputs and assert on the result:
@@ -1370,13 +1446,14 @@ The same format works with `factoria call --input` and `factoria session --input
 - Use `burst` with `autoDestroy` for one-shot effects, and set `maxParticles` for continuous ones.
 - Look up entities once in `onStart` and keep the references. Calling `world.find` every frame adds up.
 - Use `RigidBody2D.bullet: true` only for fast, small bodies.
-- 3D physics handles spheres and (oriented) boxes. Fast bodies are swept against static and kinematic colliders, but two fast dynamic bodies can still cross each other.
+- 3D physics handles spheres, capsules, convex hulls, static triangle meshes and (oriented) boxes, plus hinge/ball/fixed joints and a character controller. Fast bodies are swept against every solid collider. A `mesh` collider is static only; jointed bodies never sleep.
 - Keep iteration runs short. 120 frames is 2 seconds of game time.
 
 ## 14. Where to read more
 
 - `factoria docs read scripting` (MCP `docs_read {"name":"scripting"}`): the full JavaScript API, tools and tests.
 - `factoria api --md` and `factoria commands` (MCP `docs_components` and `docs_commands`): generated references for this build.
+- `factoria docs read animation` (MCP `docs_read {"name":"animation"}`): the Animator component (clips, cross-fades, events, state machine) and `tween` / `ease`.
 - `factoria docs read extending` (MCP `docs_read {"name":"extending"}`): how to add project tools, native plugins (C/C++ for one game) and engine commands.
 - `factoria docs read cli` (MCP `docs_read {"name":"cli"}`): every command and flag.
 - `factoria docs read menus` (MCP `docs_read {"name":"menus"}`): a main menu, options, credits, a loading screen

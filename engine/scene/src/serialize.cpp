@@ -362,6 +362,28 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
                 if (issue.error) error(tptr, issue.message, issue.hint);
                 else warn(tptr, issue.message, issue.hint);
             }
+            if (!tm->normalMap.empty() && !tm->lit)
+                warn(cptr + "/Tilemap/normalMap", "Tilemap.normalMap is set but Tilemap.lit is false, so the normal map is not used",
+                     "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+        }
+        if (const Sprite* sp = world_.get<Sprite>(e)) {
+            if (!sp->normalMap.empty() && !sp->lit)
+                warn(cptr + "/Sprite/normalMap", "Sprite.normalMap is set but Sprite.lit is false, so the normal map is not used",
+                     "Set \"lit\": true and add a Light2D entity, or remove normalMap.");
+            if (sp->slice.x < 0 || sp->slice.y < 0 || sp->slice.z < 0 || sp->slice.w < 0)
+                error(cptr + "/Sprite/slice", "Sprite.slice has a negative border [" + std::to_string(sp->slice.x) + ", " + std::to_string(sp->slice.y) +
+                      ", " + std::to_string(sp->slice.z) + ", " + std::to_string(sp->slice.w) + "]",
+                      "slice is [left, top, right, bottom] in texture pixels, each 0 or more. Example: \"slice\": [8, 8, 8, 8].");
+        }
+        if (const Joint2D* jt = world_.get<Joint2D>(e)) {
+            if (jt->enableLimit && jt->lowerLimit > jt->upperLimit)
+                error(cptr + "/Joint2D/lowerLimit", "Joint2D.lowerLimit " + std::to_string(jt->lowerLimit) + " is above upperLimit " + std::to_string(jt->upperLimit),
+                      "Swap them: lowerLimit <= upperLimit (revolute in degrees, prismatic and distance in world units).");
+            if (jt->type == JointType2D::Revolute && jt->enableLimit && (jt->lowerLimit < -178.0f || jt->upperLimit > 178.0f))
+                warn(cptr + "/Joint2D/lowerLimit", "A revolute limit beyond +-178 degrees is clamped to +-178 degrees",
+                     "Box2D cannot limit a hinge to a full turn; use a motor or no limit for a free-spinning joint.");
+            if (jt->type == JointType2D::Prismatic && jt->axis.x == 0.0f && jt->axis.y == 0.0f)
+                error(cptr + "/Joint2D/axis", "A prismatic Joint2D needs a non-zero axis, got [0, 0]", "Example: \"axis\": [1, 0] slides along the entity's local x, [0, 1] along y.");
         }
     }
 

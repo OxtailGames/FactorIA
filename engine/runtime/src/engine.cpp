@@ -7,6 +7,7 @@
 #include "fa/core/strings.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
+#include "fa/scene/animation.h"
 #include "fa/scene/serialize.h"
 
 namespace fa {
@@ -281,7 +282,10 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts.fixed_update(fdt);
         // time.scale (game.paused = 0) slows or freezes the simulation, not only the scripts.
         const double scale = scripts.time_scale();
-        if (scale > 0.0) physics.step(world, float(fixedDt * scale));
+        if (scale > 0.0) {
+            physics.step(world, float(fixedDt * scale));
+            update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
+        }
         scripts.dispatch_events();
         world.advance_clock(fixedDt);
         ++fixedStep;

@@ -471,8 +471,206 @@
     isGrounded(tolerance) { return N.isGrounded(this.$h, tolerance === undefined ? -1 : tolerance); }
     isTouching(direction, tolerance) { const d = vecArr(direction, 3, "entity.isTouching(direction)"); return N.isTouching(this.$h, d[0], d[1], d[2], tolerance === undefined ? (N.hasComp(this.$h, "RigidBody3D") || N.hasComp(this.$h, "Collider3D") ? 0.05 : 2) : tolerance); }
     emitBurst(count = 10) { N.particlesBurst(this.$h, count); }
+    get animator() {
+      if (!N.hasComp(this.$h, "Animator"))
+        throw new Error(`entity '${this.id}' has no Animator component; add one next to a MeshRenderer with a skinned glTF: entity.add("Animator", {clip: "Idle"})`);
+      return new AnimatorApi(this.$h);
+    }
     toJSON() { return N.entityJson(this.$h, true, false); }
     toString() { return `Entity(${this.id})`; }
+  }
+
+  // ===================================================================================================== animator
+  // entity.animator: skeletal animation of a skinned glTF. The Animator component (scene JSON) holds the state; the
+  // engine advances it in the fixed step. Everything here is a thin wrapper over that component.
+  class AnimatorApi {
+    constructor(h) { this.$h = h; }
+    get component() { return viewOf(this.$h, typeOf("Animator")); }
+    play(clip, fadeSeconds = this.component.fade) { N.animCall(this.$h, "play", String(clip), fadeSeconds); }
+    stop() { N.animCall(this.$h, "stop"); }
+    set(name, value) { N.animCall(this.$h, "set", String(name), value); }
+    get(name) {
+      const c = this.component, v = c.values;
+      if (name in v) return v[name];
+      const p = c.params;
+      if (name in p) return p[name];
+      throw new Error(`the Animator has no parameter '${name}'${closest(name, Object.keys(p)) ? `; did you mean '${closest(name, Object.keys(p))}'?` : "; declare it in the Animator's params"}`);
+    }
+    trigger(name) { N.animCall(this.$h, "trigger", String(name)); }
+    get clips() { return N.animCall(this.$h, "clips").map((c) => c.name); }
+    duration(clip) {
+      const c = N.animCall(this.$h, "clips").find((x) => x.name === clip);
+      if (!c) throw new Error(`no animation clip '${clip}'; the model has: ${this.clips.join(", ") || "(none)"}${closest(clip, this.clips) ? `. Did you mean '${closest(clip, this.clips)}'?` : ""}`);
+      return c.duration;
+    }
+    on(name, fn) {
+      const id = N.idOf(this.$h);
+      return addListener(name, (data, source) => { if (data && data.id === id) fn(data, source); }, null);
+    }
+    get state() { return this.component.state; }
+    get clip() { return this.component.clip; }
+    set clip(v) { this.component.clip = v; }
+    get time() { return this.component.time; }
+    set time(v) { this.component.time = v; }
+    get speed() { return this.component.speed; }
+    set speed(v) { this.component.speed = v; }
+    get loop() { return this.component.loop; }
+    set loop(v) { this.component.loop = v; }
+    get playing() { return this.component.playing; }
+    set playing(v) { this.component.playing = v; }
+  }
+
+  // ========================================================================================================= tween
+  // tween(target, props, options): moves numbers, vectors and colors of any object (a component view, a vector, a plain
+  // object) to new values over time, driven by the game clock (the fixed step and time.scale, never the wall clock).
+  const bounceOut = (t) => {
+    const n1 = 7.5625, d1 = 2.75;
+    if (t < 1 / d1) return n1 * t * t;
+    if (t < 2 / d1) return n1 * (t -= 1.5 / d1) * t + 0.75;
+    if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
+    return n1 * (t -= 2.625 / d1) * t + 0.984375;
+  };
+  const EASE_IN = {
+    quad: (t) => t * t, cubic: (t) => t * t * t, quart: (t) => t * t * t * t, quint: (t) => t * t * t * t * t,
+    sine: (t) => 1 - Math.cos(t * Math.PI / 2),
+    expo: (t) => (t === 0 ? 0 : Math.pow(2, 10 * t - 10)),
+    circ: (t) => 1 - Math.sqrt(1 - t * t),
+    back: (t) => { const c1 = 1.70158; return (c1 + 1) * t * t * t - c1 * t * t; },
+    elastic: (t) => (t === 0 ? 0 : t === 1 ? 1 : -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * (2 * Math.PI / 3))),
+    bounce: (t) => 1 - bounceOut(1 - t),
+  };
+  const ease = { linear: (t) => t };
+  for (const [name, f] of Object.entries(EASE_IN)) {
+    ease[name + "In"] = f;
+    ease[name + "Out"] = (t) => 1 - f(1 - t);
+    ease[name + "InOut"] = (t) => (t < 0.5 ? f(2 * t) / 2 : 1 - f(2 - 2 * t) / 2);
+  }
+  const CHANNELS = ["x", "y", "z", "w", "r", "g", "b", "a"];
+
+  const tweens = { list: [], cancelAll() { for (const t of this.list.slice()) t.cancel(); this.list = []; } };
+
+  class Tween {
+    constructor(target, props, o) {
+      this.target = target; this.props = props; this.o = o;
+      this.elapsed = 0; this.started = false; this.paused = false; this.done = false; this.cancelled = false;
+      this.parts = []; this.nexts = [];
+      this.finished = new Promise((res) => { this.$resolve = res; });
+    }
+    get active() { return !this.done && !this.cancelled; }
+    get progress() { const d = this.o.duration * (this.o.repeat + 1); return d > 0 ? Math.min(1, Math.max(0, (this.elapsed - this.o.delay) / d)) : (this.done ? 1 : 0); }
+    pause() { this.paused = true; return this; }
+    resume() { this.paused = false; return this; }
+    cancel() {
+      if (this.done || this.cancelled) return this;
+      this.cancelled = true;
+      const i = tweens.list.indexOf(this); if (i >= 0) tweens.list.splice(i, 1);
+      this.$resolve(false);
+      for (const n of this.nexts) n.cancel();
+      return this;
+    }
+    onComplete(fn) { this.o.onComplete = ((prev) => () => { if (prev) prev(this); fn(this); })(this.o.onComplete); return this; }
+    next(target, props, options) {
+      const t = makeTween(target, props, options);
+      if (this.cancelled) { t.cancelled = true; t.$resolve(false); return t; }
+      if (this.done) tweens.list.push(t); else this.nexts.push(t);
+      return t;
+    }
+    $begin() {
+      this.started = true;
+      if (typeof this.target === "number") {
+        this.from = this.o.from !== undefined ? this.o.from : this.target;
+      } else {
+        const t = this.target;
+        for (const k of Object.keys(this.props)) {
+          const end = this.props[k], cur = t[k];
+          if (typeof end === "number" && typeof cur === "number") { this.parts.push({ k, num: true, a: this.o.from && k in this.o.from ? this.o.from[k] : cur, b: end }); continue; }
+          if (cur === undefined || cur === null || typeof cur !== "object")
+            throw new Error(`tween: the target has no numeric property '${k}'${isObj(t) && closest(k, Object.keys(t)) ? `; did you mean '${closest(k, Object.keys(t))}'?` : ""}. Vectors and colors can be tweened too: tween(sprite, { color: "#ff0000" }).`);
+          const keys = CHANNELS.filter((c) => typeof cur[c] === "number");
+          const e = typeof end === "string" ? parseColor(end) : end;
+          const from = isObj(this.o.from) ? this.o.from[k] : undefined;
+          const fv = from === undefined ? null : (typeof from === "string" ? parseColor(from) : from);
+          const a = [], b = [];
+          keys.forEach((c, i) => {
+            const pick = (v, d) => (v === null || v === undefined ? d : Array.isArray(v) ? (v[i] ?? d) : (typeof v[c] === "number" ? v[c] : d));
+            a.push(pick(fv, cur[c])); b.push(pick(e, cur[c]));
+          });
+          this.parts.push({ k, num: false, cur, keys, a, b });
+        }
+      }
+      if (this.o.onStart) this.o.onStart(this);
+    }
+    $apply(f) {
+      if (typeof this.target === "number") {
+        const v = this.from + (this.props - this.from) * f;
+        if (this.o.onUpdate) this.o.onUpdate(v, this);
+        return;
+      }
+      for (const p of this.parts) {
+        if (p.num) this.target[p.k] = p.a + (p.b - p.a) * f;
+        else p.keys.forEach((c, i) => { p.cur[c] = p.a[i] + (p.b[i] - p.a[i]) * f; });
+      }
+      if (this.o.onUpdate) this.o.onUpdate(f, this);
+    }
+    $tick(dt) {
+      if (this.paused) return;
+      this.elapsed += dt;
+      const o = this.o;
+      const local = this.elapsed - o.delay;
+      if (local < 0) return;
+      if (!this.started) this.$begin();
+      const total = o.duration * (o.repeat + 1);
+      let p, cycle = 0, end = false;
+      if (o.duration <= 0 || local >= total) { end = true; cycle = Number.isFinite(o.repeat) ? o.repeat : 0; p = 1; }
+      else { cycle = Math.floor(local / o.duration); p = (local - cycle * o.duration) / o.duration; }
+      if (o.yoyo && cycle % 2 === 1) p = 1 - p;
+      this.$apply(p <= 0 ? 0 : p >= 1 ? 1 : o.ease(p));
+      if (end) {
+        this.done = true;
+        const i = tweens.list.indexOf(this); if (i >= 0) tweens.list.splice(i, 1);
+        if (o.onComplete) o.onComplete(this);
+        this.$resolve(true);
+        for (const n of this.nexts) tweens.list.push(n);
+      }
+    }
+  }
+
+  function makeTween(target, props, options) {
+    const o = Object.assign({ duration: 1, delay: 0, ease: "linear", repeat: 0, yoyo: false }, options || {});
+    if (typeof target === "number") {
+      if (typeof props !== "number") throw new Error("tween(from, to, { onUpdate }): both values must be numbers, e.g. tween(0, 100, { duration: 2, onUpdate: (v) => label.text = String(v) })");
+      if (typeof o.onUpdate !== "function") throw new Error("tween(from, to, options) needs options.onUpdate(value) to receive the value");
+    } else if (!isObj(target) || !isObj(props)) {
+      throw new Error(`tween(target, props, options) expects an object to move and an object of end values, e.g. tween(entity.position, { y: 5 }, { duration: 1 }), but got ${inspect(target)}`);
+    }
+    if (typeof o.ease === "string") {
+      if (!ease[o.ease]) throw new Error(`tween: unknown ease '${o.ease}'${closest(o.ease, Object.keys(ease)) ? `; did you mean '${closest(o.ease, Object.keys(ease))}'?` : ""} Names: ${Object.keys(ease).join(", ")}`);
+      o.ease = ease[o.ease];
+    } else if (typeof o.ease !== "function") throw new Error("tween: options.ease is a name like \"quadOut\" or a function (t) => t");
+    for (const k of ["duration", "delay"]) if (!(o[k] >= 0)) throw new Error(`tween: options.${k} must be a number of seconds >= 0 but is ${inspect(o[k])}`);
+    if (!(o.repeat >= 0)) throw new Error("tween: options.repeat is the number of EXTRA plays (0 = once, Infinity = forever)");
+    return new Tween(target, props, o);
+  }
+
+  function tween(target, props, options) {
+    const t = makeTween(target, props, options);
+    tweens.list.push(t);
+    return t;
+  }
+  function tickTweens(dt) {
+    if (tweens.list.length === 0) return;
+    for (const t of tweens.list.slice()) {
+      if (!t.active) continue;
+      N.guardBegin("tween", 2.0);
+      try { t.$tick(dt); } catch (e) {
+        t.cancel();
+        if (!/destroyed/.test(String(e && e.message))) N.reportError(e, "", "tween update");  // a destroyed target just ends its tween
+      }
+      N.guardEnd();
+    }
+  }
+  function cancelTweens(target) {
+    for (const t of tweens.list.slice()) if (target === undefined || t.target === target) t.cancel();
   }
 
   // ======================================================================================================== timers
@@ -829,6 +1027,15 @@
     applyImpulse(e, v) { const a = vecArr(v, 3, "physics.applyImpulse(entity, v)"); N.physicsApply(0, entityHandle(e, "applyImpulse"), a[0], a[1], a[2]); },
     applyForce(e, v) { const a = vecArr(v, 3, "physics.applyForce(entity, v)"); N.physicsApply(1, entityHandle(e, "applyForce"), a[0], a[1], a[2]); },
     setVelocity(e, v) { const a = vecArr(v, 3, "physics.setVelocity(entity, v)"); N.physicsApply(2, entityHandle(e, "setVelocity"), a[0], a[1], a[2]); },
+    // moveCharacter(entity, delta): moves an entity that has a CharacterController3D by `delta` (metres, this frame's walk plus
+    // your own gravity/jump) with collide-and-slide, step climbing and ground snapping. Returns the result of the move.
+    moveCharacter(e, delta) {
+      const d = vecArr(delta, 3, "physics.moveCharacter(entity, delta) `delta`");
+      const r = N.moveCharacter(entityHandle(e, "moveCharacter"), d[0], d[1], d[2]);
+      return { position: new Vec3(r.position[0], r.position[1], r.position[2]), moved: new Vec3(r.moved[0], r.moved[1], r.moved[2]),
+               isGrounded: r.isGrounded, groundNormal: new Vec3(r.groundNormal[0], r.groundNormal[1], r.groundNormal[2]),
+               ground: entityOf(r.ground), hitWall: r.hitWall, hitCeiling: r.hitCeiling };
+    },
   };
 
   const time = {
@@ -1281,7 +1488,7 @@
   const factoria = {
     Behaviour, Entity, world, input, audio, physics, time, camera, debug, scene, game, screen, storage, rng, fa,
     vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, particles, ui, assets, plugins, platform, i18n,
-    window: windowApi,
+    window: windowApi, tween, ease, cancelTweens,
   };
 
   // ============================================================================================ eval serialization
@@ -1625,14 +1832,14 @@
   }
 
   function resetScene() {
-    timers.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0;
+    timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0;
     timers.now = 0;
   }
 
   return {
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, back: deliverBack,
-    tick: (dt) => timers.tick(dt),
+    tick: (dt) => { timers.tick(dt); tickTweens(dt); },
     resetScene,
     dropOwner: (h) => timers.dropOwner(h),
     entityDestroyed: (h) => { timers.dropOwner(h); entityCache.delete(h); },

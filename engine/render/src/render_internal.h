@@ -25,7 +25,9 @@ namespace fa::render {
 // ---------------------------------------------------------------------------
 // Everything 2D (sprites, tiles, glyphs, shapes, particles, debug lines) uses
 // one 32-byte vertex; `mode` selects the fragment path (see shaders/quad.glsl).
-enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4 };
+// kModeLit (+1 for a left-handed normal-map frame) is a textured quad shaded by the 2D lights; `aux` is then the angle of
+// the picture's right axis in the world (radians). See set_lit() and shaders/quad.glsl.
+enum QuadMode : int { kModeTextured = 0, kModeCircle = 1, kModeRing = 2, kModeSoft = 3, kModeGlyph = 4, kModeLit = 5 };
 
 struct Vertex2D {
     float x, y, z;
@@ -35,15 +37,37 @@ struct Vertex2D {
 };
 static_assert(sizeof(Vertex2D) == 32, "Vertex2D must be 32 bytes");
 
+// Vertex buffer 0 of every mesh pipeline. Per-instance data (the model matrix) is vertex buffer 1; skinning will add
+// joint indices and weights as a second per-vertex buffer (see Gpu::mesh_pipeline), leaving this struct alone.
 struct MeshVertex {
     float px, py, pz;
     float nx, ny, nz;
     float u, v;
+    float tx = 0, ty = 0, tz = 0, tw = 1;  // tangent (xyz) and handedness (w = +1 / -1): bitangent = cross(normal, tangent) * w
 };
-static_assert(sizeof(MeshVertex) == 32, "MeshVertex must be 32 bytes");
+static_assert(sizeof(MeshVertex) == 48, "MeshVertex must be 48 bytes");
 
 constexpr int kMaxQuadsPerDraw = 16384;  // 16-bit indices
-constexpr int kMaxLights = 8;
+constexpr int kMaxLights = 32;  // also the size of the light arrays in mesh.glsl (96 vec4s: within the WebGL2 minimum of 224)
+constexpr int kMeshInstanceBytes = 64;  // one Mat4 per instance
+// Skinning: a skinned part has a third vertex buffer (vertex buffer 2) of SkinVertex, and the draw uploads the joint
+// palette as kMaxSkinJoints 3x4 matrices (three vec4 rows each = 192 vec4, which fits the 256 vec4 of vertex uniforms
+// that GLES3 / WebGL2 guarantee next to the other uniforms). A model with more joints is drawn in bind pose.
+constexpr int kMaxSkinJoints = 64;
+struct SkinVertex {
+    std::uint8_t joints[4];
+    float weights[4];
+};
+static_assert(sizeof(SkinVertex) == 20, "SkinVertex must be 20 bytes");
+
+constexpr int kMaxLights2D = 16;  // Light2D entities shading one frame; the size of the light arrays in quad.glsl (35 vec4s)
+
+// One Light2D as the quad shader reads it. pos: xyz + w = radius (point, xyz = position with z the height) or -1
+// (directional, xyz = unit vector towards the light); color: rgb * intensity, w = falloff exponent.
+struct Light2DData {
+    float pos[4];
+    float color[4];
+};
 
 // ---------------------------------------------------------------------------
 // GPU resources
@@ -75,6 +99,24 @@ struct TextureAsset {
     }
 };
 
+// The uv of a normal map for a uv of its diffuse texture: normal_uv = uv * out[0..1] + out[2..3]. Both textures show the
+// same picture (any resolution); either may be packed in an atlas (an export), where the picture sits at (atlasX, atlasY).
+inline void normal_uv_transform(const TextureAsset& diffuse, const TextureAsset& normal, float out[4]) {
+    const TextureAsset& ds = diffuse.atlas ? *diffuse.atlas : diffuse;
+    const TextureAsset& ns = normal.atlas ? *normal.atlas : normal;
+    const float dW = float(std::max(1, diffuse.width)), dH = float(std::max(1, diffuse.height));
+    const float nW = float(std::max(1, normal.width)), nH = float(std::max(1, normal.height));
+    const float dOx = diffuse.atlas ? float(diffuse.atlasX) : 0.0f, dOy = diffuse.atlas ? float(diffuse.atlasY) : 0.0f;
+    const float nOx = normal.atlas ? float(normal.atlasX) : 0.0f, nOy = normal.atlas ? float(normal.atlasY) : 0.0f;
+    const float dSw = float(std::max(1, ds.width)), dSh = float(std::max(1, ds.height));
+    const float nSw = float(std::max(1, ns.width)), nSh = float(std::max(1, ns.height));
+    // picture fraction p = (uv * dSrc - dOrigin) / dSize;  normal_uv = (p * nSize + nOrigin) / nSrc
+    out[0] = dSw / dW * nW / nSw;
+    out[1] = dSh / dH * nH / nSh;
+    out[2] = (nOx - dOx * nW / dW) / nSw;
+    out[3] = (nOy - dOy * nH / dH) / nSh;
+}
+
 // A KTX2 file (Basis Universal, UASTC or ETC1S) transcoded for the GPU (ktx2.cpp).
 struct TranscodedTexture {
     int width = 0, height = 0;
@@ -89,12 +131,24 @@ const char* pixel_format_name(sg_pixel_format format);  // "RGBA8", "BC7", "ASTC
 
 struct SubMesh {
     sg_buffer vb{};
+    sg_buffer skinVb{};               // SkinVertex per vertex when the part belongs to a skinned glTF node; else id 0
+    int skin = -1;                    // index of the glTF skin that deforms it (-1 = not skinned)
     sg_buffer ib{};
     int vertexCount = 0;
     int indexCount = 0;
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};
     Color baseColor{1, 1, 1, 1};
     TextureAsset* texture = nullptr;  // glTF base color texture (owned by Assets)
+    TextureAsset* normalTex = nullptr;     // glTF normalTexture
+    TextureAsset* mrTex = nullptr;         // glTF metallicRoughnessTexture (g = roughness, b = metallic)
+    TextureAsset* occlusionTex = nullptr;  // glTF occlusionTexture (r)
+    TextureAsset* emissiveTex = nullptr;   // glTF emissiveTexture
+    float normalScale = 1.0f;
+    float occlusionStrength = 1.0f;
+    // glTF pbrMetallicRoughness factors, used instead of MeshRenderer.metallic / roughness when `hasPbr`.
+    bool hasPbr = false;
+    float metallic = 0.0f, roughness = 0.6f;
+    Color emissiveFactor{0, 0, 0, 1};
     bool doubleSided = false;
     bool blended = false;
 };
@@ -149,6 +203,8 @@ struct QuadItem {
     SamplerKind smp = SamplerKind::Nearest;
     BlendMode blend = BlendMode::Alpha;
     Rect clip{};  // screen-space scissor rectangle in target pixels; w <= 0 = none (ScrollList content)
+    bool lit = false;                 // shaded by the 2D lights (kModeLit quads)
+    TextureAsset* normal = nullptr;   // lit: the normal map laid out like `tex`; null = a flat surface
 };
 
 struct QuadBatch {
@@ -158,6 +214,8 @@ struct QuadBatch {
     SamplerKind smp = SamplerKind::Nearest;
     BlendMode blend = BlendMode::Alpha;
     Rect clip{};  // batches only merge with an equal clip
+    bool lit = false;                // lit batches only merge with the same texture and normal map
+    TextureAsset* normal = nullptr;
 };
 
 // Collects quads for one render space, then sorts and flattens them.
@@ -169,6 +227,8 @@ public:
     void begin_item(int layer, float secondary, TextureAsset* tex, SamplerKind smp, BlendMode blend = BlendMode::Alpha,
                     const Rect& clip = Rect{});
     void quad(const Vertex2D& a, const Vertex2D& b, const Vertex2D& c, const Vertex2D& d);  // a,b,c,d = TL,BL,BR,TR style loop
+    // Marks the item opened by begin_item() as lit: its quads are kModeLit and `normal` (may be null) is the normal map.
+    void set_lit(TextureAsset* normal) { cur_.lit = true; cur_.normal = normal; }
     void end_item();
     bool empty() const { return items.empty(); }
     // Sorts items (layer asc, secondary desc, seq asc) and appends the vertices in
@@ -305,9 +365,11 @@ public:
 
     sg_sampler sampler(SamplerKind k) const { return samplers_[int(k)]; }
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha);
-    sg_pipeline mesh_pipeline(bool blended, bool doubleSided);
+    // Vertex buffer 0 = MeshVertex, buffer 1 = one model matrix per instance. A skinned variant adds a `skinned` argument,
+    // a PipelineKey bit and a second per-vertex buffer for joints and weights.
+    sg_pipeline mesh_pipeline(bool blended, bool doubleSided, bool skinned = false);
     sg_pipeline sky_pipeline();
-    sg_pipeline shadow_pipeline();
+    sg_pipeline shadow_pipeline(bool skinned = false);
     sg_pipeline blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount);
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
     // cannot be created, in which case Camera.bloom is skipped instead of failing the whole renderer.
@@ -338,6 +400,7 @@ public:
     bool shadows_supported() const { return shadowsSupported_; }
 
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
+    sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
 
 private:
