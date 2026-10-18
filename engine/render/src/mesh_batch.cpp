@@ -25,12 +25,26 @@ bool box_in_frustum(const Mat4& viewProj, bool zeroToOne, Vec3 bmin, Vec3 bmax, 
     return false;
 }
 
+void skinned_bounds(const std::vector<Mat4>& palette, Vec3 bmin, Vec3 bmax, Vec3& outMin, Vec3& outMax) {
+    outMin = bmin;
+    outMax = bmax;
+    if (palette.empty()) return;
+    outMin = {1e30f, 1e30f, 1e30f};
+    outMax = {-1e30f, -1e30f, -1e30f};
+    for (const Mat4& m : palette)
+        for (int i = 0; i < 8; ++i) {
+            const Vec3 p = m.transform_point({(i & 1) ? bmax.x : bmin.x, (i & 2) ? bmax.y : bmin.y, (i & 4) ? bmax.z : bmin.z});
+            outMin = min(outMin, p);
+            outMax = max(outMax, p);
+        }
+}
+
 namespace {
 auto material_key(const MeshItem& a) {
     const MeshRenderer& r = *a.mr;
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic, r.roughness,
                            r.emissive.r, r.emissive.g, r.emissive.b, r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y,
-                           r.normalScale);
+                           r.normalScale, a.anim);
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.

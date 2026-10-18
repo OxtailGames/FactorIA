@@ -2,16 +2,42 @@
 // and emissive maps, up to 32 directional/point/spot lights, sky image-based lighting (a procedural environment built
 // from the scene's sky and horizon colors), fog and an optional directional shadow map.
 // Instanced: the model matrix of every instance comes from vertex buffer 1 (four vec4 columns, locations 4..7).
-// Skinning will add joint/weight attributes after location 7 and a second pipeline variant (see Gpu::mesh_pipeline).
+// Skinned meshes use the second program (mesh_skin): joints and weights come from vertex buffer 2 (locations 8, 9).
 @module mesh
 
-@vs vs
+@block vs_common
 layout(binding=0) uniform mesh_vs_params {
     mat4 view_proj;
     mat4 light_vp;      // directional shadow matrix (world -> light clip)
     vec4 uv_scale;      // xy
 };
 
+out vec3 world_pos;
+out vec3 world_normal;
+out vec4 world_tangent;
+out vec2 uv;
+out vec4 shadow_pos;
+
+// Everything after the model matrix is known: shared by the instanced and the skinned vertex shader.
+void shade_vertex(mat4 model, vec3 position, vec3 normal, vec4 tangent, vec2 texcoord0) {
+    vec4 wp = model * vec4(position, 1.0);
+    world_pos = wp.xyz;
+    // Normal matrix = cofactor matrix of the upper 3x3 (inverse transpose up to a positive scale), so one
+    // 64-byte matrix per instance is enough. s flips the handedness of mirrored instances.
+    vec3 c0 = model[0].xyz;
+    vec3 c1 = model[1].xyz;
+    vec3 c2 = model[2].xyz;
+    float s = dot(c0, cross(c1, c2)) < 0.0 ? -1.0 : 1.0;
+    world_normal = (cross(c1, c2) * normal.x + cross(c2, c0) * normal.y + cross(c0, c1) * normal.z) * s;
+    world_tangent = vec4(c0 * tangent.x + c1 * tangent.y + c2 * tangent.z, tangent.w * s);
+    uv = texcoord0 * uv_scale.xy;
+    shadow_pos = light_vp * wp;
+    gl_Position = view_proj * wp;
+}
+@end
+
+@vs vs
+@include_block vs_common
 layout(location=0) in vec3 position;
 layout(location=1) in vec3 normal;
 layout(location=2) in vec2 texcoord0;
@@ -21,28 +47,45 @@ layout(location=5) in vec4 inst_m1;
 layout(location=6) in vec4 inst_m2;
 layout(location=7) in vec4 inst_m3;
 
-out vec3 world_pos;
-out vec3 world_normal;
-out vec4 world_tangent;
-out vec2 uv;
-out vec4 shadow_pos;
-
 void main() {
-    vec4 wp = mat4(inst_m0, inst_m1, inst_m2, inst_m3) * vec4(position, 1.0);
-    world_pos = wp.xyz;
-    // Normal matrix = cofactor matrix of the upper 3x3 (inverse transpose up to a positive scale), so one
-    // 64-byte matrix per instance is enough. s flips the handedness of mirrored instances.
-    vec3 c0 = inst_m0.xyz;
-    vec3 c1 = inst_m1.xyz;
-    vec3 c2 = inst_m2.xyz;
-    float s = dot(c0, cross(c1, c2)) < 0.0 ? -1.0 : 1.0;
-    world_normal = (cross(c1, c2) * normal.x + cross(c2, c0) * normal.y + cross(c0, c1) * normal.z) * s;
-    world_tangent = vec4(c0 * tangent.x + c1 * tangent.y + c2 * tangent.z, tangent.w * s);
-    uv = texcoord0 * uv_scale.xy;
-    shadow_pos = light_vp * wp;
-    gl_Position = view_proj * wp;
+    shade_vertex(mat4(inst_m0, inst_m1, inst_m2, inst_m3), position, normal, tangent, texcoord0);
 }
 @end
+
+// Skinned variant: the same outputs (so the same fragment shader), with the model matrix of the (single) instance
+// times the blend of up to four joint matrices. The palette is 64 joints of 3 rows (a 3x4 matrix as three vec4 rows).
+@vs vs_skin
+@include_block vs_common
+layout(location=0) in vec3 position;
+layout(location=1) in vec3 normal;
+layout(location=2) in vec2 texcoord0;
+layout(location=3) in vec4 tangent;
+layout(location=4) in vec4 inst_m0;
+layout(location=5) in vec4 inst_m1;
+layout(location=6) in vec4 inst_m2;
+layout(location=7) in vec4 inst_m3;
+layout(location=8) in vec4 joints;      // joint indices (bytes, normalized: x255)
+layout(location=9) in vec4 weights;
+
+layout(binding=3) uniform mesh_skin {
+    vec4 joint_rows[192];               // joint j: rows 3j .. 3j+2 of its skinning matrix
+};
+
+void main() {
+    vec4 r0 = vec4(0.0), r1 = vec4(0.0), r2 = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        int j = int(joints[i] * 255.0 + 0.5) * 3;
+        float w = weights[i];
+        r0 += joint_rows[j] * w;
+        r1 += joint_rows[j + 1] * w;
+        r2 += joint_rows[j + 2] * w;
+    }
+    mat4 skin = mat4(vec4(r0.x, r1.x, r2.x, 0.0), vec4(r0.y, r1.y, r2.y, 0.0), vec4(r0.z, r1.z, r2.z, 0.0),
+                     vec4(r0.w, r1.w, r2.w, 1.0));
+    shade_vertex(mat4(inst_m0, inst_m1, inst_m2, inst_m3) * skin, position, normal, tangent, texcoord0);
+}
+@end
+
 
 @fs fs
 layout(binding=0) uniform texture2D tex;            // base color
@@ -208,3 +251,4 @@ void main() {
 @end
 
 @program mesh vs fs
+@program mesh_skin vs_skin fs

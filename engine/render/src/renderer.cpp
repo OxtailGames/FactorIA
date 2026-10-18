@@ -141,6 +141,19 @@ void apply_uniforms(int slot, const T& u) {
 
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
 
+// The joint palette as the shaders read it: kMaxSkinJoints skinning matrices of 3 rows (a vec4 each); unused joints are the
+// identity. mesh.glsl and shadow.glsl declare the same layout.
+static_assert(sizeof(mesh_mesh_skin_t) == sizeof(shadow_shadow_skin_t));
+mesh_mesh_skin_t pack_palette(const std::vector<Mat4>& palette) {
+    mesh_mesh_skin_t u{};
+    for (int j = 0; j < kMaxSkinJoints; ++j) {
+        const Mat4 m = std::size_t(j) < palette.size() ? palette[std::size_t(j)] : Mat4::identity();
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) u.joint_rows[j * 3 + r][c] = m.at(c, r);
+    }
+    return u;
+}
+
 }  // namespace
 
 void Renderer::Impl::create_targets(int w, int h) {
@@ -539,7 +552,17 @@ void Renderer::Impl::render(World& world, float dt) {
         mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
         mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         mi.dist = length(mi.model.translation() - fr.cam.position);
-        mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.mesh->bmin, mi.mesh->bmax, mi.model);
+        mi.bmin = mi.mesh->bmin;
+        mi.bmax = mi.mesh->bmax;
+        // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
+        // palette is empty and the model shows in bind pose).
+        const Animator* anim = world.get<Animator>(e);
+        if (anim && !anim->palette.empty()) {
+            for (auto& p : mi.mesh->parts)
+                if (p.skinVb.id) mi.anim = anim;
+            if (mi.anim) skinned_bounds(anim->palette, mi.mesh->bmin, mi.mesh->bmax, mi.bmin, mi.bmax);
+        }
+        mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
         bool anyBlend = mr.color.a < 0.999f;
         for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
         (anyBlend ? blended : opaque).push_back(mi);
@@ -619,7 +642,7 @@ void Renderer::Impl::render(World& world, float dt) {
         for (auto& mi : *list) {
             if (!mi.visible) ++stats.meshesCulled;
             mi.casts = doShadows && mi.mr->castShadows &&
-                       box_in_frustum(lightVP, z01, mi.mesh->bmin, mi.mesh->bmax, mi.model);
+                       box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
         }
         list->erase(std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
                     list->end());
@@ -686,11 +709,22 @@ void Renderer::Impl::render(World& world, float dt) {
             const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
             for (const MeshBatch& batch : batches) {
                 if (batch.shadowCount == 0) continue;
-                for (auto& p : items[batch.rep].mesh->parts) {
+                const MeshItem& rep = items[batch.rep];
+                for (auto& p : rep.mesh->parts) {
+                    const bool skinned = rep.anim && p.skinVb.id;
+                    sg_apply_pipeline(gpu.shadow_pipeline(skinned));
+                    apply_uniforms(UB_shadow_shadow_vs_params, u);
+                    if (skinned) {
+                        const mesh_mesh_skin_t pal = pack_palette(rep.anim->palette);
+                        shadow_shadow_skin_t su{};
+                        std::memcpy(&su, &pal, sizeof(su));
+                        apply_uniforms(UB_shadow_shadow_skin, su);
+                    }
                     sg_bindings b{};
                     b.vertex_buffers[0] = p.vb;
                     b.vertex_buffers[1] = shadowInst;
                     b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
+                    if (skinned) b.vertex_buffers[2] = p.skinVb;
                     b.index_buffer = p.ib;
                     sg_apply_bindings(&b);
                     sg_draw(0, p.indexCount, int(batch.shadowCount));
@@ -773,7 +807,8 @@ void Renderer::Impl::render(World& world, float dt) {
             fu.emissive[3] = mr.unlit ? 1.0f : 0.0f;
             fu.material[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
             for (auto& part : mi.mesh->parts) {
-                sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided));
+                const bool skinned = mi.anim && part.skinVb.id;
+                sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided, skinned));
                 TextureAsset* white = assets->white();
                 TextureAsset* tex = mi.tex ? mi.tex : (part.texture ? part.texture : white);
                 TextureAsset* normalTex = mi.normalTex ? mi.normalTex : part.normalTex;
@@ -781,6 +816,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 b.vertex_buffers[0] = part.vb;
                 b.vertex_buffers[1] = mainInst;
                 b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
+                if (skinned) b.vertex_buffers[2] = part.skinVb;
                 b.index_buffer = part.ib;
                 b.views[VIEW_mesh_tex] = tex->gpu_view();
                 b.views[VIEW_mesh_shadow_tex] = doShadows ? shadowTexView : white->view;
@@ -792,6 +828,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 b.samplers[SMP_mesh_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
                 sg_apply_bindings(&b);
                 apply_uniforms(UB_mesh_mesh_vs_params, vu);
+                if (skinned) apply_uniforms(UB_mesh_mesh_skin, pack_palette(mi.anim->palette));
                 Color base = mr.color * part.baseColor;
                 fu.base_color[0] = base.r; fu.base_color[1] = base.g; fu.base_color[2] = base.b; fu.base_color[3] = base.a;
                 // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.

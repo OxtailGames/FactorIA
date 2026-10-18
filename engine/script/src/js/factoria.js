@@ -486,8 +486,7 @@
   class AnimatorApi {
     constructor(h) { this.$h = h; }
     get component() { return viewOf(this.$h, typeOf("Animator")); }
-    play(clip, fadeSeconds) { N.animCall(this.$h, "play", String(clip), fadeSeconds); }
-    crossFade(clip, fadeSeconds = 0.2) { N.animCall(this.$h, "play", String(clip), fadeSeconds); }
+    play(clip, fadeSeconds = this.component.fade) { N.animCall(this.$h, "play", String(clip), fadeSeconds); }
     stop() { N.animCall(this.$h, "stop"); }
     set(name, value) { N.animCall(this.$h, "set", String(name), value); }
     get(name) {
