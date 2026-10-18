@@ -27,13 +27,14 @@ permissions:
   contents: read
 
 jobs:
-  # What this change needs: `code` (anything but docs) for the desktop jobs, `mobile` for the iOS and Android ones.
+  # What this change needs: `code` (anything but docs) for the desktop jobs, `mobile` for the iOS and Android ones, `web` for the web export.
   changes:
     name: What changed
     runs-on: ubuntu-24.04
     outputs:
       code: ${{ steps.diff.outputs.code }}
       mobile: ${{ steps.diff.outputs.mobile }}
+      web: ${{ steps.diff.outputs.web }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,7 +47,7 @@ jobs:
           # Tags, "Run workflow" and pushes without a usable base (git diff fails) run everything.
           if [[ "$GITHUB_REF" == refs/tags/* ]] || ! files="$(git diff --name-only "$BASE" HEAD)"; then
             echo "Everything runs ($GITHUB_EVENT_NAME $GITHUB_REF)"
-            { echo "code=true"; echo "mobile=true"; } >> "$GITHUB_OUTPUT"
+            { echo "code=true"; echo "mobile=true"; echo "web=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "$files"
@@ -56,8 +57,10 @@ jobs:
           mobile='^(engine/|player/|platforms/|external/|cmake/|templates/|tools/common/|tools/cli/|scripts/|CMakeLists\.txt$|CMakePresets\.json$|\.github/workflows/ci\.yml$)'
           if grep -Evq "$docs" <<< "$files"; then code=true; else code=false; fi
           if grep -Eq "$mobile" <<< "$files"; then mobile=true; else mobile=false; fi
-          echo "code=$code mobile=$mobile"
-          { echo "code=$code"; echo "mobile=$mobile"; } >> "$GITHUB_OUTPUT"
+          # The web job builds the same things (engine, player, CLI, templates) and runs the export and its smoke script.
+          web=$mobile
+          echo "code=$code mobile=$mobile web=$web"
+          { echo "code=$code"; echo "mobile=$mobile"; echo "web=$web"; } >> "$GITHUB_OUTPUT"
 
   # Linux: GCC + Ninja. Tests run under Xvfb with Mesa llvmpipe, so headless
   # GPU code gets a software OpenGL/EGL renderer.
@@ -368,6 +371,80 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # Web: the player built with Emscripten (the preset web-release, SDK pinned to the version in docs/BUILDING.md), the CLI,
+  # a game exported with `factoria export --platform web`, the zip checked as itch.io takes it, and the export opened in the
+  # runner's headless Chrome until the player has rendered 60 frames (scripts/web-smoke.sh, platforms/web/smoke.mjs).
+  web:
+    name: Web (Emscripten, headless Chrome)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      EMSDK_VERSION: 6.0.10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      # The player is built by the Emscripten toolchain, the CLI by the runner's GCC: both through ccache.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-web-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-web-
+
+      - name: Restore the Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}
+
+      - name: Install the Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      # emsdk_env.sh exports EMSDK, which the presets read.
+      - name: Build the web player (web-release)
+        run: |
+          EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
+          emcc --version | head -n 1
+          cmake --preset web-release
+          cmake --build --preset web-release
+          ls -l build/web-release/player
+
+      - name: Build the factoria CLI (no editor, no tests)
+        run: |
+          cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+          cmake --build build/tools --target factoria
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'  # platforms/web/smoke.mjs needs Node 22 (built-in WebSocket)
+
+      # The runner image has google-chrome; smoke.mjs finds it in PATH.
+      - name: Export a game and run it in headless Chrome
+        run: |
+          google-chrome --version
+          ./scripts/web-smoke.sh build/tools/tools/cli/factoria build/web-release/player build/web-smoke
+
+      - name: Upload the export and the screenshot on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-smoke
+          path: |
+            build/web-smoke/web-smoke.png
+            build/web-smoke/export
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Android: arm64-v8a player library with the preinstalled NDK on the runner.
   android:
     name: Android arm64 (NDK, Ninja)
@@ -634,7 +711,7 @@ jobs:
   result:
     name: CI result
     if: always()
-    needs: [changes, linux, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator]
+    needs: [changes, linux, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator, web]
     runs-on: ubuntu-24.04
     steps:
       - name: Fail if a job failed or was cancelled

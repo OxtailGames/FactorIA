@@ -14,6 +14,13 @@
 //                     <out>/<slug>-android/<slug>[-debug].apk or .aab (ExportReport::artifact)
 //   ios             : <out>/<slug>-ios/{game/..., build_ios.sh, ...}  the script configures the Xcode project with
 //                     CMake (-DFA_GAME_PROJECT_DIR=game ...) using the same settings as the `ios` preset
+//   web             : <out>/<slug>-web/{index.html, factoria_player.js, factoria_player.wasm, game.pak, FACTORIA_NOTICES.txt} and,
+//                     next to that folder, <out>/<slug>-web.zip with the same files and index.html at its root (what itch.io
+//                     takes as an HTML5 game; ExportReport::artifact, format "zip"). The game is always ONE game.pak (like a
+//                     desktop `release`), the page is platforms/web/shell.html (embedded in factoria) with {{title}},
+//                     {{wasmBytes}} and {{pakBytes}} filled in. The player is two Emscripten files found by --player, then
+//                     <factoria dir>/web, then `factoria setup players --platforms web`, then a web build of the source;
+//                     ExportReport::mode says which ("explicit", "package", "installed" or "build").
 // Android and iOS have two modes (ExportReport::mode); docs/EXPORTING.md has the rule that picks one:
 //   prebuilt : the engine runtime is the ready-made player of the FactorIA download (<factoria dir>/mobile/): Android
 //              packages android/jniLibs/<abi>/libfactoria_player.so, iOS links ios/<sdk>/*.a. No engine source (and,
@@ -55,7 +62,7 @@ inline constexpr const char* kExportMarkerFile = ".factoria-export";
 
 struct ExportOptions {
     std::string projectDir;     // folder containing factoria.json
-    std::string platform;       // linux | windows | macos | android | ios ("" = the platform running factoria)
+    std::string platform;       // linux | windows | macos | android | ios | web ("" = the platform running factoria)
     std::string outDir;         // parent folder of the export ("" = <projectDir>/build/export)
     bool release = false;       // android: builds the release APK/AAB (signed with export.android.signing; without a
                                 // keystore it is an error unless allowDebugKey). linux/windows/macos: the game ships as
@@ -63,7 +70,8 @@ struct ExportOptions {
                                 // changes the build commands of the script
     bool allowDebugKey = false; // android release without a keystore: sign with the debug key (fine to try on a device,
                                 // Google Play rejects it) instead of failing
-    std::string playerBinary;   // desktop: path of factoria_player for the target platform
+    std::string playerBinary;   // web: the folder with factoria_player.js and factoria_player.wasm (or factoria_player.js itself)
+                                // desktop: path of factoria_player for the target platform
                                 // ("" = next to the running factoria binary, or the build tree layout)
     std::string engineRoot;     // android/ios: engine checkout; giving it selects "source" mode
     std::string mobileDir;      // android/ios: folder of the prebuilt players (android/jniLibs/<abi>/libfactoria_player.so,
@@ -90,7 +98,8 @@ struct ExportOptions {
 
 struct ExportReport {
     std::string outputDir;                 // absolute folder that was written
-    std::string mode;                      // android/ios: "prebuilt" or "source" (see above); empty for desktop exports
+    std::string mode;                      // android/ios: "prebuilt" or "source" (see above); web: where the player came from;
+                                           // empty for desktop exports
     std::string format;                    // the format that was exported (see ExportOptions::format); empty when none
     std::string artifact;                  // absolute path of the file that was built: <outputDir>/<slug>[-debug].apk or
                                            // .aab of an Android export (release builds have no "-debug"), or the
@@ -113,14 +122,15 @@ Result<ExportReport> export_project(const ExportOptions& options);
 // either absent, empty or written by an earlier export). An error is the one
 // export_project would return. The editor's Export window shows it for each platform before an export.
 struct ExportPlan {
-    std::string platform;               // normalized: linux | windows | macos | android | ios
+    std::string platform;               // normalized: linux | windows | macos | android | ios | web
     std::string outputDir;              // absolute folder the export replaces: <out>/<game-slug>-<platform>
-    std::string mode;                   // android/ios: "prebuilt" or "source"; empty for desktop exports
+    std::string mode;                   // android/ios: "prebuilt" or "source"; web: where the player comes from ("explicit",
+                                        // "package", "installed" or "build"); empty for desktop exports
     std::string format;                 // the format the export would produce (see ExportOptions::format); empty when none
-    std::string artifact;               // absolute path of the file the export would build (.apk / .aab / .AppImage); else empty
+    std::string artifact;               // absolute path of the file the export would build (.apk / .aab / .AppImage / the web export's .zip); else empty
     AndroidToolchain toolchain;         // android apk/aab: the JDK and SDK the build would use, and where each was found
                                         // (problems stays empty: a missing one is the plan's error); else empty
-    std::string player;                 // desktop: the factoria_player that is copied into the export
+    std::string player;                 // desktop: the factoria_player that is copied into the export; web: its factoria_player.js
     std::vector<std::string> warnings;  // non-fatal problems found so far (the export's report repeats them)
     Json to_json() const;
 };

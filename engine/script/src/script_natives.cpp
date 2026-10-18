@@ -228,6 +228,8 @@ void Impl::save_storage() {
         return;
     }
     f << dump_json(storage);
+    f.close();
+    fs::user_dir_changed();  // the web build copies the save folder to the browser's storage
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

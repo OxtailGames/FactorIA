@@ -13,8 +13,10 @@
 //             player is a GUI program (no console window); started from a terminal it prints to that terminal.
 //   Android : sokol_main() via NativeActivity. The project lives in the APK assets (root "").
 //   iOS     : sokol_main(). The project lives in the app bundle at <bundle resources>/game.
+//   Web     : main() in a browser page. The page writes game.pak to /game.pak of the in-memory file system first.
 //
 // Mobile entry points are UNTESTED on the Linux development machine (CI builds them).
+#include <cctype>
 #include <filesystem>
 #include <string>
 
@@ -35,7 +37,79 @@
 
 namespace stdfs = std::filesystem;
 
-#if !defined(FA_PLAYER_MOBILE)
+#if defined(__EMSCRIPTEN__)
+// ------------------------------------------------------------------------------------------------
+// Web (WebAssembly in a browser page: platforms/web/shell.html, `factoria export --platform web`)
+// ------------------------------------------------------------------------------------------------
+// The page writes the game pack to /game.pak in the in-memory file system before main() runs. sapp_run() returns at once
+// here and the frames come from requestAnimationFrame, so nothing the frame callbacks use may live on main()'s stack: the
+// engine is owned by the shared state inside the AppDesc, which to_sapp_desc copies to a static.
+#include <emscripten.h>
+
+namespace {
+
+constexpr const char* kWebPack = "/game.pak";
+
+// Shows a problem on the page in plain words (Module.faFatal, set by the page) and in the console. The page keeps the loading
+// screen's place for it.
+EM_JS(void, fa_web_fatal, (const char* text), {
+    const message = UTF8ToString(text);
+    console.error(message);
+    if (Module.faFatal) Module.faFatal(message);
+});
+
+// The page hides its loading screen (Module.faReady, optional).
+EM_JS(void, fa_web_ready, (), { if (Module.faReady) Module.faReady(); });
+
+int web_error(const std::string& text) {
+    fa_web_fatal(text.c_str());
+    return 1;
+}
+
+// The state of the start, which continues after the save folder is loaded from the browser's storage (asynchronous).
+fa::EngineConfig g_cfg;
+
+void start_game() {
+    fa::AppDesc desc = fa::make_app_desc(g_cfg);  // == what run_windowed() does
+    desc.fullscreen = false;                       // a page cannot start fullscreen: the browser wants a click first
+    fa::run_app(desc);                             // returns at once; the browser calls the frame callback
+    fa_web_ready();
+}
+
+}  // namespace
+
+int main() {
+    if (!fa::fs::exists(kWebPack)) {
+        return web_error(std::string("error: ") + kWebPack + " is missing: the page must write the game pack there before "
+                         "the player starts.\nhint: use the index.html that `factoria export --platform web` writes, next to "
+                         "factoria_player.js, factoria_player.wasm and game.pak, and serve the folder over http (a file:// "
+                         "page cannot load them).\n");
+    }
+    // From here on every project-relative read of the engine (factoria.json, scenes, assets, scripts) comes out of the pack.
+    if (auto mounted = fa::fs::mount_pack(kWebPack); !mounted.ok()) return web_error("error: " + mounted.error().to_string());
+    fa::fs::set_project_root("/game");
+    if (!fa::fs::exists(fa::kProjectFileName))
+        return web_error(std::string("error: no ") + fa::kProjectFileName + " in " + kWebPack +
+                         ".\nhint: game.pak must be the pack `factoria export --release` writes.");
+    g_cfg.projectDir = "/game";
+    g_cfg.hotReload = false;
+    g_cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
+    auto proj = fa::load_project(g_cfg.projectDir);
+    if (!proj.ok()) return web_error("error: " + proj.error().to_string());
+
+    // The save folder is the only persistent part of the file system: /save/<game id> lives in the browser's IndexedDB
+    // (one database per game, so games on one site do not share saves). log.txt and crash reports are not written: the log
+    // goes to the browser console.
+    std::string id = proj->id.empty() ? "factoria-game" : proj->id;
+    for (char& c : id)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_' && c != '.') c = '_';
+    const stdfs::path saveDir = stdfs::path("/save") / id;
+    fa::fs::set_user_dir(saveDir);
+    fa::fs::restore_user_dir(saveDir, start_game);  // calls start_game() once the saves are loaded
+    return 0;  // the runtime stays alive: the page runs the frames
+}
+
+#elif !defined(FA_PLAYER_MOBILE)
 // ------------------------------------------------------------------------------------------------
 // Desktop
 // ------------------------------------------------------------------------------------------------

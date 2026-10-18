@@ -133,6 +133,24 @@
         "FA_BUILD_TOOLS": "OFF",
         "FA_BUILD_TESTS": "OFF"
       }
+    },
+
+    {
+      "name": "web-debug",
+      "displayName": "Web (WebAssembly, WebGL2), Emscripten, Debug; needs EMSDK (the emsdk folder, activated)",
+      "inherits": "base",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FA_BUILD_TOOLS": "OFF",
+        "FA_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "web-release",
+      "displayName": "Web (WebAssembly, WebGL2), Emscripten, Release; needs EMSDK (the emsdk folder, activated)",
+      "inherits": "web-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ],
 
@@ -148,7 +166,9 @@
     { "name": "ios",                "configurePreset": "ios",                "configuration": "Debug" },
     { "name": "ios-simulator",      "configurePreset": "ios-simulator",      "configuration": "Debug" },
     { "name": "android-arm64",      "configurePreset": "android-arm64" },
-    { "name": "android-x86_64",     "configurePreset": "android-x86_64" }
+    { "name": "android-x86_64",     "configurePreset": "android-x86_64" },
+    { "name": "web-debug",          "configurePreset": "web-debug" },
+    { "name": "web-release",        "configurePreset": "web-release" }
   ],
 
   "testPresets": [

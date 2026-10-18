@@ -185,6 +185,10 @@ Result<void> pack_game(const Project& p, const std::vector<std::string>& files, 
 
 }  // namespace
 
+Result<void> pack_project(const Project& p, const std::vector<std::string>& files, const stdfs::path& packFile, ExportReport& report) {
+    return pack_game(p, files, packFile, report);
+}
+
 // The entitlements of a signed macOS app, from the plugins' manifests: Xcode's build settings ($(TeamIdentifierPrefix),
 // $(CFBundleIdentifier)) filled in as codesign needs them, plus the two identifiers a provisioning profile ties them to. The
 // Team ID is export.ios.teamId when set (one team signs a developer's apps), else the placeholder TEAMID to replace.

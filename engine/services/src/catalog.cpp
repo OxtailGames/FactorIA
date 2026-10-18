@@ -11,7 +11,7 @@ namespace fa {
 namespace {
 
 const std::vector<std::string>& platform_names_list() {
-    static const std::vector<std::string> names = {"windows", "macos", "linux", "ios", "android"};
+    static const std::vector<std::string> names = {"windows", "macos", "linux", "ios", "android", "web"};
     return names;
 }
 

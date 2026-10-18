@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Games in the browser
+
+- Export your game for the web: `factoria export --platform web` (or Web in the editor's Export window) makes a folder
+  with an `index.html` that plays the game in any modern browser, and a `.zip` of it ready to upload to itch.io as an
+  HTML5 game. The page shows a loading bar and explains in plain words when something is wrong (an old browser, a
+  download that failed).
+- In the browser, saves made with `storage` are kept between visits, sound starts with the player's first click or key,
+  and gamepads work. Native plugins and store services (achievements, purchases) are not available on the web.
+- The web player comes with every FactorIA download; `factoria setup players --platforms web` installs it if you need it.
+
 Phones and tablets
 
 - Change to know about: `factoria export --platform android --release` now stops when your game has no signing key,

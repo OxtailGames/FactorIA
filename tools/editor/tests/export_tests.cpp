@@ -60,10 +60,10 @@ TEST_CASE("window title: the engine version, then the open project") {
 
 TEST_CASE("export window: a button per platform, desktop first") {
     const auto& t = export_targets();
-    REQUIRE(t.size() == 5);
+    REQUIRE(t.size() == 6);
     std::vector<std::string> names;
     for (const ExportTarget& e : t) names.push_back(e.platform);
-    CHECK(names == std::vector<std::string>{"windows", "macos", "linux", "android", "ios"});
+    CHECK(names == std::vector<std::string>{"windows", "macos", "linux", "android", "ios", "web"});
     for (const ExportTarget& e : t) {
         CHECK(normalize_export_platform(e.platform) == e.platform);  // a name export_project knows
         CHECK(e.mobile == (std::string(e.platform) == "android" || std::string(e.platform) == "ios"));
@@ -72,6 +72,7 @@ TEST_CASE("export window: a button per platform, desktop first") {
     CHECK(std::string(find_export_target("Win")->label) == "Windows");
     CHECK(find_export_target("amiga") == nullptr);
     CHECK(export_target_note(*find_export_target("ios")).find("Xcode") != std::string::npos);
+    CHECK(export_target_note(*find_export_target("HTML5")).find("itch.io") != std::string::npos);
 
     // Android's note says what the project's format builds.
     const ExportTarget& android = *find_export_target("android");
@@ -90,6 +91,7 @@ TEST_CASE("export window: a button per platform, desktop first") {
     CHECK(export_needs_player(kOtherDesktop));
     CHECK_FALSE(export_needs_player("android"));
     CHECK_FALSE(export_needs_player("ios"));
+    CHECK_FALSE(export_needs_player("web"));  // its player is a folder: the row offers the download instead
 }
 
 TEST_CASE("export window: the options a button exports with") {

@@ -1,6 +1,6 @@
 # Engine feedback report
 
-Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready) is done; M17-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+Status: the four example games reported 73 entries, all verified fixed-in-engine; none is open. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready) and M17 (web export) are done; M18-M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push --out feedback/ROADMAP.md` (then re-add the milestones section).
 
 0 entries from 4 project(s), 0 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
@@ -350,17 +350,21 @@ Left open:
   always a disc (no knob texture), a finger cannot slide from one button onto another, and a mouse click does not press
   the controls. The touch pad has no number, so `input.gamepad(i)` never sees it.
 
-## M17. Web export (L, high)
+## M17. Web export (L, high) — DONE (the `m17/web` PR)
 
-Closes E-07 and the web gamepad gap (docs/MOBILE.md). CMake already recognizes Emscripten; sokol and QuickJS build for it.
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M17.
 
-- An Emscripten preset and player (WebGL2), `export --platform web` writing `index.html`, the wasm and a data pack;
-  audio unlocked on the first input; `storage` in IndexedDB; gamepads through the browser Gamepad API.
-- A loading page with progress for the wasm and data download.
-
-Acceptance criteria:
-- CI builds the web player and runs an exported template in headless Chromium until its first frame renders.
-- The export is a zip that itch.io accepts as an HTML5 game.
+Left open:
+- Only Chrome and Edge ran it (headless Chrome in CI): not Firefox, Safari or a phone browser, no touch input, no real
+  gamepad (the Gamepad API mapping was checked with a faked `navigator.getGamepads`), no audible-sound check (only the
+  AudioContext state and the log lines), no slow connection for the progress bar, no fullscreen from a script.
+- No upload: the zip was checked against itch.io's documented limits (index.html at the root, 1000 files, 500 MB, 200 MB
+  per file, 240-character paths), never uploaded. `publish` (butler) and the CI workflow template do not know web yet.
+- No native plugins and no store backend on the web (`platform.*` answers "none"); no `log.txt` or crash reports (the log
+  goes to the browser console). Textures ship as PNG (WebGL2 guarantees no compressed format).
+- The wasm is about 6.5 MB (2.5 MB gzipped) at -O3; no size work yet. Box2D runs its scalar path (no `-msimd128`).
+- The player exports `_emscripten_stack_get_current` and `__emscripten_stack_restore` by hand: Emscripten 6.0.10 does not
+  link without them, cause not found. `web-debug` configures but was not compiled.
 
 ## M18. Animation and production 3D (L, high for 3D games)
 

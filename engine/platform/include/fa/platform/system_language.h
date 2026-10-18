@@ -3,6 +3,7 @@
 //   Windows    GetUserPreferredUILanguages.
 //   macOS/iOS  NSLocale preferredLanguages.
 //   Android    java.util.Locale.getDefault().toLanguageTag() of the process (the system language, set up by the activity).
+//   web        navigator.languages.
 //   Linux      LANGUAGE (a colon list), then LC_ALL, LC_MESSAGES and LANG: "es_ES.UTF-8" -> "es-ES"; "C" and "POSIX" are
 //              no language and are ignored.
 // Empty when the system says nothing. The engine picks the game's language from this list (fa::best_language_match,

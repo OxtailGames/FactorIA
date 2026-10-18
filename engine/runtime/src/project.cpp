@@ -82,20 +82,25 @@ const char* runtime_platform() {
     return "macos";
 #elif defined(_WIN32)
     return "windows";
+#elif defined(__EMSCRIPTEN__)
+    return "web";
 #else
     return "linux";
 #endif
 }
 
 const std::vector<std::string>& platform_names() {
-    static const std::vector<std::string> names = {"windows", "macos", "linux", "ios", "android"};
+    static const std::vector<std::string> names = {"windows", "macos", "linux", "ios", "android", "web"};
     return names;
 }
 
 std::vector<std::string> ProjectSettings::plugin_platforms(const PluginSettings& plugin) const {
     if (!plugin.platforms.empty()) return plugin.platforms;
     if (!platforms.empty()) return platforms;
-    return platform_names();
+    // A browser cannot load a native library: a plugin without its own list is meant for the other platforms.
+    std::vector<std::string> native = platform_names();
+    native.erase(std::remove(native.begin(), native.end(), "web"), native.end());
+    return native;
 }
 
 std::string ProjectSettings::window_icon() const {
@@ -669,7 +674,8 @@ constexpr const char* kSchemaText =
           "macos",
           "linux",
           "ios",
-          "android"
+          "android",
+          "web"
         ]
       }
     },
@@ -705,7 +711,8 @@ constexpr const char* kSchemaText =
                 "macos",
                 "linux",
                 "ios",
-                "android"
+                "android",
+                "web"
               ]
             }
           }
@@ -776,7 +783,8 @@ constexpr const char* kSchemaText =
                   "macos",
                   "linux",
                   "ios",
-                  "android"
+                  "android",
+                  "web"
                 ]
               },
               "additionalProperties": {

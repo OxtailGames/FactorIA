@@ -87,7 +87,7 @@ first; click one to reopen it as a tab (the next message resumes it) or Delete i
 ## Exporting the game
 
 **Export** in the toolbar (or File > Export Game...) opens the **Export game** window: a button per platform (Windows,
-macOS, Linux, Android, iOS) that runs the same export as `factoria export` and the `project.export` command. Each
+macOS, Linux, Android, iOS, Web) that runs the same export as `factoria export` and the `project.export` command. Each
 platform's row says what the export writes, or why it cannot run on this machine (no player built for that OS, no
 mobile players or engine checkout, a missing `id`, an output folder that already holds a folder of that name no
 export wrote) and how to fix it; for another OS's desktop export, **Choose

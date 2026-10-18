@@ -111,6 +111,10 @@ const stdfs::path& project_root() {
     return s.root;
 }
 
+#if !defined(__EMSCRIPTEN__)
+void user_dir_changed() {}  // the web build has its own (fs_web.cpp)
+#endif
+
 void set_user_dir(const stdfs::path& dir) {
     std::lock_guard<std::mutex> lock(state().mutex);
     state().userDir = dir;
