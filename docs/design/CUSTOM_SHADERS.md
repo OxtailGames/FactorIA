@@ -55,8 +55,8 @@ Points the user should decide are listed at the end ([Decision points](#decision
 }
 ```
 
-- `lighting`: `"pbr"` (the engine's Cook-Torrance, what `MeshRenderer` draws today), `"unlit"`, later `"custom"`
-  (package 6).
+- `lighting`: `"pbr"` (the engine's Cook-Torrance, what `MeshRenderer` draws today), or `"unlit"` (a later
+  `"custom"` is sketched as package 6).
 - `alphaMode`: `"opaque"`, `"clip"` (with an `alphaCutoff` param, default 0.5: `discard` below it, in the shadow pass
   too) or `"blend"` (drawn with the blended meshes, far to near).
 - Parameter types: `float`, `vec2`, `vec3`, `vec4`, `color` (a `vec4` the editor shows as a color picker). Only float
@@ -114,7 +114,7 @@ struct VertexData {             // vertex(): world space, after instancing and s
     vec3 object_pos;            // the model-space position (read-only by convention)
 };
 // Engine values a snippet may read (all start with fa_):
-//   fa_time        x = seconds of game time since the scene started (paused with time.scale 0), y = x * 2pi, zw unused
+//   fa_time        x = seconds of game time since the scene started (paused with time.scale 0), multiply by 6.2831853 for radians
 //   fa_camera_pos  xyz
 //   fa_tangent_normal(i, n)   a tangent-space normal (-1..1) to world space
 // Material params are globals named as in the JSON (`waveHeight`); textures are `texture2D <name>` with sampler
@@ -171,7 +171,6 @@ layout(binding=5) uniform fa_material {           // alphabetical, every param s
 };
 layout(binding=6) uniform texture2D waves;   layout(binding=2) uniform sampler waves_smp;
 ...
-#line 1                // see "Line numbers" below
 <the snippet, verbatim>
 @end
 @include mesh_common.glsl
@@ -192,7 +191,7 @@ The twin `materials/water.material.json.hlsl5.shader`:
 ```json
 {
   "format": "factoria.shader/1",
-  "engine": "0.2.0", "template": "<sha256 of the template files>", "shdc": "<pinned commit>",
+  "engine": "0.2.0", "template": "<sha256 of the template files>",
   "slang": "hlsl5",
   "params": ["deepColor", "flow", "waveHeight"],
   "programs": {
@@ -252,8 +251,8 @@ the game's shaders together. WGSL is not needed (the web export uses WebGL2).
   Package 2 copies the exact texts from those projects at the pinned versions. Games do not contain it, so
   `FACTORIA_NOTICES.txt` of exported games does not change.
 - Lookup order: `$SOKOL_SHDC`, next to the `factoria` executable, `~/.factoria/tools/sokol-shdc/<commit>/`
-  (installed by the new `setup` component `shaders`, SHA-256 checked per host), the checkout's
-  `.cache/sokol-tools-bin` (developers of the engine).
+  (installed by the new `setup` component `shaders`, SHA-256 checked per host). `compile_shaders.sh` uses that same
+  folder instead of `.cache/sokol-tools-bin`, so engine developers and games share one pinned binary.
 - The pin must produce code that matches `external/sokol/sokol_gfx.h` (the shader desc layout changes with sokol
   versions). `compile_shaders.sh` clones the default branch today, unpinned: package 2 pins it to the same commit and
   a test checks that the script and `setup.h` name the same one (like the AppImage pins).
@@ -266,10 +265,9 @@ the game's shaders together. WGSL is not needed (the web export uses WebGL2).
   number, got "0.15"`; `/textures: 5 textures, at most 4 (the engine binds 6 of the 16 units GLES3 and WebGL2
   guarantee)`; an unknown `lighting` with `did_you_mean`).
 - **Snippet compile errors** come from glslang through sokol-shdc as `file:line:col: error: ...`. The generator maps
-  them back to `shaders/water.surface.glsl:<line>` with the offending line quoted. Two ways, the first is preferred:
-  a `#line 1` before the snippet if glslang (as sokol-shdc drives it) honours it inside an `@block`, else the
-  generator's own table of where it put the snippet in the top file. Package 2 checks which works; the test is the same
-  either way. An error outside the snippet (rare: the author broke the contract, e.g. redefined `main`) says so and
+  them back to `shaders/water.surface.glsl:<line>` with the offending line quoted, through the generator's own table
+  of where it put the snippet in the top file (a `#line` directive is not relied on: whether glslang honours it inside
+  an sokol-shdc `@block` is unknown, and the table always works). An error outside the snippet (rare: the author broke the contract, e.g. redefined `main`) says so and
   names the rule.
 - **Hints for the frequent mistakes**, matched on glslang's message: an unknown field of `Surface`/`SurfaceInput`/
   `VertexData` -> `did you mean s.albedo?` (`fa::did_you_mean` over the struct fields); an undeclared identifier that
@@ -299,9 +297,8 @@ All existing fields keep their meaning and feed the standard surface the snippet
 `castShadows`/`receiveShadows` are unchanged. `alphaMode` of the material wins over `color.a < 1` (which today makes a
 mesh blended).
 
-Scripts change values with the reflected field (`mr.materialParams = {...}`) or a helper
-`entity.setMaterialParam("deepColor", [0, 0.2, 0.4, 1])` in factoria.js that writes the same field, so it is
-saved, diffable and undoable like every other field.
+Scripts change values through the reflected field (`mr.materialParams = {deepColor: [0, 0.2, 0.4, 1]}`), so a
+change is saved, diffable and undoable like every other field. No extra JS helper.
 
 ### Assets
 
@@ -373,7 +370,7 @@ item already never joins a batch (its `Animator` is in the key).
 ## Work packages
 
 Sizes as in ROADMAP.md (S under a day, M 1-3 days, L a week+). Order: 1, then 2; 3 and 4 in parallel once 2 has
-fixed the twin format; 5 last; 6 optional in the same milestone.
+fixed the twin format; 5 last. 6 is a sketch for when a game asks for it.
 
 ### P1. Template refactor of mesh.glsl and shadow.glsl (M, render)
 
@@ -410,7 +407,7 @@ Acceptance (doctests with real sokol-shdc where available, else skipped with a m
 
 ### P3. Materials in the renderer and runtime (L, render + runtime + scene)
 
-- `MeshRenderer.material`, `MeshRenderer.materialParams` (docs, COMPONENTS.md, typings, the factoria.js helper).
+- `MeshRenderer.material`, `MeshRenderer.materialParams` (docs, COMPONENTS.md, typings).
 - `MaterialAsset` cache, `custom_shader.cpp` (twin JSON -> `sg_shader_desc`), the error material, pipelines keyed by
   shader, `material_key`, bindings and uniforms, alpha modes, shadow variants, hot reload through `Assets::reload`.
 - `EngineConfig::shaderCompiler`; the CLI and editor pass the tooling's compiler; render stats count materials and
@@ -452,12 +449,13 @@ Acceptance:
 Acceptance: `factoria validate` passes on the examples; the schema accepts the docs' examples (a test reads them from
 SHADERS.md); the editor autotest edits a param and the screenshot changes.
 
-### P6. Custom lighting (M, optional in this milestone)
+### P6. Custom lighting (M, when a game asks)
 
 `"lighting": "custom"`: the snippet adds `vec3 light(in SurfaceInput i, in Surface s, in LightSample l)` (direction to
 the light, color times intensity, attenuation, shadow factor), called by the engine's light loop instead of
 Cook-Torrance; ambient, emission and fog stay the engine's, and the sky reflection (IBL) is off for custom lighting
-(a toon look does not want it; a snippet can add its own term to `s.emission`). This is what toon and stylised
+(a toon look does not want it; a snippet can add its own term to `s.emission`). Like the full-GLSL escape hatch, it
+waits for an `ENGINE_FEEDBACK.json` entry; the template's light loop is written so that the hook fits later. This is what toon and stylised
 games ask for first.
 
 Acceptance: a two-band toon material renders its golden with a directional and a point light, and its shadow.
@@ -479,6 +477,8 @@ Acceptance: a two-band toon material renders its golden with a directional and a
    (D2, D3) instead of a compiler in every player. Recommended: yes.
 3. **Material = a `*.material.json` file + per-entity `materialParams`** (D4), no shader/material split. Recommended:
    yes; a second material reusing a snippet repeats its param declarations.
-4. **Include custom lighting (P6, toon) in this milestone**, or leave it for when a game asks. Recommended: include it.
+4. **Custom lighting (P6, toon) now or when a game asks.** Recommended: when a game asks (the engine's feedback rule;
+   the template leaves room for it). Toon looks are the most requested stylised effect in other engines, so this is
+   the closest call of the five.
 5. **Error material = unlit magenta** (visible in screenshots) rather than silently drawing the standard material.
    Recommended: magenta.
