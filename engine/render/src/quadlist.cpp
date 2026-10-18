@@ -59,11 +59,7 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
 }
 
 void QuadEmitter::rect(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1) const {
-    auto v = [&](float x, float y, float u, float vv) {
-        Vec3 p = xf(x, y);
-        return Vertex2D{p.x, p.y, p.z, u, vv, color, mode, aux};
-    };
-    list.quad(v(x0, y1, u0, v0), v(x0, y0, u0, v1), v(x1, y0, u1, v1), v(x1, y1, u1, v0));
+    rect_uv(x0, y0, x1, y1, {{u0, v0}, {u0, v1}, {u1, v1}, {u1, v0}});
 }
 
 void QuadEmitter::rect_uv(float x0, float y0, float x1, float y1, const Vec2 (&uv)[4]) const {

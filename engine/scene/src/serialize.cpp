@@ -379,7 +379,7 @@ Entity Loader::load_entity(const Json& jIn, Entity parent, const std::string& pt
             if (jt->enableLimit && jt->lowerLimit > jt->upperLimit)
                 error(cptr + "/Joint2D/lowerLimit", "Joint2D.lowerLimit " + std::to_string(jt->lowerLimit) + " is above upperLimit " + std::to_string(jt->upperLimit),
                       "Swap them: lowerLimit <= upperLimit (revolute in degrees, prismatic and distance in world units).");
-            if (jt->type == JointType2D::Revolute && jt->enableLimit && (jt->lowerLimit < -179.0f || jt->upperLimit > 179.0f))
+            if (jt->type == JointType2D::Revolute && jt->enableLimit && (jt->lowerLimit < -178.0f || jt->upperLimit > 178.0f))
                 warn(cptr + "/Joint2D/lowerLimit", "A revolute limit beyond +-178 degrees is clamped to +-178 degrees",
                      "Box2D cannot limit a hinge to a full turn; use a motor or no limit for a free-spinning joint.");
             if (jt->type == JointType2D::Prismatic && jt->axis.x == 0.0f && jt->axis.y == 0.0f)
