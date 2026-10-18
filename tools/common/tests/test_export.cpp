@@ -1085,7 +1085,7 @@ TEST_CASE("export: command project.export (MCP tool project_export)") {
     REQUIRE(reg.has("project.export"));
     const CommandInfo* info = reg.info("project.export");
     CHECK_FALSE(info->readOnly);
-    for (const char* field : {"platform", "out", "release", "dryRun"})
+    for (const char* field : {"platform", "out", "release", "allowDebugKey", "dryRun"})
         CHECK_FALSE(info->inputSchema["properties"][field].value("description", std::string()).empty());
 
     // dryRun: the plan, nothing written; a check that fails is the same error a real export gives.

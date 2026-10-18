@@ -6,6 +6,9 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 Phones and tablets
 
+- Change to know about: `factoria export --platform android --release` now stops when your game has no signing key,
+  because Google Play rejects an app signed with the debug key. The message tells you how to make a key. To try a release
+  build on your own phone anyway, add `--allow-debug-key` (the export command's `allowDebugKey` option).
 - Menus and heads-up displays can keep clear of the notch, rounded corners and system bars: switch on `safeArea` next to
   `anchor` on a sprite, text, shape, particle emitter or interface widget, and it is placed against the free part of the
   screen. Scripts can read it as `screen.safeArea`. You can try a notched phone without one with
@@ -16,6 +19,14 @@ Phones and tablets
 - Android games can raise the on-screen keyboard for text fields and receive what is typed. Keyboards that compose words
   (predictive text, swipe typing, emoji, Asian languages) still cannot type into an Android game; physical keyboards work.
 - Tests can press Back, fake a notch and check vibrations without a device.
+- iPhone and iPad exports include the privacy file the App Store asks for (`PrivacyInfo.xcprivacy`), listing the few
+  system features FactorIA uses and saying that nothing is collected or tracked. If your game or a plugin collects data,
+  tracks players or uses more system features, add them under `export.ios.privacy` in `factoria.json`; mistakes in it are
+  reported with the fix. The app also says it uses no special encryption, so App Store Connect stops asking at every
+  upload (`export.ios.usesNonExemptEncryption` changes it).
+- `factoria setup players --platforms mobile` now also downloads the iPhone and iPad libraries on Windows and Linux, so
+  you can prepare an iOS project there without pointing at a macOS download. Building it still needs a Mac.
+- The mobile guide lists what to answer in Google Play's Data safety form and in App Store Connect's App Privacy section.
 
 ## 0.1.6
 

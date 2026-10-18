@@ -9,6 +9,7 @@
 #include "fa/services/platform.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/icons.h"
+#include "fa/tooling/ios_privacy.h"
 #include "fa/tooling/plugin_manifest.h"
 #include "fa/tooling/setup.h"
 #include "fa/tooling/storekit_config.h"
@@ -21,6 +22,8 @@ namespace {
 
 // The entitlements the plugins' manifests ask for, as the app's .entitlements file next to build_ios.sh.
 constexpr const char* kIosEntitlementsFile = "factoria_player.entitlements";
+// The privacy manifest of the app (fa/tooling/ios_privacy.h): the file App Store Connect wants at the root of the app bundle.
+constexpr const char* kIosPrivacyManifestFile = "PrivacyInfo.xcprivacy";
 
 // Prebuilt mode: the CMake project (CMakeLists.txt + cmake/) and the engine archives (lib/<sdk>/*.a) of the app.
 Result<void> write_ios_prebuilt_project(const MobileSetup& setup, const stdfs::path& outRoot) {
@@ -106,6 +109,9 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
     const bool hasIcon = !icon.empty();
     if (hasIcon)
         if (auto r = write_ios_app_icon(generic(outRoot / "Assets.xcassets"), icon, icon_color_from_hex(ios.iconBackground)); !r.ok()) return r;
+    // The privacy manifest next to build_ios.sh, which hands it to CMake (-DFA_GAME_PRIVACY_MANIFEST) so that it lands in the app
+    // bundle: App Store Connect rejects an upload whose app uses required-reason APIs without declaring them.
+    if (auto r = write_text(outRoot / kIosPrivacyManifestFile, ios_privacy_manifest(ios.privacy)); !r.ok()) return r;
     // The team id is 10 letters/digits (validated with the settings): it goes into the script as it is, inside "${VAR:-...}" where
     // single quotes would be kept literally.
     std::string team;
@@ -155,6 +161,8 @@ Result<void> export_ios(const ExportOptions& o, const Project& p, const MobileSe
          "  -DFA_GAME_BUILD=" + sh_quote(buildNumber) + " \\\n"
          "  -DFA_GAME_ORIENTATION=" + sh_quote(p.orientation) + " \\\n" +
          (hasIcon ? "  -DFA_GAME_ASSET_CATALOG=\"$HERE/Assets.xcassets\" \\\n" : "") +
+         "  -DFA_GAME_PRIVACY_MANIFEST=\"$HERE/" + kIosPrivacyManifestFile + "\" \\\n" +
+         (ios.usesNonExemptEncryption ? "  -DFA_GAME_NON_EXEMPT_ENCRYPTION=ON \\\n" : "") +
          (pluginNames.empty() ? "" : "  -DFA_GAME_PLUGINS=" + sh_quote(pluginNames) + " -DFA_GAME_PLUGIN_DIR=\"$HERE/plugins\" \\\n") +
          (needs.frameworks.empty() ? "" : "  -DFA_GAME_PLUGIN_FRAMEWORKS=" + sh_quote(join(needs.frameworks, ";")) + " \\\n") +
          (needs.swift ? "  -DFA_GAME_PLUGIN_SWIFT=ON \\\n" : "") +
@@ -251,6 +259,10 @@ exec xcrun devicectl device process launch --console --terminate-existing --devi
                                    : "Mode source: the engine is compiled from " + generic(setup.engine) + ". ") +
             "Build number (CFBundleVersion) " + buildNumber + (hasIcon ? ", app icon from Assets.xcassets" : ", no app icon (set `icon` in factoria.json)") +
             ". Details and App Store notes: docs/MOBILE.md"};
+    report.nextSteps.push_back(std::string(kIosPrivacyManifestFile) + " is the app's privacy manifest (the engine's required-reason APIs; nothing collected, no tracking) and Info.plist says "
+                               "ITSAppUsesNonExemptEncryption " + (ios.usesNonExemptEncryption ? "true" : "false") +
+                               ". If the game or a plugin collects data, tracks or calls more required-reason APIs, add export.ios.privacy in factoria.json "
+                               "(docs/MOBILE.md, \"Store privacy forms\")");
     if (hasEntitlements) {
         std::vector<std::string> names;
         for (auto it = needs.entitlements.begin(); it != needs.entitlements.end(); ++it) names.push_back(it.key());
