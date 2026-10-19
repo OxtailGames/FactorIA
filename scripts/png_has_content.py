@@ -47,7 +47,8 @@ for y in range(height):
             pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
             row[i] = (row[i] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
     prev = row
-    if len(colours) < need:
-        colours.update(bytes(row[i:i + bpp]) for i in range(0, stride, bpp))
+    colours.update(bytes(row[i:i + bpp]) for i in range(0, stride, bpp))
+    if len(colours) >= need:
+        break  # the rest of the image cannot change the answer (decoding all of it took seconds)
 print(f"{sys.argv[1]}: {width}x{height}, {'at least ' if len(colours) >= need else ''}{len(colours)} distinct colours")
 sys.exit(0 if len(colours) >= need else 1)

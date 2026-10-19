@@ -89,6 +89,11 @@ jobs:
           cmake --preset linux-release
           cmake --build --preset linux-release
 
+      # The ccache saved at the end of the job keeps only the entries this build used (hit or written in the last two
+      # hours). A restored cache otherwise keeps every object it ever held, and the repository's caches get 10 GB.
+      - name: Trim ccache to what this build used
+        run: ccache --evict-older-than 7200s
+
       - name: Test under Xvfb (Mesa llvmpipe)
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release
 
@@ -171,6 +176,10 @@ jobs:
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
 
+      - name: Trim ccache to what this build used (see the linux job)
+        shell: bash
+        run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --evict-older-than 7200s'
+
       - name: Test (windows-release)
         run: ctest --preset windows-release
 
@@ -210,6 +219,9 @@ jobs:
         run: |
           cmake --preset macos-release
           cmake --build --preset macos-release
+
+      - name: Trim ccache to what this build used (see the linux job)
+        run: ccache --evict-older-than 7200s
 
       - name: Test (macos-release)
         env:
@@ -345,7 +357,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # Not `needs: ios-build`, which would only start the boot after the build. If ios-build fails, this step times out.
-      - name: Boot the simulator while ios-build builds the app, then download the app
+      # --boot also builds the touch UI test meanwhile (1-4 minutes on this busy runner); `wait` lets it finish before
+      # the smoke test, which then only runs it.
+      - name: Boot the simulator and build the touch UI test while ios-build builds the app, then download the app
         timeout-minutes: 20
         env:
           GH_TOKEN: ${{ github.token }}
@@ -353,6 +367,7 @@ jobs:
           ./scripts/ios-smoke.sh --boot &
           until gh run download "$GITHUB_RUN_ID" -n ios-app -D "$RUNNER_TEMP" 2>/dev/null; do sleep 10; done
           tar -xzf "$RUNNER_TEMP/ios-app.tgz" -C "$RUNNER_TEMP"
+          wait
 
       # The app carries the example native plugin and the Apple backend plugin (ios-build): the smoke test checks the log of
       # the probe scripts that call them.
@@ -424,6 +439,9 @@ jobs:
           cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
           cmake --build build/tools --target factoria
 
+      - name: Trim ccache to what this build used (see the linux job)
+        run: ccache --evict-older-than 7200s
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'  # platforms/web/smoke.mjs needs Node 22 (built-in WebSocket)
@@ -477,6 +495,9 @@ jobs:
         run: |
           cmake --preset android-arm64
           cmake --build --preset android-arm64 --target factoria_player
+
+      - name: Trim ccache to what this build used (see the linux job)
+        run: ccache --evict-older-than 7200s
 
       # The player must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start it.
       - name: Check the entry points of libfactoria_player.so
@@ -604,6 +625,9 @@ jobs:
           build/tools/tools/cli/factoria export /tmp/ci-game --platform android --out /tmp/ci-out
           ls -la /tmp/ci-out/ci-game-android
 
+      - name: Trim ccache to what this build used (see the linux job)
+        run: ccache --evict-older-than 7200s
+
       # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md). The
       # plugin's libraries are in the APK for both, and its Java class is in the dex (the manifest has hasCode="true").
       - name: Check the APK contains the native libraries for both ABIs and the plugin's Java class
@@ -713,7 +737,23 @@ jobs:
     if: always()
     needs: [changes, linux, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator, web]
     runs-on: ubuntu-24.04
+    permissions:
+      actions: write  # gh cache delete
     steps:
       - name: Fail if a job failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
+
+      # Every run saves one ccache per job (the key ends in the run id). Keep only the newest of each on this branch or
+      # pull request, so the repository's 10 GB do not push out main's, which every pull request starts from. A pull
+      # request from a fork cannot delete caches: then nothing is deleted.
+      - name: Delete the older ccaches of this branch
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh cache list --ref "$GITHUB_REF" --key ccache- --limit 100 --json id,key,createdAt \
+              --jq 'group_by(.key | sub("-[0-9]+$"; "")) | map(sort_by(.createdAt) | reverse | .[1:][]) | .[].id' |
+              xargs -r -n1 gh cache delete
