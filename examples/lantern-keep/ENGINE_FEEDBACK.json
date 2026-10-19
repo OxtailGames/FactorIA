@@ -19,11 +19,13 @@
       "suggestion": "Write the document to stdout in binary mode (or do not translate \n to \r\n twice) so only \n or at most \r\n appears.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: tr -d CR on the output.",
-        "2026-10-19 triage: confirmed open; work package M24.3 (Docs print LF on Windows) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.3 (Docs print LF on Windows) in feedback/ROADMAP.md.",
+        "Fixed in b6c6f3b (M24.3): the embedded docs are LF on every checkout, so `factoria docs read <name> > file` and `docs.read` carry no CR on Windows; read them directly, no tr -d or replace needed."
+      ],
+      "engineIssue": "#95"
     },
     {
       "id": "FB-0002",
@@ -44,10 +46,12 @@
       "suggestion": "Make game.screenSize a cheap property (cache the Vec2, or return a plain object); and have the 2d-platformer template's follow_camera.js cache it too.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md.",
+        "Fixed in 1341def (M24.1): game.screenSize and screen.size no longer copy the project settings (about as cheap as world.find); read them where needed, which also follows design size and window changes. scripts/follow_camera.js reads it every frame now, no cached copy."
+      ],
+      "engineIssue": "#96"
     },
     {
       "id": "FB-0003",
@@ -94,10 +98,12 @@
       "suggestion": "Ship the recipe's Spanish table in docs/MENUS.md (or as templates/menus/locales/es.json) and add `factoria new --menus` / a project.add_menus command that writes the whole recipe, so nobody copies 11 files out of Markdown.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "Fixed in 43e03b9 (M24.5): MENUS.md prints the recipe's locales/es.json next to en.json, and a doc test checks both have the fixture's keys. Copy it instead of translating by hand. Lantern Keep keeps its own es.json and the test that both tables have the same keys (a check worth keeping)."
+      ],
+      "engineIssue": "#100"
     },
     {
       "id": "FB-0005",
@@ -119,10 +125,12 @@
       "suggestion": "Add `paused` to the test game object (or say in docs scripting 'Tests' that the pause state is time.scale) and make reading an unknown member of the test game object throw with a did-you-mean instead of returning undefined.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md.",
+        "Fixed in acd5baf (M24.2): the test game object has paused (read and write, as in scripts); assert game.paused instead of time.scale. A member it does not have throws with a did-you-mean (game.pasued names paused). Lantern Keep tests assert game.paused."
+      ],
+      "engineIssue": "#101"
     },
     {
       "id": "FB-0006",
@@ -316,10 +324,12 @@
       ],
       "suggestion": "Document the corrupt storage.json behaviour (and keep a .bak) in the scripting docs, and add a save-file recipe with versioning, migration and a damaged-save screen.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.6 (Save file safety; the save recipe is M21's 'finish your game' guide) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.6 (Save file safety; the save recipe is M21's 'finish your game' guide) in feedback/ROADMAP.md.",
+        "Fixed in d891e92 (M24.6): storage saves through a temporary file and rename; a storage.json that does not parse is kept as storage.corrupt.json (with a warning) and never overwritten, storage.corrupt is true and storage starts empty. In tests, game.setStorageText(text) sets the text the next load reads (SCRIPTING.md, storage). The save recipe with versions is M21's. Lantern Keep keeps its per-slot parse (a slot can be valid JSON of the wrong shape or from a newer game), and tests/saves.test.js starts from a damaged storage.json with game.setStorageText."
+      ],
+      "engineIssue": "#99"
     },
     {
       "id": "FB-0014",
@@ -620,7 +630,8 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (component colours as arrays) and M24.7 (toMatchObject, naming the missing method; Array.prototype.at already works) in feedback/ROADMAP.md."
+        "2026-10-19 triage: confirmed open; work package M24.1 (component colours as arrays) and M24.7 (toMatchObject, naming the missing method; Array.prototype.at already works) in feedback/ROADMAP.md.",
+        "Colours part fixed in 1341def (M24.1): component colours are array-like (index, length, spread), so Array.from(color) is not needed; Array.prototype.at works. tests/store_screens.test.js indexes colours and uses .at(-1) now. Still open: expect().toMatchObject and naming the missing method (M24.7)."
       ]
     },
     {
@@ -643,10 +654,12 @@
       "suggestion": "Make the focus rule skip non-interactable autoFocus widgets and fall back to the first interactable one in reading order, or add the warning to the shop part of the menus recipe.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md.",
+        "Fixed in 2ee41ac (M24.4): when the only autoFocus widget is not interactable, focus goes to the first interactable widget in reading order, so greyed-out buy buttons no longer leave the pad without focus. Lantern Keep greys out the buy buttons without a store (scripts/ui/shop.js), and a test checks the pad lands on the colour button."
+      ],
+      "engineIssue": "#98"
     },
     {
       "id": "FB-0028",
@@ -691,10 +704,12 @@
       "suggestion": "Report an unhandled rejection only after the microtask queue drains (as Node does), or document that a platform promise needs its handler in the same turn.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md.",
+        "Fixed in 1341def (M24.1): a rejection is reported only if it is still unhandled once the job queue drains (as Node does), so chain.then(() => fn()).catch(() => {}) logs nothing; a real unhandled rejection is still reported, once. scripts/store_stats.js uses that plain chain now."
+      ],
+      "engineIssue": "#96"
     },
     {
       "id": "FB-0030",
@@ -796,11 +811,13 @@
       "suggestion": "Only accept a candidate whose centre is within 45 degrees of the pressed direction (the dominant axis), or let widgets name their neighbours; document the rule in the Focus and navigation section.",
       "effort": "medium",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: None in the game (making the locked levels focusable would change what the pad can reach). Left as it is: Left or Up comes back to the level.",
-        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md.",
+        "Fixed in 2ee41ac (M24.4): directional focus prefers widgets lined up with the focused one (overlapping it across the pressed direction), nearest first; only when there is none, the nearest in that half of the screen. DpadRight from a tab reaches the next tab, Down reaches the wide widget below (MENUS.md, Focus and navigation). tests/accessibility.test.js walks the options tabs with DpadRight now, at 100% and 200% text."
+      ],
+      "engineIssue": "#98"
     },
     {
       "id": "FB-0034",
@@ -870,10 +887,12 @@
       "suggestion": "Make game.paused remember the scale it replaced and restore it, or document the reset next to time.scale in the scripting doc and the menus recipe (any game that uses time.scale for slow motion breaks with the recipe pause menu).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md.",
+        "Fixed in acd5baf (M24.2): game.paused = true remembers time.scale and game.paused = false restores it; setting time.scale while paused changes the value to restore (SCRIPTING.md, time.scale; MENUS.md, pause menu). Lantern Keep sets the assist speed at level start (level.js) and, while paused, from the options panel; nothing re-applies it after a resume."
+      ],
+      "engineIssue": "#101"
     },
     {
       "id": "FB-0037",
@@ -942,10 +961,12 @@
       "suggestion": "Make component vec fields array-like (index and iterator), or have the d.ts say they are Vec2/Vec4 objects with .x .y .z .w and no array behaviour; JSON.stringify showing an array is what misleads.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md.",
+        "Fixed in 1341def (M24.1): component vectors and colours read from scripts are array-like: padding[1], size[0] (writes too), [...size], destructuring, for...of and Array.from work, and .x .y .z .w / .r .g .b .a are kept. Colours and rects have a numeric length; vectors keep length() as the magnitude. factoria.d.ts types them that way. Lantern Keep destructures padding and sizes in scripts/ui/text_fit.js and tests/helpers/screens.js."
+      ],
+      "engineIssue": "#96"
     },
     {
       "id": "FB-0040",
@@ -1016,10 +1037,12 @@
       "suggestion": "State in TEXT.md when measureText is exact (tests, headless runs with the built-in font) and when it is not; close FB-0032 if it is.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "Fixed in 43e03b9 (M24.5): TEXT.md, Measuring, says ui.measureText is exact in factoria test, factoria call and headless runs (offscreen renderer); the 0.6 x fontSize estimate only happens when no graphics device can be created. Lantern Keep needs no change: tests/helpers/screens.js already trusted ui.measureText."
+      ],
+      "engineIssue": "#100"
     },
     {
       "id": "FB-0043",
@@ -1041,10 +1064,12 @@
       "suggestion": "When the file does not exist, copy the structure of the default language's table (nested when it is nested).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "Fixed in 43e03b9 (M24.5): i18n.import writing a language that has no file yet copies the shape of the default table (nested when it is nested). Lantern Keep needs no change: its de.json and ar.json were already rewritten nested."
+      ],
+      "engineIssue": "#100"
     },
     {
       "id": "FB-0044",
@@ -1089,10 +1114,12 @@
       "suggestion": "Say 'command' in LOCALIZATION.md section 2 and add Hebrew and Arabic to the Text.font description (docs/COMPONENTS generated from the reflection doc string).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md.",
+        "Fixed in 43e03b9 (M24.5): LOCALIZATION.md calls i18n.state a command (fa.call('i18n.state')), and the Text.font doc (and COMPONENTS.md) lists Hebrew and Arabic in the built-in font, as TEXT.md does. Lantern Keep needs no change: tests/languages.test.js already uses the command."
+      ],
+      "engineIssue": "#100"
     }
   ]
 }

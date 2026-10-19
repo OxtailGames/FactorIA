@@ -718,6 +718,48 @@ docs/ANIMATION.md are the reference):
   `physics/tests/test_joints2d.cpp` (revolute pendulum within 2%) and `render/tests/render2d_features_tests.cpp` (goldens
   `2d_tile_flags`, `2d_sprite_nine_slice`, `2d_lit_normal_map`, `2d_parallax`).
 
+## M24.1-M24.6. Found by the reference game, first six packages — DONE (PRs #95, #96, #98, #99, #100, #101)
+
+Closes LK/FB-0001, LK/FB-0002, LK/FB-0004, LK/FB-0005, LK/FB-0013, LK/FB-0027, LK/FB-0029, LK/FB-0033, LK/FB-0036,
+LK/FB-0039, LK/FB-0042, LK/FB-0043, LK/FB-0045 and the colour part of LK/FB-0026 (its matchers are M24.7). Each entry
+has a `Fixed in <commit>` note; Lantern Keep dropped the workarounds in the `m24/bookkeeping` PR.
+
+- M24.1 Script values and promise rejections (PR #96, `1341def`): `Vec2`, `Vec3`, `Color`, `Rect` and the Vec4 view
+  (live component views included) can be indexed (writes too), spread, destructured, iterated and passed to
+  `Array.from`, and keep `.x .y .z .w` / `.r .g .b .a`; index and iterator properties are not enumerable and
+  `Array.isArray` stays false. `length` is the component count on `Color` and `Rect`; vectors keep `length()` as the
+  magnitude. `game.screenSize` / `screen.size` no longer copy the project settings (`ScriptHost::design_size()`,
+  overridden by `Engine`; 281 µs per read before, 4.5 µs after, `world.find` 4.3 µs). A promise rejection is reported
+  only if still unhandled once the job queue drains, once. Tests in `engine/script/tests/test_values.cpp`.
+- M24.2 Pause keeps the game speed (PR #101, `acd5baf`): `game.paused = true` remembers `time.scale`,
+  `game.paused = false` restores it; a scale above 0 set while paused is the one restored. The test `game` object has
+  `paused`, and a member it does not have throws with a "did you mean". Tests in
+  `engine/script/tests/test_pause_scale.cpp`.
+- M24.3 Docs print LF on Windows (PR #95, `b6c6f3b`): `cmake/EmbedFiles.cmake` embeds text files (md, json, js, glsl,
+  LICENSE/NOTICE/COPYING...) with LF, so a CRLF checkout builds the same binary as an LF one; `fa_test_cli` reads a doc
+  through `factoria docs read` and `docs.read` and finds no CR.
+- M24.4 Focus navigation (PR #98, `2ee41ac`): a direction press moves the focus to the nearest interactable widget in the
+  beam (its rectangle overlaps the focused one across the direction); only when there is none, the nearest in that
+  half of the screen (sideways distance doubled). When every visible `autoFocus` widget is not interactable, the first
+  interactable widget in reading order takes the focus. `fa_test_ui` cases: a tab row above a wide button, an options
+  panel (narrow tab, wide offset row, Back further down), a greyed-out `autoFocus` button.
+- M24.5 Localization tools and text docs (PR #100, `43e03b9`): `i18n.import` writing a new language copies the shape of
+  the default table (nested or flat); LOCALIZATION.md calls `i18n.state` a command; the `Text.font` doc and TEXT.md list
+  Hebrew and Arabic in the built-in font; TEXT.md says `ui.measureText` is exact wherever a renderer exists; MENUS.md
+  prints the recipe's `locales/es.json`, and a doc test checks both tables against the fixture.
+- M24.6 Save file safety (PR #99, `d891e92`): `storage` saves through `fs::write_bytes` (temporary file, rename); a
+  `storage.json` that does not parse is kept as `storage.corrupt.json` (then `storage.corrupt.2.json`...) with a warning
+  naming it, the game starts with empty save data, and `storage.clear()` loads first so it never overwrites a damaged
+  file. `storage.corrupt` tells scripts; `game.setStorageText(text | null)` in `factoria:test` sets the text the next
+  load reads (never written to disk, reset per test file). Runtime and JS tests.
+
+Found on the way:
+- M24.4 asked for a 45-degree cone around the pressed direction. A centre cone sent Down from a narrow tab to a far-away
+  Back button instead of the wide row under the tab, and broke the menus fixture and Lantern Keep's gamepad tests; the
+  beam rule (as Android's focus finder) keeps the tab-row fix.
+- `editor_autotest` can time out (300 s) when `ctest` runs while other builds load the machine; alone it passes in
+  about 40 s.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
