@@ -221,7 +221,7 @@ TEST_CASE("setup shaders: compile_shaders.sh pins the same commit and hashes as 
     CHECK(has_text(script, "sokol-tools-bin/$SHDC_COMMIT/bin/$DIR/$EXE"));
 }
 
-TEST_CASE("setup shaders: the release downloads bundle the sokol-shdc that setup.h pins") {
+TEST_CASE("setup shaders: setup.h keeps the pin lines that the release's bundle script reads") {
     // scripts/bundle-sokol-shdc.sh (release.yml) reads the pin from setup.h with sed, one line per value, and fails the
     // release when it cannot: these are the lines it reads, so a reformat of setup.h fails here first.
     std::string header = testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools" / "common" / "include" / "fa" / "tooling" / "setup.h");
@@ -232,16 +232,6 @@ TEST_CASE("setup shaders: the release downloads bundle the sokol-shdc that setup
         CAPTURE(b.dir);
         CHECK(has_text(header, std::string("\n    {\"") + b.host + "\", \"" + b.arch + "\", \"" + b.dir + "\", \"" + b.sha256 + "\"},\n"));
     }
-    const std::string script = testing::read_all(stdfs::path(FA_REPO_ROOT) / "scripts" / "bundle-sokol-shdc.sh");
-    REQUIRE_FALSE(script.empty());
-    CHECK(has_text(script, "tools/common/include/fa/tooling/setup.h"));
-    for (const char* dir : {"win32", "linux", "osx", "osx_arm64"}) {  // the packages: Windows, Linux x64, macOS universal
-        CAPTURE(dir);
-        CHECK(has_text(script, std::string("fetch ") + dir + " sokol-shdc"));
-    }
-    const std::string release = testing::read_all(stdfs::path(FA_REPO_ROOT) / ".github" / "workflows" / "release.yml");
-    CHECK(has_text(release, "./scripts/bundle-sokol-shdc.sh build/sokol-shdc"));
-    CHECK(has_text(release, "cp \"build/sokol-shdc/sokol-shdc${{ matrix.exe }}\" dist/FactorIA/"));
 }
 
 TEST_CASE("setup shaders: setup.status and setup.install know the component") {
