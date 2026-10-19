@@ -64,6 +64,11 @@ Options > Controls.
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
   help other tests. The levels are built so that this bot finishes all of them.
 - `screenshots/`: the main menu, the save slots, the level select, a level of each world and the level end panel.
+- Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
+  (the on-screen gamepad, an entity of both base scenes), `store/` (store texts in English and Spanish, release notes),
+  `.store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed, and a dot-folder so exports
+  leave them out),
+  `tests/shipping.test.js` (touch controls, safe area, the settings the exports rely on), `SHIPPING.md`.
 
 ## Saves and the level select
 
@@ -100,6 +105,19 @@ local slot (also a damaged or empty one), a better or missing cloud copy is uplo
 backend without cloud saves, a player not signed in or a failed upload or download changes nothing locally: the local save is
 always written first and never waits for the store. Deleting a slot deletes its cloud copy; if that delete fails, the copy can
 come back at the next sync (known limit).
+
+## Shipping
+
+`factoria.json` holds the version, icon, per-platform export settings and the `publish` ids (fake placeholders), and the
+game has an on-screen gamepad and a safe-area HUD for phones. What each store needs, what the engine does, what stays
+by hand and what could not be checked on the machine that made the package is in [`SHIPPING.md`](SHIPPING.md).
+
+```bash
+factoria export --platform windows --release        # lantern-keep.exe + game.pak
+factoria export --platform android --format aab --release   # needs the Android toolchain and a keystore
+python tools/make_icon.py                           # redraw the icon (Python and Pillow)
+python tools/make_screenshots.py factoria           # redraw the store screenshots
+```
 
 ## Contract 1: the level list (`scripts/levels.js`)
 

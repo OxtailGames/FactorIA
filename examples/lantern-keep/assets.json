@@ -26,6 +26,29 @@
         "date": "2026-10-19",
         "license": "CC0",
         "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      },
+      "import": {
+        "atlas": "characters"
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "author": "Lantern Keep",
+        "source": "Lantern Keep: drawn with tools/make_icon.py (Pillow), no AI"
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "author": "Lantern Keep",
+        "source": "Lantern Keep: drawn with tools/make_icon.py (Pillow), no AI"
       }
     },
     "assets/sfx/checkpoint.wav": {

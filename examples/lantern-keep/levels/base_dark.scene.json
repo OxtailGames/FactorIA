@@ -100,7 +100,8 @@
           "fontSize": 28,
           "space": "screen",
           "anchor": [0, 0],
-          "pivot": [0, 1]
+          "pivot": [0, 1],
+          "safeArea": true
         }
       }
     },
@@ -116,7 +117,8 @@
           "align": "center",
           "space": "screen",
           "anchor": [0.5, 0],
-          "pivot": [0.5, 1]
+          "pivot": [0.5, 1],
+          "safeArea": true
         }
       }
     },
@@ -132,9 +134,14 @@
           "align": "right",
           "space": "screen",
           "anchor": [1, 0],
-          "pivot": [1, 1]
+          "pivot": [1, 1],
+          "safeArea": true
         }
       }
+    },
+    {
+      "id": "touch_controls",
+      "prefab": "prefabs/ui/touch_controls.prefab.json"
     },
     {
       "id": "hud",
