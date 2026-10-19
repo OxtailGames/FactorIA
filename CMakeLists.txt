@@ -21,8 +21,14 @@ endif()
 # paths of the checkout that filled the cache, so Ninja would watch another worktree's headers and not rebuild the
 # objects that include a header changed here (stale objects: crashes, or tests that pass on old code). GCC and Clang
 # hand Ninja a depfile, which ccache writes with paths relative to the build directory: those resolve in each checkout.
+# Not with an MSVC in another language either: on a miss Ninja reads cl's /showIncludes lines in the console code page,
+# on a hit ccache replays them in UTF-8, so a non-ASCII prefix (Spanish "Nota: inclusión del archivo:") stops matching
+# and Ninja records no header dependencies for every object that was a cache hit: stale objects again.
 find_program(FA_CCACHE ccache)
-if(FA_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+if(FA_CCACHE AND MSVC AND CMAKE_CL_SHOWINCLUDES_PREFIX MATCHES "[^ -~]")
+    message(STATUS "ccache not used: cl's /showIncludes prefix is not ASCII ('${CMAKE_CL_SHOWINCLUDES_PREFIX}'), and "
+        "Ninja would lose header dependencies on cache hits. English cl messages (VSLANG=1033, English language pack) keep it.")
+elseif(FA_CCACHE AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     set(CMAKE_C_COMPILER_LAUNCHER ${FA_CCACHE})
     execute_process(COMMAND ${FA_CCACHE} --version OUTPUT_VARIABLE _fa_ccache_version ERROR_QUIET)
     string(REGEX MATCH "[0-9]+\\.[0-9]+" _fa_ccache_version "${_fa_ccache_version}")
