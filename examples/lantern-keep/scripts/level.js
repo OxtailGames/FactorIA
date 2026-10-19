@@ -5,6 +5,7 @@ import { Behaviour, audio, game, vec2 } from "factoria";
 import * as progress from "./progress.js";
 import { EMBERS_PER_LEVEL } from "./levels.js";
 import { deathShake } from "./effects.js";
+import * as assist from "./assist.js";
 
 export default class Level extends Behaviour {
   /** Id of this level in scripts/levels.js (set by the level's map file, `edits`). */
@@ -35,6 +36,14 @@ export default class Level extends Behaviour {
     this.endPanel.id = "level_end";
     this.endPanel.active = false;
     this.announced = false;
+    this.assisted = false; // true once any assist option was on during this level: the result says so
+    this.refreshAssist();
+  }
+
+  /** Applies the assist speed and remembers that assist was used. Called at the start and after every resume. */
+  refreshAssist() {
+    if (assist.active()) this.assisted = true;
+    if (!this.finished) assist.applySpeed();
   }
 
   /** Embers found so far. */
@@ -57,15 +66,26 @@ export default class Level extends Behaviour {
     if (area && !this.finished && this.player.position.y < area.y - this.killDepth) this.die("fall");
   }
 
-  /** The player died: count it, send them back to the last checkpoint, shake the camera. Returns false when it did not count. */
-  die(cause) {
-    if (this.finished || this.clock < this.protectedUntil) return false;
-    this.deaths += 1;
-    this.protectedUntil = this.clock + this.grace;
+  /** Puts the player back at the last checkpoint, standing still. */
+  respawn() {
     this.player.position = vec2(this.spawn.x, this.spawn.y);
     const body = this.player.get("RigidBody2D");
     body.velocity.x = 0;
     body.velocity.y = 0;
+  }
+
+  /** The player died: count it, send them back to the last checkpoint, shake the camera. Returns false when it did not count. */
+  die(cause) {
+    if (this.finished || this.clock < this.protectedUntil) return false;
+    if (assist.current().invincible) {
+      // Assist: spikes and enemies do nothing; a fall puts the player back at the checkpoint without counting a death.
+      this.assisted = true;
+      if (cause === "fall") this.respawn();
+      return false;
+    }
+    this.deaths += 1;
+    this.protectedUntil = this.clock + this.grace;
+    this.respawn();
     audio.play("assets/sfx/hurt.wav", { volume: 0.7 });
     deathShake();
     this.world.emit("player_died", { level: this.levelId, cause });
@@ -96,7 +116,7 @@ export default class Level extends Behaviour {
   complete() {
     if (this.finished) return false;
     this.finished = true;
-    const result = { level: this.levelId, time: Math.round(this.time * 1000) / 1000, embers: [...this.embers], deaths: this.deaths };
+    const result = { level: this.levelId, time: Math.round(this.time * 1000) / 1000, embers: [...this.embers], deaths: this.deaths, assisted: this.assisted };
     const info = progress.record(result);
     audio.play("assets/sfx/win.wav", { volume: 0.7 });
     this.world.emit("level_completed", result);

@@ -1,7 +1,7 @@
 // @ts-check
 // The player's settings (volumes, video, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n } from "factoria";
+import { storage, audio, window, input, session, i18n, ui, math } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -14,12 +14,20 @@ const DEFAULTS = {
   frameCap: 0, // 0 = no cap
   bindings: {}, // action -> binding names, only for actions the player rebound
   language: null, // null: the language the game started in (the player's system language, else the default one)
+  textScale: 1, // ui.textScale, 1 to MAX_TEXT_SCALE (the Accessibility tab)
+  assist: { speed: 1, invincible: false }, // game speed 0.6..1; invincible: spikes, enemies and falls do not count
+  shake: true, // false: no camera shake
+  reducedEffects: false, // true: no spark particles
 };
+
+/** Text sizes the Accessibility tab offers, and the speeds (the options' buttons step through these lists). */
+export const TEXT_SCALES = [1, 1.25, 1.5, 1.75, 2];
+export const SPEEDS = [1, 0.9, 0.8, 0.7, 0.6];
 
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
-  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings }, assist: { ...DEFAULTS.assist, ...saved.assist } };
 }
 
 export function save(s) {
@@ -29,6 +37,7 @@ export function save(s) {
 /** Puts `s` into effect: bus volumes, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
+  ui.textScale = math.clamp(s.textScale, 0.5, 3);
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once

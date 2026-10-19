@@ -22,7 +22,8 @@
       "video": "Video",
       "audio": "Audio",
       "controls": "Controls",
-      "language": "Language"
+      "language": "Language",
+      "accessibility": "Access"
     },
     "fullscreen": "Full screen",
     "vsync": "VSync",
@@ -46,7 +47,14 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
-    "language": "Language: {language}"
+    "language": "Language: {language}",
+    "accessibility": {
+      "textSize": "Text size: {percent}%",
+      "speed": "Game speed: {percent}%",
+      "invincible": "Invincible (assist)",
+      "shake": "Screen shake",
+      "reducedEffects": "Reduced effects (no sparks)"
+    }
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -80,6 +88,7 @@
     "deaths": "Deaths: {deaths}",
     "next": "Next",
     "retry": "Retry",
-    "menu": "Menu"
+    "menu": "Menu",
+    "assisted": "Assist mode was on"
   }
 }
