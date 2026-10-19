@@ -2,7 +2,7 @@
   "format": "factoria.project/1",
   "name": "Lantern Keep",
   "id": "com.factoria.examples.lanternkeep",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "engine": "0.1.6",
   "mainScene": "scenes/menu.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
@@ -16,6 +16,31 @@
     }
   },
   "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
-  "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "platforms": ["windows", "macos", "linux", "web", "android", "ios"],
+  "icon": "assets/icon.png",
+  "export": {
+    "scriptBytecode": true,
+    "macos": { "category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 Oxtail Games" },
+    "linux": { "categories": ["Game", "ArcadeGame"] },
+    "android": {
+      "format": "aab",
+      "minSdk": 26,
+      "targetSdk": 36,
+      "versionCode": 10000,
+      "adaptiveIcon": { "foreground": "assets/icon_fg.png", "background": "#141428" }
+    },
+    "ios": { "iconBackground": "#141428", "buildNumber": "1.0.0", "usesNonExemptEncryption": false }
+  },
+  "publish": {
+    "steam": { "account": "FAKE_steam_build_account", "depots": { "windows": 9000001, "macos": 9000002, "linux": 9000003 } },
+    "itch": { "game": "fake-studio/lantern-keep", "channels": { "windows": "windows", "macos": "mac", "linux": "linux" } },
+    "epic": {
+      "organizationId": "FAKE-org-id", "productId": "FAKE-product-id", "clientId": "FAKE-client-id",
+      "artifacts": { "windows": "FAKE-artifact-win", "macos": "FAKE-artifact-mac", "linux": "FAKE-artifact-linux" }
+    },
+    "gog": { "productId": "1000000001", "languages": ["en-US", "es-ES"] },
+    "appstore": { "appleId": "1000000002" },
+    "googleplay": { "track": "internal", "releaseStatus": "draft", "changelogs": { "en-US": "store/whats-new-en.txt", "es-ES": "store/whats-new-es.txt" } }
+  },
   "feedbackFile": "ENGINE_FEEDBACK.json"
 }

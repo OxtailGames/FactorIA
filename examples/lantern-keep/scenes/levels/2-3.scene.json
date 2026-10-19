@@ -89,7 +89,8 @@
           "text": "Level",
           "key": "hud.level",
           "fontSize": 28.0,
-          "space": "screen"
+          "space": "screen",
+          "safeArea": true
         }
       }
     },
@@ -105,7 +106,8 @@
           "align": "center",
           "pivot": [0.5, 1.0],
           "space": "screen",
-          "anchor": [0.5, 0.0]
+          "anchor": [0.5, 0.0],
+          "safeArea": true
         }
       }
     },
@@ -121,9 +123,87 @@
           "align": "right",
           "pivot": [1.0, 1.0],
           "space": "screen",
-          "anchor": [1.0, 0.0]
+          "anchor": [1.0, 0.0],
+          "safeArea": true
         }
       }
+    },
+    {
+      "id": "touch_controls",
+      "name": "Touch controls",
+      "children": [
+        {
+          "id": "touch_left",
+          "components": {
+            "Transform": {
+              "position": [40.0, -40.0, 0.0]
+            },
+            "TouchButton": {
+              "size": [120.0, 120.0],
+              "pivot": [0.0, 0.0],
+              "anchor": [0.0, 1.0],
+              "layer": 120,
+              "color": [1.0, 1.0, 1.0, 0.3],
+              "button": "DpadLeft",
+              "text": "<",
+              "fontSize": 44.0
+            }
+          }
+        },
+        {
+          "id": "touch_right",
+          "components": {
+            "Transform": {
+              "position": [184.0, -40.0, 0.0]
+            },
+            "TouchButton": {
+              "size": [120.0, 120.0],
+              "pivot": [0.0, 0.0],
+              "anchor": [0.0, 1.0],
+              "layer": 120,
+              "color": [1.0, 1.0, 1.0, 0.3],
+              "button": "DpadRight",
+              "text": ">",
+              "fontSize": 44.0
+            }
+          }
+        },
+        {
+          "id": "touch_jump",
+          "components": {
+            "Transform": {
+              "position": [-40.0, -40.0, 0.0]
+            },
+            "TouchButton": {
+              "size": [140.0, 140.0],
+              "pivot": [1.0, 0.0],
+              "anchor": [1.0, 1.0],
+              "layer": 120,
+              "color": [1.0, 1.0, 1.0, 0.3],
+              "text": "^",
+              "fontSize": 56.0
+            }
+          }
+        },
+        {
+          "id": "touch_pause",
+          "components": {
+            "Transform": {
+              "position": [-24.0, 64.0, 0.0]
+            },
+            "TouchButton": {
+              "size": [64.0, 64.0],
+              "pivot": [1.0, 1.0],
+              "anchor": [1.0, 0.0],
+              "layer": 120,
+              "color": [1.0, 1.0, 1.0, 0.3],
+              "button": "Start",
+              "text": "II",
+              "fontSize": 28.0
+            }
+          }
+        }
+      ]
     },
     {
       "id": "hud",
@@ -221,7 +301,7 @@
       },
       "children": [
         {
-          "id": "e13",
+          "id": "e18",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -233,7 +313,7 @@
           }
         },
         {
-          "id": "e14",
+          "id": "e19",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -277,7 +357,7 @@
       },
       "children": [
         {
-          "id": "e16",
+          "id": "e21",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -289,7 +369,7 @@
           }
         },
         {
-          "id": "e17",
+          "id": "e22",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -333,7 +413,7 @@
       },
       "children": [
         {
-          "id": "e19",
+          "id": "e24",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -345,7 +425,7 @@
           }
         },
         {
-          "id": "e20",
+          "id": "e25",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -443,7 +523,7 @@
       },
       "children": [
         {
-          "id": "e24",
+          "id": "e29",
           "name": "Lantern",
           "components": {
             "Transform": {
@@ -465,7 +545,7 @@
           },
           "children": [
             {
-              "id": "e25",
+              "id": "e30",
               "name": "Glow",
               "components": {
                 "Shape2D": {
@@ -600,7 +680,7 @@
       },
       "children": [
         {
-          "id": "e30",
+          "id": "e35",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -673,7 +753,7 @@
       },
       "children": [
         {
-          "id": "e33",
+          "id": "e38",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -777,7 +857,7 @@
       },
       "children": [
         {
-          "id": "e37",
+          "id": "e42",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -819,7 +899,7 @@
       },
       "children": [
         {
-          "id": "e39",
+          "id": "e44",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -985,7 +1065,7 @@
       },
       "children": [
         {
-          "id": "e45",
+          "id": "e50",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -1121,7 +1201,7 @@
       },
       "children": [
         {
-          "id": "e50",
+          "id": "e55",
           "name": "Lamp",
           "components": {
             "Transform": {
@@ -1135,7 +1215,7 @@
           }
         },
         {
-          "id": "e51",
+          "id": "e56",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -1150,7 +1230,7 @@
           }
         },
         {
-          "id": "e52",
+          "id": "e57",
           "name": "Glow",
           "components": {
             "Transform": {
@@ -1166,7 +1246,7 @@
           }
         },
         {
-          "id": "e53",
+          "id": "e58",
           "name": "Beam",
           "components": {
             "Transform": {
