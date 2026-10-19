@@ -27,10 +27,9 @@ export default class FollowCamera extends Behaviour {
     }
     // Half of the visible area in world units: the design size unless the Camera sets orthoSize.
     const ortho = this.entity.get("Camera").orthoSize;
-    // game.screenSize costs 0.3 ms a read (see ENGINE_FEEDBACK.json), so it is read once.
-    this.screen ??= { x: game.screenSize.x, y: game.screenSize.y };
-    const halfH = ortho > 0 ? ortho : this.screen.y / 2;
-    const halfW = (halfH * this.screen.x) / this.screen.y;
+    const screen = game.screenSize; // read every frame: it follows a change of the design or window size
+    const halfH = ortho > 0 ? ortho : screen.y / 2;
+    const halfW = (halfH * screen.x) / screen.y;
     // A level smaller than the view has nothing to scroll: centre on it.
     const cx = area.w <= 2 * halfW ? area.x + area.w / 2 : math.clamp(x, area.x + halfW, area.x + area.w - halfW);
     const cy = area.h <= 2 * halfH ? area.y + area.h / 2 : math.clamp(y, area.y + halfH, area.y + area.h - halfH);

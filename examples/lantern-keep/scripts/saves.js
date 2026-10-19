@@ -18,6 +18,8 @@ const key = (n) => `slot${n}`;
 /**
  * Reads save text of any version. Returns `{ ok: true, data }` (data is version 2, checked and cleaned) or
  * `{ ok: false, reason }` for text that is not JSON, not an object, from a newer game or not shaped like a save.
+ * A damaged `storage.json` as a whole is the engine's job (`storage.corrupt`: it keeps the file and starts empty);
+ * this checks ONE slot, which can still be valid JSON of the wrong shape, from a newer game or a cloud copy.
  */
 export function parse(text) {
   let raw;

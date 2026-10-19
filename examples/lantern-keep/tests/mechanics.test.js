@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { session, time } from "factoria";
+import { session } from "factoria";
 import { loadLevel, listen, teleportOnto } from "./helpers/autoplay.js";
 import * as progress from "../scripts/progress.js";
 
@@ -166,7 +166,7 @@ test("the exit ends the level: level_completed with the time, the embers and the
   expect(r.time).toBeGreaterThan(2);
   expect(r.time).toBeLessThan(5);
   expect(game.audioLog()).toContainPlayed("win.wav");
-  expect(time.scale).toBe(0); // the game is paused behind the panel
+  expect(game.paused).toBe(true); // the game is paused behind the panel
   expect(game.find("level_end").active).toBe(true);
   expect(progress.of("1-1")).toEqual({ completed: true, bestTime: r.time, embers: [false, false, true] });
   expect(session.progress.levels["1-1"].completed).toBe(true);
