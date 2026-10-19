@@ -494,7 +494,8 @@ Built (2026-10-19):
   compares the viewport pictures.
 - CI never had sokol-shdc: the real-compiler doctests skipped there. The Linux, Windows and macOS jobs (and
   `ci-local.sh`) now run `factoria setup shaders` after the build and ctest with `FA_REQUIRE_SHDC=1`, which turns those
-  skips, and the editor autotest's material section, into failures.
+  skips, and the editor autotest's material section, into failures. That failure found that the autotest's own
+  FACTORIA_HOME hid the installed compiler: the editor hands it over through SOKOL_SHDC before switching homes.
 - gem-roller's gems use `materials/gem.material.json` (emission pulsing with `fa_time`); its test checks
   `renderStats.materialFallbacks` after a screenshot, and its FB-0012 (how a test sees that a material draws) is answered
   in SHADERS.md and AI_GUIDE.md.
