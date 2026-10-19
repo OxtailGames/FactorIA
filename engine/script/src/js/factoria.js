@@ -1127,6 +1127,7 @@
     remove(key) { N.storageRemove(key); },
     keys() { return N.storageKeys(); },
     clear() { N.storageClear(); },
+    get corrupt() { return N.storageCorrupt(); },
   };
 
   // rng.create(seed): an independent seeded generator that never touches the world RNG (see rng in docs/SCRIPTING.md).
@@ -1723,6 +1724,7 @@
       const err = N.testLoad(path);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
     },
+    setStorageText(text) { N.testStorageText(text === null || text === undefined ? null : String(text)); },
     step(frames = 1) { stepN(frames); },
     press(action) { N.inSetAction(action, true); },
     release(action) { N.inSetAction(action, false); },

@@ -348,6 +348,8 @@ void Impl::reset_for_test_file() {
     reset_modules();
     storage = Json::object();
     storageLoaded = true;
+    storageCorrupt = false;
+    storageTextHook.reset();
     if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
     // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).
     if (const I18n* loc = host->i18n(); loc && loc->enabled() && loc->language() != loc->default_language())
@@ -481,6 +483,8 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     storageMode = savedMode;
     storage = Json::object();
     storageLoaded = false;
+    storageCorrupt = false;
+    storageTextHook.reset();
     return rep;
 }
 
