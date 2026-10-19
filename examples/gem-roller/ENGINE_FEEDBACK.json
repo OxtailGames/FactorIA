@@ -297,7 +297,10 @@
       ],
       "suggestion": "Document in the testing section of the AI guide: 'to check what was drawn, game.screenshot(path) then game.state().renderStats' and 'material.info compile.toolFound says whether materials can be compiled here'; or add game.renderStats() that draws one frame and returns them.",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in P5 of the custom shaders (docs only): SHADERS.md ('Putting a material on an entity', Cost) and the AI guide's batching note say that a test calls game.screenshot(path), then reads game.state().renderStats (materials, materialFallbacks), and that material.info compile.toolFound says whether this computer can compile materials."
+      ]
     }
   ]
 }

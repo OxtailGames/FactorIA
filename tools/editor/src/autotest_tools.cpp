@@ -1032,7 +1032,10 @@ void Editor::at_build_tools_script() {
         step(2, [this, ms] {
             const Renderer* r = engine_->renderer();
             ms->skip = !r || !r->stats().materialFallbacks.empty();
-            if (ms->skip) atLog_.push_back("SKIP custom material section (the material did not build: no sokol-shdc? set SOKOL_SHDC)");
+            // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/BUILDING.md): there a material that did not build fails.
+            const char* required = std::getenv("FA_REQUIRE_SHDC");
+            if (ms->skip && required && std::string(required) == "1") at_check(false, "the custom material builds (FA_REQUIRE_SHDC=1)");
+            else if (ms->skip) atLog_.push_back("SKIP custom material section (the material did not build: no sokol-shdc? set SOKOL_SHDC)");
         });
         // (a) materialParams through a Console command, the way the AI edits; Undo brings the picture back.
         step(2, [this, ms] {

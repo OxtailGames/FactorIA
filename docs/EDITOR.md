@@ -60,7 +60,7 @@ Reload button, Save, and what the AI's commands change). A broken snippet keeps 
 and logs ONE error with `file:line` and the quoted line, once per save: it shows in the Console and in `game.logs` /
 `game.state` (`recentLogs`), where the AI reads it, and `renderStats.materialFallbacks` lists a material that never
 compiled (it is drawn magenta). Changing a material's `materialParams` is a scene edit like any other: it is undoable.
-Compiling a snippet needs sokol-shdc (set up with the Set Up This Computer window or `factoria setup`). There is no
+Compiling a snippet needs sokol-shdc (`factoria setup shaders`, [SHADERS.md](SHADERS.md)). There is no
 inspector for a material's fields yet: that panel arrives with the reflected inspector of milestone M20, so for now
 describe the change to the AI.
 
@@ -266,10 +266,10 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   (it exports the game for the machine it runs on and checks the report) and the Platform settings window (tabs, edits,
   Save / Revert, closing with unsaved changes, the Create keystore window) and the Set Up This Computer window (it lists
   the five components, the Export rows show the right Set up button, a setup that cannot download shows its report, "I accept" of
-  the Android license waits for its checkbox) and a custom material (needs sokol-shdc, `SOKOL_SHDC`; without it that part records a SKIP):
+  the Android license waits for its checkbox) and a custom material (needs sokol-shdc, `SOKOL_SHDC`; without it that part records a SKIP, or fails with `FA_REQUIRE_SHDC=1` as on CI):
   a `materialParams` edit from the Console changes the viewport and Undo brings the picture back, a snippet rewritten on disk
   changes it without a reload (in edit mode and while playing), and a broken snippet keeps the last picture and logs one
-  error with `file:line` that `game.logs` returns The autotest keeps this computer's settings in
+  error with `file:line` that `game.logs` returns. The autotest keeps this computer's settings in
   `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`) and its `FACTORIA_HOME` in
   `<FA_EDITOR_AUTOTEST_OUT>/factoria_home`, never in your `~/.factoria`. **It never installs anything**: its setup context
   can neither download nor run a program, and no step presses "I accept". It checks the window title and the result after
