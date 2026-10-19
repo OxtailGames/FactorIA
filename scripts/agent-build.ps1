@@ -1,21 +1,9 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Build (and test) a Ninja + MSVC Debug tree from any shell, printing only what matters.
-
-.DESCRIPTION
-    For AI agents (and anyone) on Windows: one call, no Developer prompt and no wrapper script needed. It loads the
-    Visual Studio 2022 C++ environment when cl.exe is not on PATH, configures the build directory with the
-    windows-ninja-debug preset on first use, builds it and, with -Test or -Tests, runs ctest (serially, as CI does).
-    Full logs go to <BuildDir>\agent-configure.log, agent-build.log and agent-ctest.log. The console gets the errors,
-    the unique warnings, each failing test with its output, and the ctest summary. Exit code 0 means everything passed.
+    Build (and test) a Ninja + MSVC Debug tree from any shell, printing only what matters. See docs/BUILDING.md.
 
         powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name> [-Target fa_test_core[,fa_test_scene]] [-Test] [-Tests <ctest -R regex>] [-Jobs 8]
-
-.EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-physics -Target fa_test_physics -Tests physics
-.EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\dev -Test
 #>
 [CmdletBinding()]
 param(
@@ -91,14 +79,13 @@ $targets = ''
 if ($Target) {
     $targets = '--target ' + (($Target -split ',' | ForEach-Object { $_.Trim() }) -join ' ')
 }
-$watch = [Diagnostics.Stopwatch]::StartNew()
 $rc = Invoke-Logged $log "cmake --build `"$BuildDir`" -j $Jobs $targets"
 $lines = @(Get-Content -LiteralPath $log)
 # MSVC writes the same header warning once per translation unit. external/ is never edited, so its warnings are noise.
 $warnings = @($lines | Where-Object { $_ -match ': warning [A-Z]*\d+' -and $_ -notmatch '[\\/]external[\\/]' } |
     Select-Object -Unique)
 if ($rc) {
-    Write-Output "build: FAILED (exit $rc) after $([int]$watch.Elapsed.TotalSeconds) s. Full log: $log"
+    Write-Output "build: FAILED (exit $rc). Full log: $log"
     $errors = @($lines | Where-Object { $_ -match ': (fatal )?error |error LNK|^FAILED: |CMake Error|ninja: error' } |
         Select-Object -Unique)
     if ($errors.Count) {
@@ -108,7 +95,7 @@ if ($rc) {
         $lines | Select-Object -Last 40
     }
 } else {
-    Write-Output "build: ok in $([int]$watch.Elapsed.TotalSeconds) s"
+    Write-Output "build: ok"
 }
 if ($warnings.Count) {
     Write-Output "$($warnings.Count) unique warning line(s):"
@@ -122,7 +109,6 @@ if ($Test -or $Tests) {
     $log = Join-Path $BuildDir 'agent-ctest.log'
     $filter = ''
     if ($Tests) { $filter = "-R `"$Tests`"" }
-    $watch.Restart()
     $rc = Invoke-Logged $log "ctest --test-dir `"$BuildDir`" --output-on-failure $filter"
     $lines = @(Get-Content -LiteralPath $log)
     # A failing test's result line (***Failed, ***Exception, ***Timeout, ***Not Run) is followed by its output, up to
@@ -140,7 +126,7 @@ if ($Test -or $Tests) {
         if ($shown -ge 1 -and $shown -le 80) { $line }
     }
     $lines | Where-Object { $_ -match '^\d+% tests passed|^Total Test time|^\s+\d+ - .+\(|No tests were found' }
-    Write-Output "ctest: $(if ($rc) { 'FAILED' } else { 'ok' }) in $([int]$watch.Elapsed.TotalSeconds) s. Full log: $log"
+    Write-Output "ctest: $(if ($rc) { 'FAILED' } else { 'ok' }). Full log: $log"
     if ($rc) {
         exit 1
     }

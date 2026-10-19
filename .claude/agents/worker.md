@@ -10,14 +10,9 @@ You are a worker on the FactorIA game engine. You implement the one work package
 checkout you were started in, following CLAUDE.md (already in your context) and docs/ARCHITECTURE.md. Complete the
 package fully: don't gold-plate, but don't leave it half-done.
 
-Build and test with your own build dir, `build/agent-<name>`. On Windows one command loads MSVC by itself, builds, and
-prints only errors, unique warnings and failing tests with their output (full logs in the build dir); no wrapper
-scripts needed:
-
-    powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name> [-Target fa_test_<module>] [-Tests <ctest regex> | -Test]
-
-A full build plus the full ctest takes about six minutes, so it fits one foreground call with a 600000 ms timeout.
-On Linux and macOS use the commands in CLAUDE.md.
+Build and test in your own build dir, `build/agent-<name>`, with the commands in CLAUDE.md (on Windows
+`scripts\agent-build.ps1`). A full build plus the full ctest takes about six minutes: one foreground call with a
+600000 ms timeout.
 
 When you are done, reply with a concise report for the orchestrator: what changed (files), the build and test results,
 what is left open or uncertain, and your branch and commit. Use absolute paths.
