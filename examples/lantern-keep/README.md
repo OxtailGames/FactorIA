@@ -281,7 +281,7 @@ Saved with the other settings (`storage` key `settings`, `scripts/settings.js`) 
 | Option | How it works |
 |---|---|
 | Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `scripts/ui/text_fit.js` makes every button, toggle and slider as big as its label needs; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in every language at 100% and 200%: widgets inside the screen, labels inside their widget, no text wider than its box, every panel big enough for its content (`tests/helpers/screens.js`). |
-| Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing. `game.paused = false` puts `time.scale` back to 1 (engine feedback FB-0036), so `level.js` `refreshAssist()` sets the assist speed again at the start of a level and after each resume. Level times are game time. |
+| Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing. `game.paused = false` restores the `time.scale` it had (engine feedback FB-0036); `flow.js` sets `time.scale = 1` when a scene is left, and `level.js` `refreshAssist()` sets the assist speed at the start of a level and after each resume. Level times are game time. |
 | Invincible | Spikes and enemies do nothing. A fall puts the player back at the last checkpoint (or the start) and does **not** count as a death: no `player_died`, no shake, no hurt sound. |
 | Screen shake | Off: `effects.js` `deathShake()` does nothing. |
 | Reduced effects | On: no spark burst when an ember is collected (`effects.js` `emberSpark()`). The game has no other particles or flashes. |

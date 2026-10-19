@@ -57,6 +57,7 @@ test("gamepad only: pause with Start, resume with A; the player does not jump wh
   const y0 = player.position.y;
   pad().tap("Start");
   expect(time.scale).toBe(0);
+  expect(game.paused).toBe(true);
   expect(game.find("pause_panel").active).toBe(true);
   expect(ui.focused.id).toBe("resume");
   const t = game.find("level").behaviour.time;
@@ -65,6 +66,7 @@ test("gamepad only: pause with Start, resume with A; the player does not jump wh
   pad().tap("A"); // Resume
   game.step(3);
   expect(time.scale).toBe(1);
+  expect(game.paused).toBe(false);
   expect(game.find("pause_panel").active).toBe(false);
   game.step(5);
   expect(player.position.y).toBeLessThan(y0 + 2); // no jump came out of the click

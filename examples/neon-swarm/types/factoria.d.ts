@@ -893,7 +893,7 @@ declare module "factoria" {
   export interface GameAPI {
     quit(): void;
     /**
-     * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false sets it back to 1.
+     * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused.
      */
     paused: boolean;
     /**
@@ -4048,6 +4048,10 @@ declare module "factoria:test" {
    * Drives the running game from a test.
    */
   export interface TestGame {
+    /**
+     * Same as the script `game.paused`: true while time.scale is 0; setting it keeps and restores time.scale. Reading a member the test game does not have (game.pasued) throws with a did-you-mean.
+     */
+    paused: boolean;
     /**
      * Loads a scene immediately (reseeds the RNG). Behaviours are constructed right away (game.find(id).behaviour works); onStart runs on the first step().
      */
