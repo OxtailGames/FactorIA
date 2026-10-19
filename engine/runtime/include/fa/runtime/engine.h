@@ -59,6 +59,10 @@ struct EngineConfig {
     int width = 0, height = 0;     // override design resolution (0 = project)
     std::uint64_t seed = 1;        // world RNG seed
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
+    // Watch only the files the renderer rebuilds in place (materials, shader snippets, textures, fonts, models) and
+    // leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
+    // hotReload is on, which already watches everything.
+    bool hotReloadAssets = false;
     bool editorMode = false;       // editor drives the loop; game starts paused
     RenderMode renderMode = RenderMode::Always;
     // Isolate script storage (the `storage` module) in memory: nothing is read from or written to disk. Headless

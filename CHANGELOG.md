@@ -21,6 +21,13 @@ Better looking 3D, and much bigger 3D scenes
   surface looks (a pulsing glow, cut-out leaves, moving water) or move its vertices. Shadows follow the moved or cut-out
   shape, each entity can change the material's values (`materialParams`), and a change to the file shows up at once
   while the game runs. A material that does not compile draws magenta and says which line is wrong.
+- A new guide for your own shaders (`factoria docs read shaders`): how to write a material, the rules for its few lines
+  of GLSL, and five ready examples: a pulsing glow, dissolving, water, wind on grass and a rim light. Your computer
+  needs the shader compiler once: `factoria setup shaders`.
+- In the editor, saving a material, a shader or a texture updates the game view right away, while editing and while
+  playing. A mistake in a shader keeps the last picture that worked and shows one error in the Console with the file
+  and the line.
+- The Gem Roller example has glowing, pulsing gems made with a custom material.
 - Not yet: an environment picture for reflections.
 
 Animation

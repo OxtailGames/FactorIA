@@ -116,7 +116,7 @@ for the shader dialects of the platform (Windows `hlsl5`, Linux `glsl430`, macOS
 the GLSL snippet the material names (`shaders/water.surface.glsl`) is not shipped. This needs sokol-shdc
 ([The shader compiler](#setting-up-this-computer)) unless `.factoria/shader-cache` already holds the compiled shaders. A
 material that does not compile stops the export with the errors `factoria validate` lists (file, line, column, the line
-quoted, a hint). The report's `materials` lists the materials that shipped.
+quoted, a hint). The report's `materials` lists the materials that shipped. How to write a material: [SHADERS.md](SHADERS.md).
 
 The export adds two files of its own: `.factoria-export` at the top of the export folder (next section) and
 `FACTORIA_NOTICES.txt` ([License notices](#license-notices)). An Android export also leaves out the keystore named by
