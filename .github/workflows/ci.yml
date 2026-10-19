@@ -89,7 +89,21 @@ jobs:
           cmake --preset linux-release
           cmake --build --preset linux-release
 
+      # Custom materials are compiled with the pinned sokol-shdc, which the engine installs itself (SHA-256 checked, into
+      # ~/.factoria): the same command a contributor runs. FA_REQUIRE_SHDC=1 turns the tests that need the compiler from
+      # skipped into failed, so a compiler that is missing here can never hide.
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/linux-release/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/linux-release/tools/cli"; exit 1; }
+          "$cli" setup shaders
+          "$cli" setup | tee "$RUNNER_TEMP/setup-status.txt"
+          grep -Eq '^ +shaders +installed' "$RUNNER_TEMP/setup-status.txt" || { echo "::error::sokol-shdc is not installed after 'factoria setup shaders'"; exit 1; }
+
       - name: Test under Xvfb (Mesa llvmpipe)
+        env:
+          FA_REQUIRE_SHDC: '1'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release
 
       - name: Upload test output on failure
@@ -171,7 +185,21 @@ jobs:
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
 
+      # Custom materials are compiled with the pinned sokol-shdc, which the engine installs itself (SHA-256 checked, into
+      # ~/.factoria): the same command a contributor runs. FA_REQUIRE_SHDC=1 turns the tests that need the compiler from
+      # skipped into failed, so a compiler that is missing here can never hide.
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/windows-release/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
+          "$cli" setup shaders
+          "$cli" setup | tee "$RUNNER_TEMP/setup-status.txt"
+          grep -Eq '^ +shaders +installed' "$RUNNER_TEMP/setup-status.txt" || { echo "::error::sokol-shdc is not installed after 'factoria setup shaders'"; exit 1; }
+
       - name: Test (windows-release)
+        env:
+          FA_REQUIRE_SHDC: '1'
         run: ctest --preset windows-release
 
       - name: Upload test output on failure
@@ -211,8 +239,21 @@ jobs:
           cmake --preset macos-release
           cmake --build --preset macos-release
 
+      # Custom materials are compiled with the pinned sokol-shdc, which the engine installs itself (SHA-256 checked, into
+      # ~/.factoria): the same command a contributor runs. FA_REQUIRE_SHDC=1 turns the tests that need the compiler from
+      # skipped into failed, so a compiler that is missing here can never hide.
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/macos-release/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/macos-release/tools/cli"; exit 1; }
+          "$cli" setup shaders
+          "$cli" setup | tee "$RUNNER_TEMP/setup-status.txt"
+          grep -Eq '^ +shaders +installed' "$RUNNER_TEMP/setup-status.txt" || { echo "::error::sokol-shdc is not installed after 'factoria setup shaders'"; exit 1; }
+
       - name: Test (macos-release)
         env:
+          FA_REQUIRE_SHDC: '1'
           FA_EDITOR_AUTOTEST_OUT: ${{ github.workspace }}/build/macos-release/test-output/editor  # uploaded on failure
         run: ctest --preset macos-release
 
