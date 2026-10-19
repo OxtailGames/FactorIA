@@ -22,8 +22,10 @@ Better looking 3D, and much bigger 3D scenes
   shape, each entity can change the material's values (`materialParams`), and a change to the file shows up at once
   while the game runs. A material that does not compile draws magenta and says which line is wrong.
 - A new guide for your own shaders (`factoria docs read shaders`): how to write a material, the rules for its few lines
-  of GLSL, and five ready examples: a pulsing glow, dissolving, water, wind on grass and a rim light. Your computer
-  needs the shader compiler once: `factoria setup shaders`.
+  of GLSL, and five ready examples: a pulsing glow, dissolving, water, wind on grass and a rim light. The shader
+  compiler comes with FactorIA, next to `factoria` in every download, so there is nothing to install. If Windows
+  Defender removes `sokol-shdc.exe` by mistake, restore it from Windows Security > Protection history, or run
+  `factoria setup shaders` to get it again.
 - In the editor, saving a material, a shader or a texture updates the game view right away, while editing and while
   playing. A mistake in a shader keeps the last picture that worked and shows one error in the Console with the file
   and the line.
