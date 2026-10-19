@@ -61,6 +61,23 @@ Options > Controls.
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
   help other tests. The levels are built so that this bot finishes all of them.
 - `screenshots/`: the main menu, a level of each world and the level end panel.
+- Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
+  (the on-screen gamepad, an entity of both base scenes), `store/` (store texts in English and Spanish, release notes),
+  `.store/screenshots/` (store screenshots, made by `tools/make_screenshots.py`; a dot-folder so exports leave them out),
+  `tests/shipping.test.js` (touch controls, safe area, the settings the exports rely on), `SHIPPING.md`.
+
+## Shipping
+
+`factoria.json` holds the version, icon, per-platform export settings and the `publish` ids (fake placeholders), and the
+game has an on-screen gamepad and a safe-area HUD for phones. What each store needs, what the engine does, what stays
+by hand and what could not be checked on the machine that made the package is in [`SHIPPING.md`](SHIPPING.md).
+
+```bash
+factoria export --platform windows --release        # lantern-keep.exe + game.pak
+factoria export --platform android --format aab --release   # needs the Android toolchain and a keystore
+python tools/make_icon.py                           # redraw the icon (Python and Pillow)
+python tools/make_screenshots.py factoria           # redraw the store screenshots
+```
 
 ## Contract 1: the level list (`scripts/levels.js`)
 
