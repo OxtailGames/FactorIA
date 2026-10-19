@@ -145,6 +145,16 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
     }
 }
 
+std::vector<ValidationIssue> shader_validation_issues(const ShaderCompileResult& result) {
+    std::vector<ValidationIssue> out;
+    for (const ShaderIssue& i : result.errors) {
+        std::string message = i.message;
+        if (i.line > 0) message = "line " + std::to_string(i.line) + ", column " + std::to_string(std::max(i.column, 1)) + ": " + message + "\n    " + std::to_string(i.line) + " | " + i.source;
+        out.push_back({i.file, i.pointer, message, i.hint});
+    }
+    return out;
+}
+
 void validate_materials(const std::string& projectDir, const SetupContext& context, ValidationReport& report) {
     const std::vector<std::string> materials = find_material_files(projectDir);
     if (materials.empty()) return;
@@ -163,11 +173,7 @@ void validate_materials(const std::string& projectDir, const SetupContext& conte
             report.errors.push_back({path, "", result.error().message, result.error().hint});
             continue;
         }
-        for (const ShaderIssue& i : result->errors) {
-            std::string message = i.message;
-            if (i.line > 0) message = "line " + std::to_string(i.line) + ", column " + std::to_string(std::max(i.column, 1)) + ": " + message + "\n    " + std::to_string(i.line) + " | " + i.source;
-            report.errors.push_back({i.file, i.pointer, message, i.hint});
-        }
+        for (ValidationIssue& i : shader_validation_issues(*result)) report.errors.push_back(std::move(i));
     }
     if (notCompiled > 0)
         report.warnings.push_back({"", "", std::to_string(notCompiled) + " material(s) were checked but their snippets were not compiled: sokol-shdc, the shader compiler, was not found, so a broken snippet is only found when the game runs or is exported",

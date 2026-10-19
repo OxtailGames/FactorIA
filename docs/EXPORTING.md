@@ -37,7 +37,7 @@ The same export is the command `project.export` (MCP tool `project_export`, also
 editor console and `fa.call` in scripts), so an AI connected over MCP can build a Windows folder or the Android
 APK without a shell. Arguments are all optional: `platform` (default: this machine), `format` (Android: `apk`, `aab` or
 `gradle`; Linux: `appimage`), `out` (parent folder, relative to the project and inside it like the `fs.*` commands, default `build/export`) and
-`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `files`, `nextSteps`, `warnings`); an
+`release`. It returns the report (`outputDir`, `mode` (Android, iOS, web), `format`, `artifact`, `notices`, `pack` and `packed` for a release desktop export, `materials` when the game has custom materials, `files`, `nextSteps`, `warnings`); an
 unknown platform or format or a failed validation is an error with a hint. An Android export runs Gradle, which takes from
 seconds to minutes (the first one much longer): the call returns when the build is done.
 `dryRun: true` runs every check of the export and writes nothing: it returns `platform`, `outputDir` (the folder an
@@ -109,6 +109,14 @@ Audio import settings (`assets.json`, [ASSETS.md](ASSETS.md)) act at export time
 `.factoria/export-cache/<platform>/audio/`, so only changed sounds are encoded again), and the shipped `assets.json`
 carries the measured loudness (`analysis`) of every sound with `normalize` on, so the game never measures at run time.
 A conversion that cannot be done (more than 8 channels) leaves the file as it is and adds a warning to the report.
+
+Custom materials (`*.material.json`) ship compiled, because a game has no shader compiler: the export compiles each one
+for the shader dialects of the platform (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` and
+`metal_sim`, Android and web `glsl300es`) and ships `materials/water.material.json.<dialect>.shader` next to the material;
+the GLSL snippet the material names (`shaders/water.surface.glsl`) is not shipped. This needs sokol-shdc
+([The shader compiler](#setting-up-this-computer)) unless `.factoria/shader-cache` already holds the compiled shaders. A
+material that does not compile stops the export with the errors `factoria validate` lists (file, line, column, the line
+quoted, a hint). The report's `materials` lists the materials that shipped.
 
 The export adds two files of its own: `.factoria-export` at the top of the export folder (next section) and
 `FACTORIA_NOTICES.txt` ([License notices](#license-notices)). An Android export also leaves out the keystore named by
