@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <cstring>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -229,8 +228,6 @@ void Engine::Impl::poll_hot_reload(bool force) {
     static const char* dirs[] = {"scripts", "tools", "scenes", "assets", "locales", "materials", "shaders"};
     std::map<std::string, std::int64_t> now;
     for (const char* d : dirs) {
-        if (assetsOnly && (!strcmp(d, "scripts") || !strcmp(d, "tools") || !strcmp(d, "scenes") || !strcmp(d, "locales")))
-            continue;
         if (!fs::is_directory(d)) continue;
         for (const std::string& f : fs::list(d, true)) now[f] = fs::modified_time(f);
     }
@@ -246,12 +243,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
     watched = std::move(now);
     for (const std::string& p : changed) {
-        if (assetsOnly) {  // only what the renderer rebuilds in place
-            if (renderer && (ends_with(p, ".material.json") ||
-                             has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})))
-                renderer->reload_asset(p);
-            continue;
-        }
+        const bool renderAsset = ends_with(p, ".material.json") ||
+            has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"});
+        if (assetsOnly && !renderAsset) continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
             if (i18n.enabled()) {
                 FA_INFO("hotreload", "String table {} changed on disk, reloading the tables", p);
@@ -267,10 +261,8 @@ void Engine::Impl::poll_hot_reload(bool force) {
                 std::string err;
                 load_scene_impl(p, &err);
             }
-        } else if (ends_with(p, ".material.json") || has_ext(p, {".glsl"})) {
-            // A material file or a snippet: the renderer rebuilds that material (or every material using the snippet).
-            if (renderer) renderer->reload_asset(p);
-        } else if (has_ext(p, {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})) {
+        } else if (renderAsset) {
+            // A material, a snippet (the renderer rebuilds every material using it), a texture, font or model.
             if (renderer) renderer->reload_asset(p);
         } else if (has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) {
             audio.reload_clip(p);
