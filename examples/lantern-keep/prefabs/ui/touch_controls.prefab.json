@@ -1,0 +1,80 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Touch controls",
+    "children": [
+      {
+        "id": "touch_left",
+        "components": {
+          "Transform": {
+            "position": [40, -40, 0]
+          },
+          "TouchButton": {
+            "anchor": [0, 1],
+            "pivot": [0, 0],
+            "button": "DpadLeft",
+            "text": "<",
+            "size": [120, 120],
+            "layer": 120,
+            "fontSize": 44,
+            "color": [1, 1, 1, 0.3]
+          }
+        }
+      },
+      {
+        "id": "touch_right",
+        "components": {
+          "Transform": {
+            "position": [184, -40, 0]
+          },
+          "TouchButton": {
+            "anchor": [0, 1],
+            "pivot": [0, 0],
+            "button": "DpadRight",
+            "text": ">",
+            "size": [120, 120],
+            "layer": 120,
+            "fontSize": 44,
+            "color": [1, 1, 1, 0.3]
+          }
+        }
+      },
+      {
+        "id": "touch_jump",
+        "components": {
+          "Transform": {
+            "position": [-40, -40, 0]
+          },
+          "TouchButton": {
+            "anchor": [1, 1],
+            "pivot": [1, 0],
+            "button": "A",
+            "text": "^",
+            "size": [140, 140],
+            "layer": 120,
+            "fontSize": 56,
+            "color": [1, 1, 1, 0.3]
+          }
+        }
+      },
+      {
+        "id": "touch_pause",
+        "components": {
+          "Transform": {
+            "position": [-24, 64, 0]
+          },
+          "TouchButton": {
+            "anchor": [1, 0],
+            "pivot": [1, 1],
+            "button": "Start",
+            "text": "II",
+            "size": [64, 64],
+            "layer": 120,
+            "fontSize": 28,
+            "color": [1, 1, 1, 0.3]
+          }
+        }
+      }
+    ]
+  }
+}

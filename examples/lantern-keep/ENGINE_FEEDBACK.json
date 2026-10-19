@@ -195,6 +195,200 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No way to make a game icon without an asset provider",
+      "missing": "The export wants one square icon (assets/icon.png 1024x1024, plus an optional adaptive-icon foreground), but the only engine route to a picture is assets.generate_image, which needs a paid provider in ~/.factoria/ai.json (there is none on this machine; the `fake` provider only makes placeholders). Nothing in the engine draws a simple icon from shapes/text, and a project tool written in JS has no way to write a PNG (no image or file-writing API in scripts).",
+      "workaround": "Wrote tools/make_icon.py, a deterministic Pillow script that draws the lantern and the Android foreground layer, and recorded both files with assets.set_provenance (origin original, ai false). Needs Python and Pillow on the machine.",
+      "workaroundFiles": [
+        "tools/make_icon.py",
+        "assets/icon.png",
+        "assets/icon_fg.png"
+      ],
+      "suggestion": "A command like assets.draw_icon {shape/text/colors} (or `factoria new` templates shipping a neutral icon.png that factoria.json already points to) so a game made without a provider still has a real icon, and a PNG writer in the script API (image.save) for project tools.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "scene.import_ascii copies a prefab used by the base scene instead of keeping the reference",
+      "missing": "A base scene (levels/base_day.scene.json) holds an entity {\"id\":\"touch_controls\",\"prefab\":\"prefabs/ui/touch_controls.prefab.json\"}. After scene.import_ascii the generated level scenes contain the whole prefab expanded (children and components inline), not the prefab reference. Editing the prefab later changes nothing in the six levels until every map is imported again, and the level files get 60 lines bigger each.",
+      "workaround": "Edit the prefab, then re-run scene.import_ascii for all six maps and scene.format (a loop in the shell).",
+      "workaroundFiles": [
+        "prefabs/ui/touch_controls.prefab.json",
+        "levels/base_day.scene.json",
+        "levels/base_dark.scene.json"
+      ],
+      "suggestion": "Keep the entity as {id, prefab, overrides} in the written scene, or say in docs/ai-guide 9.8 that the base scene is expanded at import time.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Export has no way to leave project folders out",
+      "missing": "Every folder of the project ships except a fixed list (tests, tools, types, dot-folders). A game that keeps store page material (screenshots, store texts), level sources (levels/*.json) or design screenshots in the project gets them in every export: 2.2 MB of store screenshots tripled game.pak (1.0 MB to 3.2 MB), and on the web that is download time before the first frame. There is no `export.exclude` in factoria.json.",
+      "workaround": "Moved the store screenshots into a dot-folder, .store/screenshots (dot-folders are never exported), which is an obscure trick; levels/, screenshots/ and store/ (texts, small) still ship.",
+      "workaroundFiles": [
+        "tools/make_screenshots.py",
+        "store/store.en.json"
+      ],
+      "suggestion": "export.exclude: a list of project-relative globs (\"store/**\", \"screenshots/**\", \"levels/**\") that neither the folder export nor game.pak nor the web/mobile exports ship, checked by factoria validate; and mention the dot-folder rule next to it in docs/EXPORTING.md.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No render scale for store screenshots",
+      "missing": "Steam wants 1920x1080 screenshots and the stores want phone sizes (2208x1242, 2400x1080...). `factoria run --headless --width/--height` and the engine render at the DESIGN size only: --width 1920 --height 1080 changes the design size, so the HUD bar (written for 1280 wide), the camera and how much of the level is visible all change, and the picture is not what a player sees. There is no option to render the 1280x720 design into a larger output.",
+      "workaround": "Rendered at 1280x720 and enlarged with Pillow (Lanczos, exact 1.5x for 1920x1080). The result is soft, not native; recorded in SHIPPING.md.",
+      "workaroundFiles": [
+        "tools/make_screenshots.py"
+      ],
+      "suggestion": "A `--render-scale 1.5` (or --output-size 1920x1080) for factoria run --headless and game.screenshot {scale}, drawing the same design at a larger resolution like a fullscreen window does.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "publish dry run needs the store's uploader installed",
+      "missing": "docs/EXPORTING.md says 'Always run the dry run first; it also checks the tool, the ids and the exports', but publish.steam/itch/epic/gog {dryRun:true} fail with 'steamcmd was not found' when the uploader is not installed, so a game maker (or an AI on a machine without the store tools) cannot check the store ids, the depots or what would be uploaded. Steam also needs steam_appid.txt and Epic the FACTORIA_EPIC_CLIENT_SECRET variable even for a dry run.",
+      "workaround": "Pointed FACTORIA_STEAMCMD, FACTORIA_BUTLER, FACTORIA_BUILDPATCHTOOL and FACTORIA_GOG_PIPELINE_BUILDER at C:/Windows/System32/whoami.exe, set FACTORIA_EPIC_CLIENT_SECRET=fake and passed appId 9000000: the dry runs then showed the plans (uploads, command lines, vdf files) for the fake ids. Nothing was downloaded or sent.",
+      "suggestion": "With dryRun, report a missing tool (and missing secret/app id) as a warning and still return the plan, or document the fake-tool trick in the 'Testing without a store' section.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "No way to smoke-test an exported game for a few frames",
+      "missing": "The exported player has no --frames N / --exit-after option (only --scene, --fullscreen, --version). To check that the exported exe or game.pak really starts I started it, waited 6 s, read log.txt ('player: 60 frames rendered') and killed it. An automated check (CI) cannot do that without timing logic, and a crash in the first frames looks the same as a hang.",
+      "workaround": "Start-Process, sleep, check the process is alive and responding, read %APPDATA%/<id>/log.txt, Stop-Process.",
+      "suggestion": "factoria_player --frames N (render N frames, then exit 0; non-zero when a script error or a crash happened), so `factoria export` can offer a --smoke-test.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "factoria validate does not warn about textures that cannot be GPU-compressed",
+      "missing": "The Android and iOS exports warn 'assets/enemy.png: GPU compression needs a width and height that are multiples of 4' (a 40x30 sprite), but factoria validate (which the docs say to run first) stays silent, so the problem shows up only when a mobile export is tried.",
+      "workaround": "Gave assets/enemy.png an atlas group in assets.json ({\"import\":{\"atlas\":\"characters\"}}): atlas pages are always sized for it, and the warning is gone.",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Run the same check in factoria validate when platforms contains android or ios.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Touch control rectangles move with the safe area and tests have no helper to press a widget",
+      "missing": "With a notch (game.setSafeArea or a phone) TouchButtons anchored to the safe area move by the insets, so a test or a screenshot script that taps fixed coordinates silently misses (the finger landed on the neighbouring button). ui.state has the rect of every widget, but docs/MOBILE.md 'Touch input' only says to touch 'the control's rectangle'. Also game.setSafeArea / screen.set_safe_area needs one step before the buttons take their new place, which is easy to miss.",
+      "workaround": "Tests read the rects from fa.call(\"ui.state\").widgets and tap their centre; the screenshot script steps two frames after set_safe_area.",
+      "workaroundFiles": [
+        "tests/shipping.test.js",
+        "tools/make_screenshots.py"
+      ],
+      "suggestion": "game.touchWidget(id, frames?) for tests, and one sentence in MOBILE.md pointing at ui.state rects and the one-step rule.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "What each export needs offline is spread over several docs",
+      "missing": "On a Windows machine with only a source build of factoria, linux, macos, web and prebuilt Android need downloads (factoria setup players, about 48 MB, from the GitHub release; the web player the same way) and Android in source mode needs NDK r27, CMake 3.31.6 and a Gradle 8.14.3 download. `factoria setup` lists some of it, but a single answer to 'which platform can I export here, now, without the internet' does not exist.",
+      "workaround": "Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.",
+      "suggestion": "One table in docs/EXPORTING.md: platform x what it needs x whether a source build, the download or neither can do it offline.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No Microsoft Store packaging (MSIX) or publish command",
+      "missing": "The Windows export is an exe plus game/ or game.pak. The Microsoft Store takes an MSIX/AppX package (identity name, publisher, a manifest, tile logos at fixed sizes, signing) or an MSI/EXE installer with a URL, and Partner Center has its own submission API. The engine has no `export` format, settings (export.windows has only `icon`) or `publish.microsoft` for it, and the docs do not mention the store, so there is nothing to follow for the one big Windows store besides Steam.",
+      "workaround": "None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.",
+      "suggestion": "export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }
