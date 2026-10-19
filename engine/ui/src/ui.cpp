@@ -207,6 +207,17 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             set_focus(w, it.e);
             break;
         }
+        // The panel's autoFocus widget is greyed out: the first interactable widget takes the focus instead.
+        if (!focus_) {
+            bool anyAuto = false;
+            for (const Item& it : ordered) anyAuto = anyAuto || control_of(w, it.e)->autoFocus;
+            if (anyAuto)
+                for (const Item& it : ordered)
+                    if (it.interactable) {
+                        set_focus(w, it.e);
+                        break;
+                    }
+        }
     }
 
     // ---- keys and pad
@@ -226,18 +237,24 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
         const Item* cur = find(focus_);
         const Vec2 dir = d == Up ? Vec2{0, -1} : d == Down ? Vec2{0, 1} : d == Left ? Vec2{-1, 0} : Vec2{1, 0};
+        // Candidates within 45 degrees of the direction first; the whole half-plane only when the cone is empty.
         const Item* best = nullptr;
-        float bestScore = 0;
-        for (const Item& it : ordered) {
-            if (it.e == focus_ || !it.interactable) continue;
-            const Vec2 delta = it.rect.center() - cur->rect.center();
-            const float along = dot(delta, dir);
-            if (along <= 1e-3f) continue;  // not in that half-plane of the current centre
-            const float score = along + 2.0f * std::fabs(dot(delta, perp(dir)));
-            if (!best || score < bestScore) {
-                best = &it;
-                bestScore = score;
+        for (const bool coneOnly : {true, false}) {
+            float bestScore = 0;
+            for (const Item& it : ordered) {
+                if (it.e == focus_ || !it.interactable) continue;
+                const Vec2 delta = it.rect.center() - cur->rect.center();
+                const float along = dot(delta, dir);
+                if (along <= 1e-3f) continue;  // not in that half-plane of the current centre
+                const float across = std::fabs(dot(delta, perp(dir)));
+                if (coneOnly && across > along) continue;
+                const float score = along + 2.0f * across;
+                if (!best || score < bestScore) {
+                    best = &it;
+                    bestScore = score;
+                }
             }
+            if (best) break;
         }
         if (best) set_focus(w, best->e);
     }
