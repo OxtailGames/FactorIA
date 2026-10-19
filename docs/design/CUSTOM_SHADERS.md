@@ -448,8 +448,8 @@ Built (2026-10-19):
   `fa_standard_surface`); sokol-shdc honours `@include_block` inside `#ifdef`. The clip shadow program declares
   `fa_mesh_fs_params`, `fa_material`, views 0 and 2-5 plus the material's, samplers 0 and the material's, and no
   `fa_lights` / `fa_shadow_tex`: the renderer records the slots each program declares and binds only those.
-- Render tests use committed twins (engine/render/tests/data/materials, hlsl5 and glsl430) because sokol-shdc does not
-  run everywhere; the tests stamp the running engine version into them, and a tooling doctest (real sokol-shdc only)
+- Render tests use committed twins (engine/render/tests/data/materials: hlsl5, glsl430 and metal_macos, one per backend
+  the render tests run on; the macOS job failed without the Metal ones) because sokol-shdc does not run everywhere; the tests stamp the running engine version into them, and a tooling doctest (real sokol-shdc only)
   fails when they no longer match the template (`FA_UPDATE_FIXTURES=1` rewrites them).
 - `RenderStats` gained `materials` and `materialFallbacks`; `asset_report` lists every material with `ok`, `generation`
   and its last error. The sokol shader pool grew from 32 to 256 (four programs per material).
