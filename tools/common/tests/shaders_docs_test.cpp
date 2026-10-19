@@ -54,32 +54,34 @@ std::vector<DocFile> docs_files() {
     return out;
 }
 
+// Writes the labelled blocks into `root` (and an empty file for every default texture); returns the material files.
+std::vector<std::string> write_doc_project(const stdfs::path& root) {
+    std::vector<std::string> materials;
+    for (const DocFile& f : docs_files()) {
+        testing::write_all(root / f.path, f.text);
+        if (f.lang != "json") continue;
+        materials.push_back(f.path);
+        Json doc = Json::parse(f.text);
+        if (doc.contains("textures"))
+            for (auto it = doc["textures"].begin(); it != doc["textures"].end(); ++it)
+                if (it->contains("default")) testing::write_all(root / (*it)["default"].get<std::string>(), "x");
+    }
+    return materials;
+}
+
 }  // namespace
 
 TEST_CASE("docs/SHADERS.md: the worked examples pass the schema and the material checks") {
-    const std::vector<DocFile> files = docs_files();
     auto schema = bundled_read("schemas/material.schema.json");
     REQUIRE(schema.has_value());
     testing::TempDir dir;
-    std::vector<std::string> materials;
-    for (const DocFile& f : files) {
-        CAPTURE(f.path);
-        testing::write_all(dir.path / f.path, f.text);
-        if (f.lang != "json") continue;
-        Json doc = Json::parse(f.text);
-        const auto issues = validate_json(Json::parse(*schema), doc);
-        CHECK(issues.empty());
-        materials.push_back(f.path);
-        if (doc.contains("textures"))
-            for (auto it = doc["textures"].begin(); it != doc["textures"].end(); ++it)
-                if (it->contains("default")) testing::write_all(dir.path / (*it)["default"].get<std::string>(), "x");
-    }
+    const std::vector<std::string> materials = write_doc_project(dir.path);
     REQUIRE(materials.size() == 5);  // pulse, dissolve, water, grass, rim
     for (const std::string& m : materials) {
         CAPTURE(m);
+        CHECK(validate_json(Json::parse(*schema), Json::parse(testing::read_all(dir.path / m))).empty());
         MaterialParse parsed = read_material(dir.str(), m);
-        CHECK(parsed.errors.empty());
-        if (!parsed.errors.empty()) INFO(parsed.errors.front().to_string());
+        CHECK_MESSAGE(parsed.errors.empty(), parsed.errors.empty() ? "" : parsed.errors.front().to_string());
         CHECK(stdfs::exists(dir.path / parsed.material.shader));
     }
 }
@@ -93,25 +95,16 @@ TEST_CASE("docs/SHADERS.md: the worked examples compile for every dialect with t
     }
     options.useCache = false;
     testing::TempDir dir;
-    std::vector<std::string> materials;
-    for (const DocFile& f : docs_files()) {
-        testing::write_all(dir.path / f.path, f.text);
-        if (f.lang != "json") continue;
-        materials.push_back(f.path);
-        Json doc = Json::parse(f.text);
-        if (doc.contains("textures"))
-            for (auto it = doc["textures"].begin(); it != doc["textures"].end(); ++it)
-                if (it->contains("default")) testing::write_all(dir.path / (*it)["default"].get<std::string>(), "x");
-    }
+    const std::vector<std::string> materials = write_doc_project(dir.path);
     REQUIRE(materials.size() == 5);
     for (const std::string& m : materials) {
         CAPTURE(m);
         auto result = compile_material(dir.str(), m, options);
         REQUIRE(result.ok());
         std::string why;
-        for (const ShaderIssue& e : result->errors) why += e.to_string() + "\n";
-        INFO(why);
-        CHECK(result->ok);
+        for (const ShaderIssue& e : result->errors) why += e.to_string() + "
+";
+        CHECK_MESSAGE(result->ok, why);
         CHECK(result->twins.size() == 6);
     }
 }
