@@ -28,6 +28,7 @@ Small steps: change one thing, validate, run, look. Commit-sized increments.
 | `factoria.json` | project settings: name, display size, main scene, physics, input actions |
 | `scenes/*.scene.json` | levels: entities with components (format `factoria.scene/1`) |
 | `prefabs/*.prefab.json` | reusable entities (`factoria.prefab/1`), spawn with `world.spawnPrefab`; here `gem_burst`, the one-shot sparkle of a picked-up gem |
+| `materials/*.material.json`, `shaders/*.surface.glsl` | custom material of the gems (`gem`: emission pulsing with `fa_time`), named by `MeshRenderer.material` in `tools/scatter_gems.js`. It is compiled by sokol-shdc: `factoria setup shaders` once, then `factoria validate` compiles it for every platform |
 | `scripts/*.js` | behaviours attached to entities via the `Script` component |
 | `tools/*.js` | project commands, become `project.<name>` / MCP tool `project_<name>` |
 | `tests/*.test.js` | headless tests run by `factoria test` |
