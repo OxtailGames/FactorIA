@@ -38,7 +38,7 @@ export function fitWidgets(root) {
   }
 }
 
-export function* descendants(entity) {
+function* descendants(entity) {
   yield entity;
   for (const child of entity.children) yield* descendants(child);
 }
