@@ -1,6 +1,6 @@
 # Design: custom shaders per material
 
-Status: **accepted** (2026-10-18), not implemented. Closes the M18 item "Custom shaders per material: not built"
+Status: **accepted** (2026-10-18); packages 1-4 built. Closes the M18 item "Custom shaders per material: not built"
 (feedback/ROADMAP.md, M18 "Left open"). Written against `m18/integration` (`7b5450a`): `mesh.glsl` with the PBR
 `mesh` and `mesh_skin` programs, instanced batches (`mesh_batch.h`), `shadow.glsl`.
 
@@ -439,6 +439,22 @@ Acceptance (headless GPU tests on D3D11 WARP and llvmpipe; goldens):
 - Hot reload: changing the snippet on disk and polling gives the new image; a broken edit keeps the last good image and
   logs once; fixing it again recovers.
 - A twin of another engine version is refused with the re-export hint.
+
+Built (2026-10-19):
+- The template hash is computed by CMake (engine/render/CMakeLists.txt, CRs stripped, the shaders are checked out with LF
+  through .gitattributes) and returned by `fa::mesh_template_hash()`; the tooling's `shader_template_hash()` returns the
+  same value, so the twins and the player cannot disagree across hosts.
+- `fs` and the clip `shadow_fs` share `@block fa_fs_surface` (engine textures, `fa_mesh_fs_params`, the varyings,
+  `fa_standard_surface`); sokol-shdc honours `@include_block` inside `#ifdef`. The clip shadow program declares
+  `fa_mesh_fs_params`, `fa_material`, views 0 and 2-5 plus the material's, samplers 0 and the material's, and no
+  `fa_lights` / `fa_shadow_tex`: the renderer records the slots each program declares and binds only those.
+- Render tests use committed twins (engine/render/tests/data/materials, hlsl5 and glsl430) because sokol-shdc does not
+  run everywhere; the tests stamp the running engine version into them, and a tooling doctest (real sokol-shdc only)
+  fails when they no longer match the template (`FA_UPDATE_FIXTURES=1` rewrites them).
+- `RenderStats` gained `materials` and `materialFallbacks`; `asset_report` lists every material with `ok`, `generation`
+  and its last error. The sokol shader pool grew from 32 to 256 (four programs per material).
+- The editor runs with hot reload off: saving a snippet in an external editor reloads it in `factoria run` and MCP
+  sessions, not yet in the editor (package 5).
 
 ### P4. Shaders in exports (M, tooling)
 
