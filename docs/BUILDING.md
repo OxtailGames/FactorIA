@@ -426,6 +426,21 @@ and reports the others as skipped, with the reason:
 | `sniper` | Linux with Docker or Podman; only when named (`./scripts/ci-local.sh sniper`) | the Linux release programs built in the Steam Runtime sniper container, their symbol versions checked, and run in the sniper runtime (`scripts/build-sniper.sh all`) |
 
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
+
+**The shader compiler.** Custom materials (`*.material.json`) are compiled with sokol-shdc, a separate program the
+build does not make. Install the pinned one with the CLI you just built: `factoria setup shaders` (about 10 MB, SHA-256
+checked, into `~/.factoria/tools/sokol-shdc/<commit>/`; `SOKOL_SHDC=/path/to/sokol-shdc` or a sokol-shdc next to
+`factoria` also works). Without it the doctests that run the real compiler (`real sokol-shdc: ...` in `fa_test_tooling`,
+the exports of materials) skip themselves and `factoria validate` only warns, so a change to the shaders can look green
+while untested. The CI jobs that run ctest on a desktop (Linux, Windows, macOS) and `ci-local.sh linux` therefore run
+`factoria setup shaders` right after the build (it fails when the install does) and run ctest with
+`FA_REQUIRE_SHDC=1`: with it those doctests FAIL when no compiler is found instead of skipping, so a broken install
+cannot turn into silent skips (the variable is not set locally, where skipping is the right answer on a machine without the
+compiler). On Windows, Windows Defender flags the pinned `sokol-shdc.exe` by mistake and may remove it (the setup says so
+when it sees it go); if it happens on a runner, the job fails at that step or at the tests, never skips. The `Linux (Steam
+Runtime sniper)` job builds release programs and runs no ctest, so it does not install the compiler; the Windows (MinGW +
+Wine) job of `ci-local.sh` runs the unit-test programs without it, and the MSVC run of `ci-local.sh` (`build.ps1`) does
+not set `FA_REQUIRE_SHDC`.
 MinGW is not MSVC: Visual Studio-only issues still need `scripts/build.ps1` on a
 Windows PC.
 

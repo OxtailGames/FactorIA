@@ -394,7 +394,7 @@ Acceptance:
   the YAML reflection to JSON, write twins, cache by hash.
 - Commands `shader.compile`, `material.info`; `validate` compiles every material for all dialects.
 
-Acceptance (doctests with real sokol-shdc where available, else skipped with a message; CI has it):
+Acceptance (doctests with real sokol-shdc where available, else skipped with a message; CI has it since P5, not before):
 - A fixture material compiles to `hlsl5`, `glsl430`, `glsl300es`, `metal_macos`, `metal_ios`, `metal_sim`; the twins
   parse and list the four programs only when `vertex()` or `"clip"` is used.
 - An error on line 7 of the snippet is reported as `shaders/bad.surface.glsl:7:<col>` with the line quoted, from both
@@ -454,7 +454,7 @@ Built (2026-10-19):
 - `RenderStats` gained `materials` and `materialFallbacks`; `asset_report` lists every material with `ok`, `generation`
   and its last error. The sokol shader pool grew from 32 to 256 (four programs per material).
 - The editor runs with hot reload off: saving a snippet in an external editor reloads it in `factoria run` and MCP
-  sessions, not yet in the editor (package 5).
+  sessions, not yet in the editor (P5 added it: `EngineConfig::hotReloadAssets`).
 
 ### P4. Shaders in exports (M, tooling)
 
@@ -480,6 +480,27 @@ Acceptance:
 
 Acceptance: `factoria validate` passes on the examples; the schema accepts the docs' examples (a test reads them from
 SHADERS.md); the editor autotest edits a param and the screenshot changes.
+
+Built (2026-10-19):
+- `docs/SHADERS.md` with the five examples; `shaders_docs_test.cpp` writes every block that follows a ``File `path`:``
+  line into a scratch project, checks the materials against the schema and compiles all five for every dialect with the
+  real tool. Linked from AI_GUIDE.md, the generated AGENTS.md, README.md, EXPORTING.md and the `MeshRenderer.material`
+  doc string (COMPONENTS.md); ARCHITECTURE.md has a "Rendering" section.
+- The editor has no inspector at all (the hand-editing panels are M20), so the material inspector and the error under
+  the field moved to M20. Instead the editor runs with `EngineConfig::hotReloadAssets`: the engine polls only what the
+  renderer rebuilds in place (materials, snippets, textures, fonts, models), while edit mode and Play, and leaves scenes,
+  scripts and locales to the editor. The error is the one log line with file:line (Console, `game.logs`). The editor
+  autotest changes `materialParams` through the Console (and undoes it), rewrites, breaks and fixes the snippet, and
+  compares the viewport pictures.
+- CI never had sokol-shdc: the real-compiler doctests skipped there. The Linux, Windows and macOS jobs (and
+  `ci-local.sh`) now run `factoria setup shaders` after the build and ctest with `FA_REQUIRE_SHDC=1`, which turns those
+  skips, and the editor autotest's material section, into failures. That failure found that the autotest's own
+  FACTORIA_HOME hid the installed compiler: the editor hands it over through SOKOL_SHDC before switching homes.
+- gem-roller's gems use `materials/gem.material.json` (emission pulsing with `fa_time`); its test checks
+  `renderStats.materialFallbacks` after a screenshot, and its FB-0012 (how a test sees that a material draws) is answered
+  in SHADERS.md and AI_GUIDE.md.
+- Still open: sokol-shdc is not bundled in the factoria downloads (D3, it changes `release.yml`), so makers run
+  `factoria setup shaders`; Windows Defender's false positive applies there too.
 
 ### P6. Custom lighting (M, when a game asks)
 

@@ -460,7 +460,8 @@ void register_builtin_components(TypeRegistry& r) {
                      "moves the vertices, and declares its params, textures, lighting (pbr or unlit) and alphaMode (opaque, clip "
                      "or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles it "
                      "and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces "
-                     "unlit lighting. A material that does not compile draws magenta and logs why.")
+                     "unlit lighting. A material that does not compile draws magenta and logs why. Guide with worked examples: "
+                     "docs/SHADERS.md (`factoria docs read shaders`).")
         .field("materialParams", &MeshRenderer::materialParams,
                "Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the "
                "material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths "

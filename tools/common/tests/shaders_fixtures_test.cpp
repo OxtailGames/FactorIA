@@ -1,7 +1,8 @@
 ﻿// The fixture materials of the renderer tests (engine/render/tests/data/materials) ship with their compiled twins for
-// every backend the renderer tests run on (D3D11, GL, Metal on macOS), so the renderer tests need no sokol-shdc. This test recompiles each fixture with the real sokol-shdc (skipped where none is
-// installed) and fails when a committed twin differs, i.e. when the mesh template or a fixture changed without
-// regenerating. FA_UPDATE_FIXTURES=1 rewrites the twins instead.
+// every backend the renderer tests run on (D3D11, GL, Metal on macOS), so the renderer tests need no sokol-shdc. This
+// test recompiles each fixture with the real sokol-shdc (skipped where none is installed, failed with FA_REQUIRE_SHDC=1)
+// and fails when a committed twin differs, i.e. when the mesh template or a fixture changed without regenerating.
+// FA_UPDATE_FIXTURES=1 rewrites the twins instead.
 #include <doctest.h>
 #include <cstdlib>
 #include <filesystem>
@@ -15,10 +16,7 @@ namespace stdfs = std::filesystem;
 
 TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materials are up to date") {
     SetupContext context;
-    if (find_sokol_shdc(context).empty()) {
-        MESSAGE("sokol-shdc is not installed: the fixture twins are not checked here");
-        return;
-    }
+    FA_SKIP_WITHOUT_SHDC(context, "sokol-shdc is not installed: the fixture twins are not checked here (CI does)");
     const stdfs::path root = stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/materials";
     const char* update = std::getenv("FA_UPDATE_FIXTURES");
     const bool rewrite = update && std::string(update) == "1";

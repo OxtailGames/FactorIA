@@ -272,3 +272,26 @@ test("the HUD is pinned to the screen corners with anchor and pivot", () => {
     expect(corner(id, kind).pivot).toEqual([0.5, 0.5]);
   }
 });
+
+// Tests do not draw until something asks for a picture: a screenshot draws one frame, and the render stats in game.state()
+// then say how many custom materials were drawn and which ones failed to build (drawn magenta instead).
+test("the gems are drawn with the pulsing gem material, not the magenta error material", () => {
+  load();
+  game.step(2);
+  const gem = game.world.findByTag("gem")[0];
+  expect(gem.get("MeshRenderer").material).toBe("materials/gem.material.json");
+  game.screenshot(".factoria/screenshots/gem-material.png");
+  const stats = game.state().renderStats;
+  expect(stats.meshes).toBeGreaterThan(0);
+  const info = fa.call("material.info", { material: "materials/gem.material.json" });
+  expect(info.params.map((p) => p.name).sort()).toEqual(["glow", "speed"]);
+  if (info.compile.toolFound) {
+    // The shader compiler is installed (CI always has it: docs/BUILDING.md): the material must build and draw.
+    expect(stats.materialFallbacks).toEqual([]);
+    expect(stats.materials).toBeGreaterThan(0);
+  } else {
+    // No sokol-shdc on this computer (`factoria setup shaders` installs it): the material cannot be built, so the engine
+    // draws the gems magenta and says so. The game still plays; `factoria validate` warns that it could not compile it.
+    expect(stats.materialFallbacks).toEqual(["materials/gem.material.json"]);
+  }
+});
