@@ -26,7 +26,8 @@ version.
 
 The package holds one folder, `FactorIA`, with `factoria` (CLI, editor, MCP server and AI), `factoria_player` (the
 runtime that `factoria export` copies into your game), `mobile/` (the ready-made Android runtime in every package, the
-iOS libraries in the macOS one; see item 5), `LICENSE` and `THIRD_PARTY_NOTICES.txt` (FactorIA is MIT-licensed; your
+iOS libraries in the macOS one; see item 5), `web/` (the web runtime), `sokol-shdc` (the shader compiler of custom
+materials, [SHADERS.md](SHADERS.md)), `LICENSE` and `THIRD_PARTY_NOTICES.txt` (FactorIA is MIT-licensed; your
 games are yours, see README, "License") and, on Windows, `FactorIA-Editor.exe`. The docs, templates and schemas are
 built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC needs nothing else.
 

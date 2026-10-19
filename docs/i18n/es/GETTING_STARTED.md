@@ -28,7 +28,8 @@ Descarga una sola vez el paquete de tu sistema de escritorio; el editor lo manti
 
 El paquete contiene una carpeta, `FactorIA`, con `factoria` (CLI, editor, servidor MCP e IA), `factoria_player` (el
 runtime que `factoria export` copia en tu juego), `mobile/` (el runtime de Android ya compilado en todos los paquetes,
-las librerías de iOS en el de macOS; ver el punto 5), `LICENSE` y `THIRD_PARTY_NOTICES.txt` (FactorIA tiene licencia
+las librerías de iOS en el de macOS; ver el punto 5), `web/` (el runtime web), `sokol-shdc` (el compilador de shaders de
+los materiales propios, [SHADERS.md](../../SHADERS.md)), `LICENSE` y `THIRD_PARTY_NOTICES.txt` (FactorIA tiene licencia
 MIT; tus juegos son tuyos, ver el README, "Licencia") y, en Windows, `FactorIA-Editor.exe`. La documentación, las plantillas
 y los esquemas van dentro de `factoria`, y en Windows también el runtime de C++, así que un PC recién formateado no
 necesita nada más.

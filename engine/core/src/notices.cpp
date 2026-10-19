@@ -40,9 +40,9 @@ const std::vector<ThirdPartyComponent>& third_party_components() {
         // that the project builds itself (platforms/android). They end up in the Gradle project, not in the game.
         {"Gradle wrapper", "https://github.com/gradle/gradle", "Apache-2.0", "platforms/licenses/gradle-wrapper-LICENSE.txt",
          "the Gradle wrapper that Android exports write into the Gradle project; not part of the game", false},
-        // sokol-shdc, the shader cross-compiler `factoria setup shaders` installs for the developer tools, built from
-        // sokol-tools commit be7a968 (docs/design/CUSTOM_SHADERS.md). It is not in games. The versions are the submodule commits of that
-        // commit; the texts are in tools/shaders/licenses/.
+        // sokol-shdc, the shader cross-compiler of the developer tools: next to factoria in the release downloads, and what
+        // `factoria setup shaders` installs. Built from sokol-tools commit be7a968 (docs/design/CUSTOM_SHADERS.md). It is not in
+        // games. The versions are the submodule commits of that commit; the texts are in tools/shaders/licenses/.
         {"sokol-shdc (sokol-tools)", "https://github.com/floooh/sokol-tools", "MIT", "tools/shaders/licenses/sokol-tools-LICENSE.txt",
          "the shader compiler of custom materials, run by the developer tools; not part of the game", false},
         {"glslang (in sokol-shdc)", "https://github.com/KhronosGroup/glslang", "BSD-3-Clause AND the licenses listed in the text",

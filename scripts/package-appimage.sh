@@ -6,7 +6,8 @@
 #
 #   scripts/package-appimage.sh dist/FactorIA dist/FactorIA-linux-x64.AppImage
 #
-# Inside: usr/bin/factoria and usr/bin/factoria_player (so `factoria export` finds the player next to the binary),
+# Inside: usr/bin/factoria, usr/bin/factoria_player (so `factoria export` finds the player next to the binary) and
+# usr/bin/sokol-shdc (the shader compiler of custom materials, found next to factoria the same way),
 # platforms/linux/AppRun (no arguments: the editor; otherwise the factoria CLI), the .desktop file and the icon.
 # Like the tar.gz it links the system's X11, OpenGL and ALSA and needs glibc 2.31 or newer (the programs are built in the
 # Steam Runtime sniper container, scripts/build-sniper.sh); it bundles no libraries.
@@ -42,7 +43,7 @@ chmod +x "$work/appimagetool"
 
 appdir="$work/FactorIA.AppDir"
 mkdir -p "$appdir/usr/bin"
-cp "$package/factoria" "$package/factoria_player" "$appdir/usr/bin/"
+cp "$package/factoria" "$package/factoria_player" "$package/sokol-shdc" "$appdir/usr/bin/"
 cp "$repo/platforms/linux/AppRun" "$appdir/AppRun"
 cp "$repo/platforms/linux/FactorIA.desktop" "$repo/platforms/linux/factoria.svg" "$appdir/"
 mkdir -p "$appdir/usr/share/doc/factoria"  # licenses (also printed by `factoria docs licenses`)
