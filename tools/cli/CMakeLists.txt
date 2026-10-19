@@ -63,7 +63,8 @@ endif()
 # own JS tests. They were written by AI agents through the public interface only, so a failure here
 # usually means a behaviour change that would also break games made by users.
 if(FA_BUILD_TESTS)
-    file(GLOB FA_EXAMPLE_PROJECTS LIST_DIRECTORIES true ${FA_ROOT}/examples/*)
+    # CONFIGURE_DEPENDS: a new example becomes a test at the next build, without a manual re-configure.
+    file(GLOB FA_EXAMPLE_PROJECTS LIST_DIRECTORIES true CONFIGURE_DEPENDS ${FA_ROOT}/examples/*)
     foreach(ex ${FA_EXAMPLE_PROJECTS})
         if(EXISTS ${ex}/factoria.json)
             get_filename_component(ex_name ${ex} NAME)

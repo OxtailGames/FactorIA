@@ -1,0 +1,105 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Exit",
+    "tags": ["exit"],
+    "components": {
+      "Shape2D": {
+        "shape": "rectangle",
+        "size": [14, 80],
+        "color": [0.3, 0.24, 0.2, 1],
+        "layer": 2
+      },
+      "RigidBody2D": {
+        "type": "static"
+      },
+      "Collider2D": {
+        "shape": "box",
+        "size": [64, 320],
+        "isTrigger": true,
+        "offset": [0, 120]
+      },
+      "Script": {
+        "path": "scripts/exit.js"
+      }
+    },
+    "children": [
+      {
+        "name": "Lamp",
+        "components": {
+          "Transform": {
+            "position": [0, 44, 0]
+          },
+          "Shape2D": {
+            "shape": "rectangle",
+            "size": [44, 40],
+            "color": [1, 0.82, 0.3, 1],
+            "layer": 3
+          }
+        }
+      },
+      {
+        "name": "Flame",
+        "components": {
+          "Transform": {
+            "position": [0, 44, 0]
+          },
+          "Shape2D": {
+            "shape": "star",
+            "size": [30, 30],
+            "color": [1, 1, 0.85, 1],
+            "layer": 4,
+            "points": 8,
+            "innerRadius": 0.5
+          }
+        }
+      },
+      {
+        "name": "Glow",
+        "components": {
+          "Transform": {
+            "position": [0, 44, 0]
+          },
+          "Shape2D": {
+            "shape": "circle",
+            "size": [150, 150],
+            "color": [1, 0.75, 0.25, 0.3],
+            "layer": 3,
+            "blend": "additive"
+          }
+        }
+      },
+      {
+        "name": "Beam",
+        "components": {
+          "Transform": {
+            "position": [0, 170, 0]
+          },
+          "Shape2D": {
+            "shape": "rectangle",
+            "size": [22, 300],
+            "color": [1, 0.85, 0.4, 0.16],
+            "layer": 2,
+            "blend": "additive"
+          }
+        }
+      },
+      {
+        "name": "LampEdge",
+        "components": {
+          "Transform": {
+            "position": [0, 44, 0]
+          },
+          "Shape2D": {
+            "shape": "rectangle",
+            "size": [44, 40],
+            "color": [0.1, 0.06, 0.02, 1],
+            "filled": false,
+            "thickness": 3,
+            "layer": 5
+          }
+        }
+      }
+    ]
+  }
+}

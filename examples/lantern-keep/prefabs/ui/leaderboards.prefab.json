@@ -1,0 +1,145 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Leaderboards",
+    "components": {
+      "Panel": {
+        "size": [800, 640],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "color": [0.08, 0.09, 0.14, 1],
+        "layout": "column",
+        "spacing": 14,
+        "padding": [24, 24, 24, 24],
+        "fit": true
+      },
+      "Script": {
+        "path": "scripts/ui/leaderboards.js"
+      }
+    },
+    "children": [
+      {
+        "id": "lb_title",
+        "components": {
+          "Text": {
+            "text": "Leaderboards",
+            "fontSize": 40,
+            "space": "screen",
+            "layer": 301,
+            "key": "leaderboards.title"
+          }
+        }
+      },
+      {
+        "id": "lb_choose",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 16,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "lb_board",
+            "components": {
+              "Button": {
+                "text": "Board",
+                "layer": 302,
+                "size": [330, 56]
+              }
+            }
+          },
+          {
+            "id": "lb_range",
+            "components": {
+              "Button": {
+                "text": "Show",
+                "layer": 302,
+                "size": [330, 56]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "lb_own",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 24,
+            "space": "screen",
+            "layer": 301,
+            "color": [1, 0.85, 0.4, 1],
+            "maxWidth": 740
+          }
+        }
+      },
+      {
+        "id": "lb_list",
+        "components": {
+          "ScrollList": {
+            "size": [752, 330],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "spacing": 10,
+            "padding": [16, 12, 16, 12]
+          }
+        }
+      },
+      {
+        "id": "lb_status",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 22,
+            "space": "screen",
+            "layer": 301,
+            "color": [0.75, 0.8, 0.9, 1],
+            "maxWidth": 740
+          }
+        }
+      },
+      {
+        "id": "lb_buttons",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 16,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "lb_refresh",
+            "components": {
+              "Button": {
+                "text": "Refresh",
+                "layer": 302,
+                "key": "platform.refresh"
+              }
+            }
+          },
+          {
+            "id": "lb_back",
+            "components": {
+              "Button": {
+                "text": "Back",
+                "layer": 302,
+                "key": "menu.back",
+                "autoFocus": true
+              }
+            },
+            "tags": ["back"]
+          }
+        ]
+      }
+    ]
+  }
+}

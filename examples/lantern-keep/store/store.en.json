@@ -1,0 +1,44 @@
+{
+  "name": "Lantern Keep",
+  "subtitle": "Carry the light home",
+  "shortDescription": "A cosy 2D platformer: carry a lantern through a ruined keep and relight it.",
+  "longDescription": "The keep has gone dark. You carry the last lantern.\n\nLantern Keep is a small, complete 2D platformer in six short levels. Run and jump through the sunlit Courtyard, then go down into the Cellars, where the only light is your own lantern: it lights the stones, the spikes, the guards and the moving platforms around you, and everything beyond it is shadow.\n\nFind the three embers hidden in every level, reach the checkpoints, learn the patrol of every guard and bring the light to the great lantern at the end. Each level takes 30 to 60 seconds, so it is easy to play one more, and to beat your best time.\n\nPlay with a keyboard, a mouse, a gamepad or the on-screen touch controls. Every action can be rebound in the options. The text can be made up to twice as big, and an assist mode slows the game down or makes you invincible. The game is fully playable in English, Spanish, German and Arabic, and everything is saved on your device.",
+  "features": [
+    "Six short levels in two worlds: the sunlit Courtyard and the dark Cellars",
+    "Your lantern is the light: dynamic lighting on tiles, spikes, enemies and platforms",
+    "Three embers to find in every level, checkpoints, moving and one-way platforms",
+    "Best times for every level",
+    "Keyboard, mouse, gamepad and touch controls; rebindable keys",
+    "English, Spanish, German and Arabic",
+    "Text size up to 200%, assist mode, hazards readable without colour",
+    "No ads, no account needed: offline and private; the only purchases are optional cosmetics"
+  ],
+  "keywords": [
+    "platformer",
+    "2d",
+    "lantern",
+    "puzzle",
+    "pixel",
+    "cozy",
+    "adventure",
+    "castle",
+    "indie",
+    "casual",
+    "singleplayer",
+    "controller"
+  ],
+  "tags": [
+    "Platformer",
+    "2D",
+    "Singleplayer",
+    "Atmospheric",
+    "Casual",
+    "Cute"
+  ],
+  "category": "Games > Platformer",
+  "ageNotes": "No violence beyond cartoon enemies that reset you to a checkpoint; no text chat; purchases are optional cosmetics only.",
+  "screenshots": [
+    ".store/screenshots/steam-1920x1080-*.png",
+    ".store/screenshots/phone-landscape-*.png"
+  ]
+}

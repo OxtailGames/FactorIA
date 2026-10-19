@@ -1,0 +1,43 @@
+{
+  "name": "Lantern Keep",
+  "subtitle": "Bring das Licht nach Hause",
+  "shortDescription": "Gemütliches 2D-Jump-and-run: Trag eine Laterne durch eine Burgruine.",
+  "longDescription": "Die Burg ist dunkel geworden. Du trägst die letzte Laterne.\n\nLantern Keep ist ein kleines, vollständiges 2D-Jump-and-run in sechs kurzen Leveln. Renne und springe durch den sonnigen Burghof und steige dann hinab in den Keller, wo das einzige Licht deine eigene Laterne ist: Sie beleuchtet Steine, Stacheln, Wachen und bewegliche Plattformen um dich herum, alles andere liegt im Schatten.\n\nFinde die drei Glutstücke, die in jedem Level versteckt sind, erreiche die Kontrollpunkte, lerne die Runde jeder Wache und bring das Licht zur großen Laterne am Ende. Ein Level dauert 30 bis 60 Sekunden: Es ist leicht, noch eins zu spielen und die eigene Bestzeit zu verbessern.\n\nSpiele mit Tastatur, Maus, Gamepad oder den Touch-Steuerelementen auf dem Bildschirm. Jede Aktion lässt sich in den Optionen neu belegen. Der Text lässt sich bis auf 200 % vergrößern, und es gibt einen Hilfsmodus mit langsamerem Spiel oder Unverwundbarkeit. Das Spiel ist vollständig auf Deutsch, Englisch, Spanisch und Arabisch spielbar, und alles wird auf deinem Gerät gespeichert.",
+  "features": [
+    "Sechs kurze Level in zwei Welten: der sonnige Burghof und der dunkle Keller",
+    "Deine Laterne ist das Licht: dynamische Beleuchtung auf Steinen, Stacheln, Gegnern und Plattformen",
+    "Drei Glutstücke pro Level, Kontrollpunkte, bewegliche und durchsprungbare Plattformen",
+    "Bestzeiten für jedes Level",
+    "Tastatur, Maus, Gamepad und Touch-Steuerung; Tasten frei belegbar",
+    "Barrierefrei: Textgröße bis 200 %, Hilfsmodus, Gefahren auch ohne Farbe erkennbar",
+    "Deutsch, Englisch, Spanisch und Arabisch",
+    "Keine Werbung, kein Konto nötig: offline und privat"
+  ],
+  "keywords": [
+    "jump and run",
+    "2d",
+    "laterne",
+    "pixel",
+    "gemütlich",
+    "abenteuer",
+    "burg",
+    "indie",
+    "casual",
+    "einzelspieler",
+    "controller"
+  ],
+  "tags": [
+    "Plattformer",
+    "2D",
+    "Einzelspieler",
+    "Atmosphärisch",
+    "Casual",
+    "Niedlich"
+  ],
+  "category": "Spiele > Plattformer",
+  "ageNotes": "Keine Gewalt außer Zeichentrick-Gegnern, die dich zum Kontrollpunkt zurücksetzen; kein Textchat; Käufe nur für kosmetische Extras.",
+  "screenshots": [
+    ".store/screenshots/steam-1920x1080-*.png",
+    ".store/screenshots/phone-landscape-*.png"
+  ]
+}

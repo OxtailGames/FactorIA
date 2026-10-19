@@ -1,0 +1,22 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "One-way platform",
+    "tags": ["platform"],
+    "components": {
+      "Sprite": {
+        "size": [96, 12],
+        "color": [0.85, 0.68, 0.38, 1],
+        "layer": 1
+      },
+      "RigidBody2D": {
+        "type": "static"
+      },
+      "Collider2D": {
+        "shape": "box",
+        "size": [96, 12],
+        "oneWay": true
+      }
+    }
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Slots",
+    "components": {
+      "Panel": {
+        "size": [780, 470],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24],
+        "fit": true
+      },
+      "Script": {
+        "path": "scripts/ui/slots.js"
+      }
+    },
+    "children": [
+      {
+        "id": "slots_title",
+        "components": {
+          "Text": {
+            "text": "Save slots",
+            "fontSize": 40,
+            "space": "screen",
+            "layer": 301,
+            "key": "slots.title"
+          }
+        }
+      },
+      {
+        "id": "slot_row_1",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "slot_1",
+            "components": {
+              "Button": {
+                "text": "New game",
+                "layer": 302,
+                "size": [560, 64],
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "delete_1",
+            "components": {
+              "Button": {
+                "text": "Delete",
+                "layer": 302,
+                "key": "slots.delete",
+                "size": [140, 64]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "slot_row_2",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "slot_2",
+            "components": {
+              "Button": {
+                "text": "New game",
+                "layer": 302,
+                "size": [560, 64]
+              }
+            }
+          },
+          {
+            "id": "delete_2",
+            "components": {
+              "Button": {
+                "text": "Delete",
+                "layer": 302,
+                "key": "slots.delete",
+                "size": [140, 64]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "slot_row_3",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "slot_3",
+            "components": {
+              "Button": {
+                "text": "New game",
+                "layer": 302,
+                "size": [560, 64]
+              }
+            }
+          },
+          {
+            "id": "delete_3",
+            "components": {
+              "Button": {
+                "text": "Delete",
+                "layer": 302,
+                "key": "slots.delete",
+                "size": [140, 64]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "slots_note",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 20,
+            "space": "screen",
+            "layer": 301,
+            "maxWidth": 1100
+          }
+        }
+      },
+      {
+        "id": "slots_back",
+        "components": {
+          "Button": {
+            "text": "Back",
+            "layer": 302,
+            "key": "menu.back"
+          }
+        },
+        "tags": ["back"]
+      }
+    ]
+  }
+}

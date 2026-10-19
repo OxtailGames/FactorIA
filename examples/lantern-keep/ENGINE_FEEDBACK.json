@@ -1,0 +1,970 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "Lantern Keep",
+  "engineVersion": "0.1.6",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "factoria docs read prints doubled carriage returns on Windows",
+      "missing": "`factoria docs read <name>` on Windows writes every line ending as CR CR LF (\r\r\n), so redirecting a doc to a file and extracting the recipe files from it (the menus doc is meant to be copied) yields files with a blank line after every line, and a text-mode reader sees two newlines. The menu recipe says 'copy the files as they are'.",
+      "workaround": "Read the doc through `factoria call docs.read` (JSON) or normalise with a replace of \r\r\n to \n before extracting.",
+      "suggestion": "Write the document to stdout in binary mode (or do not translate \n to \r\n twice) so only \n or at most \r\n appears.",
+      "effort": "small",
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19: tr -d CR on the output."
+      ]
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "game.screenSize costs about 0.3 ms per read",
+      "missing": "Reading `game.screenSize` (or `.x`) from a script takes ~300 microseconds per read, 30 to 80 times more than every other call I measured (`entity.bounds()` 10 us, `world.find` 6 us, `entity.position.x` 14 us, `physics.raycast` 35 us). The template's follow_camera.js reads it twice per frame, so the camera alone was about 40% of the frame cost of a headless level (1200 frames: 3.1 s with it, 1.8 s without). It makes `factoria test` runs of long levels slow.",
+      "workaround": "scripts/follow_camera.js reads game.screenSize once and keeps the numbers.",
+      "workaroundFiles": [
+        "scripts/follow_camera.js"
+      ],
+      "suggestion": "Make game.screenSize a cheap property (cache the Vec2, or return a plain object); and have the 2d-platformer template's follow_camera.js cache it too.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "2D kinematic platforms do not carry the bodies standing on them",
+      "missing": "A kinematic RigidBody2D that moves (a moving platform) does not take a body standing on it along: the guide and AGENTS.md say 'kinematic platforms carry the bodies on them' under 3D only, and the 2D recipes have no moving platform. In a headless test a player standing still on a platform that swings 96 px each way slid off it (offset changed by 90 px in 100 frames) with friction 0 and with friction 1, because player.js also sets velocity.x every frame.",
+      "workaround": "player.js casts a short ray under the feet, and when the hit entity has a kinematic RigidBody2D it adds that body's velocity.x to the player's own horizontal speed.",
+      "workaroundFiles": [
+        "scripts/player.js",
+        "scripts/mover.js"
+      ],
+      "suggestion": "Carry dynamic 2D bodies that rest on a kinematic body (as 3D does), or expose the ground body (entity.groundBody / isGrounded() returning it) so a script can add its velocity without a raycast. Add a 2D moving-platform recipe to the AI guide.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Menu recipe has no Spanish string table",
+      "missing": "docs menus says locales/es.json 'in the fixture has the same keys in Spanish', but the doc only prints locales/en.json. A game that wants two languages from the start (the recipe's own language switch) must translate the ~60 recipe strings itself and has no way to check they match the keys the recipe scripts use except by diffing against en.json.",
+      "workaround": "Wrote locales/es.json by hand from locales/en.json; tests/menus.test.js checks that both tables have exactly the same keys.",
+      "workaroundFiles": [
+        "locales/es.json",
+        "tests/menus.test.js"
+      ],
+      "suggestion": "Ship the recipe's Spanish table in docs/MENUS.md (or as templates/menus/locales/es.json) and add `factoria new --menus` / a project.add_menus command that writes the whole recipe, so nobody copies 11 files out of Markdown.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Test game object has no paused flag",
+      "missing": "In a test, `game.paused` (the natural thing to write after reading the pause recipe, where scripts use `game.paused`) is undefined, so `expect(game.paused).toBe(true)` fails with 'received undefined'. The scripting doc lists the test game members and none of them is the pause state; the working check is `time.scale` from the factoria module.",
+      "workaround": "Tests assert `time.scale` (imported from \"factoria\") is 0 / 1.",
+      "workaroundFiles": [
+        "tests/menus.test.js",
+        "tests/mechanics.test.js"
+      ],
+      "suggestion": "Add `paused` to the test game object (or say in docs scripting 'Tests' that the pause state is time.scale) and make reading an unknown member of the test game object throw with a did-you-mean instead of returning undefined.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Shape2D is not shaded by Light2D",
+      "missing": "Only Sprite and Tilemap have `lit`; a Shape2D always draws at full brightness. A dark level lit by the player's lantern therefore cannot use Shape2D for hazards, enemies or platforms (the engine's own placeholder art), they would glow in the dark.",
+      "workaround": "Spikes and enemies are Sprites with small generated PNGs, platforms are solid-colour Sprites (no texture), all with lit true in the dark world. The player, embers and checkpoints stay Shape2D on purpose (they are light sources or must stay visible).",
+      "workaroundFiles": [
+        "prefabs/spikes.prefab.json",
+        "prefabs/enemy.prefab.json",
+        "prefabs/moving_platform.prefab.json",
+        "prefabs/one_way_platform.prefab.json"
+      ],
+      "suggestion": "Add `lit` to Shape2D (same rule as Sprite.lit).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "nice-to-have",
+      "title": "scene.import_ascii warns about unused legend entries",
+      "missing": "Six levels share one legend (spikes, enemies, a moving platform...), but a level that does not use a glyph gets the warning \"legend['m'] is not used in rows.\" (and the template's test asserts warnings equals []). There is no way to keep one shared legend file, or to silence the warning for a legend that is deliberately shared.",
+      "workaround": "The legend written into each levels/<id>.json holds only the glyphs that map uses.",
+      "workaroundFiles": [
+        "levels/1-1.json"
+      ],
+      "suggestion": "Add `legendFrom: \"levels/legend.json\"` (a shared legend merged under the map's own) and do not warn about unused entries that come from it, or add `warnUnused: false`.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "No hook when an entity becomes active",
+      "missing": "The level end panel is spawned inactive and shown with `active = true`. Its Script's onStart runs only on the next step, so for one frame the panel shows the texts written in the prefab ('Time: 0:00.00') before the script writes the real ones. There is no onEnable/onActivate hook to fill a panel the moment it opens, and it is not obvious from the docs when onStart runs for an entity that is activated.",
+      "workaround": "level_end.js has an open(result, info) method that fills the texts at once; level.js calls it instead of relying on onStart.",
+      "workaroundFiles": [
+        "scripts/ui/level_end.js",
+        "scripts/level.js"
+      ],
+      "suggestion": "Add onEnable()/onDisable() hooks (called when the entity becomes active or inactive, also for the first time), and state in docs scripting when onStart runs for inactive-then-activated entities.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Long ASCII level maps are hard to author and edit by hand",
+      "missing": "Levels of 230 to 340 tiles wide (rows of that many characters, 23 rows) are tedious and error-prone to write directly in levels/<id>.json: one wrong count makes a ragged row, and moving a hazard means counting columns. scene.import_ascii only takes the finished grid, and the guide says not to write a level generator.",
+      "workaround": "Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.",
+      "workaroundFiles": [
+        "levels/1-1.json"
+      ],
+      "suggestion": "Let scene.import_ascii (or a new scene.ascii_edit command) take operations on an existing map: fill/replace a rectangle, insert or delete columns, place a glyph at (column, height above the ground), so an AI changes a map without rewriting every row; and report the column and row of every glyph in the result so it can be located again.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "Scripts and entity.behaviour of inactive panels",
+      "missing": "A menu panel that starts inactive (the recipe's pattern) has entity.behaviour === null until it has been shown once, and its Script onStart only runs when it is first activated. The docs say an inactive entity gets no callbacks, but not that behaviour is null or that onStart is deferred, so calling world.find('slots').behaviour.refresh() from another screen throws 'cannot read property of null'.",
+      "workaround": "Screen logic that other screens call (refresh, open) is exported as plain module functions (refreshSlots, refreshSelect) that look entities up with world.find; the Behaviour class only wires clicks.",
+      "workaroundFiles": [
+        "scripts/ui/slots.js",
+        "scripts/ui/level_select.js",
+        "scripts/ui/delete_confirm.js"
+      ],
+      "suggestion": "Document in the menus recipe how a panel script gets set up and refreshed when shown (or add an onEnable callback that also runs for panels shown by MenuStack), and say entity.behaviour is null for a never-activated entity.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Multi-line Button text is left-aligned and not clipped",
+      "missing": "A Button whose text has a newline (level name plus embers and best time) draws its lines left-aligned inside a centered block and lets the text run past the button's edge when the button is too narrow; there is no wrap or ellipsis option and no documented way to put two lines of different style in one button.",
+      "workaround": "Shortened the second line (no 'Best' label) and made the buttons 320 px wide; the lines are left-aligned as the engine draws them.",
+      "workaroundFiles": [
+        "prefabs/ui/level_select.prefab.json",
+        "locales/en.json",
+        "scripts/ui/level_select.js",
+        "scripts/ui/slots.js"
+      ],
+      "suggestion": "Center each line of a multi-line Button label, add maxWidth/wrap to Button like Text has, and document newline support in Button.text.",
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19: None: the labels stay left-aligned in Arabic too (readable, but the ragged edge is on the wrong side). Listed in the README as a limit."
+      ]
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "factoria test takes no test file path and its error misleads",
+      "missing": "'factoria test tests/saves.test.js' reads the path as a project folder and answers 'not a FactorIA project ... The directory does not exist. Create it with factoria new ...'. There is no way to run one test file; only --filter on test names (which needs the names).",
+      "workaround": "Ran 'factoria test . --filter <words of the test name>' per test while developing.",
+      "suggestion": "Accept test file paths or globs after the project (or a --file option), and when the argument is an existing file say 'give the project folder; use --filter to pick tests'.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "No guidance on testing a damaged save file",
+      "missing": "storage only holds JSON values, so a save that is 'not valid JSON' cannot exist inside storage.json itself, and the docs do not say what the engine does when storage.json is corrupt on disk (does storage start empty, is the file kept?). A game that wants to detect damaged saves has to store text and parse it itself, and cannot test the corrupt-file case at all, since tests use an in-memory storage.",
+      "workaround": "A slot is stored as a string of JSON text and parsed with try/catch in scripts/saves.js; tests store broken text with storage.set.",
+      "workaroundFiles": [
+        "scripts/saves.js",
+        "tests/saves.test.js"
+      ],
+      "suggestion": "Document the corrupt storage.json behaviour (and keep a .bak) in the scripting docs, and add a save-file recipe with versioning, migration and a damaged-save screen.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0014",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No way to make a game icon without an asset provider",
+      "missing": "The export wants one square icon (assets/icon.png 1024x1024, plus an optional adaptive-icon foreground), but the only engine route to a picture is assets.generate_image, which needs a paid provider in ~/.factoria/ai.json (there is none on this machine; the `fake` provider only makes placeholders). Nothing in the engine draws a simple icon from shapes/text, and a project tool written in JS has no way to write a PNG (no image or file-writing API in scripts).",
+      "workaround": "Wrote tools/make_icon.py, a deterministic Pillow script that draws the lantern and the Android foreground layer, and recorded both files with assets.set_provenance (origin original, ai false). Needs Python and Pillow on the machine.",
+      "workaroundFiles": [
+        "tools/make_icon.py",
+        "assets/icon.png",
+        "assets/icon_fg.png"
+      ],
+      "suggestion": "A command like assets.draw_icon {shape/text/colors} (or `factoria new` templates shipping a neutral icon.png that factoria.json already points to) so a game made without a provider still has a real icon, and a PNG writer in the script API (image.save) for project tools.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0015",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "scene.import_ascii copies a prefab used by the base scene instead of keeping the reference",
+      "missing": "A base scene (levels/base_day.scene.json) holds an entity {\"id\":\"touch_controls\",\"prefab\":\"prefabs/ui/touch_controls.prefab.json\"}. After scene.import_ascii the generated level scenes contain the whole prefab expanded (children and components inline), not the prefab reference. Editing the prefab later changes nothing in the six levels until every map is imported again, and the level files get 60 lines bigger each.",
+      "workaround": "Edit the prefab, then re-run scene.import_ascii for all six maps and scene.format (a loop in the shell).",
+      "workaroundFiles": [
+        "prefabs/ui/touch_controls.prefab.json",
+        "levels/base_day.scene.json",
+        "levels/base_dark.scene.json"
+      ],
+      "suggestion": "Keep the entity as {id, prefab, overrides} in the written scene, or say in docs/ai-guide 9.8 that the base scene is expanded at import time.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0016",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Export has no way to leave project folders out",
+      "missing": "Every folder of the project ships except a fixed list (tests, tools, types, dot-folders). A game that keeps store page material (screenshots, store texts), level sources (levels/*.json) or design screenshots in the project gets them in every export: 2.2 MB of store screenshots tripled game.pak (1.0 MB to 3.2 MB), and on the web that is download time before the first frame. There is no `export.exclude` in factoria.json.",
+      "workaround": "Moved the store screenshots into a dot-folder, .store/screenshots (dot-folders are never exported), which is an obscure trick; levels/, screenshots/ and store/ (texts, small) still ship.",
+      "workaroundFiles": [
+        "tools/make_screenshots.py",
+        "store/store.en.json"
+      ],
+      "suggestion": "export.exclude: a list of project-relative globs (\"store/**\", \"screenshots/**\", \"levels/**\") that neither the folder export nor game.pak nor the web/mobile exports ship, checked by factoria validate; and mention the dot-folder rule next to it in docs/EXPORTING.md.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0017",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No render scale for store screenshots",
+      "missing": "Steam wants 1920x1080 screenshots and the stores want phone sizes (2208x1242, 2400x1080...). `factoria run --headless --width/--height` and the engine render at the DESIGN size only: --width 1920 --height 1080 changes the design size, so the HUD bar (written for 1280 wide), the camera and how much of the level is visible all change, and the picture is not what a player sees. There is no option to render the 1280x720 design into a larger output.",
+      "workaround": "Rendered at 1280x720 and enlarged with Pillow (Lanczos, exact 1.5x for 1920x1080). The result is soft, not native; recorded in SHIPPING.md.",
+      "workaroundFiles": [
+        "tools/make_screenshots.py"
+      ],
+      "suggestion": "A `--render-scale 1.5` (or --output-size 1920x1080) for factoria run --headless and game.screenshot {scale}, drawing the same design at a larger resolution like a fullscreen window does.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0018",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "publish dry run needs the store's uploader installed",
+      "missing": "docs/EXPORTING.md says 'Always run the dry run first; it also checks the tool, the ids and the exports', but publish.steam/itch/epic/gog {dryRun:true} fail with 'steamcmd was not found' when the uploader is not installed, so a game maker (or an AI on a machine without the store tools) cannot check the store ids, the depots or what would be uploaded. Steam also needs steam_appid.txt and Epic the FACTORIA_EPIC_CLIENT_SECRET variable even for a dry run.",
+      "workaround": "Pointed FACTORIA_STEAMCMD, FACTORIA_BUTLER, FACTORIA_BUILDPATCHTOOL and FACTORIA_GOG_PIPELINE_BUILDER at C:/Windows/System32/whoami.exe, set FACTORIA_EPIC_CLIENT_SECRET=fake and passed appId 9000000: the dry runs then showed the plans (uploads, command lines, vdf files) for the fake ids. Nothing was downloaded or sent.",
+      "suggestion": "With dryRun, report a missing tool (and missing secret/app id) as a warning and still return the plan, or document the fake-tool trick in the 'Testing without a store' section.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0019",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "No way to smoke-test an exported game for a few frames",
+      "missing": "The exported player has no --frames N / --exit-after option (only --scene, --fullscreen, --version). To check that the exported exe or game.pak really starts I started it, waited 6 s, read log.txt ('player: 60 frames rendered') and killed it. An automated check (CI) cannot do that without timing logic, and a crash in the first frames looks the same as a hang.",
+      "workaround": "Start-Process, sleep, check the process is alive and responding, read %APPDATA%/<id>/log.txt, Stop-Process.",
+      "suggestion": "factoria_player --frames N (render N frames, then exit 0; non-zero when a script error or a crash happened), so `factoria export` can offer a --smoke-test.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0020",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "factoria validate does not warn about textures that cannot be GPU-compressed",
+      "missing": "The Android and iOS exports warn 'assets/enemy.png: GPU compression needs a width and height that are multiples of 4' (a 40x30 sprite), but factoria validate (which the docs say to run first) stays silent, so the problem shows up only when a mobile export is tried.",
+      "workaround": "Gave assets/enemy.png an atlas group in assets.json ({\"import\":{\"atlas\":\"characters\"}}): atlas pages are always sized for it, and the warning is gone.",
+      "workaroundFiles": [
+        "assets.json"
+      ],
+      "suggestion": "Run the same check in factoria validate when platforms contains android or ios.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0021",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Touch control rectangles move with the safe area and tests have no helper to press a widget",
+      "missing": "With a notch (game.setSafeArea or a phone) TouchButtons anchored to the safe area move by the insets, so a test or a screenshot script that taps fixed coordinates silently misses (the finger landed on the neighbouring button). ui.state has the rect of every widget, but docs/MOBILE.md 'Touch input' only says to touch 'the control's rectangle'. Also game.setSafeArea / screen.set_safe_area needs one step before the buttons take their new place, which is easy to miss.",
+      "workaround": "Tests read the rects from fa.call(\"ui.state\").widgets and tap their centre; the screenshot script steps two frames after set_safe_area.",
+      "workaroundFiles": [
+        "tests/shipping.test.js",
+        "tools/make_screenshots.py"
+      ],
+      "suggestion": "game.touchWidget(id, frames?) for tests, and one sentence in MOBILE.md pointing at ui.state rects and the one-step rule.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0022",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "What each export needs offline is spread over several docs",
+      "missing": "On a Windows machine with only a source build of factoria, linux, macos, web and prebuilt Android need downloads (factoria setup players, about 48 MB, from the GitHub release; the web player the same way) and Android in source mode needs NDK r27, CMake 3.31.6 and a Gradle 8.14.3 download. `factoria setup` lists some of it, but a single answer to 'which platform can I export here, now, without the internet' does not exist.",
+      "workaround": "Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.",
+      "suggestion": "One table in docs/EXPORTING.md: platform x what it needs x whether a source build, the download or neither can do it offline.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0023",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p5",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "No Microsoft Store packaging (MSIX) or publish command",
+      "missing": "The Windows export is an exe plus game/ or game.pak. The Microsoft Store takes an MSIX/AppX package (identity name, publisher, a manifest, tile logos at fixed sizes, signing) or an MSI/EXE installer with a URL, and Partner Center has its own submission API. The engine has no `export` format, settings (export.windows has only `icon`) or `publish.microsoft` for it, and the docs do not mention the store, so there is nothing to follow for the one big Windows store besides Steam.",
+      "workaround": "None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.",
+      "suggestion": "export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0024",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "platform catalog names and descriptions cannot be localized",
+      "missing": "factoria.json platform.achievements[].name/description and products[].title/description are plain strings with no localization key, so a store that shows them (Steam, Game Center, Play Games) shows English only, and the catalog is a second place with texts that a game with locales/*.json has to keep in sync by hand.",
+      "workaround": "The in-game screens ignore the catalog texts and read achievements.<id>.name / .description and shop.product.<id> from locales/*.json; the catalog keeps the English text for the store.",
+      "workaroundFiles": [
+        "factoria.json",
+        "locales/en.json",
+        "locales/es.json",
+        "scripts/ui/achievements.js"
+      ],
+      "suggestion": "Let a catalog entry say name as a locale key or add a nameKey/descriptionKey, and have platform.achievements.list() and platform.purchases.products() return the translated text for the current language (or document that the catalog is for stores only).",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0025",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "no way to test the none backend (no store) in a test",
+      "missing": "game.platform.set only offers signedIn and delayFrames. The case every exported game without a store plugin runs in (platform.has(...) false, every call rejecting unavailable) cannot be driven from a test, and it is the case the README of a game must promise to handle.",
+      "workaround": "Tests replace platform.has with () => false for the duration of a test (the scripts check has() before every call, so they take the no-store path) and restore it in a finally. The real rejections with code unavailable are not exercised.",
+      "workaroundFiles": [
+        "tests/store_screens.test.js",
+        "tests/store.test.js",
+        "scripts/ui/shop.js"
+      ],
+      "suggestion": "game.platform.set({ backend: \"none\" }) that makes the fake behave as the none backend (has false, calls reject unavailable, signIn answers signed out) until reset().",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0026",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "test runtime lacks Array.prototype.at, expect().toMatchObject and array methods on component colors",
+      "missing": "In a test, calls().at(-1) and expect(x).toMatchObject({...}) are not functions, and the value read from Shape2D.color / Light2D.color is array-like (Array.isArray is false, indices and length work) with no forEach, so color.forEach(...) throws not a function. The error says only TypeError: not a function, without naming which call.",
+      "workaround": "calls()[calls().length - 1], one expect(...).toBe per field, Array.from(color).",
+      "workaroundFiles": [
+        "tests/store_screens.test.js"
+      ],
+      "suggestion": "Ship ES2022 Array.prototype.at, add toMatchObject (the docs of factoria:test list the matchers), return real arrays for color fields, and name the missing method in the TypeError.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0027",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "a menu panel whose only autoFocus widget is not interactable has no focus for the pad",
+      "missing": "The menus recipe greys out buttons without a store (interactable false). When the autoFocus button of a panel (the shop pack) is one of them, nothing is focused when the panel opens and gamepad directions do nothing: the player is stuck. The rule text says autoFocus applies again only when a focused widget disappears.",
+      "workaround": "Left the buy buttons interactable without a store: a click answers with the same plain sentence as the status line.",
+      "workaroundFiles": [
+        "scripts/ui/shop.js",
+        "prefabs/ui/shop.prefab.json"
+      ],
+      "suggestion": "Make the focus rule skip non-interactable autoFocus widgets and fall back to the first interactable one in reading order, or add the warning to the shop part of the menus recipe.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "world.emit from a test reaches listeners only at the next game.step",
+      "missing": "In a test, world.emit(name, data) followed at once by a check or by awaiting a script promise does nothing: listeners (world.on, Behaviour.on) are called at the next frame. platform.* answers are ready at once, so mixing the two is a trap: the first version of my store tests saw an empty fake store and no error.",
+      "workaround": "A settle() helper that does game.step(1) after emitting, then awaits the script, in every store test.",
+      "workaroundFiles": [
+        "tests/store.test.js"
+      ],
+      "suggestion": "Say it in the scripting and testing docs next to world.emit, or deliver world.emit synchronously when called from a test.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "a store promise returned from a then callback is reported as an unhandled rejection",
+      "missing": "A best-effort chain written as `this.chain = this.chain.then(fn).catch(() => {})` where fn returns the promise of a platform call (for example `() => platform.achievements.unlock(id)`) logs `unhandled promise rejection ... failed: the player is not signed in` in a test when the store rejects, although the chain ends in a catch. Plain JS engines attach the handler one microtask later and report nothing.",
+      "workaround": "Wrap the call: `then(async () => { try { await fn(); } catch {} })`, so the store promise gets its handler at once.",
+      "workaroundFiles": [
+        "scripts/store_stats.js"
+      ],
+      "suggestion": "Report an unhandled rejection only after the microtask queue drains (as Node does), or document that a platform promise needs its handler in the same turn.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "no onEnable/onDisable for a panel shown by active, and behaviour is null before its first activation",
+      "missing": "A menu panel placed inactive (prefab in the menu scene) gets no callbacks while hidden and its entity.behaviour is null until it is first shown, so a script cannot refresh itself each time the player opens it (the achievements list must ask the store again on every visit). onStart runs only the first time.",
+      "workaround": "The panel script has an opened() method; main_menu.js calls world.find(id).behaviour?.opened() after MenuStack.show, and onStart calls opened() itself for the first visit.",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scripts/ui/achievements.js",
+        "scripts/ui/leaderboards.js"
+      ],
+      "suggestion": "Add onEnable() / onDisable() to Behaviour, called when the entity (or an ancestor) becomes active or inactive, including the first time; or let MenuStack send a panel_shown event that hidden panels receive.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Buttons, toggles and sliders do not size themselves to their label at a big ui.textScale",
+      "missing": "ui.textScale scales the label but the widget keeps its rectangle, so every Button, Toggle and Slider overflows at 150-200% and the game must measure every label (ui.measureText) and resize each widget after every language or text size change. A Button cannot wrap a long label either (Spanish at 200% needs a 700 px button). The docs say to leave room for the biggest size, which for a menu with a 240 px button means redesigning it.",
+      "workaround": "scripts/ui/text_fit.js fitWidgets(root) sets size = max(design size, measured label + padding) for every widget under a screen; it runs at screen start, on i18n change and after the text size changes. Options, credits and the level end panel also choose their layout from the text size (wider panel, buttons beside the text).",
+      "workaroundFiles": [
+        "scripts/ui/text_fit.js",
+        "scripts/ui/options.js",
+        "scripts/ui/level_end.js",
+        "tests/helpers/screens.js"
+      ],
+      "suggestion": "An opt-in autoSize flag on Button/Toggle/Slider: at least the design size, growing to the label at the current textScale and language; optionally wrap for Button labels.",
+      "effort": "medium",
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19: scripts/ui/text_fit.js fitWidgets(root) (sizes by measureText and by the number of lines) is called from each screen's refresh function; tests/helpers/screens.js checks every screen in every language."
+      ]
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "ui.measureText in headless runs and tests is only an estimate (0.6 x fontSize per character)",
+      "missing": "Layout decisions made from ui.measureText (does the HUD fit on one row, does a label fit its button) differ between factoria test (0.6 em per character, wider than DejaVu Sans) and the real window, so a test can only check a safe upper bound and the same screen may lay out differently when played.",
+      "workaround": "Tests use the estimate (the conservative side); the HUD and the options pick layouts from the same function, so test and game agree on the rule, not on the pixels. Screenshots, which render real text, were checked by eye.",
+      "workaroundFiles": [
+        "tests/accessibility.test.js",
+        "scripts/hud.js"
+      ],
+      "suggestion": "Load the real font for measureText also when headless (it is in the binary), or let tests ask for exact metrics.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Gamepad focus navigation cannot be told its neighbours (a wide widget below a tab row steals DpadRight)",
+      "missing": "Spatial focus moves to the nearest widget in the pressed direction. In Options at 200% text, DpadRight on the Controls tab reaches the first rebinding button below it instead of the Language tab beside it, because the wide button overlaps the row. There is no way to say right of tab_controls is tab_language, or to make a row one focus group.",
+      "workaround": "The test focuses tabs with ui.focus(). Not fixed in the game: the player reaches the tab with DpadLeft from the other side or the mouse.",
+      "workaroundFiles": [
+        "tests/accessibility.test.js",
+        "scripts/ui/level_select.js"
+      ],
+      "suggestion": "Only accept a candidate whose centre is within 45 degrees of the pressed direction (the dominant axis), or let widgets name their neighbours; document the rule in the Focus and navigation section.",
+      "effort": "medium",
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19: None in the game (making the locked levels focusable would change what the pad can reach). Left as it is: Left or Up comes back to the level."
+      ]
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "scene.import_ascii copies prefab contents into the level scenes, so editing a prefab means rebuilding every level",
+      "missing": "Changing a prefab (ember, checkpoint, exit) leaves the six level scenes as they were: the import wrote the prefab children into them. The only sign is levels.test.js saying a scene is not what its map builds. A visual change for colour-blind players meant importing every map again.",
+      "workaround": "Ran factoria call scene.import_ascii @levels/<id>.json for the six levels, then scene.format.",
+      "suggestion": "Let the legend place prefab instances (prefab plus overrides, as scenes can) instead of copies, so the prefab file stays the single source; or say in the ascii docs that a prefab edit needs the rebuild.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Scripts have no API for the laid-out rectangle of a widget",
+      "missing": "Tests and layouts that must know where a widget really is (does the options panel fit the screen) have to call fa.call('ui.state') and search its widget list; there is no Entity or ui function and no type for it in factoria.d.ts, and a Text (not a widget) is not in that list at all (HUD text can only be checked with measureText).",
+      "workaround": "tests/accessibility.test.js reads fa.call('ui.state').widgets and measures Texts with ui.measureText.",
+      "workaroundFiles": [
+        "tests/accessibility.test.js",
+        "tests/helpers/screens.js"
+      ],
+      "suggestion": "Include Text entities (kind Text, rect, text) in ui.state, or give entity.bounds() a screen-space answer.",
+      "effort": "small",
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19: tests/helpers/screens.js sums the measured children of every row and column panel and compares with the panel's rectangle."
+      ]
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "game.paused = false resets time.scale to 1",
+      "missing": "A game with a game-speed option (assist mode: 60% to 100%) sets time.scale. Pausing and resuming with game.paused puts time.scale back to 1, so the slowed speed is lost on every resume; the scripting doc only says paused is the same as time.scale = 0. Verified: time.scale = 0.5; game.paused = true; game.paused = false gives time.scale 1.",
+      "workaround": "level.js refreshAssist() sets time.scale again at level start and after the pause menu resumes; a test checks it.",
+      "workaroundFiles": [
+        "scripts/assist.js",
+        "scripts/level.js",
+        "scripts/pause_menu.js"
+      ],
+      "suggestion": "Make game.paused remember the scale it replaced and restore it, or document the reset next to time.scale in the scripting doc and the menus recipe (any game that uses time.scale for slow motion breaks with the recipe pause menu).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "No colour-blind or greyscale preview or filter",
+      "missing": "To check that hazards read without colour I needed a greyscale (ideally also protanopia, deuteranopia, tritanopia) view of a screenshot, and a player-facing colour-blind filter is a normal expectation of an accessibility tab. The engine has neither a screenshot option for it nor a Camera post-process (only bloom).",
+      "workaround": "Hazards and pickups differ by shape and outline (spikes = triangles, enemies = rounded boxes with eyes, ember = diamond, checkpoint = ring, exit = star in a lamp). The greyscale check was made outside the engine with Python Pillow on a screenshot (screenshots/a11y-hazards-colour-and-grey.png). No colour-blind filter option was built.",
+      "workaroundFiles": [
+        "screenshots/a11y-hazards-colour-and-grey.png",
+        "assets/spikes.png",
+        "assets/enemy.png"
+      ],
+      "suggestion": "Camera.colorFilter enum (none, greyscale, protanopia, deuteranopia, tritanopia, high contrast) as a post-process that game.screenshot also applies, so players and AIs can use it.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0038",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "nice-to-have",
+      "title": "No way to read the operating system accessibility settings or to speak UI text",
+      "missing": "A game should start with the player's system text size, reduce-motion and high-contrast choices, and a screen reader or text-to-speech needs the focused widget text. Scripts have no call for either (checked factoria api --dts: nothing like systemTextScale, prefersReducedMotion or speak).",
+      "workaround": "Lantern Keep starts with its own saved options only (text 100%, shake on) and has no spoken menus.",
+      "suggestion": "Read-only platform.accessibility { textScale, reduceMotion, highContrast, screenReader }, plus ui.speak(text) or a focus-change event a screen reader plugin can use.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0039",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "Vector fields read from scripts look like arrays but cannot be indexed or iterated",
+      "missing": "Panel.padding (vec4) and Button.size / ScrollList.size (vec2) print as [24,24,24,24] and [240,56] with JSON.stringify, and the d.ts types them as tuples, but padding[1] and size[0] are undefined and [...padding] / destructuring throws 'value is not iterable'. Only .x .y (.z .w) work. The first symptom is silent: arithmetic on undefined gives NaN and a comparison against NaN is false, so a layout check passed for a while without checking anything; or 'expects a 2D vector ... but got [752,null]' when the result is written back.",
+      "workaround": "Read vec2 as .x .y and vec4 as .x .y .z .w (padding is left, top, right, bottom); write them as plain [a, b] arrays.",
+      "workaroundFiles": [
+        "scripts/ui/text_fit.js",
+        "tests/helpers/screens.js"
+      ],
+      "suggestion": "Make component vec fields array-like (index and iterator), or have the d.ts say they are Vec2/Vec4 objects with .x .y .z .w and no array behaviour; JSON.stringify showing an array is what misleads.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0040",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Layouts cannot be mirrored for right-to-left languages, and align does not follow the text direction",
+      "missing": "For Arabic the game has to flip by hand what a left-to-right layout assumes: Panel row layouts always put the first child on the left (the main menu's row of three buttons, the level end panel's text and buttons, the level select rows), Text.align never follows the language (every wrapped text needs align right), and the HUD corners (anchor and pivot of the name and the embers) are swapped in a script. The docs say so (LOCALIZATION section 6) but give no tool.",
+      "workaround": "text_fit.js isRtl() and fitWidgets set align right on wrapped Texts; hud.js swaps the HUD corners. The rows of buttons, the level end panel and the level select rows are NOT mirrored in Arabic (readable, but the first item is on the left).",
+      "workaroundFiles": [
+        "scripts/ui/text_fit.js",
+        "scripts/hud.js"
+      ],
+      "suggestion": "Text.align and Panel.align/justify values 'start' and 'end' that follow the current language's direction, and Panel.direction 'auto' for rows; an i18n.direction ('ltr' or 'rtl') in scripts.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0041",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "A ScrollList cannot take the height the rest of a fit column leaves",
+      "missing": "The achievements and leaderboards screens are a fit column (title, summary, status, a ScrollList, buttons). At a big text size the texts above and below the list grow and the panel leaves the screen, because the list has a fixed height. There is no 'fill the rest' and nothing warns that a fit panel is bigger than the screen.",
+      "workaround": "fitList(panel, list) in scripts/ui/text_fit.js measures every other child with ui.measureText and sets the ScrollList height; tests/helpers/screens.js checks that every panel is inside the screen and big enough for its children.",
+      "workaroundFiles": [
+        "scripts/ui/text_fit.js",
+        "tests/helpers/screens.js"
+      ],
+      "suggestion": "ScrollList.fill (take the free height of the parent column, up to the screen) and a validate/runtime warning when a Panel with fit ends up taller than the screen.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0042",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "TEXT.md says ui.measureText is an approximation in headless runs, but factoria test measures with the real fonts",
+      "missing": "docs/TEXT.md (Measuring) says that without a renderer measureText approximates 0.6 x fontSize per character and warns once. In factoria test with this binary it returns shaped, exact widths (Latin and Arabic) and no warning, so FB-0032 looks resolved while the doc still tells a game AI to distrust its tests.",
+      "workaround": "tests/helpers/screens.js trusts ui.measureText; the screenshots of the same screens agree with the test.",
+      "workaroundFiles": [
+        "tests/helpers/screens.js"
+      ],
+      "suggestion": "State in TEXT.md when measureText is exact (tests, headless runs with the built-in font) and when it is not; close FB-0032 if it is.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0043",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "i18n.import writes a flat table for a language that has no file yet",
+      "missing": "For a new language i18n.import creates locales/<tag>.json with flat dotted keys ('menu.play': ...) while the default table is nested, so the new file looks different from the others and from every example in LOCALIZATION.md ('flat keys stay flat, nested stay nested' is only true for an existing file).",
+      "workaround": "After the import the file was rewritten nested, with the same strings (checked equal), by a short script.",
+      "workaroundFiles": [
+        "locales/de.json",
+        "locales/ar.json"
+      ],
+      "suggestion": "When the file does not exist, copy the structure of the default language's table (nested when it is nested).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0044",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "The project .gitignore does not ignore build/translations",
+      "missing": "i18n.export writes under build/ by default, and the game project's .gitignore only lists .factoria/, node_modules/, .DS_Store and .store/, so the spreadsheet of a translation round shows up as an untracked folder.",
+      "workaround": "Added build/ to the project's .gitignore by hand.",
+      "workaroundFiles": [
+        ".gitignore"
+      ],
+      "suggestion": "Add build/ to the generated project .gitignore, or write exports under .factoria/.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0045",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p6",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "LOCALIZATION.md lists i18n.state as a script member and the Text docs say DejaVu Sans has no Arabic",
+      "missing": "Two small mismatches: (1) LOCALIZATION.md section 2 says 'i18n.state lists, per language, the keys of the default table it lacks', but scripts have no i18n.state; it is the command (fa.call('i18n.state')). (2) The Text component's font description says the built-in font covers 'Latin, Greek, Cyrillic' while TEXT.md and LOCALIZATION.md say it also has Hebrew and Arabic (it does: Arabic drew correctly with no extra font and factoria validate's glyph check passed).",
+      "workaround": "tests/languages.test.js reads the table with fa.call('i18n.state'); no font was added for Arabic.",
+      "workaroundFiles": [
+        "tests/languages.test.js"
+      ],
+      "suggestion": "Say 'command' in LOCALIZATION.md section 2 and add Hebrew and Arabic to the Text.font description (docs/COMPONENTS generated from the reflection doc string).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
+}
