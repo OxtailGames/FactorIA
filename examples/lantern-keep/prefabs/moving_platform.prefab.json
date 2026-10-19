@@ -1,0 +1,30 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Moving platform",
+    "tags": ["platform"],
+    "components": {
+      "Sprite": {
+        "size": [96, 16],
+        "color": [0.62, 0.42, 0.26, 1],
+        "layer": 1
+      },
+      "RigidBody2D": {
+        "type": "kinematic"
+      },
+      "Collider2D": {
+        "shape": "box",
+        "size": [96, 16],
+        "friction": 0
+      },
+      "Script": {
+        "path": "scripts/mover.js",
+        "props": {
+          "axis": [1, 0],
+          "range": 96,
+          "period": 5
+        }
+      }
+    }
+  }
+}

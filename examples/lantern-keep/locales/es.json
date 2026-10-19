@@ -1,0 +1,57 @@
+{
+  "$name": "Español",
+  "menu": {
+    "title": "Lantern Keep",
+    "play": "Jugar",
+    "options": "Opciones",
+    "credits": "Créditos",
+    "quit": "Salir",
+    "back": "Atrás"
+  },
+  "loading": { "text": "Cargando..." },
+  "pause": { "title": "Pausa", "resume": "Continuar", "mainMenu": "Menú principal" },
+  "options": {
+    "title": "Opciones",
+    "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
+    "fullscreen": "Pantalla completa",
+    "vsync": "VSync",
+    "windowSize": "Tamaño de ventana: {width} x {height}",
+    "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
+    "frameCap": "Límite de fotogramas: {fps} fps",
+    "frameCapOff": "Límite de fotogramas: sin límite",
+    "videoNote": "Las opciones de vídeo se aplican cuando el juego corre en su propia ventana.",
+    "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
+    "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
+    "resetControls": "Restablecer valores",
+    "language": "Idioma: {language}"
+  },
+  "credits": {
+    "madeWith": "Hecho con FactorIA",
+    "lanternKeep": "Lantern Keep: el juego de referencia de FactorIA.",
+    "software": "Este juego usa el siguiente software:",
+    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, que se entrega con el juego."
+  },
+  "hud": { "level": "Nivel", "time": "Tiempo {time}", "embers": "Ascuas {found}/{total}" },
+  "level": {
+    "world": { "1": "Patio", "2": "Sótanos" },
+    "1-1": "1-1  Primera luz",
+    "1-2": "1-2  La puerta",
+    "1-3": "1-3  Sobre el muro",
+    "2-1": "2-1  Escaleras abajo",
+    "2-2": "2-2  Goteo y polvo",
+    "2-3": "2-3  El sótano hondo"
+  },
+  "levelEnd": {
+    "title": "Nivel completado",
+    "time": "Tiempo: {time}",
+    "best": "Mejor tiempo: {time}",
+    "newBest": "¡Nuevo mejor tiempo!",
+    "embers": "Ascuas: {found}/{total}",
+    "deaths": "Muertes: {deaths}",
+    "next": "Siguiente",
+    "retry": "Reintentar",
+    "menu": "Menú"
+  }
+}

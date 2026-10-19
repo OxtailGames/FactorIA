@@ -1,0 +1,30 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Spikes",
+    "tags": ["hazard"],
+    "components": {
+      "Sprite": {
+        "texture": "assets/spikes.png",
+        "size": [32, 32],
+        "layer": 3,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "static"
+      },
+      "Collider2D": {
+        "shape": "box",
+        "size": [24, 18],
+        "offset": [0, -6],
+        "isTrigger": true
+      },
+      "Script": {
+        "path": "scripts/hazard.js",
+        "props": {
+          "cause": "spikes"
+        }
+      }
+    }
+  }
+}

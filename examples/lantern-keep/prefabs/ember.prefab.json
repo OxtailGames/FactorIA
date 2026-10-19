@@ -1,0 +1,54 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Ember",
+    "tags": ["ember"],
+    "components": {
+      "Shape2D": {
+        "shape": "diamond",
+        "size": [22, 28],
+        "color": [1, 0.5, 0.1, 1],
+        "layer": 4
+      },
+      "RigidBody2D": {
+        "type": "static"
+      },
+      "Collider2D": {
+        "shape": "circle",
+        "radius": 16,
+        "isTrigger": true
+      },
+      "Script": {
+        "path": "scripts/ember.js",
+        "props": {
+          "index": 0
+        }
+      }
+    },
+    "children": [
+      {
+        "name": "Core",
+        "components": {
+          "Shape2D": {
+            "shape": "diamond",
+            "size": [9, 13],
+            "color": [1, 0.92, 0.5, 1],
+            "layer": 4
+          }
+        }
+      },
+      {
+        "name": "Glow",
+        "components": {
+          "Shape2D": {
+            "shape": "circle",
+            "size": [46, 46],
+            "color": [1, 0.55, 0.15, 0.22],
+            "layer": 4,
+            "blend": "additive"
+          }
+        }
+      }
+    ]
+  }
+}
