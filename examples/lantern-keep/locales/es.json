@@ -7,13 +7,27 @@
     "credits": "Créditos",
     "quit": "Salir",
     "back": "Atrás",
-    "continue": "Continuar"
+    "continue": "Continuar",
+    "achievements": "Logros",
+    "leaderboards": "Clasificaciones",
+    "shop": "Tienda"
   },
-  "loading": { "text": "Cargando..." },
-  "pause": { "title": "Pausa", "resume": "Continuar", "mainMenu": "Menú principal" },
+  "loading": {
+    "text": "Cargando..."
+  },
+  "pause": {
+    "title": "Pausa",
+    "resume": "Continuar",
+    "mainMenu": "Menú principal"
+  },
   "options": {
     "title": "Opciones",
-    "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
+    "tab": {
+      "video": "Vídeo",
+      "audio": "Audio",
+      "controls": "Controles",
+      "language": "Idioma"
+    },
     "fullscreen": "Pantalla completa",
     "vsync": "VSync",
     "windowSize": "Tamaño de ventana: {width} x {height}",
@@ -21,8 +35,18 @@
     "frameCap": "Límite de fotogramas: {fps} fps",
     "frameCapOff": "Límite de fotogramas: sin límite",
     "videoNote": "Las opciones de vídeo se aplican cuando el juego corre en su propia ventana.",
-    "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
-    "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
+    "volume": {
+      "master": "General",
+      "music": "Música",
+      "effects": "Efectos",
+      "interface": "Interfaz"
+    },
+    "action": {
+      "move_left": "Mover a la izquierda",
+      "move_right": "Mover a la derecha",
+      "jump": "Saltar",
+      "pause": "Pausa"
+    },
     "binding": "{action}: {button}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
@@ -32,11 +56,19 @@
     "madeWith": "Hecho con FactorIA",
     "lanternKeep": "Lantern Keep: el juego de referencia de FactorIA.",
     "software": "Este juego usa el siguiente software:",
-    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, que se entrega con el juego."
+    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, que se entrega con el juego.",
+    "supporters": "Gracias, mecenas: vosotros mantenéis la linterna encendida."
   },
-  "hud": { "level": "Nivel", "time": "Tiempo {time}", "embers": "Ascuas {found}/{total}" },
+  "hud": {
+    "level": "Nivel",
+    "time": "Tiempo {time}",
+    "embers": "Ascuas {found}/{total}"
+  },
   "level": {
-    "world": { "1": "Patio", "2": "Sótanos" },
+    "world": {
+      "1": "Patio",
+      "2": "Sótanos"
+    },
     "1-1": "1-1  Primera luz",
     "1-2": "1-2  La puerta",
     "1-3": "1-3  Sobre el muro",
@@ -71,5 +103,99 @@
     "locked": "Bloqueado",
     "open": "Sin terminar",
     "result": "Ascuas {found}/{total}  {time}"
+  },
+  "platform": {
+    "loading": "Preguntando a la tienda...",
+    "refresh": "Actualizar",
+    "noStore": "Esta copia del juego no está conectada a ninguna tienda, así que aquí no hay {what}.",
+    "notSignedIn": "No has iniciado sesión en la tienda, que {what} necesitan. Inicia sesión allí y pulsa Actualizar o vuelve a intentarlo.",
+    "network": "No se pudo contactar con la tienda ({what}). Comprueba tu conexión y vuelve a intentarlo.",
+    "failed": "La tienda no respondió para {what} ({code}): {detail}"
+  },
+  "achievements": {
+    "title": "Logros",
+    "what": "los logros",
+    "summary": "{done} de {total} desbloqueados",
+    "unlocked": "desbloqueado",
+    "locked": "bloqueado",
+    "progress": "{percent}%",
+    "first_light": {
+      "name": "Primera luz",
+      "description": "Termina el nivel 1-1."
+    },
+    "courtyard_clear": {
+      "name": "Patio despejado",
+      "description": "Termina los tres niveles del Patio."
+    },
+    "cellars_clear": {
+      "name": "Fuera de los sótanos",
+      "description": "Termina los tres niveles de los Sótanos."
+    },
+    "all_embers": {
+      "name": "Guardián de brasas",
+      "description": "Encuentra las 18 brasas."
+    },
+    "untouched": {
+      "name": "Intacto",
+      "description": "Termina un nivel sin morir."
+    },
+    "quick_feet": {
+      "name": "Pies ligeros",
+      "description": "Termina el nivel 1-1 en menos de 28 segundos."
+    },
+    "jumper": {
+      "name": "Salto de fe",
+      "description": "Salta 500 veces."
+    },
+    "hard_lessons": {
+      "name": "Lecciones duras",
+      "description": "Cae, arde o te atrapan 25 veces."
+    }
+  },
+  "leaderboards": {
+    "title": "Clasificaciones",
+    "what": "las clasificaciones",
+    "total": "Los seis niveles",
+    "board": "Tabla: {board}",
+    "show": "Ver: {range}",
+    "range": {
+      "top": "Mejores",
+      "around": "Cerca de mí",
+      "friends": "Amigos"
+    },
+    "entry": "{rank}. {name}   {time}",
+    "yourBest": "Tu mejor tiempo: {time} (puesto {rank})",
+    "empty": "Aún no hay tiempos. Termina un nivel para ser el primero."
+  },
+  "shop": {
+    "title": "Tienda",
+    "what": "las compras",
+    "note": "Solo cosméticos: nunca cambian cómo se juega.\nColores de linterna: rosa, azul, jade y violeta. Mecenas: la linterna dorada y una línea en los créditos.",
+    "restore": "Restaurar compras",
+    "buy": "{name} - {price}",
+    "owned": "{name} (comprado)",
+    "product": {
+      "lantern_colours": "Colores de linterna",
+      "supporter": "Mecenas"
+    },
+    "colour": "Color de la linterna: {colour}",
+    "colours": {
+      "amber": "Ámbar",
+      "rose": "Rosa",
+      "azure": "Azul",
+      "jade": "Jade",
+      "violet": "Violeta",
+      "gold": "Dorado"
+    },
+    "waiting": "Esperando a la tienda...",
+    "thanks": "¡Gracias! Ya es tuyo.",
+    "arrived": "Ha llegado una compra. ¡Gracias!",
+    "pending": "La compra espera aprobación. Se añadirá aquí cuando se apruebe.",
+    "cancelled": "Compra cancelada. No se añadió nada.",
+    "failed": "La compra no se completó. No se añadió nada.",
+    "alreadyOwned": "Ya lo tienes.",
+    "asking": "Preguntando a la tienda qué tienes...",
+    "restored": "Compras restauradas.",
+    "nothingToRestore": "No hay nada nuevo que restaurar."
   }
 }

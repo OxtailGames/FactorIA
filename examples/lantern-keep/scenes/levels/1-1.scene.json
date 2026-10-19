@@ -199,6 +199,22 @@
       }
     },
     {
+      "id": "store_stats",
+      "components": {
+        "Script": {
+          "path": "scripts/store_stats.js"
+        }
+      }
+    },
+    {
+      "id": "cosmetics",
+      "components": {
+        "Script": {
+          "path": "scripts/cosmetics.js"
+        }
+      }
+    },
+    {
       "id": "map",
       "name": "Tilemap",
       "components": {
@@ -269,7 +285,7 @@
       },
       "children": [
         {
-          "id": "e16",
+          "id": "e18",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -281,7 +297,7 @@
           }
         },
         {
-          "id": "e17",
+          "id": "e19",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -325,7 +341,7 @@
       },
       "children": [
         {
-          "id": "e19",
+          "id": "e21",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -337,7 +353,7 @@
           }
         },
         {
-          "id": "e20",
+          "id": "e22",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -381,7 +397,7 @@
       },
       "children": [
         {
-          "id": "e22",
+          "id": "e24",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -393,7 +409,7 @@
           }
         },
         {
-          "id": "e23",
+          "id": "e25",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -437,7 +453,7 @@
       },
       "children": [
         {
-          "id": "e25",
+          "id": "e27",
           "name": "Lantern",
           "components": {
             "Transform": {
@@ -459,7 +475,7 @@
           },
           "children": [
             {
-              "id": "e26",
+              "id": "e28",
               "name": "Glow",
               "components": {
                 "Shape2D": {
@@ -561,7 +577,7 @@
       },
       "children": [
         {
-          "id": "e30",
+          "id": "e32",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -693,7 +709,7 @@
       },
       "children": [
         {
-          "id": "e35",
+          "id": "e37",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -795,7 +811,7 @@
       },
       "children": [
         {
-          "id": "e39",
+          "id": "e41",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -898,7 +914,7 @@
       },
       "children": [
         {
-          "id": "e43",
+          "id": "e45",
           "name": "Lamp",
           "components": {
             "Transform": {
@@ -912,7 +928,7 @@
           }
         },
         {
-          "id": "e44",
+          "id": "e46",
           "name": "Flame",
           "components": {
             "Transform": {
@@ -927,7 +943,7 @@
           }
         },
         {
-          "id": "e45",
+          "id": "e47",
           "name": "Glow",
           "components": {
             "Transform": {
@@ -943,7 +959,7 @@
           }
         },
         {
-          "id": "e46",
+          "id": "e48",
           "name": "Beam",
           "components": {
             "Transform": {
