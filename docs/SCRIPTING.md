@@ -159,6 +159,14 @@ components` (also `docs/COMPONENTS.md`). Vector/color fields are live views
 (`Tilemap.tiles`, `Script.props`) are plain objects — assign a new value to
 write.
 
+Vectors, colours and rects are also array-like, live views included: `padding[1]`, `size[0]`, `[...color]`,
+`const [l, t, r, b] = panel.padding`, `for (const c of color)` and `Array.from(color)` give the components in the order
+of the named parts (`x y z w`, `r g b a`, `x y w h`) and the named parts keep working. `Array.isArray` is still false
+(they are not arrays: no `map` or `forEach`; use `Array.from(v).map(...)`). `length` is the number of components for
+colours and rects; vectors keep `length()` (the magnitude), so use `[...v].length` there. `game.screenSize` and
+`screen.size` are cheap to read (no copy of the project settings), but still one native call: keep the value in a local
+when a loop needs it many times.
+
 ## Vectors everywhere
 Every API taking a position/vector (`world.spawn`/`spawnPrefab` options and
 component fields, `entity.position`/`worldPosition`, `physics.*`, `camera.*`,
@@ -506,6 +514,9 @@ the press is released over the same widget; a Slider follows the pointer while p
   modification time, so calling it every frame is cheap. An empty or non-string `path` throws.
 
 ### scene / game / storage
+- Promises: a rejection nobody handles is logged once as `unhandled promise rejection: ...`, but only if it is still
+  unhandled once the pending promise jobs have run (as in Node). `p.then(() => platform.achievements.unlock(id)).catch(() => {})`
+  logs nothing when the store rejects.
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
 - `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize` ·
   `game.platform` (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"` or `"web"`: e.g. no Quit button on phones)

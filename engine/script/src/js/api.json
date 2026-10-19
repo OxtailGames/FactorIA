@@ -97,6 +97,14 @@
        "doc": ""
       },
       {
+       "sig": "readonly [index: number]: number",
+       "doc": "v[0], v[1]...: the components in x, y, z order (also for the live view of a component field)."
+      },
+      {
+       "sig": "[Symbol.iterator](): IterableIterator<number>",
+       "doc": "Iterates the components, so [...v], destructuring and for...of work."
+      },
+      {
        "sig": "set(x: number, y: number): this",
        "doc": "Sets both components (writes through on live views)."
       },
@@ -209,6 +217,14 @@
       {
        "sig": "z: number",
        "doc": ""
+      },
+      {
+       "sig": "readonly [index: number]: number",
+       "doc": "v[0], v[1]...: the components in x, y, z order (also for the live view of a component field)."
+      },
+      {
+       "sig": "[Symbol.iterator](): IterableIterator<number>",
+       "doc": "Iterates the components, so [...v], destructuring and for...of work."
       },
       {
        "sig": "readonly xy: Vec2",
@@ -325,6 +341,18 @@
        "doc": ""
       },
       {
+       "sig": "readonly [index: number]: number",
+       "doc": "c[0]..c[3]: r, g, b, a."
+      },
+      {
+       "sig": "[Symbol.iterator](): IterableIterator<number>",
+       "doc": "Iterates the components, so [...v], destructuring and for...of work."
+      },
+      {
+       "sig": "readonly length: number",
+       "doc": "The number of components (4); Vec2 and Vec3 have the length() method instead."
+      },
+      {
        "sig": "set(r: number, g: number, b: number, a?: number): this",
        "doc": ""
       },
@@ -416,6 +444,18 @@
       {
        "sig": "h: number",
        "doc": ""
+      },
+      {
+       "sig": "readonly [index: number]: number",
+       "doc": "r[0]..r[3]: x, y, w, h."
+      },
+      {
+       "sig": "[Symbol.iterator](): IterableIterator<number>",
+       "doc": "Iterates the components, so [...v], destructuring and for...of work."
+      },
+      {
+       "sig": "readonly length: number",
+       "doc": "The number of components (4); Vec2 and Vec3 have the length() method instead."
       },
       {
        "sig": "contains(p: Vec2Like): boolean",
