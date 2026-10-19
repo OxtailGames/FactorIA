@@ -1,7 +1,8 @@
-﻿// The fixture materials of the renderer tests (engine/render/tests/data/materials) ship with their compiled twins, so the
-// renderer tests need no sokol-shdc. This test recompiles each fixture with the real sokol-shdc (skipped where none is
-// installed) and fails when a committed twin differs, i.e. when the mesh template or a fixture changed without
-// regenerating. FA_UPDATE_FIXTURES=1 rewrites the twins instead.
+﻿// The fixture materials of the renderer tests (engine/render/tests/data/materials) ship with their compiled twins for
+// every backend the renderer tests run on (D3D11, GL, Metal on macOS), so the renderer tests need no sokol-shdc. This
+// test recompiles each fixture with the real sokol-shdc (skipped where none is installed, failed with FA_REQUIRE_SHDC=1)
+// and fails when a committed twin differs, i.e. when the mesh template or a fixture changed without regenerating.
+// FA_UPDATE_FIXTURES=1 rewrites the twins instead.
 #include <doctest.h>
 #include <cstdlib>
 #include <filesystem>
@@ -20,18 +21,19 @@ TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materi
     const char* update = std::getenv("FA_UPDATE_FIXTURES");
     const bool rewrite = update && std::string(update) == "1";
 
+    const std::vector<std::string> dialects = {"hlsl5", "glsl430", "metal_macos"};
     for (const char* name : {"empty", "glow", "time", "lift", "cutout"}) {
         const std::string material = std::string("materials/") + name + ".material.json";
         ShaderCompileOptions options;
         options.setup = context;
-        options.dialects = {"hlsl5", "glsl430"};
+        options.dialects = dialects;
         options.useCache = false;
         auto r = compile_material(root.string(), material, options);
         REQUIRE(r.ok());
         const std::string why = r->errors.empty() ? std::string() : r->errors[0].to_string();
         INFO(why);
         REQUIRE(r->ok);
-        for (const std::string slang : {"hlsl5", "glsl430"}) {
+        for (const std::string& slang : dialects) {
             CAPTURE(material);
             CAPTURE(slang);
             const stdfs::path file = root / (material + "." + slang + ".shader");
