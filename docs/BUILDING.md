@@ -468,6 +468,9 @@ deletes its branch. `release.yml` is not part of `CI result`: a pull request tha
 changes it is merged by hand once its Release run is green.
 
 A newer push to the same pull request or branch cancels the older run.
+Each job that compiles restores a ccache and saves it again with only the entries its build used; `CI result` then
+deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
+`main`'s, which every pull request starts from.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
 
@@ -477,9 +480,9 @@ in the runner's Chrome until the player has rendered its first frames. On failur
 export. It runs when the mobile jobs do. `release.yml` builds the web player once and every release package carries it in
 `FactorIA/web/` (`factoria_player.js` and `.wasm`), like the Android libraries in `FactorIA/mobile/`.
 
-The mobile jobs also RUN the app: `ios` boots an iPhone simulator while `ios-build` builds the app, then runs it
-(`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM, installs the debug APK
-that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process stays alive, the
+The mobile jobs also RUN the app: `ios` boots an iPhone simulator and builds the touch UI test while `ios-build` builds
+the app, then runs it (`scripts/ios-smoke.sh`), and `android-emulator` boots an API 34 `x86_64` emulator with KVM,
+installs the debug APK that `android-apk` built and starts it (`scripts/android-smoke.sh`). Both assert that the process stays alive, the
 player logged `player: 60 frames rendered`, an audio device is open and being pulled, the app survives being sent to the
 background and back and renders again, a tap in the middle of the screen reaches the player at the middle of the design
 (on iOS a UI test taps, `platforms/ios/touch-test`), nothing crashed and the screenshot shows a picture (Android also
