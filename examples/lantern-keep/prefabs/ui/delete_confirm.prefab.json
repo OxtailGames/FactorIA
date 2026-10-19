@@ -9,7 +9,8 @@
         "layer": 300,
         "layout": "column",
         "spacing": 16,
-        "padding": [24, 24, 24, 24]
+        "padding": [24, 24, 24, 24],
+        "fit": true
       },
       "Script": {
         "path": "scripts/ui/delete_confirm.js"

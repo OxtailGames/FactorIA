@@ -5,6 +5,7 @@
 // ui_up/ui_down scroll the list.
 import { Behaviour, ui, platform, input, i18n } from "factoria";
 import { explain, trySignIn } from "./store_ui.js";
+import { fitWidgets, fitList } from "./text_fit.js";
 
 const GOLD = [1, 0.85, 0.4, 1];
 const GREY = [0.75, 0.8, 0.9, 1];
@@ -59,6 +60,7 @@ export default class Achievements extends Behaviour {
     const status = this.world.find("ach_status");
     status.get("Text").text = message;
     status.active = message !== "";
+    this.fit();
   }
 
   render() {
@@ -85,5 +87,12 @@ export default class Achievements extends Behaviour {
         ),
       );
     }
+    this.fit();
+  }
+
+  /** Buttons as big as their text needs, the list as tall as the screen leaves after the texts above it. */
+  fit() {
+    fitWidgets(this.entity);
+    fitList(this.entity, this.list);
   }
 }

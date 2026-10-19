@@ -5,6 +5,7 @@
 import { Behaviour, i18n, ui, game } from "factoria";
 import { formatTime } from "./time_format.js";
 import { find, EMBERS_PER_LEVEL } from "./levels.js";
+import { isRtl } from "./ui/text_fit.js";
 
 export default class Hud extends Behaviour {
   onStart() {
@@ -39,6 +40,22 @@ export default class Hud extends Behaviour {
     const rowHeight = Math.ceil(28 * ui.textScale * 1.3);
     this.world.find("hud_timer").position.y = 10 + (sideBySide ? 0 : rowHeight);
     this.bar.size = [screenW, 20 + rowHeight * (sideBySide ? 1 : 2)];
+    this.mirror();
+  }
+
+  /** Arabic reads from the right: the level name goes to the right corner and the embers to the left one (the engine does not mirror). */
+  mirror() {
+    const rtl = isRtl();
+    const put = (id, right) => {
+      const entity = this.world.find(id);
+      const text = entity.get("Text");
+      text.anchor = [right ? 1 : 0, 0];
+      text.pivot = [right ? 1 : 0, 1];
+      text.align = right ? "right" : "left";
+      entity.position.x = right ? -24 : 24;
+    };
+    put("hud_level", rtl);
+    put("hud_embers", !rtl);
   }
 
   onUpdate() {

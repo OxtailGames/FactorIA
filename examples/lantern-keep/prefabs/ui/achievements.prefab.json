@@ -10,7 +10,8 @@
         "color": [0.08, 0.09, 0.14, 1],
         "layout": "column",
         "spacing": 14,
-        "padding": [24, 24, 24, 24]
+        "padding": [24, 24, 24, 24],
+        "fit": true
       },
       "Script": {
         "path": "scripts/ui/achievements.js"

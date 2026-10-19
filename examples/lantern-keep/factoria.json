@@ -15,7 +15,7 @@
       "pause": ["Escape", "P", "GamepadStart"]
     }
   },
-  "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
+  "localization": { "defaultLanguage": "en", "languages": ["en", "es", "de", "ar"] },
   "platforms": ["windows", "macos", "linux", "web", "android", "ios"],
   "icon": "assets/icon.png",
   "export": {
@@ -38,9 +38,9 @@
       "organizationId": "FAKE-org-id", "productId": "FAKE-product-id", "clientId": "FAKE-client-id",
       "artifacts": { "windows": "FAKE-artifact-win", "macos": "FAKE-artifact-mac", "linux": "FAKE-artifact-linux" }
     },
-    "gog": { "productId": "1000000001", "languages": ["en-US", "es-ES"] },
+    "gog": { "productId": "1000000001", "languages": ["en-US", "es-ES", "de-DE", "ar"] },
     "appstore": { "appleId": "1000000002" },
-    "googleplay": { "track": "internal", "releaseStatus": "draft", "changelogs": { "en-US": "store/whats-new-en.txt", "es-ES": "store/whats-new-es.txt" } }
+    "googleplay": { "track": "internal", "releaseStatus": "draft", "changelogs": { "en-US": "store/whats-new-en.txt", "es-ES": "store/whats-new-es.txt", "de-DE": "store/whats-new-de.txt", "ar": "store/whats-new-ar.txt" } }
   },
   "platform": {
     "achievements": [
