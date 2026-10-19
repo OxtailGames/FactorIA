@@ -1,0 +1,67 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Delete confirm",
+    "components": {
+      "Panel": {
+        "size": [600, 380],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24],
+        "fit": true
+      },
+      "Script": {
+        "path": "scripts/ui/delete_confirm.js"
+      }
+    },
+    "children": [
+      {
+        "id": "confirm_title",
+        "components": {
+          "Text": {
+            "text": "Delete this slot?",
+            "fontSize": 34,
+            "space": "screen",
+            "layer": 301
+          }
+        }
+      },
+      {
+        "id": "confirm_note",
+        "components": {
+          "Text": {
+            "text": "This cannot be undone.",
+            "fontSize": 22,
+            "space": "screen",
+            "layer": 301,
+            "key": "slots.confirmNote"
+          }
+        }
+      },
+      {
+        "id": "confirm_no",
+        "components": {
+          "Button": {
+            "text": "Keep it",
+            "layer": 302,
+            "key": "slots.keep",
+            "autoFocus": true
+          }
+        },
+        "tags": ["back"]
+      },
+      {
+        "id": "confirm_yes",
+        "components": {
+          "Button": {
+            "text": "Delete",
+            "layer": 302,
+            "key": "slots.delete"
+          }
+        }
+      }
+    ]
+  }
+}

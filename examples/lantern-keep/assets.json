@@ -1,0 +1,153 @@
+{
+  "format": "factoria.assets/1",
+  "assets": {
+    "assets/bg_cellar_far.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      }
+    },
+    "assets/bg_cellar_near.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      }
+    },
+    "assets/enemy.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      },
+      "import": {
+        "atlas": "characters"
+      }
+    },
+    "assets/icon.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "author": "Lantern Keep",
+        "source": "Lantern Keep: drawn with tools/make_icon.py (Pillow), no AI"
+      }
+    },
+    "assets/icon_fg.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "author": "Lantern Keep",
+        "source": "Lantern Keep: drawn with tools/make_icon.py (Pillow), no AI"
+      }
+    },
+    "assets/sfx/checkpoint.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      },
+      "analysis": {
+        "loudnessLufs": -13.77,
+        "peakDb": -6.57,
+        "seconds": 0.25,
+        "bytes": 11068,
+        "sha256": "b4399fde6baabd18c953bccf528ae905849fa24b50e08b6954979dceeae0b56f"
+      }
+    },
+    "assets/sfx/ember.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      },
+      "analysis": {
+        "loudnessLufs": -13.09,
+        "peakDb": -6.74,
+        "seconds": 0.21,
+        "bytes": 9304,
+        "sha256": "92ad9a0f7d03026c5dcaf022d3b8b4f3f185ce10547bcac54865d4ce54c913de"
+      }
+    },
+    "assets/sfx/hurt.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      },
+      "analysis": {
+        "loudnessLufs": -14.15,
+        "peakDb": -10.73,
+        "seconds": 0.3,
+        "bytes": 13274,
+        "sha256": "bbe3c16db8720bdc4ef3a510545ddc5dfa022f47385adc20e698f71143c537ef"
+      }
+    },
+    "assets/sfx/jump.wav": {
+      "provenance": {
+        "origin": "imported",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "MIT (the FactorIA 2d-platformer template)",
+        "source": "FactorIA 2d-platformer template"
+      },
+      "analysis": {
+        "loudnessLufs": -20.86,
+        "peakDb": -8.98,
+        "seconds": 0.17,
+        "bytes": 7540,
+        "sha256": "f31f12278e22fdffcd0bfbce6f863bc257db0c583ef952dc4774dff9a76c2fad"
+      }
+    },
+    "assets/sfx/win.wav": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      },
+      "analysis": {
+        "loudnessLufs": -10.84,
+        "peakDb": -6.32,
+        "seconds": 0.66,
+        "bytes": 29150,
+        "sha256": "d2dfd733afb3de72d3e67f9efc9655e99f17c76c7c8c68fe5ccbb486df5d58d8"
+      }
+    },
+    "assets/spikes.png": {
+      "provenance": {
+        "origin": "original",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "CC0",
+        "source": "Lantern Keep: drawn or synthesized with a small script (no AI)"
+      }
+    },
+    "assets/tileset.png": {
+      "provenance": {
+        "origin": "imported",
+        "ai": false,
+        "date": "2026-10-19",
+        "license": "MIT (the FactorIA 2d-platformer template)",
+        "source": "FactorIA 2d-platformer template"
+      }
+    }
+  }
+}

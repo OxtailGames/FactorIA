@@ -129,6 +129,14 @@ Upload your phone builds
   first bundle of a new app uploaded by hand.
 - Your keys stay in files outside the project and are never shown or logged.
 
+A complete example game
+
+- Lantern Keep (`examples/lantern-keep`) is a small but complete 2D platformer, made the way your AI makes a game: six
+  levels, menus, three save slots with a level select and cloud saves, achievements, leaderboards and a shop of cosmetics
+  on the test store, accessibility options (text size, a slower game, invincibility, no screen shake), four languages
+  including Arabic, an on-screen gamepad for phones and export settings ready for the stores. Read it, copy from it, or
+  point your AI at it. Its `SHIPPING.md` lists what each store needs and what is still done by hand.
+
 ## 0.1.6
 
 Menus and on-screen interface

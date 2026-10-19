@@ -1,0 +1,246 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.07, 0.08, 0.13, 1]
+        }
+      }
+    },
+    {
+      "id": "lantern_glow",
+      "components": {
+        "Transform": {
+          "position": [0, -250, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [120, 120],
+          "color": [1, 0.72, 0.25, 0.9],
+          "space": "screen",
+          "anchor": [0.5, 0.5],
+          "layer": 50,
+          "blend": "additive"
+        }
+      }
+    },
+    {
+      "id": "lantern_core",
+      "components": {
+        "Transform": {
+          "position": [0, -250, 0]
+        },
+        "Shape2D": {
+          "shape": "circle",
+          "size": [56, 56],
+          "color": [1, 0.95, 0.7, 1],
+          "space": "screen",
+          "anchor": [0.5, 0.5],
+          "layer": 51
+        }
+      }
+    },
+    {
+      "id": "main_menu",
+      "components": {
+        "Transform": {
+          "position": [0, 20, 0]
+        },
+        "Panel": {
+          "anchor": [0.5, 0.5],
+          "color": [0, 0, 0, 0],
+          "layout": "column",
+          "spacing": 12,
+          "fit": true
+        },
+        "Script": {
+          "path": "scripts/main_menu.js"
+        }
+      },
+      "children": [
+        {
+          "id": "title",
+          "components": {
+            "Text": {
+              "text": "Lantern Keep",
+              "key": "menu.title",
+              "fontSize": 64,
+              "space": "screen"
+            }
+          }
+        },
+        {
+          "id": "play",
+          "components": {
+            "Button": {
+              "text": "Play",
+              "key": "menu.play",
+              "autoFocus": true
+            }
+          }
+        },
+        {
+          "id": "continue",
+          "active": false,
+          "components": {
+            "Button": {
+              "text": "Continue",
+              "key": "menu.continue"
+            }
+          }
+        },
+        {
+          "id": "options_button",
+          "components": {
+            "Button": {
+              "text": "Options",
+              "key": "menu.options"
+            }
+          }
+        },
+        {
+          "id": "credits_button",
+          "components": {
+            "Button": {
+              "text": "Credits",
+              "key": "menu.credits"
+            }
+          }
+        },
+        {
+          "id": "store_row",
+          "components": {
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "row",
+              "spacing": 12,
+              "padding": [0, 0, 0, 0],
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "achievements_button",
+              "components": {
+                "Button": {
+                  "text": "Achievements",
+                  "key": "menu.achievements"
+                }
+              }
+            },
+            {
+              "id": "leaderboards_button",
+              "components": {
+                "Button": {
+                  "text": "Leaderboards",
+                  "key": "menu.leaderboards"
+                }
+              }
+            },
+            {
+              "id": "shop_button",
+              "components": {
+                "Button": {
+                  "text": "Shop",
+                  "key": "menu.shop"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "quit",
+          "components": {
+            "Button": {
+              "text": "Quit",
+              "key": "menu.quit"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "slots",
+      "active": false,
+      "prefab": "prefabs/ui/slots.prefab.json"
+    },
+    {
+      "id": "delete_confirm",
+      "active": false,
+      "prefab": "prefabs/ui/delete_confirm.prefab.json"
+    },
+    {
+      "id": "level_select",
+      "active": false,
+      "prefab": "prefabs/ui/level_select.prefab.json"
+    },
+    {
+      "id": "options",
+      "active": false,
+      "prefab": "prefabs/ui/options.prefab.json"
+    },
+    {
+      "id": "achievements",
+      "active": false,
+      "prefab": "prefabs/ui/achievements.prefab.json"
+    },
+    {
+      "id": "leaderboards",
+      "active": false,
+      "prefab": "prefabs/ui/leaderboards.prefab.json"
+    },
+    {
+      "id": "shop",
+      "active": false,
+      "prefab": "prefabs/ui/shop.prefab.json"
+    },
+    {
+      "id": "credits",
+      "active": false,
+      "components": {
+        "Panel": {
+          "size": [760, 620],
+          "anchor": [0.5, 0.5],
+          "layer": 300,
+          "layout": "column",
+          "spacing": 16,
+          "padding": [24, 24, 24, 24]
+        },
+        "Script": {
+          "path": "scripts/ui/credits.js"
+        }
+      },
+      "children": [
+        {
+          "id": "credits_list",
+          "components": {
+            "ScrollList": {
+              "size": [712, 476],
+              "layer": 301,
+              "color": [0, 0, 0, 0.25],
+              "spacing": 14,
+              "padding": [16, 16, 16, 16]
+            }
+          }
+        },
+        {
+          "id": "credits_back",
+          "tags": ["back"],
+          "components": {
+            "Button": {
+              "text": "Back",
+              "key": "menu.back",
+              "layer": 302,
+              "autoFocus": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

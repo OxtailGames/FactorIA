@@ -1,0 +1,31 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Gloom",
+    "tags": ["enemy"],
+    "components": {
+      "Sprite": {
+        "texture": "assets/enemy.png",
+        "size": [40, 30],
+        "layer": 3,
+        "pixelArt": false
+      },
+      "RigidBody2D": {
+        "type": "dynamic",
+        "fixedRotation": true
+      },
+      "Collider2D": {
+        "shape": "box",
+        "size": [38, 28],
+        "friction": 0
+      },
+      "Script": {
+        "path": "scripts/enemy.js",
+        "props": {
+          "speed": 70,
+          "dir": -1
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+.factoria/
+node_modules/
+.DS_Store
+.store/
+build/
