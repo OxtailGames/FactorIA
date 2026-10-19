@@ -6,10 +6,13 @@
 // them exactly as a person would. After each action it checks the effect on disk, in the world and in the editor state, and takes
 // window screenshots. A script of small steps, one step per frame followed by a wait, so a step never races the UI: a click is
 // move, press, release on different frames.
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 
 #include "editor_internal.h"
 #include "sokol_app.h"
@@ -61,6 +64,34 @@ const char* kFixtureScene = R"({
       "components": { "Transform": { "position": [420, -266, 0] }, "Shape2D": { "shape": "circle", "size": [24, 24], "color": [1, 0.85, 0.2, 1], "layer": 1 } } }
   ]
 })";
+
+// Section K: a 3D scene with one cube drawn by a custom material (docs/design/CUSTOM_SHADERS.md). The snippet adds `glow` to the
+// emission; the "v2" snippet also paints the albedo blue, and the broken one is a GLSL error on line 3.
+const char* kMatScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 1.5, 4] }, "Camera": { "projection": "perspective", "fov": 60, "primary": true } } },
+    { "id": "sun", "components": { "Transform": { "position": [0, 5, 0], "rotation": [-50, 30, 0] }, "Light": { "intensity": 0.8 } } },
+    { "id": "gem", "components": { "Transform": { "scale": [1.5, 1.5, 1.5] },
+        "MeshRenderer": { "mesh": "cube", "color": [0.125, 0.125, 0.125, 1], "material": "materials/autotest_glow.material.json" } } }
+  ]
+})";
+const char* kMatFile = R"({
+  "format": "factoria.material/1",
+  "doc": "Editor autotest: adds the glow color to the emission.",
+  "shader": "shaders/autotest_glow.surface.glsl",
+  "params": { "glow": { "type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Emission color; its alpha scales the strength." } }
+})";
+const char* kMatSnippet = "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission += glow.rgb * glow.a;\n}\n";
+const char* kMatSnippetV2 = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n    s.emission += glow.rgb * glow.a;\n}\n";
+const char* kMatSnippetBroken = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n    s.colour = glow.rgb;\n}\n";
+
+struct MatShots {
+    Image base, green, undone, v2, broken, fixed, playing;
+    bool skip = false;      // no shader compiler on this machine: the section only records that
+    std::uint64_t seq = 0;  // last log seq before the edit under test
+    int edits = 0;          // makes every rewritten file's modification time new
+};
 
 }  // namespace
 
@@ -944,6 +975,141 @@ void Editor::at_build_tools_script() {
         exportChecked_ = -100;
         setupRefreshAgain_ = true;  // what the windows show is read from this computer again
     });
+
+    // --------------------------------------------------- K. A custom material: params, snippet reload, a broken snippet
+    // The editor runs with hotReloadAssets: a material or snippet rewritten on disk (by the AI's file tools, or by hand) shows in
+    // the viewport without a reload, in edit mode and while playing, and a broken edit keeps the last good picture and logs once.
+    {
+        auto ms = std::make_shared<MatShots>();
+        const std::string snippet = project_file("shaders/autotest_glow.surface.glsl");
+        // How much the viewport picture of two shots differs, in 0..255 per channel (the rest of the window, with the Console,
+        // changes with every log line and says nothing about the viewport).
+        auto vp_diff = [this](const Image& a, const Image& b) {
+            if (a.rgba.size() != b.rgba.size() || a.rgba.empty()) return 1e9;
+            const int x0 = int(vpImageMin_.x * dpi_), y0 = int(vpImageMin_.y * dpi_);
+            const int x1 = std::min(a.width, x0 + int(vpImageSize_.x * dpi_)), y1 = std::min(a.height, y0 + int(vpImageSize_.y * dpi_));
+            double sum = 0;
+            long n = 0;
+            for (int y = std::max(0, y0); y < y1; ++y)
+                for (int x = std::max(0, x0); x < x1; ++x)
+                    for (int c = 0; c < 3; ++c, ++n)
+                        sum += std::abs(int(a.rgba[(size_t(y) * size_t(a.width) + size_t(x)) * 4 + size_t(c)]) -
+                                        int(b.rgba[(size_t(y) * size_t(b.width) + size_t(x)) * 4 + size_t(c)]));
+            return n ? sum / double(n) : 1e9;
+        };
+        // Rewrites a project file so its modification time is different from the last write, whatever the file system's resolution.
+        auto rewrite = [ms](const std::string& path, const std::string& text) {
+            write_file(path, text);
+            std::error_code ec;
+            stdfs::last_write_time(path, stdfs::file_time_type::clock::now() + std::chrono::seconds(10 * ++ms->edits), ec);
+        };
+        auto grab = [this, &step](Image MatShots::*which, std::shared_ptr<MatShots> shots) {
+            step(3, [this, which, shots] {
+                atPostFrame_.push_back([this, which, shots] { at_check(capture_window((*shots).*which), "captured the viewport"); });
+            });
+        };
+        // Errors the AI would read: game.logs, from the seq noted before the edit.
+        auto errors_naming = [this](std::uint64_t after) {
+            const CommandResult r = engine_->commands().call("game.logs", Json::object({{"minLevel", "error"}, {"after", after}}));
+            int n = 0;
+            if (r.ok)
+                for (const Json& l : r.result["logs"])
+                    if (l["message"].get<std::string>().find("shaders/autotest_glow.surface.glsl:") != std::string::npos) ++n;
+            return n;
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            write_file(project_file("materials/autotest_glow.material.json"), kMatFile);
+            write_file(project_file("shaders/autotest_glow.surface.glsl"), kMatSnippet);
+            write_file(project_file(scenePath_), kMatScene);
+            reload_scene_from_disk();
+            select_id("");
+            focus_window("###Viewport");
+        });
+        step(20, [] {});
+        grab(&MatShots::base, ms);
+        step(2, [this, ms] {
+            const Renderer* r = engine_->renderer();
+            ms->skip = !r || !r->stats().materialFallbacks.empty();
+            if (ms->skip) atLog_.push_back("SKIP custom material section (the material did not build: no sokol-shdc? set SOKOL_SHDC)");
+        });
+        // (a) materialParams through a Console command, the way the AI edits; Undo brings the picture back.
+        step(2, [this, ms] {
+            if (ms->skip) return;
+            run_console_line(R"(scene.set_component {"id":"gem","component":"MeshRenderer","fields":{"materialParams":{"glow":[0,1,0,1]}}})");
+        });
+        step(8, [] {});
+        grab(&MatShots::green, ms);
+        step(2, [this, ms, vp_diff] {
+            if (ms->skip) return;
+            at_check(vp_diff(ms->base, ms->green) > 1.0, "a materialParams edit from the Console changes the viewport");
+            undo();
+        });
+        step(8, [] {});
+        grab(&MatShots::undone, ms);
+        step(2, [this, ms, vp_diff] {
+            if (ms->skip) return;
+            at_check(vp_diff(ms->base, ms->undone) < 0.05, "Undo brings the previous viewport picture back");
+            ms->seq = log_last_seq();
+        });
+        // (b) the snippet rewritten on disk: the new picture shows after the poll, with no reload.
+        step(2, [ms, rewrite, snippet] {
+            if (!ms->skip) rewrite(snippet, kMatSnippetV2);
+        });
+        step(45, [] {});
+        grab(&MatShots::v2, ms);
+        step(2, [this, ms, vp_diff] {
+            if (ms->skip) return;
+            at_check(vp_diff(ms->base, ms->v2) > 1.0, "a snippet rewritten on disk changes the viewport without a reload");
+            at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...and the material still builds");
+            ms->seq = log_last_seq();
+        });
+        // (c) a broken snippet: the last good picture stays, one error names file:line, and the AI reads it from game.logs.
+        step(2, [ms, rewrite, snippet] {
+            if (!ms->skip) rewrite(snippet, kMatSnippetBroken);
+        });
+        step(45, [] {});
+        grab(&MatShots::broken, ms);
+        step(2, [this, ms, vp_diff, errors_naming] {
+            if (ms->skip) return;
+            at_check(vp_diff(ms->v2, ms->broken) < 0.05, "a broken snippet keeps the last good picture");
+            at_check(errors_naming(ms->seq) == 1, "...and logs exactly one error with file:line (game.logs shows it to the AI)");
+            at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...without falling back to the error material");
+        });
+        step(2, [ms, rewrite, snippet] {
+            if (!ms->skip) rewrite(snippet, kMatSnippetV2);
+        });
+        step(45, [] {});
+        grab(&MatShots::fixed, ms);
+        step(2, [this, ms, vp_diff] {
+            if (ms->skip) return;
+            at_check(vp_diff(ms->v2, ms->fixed) < 0.05, "fixing the snippet recovers the picture");
+        });
+        // While playing: the same reload, without leaving Play.
+        step(2, [this, ms] {
+            if (ms->skip) return;
+            play();
+        });
+        step(10, [ms, rewrite, snippet] {
+            if (!ms->skip) rewrite(snippet, kMatSnippet);
+        });
+        step(45, [] {});
+        grab(&MatShots::playing, ms);
+        step(2, [this, ms, vp_diff] {
+            if (ms->skip) return;
+            at_check(play_state() == PlayState::Playing, "the game is playing");
+            at_check(vp_diff(ms->v2, ms->playing) > 1.0, "a snippet rewritten on disk changes the viewport while the game plays");
+            stop();
+        });
+        // Back to the 2D fixture the next sections expect.
+        step(2, [this, project_file] {
+            stop();
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+    }
 
     // ------------------------------------------------------------------------------------- CLI agent (Claude Code)
     // A CLI agent runs its own loop in a child process; its tool calls come back through the editor's MCP endpoint. The
