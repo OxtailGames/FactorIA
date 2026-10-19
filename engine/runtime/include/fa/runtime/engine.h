@@ -145,6 +145,7 @@ public:
     UiSystem* ui() override;
     CommandRegistry& commands() override;
     Json project_settings() const override;
+    Vec2 design_size() const override;
     double fixed_dt() const override;
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;

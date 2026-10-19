@@ -83,6 +83,9 @@ struct ScriptSystem::Impl {
     // ---- errors
     std::vector<ScriptError> errors;
     std::set<std::string> loggedKeys;
+    struct Rejection { JSValue promise, reason; };  // rejected with no handler yet (owned); reported when the job queue drains
+    std::vector<Rejection> pendingRejections;
+    void flush_rejections();
 
     // ---- guard (timeouts)
     struct GuardFrame {

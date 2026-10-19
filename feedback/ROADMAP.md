@@ -998,6 +998,37 @@ removes a workaround a game's AI had to write. Ordered by score (occurrences x s
 packages are independent and each ships with its doctest or JS test and its docs. When one merges, mark its entries
 `fixed-in-engine` and let Lantern Keep drop the workaround (its `workaroundFiles` say where).
 
+**Status 2026-10-20: M24.1-M24.6 in progress, paused to move to another machine; continue from here.** One branch and
+one PR per package. Branches start from `origin/main`; merge `origin/main` into a branch again before its PR.
+
+| Package | Branch | State | Next step |
+| --- | --- | --- | --- |
+| M24.1 | `m24/script-values` | PR #96, auto-merge on; full build + ctest 38/38 (Windows, MSVC) | none: CI merges it (if red, fix on the branch) |
+| M24.3 | `m24/docs-lf` | PR #95, auto-merge on; full build + ctest 38/38 (Windows, MSVC) | none, as M24.1; later check the released Windows binary once |
+| M24.4 | `m24/focus-nav` | one commit (cone rule, autoFocus fallback, `fa_test_ui` cases, MENUS.md); the worker was stopped before its report | review the diff against the acceptance, full build + ctest, PR |
+| M24.2 | `m24/pause-speed` | WIP commit, never built or tested; the worker was stopped while writing the docs | finish (below), full build + ctest, PR |
+| M24.5 | `m24/i18n-docs` | WIP commit, never built or tested; the worker was stopped before its first build | finish (below), full build + ctest, PR |
+| M24.6 | none | not started | branch `m24/save-safety` from `origin/main`, the whole package |
+
+- M24.2, left to do: the docs (SCRIPTING.md next to `time.scale`, the pause menu in MENUS.md), the new
+  `engine/script/tests/test_pause_scale.cpp` built and passing, the test-runtime typings for `game.paused`. Lantern Keep
+  relied on `game.paused = false` setting `time.scale` to 1 when leaving a level, so the WIP sets `time.scale = 1` in
+  `scripts/flow.js` and `scripts/pause_menu.js`: keep that (the game must keep working), but let the `to_main_menu`
+  handler call `openMenu()` from `flow.js` instead of repeating it, and fix the comments that still say
+  `game.paused = false` puts `time.scale` back to 1 (`examples/lantern-keep/README.md`, `scripts/assist.js`).
+- M24.5, left to do: `docs/COMPONENTS.md` regenerated from the new `Text.font` doc string, the `locales/es.json` table in
+  MENUS.md with its doc test (same keys as the fixture's `en.json` and `es.json`), every doc claim checked against the
+  code; the `i18n.import` fix and its tooling test are written but not run.
+- Briefs for workers (`subagent_type: "worker"`, at most three building at once): the package section, the checkout and
+  branch, its own build dir (`build/agent-m24-<n>`), "do not edit ENGINE_FEEDBACK.json, feedback/ROADMAP.md (except
+  this status) or Lantern Keep beyond what the engine change forces", full build and full ctest before reporting. The
+  orchestrator reviews each diff, merges `origin/main`, runs the full build and ctest itself, opens the PR with
+  `gh pr merge <n> --auto --merge`.
+- When the six have merged: one bookkeeping PR marks their entries `fixed-in-engine` (`engineIssue` = the PR, note
+  `Fixed in <commit>: <how to use it>`), lets Lantern Keep drop the workarounds its `workaroundFiles` name, marks
+  M24.1-M24.6 done here, deletes this status, and regenerates the ranked list (`feedback/README.md`, step 2). Then
+  M24.7-M24.14, or M21's guides (see "Left in M21").
+
 ### M24.1 Script values and promise rejections (S) — LK/FB-0039, LK/FB-0026 (colours), LK/FB-0002, LK/FB-0029
 
 - Component vectors and colours read from scripts (`Panel.padding`, `Button.size`, `Shape2D.color`, `Light2D.color`...)
