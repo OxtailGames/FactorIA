@@ -445,7 +445,7 @@ active and `interactable`. Nothing takes focus by itself except one thing: when 
 focusable widget (top to bottom, then left to right) with `autoFocus: true` takes it. So a HUD button never reacts to the
 gameplay keys; a menu marks its first item `autoFocus` (or calls `ui.focus(...)` when it opens). A focused widget that is
 destroyed, deactivated or made not interactable loses focus, and `autoFocus` applies again. The actions below move
-the focus to the nearest focusable widget in that direction (holding repeats after 0.4 s, then every 0.1 s; it does not
+the focus to the nearest focusable widget in that direction (within 45 degrees of it first, else anywhere in that half-plane; if the `autoFocus` widget is not `interactable`, the first interactable one takes the focus; holding repeats after 0.4 s, then every 0.1 s; it does not
 wrap):
 
 | action | default bindings | does |
