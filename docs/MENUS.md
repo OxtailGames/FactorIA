@@ -829,7 +829,7 @@ export default class PauseMenu extends Behaviour {
 
 ### `locales/en.json`
 
-The strings of the default language. `locales/es.json` in the fixture has the same keys in Spanish. `{name}` is replaced by
+The strings of the default language; `locales/es.json` below has the same keys in Spanish. `{name}` is replaced by
 the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.tab.video`).
 
 ```json locales/en.json
@@ -882,6 +882,65 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "restored": "Your purchases were restored.",
     "nothingToRestore": "There was nothing to restore.",
     "unreachable": "The store could not be reached ({code}). {detail}"
+  }
+}
+```
+
+### `locales/es.json`
+
+The same keys in Spanish. A game with two languages from the start copies this file as it is, or translates it into a
+third language by editing the values only (keep the keys and the `{placeholders}`).
+
+```json locales/es.json
+{
+  "$name": "Español",
+  "menu": {
+    "title": "Mi juego",
+    "play": "Jugar",
+    "options": "Opciones",
+    "credits": "Créditos",
+    "shop": "Tienda",
+    "quit": "Salir",
+    "back": "Atrás"
+  },
+  "loading": { "text": "Cargando..." },
+  "pause": { "title": "En pausa", "resume": "Reanudar", "mainMenu": "Menú principal" },
+  "options": {
+    "title": "Opciones",
+    "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
+    "fullscreen": "Pantalla completa",
+    "vsync": "VSync",
+    "windowSize": "Tamaño de ventana: {width} x {height}",
+    "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
+    "frameCap": "Límite de fotogramas: {fps} fps",
+    "frameCapOff": "Límite de fotogramas: sin límite",
+    "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
+    "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
+    "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
+    "resetControls": "Restablecer valores",
+    "language": "Idioma: {language}"
+  },
+  "credits": {
+    "madeWith": "Hecho con FactorIA",
+    "software": "Este juego usa el siguiente software:",
+    "licenses": "Los textos completos de las licencias están en FACTORIA_NOTICES.txt, junto al juego."
+  },
+  "shop": {
+    "title": "Tienda",
+    "gems": "Gemas: {count}",
+    "gemsNoAds": "Gemas: {count}   (sin anuncios)",
+    "restore": "Restaurar compras",
+    "waiting": "Esperando a la tienda...",
+    "asking": "Consultando a la tienda...",
+    "thanks": "¡Gracias!",
+    "arrived": "Tu compra ha llegado.",
+    "pending": "Esperando aprobación. La compra llega cuando se apruebe.",
+    "cancelled": "Compra cancelada. No se ha cobrado nada.",
+    "restored": "Tus compras se han restaurado.",
+    "nothingToRestore": "No había nada que restaurar.",
+    "unreachable": "No se pudo contactar con la tienda ({code}). {detail}"
   }
 }
 ```
