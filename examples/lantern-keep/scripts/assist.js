@@ -1,6 +1,6 @@
 // @ts-check
 // Assist mode (Options > Accessibility): a slower game and invincibility. level.js asks here; pause_menu.js calls
-// applySpeed() after a resume, because game.paused = false puts time.scale back to 1.
+// applySpeed() after a resume, in case the speed was changed while paused (game.paused = false restores time.scale).
 import { time } from "factoria";
 import * as settings from "./settings.js";
 

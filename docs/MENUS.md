@@ -46,6 +46,8 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   player.
 - **Pause and scene loads.** `game.paused` (`time.scale` 0) freezes physics, animations and every behaviour without
   `runWhilePaused = true`. `time.scale` outlives scene loads: set `game.paused = false` before `scene.load`.
+  `game.paused = false` restores the `time.scale` the game had when it paused (slow motion, an assist speed), so the
+  pause menu needs no code to remember it. In a test, `game.paused` reads the same flag after the menu opens.
 - **One options panel in two places.** The menu scene places the prefab as an inactive entity; the pause menu spawns it,
   and the pause panel, when the level starts. A level needs only the `pause_menu` entity, even a level that
   `scene.import_ascii` rebuilds.
