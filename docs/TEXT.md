@@ -16,7 +16,7 @@ project (`assets/fonts/`):
 |---|---|
 | Japanese, Korean, Simplified or Traditional Chinese | Noto Sans JP, Noto Sans KR, Noto Sans SC, Noto Sans TC |
 | Arabic, Persian, Urdu | Noto Sans Arabic (DejaVu Sans has the basic letters too) |
-| Hebrew, Thai, Devanagari, Bengali, ... | the Noto Sans family has one font per script |
+| Thai, Devanagari, Bengali, ... | the Noto Sans family has one font per script |
 
 Keep the font's license file (`OFL.txt`) next to it: the OFL lets you ship and embed the font, and asks that its license
 travels with it. `factoria export` writes the notices of the engine, not of your fonts. CJK fonts are big (a few MB to
@@ -114,8 +114,9 @@ explicit `\n` or spaces.
 
 `ui.measureText(text, { fontSize, font, maxWidth, space })` returns `{ width, height }` of exactly the layout that is
 drawn, shaped and wrapped, with the fallback fonts. `space` is `"screen"` (the default: a HUD label, a widget label) or
-`"world"`; it matters only for the text size option below. Without a renderer (a headless run) it approximates 0.6 ×
-`fontSize` per character and warns once. A wrapped text is as wide as its `maxWidth` and as tall as its lines.
+`"world"`; it matters only for the text size option below. It is exact in tests, `factoria call` and headless runs
+(they draw with an offscreen renderer); only when no graphics device can be created does it approximate 0.6 ×
+`fontSize` per character and warn once. A wrapped text is as wide as its `maxWidth` and as tall as its lines.
 
 ## Text size (`ui.textScale`)
 
