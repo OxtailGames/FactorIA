@@ -1,0 +1,21 @@
+{
+  "format": "factoria.project/1",
+  "name": "Lantern Keep",
+  "id": "com.factoria.examples.lanternkeep",
+  "version": "0.1.0",
+  "engine": "0.1.6",
+  "mainScene": "scenes/menu.scene.json",
+  "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true, "orientation": "landscape", "pixelArt": false },
+  "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
+  "input": {
+    "actions": {
+      "move_left": ["A", "Left", "GamepadDpadLeft", "GamepadLeftStickLeft"],
+      "move_right": ["D", "Right", "GamepadDpadRight", "GamepadLeftStickRight"],
+      "jump": ["Space", "W", "Up", "GamepadA"],
+      "pause": ["Escape", "P", "GamepadStart"]
+    }
+  },
+  "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
+  "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "feedbackFile": "ENGINE_FEEDBACK.json"
+}

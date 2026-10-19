@@ -1,0 +1,164 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0, -980],
+    "ambientLight": [0.14, 0.15, 0.22, 1]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Transform": {
+          "position": [640, 360, 0]
+        },
+        "Camera": {
+          "clearColor": [0.03, 0.03, 0.07, 1]
+        },
+        "Script": {
+          "path": "scripts/follow_camera.js",
+          "props": {
+            "target": "player",
+            "bounds": "map",
+            "smoothing": 8
+          }
+        }
+      }
+    },
+    {
+      "id": "bg_far",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Sprite": {
+          "texture": "assets/bg_cellar_far.png",
+          "size": [256, 720],
+          "color": [1, 1, 1, 1],
+          "layer": -30,
+          "pixelArt": false
+        },
+        "Parallax": {
+          "factor": [0.25, 0],
+          "repeatX": true
+        }
+      }
+    },
+    {
+      "id": "bg_near",
+      "components": {
+        "Transform": {
+          "position": [0, 0, 0]
+        },
+        "Sprite": {
+          "texture": "assets/bg_cellar_near.png",
+          "size": [256, 720],
+          "color": [1, 1, 1, 1],
+          "layer": -20,
+          "pixelArt": false
+        },
+        "Parallax": {
+          "factor": [0.5, 0],
+          "repeatX": true
+        }
+      }
+    },
+    {
+      "id": "level",
+      "components": {
+        "Script": {
+          "path": "scripts/level.js",
+          "props": {
+            "levelId": ""
+          }
+        }
+      }
+    },
+    {
+      "id": "hud_bar",
+      "components": {
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [1280, 52],
+          "color": [0, 0, 0, 0.4],
+          "layer": 90,
+          "space": "screen",
+          "anchor": [0, 0],
+          "pivot": [0, 1]
+        }
+      }
+    },
+    {
+      "id": "hud_level",
+      "components": {
+        "Transform": {
+          "position": [24, 10, 0]
+        },
+        "Text": {
+          "text": "Level",
+          "key": "hud.level",
+          "fontSize": 28,
+          "space": "screen",
+          "anchor": [0, 0],
+          "pivot": [0, 1]
+        }
+      }
+    },
+    {
+      "id": "hud_timer",
+      "components": {
+        "Transform": {
+          "position": [0, 10, 0]
+        },
+        "Text": {
+          "text": "Time 0:00.00",
+          "fontSize": 28,
+          "align": "center",
+          "space": "screen",
+          "anchor": [0.5, 0],
+          "pivot": [0.5, 1]
+        }
+      }
+    },
+    {
+      "id": "hud_embers",
+      "components": {
+        "Transform": {
+          "position": [-24, 10, 0]
+        },
+        "Text": {
+          "text": "Embers 0/3",
+          "fontSize": 28,
+          "align": "right",
+          "space": "screen",
+          "anchor": [1, 0],
+          "pivot": [1, 1]
+        }
+      }
+    },
+    {
+      "id": "hud",
+      "components": {
+        "Script": {
+          "path": "scripts/hud.js"
+        }
+      }
+    },
+    {
+      "id": "pause_menu",
+      "components": {
+        "Script": {
+          "path": "scripts/pause_menu.js"
+        }
+      }
+    },
+    {
+      "id": "store_events",
+      "components": {
+        "Script": {
+          "path": "scripts/store_events.js"
+        }
+      }
+    }
+  ]
+}

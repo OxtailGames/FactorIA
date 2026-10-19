@@ -1,0 +1,200 @@
+{
+  "format": "factoria.feedback/1",
+  "project": "Lantern Keep",
+  "engineVersion": "0.1.6",
+  "entries": [
+    {
+      "id": "FB-0001",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "factoria docs read prints doubled carriage returns on Windows",
+      "missing": "`factoria docs read <name>` on Windows writes every line ending as CR CR LF (\r\r\n), so redirecting a doc to a file and extracting the recipe files from it (the menus doc is meant to be copied) yields files with a blank line after every line, and a text-mode reader sees two newlines. The menu recipe says 'copy the files as they are'.",
+      "workaround": "Read the doc through `factoria call docs.read` (JSON) or normalise with a replace of \r\r\n to \n before extracting.",
+      "suggestion": "Write the document to stdout in binary mode (or do not translate \n to \r\n twice) so only \n or at most \r\n appears.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0002",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "performance",
+      "severity": "minor",
+      "title": "game.screenSize costs about 0.3 ms per read",
+      "missing": "Reading `game.screenSize` (or `.x`) from a script takes ~300 microseconds per read, 30 to 80 times more than every other call I measured (`entity.bounds()` 10 us, `world.find` 6 us, `entity.position.x` 14 us, `physics.raycast` 35 us). The template's follow_camera.js reads it twice per frame, so the camera alone was about 40% of the frame cost of a headless level (1200 frames: 3.1 s with it, 1.8 s without). It makes `factoria test` runs of long levels slow.",
+      "workaround": "scripts/follow_camera.js reads game.screenSize once and keeps the numbers.",
+      "workaroundFiles": [
+        "scripts/follow_camera.js"
+      ],
+      "suggestion": "Make game.screenSize a cheap property (cache the Vec2, or return a plain object); and have the 2d-platformer template's follow_camera.js cache it too.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0003",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "physics",
+      "severity": "minor",
+      "title": "2D kinematic platforms do not carry the bodies standing on them",
+      "missing": "A kinematic RigidBody2D that moves (a moving platform) does not take a body standing on it along: the guide and AGENTS.md say 'kinematic platforms carry the bodies on them' under 3D only, and the 2D recipes have no moving platform. In a headless test a player standing still on a platform that swings 96 px each way slid off it (offset changed by 90 px in 100 frames) with friction 0 and with friction 1, because player.js also sets velocity.x every frame.",
+      "workaround": "player.js casts a short ray under the feet, and when the hit entity has a kinematic RigidBody2D it adds that body's velocity.x to the player's own horizontal speed.",
+      "workaroundFiles": [
+        "scripts/player.js",
+        "scripts/mover.js"
+      ],
+      "suggestion": "Carry dynamic 2D bodies that rest on a kinematic body (as 3D does), or expose the ground body (entity.groundBody / isGrounded() returning it) so a script can add its velocity without a raycast. Add a 2D moving-platform recipe to the AI guide.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0004",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "Menu recipe has no Spanish string table",
+      "missing": "docs menus says locales/es.json 'in the fixture has the same keys in Spanish', but the doc only prints locales/en.json. A game that wants two languages from the start (the recipe's own language switch) must translate the ~60 recipe strings itself and has no way to check they match the keys the recipe scripts use except by diffing against en.json.",
+      "workaround": "Wrote locales/es.json by hand from locales/en.json; tests/menus.test.js checks that both tables have exactly the same keys.",
+      "workaroundFiles": [
+        "locales/es.json",
+        "tests/menus.test.js"
+      ],
+      "suggestion": "Ship the recipe's Spanish table in docs/MENUS.md (or as templates/menus/locales/es.json) and add `factoria new --menus` / a project.add_menus command that writes the whole recipe, so nobody copies 11 files out of Markdown.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0005",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "Test game object has no paused flag",
+      "missing": "In a test, `game.paused` (the natural thing to write after reading the pause recipe, where scripts use `game.paused`) is undefined, so `expect(game.paused).toBe(true)` fails with 'received undefined'. The scripting doc lists the test game members and none of them is the pause state; the working check is `time.scale` from the factoria module.",
+      "workaround": "Tests assert `time.scale` (imported from \"factoria\") is 0 / 1.",
+      "workaroundFiles": [
+        "tests/menus.test.js",
+        "tests/mechanics.test.js"
+      ],
+      "suggestion": "Add `paused` to the test game object (or say in docs scripting 'Tests' that the pause state is time.scale) and make reading an unknown member of the test game object throw with a did-you-mean instead of returning undefined.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0006",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "minor",
+      "title": "Shape2D is not shaded by Light2D",
+      "missing": "Only Sprite and Tilemap have `lit`; a Shape2D always draws at full brightness. A dark level lit by the player's lantern therefore cannot use Shape2D for hazards, enemies or platforms (the engine's own placeholder art), they would glow in the dark.",
+      "workaround": "Spikes and enemies are Sprites with small generated PNGs, platforms are solid-colour Sprites (no texture), all with lit true in the dark world. The player, embers and checkpoints stay Shape2D on purpose (they are light sources or must stay visible).",
+      "workaroundFiles": [
+        "prefabs/spikes.prefab.json",
+        "prefabs/enemy.prefab.json",
+        "prefabs/moving_platform.prefab.json",
+        "prefabs/one_way_platform.prefab.json"
+      ],
+      "suggestion": "Add `lit` to Shape2D (same rule as Sprite.lit).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0007",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scene",
+      "severity": "nice-to-have",
+      "title": "scene.import_ascii warns about unused legend entries",
+      "missing": "Six levels share one legend (spikes, enemies, a moving platform...), but a level that does not use a glyph gets the warning \"legend['m'] is not used in rows.\" (and the template's test asserts warnings equals []). There is no way to keep one shared legend file, or to silence the warning for a legend that is deliberately shared.",
+      "workaround": "The legend written into each levels/<id>.json holds only the glyphs that map uses.",
+      "workaroundFiles": [
+        "levels/1-1.json"
+      ],
+      "suggestion": "Add `legendFrom: \"levels/legend.json\"` (a shared legend merged under the map's own) and do not warn about unused entries that come from it, or add `warnUnused: false`.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0008",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "No hook when an entity becomes active",
+      "missing": "The level end panel is spawned inactive and shown with `active = true`. Its Script's onStart runs only on the next step, so for one frame the panel shows the texts written in the prefab ('Time: 0:00.00') before the script writes the real ones. There is no onEnable/onActivate hook to fill a panel the moment it opens, and it is not obvious from the docs when onStart runs for an entity that is activated.",
+      "workaround": "level_end.js has an open(result, info) method that fills the texts at once; level.js calls it instead of relying on onStart.",
+      "workaroundFiles": [
+        "scripts/ui/level_end.js",
+        "scripts/level.js"
+      ],
+      "suggestion": "Add onEnable()/onDisable() hooks (called when the entity becomes active or inactive, also for the first time), and state in docs scripting when onStart runs for inactive-then-activated entities.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0009",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p1",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "nice-to-have",
+      "title": "Long ASCII level maps are hard to author and edit by hand",
+      "missing": "Levels of 230 to 340 tiles wide (rows of that many characters, 23 rows) are tedious and error-prone to write directly in levels/<id>.json: one wrong count makes a ragged row, and moving a hazard means counting columns. scene.import_ascii only takes the finished grid, and the guide says not to write a level generator.",
+      "workaround": "Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.",
+      "workaroundFiles": [
+        "levels/1-1.json"
+      ],
+      "suggestion": "Let scene.import_ascii (or a new scene.ascii_edit command) take operations on an existing map: fill/replace a rectangle, insert or delete columns, place a glyph at (column, height above the ground), so an AI changes a map without rewriting every row; and report the column and row of every glyph in the result so it can be located again.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    }
+  ]
+}
