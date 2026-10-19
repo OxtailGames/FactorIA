@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -223,11 +224,13 @@ void Engine::Impl::render(double dt) {
 }
 
 void Engine::Impl::poll_hot_reload(bool force) {
-    bool active = force || cfg.hotReload;
-    if (!active) return;
+    const bool assetsOnly = !force && !cfg.hotReload;
+    if (assetsOnly && !cfg.hotReloadAssets) return;
     static const char* dirs[] = {"scripts", "tools", "scenes", "assets", "locales", "materials", "shaders"};
     std::map<std::string, std::int64_t> now;
     for (const char* d : dirs) {
+        if (assetsOnly && (!strcmp(d, "scripts") || !strcmp(d, "tools") || !strcmp(d, "scenes") || !strcmp(d, "locales")))
+            continue;
         if (!fs::is_directory(d)) continue;
         for (const std::string& f : fs::list(d, true)) now[f] = fs::modified_time(f);
     }
@@ -243,6 +246,12 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
     watched = std::move(now);
     for (const std::string& p : changed) {
+        if (assetsOnly) {  // only what the renderer rebuilds in place
+            if (renderer && (ends_with(p, ".material.json") ||
+                             has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})))
+                renderer->reload_asset(p);
+            continue;
+        }
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
             if (i18n.enabled()) {
                 FA_INFO("hotreload", "String table {} changed on disk, reloading the tables", p);
