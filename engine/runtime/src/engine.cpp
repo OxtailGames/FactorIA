@@ -645,6 +645,7 @@ Renderer* Engine::renderer() {
 }
 UiSystem* Engine::ui() { return &impl_->ui; }
 CommandRegistry& Engine::commands() { return impl_->commands; }
+Vec2 Engine::design_size() const { return impl_->design_size(); }
 Json Engine::project_settings() const {
     Json j = impl_->project.to_json();
     j["seed"] = impl_->cfg.seed;  // the effective run seed (scripts reseed test files with it)
