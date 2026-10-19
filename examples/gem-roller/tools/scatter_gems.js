@@ -57,7 +57,7 @@ export default {
         tags: ["gem"],
         components: {
           Transform: { position: pos, scale: [0.8, 0.8, 0.8] },
-          MeshRenderer: { mesh: "assets/models/gem.glb", emissive: [0.05, 0.3, 0.4, 1], castShadows: true },
+          MeshRenderer: { mesh: "assets/models/gem.glb", emissive: [0.05, 0.3, 0.4, 1], castShadows: true, material: "materials/gem.material.json" },
           RigidBody3D: { type: "static" },
           Collider3D: { shape: "sphere", radius: 0.7, isTrigger: true },
           Light: { type: "point", color: [0.4, 0.9, 1, 1], intensity: 1.5, range: 5 },

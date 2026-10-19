@@ -89,7 +89,18 @@ jobs:
           cmake --preset linux-release
           cmake --build --preset linux-release
 
+      # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
+      # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/linux-release/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/linux-release/tools/cli"; exit 1; }
+          "$cli" setup shaders
+
       - name: Test under Xvfb (Mesa llvmpipe)
+        env:
+          FA_REQUIRE_SHDC: '1'
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-release
 
       - name: Upload test output on failure
@@ -171,7 +182,18 @@ jobs:
       - name: Build (windows-release)
         run: cmake --build --preset windows-release --parallel
 
+      # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
+      # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/windows-release/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/windows-release/tools/cli"; exit 1; }
+          "$cli" setup shaders
+
       - name: Test (windows-release)
+        env:
+          FA_REQUIRE_SHDC: '1'
         run: ctest --preset windows-release
 
       - name: Upload test output on failure
@@ -211,8 +233,18 @@ jobs:
           cmake --preset macos-release
           cmake --build --preset macos-release
 
+      # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
+      # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
+      - name: Install the shader compiler (factoria setup shaders)
+        shell: bash
+        run: |
+          cli=$(find build/macos-release/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
+          test -n "$cli" || { echo "::error::factoria was not built under build/macos-release/tools/cli"; exit 1; }
+          "$cli" setup shaders
+
       - name: Test (macos-release)
         env:
+          FA_REQUIRE_SHDC: '1'
           FA_EDITOR_AUTOTEST_OUT: ${{ github.workspace }}/build/macos-release/test-output/editor  # uploaded on failure
         run: ctest --preset macos-release
 

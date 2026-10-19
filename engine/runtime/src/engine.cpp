@@ -223,8 +223,8 @@ void Engine::Impl::render(double dt) {
 }
 
 void Engine::Impl::poll_hot_reload(bool force) {
-    bool active = force || cfg.hotReload;
-    if (!active) return;
+    const bool assetsOnly = !force && !cfg.hotReload;
+    if (assetsOnly && !cfg.hotReloadAssets) return;
     static const char* dirs[] = {"scripts", "tools", "scenes", "assets", "locales", "materials", "shaders"};
     std::map<std::string, std::int64_t> now;
     for (const char* d : dirs) {
@@ -243,6 +243,9 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
     watched = std::move(now);
     for (const std::string& p : changed) {
+        const bool renderAsset = ends_with(p, ".material.json") ||
+            has_ext(p, {".glsl", ".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"});
+        if (assetsOnly && !renderAsset) continue;  // scripts, scenes and locales belong to the host
         if (starts_with(p, "locales/") && has_ext(p, {".json"})) {
             if (i18n.enabled()) {
                 FA_INFO("hotreload", "String table {} changed on disk, reloading the tables", p);
@@ -258,10 +261,8 @@ void Engine::Impl::poll_hot_reload(bool force) {
                 std::string err;
                 load_scene_impl(p, &err);
             }
-        } else if (ends_with(p, ".material.json") || has_ext(p, {".glsl"})) {
-            // A material file or a snippet: the renderer rebuilds that material (or every material using the snippet).
-            if (renderer) renderer->reload_asset(p);
-        } else if (has_ext(p, {".png", ".jpg", ".jpeg", ".tga", ".bmp", ".ttf", ".otf", ".obj", ".gltf", ".glb"})) {
+        } else if (renderAsset) {
+            // A material, a snippet (the renderer rebuilds every material using it), a texture, font or model.
             if (renderer) renderer->reload_asset(p);
         } else if (has_ext(p, {".wav", ".ogg", ".mp3", ".qoa"})) {
             audio.reload_clip(p);

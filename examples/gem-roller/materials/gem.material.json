@@ -1,0 +1,9 @@
+{
+  "format": "factoria.material/1",
+  "doc": "The collectible gem: its emission pulses so it glows and fades like a heartbeat.",
+  "shader": "shaders/gem.surface.glsl",
+  "params": {
+    "glow": { "type": "color", "default": [0.1, 0.6, 0.8, 1.0], "doc": "Emission color at the brightest point of the pulse; its alpha scales the strength." },
+    "speed": { "type": "float", "default": 3.0, "min": 0.0, "max": 20.0, "doc": "Pulse speed in radians per second (3 is about two pulses every 4 seconds)." }
+  }
+}

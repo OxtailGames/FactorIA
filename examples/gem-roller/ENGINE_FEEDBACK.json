@@ -278,6 +278,29 @@
         "Fixed in e2b0090: Rendering is skipped in tests by default, so game.step(5400) is fast; read script fields with game.find(id).behaviour (usable right after game.load, see SCRIPTING.md 'When behaviours exist').",
         "99eebad: tests drive the camera by input and let timers expire; direct behaviour reads are kept only where they are the clearest assertion."
       ]
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "claude-code",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "No documented way for a JS test to check that a custom material really draws",
+      "missing": "Giving the gems a custom material (materials/gem.material.json) worked from the docs alone, but a test cannot tell whether it built or fell back to the magenta error material: tests do not draw, and nothing in docs/ says that game.screenshot() draws one frame after which game.state().renderStats has `materials` and `materialFallbacks` (the AI guide mentions them only for play.report). Found by trial. A test also cannot ask whether sokol-shdc is installed except through material.info (compile.toolFound), which is not mentioned for this either.",
+      "workaround": "The test takes a screenshot, reads game.state().renderStats and calls material.info: with the compiler it requires materialFallbacks to be empty and materials > 0, without it it requires the one fallback the engine reports.",
+      "workaroundFiles": [
+        "tests/gem_roller.test.js"
+      ],
+      "suggestion": "Document in the testing section of the AI guide: 'to check what was drawn, game.screenshot(path) then game.state().renderStats' and 'material.info compile.toolFound says whether materials can be compiled here'; or add game.renderStats() that draws one frame and returns them.",
+      "occurrences": 1,
+      "status": "fixed-in-engine",
+      "notes": [
+        "Fixed in P5 of the custom shaders (docs only): SHADERS.md ('Putting a material on an entity', Cost) and the AI guide's batching note say that a test calls game.screenshot(path), then reads game.state().renderStats (materials, materialFallbacks), and that material.info compile.toolFound says whether this computer can compile materials."
+      ]
     }
   ]
 }
