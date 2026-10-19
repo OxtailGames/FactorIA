@@ -91,6 +91,7 @@ struct MatShots {
     bool skip = false;      // no shader compiler on this machine: the section only records that
     std::uint64_t seq = 0;  // last log seq before the edit under test
     int edits = 0;          // makes every rewritten file's modification time new
+    Json state;             // the material's state in the renderer before the last rewrite
 };
 
 }  // namespace
@@ -1012,12 +1013,36 @@ void Editor::at_build_tools_script() {
             }
             at_check(ok, what + detail);
         };
+        // The material's state in the renderer: its generation (+1 per build that worked) and its last error. A reload of the
+        // snippet changes it, whether the new snippet compiles or not.
+        auto material_state = [this] {
+            const Json report = engine_->renderer()->asset_report();
+            for (const Json& m : report["materials"])
+                if (m.value("material", std::string()) == "materials/autotest_glow.material.json") return m;
+            return Json();
+        };
         // Rewrites a project file so its modification time is different from the last write, whatever the file system's resolution.
-        auto rewrite = [ms](const std::string& path, const std::string& text) {
+        auto rewrite = [ms, material_state](const std::string& path, const std::string& text) {
+            ms->state = material_state();
             write_file(path, text);
             std::error_code ec;
             stdfs::last_write_time(path, stdfs::file_time_type::clock::now() + std::chrono::seconds(10 * ++ms->edits), ec);
         };
+        // Waits until the renderer took the rewritten snippet, polling once a frame for at most 300 frames (a reload is the 0.25 s
+        // poll plus a compile, slow on a software GPU), then 5 frames to draw it.
+        struct Reloaded {
+            Editor* ed;
+            std::shared_ptr<MatShots> ms;
+            std::function<Json()> state;
+            int left;
+            void operator()() const {
+                if (ms->skip) return;
+                if (state() != ms->state) ed->atSteps_.push_front(AtStep{5, [] {}});
+                else if (left == 0) ed->at_check(false, "the renderer reloaded the rewritten snippet within 300 frames");
+                else ed->atSteps_.push_front(AtStep{1, Reloaded{ed, ms, state, left - 1}});
+            }
+        };
+        auto wait_reload = [this, ms, material_state, &step] { step(1, Reloaded{this, ms, material_state, 300}); };
         auto grab = [this, &step](Image MatShots::*which, std::shared_ptr<MatShots> shots) {
             step(3, [this, which, shots] {
                 atPostFrame_.push_back([this, which, shots] { at_check(capture_window((*shots).*which), "captured the viewport"); });
@@ -1075,7 +1100,7 @@ void Editor::at_build_tools_script() {
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetV2);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::v2, ms);
         step(2, [this, ms, diff_check] {
             if (ms->skip) return;
@@ -1087,7 +1112,7 @@ void Editor::at_build_tools_script() {
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetBroken);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::broken, ms);
         step(2, [this, ms, diff_check, errors_naming] {
             if (ms->skip) return;
@@ -1098,7 +1123,7 @@ void Editor::at_build_tools_script() {
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetV2);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::fixed, ms);
         step(2, [ms, diff_check] {
             if (ms->skip) return;
@@ -1112,7 +1137,7 @@ void Editor::at_build_tools_script() {
         step(10, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippet);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::playing, ms);
         step(2, [this, ms, diff_check] {
             if (ms->skip) return;
