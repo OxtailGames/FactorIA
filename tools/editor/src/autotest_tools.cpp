@@ -91,6 +91,7 @@ struct MatShots {
     bool skip = false;      // no shader compiler on this machine: the section only records that
     std::uint64_t seq = 0;  // last log seq before the edit under test
     int edits = 0;          // makes every rewritten file's modification time new
+    Json state;             // the material's state in the renderer before the last rewrite
 };
 
 }  // namespace
@@ -997,13 +998,55 @@ void Editor::at_build_tools_script() {
                                         int(b.rgba[(size_t(y) * size_t(b.width) + size_t(x)) * 4 + size_t(c)]));
             return n ? sum / double(n) : 1e9;
         };
+        // A viewport comparison: the same picture (`same`) or a changed one. The message carries the difference; on a failure
+        // every shot of this section and the material's state are kept in the autotest's output (a CI artifact on macOS).
+        auto diff_check = [this, ms, vp_diff](const Image& a, const Image& b, bool same, const std::string& what) {
+            const double d = vp_diff(a, b);
+            const bool ok = same ? d < 0.05 : d > 1.0;
+            std::string detail = " (viewport difference " + std::to_string(d) + ")";
+            if (!ok) {
+                const std::pair<const char*, const Image*> shots[] = {{"base", &ms->base}, {"green", &ms->green}, {"undone", &ms->undone},
+                    {"v2", &ms->v2}, {"broken", &ms->broken}, {"fixed", &ms->fixed}, {"playing", &ms->playing}};
+                for (const auto& [name, img] : shots)
+                    if (!img->rgba.empty()) (void)save_png(*img, atOutDir_ + "/material_" + name + ".png");
+                detail += "; shots saved as material_*.png; materials: " + engine_->renderer()->asset_report()["materials"].dump();
+            }
+            at_check(ok, what + detail);
+        };
+        // The material's state in the renderer: its generation (+1 per build that worked) and its last error. A reload of the
+        // snippet changes it, whether the new snippet compiles or not.
+        auto material_state = [this] {
+            const Json report = engine_->renderer()->asset_report();
+            for (const Json& m : report["materials"])
+                if (m.value("material", std::string()) == "materials/autotest_glow.material.json") return m;
+            return Json();
+        };
         // Rewrites a project file so its modification time is different from the last write, whatever the file system's resolution.
-        auto rewrite = [ms](const std::string& path, const std::string& text) {
+        auto rewrite = [ms, material_state](const std::string& path, const std::string& text) {
+            ms->state = material_state();
             write_file(path, text);
             std::error_code ec;
             stdfs::last_write_time(path, stdfs::file_time_type::clock::now() + std::chrono::seconds(10 * ++ms->edits), ec);
         };
+        // Waits until the renderer took the rewritten snippet, polling once a frame for at most 300 frames (a reload is the 0.25 s
+        // poll plus a compile, slow on a software GPU), then 5 frames to draw it.
+        struct Reloaded {
+            Editor* ed;
+            std::shared_ptr<MatShots> ms;
+            std::function<Json()> state;
+            int left;
+            void operator()() const {
+                if (ms->skip) return;
+                if (state() != ms->state) ed->atSteps_.push_front(AtStep{5, [] {}});
+                else if (left == 0) ed->at_check(false, "the renderer reloaded the rewritten snippet within 300 frames");
+                else ed->atSteps_.push_front(AtStep{1, Reloaded{ed, ms, state, left - 1}});
+            }
+        };
+        auto wait_reload = [this, ms, material_state, &step] { step(1, Reloaded{this, ms, material_state, 300}); };
+        // A shot for vp_diff, like snap() without toasts: they fade on their own clock over the viewport (the "Reloaded" one of
+        // the scene was in one shot and gone in the next on a slow runner).
         auto grab = [this, &step](Image MatShots::*which, std::shared_ptr<MatShots> shots) {
+            step(3, [this] { toasts_.clear(); });
             step(3, [this, which, shots] {
                 atPostFrame_.push_back([this, which, shots] { at_check(capture_window((*shots).*which), "captured the viewport"); });
             });
@@ -1044,27 +1087,27 @@ void Editor::at_build_tools_script() {
         });
         step(8, [] {});
         grab(&MatShots::green, ms);
-        step(2, [this, ms, vp_diff] {
+        step(2, [this, ms, diff_check] {
             if (ms->skip) return;
-            at_check(vp_diff(ms->base, ms->green) > 1.0, "a materialParams edit from the Console changes the viewport");
+            diff_check(ms->base, ms->green, false, "a materialParams edit from the Console changes the viewport");
             undo();
         });
         step(8, [] {});
         grab(&MatShots::undone, ms);
-        step(2, [this, ms, vp_diff] {
+        step(2, [this, ms, diff_check] {
             if (ms->skip) return;
-            at_check(vp_diff(ms->base, ms->undone) < 0.05, "Undo brings the previous viewport picture back");
+            diff_check(ms->base, ms->undone, true, "Undo brings the previous viewport picture back");
             ms->seq = log_last_seq();
         });
         // (b) the snippet rewritten on disk: the new picture shows after the poll, with no reload.
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetV2);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::v2, ms);
-        step(2, [this, ms, vp_diff] {
+        step(2, [this, ms, diff_check] {
             if (ms->skip) return;
-            at_check(vp_diff(ms->base, ms->v2) > 1.0, "a snippet rewritten on disk changes the viewport without a reload");
+            diff_check(ms->base, ms->v2, false, "a snippet rewritten on disk changes the viewport without a reload");
             at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...and the material still builds");
             ms->seq = log_last_seq();
         });
@@ -1072,22 +1115,22 @@ void Editor::at_build_tools_script() {
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetBroken);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::broken, ms);
-        step(2, [this, ms, vp_diff, errors_naming] {
+        step(2, [this, ms, diff_check, errors_naming] {
             if (ms->skip) return;
-            at_check(vp_diff(ms->v2, ms->broken) < 0.05, "a broken snippet keeps the last good picture");
+            diff_check(ms->v2, ms->broken, true, "a broken snippet keeps the last good picture");
             at_check(errors_naming(ms->seq) == 1, "...and logs exactly one error with file:line (game.logs shows it to the AI)");
             at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...without falling back to the error material");
         });
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetV2);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::fixed, ms);
-        step(2, [this, ms, vp_diff] {
+        step(2, [ms, diff_check] {
             if (ms->skip) return;
-            at_check(vp_diff(ms->v2, ms->fixed) < 0.05, "fixing the snippet recovers the picture");
+            diff_check(ms->v2, ms->fixed, true, "fixing the snippet recovers the picture");
         });
         // While playing: the same reload, without leaving Play.
         step(2, [this, ms] {
@@ -1097,12 +1140,12 @@ void Editor::at_build_tools_script() {
         step(10, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippet);
         });
-        step(45, [] {});
+        wait_reload();
         grab(&MatShots::playing, ms);
-        step(2, [this, ms, vp_diff] {
+        step(2, [this, ms, diff_check] {
             if (ms->skip) return;
             at_check(play_state() == PlayState::Playing, "the game is playing");
-            at_check(vp_diff(ms->v2, ms->playing) > 1.0, "a snippet rewritten on disk changes the viewport while the game plays");
+            diff_check(ms->v2, ms->playing, false, "a snippet rewritten on disk changes the viewport while the game plays");
             stop();
         });
         // Back to the 2D fixture the next sections expect.
