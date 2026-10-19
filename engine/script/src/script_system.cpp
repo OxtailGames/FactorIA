@@ -897,6 +897,7 @@ void ScriptSystem::set_storage_mode(StorageMode mode) {
     impl_->storageMode = mode;
     impl_->storage = Json::object();
     impl_->storageLoaded = false;
+    impl_->storageCorrupt = false;
 }
 StorageMode ScriptSystem::storage_mode() const { return impl_->storageMode; }
 
