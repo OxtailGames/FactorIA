@@ -15,6 +15,9 @@ ctest --test-dir build/dev --output-on-failure
 ```
 
 - Build a single module's tests: `cmake --build build/dev --target fa_test_core`.
+- Windows, from any shell (loads MSVC itself; prints only errors, unique warnings and failing tests, full logs in the
+  build dir): `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name>
+  [-Target fa_test_core] [-Tests core | -Test]`.
 - GPU code without a display: headless EGL works with Mesa (llvmpipe). For
   windowed code use `xvfb-run -a -s "-screen 0 1280x720x24" <cmd>`.
 - Each agent uses its OWN build dir (`build/agent-<name>`) and builds with `-j8`
@@ -78,12 +81,15 @@ repository, not only the one where it was agreed:
 - **Orchestrator — `opus`.** The main session: plans, triages feedback, splits
   work into packages, reviews and integrates the results, runs the full test
   suite, commits and pushes.
-- **Workers — `sonnet`.** Implement features and fixes (Agent tool with
-  `model: "sonnet"`, `effort: "medium"`). One work package per worker, each in
-  its own git worktree or its own build dir (`build/agent-<name>`, `-j8`), with
-  tests and docs.
-- **Fast — `haiku`.** Small mechanical tasks (`model: "haiku"`,
-  `effort: "max"`): code searches, regenerating docs/typings,
+- **Workers — `sonnet`.** Implement features and fixes: Agent tool with
+  `subagent_type: "worker"` (`.claude/agents/worker.md`: sonnet, medium effort,
+  engine tools only). One work package per worker, each in its own git worktree
+  or its own build dir (`build/agent-<name>`, `-j8`), with tests and docs. The
+  worker knows the build command and the report format, so the brief carries only
+  the package. A package that needs the browser pane: general-purpose,
+  `model: "sonnet"`, `effort: "medium"`.
+- **Fast — `haiku`.** Small mechanical tasks (`subagent_type: "fast"`: haiku,
+  max effort): code searches, regenerating docs/typings,
   ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
 
 ## Finishing a task (every session on this project)

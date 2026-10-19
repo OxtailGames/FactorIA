@@ -134,6 +134,19 @@ the compiler identification on a machine that had it enabled, so a short path is
 and regenerate the committed file on any OS:
 `FA_REGEN_PLACEHOLDER_ICON=1 build/<preset>/tools/common/fa_test_tooling -tc="placeholder icon*"`.
 
+### Windows, short output: `scripts/agent-build.ps1`
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 <build dir> [-Target t1,t2] [-Test] [-Tests REGEX] [-Jobs 8]
+```
+
+Made for AI agents, and handy for anyone who wants a Debug build from any shell (PowerShell, cmd, Git Bash). It loads
+the Visual Studio 2022 C++ environment when `cl.exe` is not on the path, configures the directory with the
+`windows-ninja-debug` preset the first time, builds it (`-Jobs`, default 8) and, with `-Test` (every test) or `-Tests`
+(`ctest -R`), runs the tests serially as CI does. The full output goes to `agent-configure.log`, `agent-build.log` and
+`agent-ctest.log` in the build directory; the console shows only the errors, each distinct warning once, every failing
+test with its output, and the summary. Exit status 0 means everything passed.
+
 ### Linux release: `scripts/build-sniper.sh`
 
 ```bash
@@ -539,7 +552,10 @@ the checkout are hashed relative to the build directory, so every checkout and g
 cache: a new worktree reuses what another checkout already compiled (a debugger may then ask where a source file is,
 because the recorded paths are relative). With MSVC each checkout keeps its own entries: on a cache hit ccache replays
 `cl /showIncludes` with the header paths of the checkout that filled the cache, so Ninja would watch another worktree's
-headers and miss changes to its own (stale objects). With MSVC, Debug objects also carry their own debug information
+headers and miss changes to its own (stale objects). An MSVC that prints its messages in another language (Spanish:
+`Nota: inclusión del archivo:`) gets no ccache at all, and CMake says so when it configures: ccache replays those lines
+in UTF-8 while Ninja matches them in the console's code page, so a cache hit would leave the object with no header
+dependencies. English messages (`VSLANG=1033` with Visual Studio's English language pack) keep it. With MSVC, Debug objects also carry their own debug information
 (`/Z7`) instead of one `.pdb` per target, which ccache needs. Tests find the checkout through the generated
 `fa_test_paths.h` (`FA_REPO_ROOT`...); include it only where a test needs a path, so the other tests keep sharing the
 cache.
