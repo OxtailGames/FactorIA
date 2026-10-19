@@ -124,6 +124,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design, modules, conventions, commands and reflection.
 - [docs/SCRIPTING.md](docs/SCRIPTING.md): JavaScript scripting: behaviours, tools and tests.
 - [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field (generated).
+- [docs/SHADERS.md](docs/SHADERS.md): custom shaders per material: the material file, the GLSL snippet contract, five worked examples.
 - [docs/EXTENDING.md](docs/EXTENDING.md): creating tools, commands, components and systems.
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
 - [docs/EDITOR.md](docs/EDITOR.md): the AI-first visual editor: viewport, AI chat, picking, audio log.
