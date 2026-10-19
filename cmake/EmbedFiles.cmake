@@ -12,7 +12,8 @@ foreach(f ${FILES})
     # Text files embed with LF so a CRLF checkout (core.autocrlf) gives the same binary and `factoria docs read` never
     # prints \r\r\n. Binary files (fonts, images) are left alone.
     get_filename_component(ext ${f} LAST_EXT)
-    if(ext MATCHES "^\\.(md|json|txt|js|mjs|ts|glsl|html|css|toml|yml|yaml|cmake|h|cpp|c)$")
+    get_filename_component(fname ${f} NAME)
+    if(fname MATCHES "^(LICENSE|NOTICE|COPYING)" OR ext MATCHES "^\\.(md|json|txt|js|mjs|ts|glsl|html|css|toml|yml|yaml|cmake|h|cpp|c)$")
         string(REPLACE "0x0d,0x0a," "0x0a," bytes "${bytes}")
     endif()
     string(LENGTH "${bytes}" bytelen)
