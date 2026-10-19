@@ -40,7 +40,7 @@ export default class PauseMenu extends Behaviour {
       // also reach the player as a jump.
       this.resuming = false;
       game.paused = false;
-      world.find("level")?.behaviour?.refreshAssist(); // the speed may have been changed in Options while paused: apply the current assist speed
+      world.find("level")?.behaviour?.refreshAssist(); // assist may have been turned on in Options while paused: the run counts as assisted
       return;
     }
     // The pause key opens the menu, and inside it goes back one panel like ui_cancel (from the pause panel: resume).

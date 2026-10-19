@@ -110,8 +110,11 @@ nothing is written. Without a chosen slot (tests, a level started from the edito
 `saves.parse(text)` reads any version and returns version 2 data (`migrate1` upgrades version 1: the cleared levels become
 completed, with no embers). The next save writes version 2. Text that is not JSON, is not an object, has a version newer than
 the game's, or levels that are not shaped like the table is **damaged**: the slot says so, cannot be chosen and can be deleted;
-nothing throws. Levels the game does not know are dropped. Change the layout: bump `VERSION`, add a `migrateN`, keep the
-fixture of the old layout in `tests/fixtures/` and test it.
+nothing throws. Levels the game does not know are dropped. A `storage.json` that does not parse as a whole is the engine's
+job, not the game's: it keeps the file as `storage.corrupt.json` and the game starts with empty slots (`storage.corrupt` is
+`true`; the game does not show a message for it, there is no screen for one). `tests/saves.test.js` starts from such a file
+with `game.setStorageText`. Change the layout: bump `VERSION`, add a `migrateN`, keep the fixture of the old layout in
+`tests/fixtures/` and test it.
 
 **Cloud saves** (`platform.cloud`, see `factoria docs read platform`; no catalog entry is needed). `counter` goes up by one on
 every save (never the clock, so runs repeat). After each save the slot text is uploaded under the same key. When the slot screen
@@ -144,8 +147,9 @@ itself, and the choice is saved with the settings. No font was added: the engine
 - **German** is the layout stress test (long words: "Bestenlisten", "Bildschirmwackeln", "Unterstützer"). It was made the way a
   studio would: `i18n.export {"format":"csv","languages":["de"],"delimiter":";"}` (the semicolon is what a German Excel
   expects), the `de` column filled in, `i18n.import` (`dryRun` first: 148 rows added, no warnings), then `factoria validate`.
-  That round trip worked without surprises. The one thing to know: for a language with no file yet `i18n.import` writes
-  flat dotted keys, so the file was rewritten nested like the others (same strings, checked equal).
+  That round trip worked without surprises. Back then `i18n.import` wrote flat dotted keys for a language with no file yet,
+  so the file was rewritten nested like the others (same strings, checked equal); the engine now copies the nested shape
+  of the default table (engine feedback FB-0043).
 - **Arabic** went through XLIFF (`format: "xliff"`, `languages: ["ar"]`, targets filled in, `i18n.import` of the `.xlf`; same
   result). Arabic has six plural forms, but the game's texts have no plural (they show `3/18`, not "3 embers"), so none
   of the six is used and the `i18n.import` check could not exercise them: a new text with a count needs `zero` to `other`.
@@ -271,8 +275,10 @@ no longer owned counts as amber.
 
 **Without a store, signed out or failing.** Every screen explains in a plain sentence (`platform.*` in the locales): no store
 connected, not signed in (Refresh signs in), the store cannot be reached, or any other code with the store's hint. Nothing
-blocks: Back always works, the game plays on, the colours already owned stay usable and the shop's buy and restore buttons
-answer with the same sentence instead of doing anything. The overlay of a real store pauses the level (`store_events`).
+blocks: Back always works, the game plays on, the colours already owned stay usable, the shop's buy buttons are greyed out
+(not interactable) and Restore purchases answers with the same sentence instead of doing anything. The pad still has a
+focus on the shop (the first button that can be used, the colour button: the engine's `autoFocus` fallback). The overlay of
+a real store pauses the level (`store_events`).
 
 ## Accessibility (Options > Access)
 
@@ -281,7 +287,7 @@ Saved with the other settings (`storage` key `settings`, `scripts/settings.js`) 
 | Option | How it works |
 |---|---|
 | Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `scripts/ui/text_fit.js` makes every button, toggle and slider as big as its label needs; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in every language at 100% and 200%: widgets inside the screen, labels inside their widget, no text wider than its box, every panel big enough for its content (`tests/helpers/screens.js`). |
-| Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing. `game.paused = false` restores the `time.scale` it had (engine feedback FB-0036); `flow.js` sets `time.scale = 1` when a scene is left, and `level.js` `refreshAssist()` sets the assist speed at the start of a level and after each resume. Level times are game time. |
+| Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing (`assist.applySpeed()` sets it at the start of a level). The pause menu is `game.paused`: pausing remembers the `time.scale` and resuming restores it, so the assist speed survives; a speed picked in Options while paused is the one restored (engine feedback FB-0036). `flow.js` sets `time.scale = 1` when a scene is left (a scene load keeps `time.scale`), and `level.js` `refreshAssist()` marks the run as assisted at the start of a level and after each resume. Level times are game time. |
 | Invincible | Spikes and enemies do nothing. A fall puts the player back at the last checkpoint (or the start) and does **not** count as a death: no `player_died`, no shake, no hurt sound. |
 | Screen shake | Off: `effects.js` `deathShake()` does nothing. |
 | Reduced effects | On: no spark burst when an ember is collected (`effects.js` `emberSpark()`). The game has no other particles or flashes. |
@@ -297,9 +303,9 @@ ring on a post (hollow until you reach it, then solid); the exit is a big lamp w
 so spikes far from the light stay dark, as designed; the outline makes them readable once they are lit.
 
 **What the engine could not do** (all in `ENGINE_FEEDBACK.json`): a colour-blind or greyscale filter or preview, reading the
-system's accessibility settings, speaking menu text (no screen reader), buttons that size themselves to their label, exact
-text measurement in tests, explicit gamepad focus neighbours. Not built: colour-blind filters, subtitles (the game has no
-speech), screen reader, hold-or-toggle (the game has no held action: jump is one press).
+system's accessibility settings, speaking menu text (no screen reader), buttons that size themselves to their label. Not
+built: colour-blind filters, subtitles (the game has no speech), screen reader, hold-or-toggle (the game has no held action:
+jump is one press).
 
 ## What the engine does for this game
 

@@ -44,7 +44,7 @@ export function screenProblems(where) {
       if (p.layout !== "row" && p.layout !== "column") continue;
       const kids = entity.children.filter((c) => c.activeInHierarchy).map((c) => childSize(c, rects)).filter((s) => s[0] > 0 && s[1] > 0);
       if (!kids.length) continue;
-      const { x: pl, y: pt, z: pr, w: pb } = p.padding; // (a vec4 field has x y z w; it cannot be indexed or destructured as an array)
+      const [pl, pt, pr, pb] = p.padding; // left, top, right, bottom
       const row = p.layout === "row";
       const main = kids.reduce((sum, s) => sum + s[row ? 0 : 1], 0) + p.spacing * (kids.length - 1) + (row ? pl + pr : pt + pb);
       const cross = Math.max(...kids.map((s) => s[row ? 1 : 0])) + (row ? pt + pb : pl + pr);

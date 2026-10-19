@@ -8,8 +8,8 @@ import { find } from "./levels.js";
 export function startLevel(id) {
   const level = find(id);
   if (!level) throw new Error(`startLevel: unknown level "${id}". See scripts/levels.js.`);
-  game.paused = false; // time.scale outlives scene loads
-  time.scale = 1;
+  game.paused = false;
+  time.scale = 1; // time.scale outlives scene loads: the loading screen runs at normal speed, level.js sets the assist one
   session.nextScene = level.scene;
   scene.load("scenes/loading.scene.json");
 }
@@ -17,7 +17,7 @@ export function startLevel(id) {
 /** Back to the main menu (`toLevelSelect`: straight to the level select of the current save slot). */
 export function openMenu(toLevelSelect = false) {
   game.paused = false;
-  time.scale = 1;
+  time.scale = 1; // the menu does not run at the assist speed
   session.menuTarget = toLevelSelect ? "level_select" : null; // main_menu.js opens it when a save slot is chosen
   scene.load("scenes/menu.scene.json");
 }
