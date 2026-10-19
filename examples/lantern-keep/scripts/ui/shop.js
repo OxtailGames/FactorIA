@@ -6,6 +6,7 @@
 import { Behaviour, ui, platform, i18n } from "factoria";
 import { PRODUCTS, owns, grant, available, chosen, choose } from "../cosmetics.js";
 import { explain } from "./store_ui.js";
+import { fitWidgets, contentHeight } from "./text_fit.js";
 
 const BUTTONS = { lantern_colours: "shop_buy_colours", supporter: "shop_buy_supporter" };
 
@@ -36,10 +37,16 @@ export default class Shop extends Behaviour {
     this.say(this.noStore ? () => explain("purchases", "shop.what") : null);
   }
 
+  /** The main menu calls this each time it shows the panel again (a hidden panel's scripts do not run): the text size may have changed. */
+  opened() {
+    if (this.prices) this.refresh(); // (not started yet: onStart does it)
+  }
+
   /** Shows a status line. `fn` returns the text, so it can be written again when the language changes. */
   say(fn) {
     this.message = fn;
     this.world.find("shop_status").get("Text").text = fn ? fn() : "";
+    this.layout();
   }
 
   /** Writes the texts this script owns: buttons (name, price or "owned") and the colour choice. */
@@ -52,6 +59,28 @@ export default class Shop extends Behaviour {
     const colour = this.world.find("shop_colour").get("Button");
     colour.text = i18n.t("shop.colour", { colour: i18n.t(`shop.colours.${chosen().id}`) });
     if (this.message) this.world.find("shop_status").get("Text").text = this.message();
+    this.layout();
+  }
+
+  /**
+   * One column while it fits the screen; at a big text size the title and the note stand beside the buttons and the status
+   * (the note is the longest text of the game's screens, and it must stay readable, not scroll).
+   */
+  layout() {
+    const cols = this.world.find("shop_cols").get("Panel");
+    const note = this.world.find("shop_note").get("Text");
+    const status = this.world.find("shop_status").get("Text");
+    cols.layout = "column";
+    note.maxWidth = status.maxWidth = 740;
+    fitWidgets(this.entity); // the buttons as big as their text needs at this text size and language
+    if (contentHeight(this.entity) + 24 > 720) {
+      cols.layout = "row";
+      const buttons = Object.values(BUTTONS).concat(["shop_colour", "shop_restore", "shop_back"]);
+      const right = Math.max(...buttons.map((id) => this.world.find(id).get("Button").size.x)); // the buttons set the right column's width
+      status.maxWidth = right;
+      note.maxWidth = Math.max(360, Math.min(740, 1280 - 2 * 24 - 2 * 24 - 14 - right)); // the note takes what the buttons leave
+      fitWidgets(this.entity);
+    }
   }
 
   nextColour() {

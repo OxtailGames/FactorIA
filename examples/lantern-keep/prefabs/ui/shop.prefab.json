@@ -10,7 +10,8 @@
         "color": [0.08, 0.09, 0.14, 1],
         "layout": "column",
         "spacing": 14,
-        "padding": [24, 24, 24, 24]
+        "padding": [24, 24, 24, 24],
+        "fit": true
       },
       "Script": {
         "path": "scripts/ui/shop.js"
@@ -18,96 +19,141 @@
     },
     "children": [
       {
-        "id": "shop_title",
+        "id": "shop_cols",
         "components": {
-          "Text": {
-            "text": "Shop",
-            "fontSize": 40,
-            "space": "screen",
+          "Panel": {
             "layer": 301,
-            "key": "shop.title"
-          }
-        }
-      },
-      {
-        "id": "shop_note",
-        "components": {
-          "Text": {
-            "text": "Cosmetics only: they never change how the game plays.",
-            "fontSize": 22,
-            "space": "screen",
-            "layer": 301,
-            "key": "shop.note",
-            "color": [0.75, 0.8, 0.9, 1],
-            "maxWidth": 740
-          }
-        }
-      },
-      {
-        "id": "shop_buy_colours",
-        "components": {
-          "Button": {
-            "text": "Lantern colours",
-            "layer": 302,
-            "autoFocus": true,
-            "size": [620, 56]
-          }
-        }
-      },
-      {
-        "id": "shop_buy_supporter",
-        "components": {
-          "Button": {
-            "text": "Supporter",
-            "layer": 302,
-            "size": [620, 56]
-          }
-        }
-      },
-      {
-        "id": "shop_colour",
-        "components": {
-          "Button": {
-            "text": "Lantern colour",
-            "layer": 302,
-            "size": [620, 56]
-          }
-        }
-      },
-      {
-        "id": "shop_restore",
-        "components": {
-          "Button": {
-            "text": "Restore purchases",
-            "layer": 302,
-            "key": "shop.restore",
-            "size": [620, 56]
-          }
-        }
-      },
-      {
-        "id": "shop_status",
-        "components": {
-          "Text": {
-            "text": "",
-            "fontSize": 22,
-            "space": "screen",
-            "layer": 301,
-            "color": [0.75, 0.8, 0.9, 1],
-            "maxWidth": 740
-          }
-        }
-      },
-      {
-        "id": "shop_back",
-        "components": {
-          "Button": {
-            "text": "Back",
-            "layer": 302,
-            "key": "menu.back"
+            "color": [0, 0, 0, 0],
+            "layout": "column",
+            "spacing": 14,
+            "padding": [0, 0, 0, 0],
+            "fit": true
           }
         },
-        "tags": ["back"]
+        "children": [
+          {
+            "id": "shop_left",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 14,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "shop_title",
+                "components": {
+                  "Text": {
+                    "text": "Shop",
+                    "fontSize": 40,
+                    "space": "screen",
+                    "layer": 301,
+                    "key": "shop.title"
+                  }
+                }
+              },
+              {
+                "id": "shop_note",
+                "components": {
+                  "Text": {
+                    "text": "Cosmetics only: they never change how the game plays.",
+                    "fontSize": 22,
+                    "space": "screen",
+                    "layer": 301,
+                    "key": "shop.note",
+                    "color": [0.75, 0.8, 0.9, 1],
+                    "maxWidth": 740
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "id": "shop_right",
+            "components": {
+              "Panel": {
+                "layer": 301,
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 14,
+                "padding": [0, 0, 0, 0],
+                "fit": true
+              }
+            },
+            "children": [
+              {
+                "id": "shop_buy_colours",
+                "components": {
+                  "Button": {
+                    "text": "Lantern colours",
+                    "layer": 302,
+                    "autoFocus": true,
+                    "size": [620, 56]
+                  }
+                }
+              },
+              {
+                "id": "shop_buy_supporter",
+                "components": {
+                  "Button": {
+                    "text": "Supporter",
+                    "layer": 302,
+                    "size": [620, 56]
+                  }
+                }
+              },
+              {
+                "id": "shop_colour",
+                "components": {
+                  "Button": {
+                    "text": "Lantern colour",
+                    "layer": 302,
+                    "size": [620, 56]
+                  }
+                }
+              },
+              {
+                "id": "shop_restore",
+                "components": {
+                  "Button": {
+                    "text": "Restore purchases",
+                    "layer": 302,
+                    "key": "shop.restore",
+                    "size": [620, 56]
+                  }
+                }
+              },
+              {
+                "id": "shop_status",
+                "components": {
+                  "Text": {
+                    "text": "",
+                    "fontSize": 22,
+                    "space": "screen",
+                    "layer": 301,
+                    "color": [0.75, 0.8, 0.9, 1],
+                    "maxWidth": 740
+                  }
+                }
+              },
+              {
+                "id": "shop_back",
+                "components": {
+                  "Button": {
+                    "text": "Back",
+                    "layer": 302,
+                    "key": "menu.back"
+                  }
+                },
+                "tags": ["back"]
+              }
+            ]
+          }
+        ]
       }
     ]
   }

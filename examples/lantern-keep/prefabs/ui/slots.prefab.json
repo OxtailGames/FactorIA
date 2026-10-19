@@ -9,7 +9,8 @@
         "layer": 300,
         "layout": "column",
         "spacing": 16,
-        "padding": [24, 24, 24, 24]
+        "padding": [24, 24, 24, 24],
+        "fit": true
       },
       "Script": {
         "path": "scripts/ui/slots.js"
@@ -144,7 +145,8 @@
             "text": "",
             "fontSize": 20,
             "space": "screen",
-            "layer": 301
+            "layer": 301,
+            "maxWidth": 1100
           }
         }
       },
