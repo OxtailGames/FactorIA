@@ -10,7 +10,7 @@ export default class Checkpoint extends Behaviour {
     if (!other.hasTag("player")) return;
     if (world.find("level")?.behaviour?.reachCheckpoint(this.entity)) {
       const flame = this.entity.children.find((c) => c.name === "Flame");
-      if (flame) flame.get("Shape2D").color = [1, 0.75, 0.25, 1];
+      if (flame) Object.assign(flame.get("Shape2D"), { filled: true, color: [1, 0.75, 0.25, 1] }); // lit = solid, not lit = hollow ring: no colour needed
     }
   }
 }

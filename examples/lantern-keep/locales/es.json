@@ -12,7 +12,7 @@
   "pause": { "title": "Pausa", "resume": "Continuar", "mainMenu": "Menú principal" },
   "options": {
     "title": "Opciones",
-    "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma" },
+    "tab": { "video": "Vídeo", "audio": "Audio", "controls": "Controles", "language": "Idioma", "accessibility": "Acceso" },
     "fullscreen": "Pantalla completa",
     "vsync": "VSync",
     "windowSize": "Tamaño de ventana: {width} x {height}",
@@ -25,7 +25,14 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
-    "language": "Idioma: {language}"
+    "language": "Idioma: {language}",
+    "accessibility": {
+      "textSize": "Tamaño del texto: {percent} %",
+      "speed": "Velocidad del juego: {percent} %",
+      "invincible": "Invencible (ayuda)",
+      "shake": "Sacudida de pantalla",
+      "reducedEffects": "Efectos reducidos (sin chispas)"
+    }
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",
@@ -52,6 +59,7 @@
     "deaths": "Muertes: {deaths}",
     "next": "Siguiente",
     "retry": "Reintentar",
-    "menu": "Menú"
+    "menu": "Menú",
+    "assisted": "Modo ayuda activado"
   }
 }

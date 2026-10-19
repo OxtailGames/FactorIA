@@ -6,6 +6,7 @@ import { Behaviour, ui, i18n, world } from "factoria";
 import { next, EMBERS_PER_LEVEL } from "../levels.js";
 import { startLevel, openMenu } from "../flow.js";
 import { formatTime } from "../time_format.js";
+import { fitWidgets } from "./text_fit.js";
 
 export default class LevelEnd extends Behaviour {
   runWhilePaused = true;
@@ -18,6 +19,7 @@ export default class LevelEnd extends Behaviour {
   open(result, info) {
     this.result = result;
     this.info = info;
+    this.arrange();
     world.find("end_next").active = next(result.level) !== null; // the last level has nothing after it
     this.refresh();
     this.entity.active = true;
@@ -30,7 +32,22 @@ export default class LevelEnd extends Behaviour {
     });
     ui.on("click", "end_retry", () => this.result && startLevel(this.result.level));
     ui.on("click", "end_menu", () => openMenu());
-    i18n.on("change", () => this.refresh()); // these lines are built here, not translated by the engine
+    i18n.on("change", () => {
+      this.arrange();
+      this.refresh();
+    }); // these lines are built here, not translated by the engine
+  }
+
+  /**
+   * Sizes the buttons for the text size and chooses the layout: the text above the buttons, or at a big text size the
+   * buttons beside the text (the column would be taller than the screen).
+   */
+  arrange() {
+    fitWidgets(this.entity);
+    const box = world.find("end_box").get("Panel");
+    const beside = ui.textScale > 1.25;
+    box.layout = beside ? "row" : "column";
+    box.spacing = beside ? 32 : 12;
   }
 
   refresh() {
@@ -42,5 +59,6 @@ export default class LevelEnd extends Behaviour {
     text("end_embers", i18n.t("levelEnd.embers", { found: r.embers.filter(Boolean).length, total: EMBERS_PER_LEVEL }));
     text("end_deaths", i18n.t("levelEnd.deaths", { deaths: r.deaths }));
     world.find("end_new_best").active = !!this.info?.newBest;
+    world.find("end_assisted").active = !!r.assisted;
   }
 }

@@ -29,105 +29,149 @@
         },
         "children": [
           {
-            "id": "end_title",
+            "id": "end_stats",
             "components": {
-              "Text": {
-                "text": "Level complete",
-                "key": "levelEnd.title",
-                "fontSize": 40,
+              "Panel": {
                 "layer": 301,
-                "space": "screen"
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 12,
+                "padding": [0, 0, 0, 0],
+                "fit": true
               }
-            }
+            },
+            "children": [
+              {
+                "id": "end_title",
+                "components": {
+                  "Text": {
+                    "text": "Level complete",
+                    "key": "levelEnd.title",
+                    "fontSize": 40,
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              },
+              {
+                "id": "end_time",
+                "components": {
+                  "Text": {
+                    "text": "Time: 0:00.00",
+                    "fontSize": 28,
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              },
+              {
+                "id": "end_best",
+                "components": {
+                  "Text": {
+                    "text": "Best time: 0:00.00",
+                    "fontSize": 28,
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              },
+              {
+                "id": "end_new_best",
+                "components": {
+                  "Text": {
+                    "text": "New best time!",
+                    "key": "levelEnd.newBest",
+                    "fontSize": 24,
+                    "color": [1, 0.85, 0.4, 1],
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              },
+              {
+                "id": "end_embers",
+                "components": {
+                  "Text": {
+                    "text": "Embers: 0/3",
+                    "fontSize": 28,
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              },
+              {
+                "id": "end_deaths",
+                "components": {
+                  "Text": {
+                    "text": "Deaths: 0",
+                    "fontSize": 28,
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              },
+              {
+                "id": "end_assisted",
+                "active": false,
+                "components": {
+                  "Text": {
+                    "text": "Assist mode was on",
+                    "key": "levelEnd.assisted",
+                    "fontSize": 20,
+                    "color": [0.75, 0.8, 0.9, 1],
+                    "layer": 301,
+                    "space": "screen"
+                  }
+                }
+              }
+            ]
           },
           {
-            "id": "end_time",
+            "id": "end_buttons",
             "components": {
-              "Text": {
-                "text": "Time: 0:00.00",
-                "fontSize": 28,
+              "Panel": {
                 "layer": 301,
-                "space": "screen"
+                "color": [0, 0, 0, 0],
+                "layout": "column",
+                "spacing": 12,
+                "padding": [0, 0, 0, 0],
+                "fit": true
               }
-            }
-          },
-          {
-            "id": "end_best",
-            "components": {
-              "Text": {
-                "text": "Best time: 0:00.00",
-                "fontSize": 28,
-                "layer": 301,
-                "space": "screen"
+            },
+            "children": [
+              {
+                "id": "end_next",
+                "components": {
+                  "Button": {
+                    "text": "Next",
+                    "key": "levelEnd.next",
+                    "layer": 302,
+                    "autoFocus": true
+                  }
+                }
+              },
+              {
+                "id": "end_retry",
+                "components": {
+                  "Button": {
+                    "text": "Retry",
+                    "key": "levelEnd.retry",
+                    "layer": 302,
+                    "autoFocus": true
+                  }
+                }
+              },
+              {
+                "id": "end_menu",
+                "components": {
+                  "Button": {
+                    "text": "Menu",
+                    "key": "levelEnd.menu",
+                    "layer": 302
+                  }
+                }
               }
-            }
-          },
-          {
-            "id": "end_new_best",
-            "components": {
-              "Text": {
-                "text": "New best time!",
-                "key": "levelEnd.newBest",
-                "fontSize": 24,
-                "color": [1, 0.85, 0.4, 1],
-                "layer": 301,
-                "space": "screen"
-              }
-            }
-          },
-          {
-            "id": "end_embers",
-            "components": {
-              "Text": {
-                "text": "Embers: 0/3",
-                "fontSize": 28,
-                "layer": 301,
-                "space": "screen"
-              }
-            }
-          },
-          {
-            "id": "end_deaths",
-            "components": {
-              "Text": {
-                "text": "Deaths: 0",
-                "fontSize": 28,
-                "layer": 301,
-                "space": "screen"
-              }
-            }
-          },
-          {
-            "id": "end_next",
-            "components": {
-              "Button": {
-                "text": "Next",
-                "key": "levelEnd.next",
-                "layer": 302,
-                "autoFocus": true
-              }
-            }
-          },
-          {
-            "id": "end_retry",
-            "components": {
-              "Button": {
-                "text": "Retry",
-                "key": "levelEnd.retry",
-                "layer": 302,
-                "autoFocus": true
-              }
-            }
-          },
-          {
-            "id": "end_menu",
-            "components": {
-              "Button": {
-                "text": "Menu",
-                "key": "levelEnd.menu",
-                "layer": 302
-              }
-            }
+            ]
           }
         ]
       }
