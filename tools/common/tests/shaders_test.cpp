@@ -858,7 +858,8 @@ namespace {
 bool real_tool(SetupContext& context) {
     context = SetupContext{};
     if (find_sokol_shdc(context).empty()) {
-        MESSAGE("sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the real-compiler tests are skipped here and run in CI on Linux");
+        FA_FAIL_IF_SHDC_REQUIRED();
+        MESSAGE("sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the real-compiler tests are skipped here and run in CI");
         return false;
     }
     return true;
