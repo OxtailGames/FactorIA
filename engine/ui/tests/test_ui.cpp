@@ -694,10 +694,10 @@ TEST_CASE("on-screen gamepad: a stick and a button feed the pad actions, several
     CHECK(t.w.get<TouchStick>(stick)->shown);
 }
 
-TEST_CASE("ui navigation: the 45-degree cone wins over the half-plane; the half-plane is the fallback") {
+TEST_CASE("ui navigation: widgets in the beam win; the nearest in the half-plane is the fallback") {
     Ui t;
     // A row of tabs above a wide button that overlaps the first tab: its centre is nearer to t1 than t2 is, so the
-    // half-plane search alone sends Right from t1 down to it (LK/FB-0033). It is outside the 45-degree cone.
+    // half-plane search alone sends Right from t1 down to it (LK/FB-0033). t2 is in t1's beam, the button is not.
     Entity t1 = t.button("t1", {0, 0}, {60, 20}), t2 = t.button("t2", {120, 0}, {60, 20}), t3 = t.button("t3", {240, 0}, {60, 20});
     Entity wide = t.button("wide", {0, 35}, {100, 20});
     t.ui.set_focus(t.w, t1);
@@ -705,20 +705,34 @@ TEST_CASE("ui navigation: the 45-degree cone wins over the half-plane; the half-
     CHECK(t.ui.focused() == t2);
     t.tap_key(Key::Right);
     CHECK(t.ui.focused() == t3);
-    // nothing below t3 is in the cone: the half-plane fallback still reaches the button
+    // nothing below t3 is in its beam: the half-plane fallback still reaches the button
     t.tap_key(Key::Down);
     CHECK(t.ui.focused() == wide);
-    // in the cone both ways between t1 and the button
+    // in the beam both ways between t1 and the button
     t.tap_key(Key::Up);
     CHECK(t.ui.focused() == t1);
     t.tap_key(Key::Down);
     CHECK(t.ui.focused() == wide);
-    // a lone widget far to the lower right is outside the cone of Right but still reached
+    // a lone widget far to the lower right is outside every beam but still reached
     Ui u;
     Entity a = u.button("a", {0, 0}), far = u.button("far", {100, 150});
     u.ui.set_focus(u.w, a);
     u.tap_key(Key::Right);
     CHECK(u.ui.focused() == far);
+    // An options panel: a narrow tab above a wide, offset slider row and a Back button further down. Back is closer to
+    // the tab's direction (within 45 degrees) and scores lower in the half-plane, but Down goes to the row under the tab.
+    Ui m;
+    Entity tab = m.button("tab", {0, 0}, {60, 20}), row = m.button("row", {40, 30}, {260, 20});
+    Entity back = m.button("back", {80, 120}, {60, 20});
+    m.ui.set_focus(m.w, tab);
+    m.tap_key(Key::Down);
+    CHECK(m.ui.focused() == row);
+    m.tap_key(Key::Down);
+    CHECK(m.ui.focused() == back);
+    m.tap_key(Key::Up);
+    CHECK(m.ui.focused() == row);
+    m.tap_key(Key::Up);
+    CHECK(m.ui.focused() == tab);
 }
 
 TEST_CASE("ui focus: a greyed-out autoFocus button hands the focus to the first interactable widget") {

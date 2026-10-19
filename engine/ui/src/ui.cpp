@@ -1,6 +1,7 @@
 #include "fa/ui/ui.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include "fa/core/utf8.h"
@@ -237,24 +238,25 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         }
         const Item* cur = find(focus_);
         const Vec2 dir = d == Up ? Vec2{0, -1} : d == Down ? Vec2{0, 1} : d == Left ? Vec2{-1, 0} : Vec2{1, 0};
-        // Candidates within 45 degrees of the direction first; the whole half-plane only when the cone is empty.
+        // Widgets in the beam (overlapping the focused one across the direction: the next tab along a row, the row
+        // under a tab) win, nearest first. Otherwise the nearest in that half of the screen, sideways distance doubled.
+        const Rect& r = cur->rect;
         const Item* best = nullptr;
-        for (const bool coneOnly : {true, false}) {
-            float bestScore = 0;
-            for (const Item& it : ordered) {
-                if (it.e == focus_ || !it.interactable) continue;
-                const Vec2 delta = it.rect.center() - cur->rect.center();
-                const float along = dot(delta, dir);
-                if (along <= 1e-3f) continue;  // not in that half-plane of the current centre
-                const float across = std::fabs(dot(delta, perp(dir)));
-                if (coneOnly && across > along) continue;
-                const float score = along + 2.0f * across;
-                if (!best || score < bestScore) {
-                    best = &it;
-                    bestScore = score;
-                }
+        std::array<float, 3> bestKey{};
+        for (const Item& it : ordered) {
+            if (it.e == focus_ || !it.interactable) continue;
+            const Vec2 delta = it.rect.center() - r.center();
+            const float along = dot(delta, dir);
+            if (along <= 1e-3f) continue;  // not in that half-plane of the current centre
+            const float across = std::fabs(dot(delta, perp(dir)));
+            const Rect& o = it.rect;
+            const bool inBeam = d >= Left ? o.y < r.y + r.h && r.y < o.y + o.h : o.x < r.x + r.w && r.x < o.x + o.w;
+            const std::array<float, 3> key = inBeam ? std::array<float, 3>{0, along, across}
+                                                    : std::array<float, 3>{1, along + 2.0f * across, 0};
+            if (!best || key < bestKey) {
+                best = &it;
+                bestKey = key;
             }
-            if (best) break;
         }
         if (best) set_focus(w, best->e);
     }

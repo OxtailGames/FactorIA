@@ -1133,7 +1133,7 @@ export default class Menu extends Behaviour {
 ```
 
 - **Navigation is automatic.** Up / down / left / right (keys, d-pad, left stick) move the focus to the nearest widget
-  in that direction (within 45 degrees of it first, so Right along a row of tabs stays on the row),
+  in that direction (widgets lined up with the focused one first, so Right along a row of tabs stays on the row),
   `ui_submit` (Enter, Space, pad A) clicks, `ui_cancel` (Escape, pad B) sends `ui.cancel`; the mouse works too. Nothing is
   focused until an `autoFocus` widget or `ui.focus(entity)` takes the focus, which keeps Space / A (jump) from clicking HUD
   buttons during play. Rebind the six `ui_*` actions in `factoria.json` `input.actions` if you want other keys.
