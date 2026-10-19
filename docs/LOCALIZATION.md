@@ -60,7 +60,8 @@ Changing the section needs a restart; editing `locales/*.json` does not (hot rel
 **Lookup.** The current language's table, then its base language's (`pt` for `pt-BR`, when the game has it), then
 `defaultLanguage`'s. A key that no table has makes `t()` return the key itself and warn once in the log (category
 `i18n`): the screen shows where a string is missing. A language whose file is missing or broken starts with a warning and
-answers from the fallbacks. `i18n.state` lists, per language, the keys of the default table it lacks.
+answers from the fallbacks. The command `i18n.state` (`fa.call("i18n.state")`, `factoria call i18n.state`) lists, per
+language, the keys of the default table it lacks.
 
 ## 3. Which language the game starts in
 

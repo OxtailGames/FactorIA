@@ -247,12 +247,16 @@ LanguageResult import_language(const std::string& language, const std::vector<Tr
     std::map<std::string, Location> known;
     if (current.table)
         for (const auto& [key, entry] : current.table->entries) known[key] = {entry.pointer, entry.plural()};
-    bool nested = false;  // is the file written as nested groups ("menu": {"play": ...})?
-    for (auto it = r.document.begin(); it != r.document.end(); ++it) {
-        if (!it.key().empty() && it.key()[0] == '$') continue;
-        const auto entry = known.find(it.key());
-        if (it->is_object() && !(entry != known.end() && entry->second.plural)) nested = true;
-    }
+    // Is the file written as nested groups ("menu": {"play": ...})? A language with no file yet copies the default table's shape.
+    const auto is_nested = [](const Json& document, const StringTable& table) {
+        for (auto it = document.begin(); it != document.end(); ++it) {
+            if (it.key().empty() || it.key()[0] == '$') continue;
+            const auto entry = table.entries.find(it.key());
+            if (it->is_object() && !(entry != table.entries.end() && entry->second.plural())) return true;
+        }
+        return false;
+    };
+    const bool nested = current.table ? is_nested(r.document, *current.table) : is_nested(def.document, *def.table);
 
     const auto& defaults = def.table->entries;
     std::vector<std::string> defaultKeys;
