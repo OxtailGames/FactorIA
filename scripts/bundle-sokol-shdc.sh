@@ -15,11 +15,7 @@
 #             checked to be its pinned file. release.yml then signs it with factoria, which changes the bytes.
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-    echo "usage: $0 <output folder>" >&2
-    exit 2
-fi
-out="$1"
+out="${1:?usage: $0 <output folder>}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 header="$repo/tools/common/include/fa/tooling/setup.h"
 pin="$(tr -d '\r' < "$header")"  # a Windows checkout may have CRLF
