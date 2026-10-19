@@ -1,5 +1,5 @@
 import { test, expect, game } from "factoria:test";
-import { ui, scene, storage, audio, i18n, time } from "factoria";
+import { ui, scene, storage, audio, i18n, time, session } from "factoria";
 import * as progress from "../scripts/progress.js";
 import { listen, teleportOnto } from "./helpers/autoplay.js";
 import en from "../locales/en.json";
@@ -14,6 +14,10 @@ const button = (id) => game.find(id).get("Button").text;
 /** Every test starts like a new run of the game: English, nothing saved, nothing finished, not paused. */
 function fresh() {
   progress.reset();
+  session.slot = null;
+  session.menuTarget = null;
+  for (const n of [1, 2, 3]) storage.remove(`slot${n}`);
+  storage.remove("lastSlot");
   storage.remove("settings");
   i18n.setLanguage("en");
   time.scale = 1;
@@ -35,21 +39,14 @@ test("the main menu shows the game's name and the first button has the focus", (
   expect(game.find("shop_button")).toBeNull(); // no shop yet
 });
 
-test("gamepad only: Play starts the first level through the loading screen", () => {
+test("gamepad only: Play, a slot, then a level starts it through the loading screen", () => {
   fresh();
   game.step(2);
-  pad().tap("A");
+  pad().tap("A"); // Play: the save slots (tests/saves.test.js)
+  pad().tap("A"); // slot 1: the level select
+  pad().tap("A"); // 1-1
   waitForScene("scenes/levels/1-1.scene.json");
   expect(text("hud_level")).toBe("1-1  First Light");
-});
-
-test("Play goes to the next level that is not finished", () => {
-  fresh();
-  progress.record({ level: "1-1", time: 30, embers: [true, true, true], deaths: 0 });
-  game.load("scenes/menu.scene.json");
-  game.step(2);
-  pad().tap("A");
-  waitForScene("scenes/levels/1-2.scene.json");
 });
 
 test("gamepad only: pause with Start, resume with A; the player does not jump when Resume is clicked", () => {
@@ -119,7 +116,9 @@ test("gamepad only: Options -> Language switches the whole game to Spanish and b
   expect(text("title")).toBe("Lantern Keep");
   // a level started now is in Spanish: HUD, level name
   pad().tap("DpadUp");
-  pad().tap("A");
+  pad().tap("A"); // Play
+  pad().tap("A"); // slot 1
+  pad().tap("A"); // 1-1
   waitForScene("scenes/levels/1-1.scene.json");
   expect(i18n.language).toBe("es");
   expect(text("hud_level")).toBe("1-1  Primera luz");

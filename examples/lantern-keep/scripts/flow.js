@@ -13,8 +13,9 @@ export function startLevel(id) {
   scene.load("scenes/loading.scene.json");
 }
 
-/** Back to the main menu. */
-export function openMenu() {
+/** Back to the main menu (`toLevelSelect`: straight to the level select of the current save slot). */
+export function openMenu(toLevelSelect = false) {
   game.paused = false;
+  session.menuTarget = toLevelSelect ? "level_select" : null; // main_menu.js opens it when a save slot is chosen
   scene.load("scenes/menu.scene.json");
 }

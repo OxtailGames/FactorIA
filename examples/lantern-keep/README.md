@@ -7,8 +7,8 @@ worlds: **Courtyard** (`1-1`, `1-2`, `1-3`, daylight) and **Cellars** (`2-1`, `2
 `Light2D` that lights the tiles, spikes, enemies and platforms around you, over a parallax background). It plays in
 English and Spanish, with keyboard, mouse or gamepad.
 
-This is the first package (core game, menus, languages) of the reference game. Next packages add save slots and a
-level select (progress goes to disk), store services (stats, achievements, a cosmetics shop), accessibility, shipping
+This is the first package (core game, menus, languages) of the reference game; save slots and the level select came next. Later packages add
+store services (stats, achievements, a cosmetics shop), accessibility, shipping
 (export, icons, store pages) and more languages. They build on the three contracts below: do not change them without
 changing every package that uses them.
 
@@ -49,18 +49,57 @@ Options > Controls.
   `scenes/loading.scene.json`, `scripts/main_menu.js`, `settings.js`, `pause_menu.js`, `loading.js`, `store_events.js`,
   `scripts/ui/` (`menu_stack.js`, `options.js`, `credits.js`), `prefabs/ui/` (`options`, `pause`, `level_end`). The shop
   of the recipe is left out until the store package.
+- `scripts/saves.js` (slots, format, migration, cloud), `scripts/ui/slots.js`, `delete_confirm.js`, `level_select.js` with
+  `prefabs/ui/slots`, `delete_confirm` and `level_select` (the saves package; see "Saves and the level select").
 - `locales/en.json`, `locales/es.json`: every text. Groups: `menu`, `loading`, `pause`, `options`, `credits` (the recipe's),
-  `hud.*`, `level.*` (level and world names), `levelEnd.*`. Later packages add their own groups.
+  `hud.*`, `level.*` (level and world names), `levelEnd.*`, `slots.*`, `select.*`. Later packages add their own groups.
 - `prefabs/*.prefab.json`: player (with its lantern), ember, spikes, enemy, checkpoint, exit, platforms, spark.
 - `assets/`: the template's tileset and jump sound, plus a few small PNGs (spikes, enemy, two background layers) and
   sounds made for this game. Records of where they came from are in `assets.json`.
 - `tests/`: `levels.test.js` (every scene is what its map builds, every level has its parts), `mechanics.test.js` (run,
   jump, embers, spikes, checkpoints, enemies, the exit, one-way and moving platforms), `progress.test.js`,
-  `play.test.js` (a bot finishes every level), `menus.test.js` (menus, pause, language and the level end panel, with the
+  `saves.test.js` (slots, level select, autosave, migration from `tests/fixtures/save_v1.json`, damaged saves, cloud saves
+  against the fake store, failures included), `play.test.js` (a bot finishes every level), `menus.test.js` (menus, pause, language and the level end panel, with the
   gamepad only). `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
   help other tests. The levels are built so that this bot finishes all of them.
-- `screenshots/`: the main menu, a level of each world and the level end panel.
+- `screenshots/`: the main menu, the save slots, the level select, a level of each world and the level end panel.
+
+## Saves and the level select
+
+Play opens the three **save slots** (`prefabs/ui/slots`, `scripts/ui/slots.js`): an empty one says "New game", a used one shows
+levels finished n/6, embers n/18 and the sum of the best times, a damaged one says "Damaged". Choosing a slot makes it the
+current one (`session.slot`), loads its progress and opens the **level select** (`level_select`): both worlds, each level with
+its name, "Locked" (`progress.isUnlocked`) or its embers and best time. The level end panel's Menu returns to it
+(`flow.openMenu(true)`, read by `main_menu.js`); Back goes to the slots, then the main menu. "Delete" asks first
+(`delete_confirm`, the focus is on "Keep it"). **Continue** on the main menu appears when the last saved slot is usable and opens
+its level select. Everything is driven with the pad, keyboard or mouse like the recipe's menus. Settings are not in the slots:
+they stay under the `settings` key of `storage`.
+
+**Files.** A slot is a string of JSON text in `storage` under `slot1`, `slot2`, `slot3` (plus `lastSlot`, a number).
+`progress.record()` calls `saves.save()`, so the slot is written after every `level_completed`; before a level is finished
+nothing is written. Without a chosen slot (tests, a level started from the editor) nothing is saved.
+
+**Format.**
+
+| version | layout |
+|---|---|
+| 1 (no `version` field) | `{ "cleared": ["1-1"], "best": { "1-1": 41.2 } }`. Embers were not saved. |
+| 2 (now) | `{ "version": 2, "counter": 7, "levels": { "1-1": { "completed": true, "bestTime": 41.2, "embers": [true, false, true] } } }` |
+
+`saves.parse(text)` reads any version and returns version 2 data (`migrate1` upgrades version 1: the cleared levels become
+completed, with no embers). The next save writes version 2. Text that is not JSON, is not an object, has a version newer than
+the game's, or levels that are not shaped like the table is **damaged**: the slot says so, cannot be chosen and can be deleted;
+nothing throws. Levels the game does not know are dropped. Change the layout: bump `VERSION`, add a `migrateN`, keep the
+fixture of the old layout in `tests/fixtures/` and test it.
+
+**Cloud saves** (`platform.cloud`, see `factoria docs read platform`; no catalog entry is needed). `counter` goes up by one on
+every save (never the clock, so runs repeat). After each save the slot text is uploaded under the same key. When the slot screen
+opens, `saves.syncCloud()` compares each slot with its cloud copy: the higher `counter` wins, a better cloud copy replaces the
+local slot (also a damaged or empty one), a better or missing cloud copy is uploaded. Equal counters keep the local copy. A
+backend without cloud saves, a player not signed in or a failed upload or download changes nothing locally: the local save is
+always written first and never waits for the store. Deleting a slot deletes its cloud copy; if that delete fails, the copy can
+come back at the next sync (known limit).
 
 ## Contract 1: the level list (`scripts/levels.js`)
 
@@ -80,8 +119,8 @@ Exports: `LEVELS` (`{ id, world, scene, nameKey }`), `WORLDS` (`{ 1: { nameKey, 
 
 ## Contract 2: progress (`scripts/progress.js`)
 
-The only place results are recorded. For now they live in `session` (memory, until the game closes); the save package keeps the
-same functions and puts storage behind them. The data is a plain JSON object:
+The only place results are recorded. They live in `session`; `record()` also writes the chosen save slot (`scripts/saves.js`,
+section "Saves and the level select"). The functions did not change. The data is a plain JSON object:
 
 ```json
 { "levels": { "1-1": { "completed": true, "bestTime": 41.2, "embers": [true, false, true] } } }
@@ -97,7 +136,7 @@ A level that was never finished has no entry. `embers` are the ones found in any
 | `record(result)` | `result` is the `level_completed` payload. Keeps the best time and the embers; returns `{ firstCompletion, newBest, bestTime, previousBest }`. `level.js` calls it when the exit is touched. |
 | `isCompleted(id)` / `isUnlocked(id)` | `1-1` is always open; any other level opens after the one before it was finished. |
 | `totalEmbers()` | Embers found in all levels (at most 18). |
-| `nextToPlay()` | The first unlocked level that is not finished (the last level when all are): what the main menu's Play starts. |
+| `nextToPlay()` | The first unlocked level that is not finished (the last level when all are). The main menu's Play no longer uses it (it opens the save slots); kept for other features. |
 
 ## Contract 3: game events
 
@@ -141,4 +180,3 @@ The gaps found while making the game are in `ENGINE_FEEDBACK.json`.
   rebuilding; `tests/levels.test.js` and `tests/play.test.js` loop over `LEVELS`, so they pick it up.
 - A level scene needs the entities of the base scenes: `player`, `map`, `level`, `camera`, `pause_menu`, `store_events`
   and the HUD texts. The simplest way to keep that true is to start from a base scene.
-- Save slots: call `progress.load(saved)` at start and persist `progress.get()` after `level_completed`.

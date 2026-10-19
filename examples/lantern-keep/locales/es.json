@@ -6,7 +6,8 @@
     "options": "Opciones",
     "credits": "Créditos",
     "quit": "Salir",
-    "back": "Atrás"
+    "back": "Atrás",
+    "continue": "Continuar"
   },
   "loading": { "text": "Cargando..." },
   "pause": { "title": "Pausa", "resume": "Continuar", "mainMenu": "Menú principal" },
@@ -53,5 +54,22 @@
     "next": "Siguiente",
     "retry": "Reintentar",
     "menu": "Menú"
+  },
+  "slots": {
+    "title": "Partidas",
+    "new": "Partida {n}: Nueva partida",
+    "used": "Partida {n}: {levels}/{totalLevels} niveles  {embers}/{totalEmbers} ascuas  {time}",
+    "damaged": "Partida {n}: Dañada",
+    "damagedNote": "Una partida dañada no se puede cargar. Bórrala para empezar de nuevo.",
+    "delete": "Borrar",
+    "keep": "Conservar",
+    "confirm": "¿Borrar la partida {n}?",
+    "confirmNote": "No se puede deshacer."
+  },
+  "select": {
+    "title": "Elige un nivel",
+    "locked": "Bloqueado",
+    "open": "Sin terminar",
+    "result": "Ascuas {found}/{total}  {time}"
   }
 }

@@ -195,6 +195,87 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0010",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "Scripts and entity.behaviour of inactive panels",
+      "missing": "A menu panel that starts inactive (the recipe's pattern) has entity.behaviour === null until it has been shown once, and its Script onStart only runs when it is first activated. The docs say an inactive entity gets no callbacks, but not that behaviour is null or that onStart is deferred, so calling world.find('slots').behaviour.refresh() from another screen throws 'cannot read property of null'.",
+      "workaround": "Screen logic that other screens call (refresh, open) is exported as plain module functions (refreshSlots, refreshSelect) that look entities up with world.find; the Behaviour class only wires clicks.",
+      "workaroundFiles": [
+        "scripts/ui/slots.js",
+        "scripts/ui/level_select.js",
+        "scripts/ui/delete_confirm.js"
+      ],
+      "suggestion": "Document in the menus recipe how a panel script gets set up and refreshed when shown (or add an onEnable callback that also runs for panels shown by MenuStack), and say entity.behaviour is null for a never-activated entity.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0011",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Multi-line Button text is left-aligned and not clipped",
+      "missing": "A Button whose text has a newline (level name plus embers and best time) draws its lines left-aligned inside a centered block and lets the text run past the button's edge when the button is too narrow; there is no wrap or ellipsis option and no documented way to put two lines of different style in one button.",
+      "workaround": "Shortened the second line (no 'Best' label) and made the buttons 320 px wide; the lines are left-aligned as the engine draws them.",
+      "workaroundFiles": [
+        "prefabs/ui/level_select.prefab.json",
+        "locales/en.json"
+      ],
+      "suggestion": "Center each line of a multi-line Button label, add maxWidth/wrap to Button like Text has, and document newline support in Button.text.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0012",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "factoria test takes no test file path and its error misleads",
+      "missing": "'factoria test tests/saves.test.js' reads the path as a project folder and answers 'not a FactorIA project ... The directory does not exist. Create it with factoria new ...'. There is no way to run one test file; only --filter on test names (which needs the names).",
+      "workaround": "Ran 'factoria test . --filter <words of the test name>' per test while developing.",
+      "suggestion": "Accept test file paths or globs after the project (or a --file option), and when the argument is an existing file say 'give the project folder; use --filter to pick tests'.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0013",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p2",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "No guidance on testing a damaged save file",
+      "missing": "storage only holds JSON values, so a save that is 'not valid JSON' cannot exist inside storage.json itself, and the docs do not say what the engine does when storage.json is corrupt on disk (does storage start empty, is the file kept?). A game that wants to detect damaged saves has to store text and parse it itself, and cannot test the corrupt-file case at all, since tests use an in-memory storage.",
+      "workaround": "A slot is stored as a string of JSON text and parsed with try/catch in scripts/saves.js; tests store broken text with storage.set.",
+      "workaroundFiles": [
+        "scripts/saves.js",
+        "tests/saves.test.js"
+      ],
+      "suggestion": "Document the corrupt storage.json behaviour (and keep a .bak) in the scripting docs, and add a save-file recipe with versioning, migration and a damaged-save screen.",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

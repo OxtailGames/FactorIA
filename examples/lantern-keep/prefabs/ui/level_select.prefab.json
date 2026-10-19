@@ -1,0 +1,159 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Level select",
+    "components": {
+      "Panel": {
+        "size": [1040, 500],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "layout": "column",
+        "spacing": 16,
+        "padding": [24, 24, 24, 24]
+      },
+      "Script": {
+        "path": "scripts/ui/level_select.js"
+      }
+    },
+    "children": [
+      {
+        "id": "select_title",
+        "components": {
+          "Text": {
+            "text": "Choose a level",
+            "fontSize": 40,
+            "space": "screen",
+            "layer": 301,
+            "key": "select.title"
+          }
+        }
+      },
+      {
+        "id": "select_world_1",
+        "components": {
+          "Text": {
+            "text": "Courtyard",
+            "fontSize": 26,
+            "space": "screen",
+            "layer": 301,
+            "key": "level.world.1"
+          }
+        }
+      },
+      {
+        "id": "select_row_1",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "lvl_1-1",
+            "components": {
+              "Button": {
+                "text": "Level",
+                "layer": 302,
+                "size": [320, 84],
+                "autoFocus": true
+              }
+            }
+          },
+          {
+            "id": "lvl_1-2",
+            "components": {
+              "Button": {
+                "text": "Level",
+                "layer": 302,
+                "size": [320, 84]
+              }
+            }
+          },
+          {
+            "id": "lvl_1-3",
+            "components": {
+              "Button": {
+                "text": "Level",
+                "layer": 302,
+                "size": [320, 84]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "select_world_2",
+        "components": {
+          "Text": {
+            "text": "Cellars",
+            "fontSize": 26,
+            "space": "screen",
+            "layer": 301,
+            "key": "level.world.2"
+          }
+        }
+      },
+      {
+        "id": "select_row_2",
+        "components": {
+          "Panel": {
+            "layer": 301,
+            "color": [0, 0, 0, 0],
+            "layout": "row",
+            "spacing": 12,
+            "padding": [0, 0, 0, 0],
+            "fit": true
+          }
+        },
+        "children": [
+          {
+            "id": "lvl_2-1",
+            "components": {
+              "Button": {
+                "text": "Level",
+                "layer": 302,
+                "size": [320, 84]
+              }
+            }
+          },
+          {
+            "id": "lvl_2-2",
+            "components": {
+              "Button": {
+                "text": "Level",
+                "layer": 302,
+                "size": [320, 84]
+              }
+            }
+          },
+          {
+            "id": "lvl_2-3",
+            "components": {
+              "Button": {
+                "text": "Level",
+                "layer": 302,
+                "size": [320, 84]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "select_back",
+        "components": {
+          "Button": {
+            "text": "Back",
+            "layer": 302,
+            "key": "menu.back"
+          }
+        },
+        "tags": ["back"]
+      }
+    ]
+  }
+}

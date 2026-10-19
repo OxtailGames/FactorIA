@@ -1,13 +1,14 @@
 // @ts-check
 // THE place results are recorded: the main menu, the level end panel and every later feature (save slots, the level
-// select, store stats) read and write progress through these functions only. For now it lives in `session` (memory, until
-// the game closes); the data is a plain JSON object, so a save file can hold it as it is:
+// select, store stats) read and write progress through these functions only. It lives in `session`; saves.js writes it to the
+// chosen save slot after every record(). The data is a plain JSON object, so a save file can hold it as it is:
 //
 //   { levels: { "1-1": { completed: true, bestTime: 41.2, embers: [true, false, true] } } }
 //
 // A level that was never finished has no entry. `embers` are the ones found in ANY run (they only ever turn true).
 import { session } from "factoria";
 import { LEVELS, EMBERS_PER_LEVEL, find } from "./levels.js";
+import { save } from "./saves.js";
 
 function data() {
   if (!session.progress) session.progress = { levels: {} };
@@ -50,6 +51,7 @@ export function record(result) {
     bestTime,
     embers: before.embers.map((found, i) => found || !!result.embers[i]),
   };
+  save(); // the chosen save slot (scripts/saves.js), if any
   return {
     firstCompletion: !before.completed,
     newBest: before.bestTime === null || result.time < before.bestTime,

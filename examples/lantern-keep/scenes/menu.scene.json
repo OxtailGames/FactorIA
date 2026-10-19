@@ -85,6 +85,16 @@
           }
         },
         {
+          "id": "continue",
+          "active": false,
+          "components": {
+            "Button": {
+              "text": "Continue",
+              "key": "menu.continue"
+            }
+          }
+        },
+        {
           "id": "options_button",
           "components": {
             "Button": {
@@ -112,6 +122,21 @@
           }
         }
       ]
+    },
+    {
+      "id": "slots",
+      "active": false,
+      "prefab": "prefabs/ui/slots.prefab.json"
+    },
+    {
+      "id": "delete_confirm",
+      "active": false,
+      "prefab": "prefabs/ui/delete_confirm.prefab.json"
+    },
+    {
+      "id": "level_select",
+      "active": false,
+      "prefab": "prefabs/ui/level_select.prefab.json"
     },
     {
       "id": "options",

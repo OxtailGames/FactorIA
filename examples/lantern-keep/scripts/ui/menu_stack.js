@@ -7,6 +7,8 @@ import { world, ui } from "factoria";
 export class MenuStack {
   /** True while a panel captures input for itself (options: "press a key"): back() does nothing then. */
   static busy = false;
+  /** The main menu's stack, so its screens (save slots, level select) can open each other. */
+  static main = null;
 
   /** @param {string | null} root the panel that is always there (the main menu), or null (gameplay: nothing open) */
   constructor(root) {
