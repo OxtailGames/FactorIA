@@ -147,9 +147,40 @@ HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annota
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
 `mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares
-the programs. `mesh.glsl` is that top file with an empty `surface()`; custom materials will be the same with their own
-snippet ([design](design/CUSTOM_SHADERS.md)). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
+the programs. `mesh.glsl` is that top file with an empty `surface()`; a custom material is the same with its own
+snippet, so the engine and the materials share one source of truth (an empty `surface()` renders pixel-identical to a
+`MeshRenderer` without a material). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
+
+**Custom materials** ([guide for game makers](SHADERS.md), [design](design/CUSTOM_SHADERS.md)):
+
+- *Template and hook points.* `mesh_common.glsl` defines the contract structs (`SurfaceInput`, `Surface`, `VertexData`)
+  and calls `vertex(v)` (with `FA_HAS_VERTEX`) inside `fa_shade_vertex`, after the instance and skin matrices, and
+  `surface(i, s)` in the fragment `main` after `fa_standard_surface`, before lighting. `FA_ALPHA_CLIP` makes the
+  fragment `discard` below `alphaCutoff` and makes `shadow_fs` run `surface()` too. Uniform bindings: vertex 0 params,
+  3 skin, 4 the material's vertex-stage block; fragment 1 params, 2 lights, 5 the material block; material textures use
+  views 6-9 and samplers 2-5.
+- *Generator* (`tools/common/src/shaders_generate.cpp`). `generate_material_shader` writes the sokol-shdc top file: the
+  params as one alphabetical block (each padded to a `vec4`), the textures, the snippet verbatim with a line table, then
+  `@include mesh_common.glsl` and the programs (`mesh`, `mesh_skin`, plus `shadow`, `shadow_skin` with `vertex()` or
+  `"clip"`). `shaders_compile.cpp` runs sokol-shdc through the injectable `SetupContext::run`, maps its errors back to
+  the snippet's lines and adds hints, and reads the YAML reflection (`shaders_yaml.cpp`).
+- *Twins and cache.* Each dialect becomes a `factoria.shader/1` JSON document, the *twin*
+  `<material>.json.<slang>.shader` (cross-compiled source per program plus binding reflection, stamped with the engine
+  version and the template hash). The cache `.factoria/shader-cache/<sha256>.<slang>.shader` is keyed by the generated
+  top file, the snippet, the template, the dialect and the sokol-shdc pin, so an unchanged material starts no process.
+- *Runtime flow.* `Assets` keeps a `MaterialAsset` per `.material.json` (`render/src/custom_shader.cpp`): the twin comes
+  from `fa::fs` (an exported game) or from `EngineConfig::shaderCompiler` (the CLI and editor inject
+  `make_engine_shader_compiler`, because `fa_runtime` may not depend on `fa_tooling`; host dialect only), and becomes
+  `sg_shader`s. Pipelines are keyed by shader; the batch key holds the material and a hash of the entity's
+  `materialParams`, so equal overrides batch together. A failed build draws the unlit magenta error material and is
+  listed in `RenderStats::materialFallbacks` and `asset_report`.
+- *Hot reload.* `Engine::poll_hot_reload` sees a changed `.material.json` or snippet, `Assets::reload` rebuilds the
+  material in place; a failed rebuild keeps the previous programs and logs once.
+- *Exports.* `convert_shaders` (`tools/common/src/export_shaders.cpp`) runs in `prepare_game_assets`: it compiles the
+  platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
+  web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
+  compiler. `factoria validate` compiles every dialect of every material.
 
 ### Textures
 An export replaces a texture `x.png` by its twin `x.png.ktx2` (Basis Universal, written by `fa_tooling`'s
