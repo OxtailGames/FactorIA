@@ -441,6 +441,22 @@ Closes D-01..D-05, D-07 and the store-page notes of the report.
 Acceptance criteria: every guide is embedded in the binary and listed by `factoria docs`; a replay can be written to a
 video file.
 
+In progress (branch `m21/reference-game`, planned 2026-10-19): the reference game first, because the guides are better
+written with it in hand. **Lantern Keep** (`examples/lantern-keep`): a 2D platformer, six short levels in two worlds,
+three embers to find per level, best times. It is built the way a game maker's AI builds a game (the generated
+AGENTS.md, `factoria docs`, the public commands, no engine change), and every gap goes to its `ENGINE_FEEDBACK.json`
+for the next triage. Packages, each a worker branch merged into `m21/reference-game`:
+- P1 core (first, alone): the project from the `2d-platformer` template, the six levels, HUD, level end, the menu kit of
+  docs/MENUS.md, English and Spanish, the game events and the progress module the other packages build on.
+- P2 saves (after P1): three save slots with their menu, level select, a save format version with a migration, cloud
+  saves through `platform`.
+- P3 store services (after P1): achievements, stats, leaderboards and their screens, a shop of cosmetic lanterns, on
+  the fake backend.
+- P4 accessibility (after P1): text size, assist mode, reduced effects, hazards readable without colour.
+- P5 shipping (after P1): export settings, icons, store texts and screenshots, the touch gamepad, a desktop and a web
+  export run here, and `SHIPPING.md`: what each store needs and what is left by hand (input for the publishing guides).
+- P6 languages (last): a right-to-left language and every screen checked in each language at large text.
+
 ## M22. Production quality and legal (M, high)
 
 Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14).
