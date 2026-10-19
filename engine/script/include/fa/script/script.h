@@ -76,6 +76,17 @@ public:
     virtual CommandRegistry& commands() = 0;
     virtual Json project_settings() const = 0;
     virtual double fixed_dt() const = 0;
+    // The renderer's target size in pixels (what `game.screenSize` reads on every call: cheap, no settings copy); without a
+    // renderer, the project's display size. Hosts that keep that size at hand override it.
+    virtual Vec2 design_size() const {
+        Json p = project_settings();
+        Vec2 s{1280.0f, 720.0f};
+        if (p.is_object() && p.contains("display") && p["display"].is_object()) {
+            s.x = p["display"].value("width", 1280.0f);
+            s.y = p["display"].value("height", 720.0f);
+        }
+        return s;
+    }
     // The game window, or nullptr when this run has none (the default): `window.available` in scripts.
     virtual WindowControl* window() { return nullptr; }
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
