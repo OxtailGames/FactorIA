@@ -372,7 +372,9 @@ if (window.available) {
 
 `time.scale` (writable, default 1) scales gameplay: the `dt` of `onUpdate`/`onFixedUpdate`, timers (`after`, `every`),
 physics steps, particles and sprite animators. `0` freezes all of them; `game.paused = true` is the same as
-`time.scale = 0`. Audio keeps playing and `time.elapsed` keeps counting fixed steps. While it is 0 the engine calls
+`time.scale = 0`, but it remembers the scale: `game.paused = false` restores the `time.scale` you had (0.5 stays 0.5;
+1 if it was 0 already), and setting `time.scale` to a value above 0 while paused only changes the scale to restore.
+Audio keeps playing and `time.elapsed` keeps counting fixed steps. While it is 0 the engine calls
 `onUpdate`/`onLateUpdate` only on behaviours with `runWhilePaused = true` (a class field), with the real frame time as
 `dt` (`time.dt` is 0 then, `time.unscaledDt` is the real one), and the UI and `world.on` listeners keep working. A pause
 menu is such a behaviour:
