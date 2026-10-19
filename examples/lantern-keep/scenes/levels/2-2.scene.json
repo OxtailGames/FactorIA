@@ -340,6 +340,20 @@
               "blend": "additive"
             }
           }
+        },
+        {
+          "id": "e22",
+          "name": "Edge",
+          "components": {
+            "Shape2D": {
+              "shape": "diamond",
+              "size": [22.0, 28.0],
+              "color": [0.2, 0.08, 0.02, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 5
+            }
+          }
         }
       ]
     },
@@ -373,7 +387,7 @@
       },
       "children": [
         {
-          "id": "e23",
+          "id": "e24",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -385,7 +399,7 @@
           }
         },
         {
-          "id": "e24",
+          "id": "e25",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -394,6 +408,20 @@
               "color": [1.0, 0.55, 0.15, 0.22],
               "layer": 4,
               "blend": "additive"
+            }
+          }
+        },
+        {
+          "id": "e26",
+          "name": "Edge",
+          "components": {
+            "Shape2D": {
+              "shape": "diamond",
+              "size": [22.0, 28.0],
+              "color": [0.2, 0.08, 0.02, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 5
             }
           }
         }
@@ -429,7 +457,7 @@
       },
       "children": [
         {
-          "id": "e26",
+          "id": "e28",
           "name": "Core",
           "components": {
             "Shape2D": {
@@ -441,7 +469,7 @@
           }
         },
         {
-          "id": "e27",
+          "id": "e29",
           "name": "Glow",
           "components": {
             "Shape2D": {
@@ -450,6 +478,20 @@
               "color": [1.0, 0.55, 0.15, 0.22],
               "layer": 4,
               "blend": "additive"
+            }
+          }
+        },
+        {
+          "id": "e30",
+          "name": "Edge",
+          "components": {
+            "Shape2D": {
+              "shape": "diamond",
+              "size": [22.0, 28.0],
+              "color": [0.2, 0.08, 0.02, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 5
             }
           }
         }
@@ -539,7 +581,7 @@
       },
       "children": [
         {
-          "id": "e31",
+          "id": "e34",
           "name": "Lantern",
           "components": {
             "Transform": {
@@ -561,7 +603,7 @@
           },
           "children": [
             {
-              "id": "e32",
+              "id": "e35",
               "name": "Glow",
               "components": {
                 "Shape2D": {
@@ -665,16 +707,34 @@
       },
       "children": [
         {
-          "id": "e36",
+          "id": "e39",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 30.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [18.0, 24.0],
-              "color": [0.4, 0.34, 0.34, 1.0],
+              "shape": "circle",
+              "size": [22.0, 22.0],
+              "color": [0.85, 0.85, 0.9, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 4
+            }
+          }
+        },
+        {
+          "id": "e40",
+          "name": "Rim",
+          "components": {
+            "Transform": {
+              "position": [0.0, 30.0, 0.0]
+            },
+            "Shape2D": {
+              "shape": "circle",
+              "size": [28.0, 28.0],
+              "color": [0.05, 0.05, 0.08, 1.0],
+              "filled": false,
               "layer": 3
             }
           }
@@ -738,16 +798,34 @@
       },
       "children": [
         {
-          "id": "e39",
+          "id": "e43",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 30.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [18.0, 24.0],
-              "color": [0.4, 0.34, 0.34, 1.0],
+              "shape": "circle",
+              "size": [22.0, 22.0],
+              "color": [0.85, 0.85, 0.9, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 4
+            }
+          }
+        },
+        {
+          "id": "e44",
+          "name": "Rim",
+          "components": {
+            "Transform": {
+              "position": [0.0, 30.0, 0.0]
+            },
+            "Shape2D": {
+              "shape": "circle",
+              "size": [28.0, 28.0],
+              "color": [0.05, 0.05, 0.08, 1.0],
+              "filled": false,
               "layer": 3
             }
           }
@@ -780,16 +858,34 @@
       },
       "children": [
         {
-          "id": "e41",
+          "id": "e46",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 30.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [18.0, 24.0],
-              "color": [0.4, 0.34, 0.34, 1.0],
+              "shape": "circle",
+              "size": [22.0, 22.0],
+              "color": [0.85, 0.85, 0.9, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 4
+            }
+          }
+        },
+        {
+          "id": "e47",
+          "name": "Rim",
+          "components": {
+            "Transform": {
+              "position": [0.0, 30.0, 0.0]
+            },
+            "Shape2D": {
+              "shape": "circle",
+              "size": [28.0, 28.0],
+              "color": [0.05, 0.05, 0.08, 1.0],
+              "filled": false,
               "layer": 3
             }
           }
@@ -915,16 +1011,34 @@
       },
       "children": [
         {
-          "id": "e46",
+          "id": "e52",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 30.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [18.0, 24.0],
-              "color": [0.4, 0.34, 0.34, 1.0],
+              "shape": "circle",
+              "size": [22.0, 22.0],
+              "color": [0.85, 0.85, 0.9, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 4
+            }
+          }
+        },
+        {
+          "id": "e53",
+          "name": "Rim",
+          "components": {
+            "Transform": {
+              "position": [0.0, 30.0, 0.0]
+            },
+            "Shape2D": {
+              "shape": "circle",
+              "size": [28.0, 28.0],
+              "color": [0.05, 0.05, 0.08, 1.0],
+              "filled": false,
               "layer": 3
             }
           }
@@ -957,16 +1071,34 @@
       },
       "children": [
         {
-          "id": "e48",
+          "id": "e55",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 30.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [18.0, 24.0],
-              "color": [0.4, 0.34, 0.34, 1.0],
+              "shape": "circle",
+              "size": [22.0, 22.0],
+              "color": [0.85, 0.85, 0.9, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 4
+            }
+          }
+        },
+        {
+          "id": "e56",
+          "name": "Rim",
+          "components": {
+            "Transform": {
+              "position": [0.0, 30.0, 0.0]
+            },
+            "Shape2D": {
+              "shape": "circle",
+              "size": [28.0, 28.0],
+              "color": [0.05, 0.05, 0.08, 1.0],
+              "filled": false,
               "layer": 3
             }
           }
@@ -1123,16 +1255,34 @@
       },
       "children": [
         {
-          "id": "e54",
+          "id": "e62",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 30.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [18.0, 24.0],
-              "color": [0.4, 0.34, 0.34, 1.0],
+              "shape": "circle",
+              "size": [22.0, 22.0],
+              "color": [0.85, 0.85, 0.9, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 4
+            }
+          }
+        },
+        {
+          "id": "e63",
+          "name": "Rim",
+          "components": {
+            "Transform": {
+              "position": [0.0, 30.0, 0.0]
+            },
+            "Shape2D": {
+              "shape": "circle",
+              "size": [28.0, 28.0],
+              "color": [0.05, 0.05, 0.08, 1.0],
+              "filled": false,
               "layer": 3
             }
           }
@@ -1259,7 +1409,7 @@
       },
       "children": [
         {
-          "id": "e59",
+          "id": "e68",
           "name": "Lamp",
           "components": {
             "Transform": {
@@ -1273,22 +1423,23 @@
           }
         },
         {
-          "id": "e60",
+          "id": "e69",
           "name": "Flame",
           "components": {
             "Transform": {
               "position": [0.0, 44.0, 0.0]
             },
             "Shape2D": {
-              "shape": "diamond",
-              "size": [20.0, 28.0],
+              "shape": "star",
+              "size": [30.0, 30.0],
               "color": [1.0, 1.0, 0.85, 1.0],
-              "layer": 4
+              "layer": 4,
+              "points": 8
             }
           }
         },
         {
-          "id": "e61",
+          "id": "e70",
           "name": "Glow",
           "components": {
             "Transform": {
@@ -1304,7 +1455,7 @@
           }
         },
         {
-          "id": "e62",
+          "id": "e71",
           "name": "Beam",
           "components": {
             "Transform": {
@@ -1315,6 +1466,22 @@
               "color": [1.0, 0.85, 0.4, 0.16],
               "layer": 2,
               "blend": "additive"
+            }
+          }
+        },
+        {
+          "id": "e72",
+          "name": "LampEdge",
+          "components": {
+            "Transform": {
+              "position": [0.0, 44.0, 0.0]
+            },
+            "Shape2D": {
+              "size": [44.0, 40.0],
+              "color": [0.1, 0.06, 0.02, 1.0],
+              "filled": false,
+              "thickness": 3.0,
+              "layer": 5
             }
           }
         }
