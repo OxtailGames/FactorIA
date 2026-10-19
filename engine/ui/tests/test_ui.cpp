@@ -696,20 +696,24 @@ TEST_CASE("on-screen gamepad: a stick and a button feed the pad actions, several
 
 TEST_CASE("ui navigation: the 45-degree cone wins over the half-plane; the half-plane is the fallback") {
     Ui t;
-    // a row of tabs above a wide button whose centre is nearer in x than the next tab
-    Entity t1 = t.button("t1", {0, 0}, {60, 20}), t2 = t.button("t2", {70, 0}, {60, 20}), t3 = t.button("t3", {140, 0}, {60, 20});
-    Entity wide = t.button("wide", {0, 30}, {300, 20});
+    // A row of tabs above a wide button that overlaps the first tab: its centre is nearer to t1 than t2 is, so the
+    // half-plane search alone sends Right from t1 down to it (LK/FB-0033). It is outside the 45-degree cone.
+    Entity t1 = t.button("t1", {0, 0}, {60, 20}), t2 = t.button("t2", {120, 0}, {60, 20}), t3 = t.button("t3", {240, 0}, {60, 20});
+    Entity wide = t.button("wide", {0, 35}, {100, 20});
     t.ui.set_focus(t.w, t1);
     t.tap_key(Key::Right);
     CHECK(t.ui.focused() == t2);
     t.tap_key(Key::Right);
     CHECK(t.ui.focused() == t3);
+    // nothing below t3 is in the cone: the half-plane fallback still reaches the button
     t.tap_key(Key::Down);
     CHECK(t.ui.focused() == wide);
-    // from the wide button, Up has nothing in the cone of t1..t3? t2 is straight above its centre area
+    // in the cone both ways between t1 and the button
     t.tap_key(Key::Up);
-    CHECK((t.ui.focused() == t2 || t.ui.focused() == t3));
-    // fallback: a lone widget far to the lower right is outside the cone but still reached
+    CHECK(t.ui.focused() == t1);
+    t.tap_key(Key::Down);
+    CHECK(t.ui.focused() == wide);
+    // a lone widget far to the lower right is outside the cone of Right but still reached
     Ui u;
     Entity a = u.button("a", {0, 0}), far = u.button("far", {100, 150});
     u.ui.set_focus(u.w, a);
@@ -719,19 +723,24 @@ TEST_CASE("ui navigation: the 45-degree cone wins over the half-plane; the half-
 
 TEST_CASE("ui focus: a greyed-out autoFocus button hands the focus to the first interactable widget") {
     Ui t;
-    Entity buy = t.button("buy", {0, 0}), other = t.button("other", {0, 40}), back = t.button("back", {0, 80});
+    Entity buy = t.button("buy", {0, 0}), other = t.button("other", {0, 40});
+    t.button("back", {0, 80});
     t.w.get<Button>(buy)->autoFocus = true;
     t.w.get<Button>(buy)->interactable = false;
     t.frame();
     CHECK(t.ui.focused() == other);
-    (void)back;
-    // an interactable autoFocus widget still wins
+    // an interactable autoFocus widget still wins over the first interactable one
     Ui u;
-    Entity x = u.button("x", {0, 0}), y = u.button("y", {0, 40}), z = u.button("z", {0, 80});
+    Entity x = u.button("x", {0, 0}), z = u.button("z", {0, 80});
+    u.button("y", {0, 40});
     u.w.get<Button>(x)->interactable = false;
     u.w.get<Button>(x)->autoFocus = true;
     u.w.get<Button>(z)->autoFocus = true;
     u.frame();
     CHECK(u.ui.focused() == z);
-    (void)y;
+    // no autoFocus widget at all: nothing takes the focus (HUD buttons stay out of gamepad play)
+    Ui h;
+    h.button("hud", {0, 0});
+    h.frame();
+    CHECK(h.ui.focused() == kNullEntity);
 }
