@@ -122,6 +122,11 @@ TEST_CASE("setup shaders: lookup order is $SOKOL_SHDC, next to factoria, the ins
     const stdfs::path next = stdfs::path(lab.exeDir) / "sokol-shdc";
     testing::write_all(next, "next to factoria");
     CHECK(find_sokol_shdc(c) == next.string());
+    // What the release downloads have (release.yml greps the smoke test's status for these words).
+    const SetupComponent bundled = shaders_status(c);
+    CHECK(bundled.state == "installed");
+    CHECK(has_text(bundled.details, "sokol-shdc found next to factoria"));
+    CHECK(has_text(bundled.details, next.string()));
 
     const std::string mine = lab.tmp.sub("mine");
     lab.env["SOKOL_SHDC"] = mine;
@@ -214,6 +219,19 @@ TEST_CASE("setup shaders: compile_shaders.sh pins the same commit and hashes as 
         CHECK(has_text(script, std::string("SHDC_SHA256_") + b.dir + "=" + b.sha256));
     }
     CHECK(has_text(script, "sokol-tools-bin/$SHDC_COMMIT/bin/$DIR/$EXE"));
+}
+
+TEST_CASE("setup shaders: setup.h keeps the pin lines that the release's bundle script reads") {
+    // scripts/bundle-sokol-shdc.sh (release.yml) reads the pin from setup.h with sed, one line per value, and fails the
+    // release when it cannot: these are the lines it reads, so a reformat of setup.h fails here first.
+    std::string header = testing::read_all(stdfs::path(FA_REPO_ROOT) / "tools" / "common" / "include" / "fa" / "tooling" / "setup.h");
+    std::erase(header, '\r');  // a Windows checkout may have CRLF; the script drops it too
+    CHECK(has_text(header, std::string("\ninline constexpr const char* kSetupSokolShdcCommit = \"") + kSetupSokolShdcCommit + "\";\n"));
+    CHECK(has_text(header, "\ninline constexpr SokolShdcBinary kSetupSokolShdcBinaries[] = {\n"));
+    for (const SokolShdcBinary& b : kSetupSokolShdcBinaries) {
+        CAPTURE(b.dir);
+        CHECK(has_text(header, std::string("\n    {\"") + b.host + "\", \"" + b.arch + "\", \"" + b.dir + "\", \"" + b.sha256 + "\"},\n"));
+    }
 }
 
 TEST_CASE("setup shaders: setup.status and setup.install know the component") {
