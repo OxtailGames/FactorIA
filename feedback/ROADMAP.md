@@ -371,8 +371,9 @@ Left open:
 Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M18.
 
 Left open:
-- Custom shaders per material: not built. Accepted design with its work packages (P1-P5; P6 custom lighting waits
-  for a game): [docs/design/CUSTOM_SHADERS.md](../docs/design/CUSTOM_SHADERS.md).
+- Custom shaders per material: built (P1-P5 of [docs/design/CUSTOM_SHADERS.md](../docs/design/CUSTOM_SHADERS.md),
+  guide docs/SHADERS.md). Left: P6 custom lighting waits for a game that asks; sokol-shdc is not bundled in the factoria
+  downloads yet (D3, a `release.yml` change), so makers run `factoria setup shaders`; the material inspector is M20.
 - Rendering ran on D3D11 (WARP) and Linux llvmpipe only: never on Metal, a GLES3 phone or WebGL2. IBL is a procedural
   sky approximation (no environment texture or prefiltered cubemap); lighting stays in gamma space; the shadow map still
   fits every caster (no cascades), so shadows of big scenes are blurry. Blended meshes only batch with neighbours in their
@@ -413,6 +414,8 @@ Closes H-01, H-02, H-03, H-05, H-09 and the editor part of H-06.
   asset browser and transform gizmos; every edit goes through the commands the AI uses, so undo comes with them.
 - A script debugger: breakpoints and stepping in QuickJS behind a Debug Adapter Protocol server, for VS Code.
 - A profiler: CPU time per system and per behaviour class, GPU timings and memory, in `play.report` and an editor panel.
+- The inspector also edits `MeshRenderer.material` / `materialParams` (typed by the material's params) and shows a
+  material's compile error under the field (custom shaders P5 left it here: the editor has no inspector yet).
 - Later: tile painting and object placement in the viewport, an animation timeline, particle and material editors.
 
 Acceptance criteria:

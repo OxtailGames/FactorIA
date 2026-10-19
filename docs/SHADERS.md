@@ -39,9 +39,9 @@ and a `doc` saying what it does and its unit (AIs read these through `material.i
 |---|---|---|
 | `float` | `1.5` | `float` |
 | `vec2`, `vec3`, `vec4` | `[0.1, 0.2]` (2, 3 or 4 numbers) | `vec2`, `vec3`, `vec4` |
-| `color` | `[1, 0.5, 0, 1]` (always 4 numbers) | `vec4`; the editor shows a color picker |
+| `color` | `[1, 0.5, 0, 1]` (always 4 numbers) | `vec4` |
 
-`min` and `max` are optional; they give the editor's slider its range and are checked against the default. At most **16
+`min` and `max` are optional; they document the range (`material.info` lists them) and are checked against the default. At most **16
 params** (each takes a `vec4` of a 256-byte block), counting the implicit `alphaCutoff`.
 
 **Textures.** Each key `waves` gives you the GLSL names `waves` (the texture) and `waves_smp` (its sampler). Fields:
@@ -136,8 +136,9 @@ and sampler form: `texture(sampler2D(waves, waves_smp), uv)`; `texture(waves, uv
 
 `materialParams` overrides the material's defaults for this entity only: a number for a `float`, an array for vectors
 and colors, a project-relative image path for a texture. A name the material does not declare, or a value of the wrong
-type, logs a warning that lists the right names and the default stays. Scripts write the same field
-(`entity.get("MeshRenderer").materialParams = { strength: 3 }`), so a change is saved and undoable like any other.
+type, logs a warning that lists the right names and the default stays. Edit it like any field: `scene.set_component`
+(saved with the scene, undoable in the editor) or, from a script, `entity.get("MeshRenderer").materialParams =
+{ strength: 3 }` (a JSON field: assign a whole object, changing a key of the copy you read does nothing).
 
 `color`, `texture`, `normalMap`, `metallic`, `roughness`, `emissive` and `uvScale` still feed the standard surface the
 snippet starts from. `unlit: true` forces the unlit lighting. The material's `alphaMode` wins over `color.a < 1`.
@@ -145,8 +146,9 @@ snippet starts from. `unlit: true` forces the unlit lighting. The material's `al
 **Cost.** Entities with the same mesh and the same material and no overrides are drawn with one instanced draw call. Every
 **distinct** `materialParams` value is a batch of its own, so 100 gems that each get a different `strength` are 100 draw
 calls; vary the Transform instead, or give a few groups the same value. `play.report` (`factoria run --json`) shows
-`materials` (custom materials drawn) and `materialFallbacks` (materials that failed and are drawn magenta; `asset_report`
-says why).
+`materials` (custom materials drawn) and `materialFallbacks` (materials that failed and are drawn magenta; the error log,
+`game.logs`, says why). A test checks the same with `game.screenshot(path)` (tests draw nothing until asked) and then
+`game.state().renderStats`; `material.info` says in `compile.toolFound` whether this computer can compile materials.
 
 ## Errors you will see
 
@@ -167,13 +169,14 @@ Every error says where, what is wrong and how to fix it.
 ## Compiler, hot reload, validate and export
 
 - **sokol-shdc** is the compiler (a pinned build). It is looked up in `$SOKOL_SHDC`, next to the `factoria` executable,
-  then in `~/.factoria/tools`; install it with `factoria setup shaders` (about 8-12 MB), or set `SOKOL_SHDC` to a copy. On Windows, Windows
+  then in `~/.factoria/tools`; install it with `factoria setup shaders` (about 11 MB), or set `SOKOL_SHDC` to a copy. On Windows, Windows
   Defender may quarantine `sokol-shdc.exe` as a false positive (`Trojan:Win32/Bearfoos.B!ml`): restore it from Windows
   Security > Protection history, or point `SOKOL_SHDC` at a copy you trust. Without it, `factoria validate` checks the
   material files and warns that snippets were not compiled.
 - **Running** (`factoria run`, MCP sessions) compiles the material for this computer's graphics API the first time it is
   drawn and caches the result in `.factoria/shader-cache`, so an unchanged material starts no process.
-- **Hot reload:** saving the material or its snippet while the game runs gives the new look in a moment.
+- **Hot reload:** saving the material, its snippet or a texture gives the new look in a moment, in `factoria run`, MCP
+  sessions and the editor (while editing and while playing, [EDITOR.md](EDITOR.md)).
 - **`factoria validate`** compiles every material for every platform (Windows, Linux, macOS, iOS, Android, web): some
   mistakes exist in one platform's dialect only.
 - **`factoria export`** compiles the platform's dialects and ships them next to the material as
