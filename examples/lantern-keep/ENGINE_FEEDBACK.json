@@ -21,7 +21,8 @@
       "occurrences": 2,
       "status": "open",
       "notes": [
-        "2026-10-19: tr -d CR on the output."
+        "2026-10-19: tr -d CR on the output.",
+        "2026-10-19 triage: confirmed open; work package M24.3 (Docs print LF on Windows) in feedback/ROADMAP.md."
       ]
     },
     {
@@ -43,7 +44,10 @@
       "suggestion": "Make game.screenSize a cheap property (cache the Vec2, or return a plain object); and have the 2d-platformer template's follow_camera.js cache it too.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0003",
@@ -65,7 +69,10 @@
       "suggestion": "Carry dynamic 2D bodies that rest on a kinematic body (as 3D does), or expose the ground body (entity.groundBody / isGrounded() returning it) so a script can add its velocity without a raycast. Add a 2D moving-platform recipe to the AI guide.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0004",
@@ -87,7 +94,10 @@
       "suggestion": "Ship the recipe's Spanish table in docs/MENUS.md (or as templates/menus/locales/es.json) and add `factoria new --menus` / a project.add_menus command that writes the whole recipe, so nobody copies 11 files out of Markdown.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0005",
@@ -109,7 +119,10 @@
       "suggestion": "Add `paused` to the test game object (or say in docs scripting 'Tests' that the pause state is time.scale) and make reading an unknown member of the test game object throw with a did-you-mean instead of returning undefined.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0006",
@@ -133,7 +146,10 @@
       "suggestion": "Add `lit` to Shape2D (same rule as Sprite.lit).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0007",
@@ -154,7 +170,10 @@
       "suggestion": "Add `legendFrom: \"levels/legend.json\"` (a shared legend merged under the map's own) and do not warn about unused entries that come from it, or add `warnUnused: false`.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0008",
@@ -175,8 +194,12 @@
       ],
       "suggestion": "Add onEnable()/onDisable() hooks (called when the entity becomes active or inactive, also for the first time), and state in docs scripting when onStart runs for inactive-then-activated entities.",
       "effort": "small",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: FB-0030 merged here (the same gap, met again by the achievements and leaderboards panels).",
+        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0009",
@@ -197,7 +220,10 @@
       "suggestion": "Let scene.import_ascii (or a new scene.ascii_edit command) take operations on an existing map: fill/replace a rectangle, insert or delete columns, place a glyph at (column, height above the ground), so an AI changes a map without rewriting every row; and report the column and row of every glyph in the result so it can be located again.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M20 (ASCII map edits for AIs) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0010",
@@ -219,7 +245,10 @@
       ],
       "suggestion": "Document in the menus recipe how a panel script gets set up and refreshed when shown (or add an onEnable callback that also runs for panels shown by MenuStack), and say entity.behaviour is null for a never-activated entity.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0011",
@@ -244,7 +273,8 @@
       "occurrences": 2,
       "status": "open",
       "notes": [
-        "2026-10-19: None: the labels stay left-aligned in Arabic too (readable, but the ragged edge is on the wrong side). Listed in the README as a limit."
+        "2026-10-19: None: the labels stay left-aligned in Arabic too (readable, but the ragged edge is on the wrong side). Listed in the README as a limit.",
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md."
       ]
     },
     {
@@ -262,7 +292,10 @@
       "workaround": "Ran 'factoria test . --filter <words of the test name>' per test while developing.",
       "suggestion": "Accept test file paths or globs after the project (or a --file option), and when the argument is an existing file say 'give the project folder; use --filter to pick tests'.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0013",
@@ -283,7 +316,10 @@
       ],
       "suggestion": "Document the corrupt storage.json behaviour (and keep a .bak) in the scripting docs, and add a save-file recipe with versioning, migration and a damaged-save screen.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.6 (Save file safety; the save recipe is M21's 'finish your game' guide) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0014",
@@ -305,7 +341,10 @@
       ],
       "suggestion": "A command like assets.draw_icon {shape/text/colors} (or `factoria new` templates shipping a neutral icon.png that factoria.json already points to) so a game made without a provider still has a real icon, and a PNG writer in the script API (image.save) for project tools.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M21 (store page material: assets.draw_icon) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0015",
@@ -326,8 +365,12 @@
         "levels/base_dark.scene.json"
       ],
       "suggestion": "Keep the entity as {id, prefab, overrides} in the written scene, or say in docs/ai-guide 9.8 that the base scene is expanded at import time.",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: FB-0034 merged here (the same cause, met again for the legend prefabs).",
+        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0016",
@@ -348,7 +391,10 @@
       ],
       "suggestion": "export.exclude: a list of project-relative globs (\"store/**\", \"screenshots/**\", \"levels/**\") that neither the folder export nor game.pak nor the web/mobile exports ship, checked by factoria validate; and mention the dot-folder rule next to it in docs/EXPORTING.md.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0017",
@@ -368,7 +414,10 @@
       ],
       "suggestion": "A `--render-scale 1.5` (or --output-size 1920x1080) for factoria run --headless and game.screenshot {scale}, drawing the same design at a larger resolution like a fullscreen window does.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M21 (store page material: render scale) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0018",
@@ -385,7 +434,10 @@
       "workaround": "Pointed FACTORIA_STEAMCMD, FACTORIA_BUTLER, FACTORIA_BUILDPATCHTOOL and FACTORIA_GOG_PIPELINE_BUILDER at C:/Windows/System32/whoami.exe, set FACTORIA_EPIC_CLIENT_SECRET=fake and passed appId 9000000: the dry runs then showed the plans (uploads, command lines, vdf files) for the fake ids. Nothing was downloaded or sent.",
       "suggestion": "With dryRun, report a missing tool (and missing secret/app id) as a warning and still return the plan, or document the fake-tool trick in the 'Testing without a store' section.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0019",
@@ -402,7 +454,10 @@
       "workaround": "Start-Process, sleep, check the process is alive and responding, read %APPDATA%/<id>/log.txt, Stop-Process.",
       "suggestion": "factoria_player --frames N (render N frames, then exit 0; non-zero when a script error or a crash happened), so `factoria export` can offer a --smoke-test.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0020",
@@ -422,7 +477,10 @@
       ],
       "suggestion": "Run the same check in factoria validate when platforms contains android or ios.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0021",
@@ -443,7 +501,10 @@
       ],
       "suggestion": "game.touchWidget(id, frames?) for tests, and one sentence in MOBILE.md pointing at ui.state rects and the one-step rule.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0022",
@@ -460,7 +521,10 @@
       "workaround": "Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.",
       "suggestion": "One table in docs/EXPORTING.md: platform x what it needs x whether a source build, the download or neither can do it offline.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M21 (publishing guides: what each export needs offline) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0023",
@@ -477,7 +541,10 @@
       "workaround": "None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.",
       "suggestion": "export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M23 (Microsoft Store: MSIX) and M21 (Microsoft Store guide) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0024",
@@ -501,7 +568,10 @@
       "suggestion": "Let a catalog entry say name as a locale key or add a nameKey/descriptionKey, and have platform.achievements.list() and platform.purchases.products() return the translated text for the current language (or document that the catalog is for stores only).",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.14 (Translated store catalog) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0025",
@@ -524,7 +594,10 @@
       "suggestion": "game.platform.set({ backend: \"none\" }) that makes the fake behave as the none backend (has false, calls reject unavailable, signIn answers signed out) until reset().",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0026",
@@ -545,7 +618,10 @@
       "suggestion": "Ship ES2022 Array.prototype.at, add toMatchObject (the docs of factoria:test list the matchers), return real arrays for color fields, and name the missing method in the TypeError.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.1 (component colours as arrays) and M24.7 (toMatchObject, naming the missing method; Array.prototype.at already works) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0027",
@@ -567,7 +643,10 @@
       "suggestion": "Make the focus rule skip non-interactable autoFocus widgets and fall back to the first interactable one in reading order, or add the warning to the shop part of the menus recipe.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0028",
@@ -588,7 +667,10 @@
       "suggestion": "Say it in the scripting and testing docs next to world.emit, or deliver world.emit synchronously when called from a test.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0029",
@@ -609,7 +691,10 @@
       "suggestion": "Report an unhandled rejection only after the microtask queue drains (as Node does), or document that a platform promise needs its handler in the same turn.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0030",
@@ -632,7 +717,10 @@
       "suggestion": "Add onEnable() / onDisable() to Behaviour, called when the entity (or an ancestor) becomes active or inactive, including the first time; or let MenuStack send a panel_shown event that hidden panels receive.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "duplicate",
+      "notes": [
+        "2026-10-19 triage: duplicate of FB-0008 (onEnable/onDisable; its occurrences were merged there) and FB-0010 (behaviour is null before the first activation). Both are work package M24.12 (Entity activation) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0031",
@@ -658,7 +746,8 @@
       "occurrences": 2,
       "status": "open",
       "notes": [
-        "2026-10-19: scripts/ui/text_fit.js fitWidgets(root) (sizes by measureText and by the number of lines) is called from each screen's refresh function; tests/helpers/screens.js checks every screen in every language."
+        "2026-10-19: scripts/ui/text_fit.js fitWidgets(root) (sizes by measureText and by the number of lines) is called from each screen's refresh function; tests/helpers/screens.js checks every screen in every language.",
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md."
       ]
     },
     {
@@ -681,7 +770,11 @@
       "suggestion": "Load the real font for measureText also when headless (it is in the binary), or let tests ask for exact metrics.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "fixed-in-engine",
+      "engineIssue": "d85a495",
+      "notes": [
+        "Fixed in d85a495 (before this report): factoria test, factoria call and headless runs draw with an offscreen renderer, so ui.measureText returns the shaped width of the real fonts (checked 2026-10-19: ten 'i' at 24 px measure 66.7, the estimate would say 144). The 0.6 x fontSize estimate is used only when no graphics device can be created. Trust measureText in tests; TEXT.md still says otherwise (FB-0042, work package M24.5)."
+      ]
     },
     {
       "id": "FB-0033",
@@ -705,7 +798,8 @@
       "occurrences": 2,
       "status": "open",
       "notes": [
-        "2026-10-19: None in the game (making the locked levels focusable would change what the pad can reach). Left as it is: Left or Up comes back to the level."
+        "2026-10-19: None in the game (making the locked levels focusable would change what the pad can reach). Left as it is: Left or Up comes back to the level.",
+        "2026-10-19 triage: confirmed open; work package M24.4 (Focus navigation) in feedback/ROADMAP.md."
       ]
     },
     {
@@ -724,7 +818,10 @@
       "suggestion": "Let the legend place prefab instances (prefab plus overrides, as scenes can) instead of copies, so the prefab file stays the single source; or say in the ascii docs that a prefab edit needs the rebuild.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "duplicate",
+      "notes": [
+        "2026-10-19 triage: duplicate of FB-0015 (its occurrences were merged there): the same cause, the file-mode scene.import_ascii writes expanded prefab copies for the base scene's entities and for legend objects alike. Work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0035",
@@ -748,7 +845,8 @@
       "occurrences": 2,
       "status": "open",
       "notes": [
-        "2026-10-19: tests/helpers/screens.js sums the measured children of every row and column panel and compares with the panel's rectangle."
+        "2026-10-19: tests/helpers/screens.js sums the measured children of every row and column panel and compares with the panel's rectangle.",
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
       ]
     },
     {
@@ -772,7 +870,10 @@
       "suggestion": "Make game.paused remember the scale it replaced and restore it, or document the reset next to time.scale in the scripting doc and the menus recipe (any game that uses time.scale for slow motion breaks with the recipe pause menu).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.2 (Pause keeps the game speed) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0037",
@@ -795,7 +896,10 @@
       "suggestion": "Camera.colorFilter enum (none, greyscale, protanopia, deuteranopia, tritanopia, high contrast) as a post-process that game.screenshot also applies, so players and AIs can use it.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: Camera.colorFilter) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0038",
@@ -813,7 +917,10 @@
       "suggestion": "Read-only platform.accessibility { textScale, reduceMotion, highContrast, screenReader }, plus ui.speak(text) or a focus-change event a screen reader plugin can use.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: platform.accessibility, screen-reader hooks) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0039",
@@ -835,7 +942,10 @@
       "suggestion": "Make component vec fields array-like (index and iterator), or have the d.ts say they are Vec2/Vec4 objects with .x .y .z .w and no array behaviour; JSON.stringify showing an array is what misleads.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.1 (Script values and promise rejections) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0040",
@@ -857,7 +967,10 @@
       "suggestion": "Text.align and Panel.align/justify values 'start' and 'end' that follow the current language's direction, and Panel.direction 'auto' for rows; an i18n.direction ('ltr' or 'rtl') in scripts.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.13 (Right-to-left layouts) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0041",
@@ -879,7 +992,10 @@
       "suggestion": "ScrollList.fill (take the free height of the parent column, up to the screen) and a validate/runtime warning when a Panel with fit ends up taller than the screen.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0042",
@@ -900,7 +1016,10 @@
       "suggestion": "State in TEXT.md when measureText is exact (tests, headless runs with the built-in font) and when it is not; close FB-0032 if it is.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0043",
@@ -922,7 +1041,10 @@
       "suggestion": "When the file does not exist, copy the structure of the default language's table (nested when it is nested).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0044",
@@ -943,7 +1065,10 @@
       "suggestion": "Add build/ to the generated project .gitignore, or write exports under .factoria/.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
+      ]
     },
     {
       "id": "FB-0045",
@@ -964,7 +1089,10 @@
       "suggestion": "Say 'command' in LOCALIZATION.md section 2 and add Hebrew and Arabic to the Text.font description (docs/COMPONENTS generated from the reflection doc string).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open"
+      "status": "open",
+      "notes": [
+        "2026-10-19 triage: confirmed open; work package M24.5 (Localization tools and text docs) in feedback/ROADMAP.md."
+      ]
     }
   ]
 }
