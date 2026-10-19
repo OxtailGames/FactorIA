@@ -646,13 +646,15 @@ TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") 
     expect_golden(cut, "3d_material_cutout");
 }
 
-TEST_CASE("materials: a material that does not compile is drawn magenta and logged once with its file and line") {
+TEST_CASE("materials: a material that does not compile is drawn magenta and logged once with its file, line and hint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
     REQUIRE(fs::write_text("materials/broken.material.json", R"({"format": "factoria.material/1", "shader": "shaders/broken.surface.glsl"})").ok());
     g.renderer.set_shader_compiler([](const std::string&, const std::string&) -> Result<Json> {
-        return make_error("shaders/broken.surface.glsl:3:5: error: 'colour' : no such field in structure 'Surface'", "did you mean albedo?");
+        // As the tooling's compiler gives it: every diagnostic with its hint, and the first hint again.
+        return make_error("shaders/broken.surface.glsl:3:5: error: 'colour' : no such field in structure 'Surface'\n  hint: did you mean albedo?",
+                          "did you mean albedo?");
     });
     ErrorLog log;
     World w;
@@ -666,6 +668,7 @@ TEST_CASE("materials: a material that does not compile is drawn magenta and logg
     CHECK(c.b > 0.9f);
     CHECK(log.count("broken.surface.glsl:3:5") == 1);
     CHECK(log.count("did you mean albedo?") == 1);
+    CHECK(log.count("Hint: did you mean albedo?") == 0);  // the diagnostic has the hint: it is not added again
     REQUIRE(g.renderer.stats().materialFallbacks.size() == 1);
     CHECK(g.renderer.stats().materialFallbacks[0] == "materials/broken.material.json");
     CHECK(g.renderer.stats().materials == 0);

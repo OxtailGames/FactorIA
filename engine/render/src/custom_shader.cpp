@@ -361,7 +361,7 @@ void Assets::build_material(MaterialAsset& m) {
         return;
     }
     m.error = r.error().message;
-    note_failure("material", m.path, r.error().message + (m.ok ? " The previous version of the material stays in use." : " The meshes using it are drawn magenta."), r.error().hint);
+    note_failure("material", m.path, r.error().message + (m.ok ? "\nThe previous version of the material stays in use." : "\nThe meshes using it are drawn magenta."), r.error().hint);
 }
 
 MaterialAsset* Assets::material(const std::string& path) {
