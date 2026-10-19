@@ -1038,13 +1038,17 @@
     },
   };
 
+  let pausedScale = null; // time.scale to restore on game.paused = false, null when not paused through game.paused
   const time = {
     get dt() { return N.timeInfo()[0]; },
     get fixedDt() { return N.timeInfo()[1]; },
     get elapsed() { return N.timeInfo()[2]; },
     get frame() { return N.timeInfo()[3]; },
     get scale() { return N.timeInfo()[4]; },
-    set scale(v) { N.setTimeScale(v); },
+    set scale(v) {
+      if (pausedScale !== null && v > 0) pausedScale = v; // paused: the new scale is what game.paused = false restores
+      else { pausedScale = null; N.setTimeScale(v); }
+    },
     get unscaledDt() { return N.timeInfo()[5]; },
   };
 
@@ -1077,7 +1081,11 @@
   const game = {
     quit() { N.quit(); },
     get paused() { return N.timeInfo()[4] === 0; },
-    set paused(v) { N.setTimeScale(v ? 0 : 1); },
+    set paused(v) {
+      const s = N.timeInfo()[4];
+      if (v) { if (s > 0) pausedScale = s; N.setTimeScale(0); }
+      else { N.setTimeScale(s === 0 ? (pausedScale || 1) : s); pausedScale = null; }
+    },
     get project() { return Object.freeze(N.project()); },
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
@@ -1690,7 +1698,9 @@
     if (isObj(p) && typeof p.x === "number") return [p.x, p.y];
     throw new Error(`${what} expects a screen position {x, y} or [x, y], got ${inspect(p)}`);
   };
-  const gameApi = {
+  const gameApiBase = {
+    get paused() { return game.paused; },
+    set paused(v) { game.paused = v; },
     load(path) {
       const err = N.testLoad(path);
       if (err) throw new Error(`game.load('${path}') failed: ${err}`);
@@ -1786,6 +1796,14 @@
       calls() { const s = fa.call("platform.state"); return s.fake ? s.fake.calls : []; },
     },
   };
+  // An unknown member (game.pasued) throws with a "did you mean" instead of being undefined.
+  const gameApi = new Proxy(gameApiBase, {
+    get(t, k, recv) {
+      if (typeof k !== "string" || k in t || k === "then" || k === "toJSON") return Reflect.get(t, k, recv);
+      const sug = closest(k, Object.keys(t));
+      throw new Error(`the test game object has no member '${k}'${sug ? `; did you mean '${sug}'?` : ""} Members: ${Object.keys(t).join(", ")}`);
+    },
+  });
   const testApi = { test, describe, expect, game: gameApi, beforeEach, afterEach };
 
   function testBegin(file) { currentFile = file; tests = []; suiteStack = []; testCurrentName = ""; }
@@ -1799,7 +1817,7 @@
       testCurrentName = t.name;
       N.resetInput();
       N.audioLog(true);
-      N.setTimeScale(1);
+      N.setTimeScale(1); pausedScale = null;
       const start = N.nowMs();
       const seq0 = N.logSeq();
       let passed = true, message = "";
@@ -1826,13 +1844,13 @@
       results.push({ name: t.name, passed, message, ms: N.nowMs() - start, seq0, seq1: N.logSeq() });
     }
     N.resetInput();
-    N.setTimeScale(1);
+    N.setTimeScale(1); pausedScale = null;
     testCurrentName = "";
     return results;
   }
 
   function resetScene() {
-    timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0;
+    timers.reset(); tweens.cancelAll(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
   }
 
