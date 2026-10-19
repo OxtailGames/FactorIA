@@ -113,6 +113,47 @@
           }
         },
         {
+          "id": "store_row",
+          "components": {
+            "Panel": {
+              "color": [0, 0, 0, 0],
+              "layout": "row",
+              "spacing": 12,
+              "padding": [0, 0, 0, 0],
+              "fit": true
+            }
+          },
+          "children": [
+            {
+              "id": "achievements_button",
+              "components": {
+                "Button": {
+                  "text": "Achievements",
+                  "key": "menu.achievements"
+                }
+              }
+            },
+            {
+              "id": "leaderboards_button",
+              "components": {
+                "Button": {
+                  "text": "Leaderboards",
+                  "key": "menu.leaderboards"
+                }
+              }
+            },
+            {
+              "id": "shop_button",
+              "components": {
+                "Button": {
+                  "text": "Shop",
+                  "key": "menu.shop"
+                }
+              }
+            }
+          ]
+        },
+        {
           "id": "quit",
           "components": {
             "Button": {
@@ -142,6 +183,21 @@
       "id": "options",
       "active": false,
       "prefab": "prefabs/ui/options.prefab.json"
+    },
+    {
+      "id": "achievements",
+      "active": false,
+      "prefab": "prefabs/ui/achievements.prefab.json"
+    },
+    {
+      "id": "leaderboards",
+      "active": false,
+      "prefab": "prefabs/ui/leaderboards.prefab.json"
+    },
+    {
+      "id": "shop",
+      "active": false,
+      "prefab": "prefabs/ui/shop.prefab.json"
     },
     {
       "id": "credits",

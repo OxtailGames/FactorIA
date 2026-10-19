@@ -18,8 +18,11 @@
       "workaround": "Read the doc through `factoria call docs.read` (JSON) or normalise with a replace of \r\r\n to \n before extracting.",
       "suggestion": "Write the document to stdout in binary mode (or do not translate \n to \r\n twice) so only \n or at most \r\n appears.",
       "effort": "small",
-      "occurrences": 1,
-      "status": "open"
+      "occurrences": 2,
+      "status": "open",
+      "notes": [
+        "2026-10-19: tr -d CR on the output."
+      ]
     },
     {
       "id": "FB-0002",
@@ -468,6 +471,161 @@
       "missing": "The Windows export is an exe plus game/ or game.pak. The Microsoft Store takes an MSIX/AppX package (identity name, publisher, a manifest, tile logos at fixed sizes, signing) or an MSI/EXE installer with a URL, and Partner Center has its own submission API. The engine has no `export` format, settings (export.windows has only `icon`) or `publish.microsoft` for it, and the docs do not mention the store, so there is nothing to follow for the one big Windows store besides Steam.",
       "workaround": "None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.",
       "suggestion": "export.windows.msix (identityName, publisher, displayName, logos derived from the icon) writing an .msix next to the folder (unsigned, or signed with a pfx from the environment), and publish.microsoft later; at least a docs section 'Microsoft Store' saying what is and is not covered.",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0024",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "platform catalog names and descriptions cannot be localized",
+      "missing": "factoria.json platform.achievements[].name/description and products[].title/description are plain strings with no localization key, so a store that shows them (Steam, Game Center, Play Games) shows English only, and the catalog is a second place with texts that a game with locales/*.json has to keep in sync by hand.",
+      "workaround": "The in-game screens ignore the catalog texts and read achievements.<id>.name / .description and shop.product.<id> from locales/*.json; the catalog keeps the English text for the store.",
+      "workaroundFiles": [
+        "factoria.json",
+        "locales/en.json",
+        "locales/es.json",
+        "scripts/ui/achievements.js"
+      ],
+      "suggestion": "Let a catalog entry say name as a locale key or add a nameKey/descriptionKey, and have platform.achievements.list() and platform.purchases.products() return the translated text for the current language (or document that the catalog is for stores only).",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0025",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "no way to test the none backend (no store) in a test",
+      "missing": "game.platform.set only offers signedIn and delayFrames. The case every exported game without a store plugin runs in (platform.has(...) false, every call rejecting unavailable) cannot be driven from a test, and it is the case the README of a game must promise to handle.",
+      "workaround": "Tests replace platform.has with () => false for the duration of a test (the scripts check has() before every call, so they take the no-store path) and restore it in a finally. The real rejections with code unavailable are not exercised.",
+      "workaroundFiles": [
+        "tests/store_screens.test.js",
+        "tests/store.test.js",
+        "scripts/ui/shop.js"
+      ],
+      "suggestion": "game.platform.set({ backend: \"none\" }) that makes the fake behave as the none backend (has false, calls reject unavailable, signIn answers signed out) until reset().",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0026",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "test runtime lacks Array.prototype.at, expect().toMatchObject and array methods on component colors",
+      "missing": "In a test, calls().at(-1) and expect(x).toMatchObject({...}) are not functions, and the value read from Shape2D.color / Light2D.color is array-like (Array.isArray is false, indices and length work) with no forEach, so color.forEach(...) throws not a function. The error says only TypeError: not a function, without naming which call.",
+      "workaround": "calls()[calls().length - 1], one expect(...).toBe per field, Array.from(color).",
+      "workaroundFiles": [
+        "tests/store_screens.test.js"
+      ],
+      "suggestion": "Ship ES2022 Array.prototype.at, add toMatchObject (the docs of factoria:test list the matchers), return real arrays for color fields, and name the missing method in the TypeError.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0027",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "a menu panel whose only autoFocus widget is not interactable has no focus for the pad",
+      "missing": "The menus recipe greys out buttons without a store (interactable false). When the autoFocus button of a panel (the shop pack) is one of them, nothing is focused when the panel opens and gamepad directions do nothing: the player is stuck. The rule text says autoFocus applies again only when a focused widget disappears.",
+      "workaround": "Left the buy buttons interactable without a store: a click answers with the same plain sentence as the status line.",
+      "workaroundFiles": [
+        "scripts/ui/shop.js",
+        "prefabs/ui/shop.prefab.json"
+      ],
+      "suggestion": "Make the focus rule skip non-interactable autoFocus widgets and fall back to the first interactable one in reading order, or add the warning to the shop part of the menus recipe.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0028",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "minor",
+      "title": "world.emit from a test reaches listeners only at the next game.step",
+      "missing": "In a test, world.emit(name, data) followed at once by a check or by awaiting a script promise does nothing: listeners (world.on, Behaviour.on) are called at the next frame. platform.* answers are ready at once, so mixing the two is a trap: the first version of my store tests saw an empty fake store and no error.",
+      "workaround": "A settle() helper that does game.step(1) after emitting, then awaits the script, in every store test.",
+      "workaroundFiles": [
+        "tests/store.test.js"
+      ],
+      "suggestion": "Say it in the scripting and testing docs next to world.emit, or deliver world.emit synchronously when called from a test.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0029",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "a store promise returned from a then callback is reported as an unhandled rejection",
+      "missing": "A best-effort chain written as `this.chain = this.chain.then(fn).catch(() => {})` where fn returns the promise of a platform call (for example `() => platform.achievements.unlock(id)`) logs `unhandled promise rejection ... failed: the player is not signed in` in a test when the store rejects, although the chain ends in a catch. Plain JS engines attach the handler one microtask later and report nothing.",
+      "workaround": "Wrap the call: `then(async () => { try { await fn(); } catch {} })`, so the store promise gets its handler at once.",
+      "workaroundFiles": [
+        "scripts/store_stats.js"
+      ],
+      "suggestion": "Report an unhandled rejection only after the microtask queue drains (as Node does), or document that a platform promise needs its handler in the same turn.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0030",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p3",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "nice-to-have",
+      "title": "no onEnable/onDisable for a panel shown by active, and behaviour is null before its first activation",
+      "missing": "A menu panel placed inactive (prefab in the menu scene) gets no callbacks while hidden and its entity.behaviour is null until it is first shown, so a script cannot refresh itself each time the player opens it (the achievements list must ask the store again on every visit). onStart runs only the first time.",
+      "workaround": "The panel script has an opened() method; main_menu.js calls world.find(id).behaviour?.opened() after MenuStack.show, and onStart calls opened() itself for the first visit.",
+      "workaroundFiles": [
+        "scripts/main_menu.js",
+        "scripts/ui/achievements.js",
+        "scripts/ui/leaderboards.js"
+      ],
+      "suggestion": "Add onEnable() / onDisable() to Behaviour, called when the entity (or an ancestor) becomes active or inactive, including the first time; or let MenuStack send a panel_shown event that hidden panels receive.",
+      "effort": "medium",
       "occurrences": 1,
       "status": "open"
     }

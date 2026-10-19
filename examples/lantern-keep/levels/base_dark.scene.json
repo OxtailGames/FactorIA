@@ -166,6 +166,22 @@
           "path": "scripts/store_events.js"
         }
       }
+    },
+    {
+      "id": "store_stats",
+      "components": {
+        "Script": {
+          "path": "scripts/store_stats.js"
+        }
+      }
+    },
+    {
+      "id": "cosmetics",
+      "components": {
+        "Script": {
+          "path": "scripts/cosmetics.js"
+        }
+      }
     }
   ]
 }
