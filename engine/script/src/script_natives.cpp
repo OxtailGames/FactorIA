@@ -242,25 +242,27 @@ void Impl::load_storage() {
     }
     // Damaged. Keep the bytes: the next save would otherwise replace them with the new data.
     storageCorrupt = true;
-    std::string kept = "storage.corrupt.json";
-    if (storageMode == StorageMode::Persistent && !hooked) {
-        const std::filesystem::path keep = corrupt_keep_path();
-        kept = keep.filename().string();
-        std::error_code ec;
-        std::filesystem::rename(file, keep, ec);
-        if (ec) {  // e.g. another volume: copy the bytes instead
-            auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
-            if (!w) {
-                log(LogLevel::Warn, "script", "storage.json does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
-                                                  ". The next save will replace it; copy it by hand now if it matters.");
-                return;
-            }
-        }
-        fs::user_dir_changed();
+    if (hooked) {  // a test: nothing is on disk to keep
+        log(LogLevel::Warn, "script",
+            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a test never "
+            "writes the real save)");
+        return;
     }
+    const std::filesystem::path keep = corrupt_keep_path();
+    std::error_code ec;
+    std::filesystem::rename(file, keep, ec);
+    if (ec) {  // e.g. another volume: copy the bytes instead
+        auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
+        if (!w) {
+            log(LogLevel::Warn, "script", "storage.json does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+                                              ". The next save will replace it; copy it by hand now if it matters.");
+            return;
+        }
+    }
+    fs::user_dir_changed();
     log(LogLevel::Warn, "script",
-        "storage.json does not parse (damaged by a crash or a bad edit?); it was kept as " + kept + " in " + fs::user_dir().string() +
-            " and the game starts with empty save data. A script can check storage.corrupt at start to tell the player.");
+        "storage.json does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() + " in " +
+            fs::user_dir().string() + " and the game starts with empty save data. A script can check storage.corrupt at start to tell the player.");
 }
 
 void Impl::save_storage() {
