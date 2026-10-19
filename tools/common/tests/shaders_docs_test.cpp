@@ -1,7 +1,7 @@
 // docs/SHADERS.md: every worked example is a real material. A fenced block that follows a line "File `path`:" is written to
 // that path in a scratch project; the blocks that hold a material (`"format": "factoria.material/1"`) must pass the schema
 // and the material checks, and compile for every dialect with the real sokol-shdc (SOKOL_SHDC or `factoria setup shaders`;
-// skipped with a message where it is not installed, run in CI on Linux).
+// skipped with a message where it is not installed, failed instead with FA_REQUIRE_SHDC=1 as in CI).
 #include <doctest.h>
 
 #include <filesystem>
@@ -89,10 +89,7 @@ TEST_CASE("docs/SHADERS.md: the worked examples pass the schema and the material
 TEST_CASE("docs/SHADERS.md: the worked examples compile for every dialect with the real sokol-shdc") {
     ShaderCompileOptions options;
     options.setup = SetupContext{};
-    if (find_sokol_shdc(options.setup).empty()) {
-        MESSAGE("sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the documentation examples are not compiled here and are in CI on Linux");
-        return;
-    }
+    FA_SKIP_WITHOUT_SHDC(options.setup, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): the documentation examples are not compiled here and are in CI");
     options.useCache = false;
     testing::TempDir dir;
     const std::vector<std::string> materials = write_doc_project(dir.path);
