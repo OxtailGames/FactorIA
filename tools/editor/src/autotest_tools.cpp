@@ -1043,7 +1043,10 @@ void Editor::at_build_tools_script() {
             }
         };
         auto wait_reload = [this, ms, material_state, &step] { step(1, Reloaded{this, ms, material_state, 300}); };
+        // A shot for vp_diff, like snap() without toasts: they fade on their own clock over the viewport (the "Reloaded" one of
+        // the scene was in one shot and gone in the next on a slow runner).
         auto grab = [this, &step](Image MatShots::*which, std::shared_ptr<MatShots> shots) {
+            step(3, [this] { toasts_.clear(); });
             step(3, [this, which, shots] {
                 atPostFrame_.push_back([this, which, shots] { at_check(capture_window((*shots).*which), "captured the viewport"); });
             });
