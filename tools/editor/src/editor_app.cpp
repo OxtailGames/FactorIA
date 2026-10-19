@@ -15,6 +15,7 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "ui_backend.h"
+#include "fa/tooling/shaders.h"
 
 namespace fa::editor {
 
@@ -422,6 +423,7 @@ bool Editor::boot(const std::string& dirIn) {
     if (!dir.empty()) {
         EngineConfig cfg;
         cfg.projectDir = dir;
+        cfg.shaderCompiler = make_engine_shader_compiler(dir);
         cfg.editorMode = true;
         cfg.hotReload = false;
         cfg.audioDevice = !autotest_;

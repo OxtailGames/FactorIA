@@ -29,6 +29,7 @@ Json RenderStats::to_json() const {
     return Json{{"drawCalls", drawCalls}, {"sprites", sprites}, {"shapes", shapes}, {"textGlyphs", textGlyphs},
                 {"particles", particles}, {"meshes", meshes}, {"meshesCulled", meshesCulled}, {"meshBatches", meshBatches},
                 {"triangles", triangles}, {"lights", lights}, {"lightsDropped", lightsDropped},
+                {"materials", materials}, {"materialFallbacks", materialFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
 
@@ -323,7 +324,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
     sd.image_pool_size = 1024;
     sd.view_pool_size = 4096;
     sd.sampler_pool_size = 64;
-    sd.shader_pool_size = 32;
+    sd.shader_pool_size = 256;  // 11 built-in shaders, up to 4 per custom material
     sd.pipeline_pool_size = 256;
     sd.uniform_buffer_size = 16 * 1024 * 1024;
     sg_setup(&sd);
@@ -345,6 +346,7 @@ bool Renderer::init(const RendererDesc& desc, const GfxEnvironment& env, std::st
         return false;
     }
     im.assets = std::make_unique<Assets>(im.gpu);
+    im.assets->set_shader_compiler(shaderCompiler_);
     im.fonts = std::make_unique<Fonts>(im.gpu, *im.assets);
     im.fonts->set_fallback_fonts(fallbackFonts_);
     im.textScale = textScale_;
@@ -401,6 +403,11 @@ std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->texV
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
 }
+void Renderer::set_shader_compiler(ShaderCompiler compiler) {
+    shaderCompiler_ = std::move(compiler);
+    if (impl_ && impl_->assets) impl_->assets->set_shader_compiler(shaderCompiler_);
+}
+std::string Renderer::shader_dialect() const { return initialized() ? backend_dialect(sg_query_backend()) : std::string(); }
 void Renderer::clear_asset_cache() {
     if (!impl_ || !impl_->assets) return;
     clear_particles();
@@ -551,6 +558,9 @@ void Renderer::Impl::render(World& world, float dt) {
         mi.model = world.world_matrix(e);
         mi.mr = &mr;
         mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
+        mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
+        if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
+            mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
         mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
         mi.dist = length(mi.model.translation() - fr.cam.position);
         mi.bmin = mi.mesh->bmin;
@@ -564,8 +574,11 @@ void Renderer::Impl::render(World& world, float dt) {
             if (mi.anim) skinned_bounds(anim->palette, mi.mesh->bmin, mi.mesh->bmax, mi.bmin, mi.bmax);
         }
         mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
+        // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
+        // whatever Color.a or the glTF material say.
         bool anyBlend = mr.color.a < 0.999f;
         for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
+        if (mi.material) anyBlend = mi.material->alphaMode == "blend";
         (anyBlend ? blended : opaque).push_back(mi);
     });
     std::stable_sort(blended.begin(), blended.end(), [](const MeshItem& a, const MeshItem& b) { return a.dist > b.dist; });
@@ -690,7 +703,114 @@ void Renderer::Impl::render(World& world, float dt) {
     const sg_buffer mainInst = upload_instances(mainMats);
     const sg_buffer shadowInst = upload_instances(shadowMats);
 
+    // ---- how a mesh part is drawn: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
+    const SceneSettings& ss = world.settings();
+    TextureAsset* white = assets->white();
+    mesh_fa_lights_t lightUniforms{};
+    for (std::size_t i = 0; i < lights.size(); ++i) {
+        for (int c = 0; c < 4; ++c) {
+            lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
+            lightUniforms.fa_light_color[i][c] = lights[i].color[c];
+            lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
+        }
+    }
+    mesh_fa_mesh_vs_params_t vuScene{};
+    copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
+    copy_mat(vuScene.fa_light_vp, lightVP);
+    vuScene.fa_time[0] = float(world.time());
+    mesh_fa_mesh_fs_params_t fuScene{};
+    fuScene.fa_camera_pos[0] = fr.cam.position.x; fuScene.fa_camera_pos[1] = fr.cam.position.y; fuScene.fa_camera_pos[2] = fr.cam.position.z;
+    fuScene.fa_ambient[0] = ss.ambientLight.r; fuScene.fa_ambient[1] = ss.ambientLight.g; fuScene.fa_ambient[2] = ss.ambientLight.b;
+    fuScene.fa_fog[0] = ss.fogColor.r; fuScene.fa_fog[1] = ss.fogColor.g; fuScene.fa_fog[2] = ss.fogColor.b; fuScene.fa_fog[3] = ss.fogDensity;
+    fuScene.fa_counts[0] = float(lights.size());
+    fuScene.fa_counts[1] = 1.0f / float(kShadowSize);
+    fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
+    fuScene.fa_env_sky[0] = ss.skyColor.r; fuScene.fa_env_sky[1] = ss.skyColor.g; fuScene.fa_env_sky[2] = ss.skyColor.b;
+    fuScene.fa_env_horizon[0] = ss.horizonColor.r; fuScene.fa_env_horizon[1] = ss.horizonColor.g; fuScene.fa_env_horizon[2] = ss.horizonColor.b;
+    fuScene.fa_pbr[3] = 0.0015f;
+    fuScene.fa_time[0] = float(world.time());
+
+    // What one part of an item is drawn with. A material that built uses its own programs; one that failed uses the engine's
+    // programs as the error material (unlit magenta, white textures, no emission).
+    struct PartDraw {
+        MaterialAsset* mat = nullptr;
+        bool error = false;
+        TextureAsset *tex = nullptr, *normal = nullptr, *mr = nullptr, *occlusion = nullptr, *emissive = nullptr;
+    };
+    auto part_draw = [&](const MeshItem& mi, const SubMesh& part) {
+        PartDraw d;
+        d.error = mi.material && !mi.material->ok;
+        d.mat = mi.material && mi.material->ok ? mi.material : nullptr;
+        d.tex = d.error ? white : mi.tex ? mi.tex : (part.texture ? part.texture : white);
+        d.normal = d.error ? nullptr : (mi.normalTex ? mi.normalTex : part.normalTex);
+        d.mr = d.error || !part.mrTex ? white : part.mrTex;
+        d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
+        d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
+        return d;
+    };
+    // The fragment parameters (fa_mesh_fs_params) of one part.
+    auto fill_fs = [&](const MeshItem& mi, const SubMesh& part, const PartDraw& d) {
+        const MeshRenderer& mr = *mi.mr;
+        mesh_fa_mesh_fs_params_t fu = fuScene;
+        const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
+        if (!d.error) { fu.fa_emissive[0] = mr.emissive.r; fu.fa_emissive[1] = mr.emissive.g; fu.fa_emissive[2] = mr.emissive.b; }
+        fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
+        fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
+        const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part.baseColor;
+        fu.fa_base_color[0] = base.r; fu.fa_base_color[1] = base.g; fu.fa_base_color[2] = base.b; fu.fa_base_color[3] = base.a;
+        // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.
+        fu.fa_pbr[0] = part.hasPbr ? saturate(part.metallic) : saturate(mr.metallic);
+        fu.fa_pbr[1] = part.hasPbr ? saturate(part.roughness) : saturate(mr.roughness);
+        if (!d.error) { fu.fa_model_emissive[0] = part.emissiveFactor.r; fu.fa_model_emissive[1] = part.emissiveFactor.g; fu.fa_model_emissive[2] = part.emissiveFactor.b; }
+        fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
+        fu.fa_maps[1] = part.occlusionStrength;
+        fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
+        return fu;
+    };
+    // The packed params and textures of a custom material for one batch (its overrides are the same for every item).
+    struct MaterialInputs {
+        float params[kMaxMaterialParams][4];
+        TextureAsset* textures[kMaxMaterialTextures]{};
+    };
+    auto material_inputs = [&](const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
+        pack_material_params(*mat, mi.mr->materialParams, in.params);
+        for (std::size_t i = 0; i < mat->textures.size(); ++i) in.textures[i] = material_texture(*mat, int(i), mi.mr->materialParams, *assets);
+    };
+    // Bindings of a custom program: the engine's textures and the material's, only the slots the program declares (sokol
+    // rejects a binding the shader does not have). `shadowPass`: the shadow map is being drawn, so it is not sampled.
+    auto bind_textures = [&](sg_bindings& b, const PartDraw& d, const MaterialProgram* prog, const MaterialInputs& in, bool shadowPass) {
+        b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
+        b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTexView : white->view;
+        b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
+        b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
+        b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
+        b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
+        b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
+        b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+        if (!prog) return;
+        if (d.mat)
+            for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
+                b.views[kMaterialFirstView + int(i)] = in.textures[i]->gpu_view();
+                b.samplers[kMaterialFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
+            }
+        for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
+            if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
+        for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
+            if (!((prog->samplerMask >> i) & 1u)) b.samplers[i] = {};
+    };
+    // The material's params (fa_material_vs, fa_material), when the program declares them.
+    auto apply_material_params = [&](const MaterialProgram& prog, const MaterialInputs& in) {
+        for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
+            if (!prog.has_ub(slot)) continue;
+            sg_range r{in.params, std::min<std::size_t>(prog.ubSize[slot], sizeof(in.params))};
+            sg_apply_uniforms(slot, &r);
+        }
+    };
+    auto declares = [](const MaterialProgram* prog, int ub) { return !prog || prog->has_ub(ub); };
+
     // ---- shadow pass ----
+    // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
+    // shadow, alphaMode "clip" cuts holes into it).
     if (doShadows) {
         sg_pass sp{};
         sp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
@@ -701,9 +821,7 @@ void Renderer::Impl::render(World& world, float dt) {
         sp.attachments.depth_stencil = shadowDepthAtt;
         sp.label = "shadow";
         sg_begin_pass(&sp);
-        mesh_fa_mesh_vs_params_t u{};  // the shadow programs read fa_light_vp (fa_view_proj is unused)
-        copy_mat(u.fa_light_vp, lightVP);
-        u.fa_time[0] = float(world.time());
+        mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
         for (int pass = 0; pass < 2; ++pass) {
             const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
             const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
@@ -711,18 +829,30 @@ void Renderer::Impl::render(World& world, float dt) {
                 if (batch.shadowCount == 0) continue;
                 const MeshItem& rep = items[batch.rep];
                 u.fa_uv_scale[0] = rep.mr->uvScale.x; u.fa_uv_scale[1] = rep.mr->uvScale.y;
+                MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
+                MaterialInputs inputs{};
+                if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id)) material_inputs(rep, mat, inputs);
                 for (auto& p : rep.mesh->parts) {
                     const bool skinned = rep.anim && p.skinVb.id;
-                    sg_apply_pipeline(gpu.shadow_pipeline(skinned));
-                    apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
-                    if (skinned) apply_uniforms(UB_mesh_fa_skin, pack_palette(rep.anim->palette));
+                    const MaterialProgram* prog = mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
+                    if (prog && !prog->shader.id) prog = nullptr;
+                    sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true) : gpu.shadow_pipeline(skinned));
                     sg_bindings b{};
                     b.vertex_buffers[0] = p.vb;
                     b.vertex_buffers[1] = shadowInst;
                     b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
                     if (skinned) b.vertex_buffers[2] = p.skinVb;
                     b.index_buffer = p.ib;
+                    const PartDraw pd = part_draw(rep, p);
+                    if (prog) bind_textures(b, pd, prog, inputs, true);
                     sg_apply_bindings(&b);
+                    apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
+                    if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(rep.anim->palette));
+                    if (prog) {
+                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params)) apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(rep, p, pd));
+                        if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                        apply_material_params(*prog, inputs);
+                    }
                     sg_draw(0, p.indexCount, int(batch.shadowCount));
                     ++stats.drawCalls;
                 }
@@ -762,7 +892,6 @@ void Renderer::Impl::render(World& world, float dt) {
         vu.cam_pos[0] = fr.cam.position.x; vu.cam_pos[1] = fr.cam.position.y; vu.cam_pos[2] = fr.cam.position.z;
         apply_uniforms(UB_sky_sky_vs_params, vu);
         sky_sky_fs_params_t fu{};
-        const SceneSettings& ss = world.settings();
         fu.sky_color[0] = ss.skyColor.r; fu.sky_color[1] = ss.skyColor.g; fu.sky_color[2] = ss.skyColor.b; fu.sky_color[3] = 1;
         fu.horizon_color[0] = ss.horizonColor.r; fu.horizon_color[1] = ss.horizonColor.g; fu.horizon_color[2] = ss.horizonColor.b; fu.horizon_color[3] = 1;
         apply_uniforms(UB_sky_sky_fs_params, fu);
@@ -771,73 +900,39 @@ void Renderer::Impl::render(World& world, float dt) {
     }
 
     // meshes: one instanced draw per part of every batch
-    mesh_fa_lights_t lightUniforms{};
-    for (std::size_t i = 0; i < lights.size(); ++i) {
-        for (int c = 0; c < 4; ++c) {
-            lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
-            lightUniforms.fa_light_color[i][c] = lights[i].color[c];
-            lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
-        }
-    }
+    std::vector<const MaterialAsset*> materialsDrawn;
     auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items, bool isBlend) {
-        const SceneSettings& ss = world.settings();
-        mesh_fa_mesh_vs_params_t vu{};
-        copy_mat(vu.fa_view_proj, fr.cam.viewProj);
-        copy_mat(vu.fa_light_vp, lightVP);
-        mesh_fa_mesh_fs_params_t fu{};
-        fu.fa_camera_pos[0] = fr.cam.position.x; fu.fa_camera_pos[1] = fr.cam.position.y; fu.fa_camera_pos[2] = fr.cam.position.z;
-        fu.fa_ambient[0] = ss.ambientLight.r; fu.fa_ambient[1] = ss.ambientLight.g; fu.fa_ambient[2] = ss.ambientLight.b;
-        fu.fa_fog[0] = ss.fogColor.r; fu.fa_fog[1] = ss.fogColor.g; fu.fa_fog[2] = ss.fogColor.b; fu.fa_fog[3] = ss.fogDensity;
-        fu.fa_counts[0] = float(lights.size());
-        fu.fa_counts[1] = 1.0f / float(kShadowSize);
-        fu.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
-        fu.fa_env_sky[0] = ss.skyColor.r; fu.fa_env_sky[1] = ss.skyColor.g; fu.fa_env_sky[2] = ss.skyColor.b;
-        fu.fa_env_horizon[0] = ss.horizonColor.r; fu.fa_env_horizon[1] = ss.horizonColor.g; fu.fa_env_horizon[2] = ss.horizonColor.b;
-        fu.fa_pbr[3] = 0.0015f;
-        vu.fa_time[0] = fu.fa_time[0] = float(world.time());
+        mesh_fa_mesh_vs_params_t vu = vuScene;
         for (const MeshBatch& batch : batches) {
             if (batch.mainCount == 0) continue;
             const MeshItem& mi = items[batch.rep];
             const MeshRenderer& mr = *mi.mr;
             vu.fa_uv_scale[0] = mr.uvScale.x; vu.fa_uv_scale[1] = mr.uvScale.y;
-            fu.fa_emissive[0] = mr.emissive.r; fu.fa_emissive[1] = mr.emissive.g; fu.fa_emissive[2] = mr.emissive.b;
-            fu.fa_emissive[3] = mr.unlit ? 1.0f : 0.0f;
-            fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
+            MaterialInputs inputs{};
+            if (mi.material && mi.material->ok) {
+                material_inputs(mi, mi.material, inputs);
+                if (std::find(materialsDrawn.begin(), materialsDrawn.end(), mi.material) == materialsDrawn.end()) materialsDrawn.push_back(mi.material);
+            } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(), mi.material->path) == stats.materialFallbacks.end()) {
+                stats.materialFallbacks.push_back(mi.material->path);
+            }
             for (auto& part : mi.mesh->parts) {
                 const bool skinned = mi.anim && part.skinVb.id;
-                sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided, skinned));
-                TextureAsset* white = assets->white();
-                TextureAsset* tex = mi.tex ? mi.tex : (part.texture ? part.texture : white);
-                TextureAsset* normalTex = mi.normalTex ? mi.normalTex : part.normalTex;
+                const PartDraw pd = part_draw(mi, part);
+                const MaterialProgram* prog = pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
+                sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided), skinned, prog ? prog->shader : sg_shader{}));
                 sg_bindings b{};
                 b.vertex_buffers[0] = part.vb;
                 b.vertex_buffers[1] = mainInst;
                 b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
                 if (skinned) b.vertex_buffers[2] = part.skinVb;
                 b.index_buffer = part.ib;
-                b.views[VIEW_mesh_fa_tex] = tex->gpu_view();
-                b.views[VIEW_mesh_fa_shadow_tex] = doShadows ? shadowTexView : white->view;
-                b.views[VIEW_mesh_fa_normal_tex] = (normalTex ? normalTex : white)->gpu_view();
-                b.views[VIEW_mesh_fa_mr_tex] = (part.mrTex ? part.mrTex : white)->gpu_view();
-                b.views[VIEW_mesh_fa_occlusion_tex] = (part.occlusionTex ? part.occlusionTex : white)->gpu_view();
-                b.views[VIEW_mesh_fa_emissive_tex] = (part.emissiveTex ? part.emissiveTex : white)->gpu_view();
-                b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
-                b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+                bind_textures(b, pd, prog, inputs, false);
                 sg_apply_bindings(&b);
                 apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-                if (skinned) apply_uniforms(UB_mesh_fa_skin, pack_palette(mi.anim->palette));
-                Color base = mr.color * part.baseColor;
-                fu.fa_base_color[0] = base.r; fu.fa_base_color[1] = base.g; fu.fa_base_color[2] = base.b; fu.fa_base_color[3] = base.a;
-                // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.
-                fu.fa_pbr[0] = part.hasPbr ? saturate(part.metallic) : saturate(mr.metallic);
-                fu.fa_pbr[1] = part.hasPbr ? saturate(part.roughness) : saturate(mr.roughness);
-                fu.fa_model_emissive[0] = part.emissiveFactor.r; fu.fa_model_emissive[1] = part.emissiveFactor.g;
-                fu.fa_model_emissive[2] = part.emissiveFactor.b;
-                fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
-                fu.fa_maps[1] = part.occlusionStrength;
-                fu.fa_maps[2] = normalTex ? 1.0f : 0.0f;
-                apply_uniforms(UB_mesh_fa_mesh_fs_params, fu);
+                if (skinned && declares(prog, UB_mesh_fa_skin)) apply_uniforms(UB_mesh_fa_skin, pack_palette(mi.anim->palette));
+                apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(mi, part, pd));
                 apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                if (prog) apply_material_params(*prog, inputs);
                 sg_draw(0, part.indexCount, int(batch.mainCount));
                 ++stats.drawCalls;
                 stats.triangles += part.indexCount / 3 * int(batch.mainCount);
@@ -848,6 +943,7 @@ void Renderer::Impl::render(World& world, float dt) {
     };
     draw_meshes(opaqueBatches, opaque, false);
     draw_meshes(blendedBatches, blended, true);
+    stats.materials = int(materialsDrawn.size());
 
     // quad groups
     auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest) {

@@ -1,0 +1,5 @@
+{
+  "format": "factoria.material/1",
+  "doc": "Test fixture: emission that follows the engine clock (fa_time).",
+  "shader": "shaders/time.surface.glsl"
+}

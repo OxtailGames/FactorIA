@@ -9,6 +9,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
+#include "fa/render/renderer.h"
 #include "fa/tooling/shaders.h"
 #include "shaders_internal.h"
 #include "util.h"
@@ -47,14 +48,9 @@ std::string ShaderIssue::to_string() const {
 // ---------------------------------------------------------------------------------------------------------------
 
 std::string shader_template_hash() {
-    static const std::string hash = [] {
-        const auto files = template_files();
-        if (files.empty()) return std::string();
-        std::string all;
-        for (const auto& [name, content] : files) all += name + '\0' + content + '\0';
-        return sha256_hex(all);
-    }();
-    return hash;
+    // The renderer's own value (computed by CMake from engine/render/shaders/*_common.glsl, the files embedded here), so a
+    // twin's "template" is what the player that loads it checks.
+    return template_files().empty() ? std::string() : mesh_template_hash();
 }
 
 std::string shader_cache_path(const std::string& projectDir, const GeneratedShader& generated, std::string_view snippet, const std::string& slang) {

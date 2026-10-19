@@ -505,6 +505,10 @@ void Assets::clear() {
     anonymous_.clear();
     for (auto& [k, m] : meshes_) destroy_mesh(*m);
     meshes_.clear();
+    for (auto& [k, m] : materials_)
+        for (MaterialProgram& p : m->programs)
+            if (p.shader.id) gpu_.destroy_shader(p.shader);
+    materials_.clear();
     failures_.clear();
     meshSources_.clear();
 }
@@ -777,6 +781,10 @@ void Assets::reload(const std::string& pathIn) {
         load_mesh(path);
     }
     // Meshes referencing a reloaded texture keep pointing at the same TextureAsset (updated in place).
+    // A material rebuilds in place when its file, its snippet or its compiled twin changed.
+    const std::string dialect = backend_dialect(sg_query_backend());
+    for (auto& [key, mat] : materials_)
+        if (path == key || path == mat->snippet || path == key + "." + dialect + ".shader") build_material(*mat);
 }
 
 Json Assets::report() const {
@@ -797,7 +805,14 @@ Json Assets::report() const {
     }
     Json fails = Json::array();
     for (const auto& f : failures_) fails.push_back({{"kind", f.kind}, {"path", f.path}, {"message", f.message}, {"hint", f.hint}});
+    Json mats = Json::array();
+    for (const auto& [k, m] : materials_) {
+        Json entry = {{"material", k}, {"ok", m->ok}, {"generation", m->generation}};
+        if (!m->error.empty()) entry["error"] = m->error;
+        mats.push_back(std::move(entry));
+    }
     j["textures"] = tex;
+    j["materials"] = mats;
     j["meshes"] = meshes;
     j["failures"] = fails;
     return j;

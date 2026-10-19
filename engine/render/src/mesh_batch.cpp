@@ -44,7 +44,7 @@ auto material_key(const MeshItem& a) {
     const MeshRenderer& r = *a.mr;
     return std::make_tuple(a.mesh, a.tex, a.normalTex, r.color.r, r.color.g, r.color.b, r.color.a, r.metallic, r.roughness,
                            r.emissive.r, r.emissive.g, r.emissive.b, r.unlit, r.receiveShadows, r.uvScale.x, r.uvScale.y,
-                           r.normalScale, a.anim);
+                           r.normalScale, a.anim, a.material, a.paramsHash);
 }
 
 // Items that can share one instanced draw have the same mesh, textures and every MeshRenderer value the shader reads.

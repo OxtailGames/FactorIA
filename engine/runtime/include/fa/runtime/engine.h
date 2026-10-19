@@ -79,6 +79,10 @@ struct EngineConfig {
     // always start in localization.defaultLanguage so that what they print and save does not depend on the machine; a game in
     // its own window and an exported game start in the best match of the system's languages. docs/LOCALIZATION.md.
     std::string language;
+    // Compiles custom materials (MeshRenderer.material) for the renderer, host dialect only (Renderer::set_shader_compiler).
+    // `factoria` and the editor pass the tooling's compile_material (fa_runtime cannot depend on fa_tooling); empty = an
+    // exported game, which reads the compiled twins shipped next to each material.
+    ShaderCompiler shaderCompiler;
 };
 
 class Engine final : public ScriptHost {
