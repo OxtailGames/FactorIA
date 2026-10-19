@@ -1921,6 +1921,14 @@ declare module "factoria" {
     x: number;
     y: number;
     /**
+     * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
+     */
+    readonly : number]: number;
+    /**
+     * Iterates the components, so [...v], destructuring and for...of work.
+     */
+    : IterableIterator<number>;
+    /**
      * Sets both components (writes through on live views).
      */
     set(x: number, y: number): this;
@@ -2011,6 +2019,14 @@ declare module "factoria" {
     y: number;
     z: number;
     /**
+     * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
+     */
+    readonly : number]: number;
+    /**
+     * Iterates the components, so [...v], destructuring and for...of work.
+     */
+    : IterableIterator<number>;
+    /**
      * x and y as a Vec2.
      */
     readonly xy: Vec2;
@@ -2046,6 +2062,18 @@ declare module "factoria" {
     g: number;
     b: number;
     a: number;
+    /**
+     * c[0]..c[3]: r, g, b, a.
+     */
+    readonly : number]: number;
+    /**
+     * Iterates the components, so [...v], destructuring and for...of work.
+     */
+    : IterableIterator<number>;
+    /**
+     * The number of components (4); Vec2 and Vec3 have the length() method instead.
+     */
+    readonly length: number;
     set(r: number, g: number, b: number, a?: number): this;
     copy(c: ColorLike): this;
     clone(): Color;
@@ -2076,6 +2104,18 @@ declare module "factoria" {
     y: number;
     w: number;
     h: number;
+    /**
+     * r[0]..r[3]: x, y, w, h.
+     */
+    readonly : number]: number;
+    /**
+     * Iterates the components, so [...v], destructuring and for...of work.
+     */
+    : IterableIterator<number>;
+    /**
+     * The number of components (4); Vec2 and Vec3 have the length() method instead.
+     */
+    readonly length: number;
     contains(p: Vec2Like): boolean;
     toArray(): [number, number, number, number];
   }
