@@ -452,9 +452,12 @@ entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the one
 active and `interactable`. Nothing takes focus by itself except one thing: when no widget is focused, the first
 focusable widget (top to bottom, then left to right) with `autoFocus: true` takes it. So a HUD button never reacts to the
 gameplay keys; a menu marks its first item `autoFocus` (or calls `ui.focus(...)` when it opens). A focused widget that is
-destroyed, deactivated or made not interactable loses focus, and `autoFocus` applies again. The actions below move
-the focus to the nearest focusable widget in that direction (holding repeats after 0.4 s, then every 0.1 s; it does not
-wrap):
+destroyed, deactivated or made not interactable loses focus, and `autoFocus` applies again. When every visible
+`autoFocus` widget has `interactable: false` (a greyed-out buy button), the first interactable widget in reading order
+takes the focus instead. The actions below move the focus to the nearest focusable widget in that direction: first among
+the widgets lined up with the focused one (overlapping it across the direction, like the next tab of a row or the row
+under a tab), and only when there is none, anywhere in that half of the screen (holding repeats after 0.4 s, then every
+0.1 s; it does not wrap):
 
 | action | default bindings | does |
 |---|---|---|

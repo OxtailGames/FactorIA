@@ -465,7 +465,7 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
-| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused. |
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
@@ -491,7 +491,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
-| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused. |
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
@@ -518,7 +518,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
-| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused. |
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
@@ -549,7 +549,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `textColor` | color | `[1.0,1.0,1.0,1.0]` | Label colour. |
 | `accentColor` | color | `[1.0,0.76,0.2,1.0]` | Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret. |
 | `interactable` | bool | `true` | false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus. |
-| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. |
+| `autoFocus` | bool | `false` | Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused. |
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
@@ -5015,7 +5015,7 @@ declare module "factoria" {
      */
     interactable: boolean;
     /**
-     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
      */
     autoFocus: boolean;
     /**
@@ -5105,7 +5105,7 @@ declare module "factoria" {
      */
     interactable: boolean;
     /**
-     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
      */
     autoFocus: boolean;
     /**
@@ -5199,7 +5199,7 @@ declare module "factoria" {
      */
     interactable: boolean;
     /**
-     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
      */
     autoFocus: boolean;
     /**
@@ -5309,7 +5309,7 @@ declare module "factoria" {
      */
     interactable: boolean;
     /**
-     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again.
+     * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
      */
     autoFocus: boolean;
     /**
