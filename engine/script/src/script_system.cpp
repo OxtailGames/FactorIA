@@ -110,13 +110,22 @@ JSModuleDef* loader_cb(JSContext* ctx, const char* name, void* opaque) {
 
 int interrupt_cb(JSRuntime*, void* opaque) { return static_cast<ScriptSystem::Impl*>(opaque)->check_interrupt() ? 1 : 0; }
 
-void rejection_cb(JSContext* ctx, JSValueConst, JSValueConst reason, bool is_handled, void* opaque) {
-    if (is_handled) return;
+// Like Node: a rejection counts as unhandled only if still unhandled once the job queue has drained (run_jobs), so
+// `p.then(() => store.call()).catch(...)` is fine: the store promise gets its handler one microtask later.
+void rejection_cb(JSContext* ctx, JSValueConst promise, JSValueConst reason, bool is_handled, void* opaque) {
     auto* I = static_cast<ScriptSystem::Impl*>(opaque);
-    ScriptError e = I->error_from_exception(reason, "", "unhandled promise rejection");
-    e.message = "unhandled promise rejection: " + e.message;
-    I->record_error(std::move(e), "promise");
-    (void)ctx;
+    auto& list = I->pendingRejections;
+    if (!is_handled) {
+        list.push_back({JS_DupValue(ctx, promise), JS_DupValue(ctx, reason)});
+        return;
+    }
+    for (size_t i = 0; i < list.size(); ++i)
+        if (JS_VALUE_GET_PTR(list[i].promise) == JS_VALUE_GET_PTR(promise)) {
+            JS_FreeValue(ctx, list[i].promise);
+            JS_FreeValue(ctx, list[i].reason);
+            list.erase(list.begin() + static_cast<std::ptrdiff_t>(i));
+            return;
+        }
 }
 
 }  // namespace
@@ -155,6 +164,19 @@ void ScriptSystem::Impl::run_jobs() {
         if (r < 0) {
             report_pending_exception("", "promise job");
         }
+    }
+    flush_rejections();
+}
+
+void ScriptSystem::Impl::flush_rejections() {
+    auto list = std::move(pendingRejections);
+    pendingRejections.clear();
+    for (auto& r : list) {
+        ScriptError e = error_from_exception(r.reason, "", "promise");
+        e.message = "unhandled promise rejection: " + e.message;
+        record_error(std::move(e), "promise");
+        JS_FreeValue(ctx, r.promise);
+        JS_FreeValue(ctx, r.reason);
     }
 }
 
@@ -718,6 +740,8 @@ void ScriptSystem::Impl::shutdown() {
     byEntity.clear();
     namespaces.clear();
     tools.clear();
+    for (auto& r : pendingRejections) { JS_FreeValue(ctx, r.promise); JS_FreeValue(ctx, r.reason); }
+    pendingRejections.clear();
     hooks.reset();
     factoria.reset();
     testApi.reset();

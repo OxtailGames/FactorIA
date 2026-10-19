@@ -1719,14 +1719,8 @@ NATIVE(cameraMain) {
 }
 
 Vec2 design_size(Impl* I) {
-    Json p = I->host->project_settings();
-    float w = 1280, h = 720;
-    if (p.is_object() && p.contains("display") && p["display"].is_object()) {
-        w = p["display"].value("width", 1280.0f);
-        h = p["display"].value("height", 720.0f);
-    }
     if (Renderer* r = I->host->renderer(); r && r->initialized()) return {static_cast<float>(r->target_width()), static_cast<float>(r->target_height())};
-    return {w, h};
+    return I->host->design_size();
 }
 
 float camera_scale(Impl* I, World& W, Entity cam, Vec2 size) {
