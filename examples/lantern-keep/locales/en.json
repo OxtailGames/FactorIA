@@ -6,7 +6,8 @@
     "options": "Options",
     "credits": "Credits",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "continue": "Continue"
   },
   "loading": {
     "text": "Loading..."
@@ -81,5 +82,22 @@
     "next": "Next",
     "retry": "Retry",
     "menu": "Menu"
+  },
+  "slots": {
+    "title": "Save slots",
+    "new": "Slot {n}: New game",
+    "used": "Slot {n}: {levels}/{totalLevels} levels  {embers}/{totalEmbers} embers  {time}",
+    "damaged": "Slot {n}: Damaged",
+    "damagedNote": "A damaged slot cannot be loaded. Delete it to start over.",
+    "delete": "Delete",
+    "keep": "Keep it",
+    "confirm": "Delete slot {n}?",
+    "confirmNote": "This cannot be undone."
+  },
+  "select": {
+    "title": "Choose a level",
+    "locked": "Locked",
+    "open": "Not finished",
+    "result": "Embers {found}/{total}  {time}"
   }
 }

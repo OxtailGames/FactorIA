@@ -29,7 +29,7 @@ export default class LevelEnd extends Behaviour {
       if (following) startLevel(following.id);
     });
     ui.on("click", "end_retry", () => this.result && startLevel(this.result.level));
-    ui.on("click", "end_menu", () => openMenu());
+    ui.on("click", "end_menu", () => openMenu(true));
     i18n.on("change", () => this.refresh()); // these lines are built here, not translated by the engine
   }
 
