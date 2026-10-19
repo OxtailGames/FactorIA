@@ -420,7 +420,7 @@ checked, into `~/.factoria/tools/sokol-shdc/<commit>/`; `SOKOL_SHDC=/path/to/sok
 `factoria` also works). Without it the doctests that run the real compiler (`real sokol-shdc: ...` in `fa_test_tooling`,
 the exports of materials) skip themselves and `factoria validate` only warns, so a change to the shaders can look green
 while untested. The CI jobs that run ctest on a desktop (Linux, Windows, macOS) and `ci-local.sh linux` therefore run
-`factoria setup shaders` right after the build, check that `factoria setup` lists `shaders` as installed, and run ctest with
+`factoria setup shaders` right after the build (it fails when the install does) and run ctest with
 `FA_REQUIRE_SHDC=1`: with it those doctests FAIL when no compiler is found instead of skipping, so a broken install
 cannot turn into silent skips (the variable is not set locally, where skipping is the right answer on a machine without the
 compiler). On Windows, Windows Defender flags the pinned `sokol-shdc.exe` by mistake and may remove it (the setup says so
