@@ -238,10 +238,7 @@ TEST_CASE("export shaders: a project without materials ships what it has and rep
 }
 
 TEST_CASE("real sokol-shdc: an android export ships the glsl300es twin it compiled") {
-    if (find_sokol_shdc(SetupContext{}).empty()) {
-        MESSAGE("sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): skipped here, runs in CI on Linux");
-        return;
-    }
+    FA_SKIP_WITHOUT_SHDC(SetupContext{}, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): skipped here, runs in CI");
     Fixture f;
     f.setup = SetupContext{};
     auto r = export_project(f.options("android"));

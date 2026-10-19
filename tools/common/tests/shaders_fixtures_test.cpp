@@ -15,10 +15,7 @@ namespace stdfs = std::filesystem;
 
 TEST_CASE("real sokol-shdc: the committed twins of the renderer's fixture materials are up to date") {
     SetupContext context;
-    if (find_sokol_shdc(context).empty()) {
-        MESSAGE("sokol-shdc is not installed: the fixture twins are not checked here (CI on Linux does)");
-        return;
-    }
+    FA_SKIP_WITHOUT_SHDC(context, "sokol-shdc is not installed: the fixture twins are not checked here (CI does)");
     const stdfs::path root = stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/materials";
     const char* update = std::getenv("FA_UPDATE_FIXTURES");
     const bool rewrite = update && std::string(update) == "1";

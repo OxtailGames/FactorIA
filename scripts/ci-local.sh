@@ -8,8 +8,8 @@
 #   FA_CI_JOBS=4 ./scripts/ci-local.sh   # parallel build jobs (default: nproc)
 #
 # Jobs
-#   linux    Linux build (GCC/Clang) + full ctest. GPU tests use Mesa llvmpipe
-#            through Xvfb when there is no display.
+#   linux    Linux build (GCC/Clang) + `factoria setup shaders` + full ctest. GPU tests use Mesa llvmpipe
+#            through Xvfb when there is no display. The tests that need the real sokol-shdc fail (not skip) when it is missing.
 #   windows  On a Windows host: MSVC build + ctest through scripts/build.ps1
 #            (Visual Studio 2022+). On Linux: Windows x64 cross-build with
 #            MinGW-w64 (D3D11 backend) + every unit-test executable and a CLI
@@ -55,6 +55,16 @@ with_display() {
     else "$@"; fi
 }
 
+# The shader compiler custom materials need, installed the way CI does it (docs/BUILDING.md): the CLI built in $1 runs
+# `factoria setup shaders` (a SOKOL_SHDC that is set counts as installed) and the status must say so. The test runs after
+# it get FA_REQUIRE_SHDC=1, which turns the tests that need the compiler from skipped into failed.
+install_shaders() {
+    local cli; cli="$(find "$1/tools/cli" -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)"
+    [ -n "$cli" ] || { echo "factoria was not built under $1/tools/cli"; return 1; }
+    "$cli" setup shaders || return 1
+    "$cli" setup | grep -Eq '^ +shaders +installed' || { echo "sokol-shdc is not installed after 'factoria setup shaders'"; return 1; }
+}
+
 job_linux() {
     note "linux"
     [ "$HOST" = "Linux" ] || { record linux SKIP "not a Linux host"; return; }
@@ -63,7 +73,8 @@ job_linux() {
         || { record linux FAIL "configure (see $LOGDIR/linux-configure.log)"; return; }
     run_logged "$LOGDIR/linux-build.log" cmake --build "$b" -j "$JOBS" \
         || { record linux FAIL "build (see $LOGDIR/linux-build.log)"; return; }
-    if run_logged "$LOGDIR/linux-test.log" with_display ctest --test-dir "$b" -j "$JOBS" --output-on-failure; then
+    run_logged "$LOGDIR/linux-shaders.log" install_shaders "$b" || { record linux FAIL "factoria setup shaders (see $LOGDIR/linux-shaders.log)"; return; }
+    if FA_REQUIRE_SHDC=1 run_logged "$LOGDIR/linux-test.log" with_display ctest --test-dir "$b" -j "$JOBS" --output-on-failure; then
         record linux PASS "$(grep -E 'tests passed' "$LOGDIR/linux-test.log" | tail -1)"
     else
         record linux FAIL "tests (see $LOGDIR/linux-test.log)"
@@ -182,7 +193,7 @@ job_web() {
 job_macos() {
     note "macos"
     [ "$HOST" = "Darwin" ] || { record macos SKIP "needs a Mac (run this script on macOS)"; return; }
-    if run_logged "$LOGDIR/macos.log" bash -c "cmake --preset macos-release && cmake --build --preset macos-release -j $JOBS && ctest --preset macos-release -j $JOBS"; then
+    if run_logged "$LOGDIR/macos.log" bash -c "$(declare -f install_shaders); cmake --preset macos-release && cmake --build --preset macos-release -j $JOBS && install_shaders build/macos-release && FA_REQUIRE_SHDC=1 ctest --preset macos-release -j $JOBS"; then
         record macos PASS "build + ctest"
     else
         record macos FAIL "see $LOGDIR/macos.log"
