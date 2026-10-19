@@ -479,6 +479,57 @@ TEST_CASE("tests: fresh modules, empty memory storage and session per test file;
     CHECK(ev_ok(h, "storage.get('leak')").is_null());
 }
 
+TEST_CASE("storage: a damaged storage.json is kept, never overwritten by the next save") {
+    TestHost h("corruptsave");
+    const auto dir = h.root / "save";
+    std::filesystem::create_directories(dir);
+    auto slurp = [](const std::filesystem::path& p) {
+        std::ifstream f(p, std::ios::binary);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        return ss.str();
+    };
+    std::ofstream(dir / "storage.json", std::ios::binary) << R"({"slot1": {"lvl": 3)";  // cut off mid-write
+    REQUIRE(h.start());
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.keys().length") == 0);
+    ev_ok(h, "storage.set('slot1', {lvl: 1})");
+    CHECK(slurp(dir / "storage.corrupt.json") == R"({"slot1": {"lvl": 3)");
+    Json fresh = Json::parse(slurp(dir / "storage.json"), nullptr, false);
+    REQUIRE(fresh.is_object());
+    CHECK(fresh["slot1"]["lvl"] == 1);
+    // a second damaged start keeps the first kept file and numbers the new one
+    std::ofstream(dir / "storage.json", std::ios::binary | std::ios::trunc) << "garbage";
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(slurp(dir / "storage.corrupt.json") == R"({"slot1": {"lvl": 3)");
+    CHECK(slurp(dir / "storage.corrupt.2.json") == "garbage");
+    // a good file is not flagged
+    std::ofstream(dir / "storage.json", std::ios::binary | std::ios::trunc) << R"({"slot1": {"lvl": 1}})";
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == false);
+    CHECK(ev_ok(h, "storage.get('slot1').lvl") == 1);
+}
+
+TEST_CASE("tests: game.setStorageText drives the damaged-save path") {
+    TestHost h("corrupthook");
+    h.file("tests/save.test.js",
+           "import { test, expect, game } from 'factoria:test';\nimport { storage } from 'factoria';\n"
+           "test('fresh storage is not corrupt', () => { expect(storage.corrupt).toBe(false); });\n"
+           "test('damaged text', () => { game.setStorageText('{\"slot1\": {'); expect(storage.corrupt).toBe(true); expect(storage.keys().length).toBe(0); "
+           "storage.set('a', 1); expect(storage.get('a')).toBe(1); });\n"
+           "test('valid text', () => { game.setStorageText('{\"best\": 7}'); expect(storage.corrupt).toBe(false); expect(storage.get('best')).toBe(7); });\n"
+           "test('null empties it', () => { game.setStorageText(null); expect(storage.get('best')).toBeUndefined(); });\n");
+    std::filesystem::create_directories(h.root / "save");
+    std::ofstream(h.root / "save" / "storage.json") << R"({"real": 1})";
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/save.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    CHECK(rep.passed == 4);
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage.corrupt.json"));
+}
+
 TEST_CASE("storage mode Memory never touches disk") {
     TestHost h("memstore");
     REQUIRE(h.start());

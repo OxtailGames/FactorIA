@@ -205,31 +205,73 @@ std::string Impl::destroyed_id(Entity e) const {
 // ---------------------------------------------------------------------------------------------------------------------
 // storage
 // ---------------------------------------------------------------------------------------------------------------------
+namespace {
+// The path a damaged storage.json is kept at: storage.corrupt.json, or storage.corrupt.2.json, .3... when an earlier
+// damaged start already left one (the first one is never replaced: it is usually the most informative).
+std::filesystem::path corrupt_keep_path() {
+    const std::filesystem::path dir = fs::user_dir();
+    std::error_code ec;
+    std::filesystem::path p = dir / "storage.corrupt.json";
+    for (int n = 2; std::filesystem::exists(p, ec) && n < 1000; ++n) p = dir / ("storage.corrupt." + std::to_string(n) + ".json");
+    return p;
+}
+}  // namespace
+
 void Impl::load_storage() {
     if (storageLoaded) return;
     storageLoaded = true;
     storage = Json::object();
-    if (storageMode == StorageMode::Memory) return;
-    std::ifstream f(fs::user_dir() / "storage.json", std::ios::binary);
-    if (!f) return;
-    std::stringstream ss;
-    ss << f.rdbuf();
-    Json j = Json::parse(ss.str(), nullptr, false);
-    if (j.is_object()) storage = std::move(j);
-    else log(LogLevel::Warn, "script", "storage.json is corrupt; starting with empty save data");
+    storageCorrupt = false;
+    const bool hooked = storageTextHook.has_value();
+    if (storageMode == StorageMode::Memory && !hooked) return;
+    const std::filesystem::path file = fs::user_dir() / "storage.json";
+    std::string text;
+    if (hooked) {
+        text = *storageTextHook;
+    } else {
+        std::ifstream f(file, std::ios::binary);
+        if (!f) return;  // no save yet
+        std::stringstream ss;
+        ss << f.rdbuf();
+        text = ss.str();
+    }
+    Json j = Json::parse(text, nullptr, false);
+    if (j.is_object()) {
+        storage = std::move(j);
+        return;
+    }
+    // Damaged. Keep the bytes: the next save would otherwise replace them with the new data.
+    storageCorrupt = true;
+    std::string kept = "storage.corrupt.json";
+    if (storageMode == StorageMode::Persistent && !hooked) {
+        const std::filesystem::path keep = corrupt_keep_path();
+        kept = keep.filename().string();
+        std::error_code ec;
+        std::filesystem::rename(file, keep, ec);
+        if (ec) {  // e.g. another volume: copy the bytes instead
+            auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
+            if (!w) {
+                log(LogLevel::Warn, "script", "storage.json does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+                                                  ". The next save will replace it; copy it by hand now if it matters.");
+                return;
+            }
+        }
+        fs::user_dir_changed();
+    }
+    log(LogLevel::Warn, "script",
+        "storage.json does not parse (damaged by a crash or a bad edit?); it was kept as " + kept + " in " + fs::user_dir().string() +
+            " and the game starts with empty save data. A script can check storage.corrupt at start to tell the player.");
 }
 
 void Impl::save_storage() {
     if (storageMode == StorageMode::Memory) return;
-    std::error_code ec;
-    std::filesystem::create_directories(fs::user_dir(), ec);
-    std::ofstream f(fs::user_dir() / "storage.json", std::ios::binary | std::ios::trunc);
-    if (!f) {
-        log(LogLevel::Warn, "script", "cannot write storage.json in " + fs::user_dir().string());
+    // Atomic (temporary file, then rename): a crash during the save leaves the previous storage.json intact.
+    const std::string text = dump_json(storage);
+    auto r = fs::write_bytes((fs::user_dir() / "storage.json").generic_string(), text.data(), text.size());
+    if (!r) {
+        log(LogLevel::Warn, "script", "cannot write storage.json in " + fs::user_dir().string() + ": " + r.error().message);
         return;
     }
-    f << dump_json(storage);
-    f.close();
     fs::user_dir_changed();  // the web build copies the save folder to the browser's storage
 }
 
@@ -1823,8 +1865,14 @@ NATIVE(storageKeys) {
     for (auto it = I->storage.begin(); it != I->storage.end(); ++it) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, it.key().c_str()));
     return a;
 }
+NATIVE(storageCorrupt) {
+    SETUP;
+    I->load_storage();
+    return JS_NewBool(ctx, I->storageCorrupt);
+}
 NATIVE(storageClear) {
     SETUP;
+    I->load_storage();  // a damaged file is kept before the cleared data replaces it
     I->storage = Json::object();
     I->storageLoaded = true;
     I->save_storage();
@@ -1960,6 +2008,15 @@ NATIVE(testLoad) {
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
     I->after_test_load();
     return JS_NewString(ctx, "");
+}
+
+NATIVE(testStorageText) {
+    SETUP;
+    if (argc > 0 && JS_IsString(argv[0])) I->storageTextHook = arg_str(ctx, argc, argv, 0);
+    else I->storageTextHook.reset();
+    I->storage = Json::object();
+    I->storageLoaded = false;
+    return JS_UNDEFINED;
 }
 
 NATIVE(testLoadJson) {
@@ -2099,7 +2156,7 @@ const Reg kRegs[] = {
     R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
+    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),
     R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
 };
 #undef R

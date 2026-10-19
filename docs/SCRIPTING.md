@@ -513,6 +513,14 @@ the press is released over the same widget; a Slider follows the pointer while p
 - `storage.get(key, fallback)` · `storage.set(key, value)` · `storage.remove(key)` — persistent JSON save data
   (`<user dir>/storage.json`). Tests always use an empty in-memory storage per test file and never touch the real
   save; the runtime can run headless with `ScriptSystem::set_storage_mode(StorageMode::Memory)`.
+  Saves are atomic (temporary file, then rename): a crash during a save leaves the previous `storage.json` intact.
+- `storage.corrupt` — `true` when `storage.json` did not parse at the first use of `storage` in this run. The damaged
+  file is **kept** as `storage.corrupt.json` in the save folder (`storage.corrupt.2.json`, `.3`... when one is already
+  there: an earlier one is never replaced), the engine logs a warning naming it, and the game starts with empty save
+  data; the next save writes a new valid `storage.json` and never touches the kept file. Check it at start to tell the
+  player or offer a recovery. A test starts from a damaged save with `game.setStorageText('{"broken')` (from
+  `factoria:test`; it sets the text the next storage load reads and reloads, then `storage.corrupt` is `true`).
+  On the web the save folder lives in IndexedDB and the same rules apply to its copy of the file.
 
 ### rng (deterministic, seeded per run)
 `rng.seed(n)` reseeds the world RNG (seed → level determinism from tools/tests) · `rng.float()` [0,1) · `rng.range(a, b)` · `rng.int(a, b)` (inclusive) · `rng.chance(p)` · `rng.pick(array)` · `rng.shuffle(array)` (a shuffled copy)

@@ -141,6 +141,8 @@ struct ScriptSystem::Impl {
     Json storage = Json::object();
     bool storageLoaded = false;
     StorageMode storageMode = StorageMode::Persistent;
+    bool storageCorrupt = false;                 // the save data did not parse at the last load (storage.corrupt)
+    std::optional<std::string> storageTextHook;  // game.setStorageText: what the next load reads instead of the file
 
     // ---- test runner state
     bool inTestRun = false;
