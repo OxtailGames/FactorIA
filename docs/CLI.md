@@ -263,6 +263,8 @@ cluster may span categories). See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
 The docs embedded in the binary (offline). `factoria docs scripting` prints SCRIPTING.md. Two are generated:
 `components` (the component reference) and `licenses` (FactorIA's MIT license and every third-party license inside
 the binaries; the downloads ship it as `THIRD_PARTY_NOTICES.txt`).
+Docs are embedded with LF line endings whatever the checkout uses, so `factoria docs read x > f` and `docs.read` never
+carry `\r`.
 
 ### `factoria version` / `--version`, `factoria help [command]`
 

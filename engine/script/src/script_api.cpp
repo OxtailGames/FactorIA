@@ -45,7 +45,8 @@ Sig parse_sig(std::string s) {
     Sig r;
     if (s.rfind("readonly ", 0) == 0) { r.readonly = true; s = s.substr(9); }
     size_t i = 0;
-    while (i < s.size() && (std::isalnum(static_cast<unsigned char>(s[i])) || s[i] == '_' || s[i] == '$')) ++i;
+    if (!s.empty() && s[0] == '[') i = s.find(']') + 1;  // a computed or index member: [Symbol.iterator](), [index: number]
+    else while (i < s.size() && (std::isalnum(static_cast<unsigned char>(s[i])) || s[i] == '_' || s[i] == '$')) ++i;
     r.name = s.substr(0, i);
     if (i < s.size() && s[i] == '?') { r.optional = true; ++i; }
     if (i < s.size() && (s[i] == '(' || s[i] == '<')) {
