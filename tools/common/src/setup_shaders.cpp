@@ -81,8 +81,12 @@ SetupComponent shaders_status(const SetupContext& ctx) {
     if (!found.empty() && is_file(found)) {
         c.state = "installed";
         c.paths.emplace_back("sokol-shdc", found);
-        c.details = "sokol-shdc found" + std::string(found == envPath ? " (named by $SOKOL_SHDC)" : "") + ": " + found +
-                    ".";
+        const bool bundled = found == (exe_dir(ctx) / shdc_file(ctx)).string();
+        c.details = "sokol-shdc found" +
+                    std::string(found == envPath ? " (named by $SOKOL_SHDC)"
+                                : bundled        ? " next to factoria (the factoria downloads carry it)"
+                                                 : "") +
+                    ": " + found + ".";
         return c;
     }
     c.state = "missing";

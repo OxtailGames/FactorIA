@@ -33,6 +33,8 @@
 # in the macOS one), so `factoria export --platform android|ios` works from the download without the engine source
 # (docs/EXPORTING.md). The smoke tests export from the unpacked package and build with Gradle / Xcode.
 # Web: `web-player` builds factoria_player.js + .wasm with Emscripten once and every package carries them in FactorIA/web/.
+# Shaders: every package carries the pinned sokol-shdc next to factoria (scripts/bundle-sokol-shdc.sh, with the commit and
+# SHA-256 of fa/tooling/setup.h), so custom materials compile without `factoria setup shaders`.
 name: Release
 
 on:
@@ -294,6 +296,14 @@ jobs:
             [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "::error::$f is not universal ($archs)"; exit 1; }
           done
 
+      # sokol-shdc, the shader compiler of custom materials, goes next to factoria (docs/design/CUSTOM_SHADERS.md, D3). The
+      # script reads the commit and the SHA-256 from setup.h, the pin factoria checks `setup shaders` against: a file that
+      # does not match fails the release. Windows and Linux ship the pinned file unchanged (not signed: it is not ours, and
+      # its SHA-256 stays the one docs/EXPORTING.md prints); macOS joins the two pinned files into one universal file, which
+      # is signed and notarized with factoria because Gatekeeper blocks an unsigned program that factoria starts.
+      - name: Add the pinned shader compiler (sokol-shdc)
+        run: ./scripts/bundle-sokol-shdc.sh build/sokol-shdc
+
       # Code signing (docs/BUILDING.md, "Releasing"). Each script prints a notice and does nothing without its secrets.
       # The signed files are what the packages and the installer are made of, so this comes before "Package".
       - name: Sign executables (Windows)
@@ -313,7 +323,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: ./scripts/sign-macos.sh "build/${{ matrix.preset }}/tools/cli/factoria" "build/${{ matrix.preset }}/player/factoria_player"
+        run: ./scripts/sign-macos.sh "build/${{ matrix.preset }}/tools/cli/factoria" "build/${{ matrix.preset }}/player/factoria_player" build/sokol-shdc/sokol-shdc
 
       # FactorIA/mobile/: the Android players in every package, the iOS ones as well in the macOS package.
       - name: Add the prebuilt mobile players
@@ -337,6 +347,7 @@ jobs:
           bin="build/${{ matrix.preset }}/tools/cli${{ matrix.cfg }}"
           mkdir -p dist/FactorIA
           cp "$bin/factoria${{ matrix.exe }}" "build/${{ matrix.preset }}/player${{ matrix.cfg }}/factoria_player${{ matrix.exe }}" README.md LICENSE dist/FactorIA/
+          cp "build/sokol-shdc/sokol-shdc${{ matrix.exe }}" dist/FactorIA/
           # FactorIA's MIT license plus every third-party license inside the binaries (fa/tooling/notices.h).
           "$bin/factoria${{ matrix.exe }}" docs licenses > dist/FactorIA/THIRD_PARTY_NOTICES.txt
           cd dist
@@ -373,6 +384,24 @@ jobs:
           grep -q "SIL OPEN FONT LICENSE" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"
           if grep -q "license text missing" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"; then echo "::error::THIRD_PARTY_NOTICES.txt lacks a license text"; exit 1; fi
           find "$tmp/export" -name FACTORIA_NOTICES.txt | grep -q .
+          grep -q "sokol-shdc (sokol-tools)" "$tmp/FactorIA/THIRD_PARTY_NOTICES.txt"
+          # The shader compiler came with the package: the one checked against the pin (macOS: both slices, signed since),
+          # found next to factoria with an empty FACTORIA_HOME and no SOKOL_SHDC, and it compiles a custom material.
+          ws="${GITHUB_WORKSPACE//\\//}"
+          shdc="$tmp/FactorIA/sokol-shdc${{ matrix.exe }}"
+          if [[ "$RUNNER_OS" == macOS ]]; then lipo "$shdc" -verify_arch arm64 x86_64; else cmp "$shdc" "$ws/build/sokol-shdc/sokol-shdc${{ matrix.exe }}"; fi
+          (
+            export FACTORIA_HOME="$tmp/empty-home"
+            unset SOKOL_SHDC
+            "$fa" call setup.status '{"component":"shaders"}' --no-graphics | tee "$tmp/shaders-status.json"
+            grep -Eq '"details": *"sokol-shdc found next to factoria' "$tmp/shaders-status.json"
+            "$fa" new "$tmp/m" --template 3d-empty
+            mkdir -p "$tmp/m/materials" "$tmp/m/shaders"
+            cp "$ws/examples/gem-roller/materials/gem.material.json" "$tmp/m/materials/"
+            cp "$ws/examples/gem-roller/shaders/gem.surface.glsl" "$tmp/m/shaders/"
+            "$fa" call shader.compile '{"material":"materials/gem.material.json"}' --project "$tmp/m" --no-graphics | tee "$tmp/shader-compile.json"
+            grep -Eq '"errors": *\[\]' "$tmp/shader-compile.json"
+          )
 
       # The runner is Apple Silicon: the Intel half runs through Rosetta, installed here when the image lacks it.
       - name: Smoke-test the Intel half (macOS)
@@ -389,6 +418,7 @@ jobs:
           arch -x86_64 FactorIA/factoria version
           arch -x86_64 FactorIA/factoria new g --template 2d-platformer
           arch -x86_64 FactorIA/factoria test g
+          arch -x86_64 FactorIA/sokol-shdc --help > /dev/null  # the x86_64 slice of the shader compiler
 
       # FactorIA-windows-x64-setup.exe wraps the same FactorIA/ folder as the zip (signed exes inside). Inno Setup is on
       # the runner image; the fallback installs the same version.
@@ -427,7 +457,7 @@ jobs:
           for pass in 1 2; do
             "$setup" /VERYSILENT /SUPPRESSMSGBOXES /CURRENTUSER /NORESTART "/LOG=$(cygpath -w "$log")" || { cat "$log"; fail "the installer failed (pass $pass)"; }
           done
-          for f in factoria.exe factoria_player.exe FactorIA-Editor.exe unins000.exe; do
+          for f in factoria.exe factoria_player.exe FactorIA-Editor.exe sokol-shdc.exe unins000.exe; do
             [[ -f "$dir/$f" ]] || { ls -la "$dir"; fail "$f is not in $dir_win"; }
           done
           [[ -f "$lnk" ]] || fail "no Start menu entry: $lnk"
@@ -470,6 +500,9 @@ jobs:
           xvfb-run -a "$app" --appimage-extract-and-run test "$tmp/g"
           run export "$tmp/g" --out "$tmp/export"  # finds factoria_player inside the image
           ls "$tmp/export"/*
+          # ...and sokol-shdc next to factoria inside the image.
+          env FACTORIA_HOME="$tmp/empty-home" "$app" --appimage-extract-and-run call setup.status '{"component":"shaders"}' --no-graphics | tee "$tmp/shaders-status.json"
+          grep -Eq '"details": *"sokol-shdc found next to factoria' "$tmp/shaders-status.json"
 
           # Called as `factoria` (a symlink) it is the CLI: no arguments print the help...
           ln -s "$app" "$tmp/bin/factoria"

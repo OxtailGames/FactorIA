@@ -342,6 +342,14 @@ A release holds these files (the header of `release.yml` says the same):
 | `FactorIA-linux-x64.tar.gz` | Linux package; what the editor's updater downloads. Built in the Steam Runtime sniper container: needs glibc 2.31 or newer | `build-sniper.sh all` (symbol versions, then `--version`, `new` and a headless frame inside the sniper runtime), then as the zip |
 | `FactorIA-linux-x64.AppImage` | The same files in one file (`scripts/package-appimage.sh`, `platforms/linux/`): no arguments open the editor, arguments are the `factoria` command, a link named `factoria` is the CLI. No self-update. Like the tar.gz it uses the system's X11, OpenGL and ALSA and needs glibc 2.31 or newer (built in the sniper container) | `--appimage-extract-and-run` (the runner has no FUSE): `version`, `new`, `test`, `export`, the `factoria` link prints the help, and with no arguments the editor stays open under Xvfb |
 
+Every package (and so the installer and the AppImage) carries sokol-shdc, the shader compiler of custom materials, next to
+`factoria`. `scripts/bundle-sokol-shdc.sh` downloads it with the commit and SHA-256 that `fa/tooling/setup.h` pins for
+`factoria setup shaders` (a file that does not match fails the release; a doctest keeps the lines the script reads in
+shape): the pinned file itself on Windows and Linux, the pinned x86_64 and arm64 files joined with `lipo` into one universal
+file on macOS (each half checked). The smoke tests check it is in the package and in the AppImage, that `factoria setup`
+reports it `found next to factoria` with an empty `FACTORIA_HOME`, and compile a material with it; the licences of sokol-shdc
+and what it links are in `THIRD_PARTY_NOTICES.txt`.
+
 The names carry no version, so `releases/latest/download/<name>` is always the newest. The AppImage tool and its
 runtime are pinned by version and SHA-256 in `scripts/package-appimage.sh`; to upgrade, change both together. Locally:
 `scripts/package-appimage.sh <unpacked FactorIA folder> out.AppImage` on Linux; on Windows, with Inno Setup 6.3 or newer,
@@ -356,15 +364,17 @@ and `scripts/sign-macos.sh` do the work and can be read for the exact commands.
 
 **Windows** (signtool, SHA-256, timestamped with DigiCert's server; signs `factoria.exe`, `FactorIA-Editor.exe`,
 `factoria_player.exe` before they go into the zip and the installer, then `FactorIA-windows-x64-setup.exe`; the
-uninstaller inside the installer stays unsigned):
+uninstaller inside the installer stays unsigned, and so does `sokol-shdc.exe`, which is not FactorIA's program and keeps
+the pinned SHA-256 that docs/EXPORTING.md prints):
 
 | Secret | Value |
 |---|---|
 | `WINDOWS_CERT_PFX_BASE64` | The code signing certificate with its private key as a `.pfx`, base64 encoded: `base64 -w0 cert.pfx`, or in PowerShell `[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))` |
 | `WINDOWS_CERT_PASSWORD` | The password of the `.pfx` |
 
-**macOS** (hardened runtime, timestamped; the executables go to Apple in a temporary zip, because `notarytool` takes
-zip, pkg or dmg and not a bare executable):
+**macOS** (hardened runtime, timestamped; signs `factoria`, `factoria_player` and the universal `sokol-shdc`, which
+Gatekeeper would otherwise block when `factoria` starts it from a downloaded package; the executables go to Apple in a
+temporary zip, because `notarytool` takes zip, pkg or dmg and not a bare executable):
 
 | Secret | Value |
 |---|---|
@@ -428,7 +438,7 @@ and reports the others as skipped, with the reason:
 Logs go to `build/ci-logs/`. The exit code is non-zero if any job that ran failed.
 
 **The shader compiler.** Custom materials (`*.material.json`) are compiled with sokol-shdc, a separate program the
-build does not make. Install the pinned one with the CLI you just built: `factoria setup shaders` (about 10 MB, SHA-256
+build does not make (the release downloads carry it next to `factoria`, see Releasing). Install the pinned one with the CLI you just built: `factoria setup shaders` (about 10 MB, SHA-256
 checked, into `~/.factoria/tools/sokol-shdc/<commit>/`; `SOKOL_SHDC=/path/to/sokol-shdc` or a sokol-shdc next to
 `factoria` also works). Without it the doctests that run the real compiler (`real sokol-shdc: ...` in `fa_test_tooling`,
 the exports of materials) skip themselves and `factoria validate` only warns, so a change to the shaders can look green

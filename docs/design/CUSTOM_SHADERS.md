@@ -419,7 +419,7 @@ Built (2026-10-18), with what the real tool showed:
   hint uses a small alias table before `did_you_mean`.
 - Windows Defender quarantines the pinned `sokol-shdc.exe` (`Trojan:Win32/Bearfoos.B!ml`, an ML false positive):
   the setup status, install and compile errors say how to restore it. Bundling sokol-shdc in the
-  release downloads (D3) is not done yet: it changes `release.yml`.
+  release downloads (D3) came later, see "D3 built" after P5.
 
 ### P3. Materials in the renderer and runtime (L, render + runtime + scene)
 
@@ -499,8 +499,27 @@ Built (2026-10-19):
 - gem-roller's gems use `materials/gem.material.json` (emission pulsing with `fa_time`); its test checks
   `renderStats.materialFallbacks` after a screenshot, and its FB-0012 (how a test sees that a material draws) is answered
   in SHADERS.md and AI_GUIDE.md.
-- Still open: sokol-shdc is not bundled in the factoria downloads (D3, it changes `release.yml`), so makers run
-  `factoria setup shaders`; Windows Defender's false positive applies there too.
+- sokol-shdc in the factoria downloads: see "D3 built" below.
+
+D3 built (2026-10-19): the factoria downloads carry sokol-shdc next to `factoria`, so makers never run
+`factoria setup shaders` (it stays for source builds, and to get the file back).
+- `scripts/bundle-sokol-shdc.sh` (a `release.yml` step) reads the commit and the per-host SHA-256 from `setup.h` with `sed`,
+  so the engine's pin is the only one; a file that does not match, or a `setup.h` it cannot read, fails the release. A
+  tooling doctest checks the exact lines the script reads, so a reformat of `setup.h` fails CI before a release.
+- Windows and Linux ship the pinned file byte for byte, unsigned (it is not ours, and its SHA-256 stays the one the docs
+  print). macOS ships one universal file made with `lipo` from `bin/osx` and `bin/osx_arm64` (both thin), each slice
+  compared with its pinned file before signing; it is then signed and notarized with `factoria`, because Gatekeeper blocks
+  an unsigned program that a notarized `factoria` starts from a downloaded (quarantined) package. The installer, the
+  editor's updater (it swaps every file of the package) and the AppImage (`usr/bin/sokol-shdc`) carry it too.
+- `setup.status` says `found next to factoria`. The package smoke test checks that with an empty `FACTORIA_HOME`, compiles
+  gem-roller's material for all six dialects with the bundled file, runs the x86_64 slice under Rosetta, and checks the
+  notices; the installer and AppImage tests check the file is there and found.
+- Windows Defender: the `Bearfoos.B!ml` detections were on 2026-10-18 (the unpinned clone `compile_shaders.sh` used then).
+  On 2026-10-19 with signatures 1.461.102.0 and real-time protection on, the pinned `sokol-shdc.exe`, a zip holding it and
+  a run of it were not flagged (`MpCmdRun -Scan -ScanType 3 -DisableRemediation`). An ML verdict can come back, so the
+  docs keep saying what to do (restore from Protection history, `factoria setup shaders`, `SOKOL_SHDC`, the SHA-256 to
+  check, where to report a false positive) and nothing changes antivirus settings. `sokol-shdc.exe` stays unsigned even
+  once the Windows certificate exists: a signature would change the SHA-256 makers can check.
 
 ### P6. Custom lighting (M, when a game asks)
 

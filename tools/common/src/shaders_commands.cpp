@@ -67,7 +67,8 @@ void register_shader_commands(CommandRegistry& registry, const std::string& proj
             "is mapped to the line of your snippet, with the offending line in `source` and a fix in `hint` (an unknown field of Surface gets \"did you mean albedo?\", "
             "texture(waves, uv) gets the separate-sampler form); a mistake in the material file has a JSON `pointer` instead of a line. Fix the file and call again until ok, "
             "then look at the result with game.screenshot. Results are cached in .factoria/shader-cache by content, so an unchanged material compiles instantly. "
-            "Needs sokol-shdc: `factoria setup shaders` installs it, or set SOKOL_SHDC. " + std::string(kSnippetContract) +
+            "Needs sokol-shdc: the factoria downloads carry it next to factoria; otherwise `factoria setup shaders` installs it, or set SOKOL_SHDC. " +
+            std::string(kSnippetContract) +
             " Example: {\"material\": \"materials/water.material.json\", \"platforms\": [\"windows\", \"web\"]}";
         info.inputSchema = Json::parse(R"({
           "type":"object","required":["material"],

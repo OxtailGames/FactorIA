@@ -113,8 +113,9 @@ A conversion that cannot be done (more than 8 channels) leaves the file as it is
 Custom materials (`*.material.json`) ship compiled, because a game has no shader compiler: the export compiles each one
 for the shader dialects of the platform (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` and
 `metal_sim`, Android and web `glsl300es`) and ships `materials/water.material.json.<dialect>.shader` next to the material;
-the GLSL snippet the material names (`shaders/water.surface.glsl`) is not shipped. This needs sokol-shdc
-([The shader compiler](#setting-up-this-computer)) unless `.factoria/shader-cache` already holds the compiled shaders. A
+the GLSL snippet the material names (`shaders/water.surface.glsl`) is not shipped. This needs sokol-shdc, which the
+factoria downloads carry next to `factoria` ([The shader compiler](#setting-up-this-computer)), unless
+`.factoria/shader-cache` already holds the compiled shaders. A
 material that does not compile stops the export with the errors `factoria validate` lists (file, line, column, the line
 quoted, a hint). The report's `materials` lists the materials that shipped. How to write a material: [SHADERS.md](SHADERS.md).
 
@@ -201,7 +202,7 @@ factoria setup players --platforms windows,linux   # only these (windows, linux,
 factoria setup cmake                               # CMake 3.31 for the iOS export, unless a CMake 3.24+ is found
 factoria setup xcode                               # macOS: checks Xcode, opens its App Store page when it is missing
 factoria setup appimage                            # Linux x86_64 (and WSL): appimagetool + the AppImage runtime, for --format appimage
-factoria setup shaders                             # sokol-shdc, the shader compiler of custom materials (the downloads of factoria already have it)
+factoria setup shaders                             # sokol-shdc, the shader compiler of custom materials (the factoria downloads already have it next to factoria)
 ```
 
 | Component | What it installs | Download | The export that needs it |
@@ -211,7 +212,7 @@ factoria setup shaders                             # sokol-shdc, the shader comp
 | `players` with `--platforms web` | `web/` (`factoria_player.js` + `factoria_player.wasm`), from the download of this machine's own OS. Every download has `web/` next to `factoria`, so this is only for a factoria without it | about 15-33 MB | `--platform web` ([Web](#web)) |
 | `cmake` | CMake 3.31 from Kitware, only when no CMake 3.24+ is found (`--force` installs it anyway) | about 75 MB | `--platform ios` (`build_ios.sh`) |
 | `xcode` | nothing: Xcode comes from the App Store and needs your Apple ID and password, so this only checks it, opens its page and lists the steps | - | `--platform ios` |
-| `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
+| `shaders` | sokol-shdc, the shader compiler of custom materials, at a pinned commit of `github.com/floooh/sokol-tools-bin`: the one file for this computer (Windows, Linux or macOS, x64 or arm64), checked against a SHA-256 compiled into FactorIA. The factoria downloads carry the same file next to `factoria`, so this is for a factoria built from source, or when that copy is gone | about 8-12 MB | compiling `*.material.json` (`factoria validate`, `run`, `export`); see below |
 | `appimage` | appimagetool 1.9.1 and the type 2 AppImage runtime 20251108 from `github.com/AppImage`, each checked against a SHA-256 compiled into FactorIA. Only on Linux x86_64 (`unsupported` elsewhere) | about 16 MB | `--platform linux --format appimage` ([Linux: AppImage](#linux-appimage)) |
 
 Everything lands under `$FACTORIA_HOME` (default `~/.factoria`, `%USERPROFILE%\.factoria` on Windows):
@@ -249,18 +250,26 @@ records exactly that license (`android/sdk/licenses/android-sdk-license`, the li
 else: it does not run `sdkmanager --licenses`, which would also accept every other license Google lists (previews, Google TV,
 system images...).
 
-**The shader compiler.** Custom materials are compiled with sokol-shdc. FactorIA looks for it in this order: the file named by
-`$SOKOL_SHDC`, a `sokol-shdc` next to the `factoria` program (the downloads carry one), then
-`$FACTORIA_HOME/tools/sokol-shdc/<commit>/` (what `factoria setup shaders` installs; `<commit>` is the pinned sokol-tools-bin
-commit, and the file is checked against its SHA-256 before it is kept). `setup.status` shows which one was found; a `$SOKOL_SHDC`
-that names nothing is reported as a problem rather than ignored. `tools/shaders/compile_shaders.sh` (engine developers) uses the
-same pin and the same folder. **Windows Defender may remove `sokol-shdc.exe`.** It flags the pinned file as a threat by mistake
-(a known false positive, `Trojan:Win32/Bearfoos.B!ml`; the file is an unsigned command-line compiler, and the SHA-256 of the pinned
-Windows build is `43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb`, so you can check that a file is the one
-FactorIA pins). If the file vanishes or cannot be read, `setup.status` says `missing` and the install says why: restore it from
-Windows Security > Virus & threat protection > Protection history (or allow it there), or point `SOKOL_SHDC` at a copy you trust.
-Games never contain sokol-shdc, only the developer's computer needs it: exported games hold the compiled shaders, and its licences
-(and those of what it links) are in `factoria docs licenses`.
+**The shader compiler.** Custom materials are compiled with sokol-shdc. The factoria downloads (zip, installer, tar.gz,
+AppImage) carry it next to `factoria` (`sokol-shdc.exe` on Windows), so a downloaded FactorIA needs no setup for it.
+FactorIA looks for it in this order: the file named by `$SOKOL_SHDC`, a `sokol-shdc` next to the `factoria` program (the
+downloads), then `$FACTORIA_HOME/tools/sokol-shdc/<commit>/` (what `factoria setup shaders` installs; `<commit>` is the pinned
+sokol-tools-bin commit, and the file is checked against its SHA-256 before it is kept). `setup.status` shows which one was
+found (`found next to factoria` for the one of the download); a `$SOKOL_SHDC` that names nothing is reported as a problem rather
+than ignored. The release checks the file it bundles against the same pin: on Windows and Linux it is the pinned file byte for
+byte (unsigned, so its SHA-256 is the one below); on macOS the pinned x86_64 and arm64 files are joined into one universal file
+and signed with `factoria`, so only its two halves match the pin. `tools/shaders/compile_shaders.sh` (engine developers) uses the
+same pin and the same folder. **Windows Defender may remove `sokol-shdc.exe`.** It has flagged the pinned file as a threat by
+mistake (a false positive, `Trojan:Win32/Bearfoos.B!ml`, a guess of Defender's machine-learning model; the file is an unsigned
+command-line compiler, and the SHA-256 of the pinned Windows build is
+`43d42c2e477bcc5012420f8d9ff641fedc41d552d165397fff4f2e60ba0d2ebb`, so you can check that a file is the one FactorIA pins:
+`certutil -hashfile sokol-shdc.exe SHA256` or PowerShell's `Get-FileHash`). If the file vanishes or cannot be read,
+`setup.status` says `missing` and the install says why. Restore it from Windows Security > Virus & threat protection > Protection
+history (or allow it there), run `factoria setup shaders` to download the pinned file again into `~/.factoria`, or point
+`SOKOL_SHDC` at a copy you trust; FactorIA never changes your antivirus settings. A false positive can be reported to Microsoft at
+microsoft.com/wdsi/filesubmission. Games never contain sokol-shdc, only the developer's computer needs it: exported games hold
+the compiled shaders, and its licences (and those of what it links) are in `factoria docs licenses` and in the
+`THIRD_PARTY_NOTICES.txt` of the downloads.
 
 **Which command-line tools.** The install pins revision 22.0 (`kSetupAndroidCmdlineTools` in `fa/tooling/setup.h`), the
 newest whose `sdkmanager` is still the classic Java program: `bin/sdkmanager` starts `SdkManagerCli` from `lib/*.jar`, it

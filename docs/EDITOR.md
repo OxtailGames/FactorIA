@@ -60,7 +60,8 @@ Reload button, Save, and what the AI's commands change). A broken snippet keeps 
 and logs ONE error with `file:line` and the quoted line, once per save: it shows in the Console and in `game.logs` /
 `game.state` (`recentLogs`), where the AI reads it, and `renderStats.materialFallbacks` lists a material that never
 compiled (it is drawn magenta). Changing a material's `materialParams` is a scene edit like any other: it is undoable.
-Compiling a snippet needs sokol-shdc (`factoria setup shaders`, [SHADERS.md](SHADERS.md)). There is no
+Compiling a snippet needs sokol-shdc: the factoria downloads carry it next to `factoria`; a factoria built from source
+gets it with `factoria setup shaders` ([SHADERS.md](SHADERS.md)). There is no
 inspector for a material's fields yet: that panel arrives with the reflected inspector of milestone M20, so for now
 describe the change to the AI.
 
@@ -135,7 +136,7 @@ window, the editor's front for `factoria setup` ([EXPORTING.md, Setting up this 
 It runs the very same code (`fa::setup_install`), so what a button installs is what `factoria setup` and the `setup.install`
 command install.
 
-- **The window** lists the components (the AppImage tools of a Linux export and the shader compiler are installed with `factoria setup appimage` and `factoria setup shaders`, not from here yet), each with its state (**Installed**, **Partly installed**, **Not installed**,
+- **The window** lists the components (the AppImage tools of a Linux export and the shader compiler, which the downloads carry and a source build gets, are installed with `factoria setup appimage` and `factoria setup shaders`, not from here yet), each with its state (**Installed**, **Partly installed**, **Not installed**,
   **Not needed here**), what was found, the paths, what is missing and how big the download is, and one button:
   **Install** (or **Reinstall** when it is installed already), or **Open App Store** for Xcode, which a program cannot
   install. **Show in Finder** opens the folder everything is installed into (`~/.factoria`, or `$FACTORIA_HOME`); **Check

@@ -168,11 +168,13 @@ Every error says where, what is wrong and how to fix it.
 
 ## Compiler, hot reload, validate and export
 
-- **sokol-shdc** is the compiler (a pinned build). It is looked up in `$SOKOL_SHDC`, next to the `factoria` executable,
-  then in `~/.factoria/tools`; install it with `factoria setup shaders` (about 11 MB), or set `SOKOL_SHDC` to a copy. On Windows, Windows
-  Defender may quarantine `sokol-shdc.exe` as a false positive (`Trojan:Win32/Bearfoos.B!ml`): restore it from Windows
-  Security > Protection history, or point `SOKOL_SHDC` at a copy you trust. Without it, `factoria validate` checks the
-  material files and warns that snippets were not compiled.
+- **sokol-shdc** is the compiler (a pinned build). The factoria downloads carry it next to `factoria`, so there is
+  nothing to install. It is looked up in `$SOKOL_SHDC`, next to the `factoria` executable, then in `~/.factoria/tools`,
+  where `factoria setup shaders` installs it (about 11 MB) for a factoria built from source or when the copy next to
+  `factoria` is gone; `factoria setup` says which one is used. On Windows, Windows Defender may quarantine
+  `sokol-shdc.exe` as a false positive (`Trojan:Win32/Bearfoos.B!ml`): restore it from Windows Security > Protection
+  history, run `factoria setup shaders`, or point `SOKOL_SHDC` at a copy you trust ([EXPORTING.md](EXPORTING.md#setting-up-this-computer)).
+  Without it, `factoria validate` checks the material files and warns that snippets were not compiled.
 - **Running** (`factoria run`, MCP sessions) compiles the material for this computer's graphics API the first time it is
   drawn and caches the result in `.factoria/shader-cache`, so an unchanged material starts no process.
 - **Hot reload:** saving the material, its snippet or a texture gives the new look in a moment, in `factoria run`, MCP

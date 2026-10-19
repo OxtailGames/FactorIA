@@ -372,8 +372,8 @@ Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M18.
 
 Left open:
 - Custom shaders per material: built (P1-P5 of [docs/design/CUSTOM_SHADERS.md](../docs/design/CUSTOM_SHADERS.md),
-  guide docs/SHADERS.md). Left: P6 custom lighting waits for a game that asks; sokol-shdc is not bundled in the factoria
-  downloads yet (D3, a `release.yml` change), so makers run `factoria setup shaders`; the material inspector is M20.
+  guide docs/SHADERS.md; the factoria downloads carry sokol-shdc next to `factoria`, D3). Left: P6 custom lighting waits
+  for a game that asks; the material inspector is M20.
 - Rendering ran on D3D11 (WARP) and Linux llvmpipe only: never on Metal, a GLES3 phone or WebGL2. IBL is a procedural
   sky approximation (no environment texture or prefiltered cubemap); lighting stays in gamma space; the shadow map still
   fits every caster (no cascades), so shadows of big scenes are blurry. Blended meshes only batch with neighbours in their
