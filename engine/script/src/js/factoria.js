@@ -156,18 +156,18 @@
   // Vectors, colours and rects are array-like too (live views included, they inherit this): v[1], [...v], destructuring,
   // for...of, Array.from(v). `length` is the count only where there is no length() method (Color, Rect); Vec2/Vec3/Vec4 keep
   // length() as the vector's magnitude. Not enumerable: Object.keys stays x y z w.
-  function arrayLike(proto, keys, withLength) {
+  function arrayLike(proto, keys) {
     keys.forEach((k, i) => Object.defineProperty(proto, i, {
       get() { return this[k]; }, set(v) { this[k] = v; }, configurable: true,
     }));
     Object.defineProperty(proto, Symbol.iterator, {
       value: function* () { for (const k of keys) yield this[k]; }, writable: true, configurable: true,
     });
-    if (withLength) Object.defineProperty(proto, "length", { value: keys.length, configurable: true });
+    if (!("length" in proto)) Object.defineProperty(proto, "length", { value: keys.length, configurable: true });
   }
-  arrayLike(Vec2.prototype, ["x", "y"], false);
-  arrayLike(Vec3.prototype, ["x", "y", "z"], false);
-  arrayLike(Color.prototype, ["r", "g", "b", "a"], true);
+  arrayLike(Vec2.prototype, ["x", "y"]);
+  arrayLike(Vec3.prototype, ["x", "y", "z"]);
+  arrayLike(Color.prototype, ["r", "g", "b", "a"]);
 
   const NAMED_COLORS = {
     white: [1, 1, 1], black: [0, 0, 0], red: [1, 0, 0], green: [0, 0.5, 0], lime: [0, 1, 0], blue: [0, 0, 1],
@@ -203,13 +203,13 @@
     toArray() { return [this.x, this.y, this.w, this.h]; }
     toJSON() { return [this.x, this.y, this.w, this.h]; }
   }
-  arrayLike(Rect.prototype, ["x", "y", "w", "h"], true);
+  arrayLike(Rect.prototype, ["x", "y", "w", "h"]);
   const Vec2View = makeViewClass(Vec2, ["x", "y"]);
   const Vec3View = makeViewClass(Vec3, ["x", "y", "z"]);
   const Vec4View = makeViewClass(Vec3, ["x", "y", "z", "w"]);
   const ColorView = makeViewClass(Color, ["r", "g", "b", "a"]);
   const RectView = makeViewClass(Rect, ["x", "y", "w", "h"]);
-  arrayLike(Vec4View.prototype, ["x", "y", "z", "w"], false);
+  arrayLike(Vec4View.prototype, ["x", "y", "z", "w"]);
   // Vec3 methods use .z only; Vec4 views keep w as an extra accessor.
   Object.defineProperty(Vec4View.prototype, "toJSON", { value() { return [this.x, this.y, this.z, this.w]; }, configurable: true });
   Object.defineProperty(Vec4View.prototype, "toArray", { value() { return [this.x, this.y, this.z, this.w]; }, configurable: true });

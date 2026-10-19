@@ -1923,11 +1923,11 @@ declare module "factoria" {
     /**
      * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
      */
-    readonly : number]: number;
+    readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
      */
-    : IterableIterator<number>;
+    [Symbol.iterator](): IterableIterator<number>;
     /**
      * Sets both components (writes through on live views).
      */
@@ -2021,11 +2021,11 @@ declare module "factoria" {
     /**
      * v[0], v[1]...: the components in x, y, z order (also for the live view of a component field).
      */
-    readonly : number]: number;
+    readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
      */
-    : IterableIterator<number>;
+    [Symbol.iterator](): IterableIterator<number>;
     /**
      * x and y as a Vec2.
      */
@@ -2065,11 +2065,11 @@ declare module "factoria" {
     /**
      * c[0]..c[3]: r, g, b, a.
      */
-    readonly : number]: number;
+    readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
      */
-    : IterableIterator<number>;
+    [Symbol.iterator](): IterableIterator<number>;
     /**
      * The number of components (4); Vec2 and Vec3 have the length() method instead.
      */
@@ -2107,11 +2107,11 @@ declare module "factoria" {
     /**
      * r[0]..r[3]: x, y, w, h.
      */
-    readonly : number]: number;
+    readonly [index: number]: number;
     /**
      * Iterates the components, so [...v], destructuring and for...of work.
      */
-    : IterableIterator<number>;
+    [Symbol.iterator](): IterableIterator<number>;
     /**
      * The number of components (4); Vec2 and Vec3 have the length() method instead.
      */
