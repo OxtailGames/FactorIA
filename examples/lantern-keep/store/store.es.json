@@ -2,15 +2,16 @@
   "name": "Lantern Keep",
   "subtitle": "Lleva la luz a casa",
   "shortDescription": "Plataformas 2D acogedor: lleva un farol por un castillo en ruinas.",
-  "longDescription": "El castillo se ha quedado a oscuras. Tú llevas el último farol.\n\nLantern Keep es un pequeño plataformas 2D completo, en seis niveles cortos. Corre y salta por el Patio iluminado por el sol y baja después a las Bodegas, donde la única luz es la de tu farol: ilumina las piedras, los pinchos, los guardias y las plataformas móviles a tu alrededor, y todo lo demás es sombra.\n\nEncuentra las tres brasas escondidas en cada nivel, activa los puntos de control, aprende la ronda de cada guardia y lleva la luz hasta el gran farol del final. Cada nivel dura de 30 a 60 segundos: es fácil jugar uno más y mejorar tu mejor tiempo.\n\nJuega con teclado, ratón, mando o con los controles táctiles en pantalla. Todas las acciones se pueden reasignar en las opciones. El juego está completo en español e inglés y todo se guarda en tu dispositivo.",
+  "longDescription": "El castillo se ha quedado a oscuras. Tú llevas el último farol.\n\nLantern Keep es un pequeño plataformas 2D completo, en seis niveles cortos. Corre y salta por el Patio iluminado por el sol y baja después a las Bodegas, donde la única luz es la de tu farol: ilumina las piedras, los pinchos, los guardias y las plataformas móviles a tu alrededor, y todo lo demás es sombra.\n\nEncuentra las tres brasas escondidas en cada nivel, activa los puntos de control, aprende la ronda de cada guardia y lleva la luz hasta el gran farol del final. Cada nivel dura de 30 a 60 segundos: es fácil jugar uno más y mejorar tu mejor tiempo.\n\nJuega con teclado, ratón, mando o con los controles táctiles en pantalla. Todas las acciones se pueden reasignar en las opciones. El texto se puede agrandar hasta el doble y un modo de ayuda ralentiza el juego o te hace invencible. El juego está completo en español, inglés, alemán y árabe y todo se guarda en tu dispositivo.",
   "features": [
     "Seis niveles cortos en dos mundos: el Patio soleado y las Bodegas oscuras",
     "Tu farol es la luz: iluminación dinámica sobre piedras, pinchos, enemigos y plataformas",
     "Tres brasas que encontrar en cada nivel, puntos de control, plataformas móviles y de un solo sentido",
     "Mejor tiempo de cada nivel",
     "Teclado, ratón, mando y controles táctiles; teclas reasignables",
-    "Español e inglés",
-    "Sin anuncios, sin compras, sin cuenta: sin conexión y privado"
+    "Español, inglés, alemán y árabe",
+    "Texto hasta el 200 %, modo de ayuda, peligros legibles sin depender del color",
+    "Sin anuncios y sin cuenta: sin conexión y privado; las únicas compras son cosméticos opcionales"
   ],
   "keywords": [
     "plataformas",
@@ -35,7 +36,7 @@
     "Bonito"
   ],
   "category": "Juegos > Plataformas",
-  "ageNotes": "Sin violencia más allá de enemigos de dibujos animados que te devuelven al punto de control; sin chat; sin compras.",
+  "ageNotes": "Sin violencia más allá de enemigos de dibujos animados que te devuelven al punto de control; sin chat; las compras son solo cosméticos opcionales.",
   "screenshots": [
     ".store/screenshots/steam-1920x1080-*.png",
     ".store/screenshots/phone-landscape-*.png"

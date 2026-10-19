@@ -1,0 +1,210 @@
+{
+  "$name": "Deutsch",
+  "menu": {
+    "title": "Lantern Keep",
+    "play": "Spielen",
+    "options": "Optionen",
+    "credits": "Credits",
+    "quit": "Beenden",
+    "back": "Zurück",
+    "continue": "Weiter",
+    "achievements": "Erfolge",
+    "leaderboards": "Bestenlisten",
+    "shop": "Shop"
+  },
+  "loading": {
+    "text": "Wird geladen..."
+  },
+  "pause": {
+    "title": "Pause",
+    "resume": "Weiter",
+    "mainMenu": "Hauptmenü"
+  },
+  "options": {
+    "title": "Optionen",
+    "tab": {
+      "video": "Grafik",
+      "audio": "Ton",
+      "controls": "Steuerung",
+      "language": "Sprache",
+      "accessibility": "Hilfen"
+    },
+    "fullscreen": "Vollbild",
+    "vsync": "VSync",
+    "windowSize": "Fenstergröße: {width} x {height}",
+    "windowSizeFullscreen": "Fenstergröße: Vollbild",
+    "frameCap": "Bildrate: höchstens {fps} FPS",
+    "frameCapOff": "Bildrate: unbegrenzt",
+    "videoNote": "Grafikeinstellungen gelten, wenn das Spiel in einem eigenen Fenster läuft.",
+    "volume": {
+      "master": "Gesamt",
+      "music": "Musik",
+      "effects": "Effekte",
+      "interface": "Oberfläche"
+    },
+    "action": {
+      "move_left": "Nach links",
+      "move_right": "Nach rechts",
+      "jump": "Springen",
+      "pause": "Pause"
+    },
+    "binding": "{action}: {button}",
+    "pressKey": "{action}: Taste oder Knopf drücken (Esc bricht ab)",
+    "resetControls": "Standard wiederherstellen",
+    "language": "Sprache: {language}",
+    "accessibility": {
+      "textSize": "Textgröße: {percent} %",
+      "speed": "Spieltempo: {percent} %",
+      "invincible": "Unverwundbar (Hilfe)",
+      "shake": "Bildschirmwackeln",
+      "reducedEffects": "Weniger Effekte (keine Funken)"
+    }
+  },
+  "credits": {
+    "madeWith": "Entwickelt mit FactorIA",
+    "software": "Dieses Spiel verwendet folgende Software:",
+    "licenses": "Die vollständigen Lizenztexte stehen in FACTORIA_NOTICES.txt, die dem Spiel beiliegt.",
+    "lanternKeep": "Lantern Keep: das Referenzspiel von FactorIA.",
+    "supporters": "Danke, Unterstützer: Ihr haltet die Laterne am Brennen."
+  },
+  "hud": {
+    "level": "Level",
+    "time": "Zeit {time}",
+    "embers": "Glut {found}/{total}"
+  },
+  "level": {
+    "world": {
+      "1": "Burghof",
+      "2": "Keller"
+    },
+    "1-1": "1-1  Erstes Licht",
+    "1-2": "1-2  Das Tor",
+    "1-3": "1-3  Über die Mauer",
+    "2-1": "2-1  Die Treppe hinunter",
+    "2-2": "2-2  Tropfen und Staub",
+    "2-3": "2-3  Der tiefe Keller"
+  },
+  "levelEnd": {
+    "title": "Level geschafft",
+    "time": "Zeit: {time}",
+    "best": "Bestzeit: {time}",
+    "newBest": "Neue Bestzeit!",
+    "embers": "Glut: {found}/{total}",
+    "deaths": "Tode: {deaths}",
+    "next": "Weiter",
+    "retry": "Nochmal",
+    "menu": "Menü",
+    "assisted": "Hilfsmodus war an"
+  },
+  "slots": {
+    "title": "Spielstände",
+    "new": "Platz {n}: Neues Spiel",
+    "used": "Platz {n}: {levels}/{totalLevels} Level  {embers}/{totalEmbers} Glut  {time}",
+    "damaged": "Platz {n}: Beschädigt",
+    "damagedNote": "Ein beschädigter Spielstand kann nicht geladen werden. Lösche ihn, um neu zu beginnen.",
+    "delete": "Löschen",
+    "keep": "Behalten",
+    "confirm": "Platz {n} löschen?",
+    "confirmNote": "Das lässt sich nicht rückgängig machen."
+  },
+  "select": {
+    "title": "Level wählen",
+    "locked": "Gesperrt",
+    "open": "Nicht geschafft",
+    "result": "Glut {found}/{total}  {time}"
+  },
+  "platform": {
+    "loading": "Der Store wird gefragt...",
+    "refresh": "Aktualisieren",
+    "noStore": "Diese Fassung des Spiels ist mit keinem Store verbunden, deshalb gibt es hier keine {what}.",
+    "notSignedIn": "Du bist nicht im Store angemeldet. Das ist für {what} nötig. Melde dich dort an und wähle dann Aktualisieren oder versuche es noch einmal.",
+    "network": "Der Store ist nicht erreichbar ({what}). Prüfe deine Verbindung und versuche es noch einmal.",
+    "failed": "Der Store hat nicht geantwortet ({what}, {code}): {detail}"
+  },
+  "achievements": {
+    "title": "Erfolge",
+    "what": "Erfolge",
+    "summary": "{done} von {total} freigeschaltet",
+    "unlocked": "freigeschaltet",
+    "locked": "gesperrt",
+    "progress": "{percent} %",
+    "first_light": {
+      "name": "Erstes Licht",
+      "description": "Schließe Level 1-1 ab."
+    },
+    "courtyard_clear": {
+      "name": "Burghof geräumt",
+      "description": "Schließe alle drei Level des Burghofs ab."
+    },
+    "cellars_clear": {
+      "name": "Raus aus dem Keller",
+      "description": "Schließe alle drei Level des Kellers ab."
+    },
+    "all_embers": {
+      "name": "Glutwächter",
+      "description": "Finde alle 18 Glutstücke."
+    },
+    "untouched": {
+      "name": "Unberührt",
+      "description": "Schließe ein Level ab, ohne zu sterben."
+    },
+    "quick_feet": {
+      "name": "Flinke Füße",
+      "description": "Schließe Level 1-1 in unter 28 Sekunden ab."
+    },
+    "jumper": {
+      "name": "Sprung ins Ungewisse",
+      "description": "Springe 500-mal."
+    },
+    "hard_lessons": {
+      "name": "Harte Lektionen",
+      "description": "Stürze, verbrenne oder lass dich 25-mal erwischen."
+    }
+  },
+  "leaderboards": {
+    "title": "Bestenlisten",
+    "what": "Bestenlisten",
+    "total": "Alle sechs Level",
+    "board": "Liste: {board}",
+    "show": "Anzeige: {range}",
+    "range": {
+      "top": "Top",
+      "around": "Um mich",
+      "friends": "Freunde"
+    },
+    "entry": "{rank}. {name}   {time}",
+    "yourBest": "Deine Bestzeit: {time} (Platz {rank})",
+    "empty": "Noch keine Zeiten. Schließe ein Level ab und sei der Erste."
+  },
+  "shop": {
+    "title": "Shop",
+    "what": "Käufe",
+    "note": "Nur Kosmetik: Sie ändert nie, wie das Spiel spielt.\nLaternenfarben: Rosa, Azurblau, Jade und Violett. Unterstützer: die goldene Laterne und eine Zeile im Abspann.",
+    "restore": "Käufe wiederherstellen",
+    "buy": "{name} - {price}",
+    "owned": "{name} (gekauft)",
+    "product": {
+      "lantern_colours": "Laternenfarben",
+      "supporter": "Unterstützer"
+    },
+    "colour": "Laternenfarbe: {colour}",
+    "colours": {
+      "amber": "Bernstein",
+      "rose": "Rosa",
+      "azure": "Azurblau",
+      "jade": "Jade",
+      "violet": "Violett",
+      "gold": "Gold"
+    },
+    "waiting": "Warte auf den Store...",
+    "thanks": "Danke! Es gehört dir.",
+    "arrived": "Ein Kauf ist eingetroffen. Danke!",
+    "pending": "Der Kauf wartet auf Genehmigung. Er wird hier hinzugefügt, sobald er genehmigt ist.",
+    "cancelled": "Kauf abgebrochen. Es wurde nichts hinzugefügt.",
+    "failed": "Der Kauf ist fehlgeschlagen. Es wurde nichts hinzugefügt.",
+    "alreadyOwned": "Das hast du schon.",
+    "asking": "Der Store wird gefragt, was dir gehört...",
+    "restored": "Käufe wiederhergestellt.",
+    "nothingToRestore": "Nichts Neues wiederherzustellen."
+  }
+}

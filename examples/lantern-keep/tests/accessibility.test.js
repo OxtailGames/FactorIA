@@ -1,5 +1,6 @@
 import { test, expect, game } from "factoria:test";
-import { ui, scene, storage, i18n, time, session, fa } from "factoria";
+import { ui, scene, storage, i18n, time, session, platform } from "factoria";
+import { screenProblems } from "./helpers/screens.js";
 import * as progress from "../scripts/progress.js";
 import { LEVELS } from "../scripts/levels.js";
 import { listen, playLevel, teleportOnto } from "./helpers/autoplay.js";
@@ -195,75 +196,134 @@ test("reduced effects: collecting an ember makes no sparks; otherwise it does", 
   }
 });
 
-// ------------------------------------------------------------------------------------------------ text at 200%
+// ------------------------------------------------------------------------------------------------ every screen, every language
 
-/** Every visible widget is inside the screen and its label inside the widget (measured like the engine lays text out). */
-function expectWidgetsFit(where) {
-  const problems = [];
-  for (const w of fa.call("ui.state").widgets) {
-    if (!w.visible) continue;
-    const [x, y, width, height] = w.rect;
-    if (x < 0 || y < 0 || x + width > 1280 || y + height > 720) problems.push(`${where}: "${w.id}" is outside the screen: ${w.rect.map(Math.round)}`);
-    const entity = game.find(w.id);
-    const kind = ["Button", "Toggle"].find((k) => entity && entity.has(k));
-    if (kind && w.text) {
-      const fontSize = entity.get(kind).fontSize;
-      const m = ui.measureText(w.text, { fontSize });
-      const room = width - (kind === "Toggle" ? fontSize * ui.textScale * 1.2 : 0);
-      if (m.width > room || m.height > height) problems.push(`${where}: the label of "${w.id}" (${Math.round(m.width)} x ${Math.round(m.height)}) does not fit its ${Math.round(width)} x ${Math.round(height)} rectangle`);
-    }
+// Every screen of the game in every language at 100% and at the biggest text size: widgets inside the screen, labels inside their
+// widget, no text wider than its box, every layout panel big enough for its content (tests/helpers/screens.js).
+const LANGUAGES = ["en", "es", "de", "ar"];
+const SIZES = [1, 2];
+
+/** Collects the problems of every screen of a test, so one run lists all of them instead of stopping at the first screen. */
+const collector = () => {
+  const all = [];
+  return { check: (where) => all.push(...screenProblems(where)), done: () => (all.length && console.log(all.join(" | ")), expect(all.length).toBe(0)) };
+};
+const used = (counter, levels) => JSON.stringify({ version: 2, counter, levels });
+const done = (bestTime, embers) => ({ completed: true, bestTime, embers });
+
+/** Lets what a click started finish: the fake store answers at once, the script continues in the next microtasks. */
+async function settle() {
+  for (let i = 0; i < 4; i++) {
+    game.step(1);
+    await Promise.resolve();
   }
-  expect(problems).toEqual([]);
 }
 
-for (const language of ["en", "es"]) {
-  test(`at 200% every menu fits the screen (${language})`, () => {
-    startWith({ textScale: 2, language }, "scenes/menu.scene.json");
-    game.step(2);
-    expect(ui.textScale).toBe(2);
-    expectWidgetsFit("main menu");
-    pad().tap("DpadDown");
-    pad().tap("A"); // Options
-    game.step(2);
-    for (const tab of ["video", "audio", "controls", "language", "access"]) {
-      ui.focus(game.find(`tab_${tab}`)); // (DpadRight from Controls can reach the wide rebinding buttons first)
-      pad().tap("A");
-      game.step(2);
-      expect([tab, game.find(`${tab}_section`).active]).toEqual([tab, true]);
-      expectWidgetsFit(`options ${tab}`);
-    }
-    pad().tap("B");
-    game.step(2);
-    expect(ui.focused.id).toBe("options_button");
-    pad().tap("DpadDown"); // Options -> Credits
-    pad().tap("A");
-    game.step(3);
-    expect(game.find("credits").active).toBe(true);
-    expectWidgetsFit("credits");
-    const list = fa.call("ui.state").widgets.find((w) => w.id === "credits_list");
-    expect(list.rect[0] + list.rect[2]).toBeLessThanOrEqual(1280);
-  });
+/** Moves the focus to a widget and presses A, like a player with the pad. */
+async function press(id) {
+  ui.focus(game.find(id));
+  pad().tap("A");
+  await settle();
+}
 
-  test(`at 200% the HUD, the pause menu and the level end panel of every level fit (${language})`, () => {
-    for (const info of LEVELS) {
-      startWith({ textScale: 2, language }, info.scene);
-      game.step(3);
-      // HUD: the name and the embers share the first row; the timer is on it too (centred) only when they do not touch
-      const text = (id) => game.find(id).get("Text");
-      const width = (id, s = text(id).text) => ui.measureText(s, { fontSize: text(id).fontSize }).width;
-      const half = width("hud_timer", i18n.t("hud.time", { time: "0:00.00" })) / 2;
-      expect(24 + width("hud_level") + 24 + 24 + width("hud_embers") + 24).toBeLessThanOrEqual(1280);
-      expect(half * 2).toBeLessThanOrEqual(1280 - 48);
-      const sideBySide = 48 + width("hud_level") <= 640 - half && 48 + width("hud_embers") <= 640 - half;
-      const rows = game.find("hud_timer").position.y > 20 ? 2 : 1; // y is 10 on the first row
-      expect(rows).toBe(sideBySide ? 1 : 2);
-      pad().tap("Start");
-      expectWidgetsFit(`pause ${info.id}`);
-      pad().tap("Start");
-      game.step(3);
-      teleportOnto(game.find("player"), game.world.findByTag("exit")[0], 3); // the level end panel
-      expect(game.find("level_end").active).toBe(true);
-      expectWidgetsFit(`level end ${info.id}`);
-    }
-  });
+/** A game with a used slot (so Continue, the results and Delete show), a damaged one and an empty one, in this language and size. */
+function startMenu(language, textScale) {
+  fresh();
+  for (const n of [1, 2, 3]) storage.remove(`slot${n}`);
+  storage.set("slot1", used(9, { "1-1": done(754.32, [true, true, true]), "1-2": done(61.5, [true, false, true]), "1-3": done(70, [false, false, false]) }));
+  storage.set("slot2", used(5, { "2-3": done(5999.99, [true, true, true]), "1-1": done(30, [true, true, true]) }));
+  storage.set("slot3", "{ not json");
+  storage.set("lastSlot", 1);
+  game.platform.reset();
+  storage.remove("wallet");
+  storage.set("settings", { textScale, language });
+  game.load("scenes/menu.scene.json");
+  game.step(3);
+  expect([i18n.language, ui.textScale]).toEqual([language, textScale]);
+}
+
+for (const language of LANGUAGES) {
+  for (const size of SIZES) {
+    test(`every menu screen fits the screen (${language}, ${size * 100}%)`, async () => {
+      const at = (screen) => `${screen} ${language} ${size * 100}%`;
+      const screens = collector();
+      const expectFits = screens.check;
+      startMenu(language, size);
+      expectFits(at("main menu"));
+      // options: every tab, then credits
+      await press("options_button");
+      for (const tab of ["video", "audio", "controls", "language", "access"]) {
+        await press(`tab_${tab}`);
+        expect([tab, game.find(`${tab}_section`).active]).toEqual([tab, true]);
+        expectFits(at(`options ${tab}`));
+      }
+      pad().tap("B");
+      game.step(2);
+      await press("credits_button");
+      expectFits(at("credits"));
+      pad().tap("B");
+      game.step(2);
+      // save slots, the delete confirmation, the level select
+      await press("play");
+      expect(game.find("slots").active).toBe(true);
+      expectFits(at("slots"));
+      await press("delete_1");
+      expect(game.find("delete_confirm").active).toBe(true);
+      expectFits(at("delete confirmation"));
+      pad().tap("B");
+      game.step(2);
+      await press("slot_1");
+      expect(game.find("level_select").active).toBe(true);
+      expectFits(at("level select"));
+      pad().tap("B");
+      pad().tap("B");
+      game.step(2);
+      expect(game.find("main_menu").active).toBe(true);
+      // the store screens, with the store working and then without a signed-in player (the longest sentences)
+      await platform.achievements.unlock("first_light");
+      await platform.achievements.progress("jumper", 0.4);
+      await platform.leaderboards.submit("time_1-1", 754320);
+      for (const [button, panel] of [["achievements_button", "achievements"], ["leaderboards_button", "leaderboards"], ["shop_button", "shop"]]) {
+        for (const signedIn of [true, false]) {
+          game.platform.set({ signedIn });
+          await press(button);
+          expect(game.find(panel).active).toBe(true);
+          expectFits(at(`${panel} ${signedIn ? "" : "signed out"}`));
+          pad().tap("B");
+          game.step(2);
+        }
+      }
+      game.platform.set({ signedIn: true });
+      screens.done();
+    });
+  }
+
+  for (const size of SIZES) {
+    test(`the HUD, the pause menu and the level end panel fit (${language}, ${size * 100}%)`, () => {
+      const screens = collector();
+      const expectFits = screens.check;
+      for (const info of LEVELS) {
+        startWith({ textScale: size, language }, info.scene);
+        game.step(3);
+        // HUD: the name and the embers share the first row; the timer is on it too (centred) only when they do not touch
+        const text = (id) => game.find(id).get("Text");
+        const width = (id, s = text(id).text) => ui.measureText(s, { fontSize: text(id).fontSize }).width;
+        const half = width("hud_timer", i18n.t("hud.time", { time: "0:00.00" })) / 2;
+        expect(24 + width("hud_level") + 24 + 24 + width("hud_embers") + 24).toBeLessThanOrEqual(1280);
+        expect(half * 2).toBeLessThanOrEqual(1280 - 48);
+        const sideBySide = 48 + width("hud_level") <= 640 - half && 48 + width("hud_embers") <= 640 - half;
+        const rows = game.find("hud_timer").position.y > 20 ? 2 : 1; // y is 10 on the first row
+        expect(rows).toBe(sideBySide ? 1 : 2);
+        if (info.id !== "1-1" && info.id !== "2-3") continue; // the pause menu and the end panel do not depend on the level
+        pad().tap("Start");
+        expectFits(`pause ${info.id} ${language} ${size * 100}%`);
+        pad().tap("Start");
+        game.step(3);
+        teleportOnto(game.find("player"), game.world.findByTag("exit")[0], 3); // the level end panel
+        expect(game.find("level_end").active).toBe(true);
+        expectFits(`level end ${info.id} ${language} ${size * 100}%`);
+      }
+      screens.done();
+    });
+  }
 }

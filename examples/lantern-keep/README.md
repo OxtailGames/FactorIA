@@ -5,18 +5,18 @@ project's own files, the `factoria` CLI and the AI guide). You carry a lantern t
 every level and bring the light to the keep's great lantern at the end. Six short levels (30 to 60 seconds each) in two
 worlds: **Courtyard** (`1-1`, `1-2`, `1-3`, daylight) and **Cellars** (`2-1`, `2-2`, `2-3`, dark: your lantern is a
 `Light2D` that lights the tiles, spikes, enemies and platforms around you, over a parallax background). It plays in
-English and Spanish, with keyboard, mouse or gamepad.
+English, Spanish, German and Arabic, with keyboard, mouse or gamepad.
 
-This is FactorIA's M21 reference game, built in packages: the core game, menus and languages (P1), save slots and
-the level select (P2), store services (P3), accessibility (P4), shipping (export, icons, store pages; P5) and more
-languages (P6). They build on the three contracts below: do not change them without changing every package that uses
-them.
+Built by game-maker AIs in six packages (core game and menus, saves, store services, accessibility, shipping,
+languages), with only the project's files, the `factoria` CLI and the AI guide. The gaps they met are in
+`ENGINE_FEEDBACK.json`. The three contracts below are what the features share: do not change one without changing
+everything that uses it.
 
 ```bash
 factoria validate
 factoria run                                     # play
 factoria run --headless --scene scenes/levels/1-1.scene.json --frames 120 --screenshot-at 119
-factoria test                                    # about 60 seconds
+factoria test                                    # about 75 seconds
 ```
 
 ## Controls
@@ -40,7 +40,9 @@ Options > Controls.
   the scene: `factoria call scene.import_ascii @levels/1-1.json`, and `factoria call scene.format`.
   Legend: `#` ground, `%` earth, `=` bricks and ledges, `*` flowers (decoration), `P` player, `X` exit, `1 2 3` embers,
   `C` checkpoint, `^` spikes, `e` and `f` enemies (walking left or right first), `m` moving platform (sideways),
-  `n` moving platform (up and down), `-` one-way platform. Row 0 is the top row.
+  `n` moving platform (up and down), `-` one-way platform. Row 0 is the top row. To add a level: its map in `levels/`, a line in `scripts/levels.js`, its name in every `locales/*.json`, then rebuild
+  the scene (`tests/levels.test.js` and `play.test.js` loop over `LEVELS`). A level scene needs the entities of the base scenes (`player`,
+  `map`, `level`, `camera`, `pause_menu`, `store_events` and the HUD texts): start from a base scene.
 - `scripts/player.js` (run, jump, rides moving platforms), `level.js` (timer, embers, deaths, checkpoints, exit, game
   events), `ember.js`, `checkpoint.js`, `exit.js`, `hazard.js` (spikes), `enemy.js` (patrol), `mover.js` (moving
   platform), `follow_camera.js` (follows the player inside the level, shakes), `effects.js` (the one function that shakes
@@ -49,18 +51,18 @@ Options > Controls.
   `scenes/loading.scene.json`, `scripts/main_menu.js`, `settings.js`, `pause_menu.js`, `loading.js`, `store_events.js`,
   `scripts/ui/` (`menu_stack.js`, `options.js`, `credits.js`), `prefabs/ui/` (`options`, `pause`, `level_end`).
 - `scripts/saves.js` (slots, format, migration, cloud), `scripts/ui/slots.js`, `delete_confirm.js`, `level_select.js` with
-  `prefabs/ui/slots`, `delete_confirm` and `level_select` (the saves package; see "Saves and the level select").
+  `prefabs/ui/slots`, `delete_confirm` and `level_select` (see "Saves and the level select").
 - Store services (section "Store services" below): `factoria.json` `"platform"` (the catalog), `scripts/store_stats.js` (stats,
   achievements and best times from the game events; one entity `store_stats` in every level), `scripts/cosmetics.js` (the
   colours, the wallet, `grant`; one entity `cosmetics` in every level puts the chosen colour on the player), `scripts/ui/shop.js`,
   `achievements.js`, `leaderboards.js` and `store_ui.js` (what the three screens share), `prefabs/ui/shop`, `achievements` and
   `leaderboards`. The main menu has a row with the three buttons; `lanternColour` is a player setting in `settings.js`.
 - Accessibility (see the section below): `scripts/assist.js` (assist speed and invincibility), `scripts/effects.js` (shake and
-  sparks, each gated by an option), `scripts/ui/text_fit.js` (sizes widgets for the text size), the Access tab in
+  sparks, each gated by an option), `scripts/ui/text_fit.js` (sizes widgets for the text size and language; aligns wrapped texts for right-to-left), the Access tab in
   `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`, the options in `scripts/settings.js`.
-- `locales/en.json`, `locales/es.json`: every text. Groups: `menu`, `loading`, `pause`, `options` (with `options.accessibility.*` and `options.tab.accessibility`), `credits` (the recipe's),
+- `locales/en.json`, `es.json`, `de.json`, `ar.json`: every text. Groups: `menu`, `loading`, `pause`, `options` (with `options.accessibility.*` and `options.tab.accessibility`), `credits` (the recipe's),
   `hud.*`, `level.*` (level and world names), `levelEnd.*`, the saves' `slots.*` and `select.*`, and the store's `achievements.*`, `leaderboards.*`, `shop.*` and
-  `platform.*` (the store's messages). Later packages add their own groups.
+  `platform.*` (the store's messages). The four tables (`en`, `es`, `de`, `ar`) have the same keys: see "Languages".
 - `prefabs/*.prefab.json`: player (with its lantern), ember, spikes, enemy, checkpoint, exit, platforms, spark.
 - `assets/`: the template's tileset and jump sound, plus a few small PNGs (spikes, enemy, two background layers) and
   sounds made for this game. Records of where they came from are in `assets.json`.
@@ -70,17 +72,18 @@ Options > Controls.
   against the fake store, failures included), `play.test.js` (a bot finishes every level), `menus.test.js` (menus, pause, language and the level end panel, with the
   gamepad only), `store.test.js` (stats, achievements and leaderboard submits from the events) and `store_screens.test.js` (the
   three screens and the purchases, with the gamepad only), both against the fake store, `accessibility.test.js` (every option saved, applied and effective; every
-  screen of that package at 200% text). `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
+  screen in every language at 100% and 200% text, with `tests/helpers/screens.js`), `languages.test.js` (the four tables have the same keys and
+  placeholders, the language button, Arabic's mirrored HUD) and `shipping.test.js`. `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
   help other tests. The levels are built so that this bot finishes all of them.
 - `screenshots/`: the main menu, the save slots, the level select, a level of each world, the level end panel and the achievements, leaderboards and shop screens;
   `a11y-*.png`: the Accessibility tab, the menu, a level and the level end panel at 200% text, and the hazards in colour and
-  in greyscale.
+  in greyscale; `main-menu-ar.png`, `level-select-ar.png` (Arabic) and `options-de-200.png` (German at 200% text).
 - Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
-  (the on-screen gamepad, an entity of both base scenes), `store/` (store texts in English and Spanish, release notes),
+  (the on-screen gamepad, an entity of both base scenes), `store/` (store texts and release notes in the four languages),
   `.store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed, and a dot-folder so exports
   leave them out),
-  `tests/shipping.test.js` (touch controls, safe area, the settings the exports rely on), `SHIPPING.md`.
+  `tests/shipping.test.js` (touch controls, safe area, the settings the exports rely on, the store texts of every language), `SHIPPING.md`.
 
 ## Saves and the level select
 
@@ -122,7 +125,7 @@ come back at the next sync (known limit).
 
 `factoria.json` holds the version, icon, per-platform export settings and the `publish` ids (fake placeholders), and the
 game has an on-screen gamepad and a safe-area HUD for phones. What each store needs, what the engine does, what stays
-by hand and what could not be checked on the machine that made the package is in [`SHIPPING.md`](SHIPPING.md).
+by hand and what could not be checked on the machine that prepared the export is in [`SHIPPING.md`](SHIPPING.md).
 
 ```bash
 factoria export --platform windows --release        # lantern-keep.exe + game.pak
@@ -130,6 +133,40 @@ factoria export --platform android --format aab --release   # needs the Android 
 python tools/make_icon.py                           # redraw the icon (Python and Pillow)
 python tools/make_screenshots.py factoria           # redraw the store screenshots
 ```
+
+## Languages
+
+English (the default, and the language of the text in the scenes), Spanish, German and Arabic: `factoria.json` `localization`,
+`locales/<tag>.json`, a `key` on every Text and widget the scenes write, `i18n.t` for what scripts build. Each table has the same
+keys and the same `{placeholders}` (`tests/languages.test.js`); the options' Language button cycles through them, each named in
+itself, and the choice is saved with the settings. No font was added: the engine's DejaVu Sans draws Latin, German and Arabic.
+
+- **German** is the layout stress test (long words: "Bestenlisten", "Bildschirmwackeln", "Unterstützer"). It was made the way a
+  studio would: `i18n.export {"format":"csv","languages":["de"],"delimiter":";"}` (the semicolon is what a German Excel
+  expects), the `de` column filled in, `i18n.import` (`dryRun` first: 148 rows added, no warnings), then `factoria validate`.
+  That round trip worked without surprises. The one thing to know: for a language with no file yet `i18n.import` writes
+  flat dotted keys, so the file was rewritten nested like the others (same strings, checked equal).
+- **Arabic** went through XLIFF (`format: "xliff"`, `languages: ["ar"]`, targets filled in, `i18n.import` of the `.xlf`; same
+  result). Arabic has six plural forms, but the game's texts have no plural (they show `3/18`, not "3 embers"), so none
+  of the six is used and the `i18n.import` check could not exercise them: a new text with a count needs `zero` to `other`.
+  Letters are joined and ordered by the engine, numbers keep left-to-right inside the sentence ("1-1  أول ضوء").
+  What the game does for right-to-left (`isRtl()` in `scripts/ui/text_fit.js`): `align: "right"` on every wrapped Text (the
+  engine's `align` never follows the language), and the HUD corners swapped (name on the right, embers on the left).
+  **Not mirrored**: rows of buttons and panels (the main menu's row of three, the level end panel's text and buttons, the
+  level select rows keep the first item on the left) and the lines of a two-line button stay left-aligned: the engine has
+  no right-to-left row layout or Button `align` (`ENGINE_FEEDBACK.json` FB-0040, FB-0011). Everything is readable.
+- **Every screen at 100% and 200% in every language** (main menu, options tabs, credits, slots, delete confirmation, level
+  select, achievements, leaderboards and shop with a working and a signed-out store, HUD, pause, level end panel) is
+  checked by `tests/accessibility.test.js`. Making them fit meant: widgets fitted to their label on every screen
+  (`fitWidgets`, also for two-line labels), a slot line breaking after "Slot 2:" when it is wide, the level select putting the
+  two worlds side by side with a column of three levels each when three buttons no longer fit a row, the shop putting its note
+  beside the buttons when one column is taller than the screen, and the achievements and leaderboards lists taking the height
+  the other texts leave (`fitList`).
+- **Store texts** for every language are in `store/store.<tag>.json` and `store/whats-new-<tag>.txt`; `factoria.json` `publish`
+  lists the languages for GOG and the Google Play changelogs (`SHIPPING.md`).
+- **Adding a language:** add the tag to `localization.languages`, `i18n.export` it, fill the file, `i18n.import`, `factoria validate`
+  (it also checks that the fonts have every glyph), then a store text, and add it to the language lists at the top of `tests/languages.test.js`,
+  `tests/accessibility.test.js` and `tests/shipping.test.js`.
 
 ## Contract 1: the level list (`scripts/levels.js`)
 
@@ -150,7 +187,7 @@ Exports: `LEVELS` (`{ id, world, scene, nameKey }`), `WORLDS` (`{ 1: { nameKey, 
 ## Contract 2: progress (`scripts/progress.js`)
 
 The only place results are recorded. They live in `session`; `record()` also writes the chosen save slot (`scripts/saves.js`,
-section "Saves and the level select"). The functions did not change. The data is a plain JSON object:
+section "Saves and the level select"). The data is a plain JSON object:
 
 ```json
 { "levels": { "1-1": { "completed": true, "bestTime": 41.2, "embers": [true, false, true] } } }
@@ -166,7 +203,7 @@ A level that was never finished has no entry. `embers` are the ones found in any
 | `record(result)` | `result` is the `level_completed` payload. Keeps the best time and the embers; returns `{ firstCompletion, newBest, bestTime, previousBest }`. `level.js` calls it when the exit is touched. |
 | `isCompleted(id)` / `isUnlocked(id)` | `1-1` is always open; any other level opens after the one before it was finished. |
 | `totalEmbers()` | Embers found in all levels (at most 18). |
-| `nextToPlay()` | The first unlocked level that is not finished (the last level when all are). The main menu's Play no longer uses it (it opens the save slots); kept for other features. |
+| `nextToPlay()` | The first unlocked level that is not finished (the last level when all are). The main menu's Play opens the save slots instead, so nothing in the game calls it; it is there for other features. |
 
 ## Contract 3: game events
 
@@ -243,7 +280,7 @@ Saved with the other settings (`storage` key `settings`, `scripts/settings.js`) 
 
 | Option | How it works |
 |---|---|
-| Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `scripts/ui/text_fit.js` makes every button, toggle and slider as big as its label needs; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in both languages at 200%: widgets inside the screen, labels inside their widget. |
+| Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `scripts/ui/text_fit.js` makes every button, toggle and slider as big as its label needs; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in every language at 100% and 200%: widgets inside the screen, labels inside their widget, no text wider than its box, every panel big enough for its content (`tests/helpers/screens.js`). |
 | Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing. `game.paused = false` puts `time.scale` back to 1 (engine feedback FB-0036), so `level.js` `refreshAssist()` sets the assist speed again at the start of a level and after each resume. Level times are game time. |
 | Invincible | Spikes and enemies do nothing. A fall puts the player back at the last checkpoint (or the start) and does **not** count as a death: no `player_died`, no shake, no hurt sound. |
 | Screen shake | Off: `effects.js` `deathShake()` does nothing. |
@@ -251,7 +288,7 @@ Saved with the other settings (`storage` key `settings`, `scripts/settings.js`) 
 
 Assist mode (slower game or invincible) marks the run: `level_completed` carries `assisted: true` when either was on at any
 moment of the level (turning it off again does not undo it), and the level end panel says "Assist mode was on". The best time and
-the embers are still kept in `progress`; the store package keeps `assisted` runs off the leaderboards.
+the embers are still kept in `progress`; the store services keep `assisted` runs off the leaderboards.
 
 **Hazards without colour.** Spikes are three sharp triangles with a dark outline (`assets/spikes.png`); enemies are a rounded box
 with a light and a dark outline and yellow eyes (`assets/enemy.png`); embers are a diamond with a dark outline; a checkpoint is a
@@ -281,10 +318,3 @@ speech), screen reader, hold-or-toggle (the game has no held action: jump is one
 - **Tests.** `game.gamepad()`, `game.audioLog()`, `fa.call("scene.import_ascii")`, events through `world.on`.
 
 The gaps found while making the game are in `ENGINE_FEEDBACK.json`.
-
-## Notes for the next packages
-
-- Add a new level by adding its map to `levels/`, a line to `scripts/levels.js`, its two names to `locales/*.json`, and
-  rebuilding; `tests/levels.test.js` and `tests/play.test.js` loop over `LEVELS`, so they pick it up.
-- A level scene needs the entities of the base scenes: `player`, `map`, `level`, `camera`, `pause_menu`, `store_events`
-  and the HUD texts. The simplest way to keep that true is to start from a base scene.

@@ -8,6 +8,7 @@ import { LEVELS } from "../levels.js";
 import { boardOf, TOTAL_BOARD } from "../store_stats.js";
 import { formatTime } from "../time_format.js";
 import { explain, trySignIn } from "./store_ui.js";
+import { fitWidgets, fitList } from "./text_fit.js";
 
 /** The boards in the order Board cycles through them: each level, then the total. */
 const BOARDS = [...LEVELS.map((l) => ({ id: boardOf(l.id), nameKey: l.nameKey })), { id: TOTAL_BOARD, nameKey: "leaderboards.total" }];
@@ -54,6 +55,12 @@ export default class Leaderboards extends Behaviour {
     line.active = message !== "";
   }
 
+  /** Buttons as big as their text needs, the list as tall as the screen leaves after the texts above it. */
+  fit() {
+    fitWidgets(this.entity);
+    fitList(this.entity, this.list);
+  }
+
   async load(signIn) {
     const mine = ++this.loads;
     this.problem = null;
@@ -91,5 +98,7 @@ export default class Leaderboards extends Behaviour {
         ),
       );
     }
+    this.list.active = this.rows.length > 0; // an empty list would only take room
+    this.fit();
   }
 }

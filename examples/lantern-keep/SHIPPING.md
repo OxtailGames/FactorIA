@@ -98,7 +98,7 @@ Steam/Apple/Google services that change some answers).
 
 ### Steam
 - **Set up**: Windows, macOS and Linux targets, icon, version, `publish.steam` (fake account, depots 9000001..3, no branch),
-  store texts in `store/store.en.json` / `store.es.json` (Steam short description limit 300, ours are under 80), screenshots
+  store texts in `store/store.<lang>.json` for en, es, de and ar (Steam short description limit 300, ours are under 80), screenshots
   `steam-1920x1080-*.png` (six).
 - **Engine does**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. Tried the dry run with a fake uploader and a
   fake app id: plan for `windows -> Steam app 9000000, depot 9000001, 89 files, 27.7 MB`, command
@@ -130,7 +130,7 @@ Steam/Apple/Google services that change some answers).
 - **Could not check**: a real upload.
 
 ### GOG
-- **Set up**: `publish.gog` (product `1000000001`, languages `en-US`, `es-ES`).
+- **Set up**: `publish.gog` (product `1000000001`, languages `en-US`, `es-ES`, `de-DE`, `ar`).
 - **Engine does**: writes `gog-windows.json` and `ignore.txt` and runs Pipeline Builder (dry run checked with a fake tool).
 - **By hand**: GOG accepts games by invitation after a review of the game and a Developer Portal product; builds must
   be published from the portal; GOG wants a game without DRM (this one has none), an offline installer (the engine does not
@@ -150,7 +150,7 @@ Steam/Apple/Google services that change some answers).
 
 ### Google Play
 - **Set up**: `applicationId` from `id`, `versionCode 10000`, `aab` format, adaptive icon, landscape, touch controls,
-  `publish.googleplay` (internal track, draft, release notes `store/whats-new-en.txt`, `store/whats-new-es.txt`), store texts
+  `publish.googleplay` (internal track, draft, release notes `store/whats-new-<lang>.txt` for the same four languages), store texts
   (title 30 / short description 80 characters: `store/store.*.json` fit), phone screenshots `phone-landscape-1920x1080-*.png`.
 - **Engine does**: builds a signed `.aab` with `factoria export --platform android --format aab --release` (**not run**: see
   section 3) and uploads it with `publish.googleplay` (fastlane). The `publish.googleplay` dry run stops here with
@@ -185,10 +185,10 @@ Steam/Apple/Google services that change some answers).
 ## 5. Store page material (`store/`, `.store/`)
 
 - No store-text layout exists in the engine (the docs have none; only `publish.googleplay.changelogs` reads plain text
-  files). The layout used here is plain: `store/store.en.json` and `store/store.es.json` with `name`, `subtitle` (30 characters
+  files). The layout used here is plain: `store/store.<lang>.json` (en, es, de, ar) with `name`, `subtitle` (30 characters
   for the App Store), `shortDescription` (80, Google Play), `longDescription`, `features`, `keywords` (joined with commas
-  under 100 characters for App Store keywords), `tags` (Steam), `category`, `ageNotes`; `store/whats-new-en.txt` and
-  `whats-new-es.txt` (release notes, under 500 characters). `tests/shipping.test.js` checks the lengths.
+  under 100 characters for App Store keywords), `tags` (Steam), `category`, `ageNotes`; `store/whats-new-<lang>.txt`
+  (release notes, under 500 characters). `tests/shipping.test.js` checks the lengths.
 - Screenshots (`.store/screenshots/`, not committed: `python tools/make_screenshots.py <factoria>` makes them with
   headless runs, no GPU or window):
   six `steam-1920x1080-*.png` (menu, Courtyard, a level with a gap, the Cellars, the lantern lighting the bricks, the level end
