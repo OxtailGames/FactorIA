@@ -6,6 +6,7 @@ import { LEVELS, EMBERS_PER_LEVEL } from "../levels.js";
 import * as progress from "../progress.js";
 import { startLevel } from "../flow.js";
 import { formatTime } from "../time_format.js";
+import { fitWidgets } from "./text_fit.js";
 
 export default class LevelSelect extends Behaviour {
   onStart() {
@@ -28,5 +29,26 @@ export function refreshSelect() {
     const button = world.find(`lvl_${level.id}`).get("Button");
     button.text = `${i18n.t(level.nameKey)}\n${detail}`;
     button.interactable = open;
+  }
+  layoutSelect();
+}
+
+/**
+ * The six buttons are as wide as the widest text needs (the same for all). Three of them side by side while that fits the
+ * screen; at a big text size or with long names the worlds stand side by side instead and each world's levels are a column.
+ */
+function layoutSelect() {
+  const root = world.find("level_select");
+  const sets = (id, layout) => (world.find(id).get("Panel").layout = layout);
+  for (const id of ["select_row_1", "select_row_2"]) sets(id, "row");
+  sets("select_worlds", "column");
+  fitWidgets(root);
+  const buttons = LEVELS.map((l) => world.find(`lvl_${l.id}`).get("Button"));
+  const width = Math.max(...buttons.map((b) => b.size.x));
+  const height = Math.max(...buttons.map((b) => b.size.y));
+  for (const b of buttons) b.size = [width, height];
+  if (3 * width + 2 * 12 + 2 * 24 > 1240) {
+    for (const id of ["select_row_1", "select_row_2"]) sets(id, "column");
+    sets("select_worlds", "row");
   }
 }

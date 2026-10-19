@@ -108,18 +108,25 @@ test("the icon files exist and are the size the exports need", () => {
   expect(assets.textureSize("assets/icon_fg.png")).toEqual({ width: 432, height: 432 });
 });
 
-test("the store texts exist in English and Spanish with the required parts", () => {
-  for (const lang of ["en", "es"]) {
+test("the store texts and release notes exist in every language of the game, and the stores list them", () => {
+  const p = project();
+  const languages = p.localization.languages;
+  expect(languages).toEqual(["en", "es", "de", "ar"]);
+  for (const lang of languages) {
     const s = JSON.parse(fa.call("fs.read", { path: `store/store.${lang}.json` }).content);
     expect(s.name.length).toBeGreaterThan(0);
     expect(s.shortDescription.length).toBeLessThanOrEqual(80);
     expect(s.longDescription.length).toBeGreaterThan(200);
     expect(s.features.length).toBeGreaterThan(3);
     expect(s.keywords.length).toBeGreaterThan(3);
+    const notes = fa.call("fs.read", { path: `store/whats-new-${lang}.txt` }).content;
+    expect(notes.length).toBeGreaterThan(0);
+    expect(notes.length).toBeLessThanOrEqual(500);
+    expect(s.subtitle.length).toBeLessThanOrEqual(30);
   }
-  for (const f of ["store/whats-new-en.txt", "store/whats-new-es.txt"]) {
-    const t = fa.call("fs.read", { path: f }).content;
-    expect(t.length).toBeGreaterThan(0);
-    expect(t.length).toBeLessThanOrEqual(500);
-  }
+  // the stores that take a list of languages name each one of the game's (store tags: en-US, es-ES, de-DE, ar)
+  const tags = ["en-US", "es-ES", "de-DE", "ar"];
+  expect(p.publish.gog.languages).toEqual(tags);
+  expect(Object.keys(p.publish.googleplay.changelogs)).toEqual(tags);
+  for (const file of Object.values(p.publish.googleplay.changelogs)) expect(fa.call("fs.read", { path: file }).content.length).toBeGreaterThan(0);
 });
