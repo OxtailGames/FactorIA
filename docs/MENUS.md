@@ -38,6 +38,14 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 
 ## How it works, and what to change
 
+- **Focus and navigation.** Direction presses (`ui_up/down/left/right`) move the focus to the nearest interactable widget
+  in the pressed direction that is lined up with the focused one: its rectangle overlaps the focused rectangle across
+  the direction (for Right, they share some rows of pixels). So Right from a tab reaches the next tab and not a wide
+  button below the row, and Down from a narrow tab reaches the slider under it, not the Back button further down. Only
+  when no widget is lined up does the search take the nearest widget anywhere in that half of the screen (sideways
+  distance counts double). When a panel opens and its `autoFocus` widget is not `interactable` (a greyed-out buy
+  button), the first interactable widget in reading order (top to bottom, then left to right) takes the focus instead of
+  nothing.
 - **Panels over panels.** `MenuStack.show(id)` hides the panel on top and shows panel `id`; its `autoFocus` widget takes
   the focus (a focused widget that becomes inactive loses it). `back()` closes the top panel and gives the focus back to
   the widget that had it. Pad B, Escape (`ui_cancel`) and any button tagged `back` call it.

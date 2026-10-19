@@ -72,7 +72,9 @@ TypeBuilder<T>& ui_control_fields(TypeBuilder<T>& b) {
                "Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first "
                "widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; "
                "HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget "
-               "disappears (inactive, destroyed, not interactable) autoFocus applies again.")
+               "disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus "
+               "widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order "
+               "takes the focus instead, so the gamepad is never left with nothing focused.")
         .field("focused", static_cast<bool T::*>(&UiControl::focused),
                "Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with "
                "ui.focus(entity).").runtime_only().read_only()
