@@ -1,13 +1,15 @@
 // @ts-check
 // The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video,
-// Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
+// Audio (one slider per bus), Controls (rebinding), Language (cycles through the game's languages) and Accessibility
+// (text size, assist mode, shake, reduced effects). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
 import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
 import * as settings from "../settings.js";
 import { MenuStack } from "./menu_stack.js";
+import { fitWidgets } from "./text_fit.js";
 
-const TABS = ["video", "audio", "controls", "language"];
+const TABS = ["video", "audio", "controls", "language", "access"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
 const FRAME_CAPS = [0, 30, 60, 120, 144];
 const TAB_COLOR = [0.16, 0.18, 0.24, 0.92];
@@ -28,12 +30,30 @@ export default class Options extends Behaviour {
     this.setupAudio();
     this.setupControls();
     this.setupLanguage();
+    this.setupAccess();
+    this.layout();
     // The texts this script writes are not translated by the engine: write them again in the new language.
     i18n.on("change", () => {
       this.refreshVideo();
       this.refreshControls();
       this.refreshLanguage();
+      this.refreshAccess();
+      this.layout();
     });
+  }
+
+  /** Sizes the panel for the player's text size: wider widgets, sections as tall as the tallest one, one panel that fits. */
+  layout() {
+    const scale = ui.textScale;
+    fitWidgets(this.entity);
+    const row = Math.max(44, Math.ceil(22 * scale * 1.3)); // a button row at this text size
+    const note = Math.ceil(16 * scale * 1.3) * 2; // the video note, wrapped to two lines
+    const height = Math.max(5 * row + 4 * 12, 4 * row + 4 * 12 + note) + 32;
+    const width = Math.min(1240, Math.round(760 + (scale - 1) * 480));
+    for (const tab of TABS) world.find(`${tab}_section`).get("Panel").size = [width - 48, height];
+    this.entity.get("Panel").size = [width, 0]; // fit: the height follows the content
+    const noteText = world.find("video_note").get("Text");
+    noteText.maxWidth = width - 48 - 32;
   }
 
   showTab(name) {
@@ -152,6 +172,43 @@ export default class Options extends Behaviour {
     const button = world.find("language").get("Button");
     button.text = i18n.t("options.language", { language: i18n.name(i18n.language) });
     button.interactable = i18n.languages.length > 1; // a game with one language has nothing to choose
+  }
+
+  // --------------------------------------------------------------------------------------------------- accessibility
+  setupAccess() {
+    const s = this.s;
+    const step = (list, value) => list[(Math.max(0, list.findIndex((v) => Math.abs(v - value) < 1e-6)) + 1) % list.length];
+    ui.on("click", "text_size", () => {
+      s.textScale = step(settings.TEXT_SCALES, s.textScale);
+      ui.textScale = s.textScale;
+      settings.save(s);
+      this.refreshAccess();
+      this.layout();
+    });
+    ui.on("click", "game_speed", () => {
+      s.assist.speed = step(settings.SPEEDS, s.assist.speed);
+      settings.save(s);
+      this.refreshAccess(); // gameplay picks the new speed up when the pause menu resumes (level.js refreshAssist)
+    });
+    const toggle = (id, set) => {
+      ui.on("change", id, (e) => {
+        set(e.value);
+        settings.save(s);
+      });
+    };
+    toggle("invincible", (v) => (s.assist.invincible = v));
+    toggle("screen_shake", (v) => (s.shake = v));
+    toggle("reduced_effects", (v) => (s.reducedEffects = v));
+    world.find("invincible").get("Toggle").value = s.assist.invincible;
+    world.find("screen_shake").get("Toggle").value = s.shake;
+    world.find("reduced_effects").get("Toggle").value = s.reducedEffects;
+    this.refreshAccess();
+  }
+
+  refreshAccess() {
+    const percent = (v) => Math.round(v * 100);
+    world.find("text_size").get("Button").text = i18n.t("options.accessibility.textSize", { percent: percent(this.s.textScale) });
+    world.find("game_speed").get("Button").text = i18n.t("options.accessibility.speed", { percent: percent(this.s.assist.speed) });
   }
 
   onUpdate() {

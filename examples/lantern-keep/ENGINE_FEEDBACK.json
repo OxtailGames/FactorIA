@@ -628,6 +628,175 @@
       "effort": "medium",
       "occurrences": 1,
       "status": "open"
+    },
+    {
+      "id": "FB-0031",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Buttons, toggles and sliders do not size themselves to their label at a big ui.textScale",
+      "missing": "ui.textScale scales the label but the widget keeps its rectangle, so every Button, Toggle and Slider overflows at 150-200% and the game must measure every label (ui.measureText) and resize each widget after every language or text size change. A Button cannot wrap a long label either (Spanish at 200% needs a 700 px button). The docs say to leave room for the biggest size, which for a menu with a 240 px button means redesigning it.",
+      "workaround": "scripts/ui/text_fit.js fitWidgets(root) sets size = max(design size, measured label + padding) for every widget under a screen; it runs at screen start, on i18n change and after the text size changes. Options, credits and the level end panel also choose their layout from the text size (wider panel, buttons beside the text).",
+      "workaroundFiles": [
+        "scripts/ui/text_fit.js",
+        "scripts/ui/options.js",
+        "scripts/ui/level_end.js"
+      ],
+      "suggestion": "An opt-in autoSize flag on Button/Toggle/Slider: at least the design size, growing to the label at the current textScale and language; optionally wrap for Button labels.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0032",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "ui.measureText in headless runs and tests is only an estimate (0.6 x fontSize per character)",
+      "missing": "Layout decisions made from ui.measureText (does the HUD fit on one row, does a label fit its button) differ between factoria test (0.6 em per character, wider than DejaVu Sans) and the real window, so a test can only check a safe upper bound and the same screen may lay out differently when played.",
+      "workaround": "Tests use the estimate (the conservative side); the HUD and the options pick layouts from the same function, so test and game agree on the rule, not on the pixels. Screenshots, which render real text, were checked by eye.",
+      "workaroundFiles": [
+        "tests/accessibility.test.js",
+        "scripts/hud.js"
+      ],
+      "suggestion": "Load the real font for measureText also when headless (it is in the binary), or let tests ask for exact metrics.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0033",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "Gamepad focus navigation cannot be told its neighbours (a wide widget below a tab row steals DpadRight)",
+      "missing": "Spatial focus moves to the nearest widget in the pressed direction. In Options at 200% text, DpadRight on the Controls tab reaches the first rebinding button below it instead of the Language tab beside it, because the wide button overlaps the row. There is no way to say right of tab_controls is tab_language, or to make a row one focus group.",
+      "workaround": "The test focuses tabs with ui.focus(). Not fixed in the game: the player reaches the tab with DpadLeft from the other side or the mouse.",
+      "workaroundFiles": [
+        "tests/accessibility.test.js"
+      ],
+      "suggestion": "Optional focus neighbours on widgets (up/down/left/right entity ids), or a Panel flag that keeps left/right inside a row.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0034",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "tooling",
+      "severity": "minor",
+      "title": "scene.import_ascii copies prefab contents into the level scenes, so editing a prefab means rebuilding every level",
+      "missing": "Changing a prefab (ember, checkpoint, exit) leaves the six level scenes as they were: the import wrote the prefab children into them. The only sign is levels.test.js saying a scene is not what its map builds. A visual change for colour-blind players meant importing every map again.",
+      "workaround": "Ran factoria call scene.import_ascii @levels/<id>.json for the six levels, then scene.format.",
+      "suggestion": "Let the legend place prefab instances (prefab plus overrides, as scenes can) instead of copies, so the prefab file stays the single source; or say in the ascii docs that a prefab edit needs the rebuild.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0035",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "docs",
+      "severity": "nice-to-have",
+      "title": "Scripts have no API for the laid-out rectangle of a widget",
+      "missing": "Tests and layouts that must know where a widget really is (does the options panel fit the screen) have to call fa.call('ui.state') and search its widget list; there is no Entity or ui function and no type for it in factoria.d.ts, and a Text (not a widget) is not in that list at all (HUD text can only be checked with measureText).",
+      "workaround": "tests/accessibility.test.js reads fa.call('ui.state').widgets and measures Texts with ui.measureText.",
+      "workaroundFiles": [
+        "tests/accessibility.test.js"
+      ],
+      "suggestion": "ui.rectOf(entity) returning { x, y, w, h } for widgets and screen-space Text/Shape2D, typed in the d.ts.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0036",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "scripting",
+      "severity": "minor",
+      "title": "game.paused = false resets time.scale to 1",
+      "missing": "A game with a game-speed option (assist mode: 60% to 100%) sets time.scale. Pausing and resuming with game.paused puts time.scale back to 1, so the slowed speed is lost on every resume; the scripting doc only says paused is the same as time.scale = 0. Verified: time.scale = 0.5; game.paused = true; game.paused = false gives time.scale 1.",
+      "workaround": "level.js refreshAssist() sets time.scale again at level start and after the pause menu resumes; a test checks it.",
+      "workaroundFiles": [
+        "scripts/assist.js",
+        "scripts/level.js",
+        "scripts/pause_menu.js"
+      ],
+      "suggestion": "Make game.paused remember the scale it replaced and restore it, or document the reset next to time.scale in the scripting doc and the menus recipe (any game that uses time.scale for slow motion breaks with the recipe pause menu).",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0037",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "rendering-2d",
+      "severity": "nice-to-have",
+      "title": "No colour-blind or greyscale preview or filter",
+      "missing": "To check that hazards read without colour I needed a greyscale (ideally also protanopia, deuteranopia, tritanopia) view of a screenshot, and a player-facing colour-blind filter is a normal expectation of an accessibility tab. The engine has neither a screenshot option for it nor a Camera post-process (only bloom).",
+      "workaround": "Hazards and pickups differ by shape and outline (spikes = triangles, enemies = rounded boxes with eyes, ember = diamond, checkpoint = ring, exit = star in a lamp). The greyscale check was made outside the engine with Python Pillow on a screenshot (screenshots/a11y-hazards-colour-and-grey.png). No colour-blind filter option was built.",
+      "workaroundFiles": [
+        "screenshots/a11y-hazards-colour-and-grey.png",
+        "assets/spikes.png",
+        "assets/enemy.png"
+      ],
+      "suggestion": "Camera.colorFilter enum (none, greyscale, protanopia, deuteranopia, tritanopia, high contrast) as a post-process that game.screenshot also applies, so players and AIs can use it.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open"
+    },
+    {
+      "id": "FB-0038",
+      "date": "2026-10-19",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-p4",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "platform",
+      "severity": "nice-to-have",
+      "title": "No way to read the operating system accessibility settings or to speak UI text",
+      "missing": "A game should start with the player's system text size, reduce-motion and high-contrast choices, and a screen reader or text-to-speech needs the focused widget text. Scripts have no call for either (checked factoria api --dts: nothing like systemTextScale, prefersReducedMotion or speak).",
+      "workaround": "Lantern Keep starts with its own saved options only (text 100%, shake on) and has no spoken menus.",
+      "suggestion": "Read-only platform.accessibility { textScale, reduceMotion, highContrast, screenReader }, plus ui.speak(text) or a focus-change event a screen reader plugin can use.",
+      "effort": "large",
+      "occurrences": 1,
+      "status": "open"
     }
   ]
 }

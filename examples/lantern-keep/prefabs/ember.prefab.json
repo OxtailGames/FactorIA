@@ -48,6 +48,19 @@
             "blend": "additive"
           }
         }
+      },
+      {
+        "name": "Edge",
+        "components": {
+          "Shape2D": {
+            "shape": "diamond",
+            "size": [22, 28],
+            "color": [0.2, 0.08, 0.02, 1],
+            "filled": false,
+            "thickness": 3,
+            "layer": 5
+          }
+        }
       }
     ]
   }

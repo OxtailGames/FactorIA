@@ -16,7 +16,7 @@ them.
 factoria validate
 factoria run                                     # play
 factoria run --headless --scene scenes/levels/1-1.scene.json --frames 120 --screenshot-at 119
-factoria test                                    # about 50 seconds
+factoria test                                    # about 60 seconds
 ```
 
 ## Controls
@@ -55,7 +55,10 @@ Options > Controls.
   colours, the wallet, `grant`; one entity `cosmetics` in every level puts the chosen colour on the player), `scripts/ui/shop.js`,
   `achievements.js`, `leaderboards.js` and `store_ui.js` (what the three screens share), `prefabs/ui/shop`, `achievements` and
   `leaderboards`. The main menu has a row with the three buttons; `lanternColour` is a player setting in `settings.js`.
-- `locales/en.json`, `locales/es.json`: every text. Groups: `menu`, `loading`, `pause`, `options`, `credits` (the recipe's),
+- Accessibility (see the section below): `scripts/assist.js` (assist speed and invincibility), `scripts/effects.js` (shake and
+  sparks, each gated by an option), `scripts/ui/text_fit.js` (sizes widgets for the text size), the Access tab in
+  `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`, the options in `scripts/settings.js`.
+- `locales/en.json`, `locales/es.json`: every text. Groups: `menu`, `loading`, `pause`, `options` (with `options.accessibility.*` and `options.tab.accessibility`), `credits` (the recipe's),
   `hud.*`, `level.*` (level and world names), `levelEnd.*`, the saves' `slots.*` and `select.*`, and the store's `achievements.*`, `leaderboards.*`, `shop.*` and
   `platform.*` (the store's messages). Later packages add their own groups.
 - `prefabs/*.prefab.json`: player (with its lantern), ember, spikes, enemy, checkpoint, exit, platforms, spark.
@@ -66,10 +69,13 @@ Options > Controls.
   `saves.test.js` (slots, level select, autosave, migration from `tests/fixtures/save_v1.json`, damaged saves, cloud saves
   against the fake store, failures included), `play.test.js` (a bot finishes every level), `menus.test.js` (menus, pause, language and the level end panel, with the
   gamepad only), `store.test.js` (stats, achievements and leaderboard submits from the events) and `store_screens.test.js` (the
-  three screens and the purchases, with the gamepad only), both against the fake store. `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
+  three screens and the purchases, with the gamepad only), both against the fake store, `accessibility.test.js` (every option saved, applied and effective; every
+  screen of that package at 200% text). `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
   help other tests. The levels are built so that this bot finishes all of them.
-- `screenshots/`: the main menu, the save slots, the level select, a level of each world, the level end panel and the achievements, leaderboards and shop screens.
+- `screenshots/`: the main menu, the save slots, the level select, a level of each world, the level end panel and the achievements, leaderboards and shop screens;
+  `a11y-*.png`: the Accessibility tab, the menu, a level and the level end panel at 200% text, and the hazards in colour and
+  in greyscale.
 - Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
   (the on-screen gamepad, an entity of both base scenes), `store/` (store texts in English and Spanish, release notes),
   `.store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed, and a dot-folder so exports
@@ -174,7 +180,7 @@ accessibility). `level` is the level id of contract 1.
 | `ember_collected` | `{ level, index, found }` | `level.js` (from `ember.js`) | An ember is touched: `index` 0 to 2, `found` the count so far in this run. Once per ember. |
 | `checkpoint_reached` | `{ level, index }` | `level.js` (from `checkpoint.js`) | A checkpoint is touched (numbered from the left; one with a lower index than the current one does not count). |
 | `player_died` | `{ level, cause }` | `level.js` | `cause` is `"spikes"`, `"enemy"` or `"fall"`. After the respawn. |
-| `level_completed` | `{ level, time, embers: [bool, bool, bool], deaths }` | `level.js` | The exit is touched. `time` is seconds (to the millisecond) since the level started; `embers` are the ones found in this run; the result is already in `progress` when it is sent. |
+| `level_completed` | `{ level, time, embers: [bool, bool, bool], deaths, assisted }` | `level.js` | The exit is touched. `time` is seconds (to the millisecond) since the level started, in game time (it runs slower with the assist speed); `embers` are the ones found in this run; `assisted` is `true` when an assist option (slower game or invincible) was on at any moment of the level, `false` otherwise: a time with `assisted: true` does not belong on a leaderboard. The result is already in `progress` when it is sent. |
 
 A death (`level.js` `die(cause)`) counts, sends the player back to the last checkpoint (the level start without one),
 plays `hurt.wav`, shakes the camera (`effects.js` `deathShake()`: the one place an option can switch the shake off) and
@@ -230,6 +236,33 @@ no longer owned counts as amber.
 connected, not signed in (Refresh signs in), the store cannot be reached, or any other code with the store's hint. Nothing
 blocks: Back always works, the game plays on, the colours already owned stay usable and the shop's buy and restore buttons
 answer with the same sentence instead of doing anything. The overlay of a real store pauses the level (`store_events`).
+
+## Accessibility (Options > Access)
+
+Saved with the other settings (`storage` key `settings`, `scripts/settings.js`) and applied when the game starts.
+
+| Option | How it works |
+|---|---|
+| Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `scripts/ui/text_fit.js` makes every button, toggle and slider as big as its label needs; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in both languages at 200%: widgets inside the screen, labels inside their widget. |
+| Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing. `game.paused = false` puts `time.scale` back to 1 (engine feedback FB-0036), so `level.js` `refreshAssist()` sets the assist speed again at the start of a level and after each resume. Level times are game time. |
+| Invincible | Spikes and enemies do nothing. A fall puts the player back at the last checkpoint (or the start) and does **not** count as a death: no `player_died`, no shake, no hurt sound. |
+| Screen shake | Off: `effects.js` `deathShake()` does nothing. |
+| Reduced effects | On: no spark burst when an ember is collected (`effects.js` `emberSpark()`). The game has no other particles or flashes. |
+
+Assist mode (slower game or invincible) marks the run: `level_completed` carries `assisted: true` when either was on at any
+moment of the level (turning it off again does not undo it), and the level end panel says "Assist mode was on". The best time and
+the embers are still kept in `progress`; the store package keeps `assisted` runs off the leaderboards.
+
+**Hazards without colour.** Spikes are three sharp triangles with a dark outline (`assets/spikes.png`); enemies are a rounded box
+with a light and a dark outline and yellow eyes (`assets/enemy.png`); embers are a diamond with a dark outline; a checkpoint is a
+ring on a post (hollow until you reach it, then solid); the exit is a big lamp with a star in a dark frame. The greyscale check
+(`screenshots/a11y-hazards-colour-and-grey.png`) was made outside the engine. In the Cellars the sprites are lit by the lantern,
+so spikes far from the light stay dark, as designed; the outline makes them readable once they are lit.
+
+**What the engine could not do** (all in `ENGINE_FEEDBACK.json`): a colour-blind or greyscale filter or preview, reading the
+system's accessibility settings, speaking menu text (no screen reader), buttons that size themselves to their label, exact
+text measurement in tests, explicit gamepad focus neighbours. Not built: colour-blind filters, subtitles (the game has no
+speech), screen reader, hold-or-toggle (the game has no held action: jump is one press).
 
 ## What the engine does for this game
 

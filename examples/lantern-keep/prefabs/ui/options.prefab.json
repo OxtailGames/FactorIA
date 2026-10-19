@@ -4,12 +4,12 @@
     "name": "Options",
     "components": {
       "Panel": {
-        "size": [760, 620],
         "anchor": [0.5, 0.5],
         "layer": 300,
         "layout": "column",
         "spacing": 16,
-        "padding": [24, 24, 24, 24]
+        "padding": [24, 24, 24, 24],
+        "fit": true
       },
       "Script": {
         "path": "scripts/ui/options.js"
@@ -48,7 +48,8 @@
                 "key": "options.tab.video",
                 "size": [160, 48],
                 "layer": 302,
-                "autoFocus": true
+                "autoFocus": true,
+                "fontSize": 22
               }
             }
           },
@@ -59,7 +60,8 @@
                 "text": "Audio",
                 "key": "options.tab.audio",
                 "size": [160, 48],
-                "layer": 302
+                "layer": 302,
+                "fontSize": 22
               }
             }
           },
@@ -70,7 +72,8 @@
                 "text": "Controls",
                 "key": "options.tab.controls",
                 "size": [160, 48],
-                "layer": 302
+                "layer": 302,
+                "fontSize": 22
               }
             }
           },
@@ -81,7 +84,20 @@
                 "text": "Language",
                 "key": "options.tab.language",
                 "size": [160, 48],
-                "layer": 302
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "tab_access",
+            "components": {
+              "Button": {
+                "text": "Access",
+                "key": "options.tab.accessibility",
+                "size": [160, 48],
+                "layer": 302,
+                "fontSize": 22
               }
             }
           }
@@ -149,7 +165,7 @@
               "Text": {
                 "text": "Video settings apply when the game runs in its own window.",
                 "key": "options.videoNote",
-                "fontSize": 18,
+                "fontSize": 16,
                 "color": [0.75, 0.8, 0.9, 1],
                 "space": "screen",
                 "layer": 302
@@ -271,6 +287,75 @@
             "components": {
               "Button": {
                 "text": "Language: English",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "access_section",
+        "components": {
+          "Panel": {
+            "size": [712, 340],
+            "layer": 301,
+            "color": [0, 0, 0, 0.25],
+            "layout": "column",
+            "spacing": 12
+          }
+        },
+        "children": [
+          {
+            "id": "text_size",
+            "components": {
+              "Button": {
+                "text": "Text size: 100%",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "game_speed",
+            "components": {
+              "Button": {
+                "text": "Game speed: 100%",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
+            "id": "invincible",
+            "components": {
+              "Toggle": {
+                "label": "Invincible",
+                "key": "options.accessibility.invincible",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "screen_shake",
+            "components": {
+              "Toggle": {
+                "label": "Screen shake",
+                "key": "options.accessibility.shake",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "reduced_effects",
+            "components": {
+              "Toggle": {
+                "label": "Reduced effects",
+                "key": "options.accessibility.reducedEffects",
                 "size": [560, 44],
                 "layer": 302
               }
