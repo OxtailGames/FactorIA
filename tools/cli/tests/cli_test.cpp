@@ -112,6 +112,19 @@ TEST_CASE("templates and docs work without a project") {
     CHECK(bad.err.find("scripting") != std::string::npos);
 }
 
+// The docs are embedded with LF whatever the checkout's line endings, so redirecting them on Windows adds no CRs.
+TEST_CASE("docs read and docs.read carry no carriage returns") {
+    auto r = run({"docs", "read", "architecture"});
+    REQUIRE(r.code == 0);
+    CHECK(r.out.size() > 100);
+    CHECK(r.out.find(0x0d) == std::string::npos);
+    auto j = run({"call", "docs.read", "{\"name\":\"architecture\"}"});
+    REQUIRE(j.code == 0);
+    CHECK(j.out.size() > 100);
+    CHECK(j.out.find("\\r") == std::string::npos);  // an escaped CR in the JSON text
+    CHECK(j.out.find(0x0d) == std::string::npos);
+}
+
 // ---- path options: inputs are found in the current directory, then in the project; outputs follow the current directory
 namespace {
 namespace stdfs = std::filesystem;
