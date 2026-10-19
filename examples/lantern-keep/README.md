@@ -8,7 +8,7 @@ worlds: **Courtyard** (`1-1`, `1-2`, `1-3`, daylight) and **Cellars** (`2-1`, `2
 English and Spanish, with keyboard, mouse or gamepad.
 
 This is the first package (core game, menus, languages) of the reference game. Next packages add save slots and a
-level select (progress goes to disk), store services (stats, achievements, a cosmetics shop), accessibility, shipping
+level select (progress goes to disk), accessibility, shipping
 (export, icons, store pages) and more languages. They build on the three contracts below: do not change them without
 changing every package that uses them.
 
@@ -47,20 +47,26 @@ Options > Controls.
   the camera on a death), `hud.js`, `ui/level_end.js` (the panel with Next / Retry / Menu), `time_format.js`.
 - The menus are the recipe of `factoria docs read menus` (AI guide 9.24): `scenes/menu.scene.json`,
   `scenes/loading.scene.json`, `scripts/main_menu.js`, `settings.js`, `pause_menu.js`, `loading.js`, `store_events.js`,
-  `scripts/ui/` (`menu_stack.js`, `options.js`, `credits.js`), `prefabs/ui/` (`options`, `pause`, `level_end`). The shop
-  of the recipe is left out until the store package.
+  `scripts/ui/` (`menu_stack.js`, `options.js`, `credits.js`), `prefabs/ui/` (`options`, `pause`, `level_end`).
+- Store services (section "Store services" below): `factoria.json` `"platform"` (the catalog), `scripts/store_stats.js` (stats,
+  achievements and best times from the game events; one entity `store_stats` in every level), `scripts/cosmetics.js` (the
+  colours, the wallet, `grant`; one entity `cosmetics` in every level puts the chosen colour on the player), `scripts/ui/shop.js`,
+  `achievements.js`, `leaderboards.js` and `store_ui.js` (what the three screens share), `prefabs/ui/shop`, `achievements` and
+  `leaderboards`. The main menu has a row with the three buttons; `lanternColour` is a player setting in `settings.js`.
 - `locales/en.json`, `locales/es.json`: every text. Groups: `menu`, `loading`, `pause`, `options`, `credits` (the recipe's),
-  `hud.*`, `level.*` (level and world names), `levelEnd.*`. Later packages add their own groups.
+  `hud.*`, `level.*` (level and world names), `levelEnd.*`, and the store's `achievements.*`, `leaderboards.*`, `shop.*` and
+  `platform.*` (the store's messages). Later packages add their own groups.
 - `prefabs/*.prefab.json`: player (with its lantern), ember, spikes, enemy, checkpoint, exit, platforms, spark.
 - `assets/`: the template's tileset and jump sound, plus a few small PNGs (spikes, enemy, two background layers) and
   sounds made for this game. Records of where they came from are in `assets.json`.
 - `tests/`: `levels.test.js` (every scene is what its map builds, every level has its parts), `mechanics.test.js` (run,
   jump, embers, spikes, checkpoints, enemies, the exit, one-way and moving platforms), `progress.test.js`,
   `play.test.js` (a bot finishes every level), `menus.test.js` (menus, pause, language and the level end panel, with the
-  gamepad only). `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
+  gamepad only), `store.test.js` (stats, achievements and leaderboard submits from the events) and `store_screens.test.js` (the
+  three screens and the purchases, with the gamepad only), both against the fake store. `tests/helpers/autoplay.js` is the bot: `playLevel("1-2")` plays a level to its exit and returns
   `{ completed, seconds, deaths, embers, events }`; `loadLevel(id)`, `listen(...eventNames)` and `teleportOnto(entity, target)`
   help other tests. The levels are built so that this bot finishes all of them.
-- `screenshots/`: the main menu, a level of each world and the level end panel.
+- `screenshots/`: the main menu, a level of each world, the level end panel and the achievements, leaderboards and shop screens.
 
 ## Contract 1: the level list (`scripts/levels.js`)
 
@@ -116,6 +122,57 @@ accessibility). `level` is the level id of contract 1.
 A death (`level.js` `die(cause)`) counts, sends the player back to the last checkpoint (the level start without one),
 plays `hurt.wav`, shakes the camera (`effects.js` `deathShake()`: the one place an option can switch the shake off) and
 sends `player_died`. Nothing can kill the player for 0.8 s after a respawn.
+
+## Store services (achievements, stats, leaderboards, shop)
+
+All of it runs on the `platform` API of the engine: the fake store in development and in every test, the real one when a store
+plugin is added (`factoria docs read platform`), and **no store** in an exported game without a plugin. The catalog is in
+`factoria.json` `"platform"`.
+
+**Catalog.** Eight achievements: `first_light` (finish 1-1), `courtyard_clear` and `cellars_clear` (finish the three levels of a
+world), `all_embers` (all 18, with progress), `untouched` (a level without dying), `quick_feet` (1-1 in under 28 s),
+`jumper` (500 jumps, with progress) and `hard_lessons` (25 deaths, with progress). Stats: `jumps`, `deaths`, `embers_found`
+(embers found in all levels, never counted twice) and `levels_finished`. Leaderboards: `time_1-1` ... `time_2-3` and
+`time_total`, all ascending, the score being the time in milliseconds. Products: `lantern_colours` and `supporter`
+(non-consumable). The names and descriptions in the catalog are for the store; the game's own screens read them from
+`locales/*.json` (the catalog has no key for them: `ENGINE_FEEDBACK.json`).
+
+**What feeds what** (`scripts/store_stats.js`, game events of contract 3):
+
+| Event | Does |
+|---|---|
+| `player_jumped` | Counted in memory, sent to `jumps` in groups of ten (and on a death, a finish or leaving the level); moves `jumper`. |
+| `player_died` | `deaths` + 1; moves `hard_lessons`. |
+| `level_completed` | `levels_finished` + 1, `embers_found` = `progress.totalEmbers()`; `first_light`, the two world achievements and `all_embers` from `progress`; then, unless `assisted` is true, `untouched`, `quick_feet` and the best time. A missing `assisted` means false. |
+
+Everything is best effort: a failing request is lost, never shown, and the next event brings the totals up to date. Requests
+go one after the other, so a get-then-set of a stat never overlaps another one. With no store (`platform.has` is false) the
+script does nothing.
+
+**Leaderboards: one per level plus a total.** A level's board answers "how fast can I run this one" and is what a player
+compares with friends on one map; the total answers "how fast is the whole keep" and rewards finishing all six. Both are cheap
+(seven boards) and the screen cycles through them. A time is sent only when it beats the best this game already sent (kept in
+`storage` under `leaderboardsSent`, so a slower run, a repeat and an assisted run send nothing, and a request that failed is not
+marked and is tried again by the next faster time). The total is sent once all six levels have a time, and only when the sum
+improves.
+
+**Screens**, from the main menu's row of three buttons, each a prefab in `prefabs/ui/` opened with `MenuStack`:
+Achievements (every achievement with "locked", "unlocked" or its percentage; asks the store again at each visit), Leaderboards
+(Board cycles the six levels and the total, Show cycles Top, Around me and Friends; the player's own row is marked and their
+best time is written above the list) and Shop. Each has a Refresh (which signs in) except the shop, which has Restore purchases.
+
+**The shop sells cosmetics only** (it says so on screen): "Lantern colours" (rose, azure, jade, violet) and "Supporter" (the gold
+lantern and a line in the credits). A purchase is granted into the wallet (`storage` key `wallet`) and then finished with the
+store (`scripts/cosmetics.js` `grant`), once per transaction; a cancelled purchase, a pending one and every failure show a
+sentence and add nothing; a purchase approved later arrives through the `purchase` event; Restore purchases adds what the
+store says the player owns. The chosen colour is `lanternColour` in the settings (the shop's colour button cycles the colours the
+player owns); `scripts/cosmetics.js` puts it on the player's coat, flame, `Light2D` and glow in every level, and a colour that is
+no longer owned counts as amber.
+
+**Without a store, signed out or failing.** Every screen explains in a plain sentence (`platform.*` in the locales): no store
+connected, not signed in (Refresh signs in), the store cannot be reached, or any other code with the store's hint. Nothing
+blocks: Back always works, the game plays on, the colours already owned stay usable and the shop's buy and restore buttons
+answer with the same sentence instead of doing anything. The overlay of a real store pauses the level (`store_events`).
 
 ## What the engine does for this game
 

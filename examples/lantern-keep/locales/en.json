@@ -6,7 +6,10 @@
     "options": "Options",
     "credits": "Credits",
     "quit": "Quit",
-    "back": "Back"
+    "back": "Back",
+    "achievements": "Achievements",
+    "leaderboards": "Leaderboards",
+    "shop": "Shop"
   },
   "loading": {
     "text": "Loading..."
@@ -52,7 +55,8 @@
     "madeWith": "Made with FactorIA",
     "software": "This game uses the following software:",
     "licenses": "The full license texts are in FACTORIA_NOTICES.txt, shipped with the game.",
-    "lanternKeep": "Lantern Keep: the FactorIA reference game."
+    "lanternKeep": "Lantern Keep: the FactorIA reference game.",
+    "supporters": "Thank you, supporters: you keep the lantern lit."
   },
   "hud": {
     "level": "Level",
@@ -81,5 +85,99 @@
     "next": "Next",
     "retry": "Retry",
     "menu": "Menu"
+  },
+  "platform": {
+    "loading": "Asking the store...",
+    "refresh": "Refresh",
+    "noStore": "This copy of the game is not connected to a store, so there are no {what} here.",
+    "notSignedIn": "You are not signed in to the store, which the {what} need. Sign in there, then choose Refresh or try again.",
+    "network": "The store could not be reached ({what}). Check your connection and try again.",
+    "failed": "The store did not answer for the {what} ({code}): {detail}"
+  },
+  "achievements": {
+    "title": "Achievements",
+    "what": "achievements",
+    "summary": "{done} of {total} unlocked",
+    "unlocked": "unlocked",
+    "locked": "locked",
+    "progress": "{percent}%",
+    "first_light": {
+      "name": "First Light",
+      "description": "Finish level 1-1."
+    },
+    "courtyard_clear": {
+      "name": "Courtyard Cleared",
+      "description": "Finish all three levels of the Courtyard."
+    },
+    "cellars_clear": {
+      "name": "Out of the Cellars",
+      "description": "Finish all three levels of the Cellars."
+    },
+    "all_embers": {
+      "name": "Ember Keeper",
+      "description": "Find all 18 embers."
+    },
+    "untouched": {
+      "name": "Untouched",
+      "description": "Finish a level without dying."
+    },
+    "quick_feet": {
+      "name": "Quick Feet",
+      "description": "Finish level 1-1 in under 28 seconds."
+    },
+    "jumper": {
+      "name": "Leap of Faith",
+      "description": "Jump 500 times."
+    },
+    "hard_lessons": {
+      "name": "Hard Lessons",
+      "description": "Fall, burn or get caught 25 times."
+    }
+  },
+  "leaderboards": {
+    "title": "Leaderboards",
+    "what": "leaderboards",
+    "total": "All six levels",
+    "board": "Board: {board}",
+    "show": "Show: {range}",
+    "range": {
+      "top": "Top",
+      "around": "Around me",
+      "friends": "Friends"
+    },
+    "entry": "{rank}. {name}   {time}",
+    "yourBest": "Your best: {time} (rank {rank})",
+    "empty": "No times yet. Finish a level to be the first."
+  },
+  "shop": {
+    "title": "Shop",
+    "what": "purchases",
+    "note": "Cosmetics only: they never change how the game plays.\nLantern colours: rose, azure, jade and violet. Supporter: the gold lantern and a line in the credits.",
+    "restore": "Restore purchases",
+    "buy": "{name} - {price}",
+    "owned": "{name} (owned)",
+    "product": {
+      "lantern_colours": "Lantern colours",
+      "supporter": "Supporter"
+    },
+    "colour": "Lantern colour: {colour}",
+    "colours": {
+      "amber": "Amber",
+      "rose": "Rose",
+      "azure": "Azure",
+      "jade": "Jade",
+      "violet": "Violet",
+      "gold": "Gold"
+    },
+    "waiting": "Waiting for the store...",
+    "thanks": "Thank you! It is yours.",
+    "arrived": "A purchase arrived. Thank you!",
+    "pending": "The purchase waits for approval. It will be added here when it is approved.",
+    "cancelled": "Purchase cancelled. Nothing was added.",
+    "failed": "The purchase did not go through. Nothing was added.",
+    "alreadyOwned": "You already have this.",
+    "asking": "Asking the store what you own...",
+    "restored": "Purchases restored.",
+    "nothingToRestore": "Nothing new to restore."
   }
 }

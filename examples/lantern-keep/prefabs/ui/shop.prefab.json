@@ -1,0 +1,114 @@
+{
+  "format": "factoria.prefab/1",
+  "entity": {
+    "name": "Shop",
+    "components": {
+      "Panel": {
+        "size": [800, 640],
+        "anchor": [0.5, 0.5],
+        "layer": 300,
+        "color": [0.08, 0.09, 0.14, 1],
+        "layout": "column",
+        "spacing": 14,
+        "padding": [24, 24, 24, 24]
+      },
+      "Script": {
+        "path": "scripts/ui/shop.js"
+      }
+    },
+    "children": [
+      {
+        "id": "shop_title",
+        "components": {
+          "Text": {
+            "text": "Shop",
+            "fontSize": 40,
+            "space": "screen",
+            "layer": 301,
+            "key": "shop.title"
+          }
+        }
+      },
+      {
+        "id": "shop_note",
+        "components": {
+          "Text": {
+            "text": "Cosmetics only: they never change how the game plays.",
+            "fontSize": 22,
+            "space": "screen",
+            "layer": 301,
+            "key": "shop.note",
+            "color": [0.75, 0.8, 0.9, 1],
+            "maxWidth": 740
+          }
+        }
+      },
+      {
+        "id": "shop_buy_colours",
+        "components": {
+          "Button": {
+            "text": "Lantern colours",
+            "layer": 302,
+            "autoFocus": true,
+            "size": [620, 56]
+          }
+        }
+      },
+      {
+        "id": "shop_buy_supporter",
+        "components": {
+          "Button": {
+            "text": "Supporter",
+            "layer": 302,
+            "size": [620, 56]
+          }
+        }
+      },
+      {
+        "id": "shop_colour",
+        "components": {
+          "Button": {
+            "text": "Lantern colour",
+            "layer": 302,
+            "size": [620, 56]
+          }
+        }
+      },
+      {
+        "id": "shop_restore",
+        "components": {
+          "Button": {
+            "text": "Restore purchases",
+            "layer": 302,
+            "key": "shop.restore",
+            "size": [620, 56]
+          }
+        }
+      },
+      {
+        "id": "shop_status",
+        "components": {
+          "Text": {
+            "text": "",
+            "fontSize": 22,
+            "space": "screen",
+            "layer": 301,
+            "color": [0.75, 0.8, 0.9, 1],
+            "maxWidth": 740
+          }
+        }
+      },
+      {
+        "id": "shop_back",
+        "components": {
+          "Button": {
+            "text": "Back",
+            "layer": 302,
+            "key": "menu.back"
+          }
+        },
+        "tags": ["back"]
+      }
+    ]
+  }
+}

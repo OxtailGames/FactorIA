@@ -32,7 +32,7 @@ test("the main menu shows the game's name and the first button has the focus", (
   expect(scene.current).toBe("scenes/menu.scene.json");
   expect(text("title")).toBe("Lantern Keep");
   expect(ui.focused.id).toBe("play");
-  expect(game.find("shop_button")).toBeNull(); // no shop yet
+  expect(game.find("shop_button")).not.toBeNull(); // the store package adds Achievements, Leaderboards and Shop
 });
 
 test("gamepad only: Play starts the first level through the loading screen", () => {
