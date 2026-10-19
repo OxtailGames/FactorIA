@@ -425,7 +425,8 @@ bool Editor::boot(const std::string& dirIn) {
         cfg.projectDir = dir;
         cfg.shaderCompiler = make_engine_shader_compiler(dir);
         cfg.editorMode = true;
-        cfg.hotReload = false;
+        cfg.hotReload = false;       // the editor reloads scenes and scripts itself
+        cfg.hotReloadAssets = true;  // but materials, snippets and textures edited on disk show right away
         cfg.audioDevice = !autotest_;
         engine_ = std::make_unique<Engine>();
         GfxEnvironment env = app_gfx_environment();
