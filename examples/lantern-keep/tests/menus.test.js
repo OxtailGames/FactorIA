@@ -56,7 +56,6 @@ test("gamepad only: pause with Start, resume with A; the player does not jump wh
   const player = game.find("player");
   const y0 = player.position.y;
   pad().tap("Start");
-  expect(time.scale).toBe(0);
   expect(game.paused).toBe(true);
   expect(game.find("pause_panel").active).toBe(true);
   expect(ui.focused.id).toBe("resume");
@@ -65,17 +64,16 @@ test("gamepad only: pause with Start, resume with A; the player does not jump wh
   expect(game.find("level").behaviour.time).toBe(t); // the level is frozen
   pad().tap("A"); // Resume
   game.step(3);
-  expect(time.scale).toBe(1);
   expect(game.paused).toBe(false);
   expect(game.find("pause_panel").active).toBe(false);
   game.step(5);
   expect(player.position.y).toBeLessThan(y0 + 2); // no jump came out of the click
   // the pause button also closes the pause menu
   pad().tap("Start");
-  expect(time.scale).toBe(0);
+  expect(game.paused).toBe(true);
   pad().tap("Start");
   game.step(3);
-  expect(time.scale).toBe(1);
+  expect(game.paused).toBe(false);
 });
 
 test("gamepad only: pause menu -> Main menu goes back to the title screen", () => {
@@ -88,7 +86,7 @@ test("gamepad only: pause menu -> Main menu goes back to the title screen", () =
   pad().tap("A");
   game.step(3);
   expect(scene.current).toBe("scenes/menu.scene.json");
-  expect(time.scale).toBe(1);
+  expect(game.paused).toBe(false);
 });
 
 test("gamepad only: Options -> Language switches the whole game to Spanish and back", () => {
@@ -203,12 +201,12 @@ test("gamepad only: the level end panel shows the result and Next loads the next
   expect(button("end_next")).toBe("Next");
   expect(button("end_retry")).toBe("Retry");
   expect(button("end_menu")).toBe("Menu");
-  expect(time.scale).toBe(0);
+  expect(game.paused).toBe(true);
   pad().tap("Start"); // the pause button does nothing now
   expect(game.find("pause_panel").active).toBe(false);
   pad().tap("A"); // Next
   waitForScene("scenes/levels/1-2.scene.json");
-  expect(time.scale).toBe(1);
+  expect(game.paused).toBe(false);
   expect(text("hud_level")).toBe("1-2  The Gate");
   expect(progress.isUnlocked("1-2")).toBe(true);
 });
@@ -236,7 +234,7 @@ test("gamepad only: Retry restarts the level and Menu goes to the title screen; 
   pad().tap("A");
   game.step(2);
   expect(scene.current).toBe("scenes/menu.scene.json");
-  expect(time.scale).toBe(1);
+  expect(game.paused).toBe(false);
 });
 
 test("the last level has no Next button", () => {

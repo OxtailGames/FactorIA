@@ -210,6 +210,25 @@ test("a damaged save does not crash the game: the slot says so and can be delete
   expect(session.slot).toBe(1);
 });
 
+test("a damaged storage.json: storage.corrupt is true, the slots start empty and saving still works", () => {
+  fresh();
+  game.setStorageText('{"slot1": "{\\"version\\": 2, "'); // a save file cut in the middle: it does not parse
+  expect(storage.corrupt).toBe(true); // the engine keeps the bytes as storage.corrupt.json and starts with empty data
+  expect(storage.keys().length).toBe(0);
+  game.load("scenes/menu.scene.json");
+  game.step(2);
+  expect(game.find("continue").active).toBe(false);
+  pad().tap("A");
+  for (const n of [1, 2, 3]) expect(button(`slot_${n}`)).toBe(`Slot ${n}: New game`);
+  pad().tap("A");
+  expect(session.slot).toBe(1);
+  progress.record({ level: "1-1", time: 30, embers: [true, true, true], deaths: 0 });
+  expect(saves.peek(1).status).toBe("used"); // the next save is a valid storage again
+  expect(saves.peek(1).summary.levels).toBe(1);
+  game.setStorageText(null); // the tests after this one start from a good, empty storage
+  expect(storage.corrupt).toBe(false);
+});
+
 test("cloud: a saved slot is uploaded when the player is signed in", async () => {
   fresh();
   saves.choose(2);
