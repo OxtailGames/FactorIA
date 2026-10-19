@@ -17,6 +17,9 @@ export default class MainMenu extends Behaviour {
     ui.on("click", "play", () => startLevel(nextToPlay().id));
     ui.on("click", "options_button", () => this.menus.show("options"));
     ui.on("click", "credits_button", () => this.menus.show("credits"));
+    // The store screens (scripts/ui/store_ui.js says why when there is no store). A hidden panel's script does not run: tell it it was opened.
+    for (const id of ["achievements", "leaderboards"]) ui.on("click", `${id}_button`, () => (this.menus.show(id), this.world.find(id).behaviour?.opened()));
+    ui.on("click", "shop_button", () => this.menus.show("shop"));
     ui.on("click", "quit", () => game.quit());
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());

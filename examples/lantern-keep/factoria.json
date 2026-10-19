@@ -17,5 +17,36 @@
   },
   "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
   "platforms": ["windows", "macos", "linux", "ios", "android"],
+  "platform": {
+    "achievements": [
+      { "id": "first_light", "name": "First Light", "description": "Finish level 1-1." },
+      { "id": "courtyard_clear", "name": "Courtyard Cleared", "description": "Finish all three levels of the Courtyard." },
+      { "id": "cellars_clear", "name": "Out of the Cellars", "description": "Finish all three levels of the Cellars." },
+      { "id": "all_embers", "name": "Ember Keeper", "description": "Find all 18 embers." },
+      { "id": "untouched", "name": "Untouched", "description": "Finish a level without dying." },
+      { "id": "quick_feet", "name": "Quick Feet", "description": "Finish level 1-1 in under 28 seconds." },
+      { "id": "jumper", "name": "Leap of Faith", "description": "Jump 500 times." },
+      { "id": "hard_lessons", "name": "Hard Lessons", "description": "Fall, burn or get caught 25 times." }
+    ],
+    "stats": [
+      { "id": "jumps", "type": "int" },
+      { "id": "deaths", "type": "int" },
+      { "id": "embers_found", "type": "int" },
+      { "id": "levels_finished", "type": "int" }
+    ],
+    "leaderboards": [
+      { "id": "time_1-1", "name": "Best time 1-1", "order": "ascending" },
+      { "id": "time_1-2", "name": "Best time 1-2", "order": "ascending" },
+      { "id": "time_1-3", "name": "Best time 1-3", "order": "ascending" },
+      { "id": "time_2-1", "name": "Best time 2-1", "order": "ascending" },
+      { "id": "time_2-2", "name": "Best time 2-2", "order": "ascending" },
+      { "id": "time_2-3", "name": "Best time 2-3", "order": "ascending" },
+      { "id": "time_total", "name": "Best total time", "order": "ascending" }
+    ],
+    "products": [
+      { "id": "lantern_colours", "type": "nonConsumable", "title": "Lantern colours", "description": "Four colours for your lantern and its light.", "price": 1.99 },
+      { "id": "supporter", "type": "nonConsumable", "title": "Supporter", "description": "A gold lantern and your name's place in the credits.", "price": 4.99 }
+    ]
+  },
   "feedbackFile": "ENGINE_FEEDBACK.json"
 }

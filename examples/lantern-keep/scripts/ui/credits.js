@@ -2,6 +2,7 @@
 // The credits panel: the game's own lines, then the software inside the FactorIA runtime (game.notices(), the
 // parts whose licenses FACTORIA_NOTICES.txt holds next to the exported game). ui_up/ui_down scroll the list.
 import { Behaviour, game, input } from "factoria";
+import { owns } from "../cosmetics.js";
 
 export default class Credits extends Behaviour {
   /** String-table keys of the lines shown after the game's name (factoria.json "name") and before the engine's notices. */
@@ -17,6 +18,7 @@ export default class Credits extends Behaviour {
     const keyed = (key, fontSize, color) => text(key, fontSize, color, key);
     text(game.project.name, 34);
     for (const key of this.lines) keyed(key, 26);
+    this.supporters = keyed("credits.supporters", 26, [1, 0.85, 0.4, 1]); // shown once the Supporter pack is owned (shop)
     keyed("credits.software", 22, [0.75, 0.8, 0.9, 1]);
     for (const n of game.notices()) text(`${n.name}  (${n.license})\n${n.usedFor}\n${n.url}`, 20);
     keyed("credits.licenses", 18, [0.75, 0.8, 0.9, 1]);
@@ -24,6 +26,7 @@ export default class Credits extends Behaviour {
 
   onUpdate(dt) {
     if (!this.entity.active) return;
+    this.supporters.active = owns("supporter");
     this.list.get("ScrollList").scroll += input.axis("ui_up", "ui_down") * this.scrollSpeed * dt;
   }
 }
