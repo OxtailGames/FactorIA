@@ -29,8 +29,9 @@ It builds for Windows, macOS, Linux, iOS and Android from a single codebase.
 ## Status
 
 Version 0.1, first milestone complete. All engine modules, the `factoria` CLI, the
-MCP server, the AI hub and the editor work, and four example games built by AI
-agents through the public interface are part of the test suite.
+MCP server, the AI hub and the editor work, and five example games built by AI
+agents through the public interface are part of the test suite. One of them, Lantern Keep, is a complete game: menus,
+save slots, store services, accessibility options, four languages and store-ready settings.
 
 CI builds and tests every pull request and every push to `main` on Linux, Windows
 (MSVC) and macOS, builds the iOS Simulator app and the Android library and APK, and runs them on the iOS Simulator and
