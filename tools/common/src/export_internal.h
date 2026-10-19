@@ -7,6 +7,7 @@
 //   export_assets.cpp   the asset steps every export runs before copying the game (assets.json import settings):
 //   export_textures.cpp   texture compression and atlases
 //   export_audio.cpp      audio conversion and loudness
+//   export_shaders.cpp    the compiled shaders of custom materials
 //
 // Nothing here is part of the fa_tooling API (that is fa/tooling/export.h).
 #pragma once
@@ -237,6 +238,7 @@ struct ExportAssets {
     stdfs::path cacheDir;              // <project>/.factoria/export-cache/<platform>: converted files, kept between exports
     Json manifest;                     // the assets.json that ships: import settings, no provenance; steps may add to it
     ExportReport& report;              // warnings
+    const SetupContext& setup;         // how sokol-shdc is found and started (convert_shaders)
     bool mobile() const { return platform == "android" || platform == "ios"; }
     // Devices whose GPUs may sample only 2048 px on a side (GLES3 phones, and browsers, which run on them too): atlas pages stay
     // that small. The web otherwise ships PNGs like the desktop: WebGL2 guarantees no compressed texture format.
@@ -246,8 +248,12 @@ struct ExportAssets {
 };
 
 // Runs the asset steps on `files` (what collect_game_files found) and records the converted files in p.staged.
-Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report);
+Result<void> prepare_game_assets(Project& p, const std::string& platform, std::vector<std::string>& files, ExportReport& report,
+                                 const SetupContext& setup);
 
+// Custom materials (export_shaders.cpp): every shipped *.material.json gets <material>.json.<slang>.shader for each dialect
+// of the platform, and the snippets they name are not shipped. A material that does not compile fails the export.
+Result<void> convert_shaders(ExportAssets& ea);
 // Texture compression (KTX2 / Basis Universal) and atlas packing by the import settings (export_textures.cpp).
 Result<void> convert_textures(ExportAssets& ea);
 // Audio conversion and loudness by the import settings (export_audio.cpp).

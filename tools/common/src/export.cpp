@@ -644,6 +644,7 @@ Json ExportReport::to_json() const {
         j["pack"] = pack;
         j["packed"] = packed;
     }
+    if (!materials.empty()) j["materials"] = materials;
     j["files"] = files;
     j["nextSteps"] = nextSteps;
     j["warnings"] = warnings;
@@ -730,7 +731,8 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
 
     const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
-    if (auto assetsReady = prepare_game_assets(p, platform, files, report); !assetsReady.ok()) {
+    const SetupContext thisMachine;
+    if (auto assetsReady = prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine); !assetsReady.ok()) {
         stdfs::remove_all(os_path(outRoot), ec);
         return assetsReady.error();
     }
