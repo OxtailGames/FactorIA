@@ -2,7 +2,8 @@
 // Put this behaviour on one entity of every level: the "pause" action (Escape, P, gamepad Start) pauses the game and
 // opens the pause menu. game.paused freezes physics, animations and the other scripts; this one keeps running
 // (runWhilePaused) to drive the menu and its options panel.
-import { Behaviour, ui, input, game, scene, world, i18n } from "factoria";
+import { Behaviour, ui, input, game, world, i18n } from "factoria";
+import { openMenu } from "./flow.js";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import { fitWidgets } from "./ui/text_fit.js";
@@ -26,8 +27,7 @@ export default class PauseMenu extends Behaviour {
     ui.on("click", "resume", () => this.resume());
     ui.on("click", "pause_options", () => this.menus.show("options"));
     ui.on("click", "to_main_menu", () => {
-      game.paused = false; // time.scale outlives scene loads
-      scene.load("scenes/menu.scene.json");
+      openMenu();
     });
     ui.on("click", (e) => e.entity.hasTag("back") && this.back());
     // ui_cancel (Escape, gamepad B) goes back one panel. Escape is also "pause": onUpdate handles that press.
@@ -40,7 +40,7 @@ export default class PauseMenu extends Behaviour {
       // also reach the player as a jump.
       this.resuming = false;
       game.paused = false;
-      world.find("level")?.behaviour?.refreshAssist(); // unpausing put time.scale back to 1: restore the assist speed
+      world.find("level")?.behaviour?.refreshAssist(); // the speed may have been changed in Options while paused: apply the current assist speed
       return;
     }
     // The pause key opens the menu, and inside it goes back one panel like ui_cancel (from the pause panel: resume).
