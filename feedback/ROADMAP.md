@@ -1,11 +1,11 @@
 # Engine feedback report
 
 Status: the four jam-sized example games reported 73 entries, all verified fixed-in-engine. Lantern Keep, the M21
-reference game, reported 45 (none a blocker or major: 30 minor, 15 nice-to-have); they are open, ranked below, and wait for
-triage. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready), M17 (web export) and M18 (animation and production 3D) are done; M21 has its reference game; M19, M20, M22 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
+reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
+and the 42 open ones (ranked below) are work packages, most of them M24, the rest in M20-M23. M1-M11 and M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile store-ready), M17 (web export) and M18 (animation and production 3D) are done; M21 has its reference game; M19, M20, M22, M23 and M24 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (then re-add the milestones section).
 
-45 entries from 5 project(s), 45 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+42 entries from 5 project(s), 42 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
 ## 1. Buttons, toggles and sliders do not size themselves to their label at a big ui.textScale
 
@@ -47,7 +47,18 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
  to 
  before extracting.
 
-## 4. 2D kinematic platforms do not carry the bodies standing on them
+## 4. scene.import_ascii copies a prefab used by the base scene instead of keeping the reference
+
+- **Category:** tooling
+- **Severity:** minor (score 4)
+- **Total occurrences:** 2
+- **Projects affected:** Lantern Keep
+- **Entries:** Lantern Keep/FB-0015
+- **Suggestion:** Keep the entity as {id, prefab, overrides} in the written scene, or say in docs/ai-guide 9.8 that the base scene is expanded at import time.
+- **Workarounds seen:**
+  - Edit the prefab, then re-run scene.import_ascii for all six maps and scene.format (a loop in the shell).
+
+## 5. 2D kinematic platforms do not carry the bodies standing on them
 
 - **Category:** physics
 - **Severity:** minor (score 2)
@@ -58,7 +69,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - player.js casts a short ray under the feet, and when the hit entity has a kinematic RigidBody2D it adds that body's velocity.x to the player's own horizontal speed.
 
-## 5. A ScrollList cannot take the height the rest of a fit column leaves
+## 6. A ScrollList cannot take the height the rest of a fit column leaves
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -69,7 +80,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - fitList(panel, list) in scripts/ui/text_fit.js measures every other child with ui.measureText and sets the ScrollList height; tests/helpers/screens.js checks that every panel is inside the screen and big enough for its children.
 
-## 6. Export has no way to leave project folders out
+## 7. Export has no way to leave project folders out
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -80,7 +91,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Moved the store screenshots into a dot-folder, .store/screenshots (dot-folders are never exported), which is an obscure trick; levels/, screenshots/ and store/ (texts, small) still ship.
 
-## 7. Gamepad focus navigation cannot be told its neighbours (a wide widget below a tab row steals DpadRight)
+## 8. Gamepad focus navigation cannot be told its neighbours (a wide widget below a tab row steals DpadRight)
 
 - **Category:** ui
 - **Severity:** nice-to-have (score 2)
@@ -91,7 +102,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The test focuses tabs with ui.focus(). Not fixed in the game: the player reaches the tab with DpadLeft from the other side or the mouse.
 
-## 8. Layouts cannot be mirrored for right-to-left languages, and align does not follow the text direction
+## 9. Layouts cannot be mirrored for right-to-left languages, and align does not follow the text direction
 
 - **Category:** ui
 - **Severity:** minor (score 2)
@@ -102,7 +113,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - text_fit.js isRtl() and fitWidgets set align right on wrapped Texts; hud.js swaps the HUD corners. The rows of buttons, the level end panel and the level select rows are NOT mirrored in Arabic (readable, but the first item is on the left).
 
-## 9. Menu recipe has no Spanish string table
+## 10. Menu recipe has no Spanish string table
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -113,7 +124,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Wrote locales/es.json by hand from locales/en.json; tests/menus.test.js checks that both tables have exactly the same keys.
 
-## 10. No Microsoft Store packaging (MSIX) or publish command
+## 11. No Microsoft Store packaging (MSIX) or publish command
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -124,7 +135,18 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.
 
-## 11. No render scale for store screenshots
+## 12. No hook when an entity becomes active
+
+- **Category:** scripting
+- **Severity:** nice-to-have (score 2)
+- **Total occurrences:** 2
+- **Projects affected:** Lantern Keep
+- **Entries:** Lantern Keep/FB-0008
+- **Suggestion:** Add onEnable()/onDisable() hooks (called when the entity becomes active or inactive, also for the first time), and state in docs scripting when onStart runs for inactive-then-activated entities.
+- **Workarounds seen:**
+  - level_end.js has an open(result, info) method that fills the texts at once; level.js calls it instead of relying on onStart.
+
+## 13. No render scale for store screenshots
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -135,7 +157,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Rendered at 1280x720 and enlarged with Pillow (Lanczos, exact 1.5x for 1920x1080). The result is soft, not native; recorded in SHIPPING.md.
 
-## 12. No way to make a game icon without an asset provider
+## 14. No way to make a game icon without an asset provider
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -146,7 +168,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Wrote tools/make_icon.py, a deterministic Pillow script that draws the lantern and the Android foreground layer, and recorded both files with assets.set_provenance (origin original, ai false). Needs Python and Pillow on the machine.
 
-## 13. Scripts and entity.behaviour of inactive panels
+## 15. Scripts and entity.behaviour of inactive panels
 
 - **Category:** scripting
 - **Severity:** minor (score 2)
@@ -157,7 +179,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Screen logic that other screens call (refresh, open) is exported as plain module functions (refreshSlots, refreshSelect) that look entities up with world.find; the Behaviour class only wires clicks.
 
-## 14. Scripts have no API for the laid-out rectangle of a widget
+## 16. Scripts have no API for the laid-out rectangle of a widget
 
 - **Category:** docs
 - **Severity:** nice-to-have (score 2)
@@ -168,7 +190,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/accessibility.test.js reads fa.call('ui.state').widgets and measures Texts with ui.measureText.
 
-## 15. Shape2D is not shaded by Light2D
+## 17. Shape2D is not shaded by Light2D
 
 - **Category:** rendering-2d
 - **Severity:** minor (score 2)
@@ -179,7 +201,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Spikes and enemies are Sprites with small generated PNGs, platforms are solid-colour Sprites (no texture), all with lit true in the dark world. The player, embers and checkpoints stay Shape2D on purpose (they are light sources or must stay visible).
 
-## 16. TEXT.md says ui.measureText is an approximation in headless runs, but factoria test measures with the real fonts
+## 18. TEXT.md says ui.measureText is an approximation in headless runs, but factoria test measures with the real fonts
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -190,7 +212,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/helpers/screens.js trusts ui.measureText; the screenshots of the same screens agree with the test.
 
-## 17. Test game object has no paused flag
+## 19. Test game object has no paused flag
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -201,7 +223,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Tests assert `time.scale` (imported from "factoria") is 0 / 1.
 
-## 18. Vector fields read from scripts look like arrays but cannot be indexed or iterated
+## 20. Vector fields read from scripts look like arrays but cannot be indexed or iterated
 
 - **Category:** scripting
 - **Severity:** minor (score 2)
@@ -212,7 +234,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Read vec2 as .x .y and vec4 as .x .y .z .w (padding is left, top, right, bottom); write them as plain [a, b] arrays.
 
-## 19. What each export needs offline is spread over several docs
+## 21. What each export needs offline is spread over several docs
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -223,7 +245,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.
 
-## 20. a menu panel whose only autoFocus widget is not interactable has no focus for the pad
+## 22. a menu panel whose only autoFocus widget is not interactable has no focus for the pad
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -234,7 +256,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Left the buy buttons interactable without a store: a click answers with the same plain sentence as the status line.
 
-## 21. a store promise returned from a then callback is reported as an unhandled rejection
+## 23. a store promise returned from a then callback is reported as an unhandled rejection
 
 - **Category:** scripting
 - **Severity:** minor (score 2)
@@ -245,7 +267,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Wrap the call: `then(async () => { try { await fn(); } catch {} })`, so the store promise gets its handler at once.
 
-## 22. factoria test takes no test file path and its error misleads
+## 24. factoria test takes no test file path and its error misleads
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -256,7 +278,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Ran 'factoria test . --filter <words of the test name>' per test while developing.
 
-## 23. game.paused = false resets time.scale to 1
+## 25. game.paused = false resets time.scale to 1
 
 - **Category:** scripting
 - **Severity:** minor (score 2)
@@ -267,7 +289,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - level.js refreshAssist() sets time.scale again at level start and after the pause menu resumes; a test checks it.
 
-## 24. game.screenSize costs about 0.3 ms per read
+## 26. game.screenSize costs about 0.3 ms per read
 
 - **Category:** performance
 - **Severity:** minor (score 2)
@@ -278,7 +300,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - scripts/follow_camera.js reads game.screenSize once and keeps the numbers.
 
-## 25. no way to test the none backend (no store) in a test
+## 27. no way to test the none backend (no store) in a test
 
 - **Category:** tooling
 - **Severity:** minor (score 2)
@@ -289,7 +311,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Tests replace platform.has with () => false for the duration of a test (the scripts check has() before every call, so they take the no-store path) and restore it in a finally. The real rejections with code unavailable are not exercised.
 
-## 26. platform catalog names and descriptions cannot be localized
+## 28. platform catalog names and descriptions cannot be localized
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -300,7 +322,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - The in-game screens ignore the catalog texts and read achievements.<id>.name / .description and shop.product.<id> from locales/*.json; the catalog keeps the English text for the store.
 
-## 27. publish dry run needs the store's uploader installed
+## 29. publish dry run needs the store's uploader installed
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -310,28 +332,6 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Suggestion:** With dryRun, report a missing tool (and missing secret/app id) as a warning and still return the plan, or document the fake-tool trick in the 'Testing without a store' section.
 - **Workarounds seen:**
   - Pointed FACTORIA_STEAMCMD, FACTORIA_BUTLER, FACTORIA_BUILDPATCHTOOL and FACTORIA_GOG_PIPELINE_BUILDER at C:/Windows/System32/whoami.exe, set FACTORIA_EPIC_CLIENT_SECRET=fake and passed appId 9000000: the dry runs then showed the plans (uploads, command lines, vdf files) for the fake ids. Nothing was downloaded or sent.
-
-## 28. scene.import_ascii copies a prefab used by the base scene instead of keeping the reference
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0015
-- **Suggestion:** Keep the entity as {id, prefab, overrides} in the written scene, or say in docs/ai-guide 9.8 that the base scene is expanded at import time.
-- **Workarounds seen:**
-  - Edit the prefab, then re-run scene.import_ascii for all six maps and scene.format (a loop in the shell).
-
-## 29. scene.import_ascii copies prefab contents into the level scenes, so editing a prefab means rebuilding every level
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0034
-- **Suggestion:** Let the legend place prefab instances (prefab plus overrides, as scenes can) instead of copies, so the prefab file stays the single source; or say in the ascii docs that a prefab edit needs the rebuild.
-- **Workarounds seen:**
-  - Ran factoria call scene.import_ascii @levels/<id>.json for the six levels, then scene.format.
 
 ## 30. test runtime lacks Array.prototype.at, expect().toMatchObject and array methods on component colors
 
@@ -344,18 +344,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - calls()[calls().length - 1], one expect(...).toBe per field, Array.from(color).
 
-## 31. ui.measureText in headless runs and tests is only an estimate (0.6 x fontSize per character)
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0032
-- **Suggestion:** Load the real font for measureText also when headless (it is in the binary), or let tests ask for exact metrics.
-- **Workarounds seen:**
-  - Tests use the estimate (the conservative side); the HUD and the options pick layouts from the same function, so test and game agree on the rule, not on the pixels. Screenshots, which render real text, were checked by eye.
-
-## 32. world.emit from a test reaches listeners only at the next game.step
+## 31. world.emit from a test reaches listeners only at the next game.step
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -366,7 +355,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - A settle() helper that does game.step(1) after emitting, then awaits the script, in every store test.
 
-## 33. LOCALIZATION.md lists i18n.state as a script member and the Text docs say DejaVu Sans has no Arabic
+## 32. LOCALIZATION.md lists i18n.state as a script member and the Text docs say DejaVu Sans has no Arabic
 
 - **Category:** docs
 - **Severity:** nice-to-have (score 1)
@@ -377,7 +366,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - tests/languages.test.js reads the table with fa.call('i18n.state'); no font was added for Arabic.
 
-## 34. Long ASCII level maps are hard to author and edit by hand
+## 33. Long ASCII level maps are hard to author and edit by hand
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -388,7 +377,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.
 
-## 35. No colour-blind or greyscale preview or filter
+## 34. No colour-blind or greyscale preview or filter
 
 - **Category:** rendering-2d
 - **Severity:** nice-to-have (score 1)
@@ -399,7 +388,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Hazards and pickups differ by shape and outline (spikes = triangles, enemies = rounded boxes with eyes, ember = diamond, checkpoint = ring, exit = star in a lamp). The greyscale check was made outside the engine with Python Pillow on a screenshot (screenshots/a11y-hazards-colour-and-grey.png). No colour-blind filter option was built.
 
-## 36. No guidance on testing a damaged save file
+## 35. No guidance on testing a damaged save file
 
 - **Category:** docs
 - **Severity:** nice-to-have (score 1)
@@ -410,18 +399,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - A slot is stored as a string of JSON text and parsed with try/catch in scripts/saves.js; tests store broken text with storage.set.
 
-## 37. No hook when an entity becomes active
-
-- **Category:** scripting
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0008
-- **Suggestion:** Add onEnable()/onDisable() hooks (called when the entity becomes active or inactive, also for the first time), and state in docs scripting when onStart runs for inactive-then-activated entities.
-- **Workarounds seen:**
-  - level_end.js has an open(result, info) method that fills the texts at once; level.js calls it instead of relying on onStart.
-
-## 38. No way to read the operating system accessibility settings or to speak UI text
+## 36. No way to read the operating system accessibility settings or to speak UI text
 
 - **Category:** platform
 - **Severity:** nice-to-have (score 1)
@@ -432,7 +410,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Lantern Keep starts with its own saved options only (text 100%, shake on) and has no spoken menus.
 
-## 39. No way to smoke-test an exported game for a few frames
+## 37. No way to smoke-test an exported game for a few frames
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -443,7 +421,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Start-Process, sleep, check the process is alive and responding, read %APPDATA%/<id>/log.txt, Stop-Process.
 
-## 40. The project .gitignore does not ignore build/translations
+## 38. The project .gitignore does not ignore build/translations
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -454,7 +432,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Added build/ to the project's .gitignore by hand.
 
-## 41. Touch control rectangles move with the safe area and tests have no helper to press a widget
+## 39. Touch control rectangles move with the safe area and tests have no helper to press a widget
 
 - **Category:** docs
 - **Severity:** nice-to-have (score 1)
@@ -465,7 +443,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Tests read the rects from fa.call("ui.state").widgets and tap their centre; the screenshot script steps two frames after set_safe_area.
 
-## 42. factoria validate does not warn about textures that cannot be GPU-compressed
+## 40. factoria validate does not warn about textures that cannot be GPU-compressed
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -476,7 +454,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Gave assets/enemy.png an atlas group in assets.json ({"import":{"atlas":"characters"}}): atlas pages are always sized for it, and the warning is gone.
 
-## 43. i18n.import writes a flat table for a language that has no file yet
+## 41. i18n.import writes a flat table for a language that has no file yet
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -487,18 +465,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - After the import the file was rewritten nested, with the same strings (checked equal), by a short script.
 
-## 44. no onEnable/onDisable for a panel shown by active, and behaviour is null before its first activation
-
-- **Category:** scripting
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0030
-- **Suggestion:** Add onEnable() / onDisable() to Behaviour, called when the entity (or an ancestor) becomes active or inactive, including the first time; or let MenuStack send a panel_shown event that hidden panels receive.
-- **Workarounds seen:**
-  - The panel script has an opened() method; main_menu.js calls world.find(id).behaviour?.opened() after MenuStack.show, and onStart calls opened() itself for the first visit.
-
-## 45. scene.import_ascii warns about unused legend entries
+## 42. scene.import_ascii warns about unused legend entries
 
 - **Category:** scene
 - **Severity:** nice-to-have (score 1)
@@ -532,8 +499,15 @@ quality; the report itself is not in the repository). Every gap was checked agai
   Roblox is out of scope (end of the list). None of these gaps came from the four example games, which are jam-sized and
   never needed menus, localization or stores; M21 adds a complete reference game to close that blind spot.
 
+Triage 2026-10-19 of the 45 entries of Lantern Keep, the M21 reference game, against `04e751b` (each checked in the code
+and in a scratch project with `factoria test` and `factoria call`): LK/FB-0032 was already fixed (`ui.measureText` is
+exact wherever a renderer exists, tests included; only TEXT.md still says otherwise, LK/FB-0042), LK/FB-0030 is a
+duplicate of LK/FB-0008 and LK/FB-0034 of LK/FB-0015 (their occurrences were merged), and every other entry still
+holds. The 42 open ones are the packages of M24 below, plus LK/FB-0009 in M20, four in M21, two in M22 and LK/FB-0023
+in M23.
+
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
-(sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP).
+(sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK).
 
 ## M1-M7 — DONE
 
@@ -919,6 +893,11 @@ Closes H-01, H-02, H-03, H-05, H-09 and the editor part of H-06.
 - The inspector also edits `MeshRenderer.material` / `materialParams` (typed by the material's params) and shows a
   material's compile error under the field (custom shaders P5 left it here: the editor has no inspector yet).
 - Later: tile painting and object placement in the viewport, an animation timeline, particle and material editors.
+- ASCII map edits for AIs (LK/FB-0009, nice-to-have): `scene.import_ascii` (or a `scene.ascii_edit` command) takes
+  operations on an existing map file (fill or replace a rectangle, insert or delete columns, put a glyph at a column and
+  a height above the ground) and its result lists the column and row of every legend object, so an AI moves a hazard
+  in a 300-column level without rewriting the rows. Acceptance: a tooling test edits a map with each operation and the
+  written rows and scene match a map written by hand; the AI_GUIDE 9.8 recipe uses it.
 
 Acceptance criteria:
 - The editor autotest edits a field in the inspector and the scene file changes.
@@ -958,9 +937,24 @@ mirrored rows, focus navigation), tests (no `none` backend, no widget press help
 copying prefabs into levels, `game.paused` resetting `time.scale`, rendering at store sizes, and exports that need
 downloads or tools this machine lacks (web, Linux, macOS players; Android NDK; MSIX).
 
-Left in M21: triage those entries into work packages; then the publishing guides per store from `SHIPPING.md`, the
-"finish your game" guide from the game, versioned docs, tutorials and the API reference, the AI cost guide, store page
-material (capsules at each store's sizes, video from a replay).
+Triaged 2026-10-19 (see the top of this section): most entries became M24; the ones that belong to M21's own items are
+below.
+
+Left in M21: the publishing guides per store from `SHIPPING.md`, the "finish your game" guide from the game, versioned
+docs, tutorials and the API reference, the AI cost guide, store page material (capsules at each store's sizes, video
+from a replay). Lantern Keep's entries that these items close:
+- Publishing guides: one table in docs/EXPORTING.md of platform x what its export needs (players download, NDK, CMake,
+  Gradle, Xcode) x whether this machine can do it offline from a source build, from a download, or not at all
+  (LK/FB-0022); the Microsoft Store guide says what the engine covers today (nothing beyond the Windows folder export)
+  and the steps by hand until M23's MSIX (LK/FB-0023).
+- "Finish your game" guide: the save-file recipe of Lantern Keep (a version field, migration, three slots, a damaged
+  save screen), on top of M24.6's engine part (LK/FB-0013).
+- Store page material: render the design resolution into a bigger picture, `factoria run --headless --render-scale 1.5`
+  (or `--output-size 1920x1080`) and `game.screenshot {scale}`, so store screenshots at 1920x1080 or phone sizes are
+  native, not enlarged (LK/FB-0017); a game made without an image provider gets a real icon: `assets.draw_icon` (shapes,
+  text, colours into a 1024x1024 PNG plus the Android adaptive foreground), so no Python or paid provider is needed
+  (LK/FB-0014). Acceptance: a test renders a 1280x720 scene at scale 1.5 and the PNG is 1920x1080 with the HUD in the
+  same place relative to the screen; `assets.draw_icon` writes both icons and the export uses them.
 
 ## M22. Production quality and legal (M, high)
 
@@ -970,10 +964,15 @@ Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14).
 - Game updates: a content version in `factoria.json` and save migration (with M19's save versions).
 - Templates and guidance: EULA, privacy policy, a GDPR/COPPA consent screen (on M10), age ratings (IARC, PEGI, ESRB).
 - Accessibility: a subtitles component, colour-blind filters (post-processing), screen-reader hooks where the platform
-  has them.
+  has them. Lantern Keep asked for both: `Camera.colorFilter` (none, greyscale, protanopia, deuteranopia, tritanopia,
+  high contrast) that `game.screenshot` also applies, so a player can pick it and an AI can check hazards read without
+  colour (LK/FB-0037); and read-only `platform.accessibility` (`textScale`, `reduceMotion`, `highContrast`,
+  `screenReader`) from the OS, plus `ui.speak(text)` or a focus-change event a screen-reader plugin can use
+  (LK/FB-0038, large).
 
 Acceptance criteria: a CI job fails when an example's frame time or memory regresses past its budget; the consent screen
-and subtitles are in the M10 menu recipe and its fixture, with tests.
+and subtitles are in the M10 menu recipe and its fixture, with tests; a golden shows each colour filter and a test reads
+`platform.accessibility` from the fake backend.
 
 ## M23. Closed stores and consoles (L each, later)
 
@@ -982,13 +981,206 @@ Closes E-08 and S-09, plus the Mac App Store and Microsoft Store rows of the rep
 - Mac App Store: App Sandbox entitlements, Apple Distribution signing and a provisioning profile, a `.pkg` from
   `productbuild`, upload through the App Store Connect API (today only the Developer ID flow outside the store exists).
 - Microsoft Store and PC Game Pass: MSIX packaging of the game (the engine's own installer is not one), Partner Center
-  upload, the Microsoft GDK for Xbox services.
+  upload, the Microsoft GDK for Xbox services. Lantern Keep (LK/FB-0023) asks for `export.windows.msix` (identity name,
+  publisher, display name, tile logos made from the icon) writing an `.msix` next to the folder, unsigned or signed with
+  a `.pfx` from the environment, then `publish.microsoft`.
 - Consoles (Switch, PlayStation, Xbox): their SDKs are under NDA and cannot live in this MIT repository. What this
   repository can do is the seam: a platform layer and render-backend interface (D3D12/GDKX, NVN, AGC) that a private M11
   plugin implements, and certification checklists (TRC, Lotcheck, XR) once a licensed developer contributes them.
 
 Acceptance criteria: a sandboxed macOS export passes `codesign --verify --strict` with the App Sandbox entitlement and
 runs; an MSIX of an exported game installs with `Add-AppxPackage`.
+
+## M24. Found by the reference game (S-M each, medium; 35 Lantern Keep entries)
+
+What Lantern Keep found that no other milestone covers, triaged 2026-10-19. None is a blocker or major: each package
+removes a workaround a game's AI had to write. Ordered by score (occurrences x severity weight) per unit of size; the
+packages are independent and each ships with its doctest or JS test and its docs. When one merges, mark its entries
+`fixed-in-engine` and let Lantern Keep drop the workaround (its `workaroundFiles` say where).
+
+### M24.1 Script values and promise rejections (S) — LK/FB-0039, LK/FB-0026 (colours), LK/FB-0002, LK/FB-0029
+
+- Component vectors and colours read from scripts (`Panel.padding`, `Button.size`, `Shape2D.color`, `Light2D.color`...)
+  can be indexed (`padding[1]`, `size[0]`), have `length` and an iterator (`[...padding]`, destructuring, `for...of`,
+  `Array.from(color)`), and keep `.x .y .z .w` / `.r .g .b .a`. Today `padding[1]` is `undefined` and arithmetic on it
+  silently gives NaN. `factoria.d.ts` types them that way (no tuple types).
+- `game.screenSize` and `screen.size` cost about as much as `world.find`: today each read copies the whole project
+  settings (`design_size()` in script_natives.cpp, measured 0.29 ms per read against 0.005 ms for `world.find`).
+- An unhandled promise rejection is reported only if the rejection is still unhandled once the job queue has drained (as
+  Node does): `chain.then(() => platform.achievements.unlock(id)).catch(() => {})` logs nothing when the store rejects.
+  The message says "unhandled promise rejection:" once (today twice).
+
+Acceptance: script tests for indexing, spread and destructuring of a vec2, a vec4 and a colour; `game.screenSize` stays
+right after the design size or the window changes, and a read no longer copies the project settings (no timing test:
+some tests are timing-sensitive; measure once by hand and write the number in the PR); a test whose chained store call
+rejects with no error logged, and one with a real unhandled rejection that is still reported.
+
+### M24.2 Pause keeps the game speed (S) — LK/FB-0036, LK/FB-0005
+
+- `game.paused = true` remembers `time.scale` and `game.paused = false` restores it (today it sets 1, so a slow-motion
+  or assist speed is lost on every resume). Setting `time.scale` while paused changes the scale to restore. Docs next to
+  `time.scale` in SCRIPTING.md and in the menus recipe's pause menu.
+- The test `game` object of `factoria:test` has `paused` (read and write, same as the script one), and reading a member
+  it does not have throws with a "did you mean" (today `game.paused` in a test is `undefined`).
+
+Acceptance: a script test sets `time.scale = 0.5`, pauses, resumes and reads 0.5; a test reads `game.paused` after the
+pause menu opens; `game.pasued` in a test throws naming `paused`.
+
+### M24.3 Docs print LF on Windows (S) — LK/FB-0001
+
+The embedded docs keep the line endings of the checkout (CRLF on a Windows clone with `core.autocrlf`), and the CLI
+writes them to a text-mode stdout, so `factoria docs read menus > f` gives `\r\r\n` on every line and `docs.read` returns
+`\r` in its JSON. Normalize to LF where the docs are embedded (and/or `*.md text eol=lf` in `.gitattributes`), and check
+nothing else the CLI prints doubles its CRs.
+
+Acceptance: a CLI test on Windows reads a doc through `factoria docs read` and `docs.read` and finds no `\r`; the
+released Windows binary is checked the same way once.
+
+### M24.4 Focus navigation (S) — LK/FB-0033, LK/FB-0027
+
+- Directional focus only accepts a candidate within 45 degrees of the pressed direction (its centre on the dominant
+  axis), so DpadRight from a tab reaches the next tab, not a wide button below the row; fall back to today's half-plane
+  search only when no candidate is in the cone. The rule is written in MENUS.md, "Focus and navigation".
+- When the only `autoFocus` widget of the visible widgets is not interactable, focus goes to the first interactable
+  widget in reading order instead of nothing (a shop with greyed-out buy buttons left the pad stuck).
+
+Acceptance: `fa_test_ui` cases for a tab row above a wide button (Right stays on the row, Down reaches the button) and
+for a panel whose `autoFocus` button has `interactable: false`.
+
+### M24.5 Localization tools and text docs (S) — LK/FB-0043, LK/FB-0045, LK/FB-0042, LK/FB-0004
+
+- `i18n.import` writing a language that has no file yet copies the shape of the default table: nested when it is nested.
+- LOCALIZATION.md section 2 calls `i18n.state` a command (`fa.call("i18n.state")`), not a script member; the `Text.font`
+  doc string (and COMPONENTS.md generated from it) lists Hebrew and Arabic in the built-in font, like TEXT.md.
+- TEXT.md, "Measuring": `ui.measureText` is exact in tests, `factoria call` and headless runs (they draw with an offscreen
+  renderer); the 0.6 x fontSize estimate and its warning only happen when no graphics device can be created.
+- MENUS.md prints the recipe's `locales/es.json` next to `en.json` (the fixture already has it), so a game with two
+  languages from the start does not translate 60 strings by hand; a doc test checks both tables have the same keys as the
+  fixture.
+
+Acceptance: a tooling test imports a CSV with a new language into a nested project and the new file is nested; the doc
+tests above pass.
+
+### M24.6 Save file safety (S) — LK/FB-0013
+
+`storage.json` is written with `std::ofstream` and truncation (not through `fs::write_bytes`, the temporary-file-and-
+rename writer every other JSON file uses since M6), and a file that does not parse is replaced by empty data that the
+next save writes over: one crash during a save loses every slot.
+- `storage` saves through `fs::write_bytes`; a `storage.json` that does not parse is kept as `storage.corrupt.json` (with a
+  warning naming it) and never overwritten by the next save.
+- Scripts can tell that the save data was damaged at start (for example `storage.corrupt`), and a test can start from a
+  damaged file (a `game` hook that sets the text the next storage load reads).
+- SCRIPTING.md, `storage`: what happens with a damaged file. The save recipe with versions and migration is M21's.
+
+Acceptance: a runtime test writes a broken `storage.json`, starts the engine, saves, and finds the broken file kept and
+the new one valid; a JS test drives the damaged-save path through the hook.
+
+### M24.7 Test helpers (M) — LK/FB-0025, LK/FB-0026 (matchers), LK/FB-0012, LK/FB-0028, LK/FB-0021, LK/FB-0035
+
+- `game.platform.set({ backend: "none" })` makes the fake behave as the none backend (`platform.has` false, every call
+  rejects `unavailable`, `signIn` answers signed out) until `reset()`; `platform.set_fake` refuses unknown options with a
+  "did you mean" (today `{ backendx: ... }` is accepted silently).
+- `expect(x).toMatchObject(subset)`; a `TypeError: not a function` in a test or script shows the source line with a caret
+  at the column, so the call is named (QuickJS's message does not name it; do not edit `external/`).
+- `factoria test tests/saves.test.js` (and several files or a glob after the project) runs those files; MCP
+  `project.test` takes `files`. A path that is not a test file is an error that says what to pass.
+- `game.click`, `game.touch` and `game.touchStart` take a widget id or an Entity and use the centre of its laid-out
+  rectangle, safe area included; MOBILE.md says the rectangles move with the safe area one step after it changes.
+- `ui.state` lists screen-space `Text` entities (kind `Text`, `rect`, `text`), and scripts get the screen rectangle of a
+  widget or screen-space Text without `fa.call` (for example `ui.rectOf(entityOrId)`), typed in `factoria.d.ts`.
+- SCRIPTING.md and the testing section of AI_GUIDE: `world.emit` from a test reaches listeners at the next
+  `game.step`, while `platform.*` answers are ready at once.
+
+Acceptance: JS tests for each helper in the menus fixture (the none backend on its shop, `toMatchObject`, a tap on a
+`TouchButton` by id under a phone-landscape safe area, the rectangle of a HUD Text); a CLI test runs one test file.
+
+### M24.8 Widgets that fit their labels (M) — LK/FB-0031, LK/FB-0011, LK/FB-0041
+
+- An opt-in `autoSize` on `Button`, `Toggle` and `Slider`: the widget is at least its design `size` and grows to its label
+  at the current `ui.textScale` and language (Lantern Keep's `fitWidgets` in scripts/ui/text_fit.js does this by hand
+  after every language or text size change).
+- A multi-line `Button` label centres each line (today the lines are left-aligned inside a centred block); `Button` gets
+  `maxWidth`/wrap like `Text`, and a label that still does not fit is clipped to the button. Button.text documents `\n`.
+- `ScrollList.fill`: in a fitted column, the list takes the height the other children leave, up to the screen; a `Panel`
+  with `fit` that ends up larger than the screen logs one warning naming it (and `factoria validate` reports it for the
+  design size).
+
+Acceptance: `fa_test_ui` layout cases at `textScale` 1 and 2 (a Spanish label in a 240 px button grows; a two-line
+button centres both lines; a column with a fill list stays inside 720 px); a golden of the menus fixture at 200 %.
+
+### M24.9 Export and publish checks (M) — LK/FB-0016, LK/FB-0018, LK/FB-0019, LK/FB-0020, LK/FB-0044
+
+- `export.exclude` in factoria.json: project-relative globs (`"store/**"`, `"levels/**"`) that no export ships (folder,
+  `game.pak`, web, mobile); `factoria validate` checks them. EXPORTING.md, "What is shipped", states the dot-folder rule.
+- `publish.<store> {dryRun: true}` returns the plan when the uploader, a secret or the app id is missing, with each one
+  as a warning (today the dry run fails on a missing `steamcmd`; Lantern Keep pointed the tools at `whoami.exe`).
+- `factoria_player --frames N`: draw N frames and exit 0, non-zero after a script error or crash, so CI can smoke-test
+  an exported game; EXPORTING.md, "CI for your game", uses it.
+- `factoria validate` warns about textures whose sides are not multiples of 4 (and not in an atlas) when `platforms`
+  has android or ios, with the export's message (shared code).
+- The `.gitignore` of new projects also lists `build/` (exports and `i18n.export` write there).
+
+Acceptance: tooling tests for each (an excluded folder missing from the folder export and `game.pak`; a dry run with no
+tool returns steps and warnings; the player exits 0 after `--frames 5` and 1 on a script error; validate warns on a
+40x30 texture with android in `platforms`; `factoria new` writes `build/` in `.gitignore`).
+
+### M24.10 ASCII levels keep prefab references (M) — LK/FB-0015 (with LK/FB-0034), LK/FB-0007
+
+- In file mode, `scene.import_ascii` writes legend objects as prefab instances (`{"id", "prefab", "position", overrides}`)
+  and copies the base scene's prefab entities as the references they are, instead of expanding the prefabs: editing a
+  prefab then changes every level without importing the maps again, and level files stay small. (A scene loaded into the
+  world still expands them; only the written file changes.)
+- A shared legend: `legendFrom: "levels/legend.json"`, merged under the map's own legend; its unused entries are not
+  warned about.
+
+Acceptance: a tooling test imports a map whose base scene has a prefab entity and whose legend places prefabs, edits the
+prefab and loads the level with the change, with no import in between; a map with `legendFrom` imports with no warning.
+
+### M24.11 2D: lit shapes and moving platforms (M) — LK/FB-0006, LK/FB-0003
+
+- `Shape2D.lit` (world space only, the `Sprite.lit` rule): shapes are shaded by `Light2D` and the ambient light, so a
+  dark level can use the engine's placeholder shapes for hazards and platforms.
+- A dynamic `RigidBody2D` resting on a moving kinematic `RigidBody2D` is carried by it, as in 3D, also when its script
+  sets `velocity.x` every frame; AGENTS.md (template) and AI_GUIDE get a 2D moving-platform recipe.
+
+Acceptance: a golden of lit and unlit shapes under a `Light2D`; a physics test where a player that sets `velocity.x = 0`
+each frame stays within 1 px of its place on a platform swinging 96 px for 100 frames, and is not carried while in the
+air.
+
+### M24.12 Entity activation (M) — LK/FB-0008 (with LK/FB-0030), LK/FB-0010
+
+- `Behaviour.onEnable()` / `onDisable()`, called when the entity or an ancestor becomes active or inactive, the first
+  time included, before the frame is drawn; `onStart` of an entity activated by a script also runs before that frame is
+  drawn (today a panel shown with `active = true` draws its prefab texts for one frame).
+- `entity.behaviour` of an inactive entity with a `Script` is its instance (today `null` until the first activation), or,
+  if the instance cannot exist before activation, SCRIPTING.md and the menus recipe say so and show how a panel refreshes
+  itself each time it is shown.
+
+Acceptance: script tests for a panel spawned inactive and shown by `MenuStack` (`onEnable` on every show, `onDisable` on
+every hide, its texts right in the first drawn frame) and for `world.find(id).behaviour` of a never-shown panel.
+
+### M24.13 Right-to-left layouts (M) — LK/FB-0040
+
+M14 decided that `align` is explicit (Left is the left edge for right-to-left text too); this package adds direction-
+aware values beside it and does not change that.
+- `Text.align` and `Panel.align` / `justify` take `start` and `end`, which follow the current language's direction;
+  `Panel.direction: "auto"` lays out a row right to left in a right-to-left language; anchors and pivots can be mirrored
+  the same way (or a documented recipe does it).
+- `i18n.direction` (`"ltr"` or `"rtl"`) in scripts.
+- LOCALIZATION.md section 6 shows the menus fixture mirrored in Arabic with these values.
+
+Acceptance: `fa_test_ui` cases for a row and a wrapped Text in English and Arabic; a golden of the menus fixture in
+Arabic.
+
+### M24.14 Translated store catalog (S) — LK/FB-0024
+
+`platform.achievements[].name` / `description` and `products[].title` / `description` in factoria.json can name a locale
+key (`nameKey`, `descriptionKey`, `titleKey`), and `platform.achievements.list()` and `platform.purchases.products()`
+return the text in the current language; PLATFORM.md says which stores take the translations from the catalog and which
+from their own console.
+
+Acceptance: a services test lists achievements in two languages from one catalog; `factoria validate` reports a key the
+default table lacks.
 
 ## Out of scope: Roblox
 
