@@ -101,10 +101,7 @@ TEST_CASE("docs/SHADERS.md: the worked examples compile for every dialect with t
         CAPTURE(m);
         auto result = compile_material(dir.str(), m, options);
         REQUIRE(result.ok());
-        std::string why;
-        for (const ShaderIssue& e : result->errors) why += e.to_string() + "
-";
-        CHECK_MESSAGE(result->ok, why);
+        CHECK_MESSAGE(result->ok, result->errors.empty() ? "" : result->errors.front().to_string());
         CHECK(result->twins.size() == 6);
     }
 }
