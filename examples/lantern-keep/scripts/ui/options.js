@@ -4,8 +4,9 @@
 // (text size, assist mode, shake, reduced effects). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
-import { Behaviour, ui, input, window, audio, world, i18n } from "factoria";
+import { Behaviour, ui, input, game, window, audio, world, i18n } from "factoria";
 import * as settings from "../settings.js";
+import * as assist from "../assist.js";
 import { MenuStack } from "./menu_stack.js";
 import { fitWidgets } from "./text_fit.js";
 
@@ -188,7 +189,8 @@ export default class Options extends Behaviour {
     ui.on("click", "game_speed", () => {
       s.assist.speed = step(settings.SPEEDS, s.assist.speed);
       settings.save(s);
-      this.refreshAccess(); // gameplay picks the new speed up when the pause menu resumes (level.js refreshAssist)
+      if (game.paused) assist.applySpeed(); // opened from the pause menu: the level stays frozen, resuming restores this speed
+      this.refreshAccess();
     });
     const toggle = (id, set) => {
       ui.on("change", id, (e) => {

@@ -16,7 +16,10 @@ export default class Shop extends Behaviour {
     this.prices = {}; // product id -> the store's price text
     this.noStore = !platform.has("purchases");
     this.message = null; // the last status: a function that writes it (so a language change can write it again)
-    for (const id of PRODUCTS) ui.on("click", BUTTONS[id], () => this.buy(id));
+    for (const id of PRODUCTS) {
+      ui.on("click", BUTTONS[id], () => this.buy(id));
+      this.world.find(BUTTONS[id]).get("Button").interactable = !this.noStore; // greyed out: there is nothing to buy from
+    }
     ui.on("click", "shop_colour", () => this.nextColour());
     ui.on("click", "shop_restore", () => this.restore());
     // Purchases that finish outside buy(): a parent approves an "ask to buy", or the store hands over one the last run left unfinished.
@@ -91,7 +94,6 @@ export default class Shop extends Behaviour {
 
   async buy(productId) {
     if (this.busy) return;
-    if (this.noStore) return this.say(() => explain("purchases", "shop.what"));
     if (owns(productId)) return this.say(() => i18n.t("shop.alreadyOwned"));
     this.busy = true;
     this.say(() => i18n.t("shop.waiting"));

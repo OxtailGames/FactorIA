@@ -53,14 +53,7 @@ export default class StoreStats extends Behaviour {
 
   /** Queues `fn` after the earlier requests; a failure is swallowed (see the top of the file). */
   run(fn) {
-    // `await` inside try (not `.then(fn)`): the store's promise gets its handler the moment it exists, so a rejection is never "unhandled".
-    this.chain = this.chain.then(async () => {
-      try {
-        await fn();
-      } catch {
-        // best effort
-      }
-    });
+    this.chain = this.chain.then(() => fn()).catch(() => {}); // best effort
     return this.chain;
   }
 

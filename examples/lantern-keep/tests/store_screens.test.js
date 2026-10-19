@@ -10,7 +10,7 @@ const fake = () => game.platform.state().fake;
 const calls = (method) => game.platform.calls().filter((c) => c.method === method);
 const text = (id) => game.find(id).get("Text").text;
 const button = (id) => game.find(id).get("Button").text;
-const lastCall = (method) => calls(method)[calls(method).length - 1];
+const lastCall = (method) => calls(method).at(-1);
 const rows = (list) => game.find(list).children.map((c) => c.get("Text").text);
 
 /** Every test starts like a new run of the game: English, nothing bought, nothing finished, a fresh fake store, on the main menu. */
@@ -61,7 +61,8 @@ async function press(id) {
   await settle();
 }
 
-const near = (a, b) => Array.from(a).forEach((v, i) => expect(v).toBeCloseTo(b[i], 4));
+/** A colour read from a component is array-like: compare it channel by channel with the plain array `b`. */
+const near = (color, b) => b.forEach((v, i) => expect(color[i]).toBeCloseTo(v, 4));
 
 // ---------------------------------------------------------------------------------------------------- achievements
 
@@ -212,6 +213,7 @@ test("the shop lists both cosmetic packs with the store's prices, and nothing el
   fresh();
   await open("shop_button", "shop");
   expect(ui.focused.id).toBe("shop_buy_colours");
+  expect(game.find("shop_buy_colours").get("Button").interactable).toBe(true);
   expect(button("shop_buy_colours")).toBe("Lantern colours - $1.99");
   expect(button("shop_buy_supporter")).toBe("Supporter - $4.99");
   expect(button("shop_colour")).toBe("Lantern colour: Amber");
@@ -364,9 +366,7 @@ test("without a store the shop explains it, keeps what the player already owns a
     await open("shop_button", "shop");
     expect(text("shop_status")).toContain("not connected to a store");
     expect(button("shop_buy_colours")).toBe("Lantern colours");
-    await press("shop_buy_colours");
-    expect(text("shop_status")).toContain("not connected to a store");
-    expect(owns("lantern_colours")).toBe(false);
+    expect(owns("lantern_colours")).toBe(false); // the buy buttons are greyed out, there is nothing to click
     await press("shop_restore");
     expect(text("shop_status")).toContain("not connected to a store");
     expect(button("shop_buy_supporter")).toBe("Supporter (owned)"); // kept: it is in the wallet
@@ -374,6 +374,31 @@ test("without a store the shop explains it, keeps what the player already owns a
     await press("shop_colour"); // the colour choice needs no store
     expect(button("shop_colour")).toBe("Lantern colour: Gold");
     pad().tap("B");
+    expect(game.find("main_menu").active).toBe(true);
+  } finally {
+    platform.has = has;
+  }
+});
+
+test("without a store the buy buttons are greyed out and the pad still has a focus on the shop", async () => {
+  fresh();
+  const has = platform.has;
+  try {
+    platform.has = () => false;
+    game.load("scenes/menu.scene.json"); // a new run of the game, now without a store
+    game.step(2);
+    await open("shop_button", "shop");
+    for (const id of ["shop_buy_colours", "shop_buy_supporter"]) expect(game.find(id).get("Button").interactable).toBe(false);
+    for (const id of ["shop_colour", "shop_restore", "shop_back"]) expect(game.find(id).get("Button").interactable).toBe(true);
+    // autoFocus is on a greyed-out button: the engine gives the focus to the first button the pad can use
+    expect(ui.focused.id).toBe("shop_colour");
+    pad().tap("DpadUp");
+    expect(ui.focused.id).toBe("shop_colour"); // the greyed-out buttons above are skipped
+    pad().tap("DpadDown");
+    expect(ui.focused.id).toBe("shop_restore");
+    pad().tap("DpadDown");
+    expect(ui.focused.id).toBe("shop_back");
+    pad().tap("A");
     expect(game.find("main_menu").active).toBe(true);
   } finally {
     platform.has = has;

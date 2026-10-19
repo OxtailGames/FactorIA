@@ -27,7 +27,7 @@ export function fitWidgets(root) {
     if (!kind || !entity.id) continue;
     const widget = entity.get(kind);
     const label = kind === "Button" ? widget.text : widget.label;
-    const first = base.get(entity.id) ?? [widget.size.x, widget.size.y];
+    const first = base.get(entity.id) ?? [...widget.size];
     base.set(entity.id, first);
     const m = ui.measureText(label, { fontSize: widget.fontSize });
     const box = kind === "Toggle" ? widget.fontSize * scale * 1.6 : 0;
@@ -51,10 +51,11 @@ function* descendants(entity) {
 export function fitList(panel, list, { max = 440, min = 96, margin = 12 } = {}) {
   const p = panel.get("Panel");
   const kids = panel.children.filter((c) => c.active && c.id !== list.id);
-  let used = p.padding.y + p.padding.w + p.spacing * kids.length; // the gaps include the one next to the list
+  const [, top, , bottom] = p.padding; // left, top, right, bottom
+  let used = top + bottom + p.spacing * kids.length; // the gaps include the one next to the list
   for (const kid of kids) used += contentHeight(kid);
-  const size = list.get("ScrollList").size;
-  list.get("ScrollList").size = [size.x, Math.max(min, Math.min(max, Math.floor(720 - 2 * margin - used)))];
+  const [width] = list.get("ScrollList").size;
+  list.get("ScrollList").size = [width, Math.max(min, Math.min(max, Math.floor(720 - 2 * margin - used)))];
 }
 
 /**
@@ -71,7 +72,8 @@ export function contentHeight(entity) {
     const heights = entity.children.filter((c) => c.active).map(contentHeight);
     if (!heights.length) return 0;
     const inner = p.layout === "row" ? Math.max(...heights) : heights.reduce((a, b) => a + b, 0) + p.spacing * (heights.length - 1);
-    return inner + p.padding.y + p.padding.w;
+    const [, top, , bottom] = p.padding; // left, top, right, bottom
+    return inner + top + bottom;
   }
   const kind = KINDS.find((k) => entity.has(k)) ?? (entity.has("ScrollList") ? "ScrollList" : null);
   return kind ? entity.get(kind).size.y : 0;

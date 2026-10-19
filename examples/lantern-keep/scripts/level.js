@@ -37,13 +37,13 @@ export default class Level extends Behaviour {
     this.endPanel.active = false;
     this.announced = false;
     this.assisted = false; // true once any assist option was on during this level: the result says so
+    assist.applySpeed();
     this.refreshAssist();
   }
 
-  /** Applies the assist speed and remembers that assist was used. Called at the start and after every resume. */
+  /** Remembers that assist was used. Called at the start and after every resume (the options may have changed while paused). */
   refreshAssist() {
     if (assist.active()) this.assisted = true;
-    if (!this.finished) assist.applySpeed();
   }
 
   /** Embers found so far. */

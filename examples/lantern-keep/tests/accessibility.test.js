@@ -95,6 +95,7 @@ test("the assist speed slows the game, survives a pause and a resume, and the pa
   game.step(60);
   expect(level().time - t0).toBeCloseTo(0.6, 1); // one second of frames is 60% of a second of game time
   pad().tap("Start");
+  expect(game.paused).toBe(true);
   expect(time.scale).toBe(0);
   const t1 = level().time;
   game.step(20);
@@ -102,13 +103,30 @@ test("the assist speed slows the game, survives a pause and a resume, and the pa
   pad().tap("A"); // Resume
   game.step(3);
   expect(game.find("pause_panel").active).toBe(false);
-  expect(time.scale).toBeCloseTo(0.6, 5);
-  // a speed changed in the options while paused is taken on resume
+  expect(game.paused).toBe(false);
+  expect(time.scale).toBeCloseTo(0.6, 5); // resuming gives back the speed the pause took
+  // a speed changed in the pause menu's options stays frozen until Resume and is the speed after it
   pad().tap("Start");
-  storage.set("settings", { assist: { speed: 0.8 } });
+  pad().tap("DpadDown"); // Options
+  pad().tap("A");
+  for (let i = 0; i < 4; i++) pad().tap("DpadRight"); // the tabs: Access
+  pad().tap("A");
+  pad().tap("DpadDown"); // Text size
+  pad().tap("DpadDown"); // Game speed
+  pad().tap("A"); // 100%
+  pad().tap("A"); // 90%
+  expect(saved().assist.speed).toBe(0.9);
+  expect(game.paused).toBe(true);
+  expect(time.scale).toBe(0);
+  const t2 = level().time;
+  game.step(20);
+  expect(level().time).toBe(t2);
+  pad().tap("B"); // back to the pause panel
+  pad().tap("DpadUp"); // Resume
   pad().tap("A");
   game.step(3);
-  expect(time.scale).toBeCloseTo(0.8, 5);
+  expect(game.paused).toBe(false);
+  expect(time.scale).toBeCloseTo(0.9, 5);
   // leaving the level puts the normal speed back
   pad().tap("Start");
   pad().tap("DpadDown");
@@ -226,6 +244,12 @@ async function press(id) {
   await settle();
 }
 
+/** Presses A on the focused widget and lets what the click started finish. */
+async function pressFocused() {
+  pad().tap("A");
+  await settle();
+}
+
 /** A game with a used slot (so Continue, the results and Delete show), a damaged one and an empty one, in this language and size. */
 function startMenu(language, textScale) {
   fresh();
@@ -252,8 +276,11 @@ for (const language of LANGUAGES) {
       expectFits(at("main menu"));
       // options: every tab, then credits
       await press("options_button");
-      for (const tab of ["video", "audio", "controls", "language", "access"]) {
-        await press(`tab_${tab}`);
+      // the tabs are a row, and the pad walks along it with Right even where wide widgets sit right below it (big text)
+      for (const [i, tab] of ["video", "audio", "controls", "language", "access"].entries()) {
+        if (i > 0) pad().tap("DpadRight");
+        expect([tab, ui.focused.id]).toEqual([tab, `tab_${tab}`]);
+        await pressFocused();
         expect([tab, game.find(`${tab}_section`).active]).toEqual([tab, true]);
         expectFits(at(`options ${tab}`));
       }
