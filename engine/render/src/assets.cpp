@@ -614,7 +614,8 @@ std::string Assets::missing_hint(const std::string& path, std::string_view ext) 
 void Assets::note_failure(const std::string& kind, const std::string& path, const std::string& message, const std::string& hint) {
     if (failure_logged(kind, path)) return;
     failures_.push_back({kind, path, message, hint});
-    FA_ERROR("render", "{}{}{}", message, hint.empty() ? "" : " Hint: ", hint);
+    const bool hinted = hint.empty() || message.find(hint) != std::string::npos;  // a shader diagnostic carries its hints
+    FA_ERROR("render", "{}{}", message, hinted ? std::string() : " Hint: " + hint);
 }
 
 bool Assets::failure_logged(const std::string& kind, const std::string& path) const {

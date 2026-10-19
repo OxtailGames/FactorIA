@@ -374,6 +374,17 @@ TEST_CASE("engine: editing locales/<language>.json while the game runs reloads t
     CHECK(g.engine.i18n()->language() == "es");
 }
 
+TEST_CASE("engine: hotReloadAssets (the editor) leaves locales, scenes and scripts to the host") {
+    EngineConfig cfg;
+    cfg.hotReloadAssets = true;
+    Game g("hot_assets", kProject, cfg, true, false);
+    g.call("i18n.set_language", Json{{"language", "es"}});
+    g.write("locales/es.json", R"({ "$name": "Español", "menu": { "title": "Mi videojuego", "play": "Jugar", "music": "Música" } })");
+    stdfs::last_write_time(g.dir / "locales" / "es.json", stdfs::file_time_type::clock::now() + std::chrono::seconds(10));
+    g.engine.step(30);  // the watcher would have polled several times
+    CHECK(g.text("title") == "Mi juego");  // not reloaded: only materials, snippets, textures, fonts and models are
+}
+
 // ---- fonts per language ---------------------------------------------------------------------------------------------------
 
 namespace {
