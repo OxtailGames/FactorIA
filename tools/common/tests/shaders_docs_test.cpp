@@ -81,7 +81,7 @@ TEST_CASE("docs/SHADERS.md: the worked examples pass the schema and the material
         CAPTURE(m);
         CHECK(validate_json(Json::parse(*schema), Json::parse(testing::read_all(dir.path / m))).empty());
         MaterialParse parsed = read_material(dir.str(), m);
-        CHECK_MESSAGE(parsed.errors.empty(), parsed.errors.empty() ? "" : parsed.errors.front().to_string());
+        CHECK_MESSAGE(parsed.errors.empty(), (parsed.errors.empty() ? "" : parsed.errors.front().to_string()));
         CHECK(stdfs::exists(dir.path / parsed.material.shader));
     }
 }
@@ -101,7 +101,7 @@ TEST_CASE("docs/SHADERS.md: the worked examples compile for every dialect with t
         CAPTURE(m);
         auto result = compile_material(dir.str(), m, options);
         REQUIRE(result.ok());
-        CHECK_MESSAGE(result->ok, result->errors.empty() ? "" : result->errors.front().to_string());
+        CHECK_MESSAGE(result->ok, (result->errors.empty() ? "" : result->errors.front().to_string()));
         CHECK(result->twins.size() == 6);
     }
 }
