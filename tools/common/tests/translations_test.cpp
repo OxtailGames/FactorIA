@@ -25,6 +25,16 @@ const char* kEs = R"({
   "menu": { "play": "Jugar" },
   "coins": { "one": "{count} moneda", "other": "{count} monedas" }
 })";
+// The same strings written flat, for a project whose default table has no groups.
+const char* kEnFlat = R"({
+  "$name": "English",
+  "menu.play": "Play",
+  "menu.quit": "Quit, \"now\"",
+  "menu.multi": "Line one\nLine two",
+  "greeting": "Hello, {name}!",
+  "coins": { "one": "{count} coin", "other": "{count} coins" },
+  "tag": "A & B <tag>"
+})";
 const char* kRu = R"({ "menu.play": "Играть" })";
 
 struct Game {
@@ -187,6 +197,25 @@ TEST_CASE("i18n.export without a localization section or with one language says 
     CHECK(r.error["message"].get<std::string>().find("one language") != std::string::npos);
 }
 
+TEST_CASE("i18n.import csv: a language with no file yet gets a file shaped like the default table (nested when it is nested)") {
+    Game g(kEn, nullptr, nullptr);
+    testing::write_all(g.dir + "/new.csv",
+                       "key,en,es\n"
+                       "menu.play,Play,Jugar\n"
+                       "menu.quit,\"Quit, \"\"now\"\"\",Salir\n"
+                       "greeting,\"Hello, {name}!\",\"Hola, {name}!\"\n"
+                       "coins#one,{count} coin,{count} moneda\n"
+                       "coins#other,{count} coins,{count} monedas\n");
+    auto r = g.call("i18n.import", Json{{"file", "new.csv"}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json t = g.table("es");
+    CHECK(t["menu"]["play"] == "Jugar");
+    CHECK(t["menu"]["quit"] == "Salir");
+    CHECK(t["greeting"] == "Hola, {name}!");
+    CHECK(t["coins"]["one"] == "{count} moneda");
+    CHECK_FALSE(t.contains("menu.play"));
+}
+
 TEST_CASE("i18n.import csv: export, translate, import keeps nested and flat tables, order, and never deletes on an empty cell") {
     Game g;
     REQUIRE(g.call("i18n.export", Json{{"format", "csv"}}).ok);
@@ -304,8 +333,8 @@ TEST_CASE("i18n.import csv from a spreadsheet: semicolons, CRLF, extra blank lin
     CHECK(r.error["code"] == "not_found");
 }
 
-TEST_CASE("i18n.import creates the table of a language that has none (flat: the file has no groups) and honours `languages`") {
-    Game g(kEn, nullptr, kRu);
+TEST_CASE("i18n.import creates the table of a language that has none (flat: the default table has no groups) and honours `languages`") {
+    Game g(kEnFlat, nullptr, kRu);
     testing::write_all(g.dir + "/new.csv",
                        "key,en,es,ru\n$name,English,Español,\nmenu.play,Play,Jugar,Играть ya\ncoins#one,x,{count} moneda,\n"
                        "coins#other,x,{count} monedas,\ngreeting,x,Hola,\n");

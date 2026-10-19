@@ -332,7 +332,7 @@ void register_builtin_components(TypeRegistry& r) {
                "text written here and logs one warning.")
         .asset_field("font", &Text::font, "font",
                      "Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, "
-                     "Cyrillic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "
+                     "Cyrillic, Hebrew, Arabic); \"builtin:pixel\" is Press Start 2P. Characters the font has no glyph for draw as nothing "
                      "and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto "
                      "Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, "
                      "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")

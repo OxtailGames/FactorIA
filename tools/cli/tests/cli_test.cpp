@@ -4,6 +4,8 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <set>
 #include <sstream>
 
 #include "common.h"  // tools/cli/src: Session and run_project_tests, the setup behind `factoria test`
@@ -340,6 +342,7 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
     std::string line, lang, path, body;
     bool inBlock = false;
     int files = 0;
+    std::map<std::string, fa::Json> docTables;  // locales/<language>.json blocks, to compare their keys below
     while (std::getline(doc, line)) {
         if (line.rfind("```", 0) != 0) {
             if (inBlock) body += line + "\n";
@@ -358,9 +361,32 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
                 CHECK(fa::Json::parse(body, nullptr, false) == fa::Json::parse(file, nullptr, false));
             else
                 CHECK(body == file);
+            if (path.rfind("locales/", 0) == 0) docTables[path] = fa::Json::parse(body, nullptr, false);
             ++files;
         }
         inBlock = !inBlock;
     }
     CHECK(files > 0);  // the blocks were found
+
+    // Both tables are printed (a game with two languages from the start copies them) and have the same keys as the fixture's.
+    const auto flat_keys = [](const fa::Json& table) {
+        std::set<std::string> keys;
+        const auto walk = [&](const auto& self, const fa::Json& node, const std::string& prefix) -> void {
+            for (auto it = node.begin(); it != node.end(); ++it) {
+                if (prefix.empty() && it.key()[0] == '$') continue;
+                const std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
+                if (it->is_object()) self(self, *it, key);
+                else keys.insert(key);
+            }
+        };
+        walk(walk, table, "");
+        return keys;
+    };
+    for (const char* language : {"en", "es"}) {
+        const std::string path = std::string("locales/") + language + ".json";
+        REQUIRE_MESSAGE(docTables.count(path) == 1, "docs/MENUS.md prints no " << path);
+        const fa::Json fixture = fa::Json::parse(read(repo / "tools/cli/tests/fixtures/menus" / path), nullptr, false);
+        CHECK(flat_keys(docTables[path]) == flat_keys(fixture));
+        CHECK(flat_keys(docTables[path]) == flat_keys(docTables["locales/en.json"]));
+    }
 }

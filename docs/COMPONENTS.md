@@ -144,7 +144,7 @@ Draws a string with a TrueType font (or the built-in font). Works in world and s
 |---|---|---|---|
 | `text` | string | `"Text"` | The string to draw. Use \n for line breaks. While `key` is set the engine overwrites it with the translation of the current language every frame: edit the string table (locales/<language>.json), not this field. |
 | `key` | string | `""` | Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = this Text is not translated. With a key, the runtime writes the string of that key in the current language (locales/<language>.json, falling back to the base language and then to localization.defaultLanguage) into `text` when a scene or prefab loads, every frame and when the language changes, so `text` is overwritten at run time. A key that no string table has keeps the text written here and logs one warning. |
-| `font` | asset (font) | `""` | Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). |
+| `font` | asset (font) | `""` | Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). |
 | `fontSize` | float | `24.0` | Glyph height in world units (pixels in 2D). Range 1.0..4096.0. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Text color. |
 | `align` | enum: left \\| center \\| right | `"left"` | Horizontal alignment of lines inside the text box. |
@@ -4060,7 +4060,7 @@ declare module "factoria" {
      */
     key: string;
     /**
-     * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). (asset path: font)
+     * Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). (asset path: font)
      */
     font: string;
     /**
