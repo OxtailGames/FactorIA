@@ -1,13 +1,15 @@
 #include "test_util.h"
 
+#include <algorithm>
 #include <fstream>
+#include <iterator>
 #include <vector>
 
 #include "fa/scene/animation.h"
 
 #include "mesh_batch.h"
-#include "render_internal.h"            // Gpu::set_mesh_shader
-#include "shaders/time_emission.glsl.h"  // tests/shaders/: a test material made from the mesh template
+#include "render_internal.h"   // material_shader_desc
+#include "shaders/mesh.glsl.h"  // mesh_mesh_shader_desc: what the converter of the twins must reproduce
 
 using namespace fa;
 using namespace fa::test;
@@ -408,30 +410,354 @@ TEST_CASE("skinned bounds cover every pose of the palette") {
     CHECK(hi.x == doctest::Approx(1));
 }
 
+// Materials (MeshRenderer.material) -------------------------------------------------------------------------------------
+// The fixture materials of tests/data/materials are copied into the test project; every twin gets this build's engine
+// version (its "template" stays, so a template change without regenerating the twins fails loudly).
+namespace {
+void install_materials() {
+    namespace sfs = std::filesystem;
+    const sfs::path src = sfs::path(FA_RENDER_DATA_DIR) / "materials";
+    for (const auto& e : sfs::recursive_directory_iterator(src)) {
+        if (!e.is_regular_file()) continue;
+        std::ifstream in(e.path(), std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (e.path().extension() == ".shader") {
+            Json twin = Json::parse(bytes);
+            twin["engine"] = FA_ENGINE_VERSION;
+            bytes = twin.dump();
+        }
+        REQUIRE(fs::write_bytes(sfs::relative(e.path(), src).generic_string(), bytes.data(), bytes.size()).ok());
+    }
+}
+
+// A test starts with an empty asset cache and the fixtures installed, and leaves no compiler behind.
+struct MaterialScope {
+    MaterialScope() {
+        gfx().renderer.clear_asset_cache();
+        install_materials();
+    }
+    ~MaterialScope() {
+        gfx().renderer.set_shader_compiler({});
+        gfx().renderer.clear_asset_cache();
+    }
+};
+
+struct ErrorLog {
+    std::vector<std::string> messages;
+    int id;
+    ErrorLog() : id(add_log_sink([this](const LogEntry& e) { if (e.level == LogLevel::Error) messages.push_back(e.message); })) {}
+    ~ErrorLog() { remove_log_sink(id); }
+    int count(const std::string& needle) const {
+        return int(std::count_if(messages.begin(), messages.end(), [&](const std::string& m) { return m.find(needle) != std::string::npos; }));
+    }
+};
+
+Entity add_material_mesh(World& w, const char* mesh, const char* material, Vec3 pos, Color color = Color::hex(0x202020), Vec3 scale = {1.5f, 1.5f, 1.5f}) {
+    Entity e = add_mesh(w, mesh, pos, color, scale);
+    w.get<MeshRenderer>(e)->material = material;
+    return e;
+}
+
+// The scene most material tests draw: a ground, a sun with shadows and a camera looking at the origin.
+void add_stage(World& w, bool shadows = true) {
+    add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
+    add_mesh(w, "plane", {0, -1.0f, 0}, Color::hex(0x909090), {8, 1, 8});
+    w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f))->castShadows = shadows;
+}
+
+// Everything of a shader desc that does not point at source text, as text.
+std::string describe_desc(const sg_shader_desc& d) {
+    std::string o;
+    auto s = [&](const char* p) { o += p ? p : "<null>"; o += ';'; };
+    auto n = [&](long long v) { o += std::to_string(v) + ';'; };
+    for (const sg_shader_function* f : {&d.vertex_func, &d.fragment_func}) { s(f->entry); s(f->d3d11_target); }
+    for (const auto& a : d.attrs) { n(a.base_type); s(a.glsl_name); s(a.hlsl_sem_name); n(a.hlsl_sem_index); }
+    for (const auto& u : d.uniform_blocks) {
+        n(u.stage); n(u.size); n(u.hlsl_register_b_n); n(u.msl_buffer_n); n(u.layout);
+        for (const auto& g : u.glsl_uniforms) { n(g.type); n(g.array_count); s(g.glsl_name); }
+    }
+    for (const auto& v : d.views) {
+        const auto& t = v.texture;
+        n(t.stage); n(t.image_type); n(t.sample_type); n(t.multisampled); n(t.hlsl_register_t_n); n(t.msl_texture_n);
+    }
+    for (const auto& m : d.samplers) { n(m.stage); n(m.sampler_type); n(m.hlsl_register_s_n); n(m.msl_sampler_n); }
+    for (const auto& p : d.texture_sampler_pairs) { n(p.stage); n(p.view_slot); n(p.sampler_slot); s(p.glsl_name); }
+    return o;
+}
+}  // namespace
+
+TEST_CASE("materials: the shader desc built from a twin equals the generated one of the built-in mesh program") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    const std::string dialect = g.renderer.shader_dialect();
+    auto twin = load_json_file("materials/empty.material.json." + dialect + ".shader");
+    REQUIRE(twin.ok());
+    render::MaterialProgram slots;
+    const Json& program = (*twin)["programs"]["mesh"];
+    auto desc = render::material_shader_desc("empty mesh", program, slots);
+    REQUIRE(desc.ok());
+    CHECK(describe_desc(*desc) == describe_desc(*mesh_mesh_shader_desc(sg_query_backend())));
+    CHECK(slots.ubMask == 0b111);  // vs params, fs params, lights
+    CHECK(slots.viewMask == 0b111111);
+    CHECK(slots.samplerMask == 0b11);
+    CHECK(slots.ubSize[0] == sizeof(mesh_fa_mesh_vs_params_t));
+    CHECK(slots.ubSize[1] == sizeof(mesh_fa_mesh_fs_params_t));
+    CHECK(slots.ubSize[2] == sizeof(mesh_fa_lights_t));
+
+    Json broken = program;
+    broken["reflection"]["uniform_blocks"][0]["slot"] = 99;
+    render::MaterialProgram ignored;
+    auto bad = render::material_shader_desc("broken", broken, ignored);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("uniform block slot") != std::string::npos);
+    CHECK_FALSE(bad.error().hint.empty());
+}
+
+TEST_CASE("materials: a material with an empty surface() renders pixel-identical to the same mesh without a material, shadows on") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](const char* material) {
+        World w;
+        add_stage(w);
+        Entity cube = add_mesh(w, "cube", {0, 0, 0}, Color::hex(0xc08040), {1.5f, 1.5f, 1.5f});
+        w.get<MeshRenderer>(cube)->material = material;
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image plain = frame("");
+    const Image withMaterial = frame("materials/empty.material.json");
+    CHECK(log.messages.empty());
+    CHECK(g.renderer.stats().materials == 1);
+    CHECK(diff_images(plain, withMaterial, 0.0f).maxError == 0.0);
+}
+
+TEST_CASE("materials: an emission-from-param material renders its golden and a materialParams override changes it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](const Json& params) {
+        World w;
+        add_stage(w);
+        Entity cube = add_material_mesh(w, "cube", "materials/glow.material.json", {0, 0, 0});
+        w.get<MeshRenderer>(cube)->materialParams = params;
+        return g.render(w);
+    };
+    const Image orange = frame(Json::object());
+    const Image green = frame(Json::object({{"glow", Json::array({0.0, 1.0, 0.0, 1.0})}}));
+    CHECK(diff_images(orange, green, 4.0f / 255.0f).meanError > 0.01);
+    const Color c = orange.pixel(160, 90);  // the default glow is [1, 0.35, 0]
+    CHECK(c.r > c.g);
+    CHECK(c.g > c.b);
+    expect_golden(orange, "3d_material_glow");
+    expect_golden(green, "3d_material_glow_override");
+}
+
+TEST_CASE("materials: 100 cubes with one material share one batch, two different overrides make two") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](bool overrides) {
+        World w;
+        add_camera(w, {0, 9, 14}, {0, 0, 0});
+        add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f);
+        for (int i = 0; i < 100; ++i) {
+            Entity e = add_material_mesh(w, "cube", "materials/glow.material.json", {float(i % 10) - 4.5f, 0, float(i / 10) - 4.5f}, Color::hex(0x404040), {0.7f, 0.7f, 0.7f});
+            if (overrides) w.get<MeshRenderer>(e)->materialParams = Json::object({{"glow", Json::array({0.0, i % 2 ? 1.0 : 0.0, i % 2 ? 0.0 : 1.0, 1.0})}});
+        }
+        g.render(w);
+        return g.renderer.stats();
+    };
+    RenderStats plain = frame(false);
+    CHECK(plain.meshes == 100);
+    CHECK(plain.meshBatches == 1);
+    CHECK(plain.materials == 1);
+    CHECK(plain.materialFallbacks.empty());
+    CHECK(frame(true).meshBatches == 2);
+}
+
+TEST_CASE("materials: a skinned glTF with a material renders its golden and still casts its shadow") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    REQUIRE(fs::write_text("assets/rig_material.gltf", text).ok());
+    auto frame = [&](bool casts) {
+        World w;
+        add_camera(w, {0.5f, 1.2f, 4}, {0.5f, 1.0f, 0});
+        w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-40, 25, 0}, 1.0f))->castShadows = true;
+        add_mesh(w, "plane", {0, -0.01f, 0}, Color::hex(0x909090), {8, 1, 8});
+        Entity rig = make(w, "rig");
+        auto& mr = w.add<MeshRenderer>(rig);
+        mr.mesh = "assets/rig_material.gltf";
+        mr.material = "materials/glow.material.json";
+        mr.castShadows = casts;
+        w.add<Animator>(rig).clip = "Bend";
+        update_animators(w, 0.0f);
+        update_animators(w, 0.5f);
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image casting = frame(true);
+    CHECK(log.messages.empty());
+    CHECK(g.renderer.stats().materials == 1);
+    CHECK(diff_images(casting, frame(false), 4.0f / 255.0f).meanError > 0.0005);
+    expect_golden(casting, "3d_material_skinned_glow");
+}
+
+TEST_CASE("materials: vertex() moves the shadow with the mesh") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](bool lifted) {
+        World w;
+        add_stage(w);
+        if (lifted) add_material_mesh(w, "cube", "materials/lift.material.json", {-1.5f, 0, 0}, Color::hex(0xc08040), {1, 1, 1});
+        else add_mesh(w, "cube", {-1.5f + 0.8f, 1.2f, 0}, Color::hex(0xc08040));  // where the lift material puts it
+        return g.render(w);
+    };
+    const Image lift = frame(true);
+    // The same picture as the plain cube standing at the displaced place: the shadow on the ground included.
+    const Image placed = frame(false);
+    CHECK(diff_images(lift, placed, 2.0f / 255.0f).meanError < 0.001);
+    expect_golden(lift, "3d_material_lift");
+}
+
+TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto frame = [&](const char* material) {
+        World w;
+        add_camera(w, {0, 3, 4}, {0, 0, 0});
+        add_mesh(w, "plane", {0, -0.5f, 0}, Color::hex(0x909090), {8, 1, 8});
+        w.get<Light>(add_light(w, LightType::Directional, {0, 5, 0}, {-60, 20, 0}, 0.9f))->castShadows = true;
+        Entity leaf = add_mesh(w, "plane", {0, 0.8f, 0}, Color::hex(0xe0e0e0), {2, 1, 2});
+        w.get<MeshRenderer>(leaf)->material = material;
+        return g.render(w);
+    };
+    ErrorLog log;
+    const Image cut = frame("materials/cutout.material.json");
+    CHECK(log.messages.empty());
+    const Image solid = frame("");
+    CHECK(diff_images(cut, solid, 4.0f / 255.0f).meanError > 0.005);
+    expect_golden(cut, "3d_material_cutout");
+}
+
+TEST_CASE("materials: a material that does not compile is drawn magenta and logged once with its file and line") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    REQUIRE(fs::write_text("materials/broken.material.json", R"({"format": "factoria.material/1", "shader": "shaders/broken.surface.glsl"})").ok());
+    g.renderer.set_shader_compiler([](const std::string&, const std::string&) -> Result<Json> {
+        return make_error("shaders/broken.surface.glsl:3:5: error: 'colour' : no such field in structure 'Surface'", "did you mean albedo?");
+    });
+    ErrorLog log;
+    World w;
+    add_stage(w);
+    add_material_mesh(w, "cube", "materials/broken.material.json", {0, 0, 0});
+    Image img;
+    for (int i = 0; i < 3; ++i) img = g.render(w);
+    const Color c = img.pixel(160, 90);
+    CHECK(c.r > 0.9f);
+    CHECK(c.g < 0.1f);
+    CHECK(c.b > 0.9f);
+    CHECK(log.count("broken.surface.glsl:3:5") == 1);
+    CHECK(log.count("did you mean albedo?") == 1);
+    REQUIRE(g.renderer.stats().materialFallbacks.size() == 1);
+    CHECK(g.renderer.stats().materialFallbacks[0] == "materials/broken.material.json");
+    CHECK(g.renderer.stats().materials == 0);
+    CHECK(g.renderer.stats().to_json()["materialFallbacks"][0] == "materials/broken.material.json");
+    CHECK(g.renderer.asset_report()["failures"].size() == 1);
+}
+
+TEST_CASE("materials: hot reload swaps the shader, keeps the last good one on a broken edit and recovers") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    const std::string dialect = g.renderer.shader_dialect();
+    REQUIRE(fs::write_text("materials/hot.material.json",
+                           R"({"format": "factoria.material/1", "shader": "shaders/hot.txt",
+                               "params": {"glow": {"type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Glow."}}})").ok());
+    // Stands in for the tooling: the snippet on disk names the fixture twin to use ("glow" or "empty"), or is broken.
+    g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
+        auto snippet = fs::read_text("shaders/hot.txt");
+        if (!snippet.ok()) return snippet.error();
+        if (*snippet == "broken") return make_error("shaders/hot.txt:1:1: error: 'broken' : undeclared identifier", "Write glow or empty.");
+        return load_json_file("materials/" + *snippet + ".material.json." + dialect + ".shader");
+    });
+    auto frame = [&]() {
+        World w;
+        add_stage(w);
+        add_material_mesh(w, "cube", "materials/hot.material.json", {0, 0, 0});
+        return g.render(w);
+    };
+    ErrorLog log;
+    REQUIRE(fs::write_text("shaders/hot.txt", "glow").ok());
+    const Image glowing = frame();
+    REQUIRE(fs::write_text("shaders/hot.txt", "empty").ok());
+    g.renderer.reload_asset("shaders/hot.txt");
+    const Image plain = frame();
+    CHECK(diff_images(glowing, plain, 4.0f / 255.0f).meanError > 0.01);
+    CHECK(log.messages.empty());
+
+    REQUIRE(fs::write_text("shaders/hot.txt", "broken").ok());
+    g.renderer.reload_asset("shaders/hot.txt");
+    const Image kept = frame();
+    frame();
+    CHECK(diff_images(plain, kept, 0.0f).maxError == 0.0);
+    CHECK(log.count("shaders/hot.txt:1:1") == 1);
+    CHECK(g.renderer.stats().materialFallbacks.empty());
+    CHECK(g.renderer.asset_report()["failures"].size() == 1);
+
+    REQUIRE(fs::write_text("shaders/hot.txt", "glow").ok());
+    g.renderer.reload_asset("shaders/hot.txt");
+    const Image back = frame();
+    CHECK(diff_images(glowing, back, 0.0f).maxError == 0.0);
+    CHECK(log.messages.size() == 1);
+    CHECK(g.renderer.asset_report()["failures"].empty());
+}
+
+TEST_CASE("materials: a twin from another factoria version is refused with the re-export hint") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    MaterialScope scope;
+    auto twin = load_json_file("materials/empty.material.json." + g.renderer.shader_dialect() + ".shader");
+    REQUIRE(twin.ok());
+    (*twin)["engine"] = "0.0.0";
+    REQUIRE(fs::write_text("materials/old.material.json", R"({"format": "factoria.material/1", "shader": "shaders/empty.surface.glsl"})").ok());
+    REQUIRE(fs::write_text("materials/old.material.json." + g.renderer.shader_dialect() + ".shader", twin->dump()).ok());
+    ErrorLog log;
+    World w;
+    add_stage(w);
+    add_material_mesh(w, "cube", "materials/old.material.json", {0, 0, 0});
+    const Image img = g.render(w);
+    CHECK(img.pixel(160, 90).g < 0.1f);  // magenta
+    REQUIRE(log.messages.size() == 1);
+    CHECK(log.messages[0].find("0.0.0") != std::string::npos);
+    CHECK(log.messages[0].find("Export the game again with this factoria version") != std::string::npos);
+    CHECK(g.renderer.stats().materialFallbacks.size() == 1);
+}
+
 // fa_time is the engine clock (World::time, advanced by the fixed steps), so a material that animates with it draws the
 // same picture after the same number of steps, whatever ran before in the process.
 TEST_CASE("3D mesh template: a material's emission driven by fa_time is the same after the same fixed steps") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    render::Gpu* gpu = render::renderer_gpu(g.renderer);
-    REQUIRE(gpu);
-    const sg_shader builtin = gpu->mesh_shader_;
-    const sg_shader timed = sg_make_shader(fa_test_time_mesh_shader_desc(sg_query_backend()));
-    REQUIRE(sg_query_shader_state(timed) == SG_RESOURCESTATE_VALID);
+    MaterialScope scope;
     auto frame = [&](int steps) {
         World w;
         add_camera(w, {0, 1.5f, 4}, {0, 0, 0});
-        add_mesh(w, "cube", {0, 0, 0}, Color::hex(0x202020), {1.5f, 1.5f, 1.5f});
+        add_material_mesh(w, "cube", "materials/time.material.json", {0, 0, 0});
         add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f);
         for (int i = 0; i < steps; ++i) w.advance_clock(1.0 / 60.0);
         return g.render(w);
     };
-    gpu->set_mesh_shader(timed);
     const Image start = frame(0);
     const Image a = frame(45);
     const Image b = frame(45);
-    gpu->set_mesh_shader(builtin);
-    sg_destroy_shader(timed);
     CHECK(diff_images(a, b, 0.0f).maxError == 0.0);
     // 0.75 s: red emission 0.5 + 0.5 sin(2.25) = 0.89 and green 0.19, against 0.5 and 0 at the start.
     CHECK(diff_images(start, a, 4.0f / 255.0f).meanError > 0.01);

@@ -352,6 +352,8 @@ struct MeshRenderer {
     bool castShadows = true;
     bool receiveShadows = true;
     Vec2 uvScale{1, 1};               // texture tiling
+    std::string material;             // "" = the standard material; else a *.material.json (docs/SHADERS.md)
+    Json materialParams = Json::object();  // per-entity overrides of the material's params and textures: {"glow": [1,0,0,1]}
 };
 
 enum class LightType : std::int32_t { Directional, Point, Spot };

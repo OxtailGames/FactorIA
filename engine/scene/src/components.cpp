@@ -452,7 +452,20 @@ void register_builtin_components(TypeRegistry& r) {
         .field("unlit", &MeshRenderer::unlit, "true = ignore lighting and draw the flat base color.")
         .field("castShadows", &MeshRenderer::castShadows, "Cast shadows from shadow-casting lights.")
         .field("receiveShadows", &MeshRenderer::receiveShadows, "Receive shadows from shadow-casting lights.")
-        .field("uvScale", &MeshRenderer::uvScale, "Texture tiling [u, v]; 2 repeats the texture twice.");
+        .field("uvScale", &MeshRenderer::uvScale, "Texture tiling [u, v]; 2 repeats the texture twice.")
+        .asset_field("material", &MeshRenderer::material, "material",
+                     "Project-relative path of a custom material, a *.material.json file (e.g. \"materials/water.material.json\"), "
+                     "or \"\" (default) for the standard PBR material. The material file names a GLSL snippet whose surface() "
+                     "changes what the standard material computed (albedo, alpha, normal, emission...) and whose optional vertex() "
+                     "moves the vertices, and declares its params, textures, lighting (pbr or unlit) and alphaMode (opaque, clip "
+                     "or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles it "
+                     "and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces "
+                     "unlit lighting. A material that does not compile draws magenta and logs why.")
+        .field("materialParams", &MeshRenderer::materialParams,
+               "Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the "
+               "material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths "
+               "for textures. Example: {\"glow\": [1, 0.2, 0, 1], \"mask\": \"textures/leaf.png\"}. Unnamed params keep the "
+               "material's defaults. An entity without overrides batches with the others that share the material.");
 
     r.add<Light>("Light",
                  "A light source for 3D meshes. A directional light shines along the entity's forward direction (-Z "

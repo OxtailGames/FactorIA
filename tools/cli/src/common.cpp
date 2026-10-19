@@ -161,6 +161,7 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
 
     EngineConfig cfg;
     cfg.projectDir = s->projectDir_;
+    cfg.shaderCompiler = make_engine_shader_compiler(s->projectDir_);
     cfg.scene = opt.scene;
     cfg.headless = true;
     cfg.audioDevice = false;

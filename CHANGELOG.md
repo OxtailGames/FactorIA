@@ -17,7 +17,11 @@ Better looking 3D, and much bigger 3D scenes
   material are drawn together. Ten thousand identical cubes now cost one draw.
 - Up to 32 lights at once instead of 8. With more, the engine keeps the sun and the brightest, nearest lights.
 - The render statistics (`play.report`) now also count `meshesCulled`, `meshBatches` and `lightsDropped`.
-- Not yet: your own shaders for a material, and an environment picture for reflections.
+- Your own shaders: a `MeshRenderer` can use a material file (`material`) with a few lines of GLSL that change how the
+  surface looks (a pulsing glow, cut-out leaves, moving water) or move its vertices. Shadows follow the moved or cut-out
+  shape, each entity can change the material's values (`materialParams`), and a change to the file shows up at once
+  while the game runs. A material that does not compile draws magenta and says which line is wrong.
+- Not yet: an environment picture for reflections.
 
 Animation
 

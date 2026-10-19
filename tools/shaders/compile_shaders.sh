@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Regenerates the shader headers with sokol-shdc: engine/render/shaders/<name>.glsl -> engine/render/src/shaders/
-# <name>.glsl.h, and the test materials engine/render/tests/shaders/<name>.glsl -> <name>.glsl.h next to them. The
-# generated headers are committed, so normal builds never need this script; run it after editing a .glsl file and
-# commit the result.
+# <name>.glsl.h. The generated headers are committed, so normal builds never need this script; run it after editing a
+# .glsl file and commit the result. (Custom material test fixtures are compiled by the tooling: FA_UPDATE_FIXTURES=1.)
 #
 #   tools/shaders/compile_shaders.sh            # all shaders
 #   tools/shaders/compile_shaders.sh mesh quad  # only these
@@ -28,7 +27,6 @@ SHDC_SHA256_osx_arm64=2a807d62dffcc67a50a6ab51df57cde2fc8b23a3daf6207177d79e00fb
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC="$ROOT/engine/render/shaders"
 OUT="$ROOT/engine/render/src/shaders"
-TESTS="$ROOT/engine/render/tests/shaders"
 SLANG="glsl430:glsl300es:metal_macos:metal_ios:metal_sim:hlsl5:wgsl"
 
 host_dir() {
@@ -71,12 +69,12 @@ fi
 
 mkdir -p "$OUT"
 compiled=0
-for input in "$SRC"/*.glsl "$TESTS"/*.glsl; do
+for input in "$SRC"/*.glsl; do
     [ -f "$input" ] || continue
     name="$(basename "$input" .glsl)"
     if [ "$#" -gt 0 ] && [[ " $* " != *" $name "* ]]; then continue; fi
     grep -q '^@program' "$input" || continue  # a template, compiled through the files that include it
-    if [ "$(dirname "$input")" = "$TESTS" ]; then output="$TESTS/$name.glsl.h"; else output="$OUT/$name.glsl.h"; fi
+    output="$OUT/$name.glsl.h"
     echo "shdc: ${input#"$ROOT"/} -> ${output#"$ROOT"/}"
     "$SHDC" --input "$input" --output "$output" --slang "$SLANG" --format sokol --ifdef --no-log-cmdline
     compiled=$((compiled + 1))
