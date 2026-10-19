@@ -258,10 +258,15 @@ void Editor::on_init() {
         {
             const stdfs::path home = base / "factoria_home";
             stdfs::remove_all(home, ec);
+            // That home would hide the shader compiler installed in the real one (`factoria setup shaders`, as CI does):
+            // hand it over through SOKOL_SHDC, so the custom material of the autotest compiles as in the user's editor.
+            const std::string shdc = std::getenv("SOKOL_SHDC") ? std::string() : find_sokol_shdc(SetupContext{});
 #ifdef _WIN32
             _putenv_s("FACTORIA_HOME", home.string().c_str());
+            if (!shdc.empty()) _putenv_s("SOKOL_SHDC", shdc.c_str());
 #else
             setenv("FACTORIA_HOME", home.string().c_str(), 1);
+            if (!shdc.empty()) setenv("SOKOL_SHDC", shdc.c_str(), 1);
 #endif
             const char* real = std::getenv("FA_EDITOR_AUTOTEST_REAL_CMAKE");
             if (!(real && *real && std::string(real) != "0")) {
