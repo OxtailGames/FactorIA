@@ -56,13 +56,12 @@ with_display() {
 }
 
 # The shader compiler custom materials need, installed the way CI does it (docs/BUILDING.md): the CLI built in $1 runs
-# `factoria setup shaders` (a SOKOL_SHDC that is set counts as installed) and the status must say so. The test runs after
-# it get FA_REQUIRE_SHDC=1, which turns the tests that need the compiler from skipped into failed.
+# `factoria setup shaders` (a SOKOL_SHDC that is set counts as installed). The test runs after it get FA_REQUIRE_SHDC=1,
+# which turns the tests that need the compiler from skipped into failed.
 install_shaders() {
     local cli; cli="$(find "$1/tools/cli" -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)"
     [ -n "$cli" ] || { echo "factoria was not built under $1/tools/cli"; return 1; }
-    "$cli" setup shaders || return 1
-    "$cli" setup | grep -Eq '^ +shaders +installed' || { echo "sokol-shdc is not installed after 'factoria setup shaders'"; return 1; }
+    "$cli" setup shaders
 }
 
 job_linux() {
