@@ -203,7 +203,6 @@ test("reduced effects: collecting an ember makes no sparks; otherwise it does", 
 const LANGUAGES = ["en", "es", "de", "ar"];
 const SIZES = [1, 2];
 
-const expectFits = (where) => expect(screenProblems(where)).toEqual([]);
 /** Collects the problems of every screen of a test, so one run lists all of them instead of stopping at the first screen. */
 const collector = () => {
   const all = [];
