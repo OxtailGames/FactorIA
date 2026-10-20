@@ -147,6 +147,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `api_components`, `api_commands`, `api_scripting`, `assets_list`, `engine_info`, `project_info` | `api.*`, `assets.list`, `engine.info`, `project.info` | Introspection of the engine, the API and the project. |
 | `fs_list`, `fs_read`, `fs_write`, `fs_edit`, `fs_search`, `fs_delete` | `fs.*` | Project files, sandboxed to the project folder (writes and deletes skip `.factoria/` except the scratch folder `.factoria/tmp/`). Every file the engine and these commands write is replaced atomically (a temporary `<name>.fa-tmp...` file next to it is renamed over the target, and removed if that fails), so a crash, a full disk or the hot-reload watcher never sees a half-written scene. Use them if your client has no file tools. |
 | `assets_import`, `assets_slice_sheet` | `assets.import`, `assets.slice_sheet` | Bring a file made elsewhere into `assets/` with its provenance, and make a sprite sheet playable by `SpriteAnimator` (section 9.23). |
+| `assets_draw_icon` | `assets.draw_icon` | Draw the game icon (1024x1024) and the Android adaptive-icon foreground from shapes and text, no image provider needed (docs: assets). |
 | `feedback_report`, `feedback_list`, `feedback_update` | `feedback.*` | The FEEDBACK RULE. |
 | `project_<name>` | `project.<name>` | Your own tool from `tools/<name>.js`. |
 

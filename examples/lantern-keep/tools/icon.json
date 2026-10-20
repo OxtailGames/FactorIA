@@ -1,0 +1,23 @@
+{
+  "background": { "color": "#101228", "colorBottom": "#242046", "shape": "square" },
+  "layers": [
+    { "type": "roundRect", "x": 16, "y": 14, "w": 68, "h": 106, "radius": 34, "fill": "#1e1e3a", "foreground": false },
+    { "type": "roundRect", "x": 24, "y": 22, "w": 52, "h": 98, "radius": 26, "fill": "#14152c", "foreground": false },
+    { "type": "rect", "x": 0, "y": 90, "w": 100, "h": 10, "fill": "#0c0c1c", "foreground": false },
+    { "type": "circle", "x": 50, "y": 50, "radius": 36, "fill": "#ffaa2896", "softness": 18 },
+    { "type": "circle", "x": 50, "y": 10, "radius": 5.5, "outline": "#261e22", "outlineWidth": 3 },
+    { "type": "polygon", "points": [[28, 26], [41, 14], [59, 14], [72, 26]], "fill": "#261e22" },
+    { "type": "rect", "x": 26, "y": 25, "w": 48, "h": 4, "fill": "#261e22" },
+    { "type": "roundRect", "x": 31, "y": 29, "w": 38, "h": 44, "radius": 4, "fill": "#ffc446" },
+    { "type": "ellipse", "x": 50, "y": 51, "rx": 13, "ry": 15, "fill": "#ffeca0" },
+    { "type": "ellipse", "x": 50, "y": 52, "rx": 6, "ry": 8, "fill": "#fffce2" },
+    { "type": "rect", "x": 29.8, "y": 29, "w": 2.4, "h": 44, "fill": "#261e22" },
+    { "type": "rect", "x": 43.3, "y": 29, "w": 2.4, "h": 44, "fill": "#261e22" },
+    { "type": "rect", "x": 54.3, "y": 29, "w": 2.4, "h": 44, "fill": "#261e22" },
+    { "type": "rect", "x": 67.8, "y": 29, "w": 2.4, "h": 44, "fill": "#261e22" },
+    { "type": "rect", "x": 26, "y": 73, "w": 48, "h": 5, "fill": "#261e22" },
+    { "type": "polygon", "points": [[30, 78], [70, 78], [64, 84], [36, 84]], "fill": "#261e22" }
+  ],
+  "path": "assets/icon.png",
+  "foreground": "assets/icon_fg.png"
+}
