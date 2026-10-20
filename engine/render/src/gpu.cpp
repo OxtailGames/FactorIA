@@ -7,6 +7,7 @@
 #include "fa/platform/sokol_logging.h"
 
 #include "shaders/bloom.glsl.h"
+#include "shaders/colorfilter.glsl.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/mesh.glsl.h"
 #include "shaders/quad.glsl.h"
@@ -126,6 +127,9 @@ void Gpu::shutdown() {
         s = {};
     }
     bloomState_ = 0;
+    if (colorfilter_shader_.id) sg_destroy_shader(colorfilter_shader_);
+    colorfilter_shader_ = {};
+    colorfilterState_ = 0;
 }
 
 void Gpu::destroy_shader(sg_shader shader) {
@@ -329,6 +333,37 @@ sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
         case BloomStage::Down: d.label = "bloom-down"; break;
         default: d.label = "bloom-blur"; break;
     }
+    return find_or_make(key, d);
+}
+
+bool Gpu::colorfilter_ready() {
+    if (colorfilterState_ != 0) return colorfilterState_ > 0;
+    colorfilter_shader_ = sg_make_shader(colorfilter_colorfilter_shader_desc(sg_query_backend()));
+    if (sg_query_shader_state(colorfilter_shader_) != SG_RESOURCESTATE_VALID) {
+        sg_destroy_shader(colorfilter_shader_);
+        colorfilter_shader_ = {};
+        colorfilterState_ = -1;
+        FA_ERROR("render", "Camera.colorFilter is unavailable: the colour filter shader failed to compile for this graphics "
+                           "backend (see the sokol log lines above). The game renders without the filter. Hint: update the "
+                           "graphics driver (Mesa: try LIBGL_ALWAYS_SOFTWARE=1) or set Camera.colorFilter to \"none\".");
+        return false;
+    }
+    colorfilterState_ = 1;
+    return true;
+}
+
+sg_pipeline Gpu::colorfilter_pipeline() {
+    PipelineKey key{0x700u};
+    sg_pipeline_desc d{};
+    d.shader = colorfilter_shader_;
+    d.layout.attrs[ATTR_colorfilter_colorfilter_pos].format = SG_VERTEXFORMAT_FLOAT2;
+    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
+    d.depth.compare = SG_COMPAREFUNC_ALWAYS;
+    d.depth.write_enabled = false;
+    d.colors[0].pixel_format = kColorFormat;
+    d.sample_count = 1;
+    d.face_winding = SG_FACEWINDING_CCW;
+    d.label = "colorfilter";
     return find_or_make(key, d);
 }
 

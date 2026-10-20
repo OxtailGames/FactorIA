@@ -157,6 +157,18 @@
             }
           },
           {
+            "id": "color_filter",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Color filter",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
             "id": "video_note",
             "components": {
               "Text": {
@@ -228,6 +240,18 @@
                 "autoSize": true,
                 "label": "Interface",
                 "key": "options.volume.interface",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
+          },
+          {
+            "id": "read_aloud",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Read menus aloud",
+                "key": "options.readAloud",
                 "size": [560, 44],
                 "layer": 302
               }

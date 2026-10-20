@@ -4,6 +4,7 @@
 import { Behaviour, ui, game, scene, session, platform } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
+import { readMenusAloud } from "./ui/read_aloud.js";
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -11,6 +12,7 @@ export default class MainMenu extends Behaviour {
 
   onStart() {
     applyOnce();
+    readMenusAloud();
     this.menus = new MenuStack("main_menu");
     // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).
     if (platform.has("purchases")) this.world.find("shop_button").active = true;

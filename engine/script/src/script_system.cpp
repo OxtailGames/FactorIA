@@ -837,6 +837,7 @@ void ScriptSystem::dispatch_back() {
 void ScriptSystem::update(float dt) {
     if (!impl_->initialized) return;
     impl_->lastDt = dt;
+    impl_->host->speech().update();
     impl_->sync();
     float scaled = static_cast<float>(dt * impl_->timeScale);
     if (impl_->timeScale > 0.0) {

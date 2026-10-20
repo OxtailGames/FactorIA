@@ -331,6 +331,7 @@ struct CameraInfo {
     Color clearColor{0.08f, 0.08f, 0.12f, 1};
     bool clear = true;
     BloomSettings bloom;  // Camera.bloom* after clamping to the supported ranges
+    int colorFilter = 0;  // Camera.colorFilter as an int (0 none, 1 greyscale, 2 highContrast, 3 protanopia, 4 deuteranopia, 5 tritanopia)
 };
 
 // Texture/mesh/font caches keyed by project-relative path.
@@ -448,6 +449,10 @@ public:
     bool bloom_ready();
     // sampleCount > 1: the composite stage can also add its glow straight into the multisampled game target.
     sg_pipeline bloom_pipeline(BloomStage stage, int sampleCount = 1);
+    // Camera.colorFilter: one program (colorfilter.glsl), created on first use like the bloom ones; false + one logged
+    // error when it cannot be created, and the game is then drawn unfiltered.
+    bool colorfilter_ready();
+    sg_pipeline colorfilter_pipeline();
 
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
@@ -474,6 +479,7 @@ public:
     sg_shader quad_shader_{}, mesh_shader_{}, sky_shader_{}, shadow_shader_{}, blit_shader_{};
     sg_shader meshSkinShader_{}, shadowSkinShader_{};
     sg_shader bloom_shaders_[int(BloomStage::Count)]{};
+    sg_shader colorfilter_shader_{};
 
 private:
         sg_pipeline find_or_make(PipelineKey key, const sg_pipeline_desc& desc);
@@ -481,6 +487,7 @@ private:
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int bloomState_ = 0;  // 0 = shaders not created yet, 1 = ready, -1 = creation failed
+    int colorfilterState_ = 0;  // same meaning as bloomState_
     sg_sampler samplers_[int(SamplerKind::Count)]{};
     sg_buffer quadIndices_{}, fsTriangle_{};
     std::map<PipelineKey, sg_pipeline> pipelines_;
