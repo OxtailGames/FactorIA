@@ -4,13 +4,23 @@
   "runners": {
     "windows-msvc-d3d11-warp": {
       "frames": 300,
-      "cpuMsAvg": 49.774,
-      "cpuMsP95": 66.071,
-      "cpuMsMax": 296.155,
-      "peakMemoryMB": 185.7,
+      "cpuMsAvg": 53.292,
+      "cpuMsP95": 68.867,
+      "cpuMsMax": 243.901,
+      "peakMemoryMB": 136.6,
       "drawCalls": 14,
       "entities": 30,
       "graphics": "D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)"
+    },
+    "linux-gcc-llvmpipe": {
+      "frames": 300,
+      "cpuMsAvg": 74.7,
+      "cpuMsP95": 489.904,
+      "cpuMsMax": 703.917,
+      "peakMemoryMB": 198.7,
+      "drawCalls": 14,
+      "entities": 30,
+      "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)"
     }
   }
 }
