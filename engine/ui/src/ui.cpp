@@ -161,6 +161,8 @@ void UiSystem::reset() {
     scrollToFocus_ = false;
     for (Repeat& r : nav_) r = Repeat{};
     backspace_ = Repeat{};
+    autoSizes_.clear();
+    warnedFit_.clear();
 }
 
 bool UiSystem::set_focus(World& w, Entity e) {

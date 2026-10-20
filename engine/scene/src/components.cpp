@@ -91,6 +91,14 @@ constexpr const char* kTouchOnlyDoc =
     "a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on "
     "the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).";
 
+// autoSize of Button, Toggle and Slider.
+constexpr const char* kAutoSizeDoc =
+    "true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) "
+    "and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing "
+    "`size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at "
+    "Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a "
+    "big label sticks out of it (Button labels are clipped).";
+
 }  // namespace
 
 void register_builtin_components(TypeRegistry& r) {
@@ -821,7 +829,13 @@ void register_builtin_components(TypeRegistry& r) {
                   "gamepad A) while it has focus; the event is ui.click {id}. Focus rules and the other widgets: see Panel.",
                   "UI");
         ui_control_fields(button)
-            .field("text", &Button::text, "Label, centred on the button.");
+            .field("text", &Button::text,
+                   "Label, centred on the button. `\n` starts a new line; every line is centred. Text longer than the button is "
+                   "clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button.")
+            .field("maxWidth", &Button::maxWidth,
+                   "> 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = the label wraps only at `\n`. "
+                   "With autoSize the button is at most maxWidth plus its margins wide and grows taller instead.").range(0, 100000)
+            .field("autoSize", &Button::autoSize, kAutoSizeDoc);
     }
     {
         auto toggle = r.add<Toggle>("Toggle",
@@ -830,6 +844,7 @@ void register_builtin_components(TypeRegistry& r) {
                   "UI");
         ui_control_fields(toggle)
             .field("label", &Toggle::label, "Text to the right of the box.")
+            .field("autoSize", &Toggle::autoSize, kAutoSizeDoc)
             .field("value", &Toggle::value, "true = checked. Scripts may write it; no event is sent for a write.");
     }
     {
@@ -841,6 +856,7 @@ void register_builtin_components(TypeRegistry& r) {
                   "UI");
         ui_control_fields(slider)
             .field("label", &Slider::label, "Text at the left; empty gives the track the extra room.")
+            .field("autoSize", &Slider::autoSize, kAutoSizeDoc)
             .field("value", &Slider::value,
                    "Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is "
                    "sent for a write.")
@@ -880,7 +896,14 @@ void register_builtin_components(TypeRegistry& r) {
             .field("scroll", &ScrollList::scroll,
                    "Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner "
                    "height] every frame.").runtime_only()
-            .field("scrollSpeed", &ScrollList::scrollSpeed, "Pixels scrolled per mouse-wheel notch.").range(0, 10000);
+            .field("scrollSpeed", &ScrollList::scrollSpeed, "Pixels scrolled per mouse-wheel notch.").range(0, 10000)
+            .field("fill", &ScrollList::fill,
+                   "true: when the parent is a Panel with layout column, `size.y` is set every frame to the height the other "
+                   "children leave. In a Panel with `fit` that is the screen height (minus the safe-area insets) minus the "
+                   "panel's padding, the gaps and the other children, so the panel ends exactly as tall as the screen at most "
+                   "(never below 64 px; if the other children do not leave that, the panel is taller than the screen and "
+                   "warns). In a Panel without fit it is the panel's own inner height minus the others. Several fill lists "
+                   "share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours.");
     }
     {
         auto stick = r.add<TouchStick>("TouchStick",

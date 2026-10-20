@@ -57,4 +57,7 @@ Rect ui_intersect(const Rect& a, const Rect& b);
 // drawing and the mouse use it, so the knob is always under the pointer.
 std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r);
 
+// The text a Slider draws at its right for `value`: "60%" for a 0..1 range, else the number with up to two decimals.
+std::string ui_slider_value_text(const Slider& s, float value);
+
 }  // namespace fa
