@@ -14,6 +14,7 @@ const DEFAULTS = {
   frameCap: 0, // 0 = no cap
   bindings: {}, // action -> binding names, only for actions the player rebound
   language: null, // null: the language the game started in (the player's system language, else the default one)
+  readAloud: false, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
 };
 
 /** The saved settings merged over the defaults (a fresh object each call). */

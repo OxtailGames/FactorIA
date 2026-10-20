@@ -5,12 +5,14 @@
 import { Behaviour, ui, input, game, scene, world } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
+import { readMenusAloud } from "./ui/read_aloud.js";
 
 export default class PauseMenu extends Behaviour {
   runWhilePaused = true;
 
   onStart() {
     applyOnce();
+    readMenusAloud();
     this.menus = new MenuStack(null);
     // Spawned, not written into the level: any level works with this one entity, even one scene.import_ascii rebuilds.
     for (const [id, prefab] of [["pause_panel", "pause"], ["options", "options"]]) {

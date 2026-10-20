@@ -540,6 +540,8 @@
     "shader.compile": "unreleased",
     "sign.macos": "unreleased",
     "ui.set_text_scale": "unreleased",
+    "ui.speak": "unreleased",
+    "ui.stop_speaking": "unreleased",
     "ui.state": "0.1.6"
   }
 }

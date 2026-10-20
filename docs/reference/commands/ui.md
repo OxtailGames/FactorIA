@@ -14,6 +14,19 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 |---|---|---|---|
 | `scale` | number | yes | Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half. |
 
+## `ui.speak` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Say a line aloud with the system's text to speech (or record it, headless).
+
+The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and record the line (game.spoken() in tests). Example: ui.speak {"text":"Play"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | What to say, already localized. |
+| `interrupt` | boolean | no | Stop what is being said first (default true); false queues the line. |
+
 ## `ui.state`
 
 Since 0.1.6.
@@ -21,4 +34,12 @@ Since 0.1.6.
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.
 
 Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space "screen") follow the widgets as {id, kind: "Text", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}
+
+## `ui.stop_speaking` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Stop what is being said by ui.speak and drop the queued lines.
+
+The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. Example: ui.stop_speaking {}
 
