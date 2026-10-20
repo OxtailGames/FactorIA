@@ -195,23 +195,46 @@ Command make_test_command() {
     Command c;
     c.name = "test";
     c.summary = "Run the project's tests (tests/**/*.test.js) on a headless engine.";
-    c.usage = "[project] [--filter TEXT] [--json]";
-    c.details = "Prints one line per test with failure messages (expected/actual); console.log/warn/error output of the tests and\nbehaviours is shown indented under the test (\"| ...\"), whatever --log-level is. Exit code 1 if any test fails or a test file does not load.";
-    c.maxPositional = 1;
+    c.usage = "[project] [FILE|GLOB...] [--filter TEXT] [--json]";
+    c.details = "Prints one line per test with failure messages (expected/actual); console.log/warn/error output of the tests and\nbehaviours is shown indented under the test (\"| ...\"), whatever --log-level is. Exit code 1 if any test fails or a test file does not load.\nName test files (tests/saves.test.js), folders or globs (\"tests/ui*.test.js\", relative to the project) after the project to run only those; the project folder may be left out when you are inside it. A path that is not a *.test.js file is an error.";
+    c.maxPositional = -1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
                {"filter", "TEXT", "Only run tests whose name contains TEXT."},
                {"render-all", "", "Draw every frame (default: only when a test takes a screenshot)."},
                {"persist-storage", "", "Scripts' storage.* uses the real save file (default: in memory)."},
                {"json", "", "Machine-readable report."}};
-    c.examples = {"factoria test", "factoria test --filter jump --json"};
+    c.examples = {"factoria test", "factoria test --filter jump --json", "factoria test tests/saves.test.js", "factoria test my-game \"tests/ui*.test.js\""};
     c.run = [](Context& ctx) {
-        std::string dir = resolve_project_dir(ctx, 0);
+        // The first argument is the project when it is a folder; a file or a glob first means the project is the current
+        // one (or --project).
+        std::vector<std::string> given = ctx.args.positional();
+        std::error_code ec;
+        std::string dir;
+        if (!given.empty() && fsys::is_directory(fsys::path(given[0]), ec)) {
+            dir = resolve_project_dir(ctx, 0);
+            given.erase(given.begin());
+        } else {
+            if (!given.empty() && find_project_dir_or_empty(ctx, 99).empty())
+                throw CliError("'" + given[0] + "' is not a project folder, and no FactorIA project was found in the current directory or any parent.",
+                               "Give the project folder first: factoria test <project> " + given[0] + ".");
+            dir = resolve_project_dir(ctx, 99);
+        }
+        // Paths are relative to the project; one typed relative to the current directory inside it, or absolute, is converted.
+        for (std::string& g : given) {
+            const fsys::path p(g);
+            if (g.find_first_of("*?") != std::string::npos) continue;
+            fsys::path abs = p.is_absolute() ? p : fsys::current_path(ec) / p;
+            if (fsys::exists(abs, ec) && (p.is_absolute() || !fsys::exists(fsys::path(dir) / p, ec))) {
+                const fsys::path rel = fsys::weakly_canonical(abs, ec).lexically_relative(fsys::weakly_canonical(fsys::path(dir), ec));
+                if (!rel.empty() && *rel.begin() != "..") g = rel.generic_string();
+            }
+        }
         SessionOptions so;  // OnDemand rendering + in-memory storage by default
         so.gfx = Gfx::Auto;
         so.renderMode = ctx.args.has("render-all") ? RenderMode::Always : RenderMode::OnDemand;
         so.memoryStorage = !ctx.args.has("persist-storage");
         auto session = Session::open(dir, so);
-        TestReport rep = run_project_tests(session->engine(), ctx.args.str("filter"));
+        TestReport rep = run_project_tests(session->engine(), ctx.args.str("filter"), given);
         if (ctx.args.has("json")) {
             Json j = rep.to_json();
             if (!j.contains("ok")) j["ok"] = rep.ok();

@@ -1,6 +1,8 @@
 // The `platform.*` commands (fa/services/platform_commands.h).
 #include "fa/services/platform_commands.h"
 
+#include <algorithm>
+
 #include "fa/core/strings.h"
 #include "fa/services/fake_platform.h"
 
@@ -55,6 +57,7 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
          schema(R"({"type":"object","properties":{}})"), false, "platform"},
         [&platform](const Json&) {
             need_fake(platform, "platform.reset").reset();
+            platform.refresh_backend();
             return Json::object();
         });
 
@@ -103,17 +106,32 @@ void register_platform_commands(CommandRegistry& commands, PlatformServices& pla
          "Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers.",
          "`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` "
          "holds each answer for n engine frames (0, the default, answers at once), so a test can look at the \"waiting\" state of a "
-         "screen and game.step() until the answer arrives. Give either or both. Fails when the game runs a real store backend. "
+         "screen and game.step() until the answer arrives. Give any of them. `backend: \"none\"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. "
          "Example: platform.set_fake {\"delayFrames\":2}",
          schema(R"({"type":"object","properties":{
              "signedIn":{"type":"boolean","description":"false: the player is not signed in."},
+             "backend":{"type":"string","enum":["fake","none"],"description":"\"none\": behave as the none backend until platform.reset."},
              "delayFrames":{"type":"integer","minimum":0,"maximum":10000,"description":"Frames each answer is held (0 = at once)."}}})"),
          false, "platform"},
         [&platform](const Json& a) {
             FakeBackend& fake = need_fake(platform, "platform.set_fake");
+            static const std::vector<std::string> known = {"signedIn", "delayFrames", "backend"};
+            for (const auto& [key, value] : a.items()) {
+                if (std::find(known.begin(), known.end(), key) != known.end()) continue;
+                throw CommandError("invalid_argument", "platform.set_fake has no option " + Json(key).dump() + ".",
+                                   did_you_mean(key, known) + " Options: signedIn, delayFrames, backend.");
+            }
+            if (a.contains("backend")) {
+                const std::string b = a["backend"].get<std::string>();
+                if (b != "fake" && b != "none")
+                    throw CommandError("invalid_argument", "backend must be \"fake\" or \"none\", not " + Json(b).dump() + ".",
+                                       "Use \"none\" to test a game without a store; platform.reset goes back.");
+                fake.set_none(b == "none");
+                platform.refresh_backend();
+            }
             if (a.contains("signedIn")) fake.set_signed_in(a["signedIn"].get<bool>());
             if (a.contains("delayFrames")) fake.set_delay_frames(a["delayFrames"].get<int>());
-            return Json::object({{"signedIn", fake.signed_in()}, {"delayFrames", fake.delay_frames()}});
+            return Json::object({{"signedIn", fake.signed_in()}, {"delayFrames", fake.delay_frames()}, {"backend", fake.name()}});
         });
 }
 

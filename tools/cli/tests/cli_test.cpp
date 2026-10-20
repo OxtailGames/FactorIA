@@ -390,3 +390,64 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
         CHECK(flat_keys(docTables[path]) == flat_keys(docTables["locales/en.json"]));
     }
 }
+
+// `factoria test <project> <file|glob>...` and the `files` of project.test run only the named test files; a path that is
+// not a test file is an error that says what to pass (run_project_tests is what the command runs).
+TEST_CASE("test: named files, folders and globs select what runs; a non-test path is a teaching error") {
+    const stdfs::path oldRoot = fa::fs::project_root();
+    const stdfs::path root = fa::fs::make_temp_dir("fa_cli_test_files");
+    const std::string dir = (root / "game").string();
+    fa::ScaffoldOptions opt;
+    opt.writeTypings = false;
+    REQUIRE(fa::create_project(dir, "2d-empty", opt).ok());
+    auto write = [&](const char* rel, const char* name) {
+        stdfs::create_directories((root / "game" / rel).parent_path());
+        std::ofstream((root / "game" / rel).string())
+            << "import { test, expect } from \"factoria:test\";\ntest(\"" << name << "\", () => { expect(1).toBe(1); });\n";
+    };
+    write("tests/alpha.test.js", "alpha");
+    write("tests/beta.test.js", "beta");
+    write("tests/ui/gamma.test.js", "gamma");
+    write("scripts/helper.js", "helper");
+    {
+        fa::cli::SessionOptions so;
+        so.gfx = fa::cli::Gfx::None;
+        auto session = fa::cli::Session::open(dir, so);
+        auto names = [&](std::vector<std::string> files) {
+            fa::TestReport rep = fa::cli::run_project_tests(session->engine(), "", files);
+            std::set<std::string> out;
+            for (const auto& c : rep.cases) out.insert(c.name);
+            return out;
+        };
+        CHECK(names({}) == std::set<std::string>{"alpha", "beta", "gamma"});
+        CHECK(names({"tests/beta.test.js"}) == std::set<std::string>{"beta"});
+        CHECK(names({"./tests/alpha.test.js", "tests\\ui\\gamma.test.js"}) == std::set<std::string>{"alpha", "gamma"});
+        CHECK(names({"tests/ui"}) == std::set<std::string>{"gamma"});
+        CHECK(names({"tests/*.test.js"}) == std::set<std::string>{"alpha", "beta"});
+        CHECK(names({"**/g*.test.js"}) == std::set<std::string>{"gamma"});
+        auto fails = [&](const char* file) {
+            try {
+                fa::cli::run_project_tests(session->engine(), "", {file});
+            } catch (const fa::cli::CliError& e) {
+                return std::string(e.what()) + " | " + e.hint;
+            }
+            return std::string();
+        };
+        const std::string notTest = fails("scripts/helper.js");
+        CHECK(notTest.find("is not a test file") != std::string::npos);
+        CHECK(notTest.find("tests/alpha.test.js") != std::string::npos);  // says what to pass
+        CHECK(fails("tests/alpah.test.js").find("tests/alpha.test.js") != std::string::npos);  // did you mean
+        CHECK(fails("tests/zzz*.test.js").find("matches no test file") != std::string::npos);
+    }
+    // The command: the same selection through the real argument parser, project first then the files.
+    auto r = run({"test", dir, "tests/beta.test.js", "--json"});
+    CHECK_MESSAGE(r.code == 0, (r.out + r.err));
+    CHECK(r.out.find("beta") != std::string::npos);
+    CHECK(r.out.find("alpha") == std::string::npos);
+    auto bad = run({"test", dir, "scripts/helper.js"});
+    CHECK(bad.code != 0);
+    CHECK(bad.err.find("is not a test file") != std::string::npos);
+    std::error_code ec;
+    stdfs::remove_all(root, ec);
+    fa::fs::set_project_root(oldRoot);
+}
