@@ -5,8 +5,8 @@ reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one w
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
 (M24.1-M24.16, 2026-10-20), two of them found on the way; the 4 still open are ranked below, all in M20-M23. M1-M11 and
 M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile
-store-ready), M17 (web export) and M18 (animation and production 3D) are done; M21 has its reference game; M24 is done
-(M24.1-M24.16); M19, M20, M22 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
+store-ready), M17 (web export), M18 (animation and production 3D) and M21 (docs and material for shipping) are done;
+M24 is done (M24.1-M24.16); M19, M20, M22 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can
 close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this
 file keeps what they left open and the decisions to respect.
@@ -512,68 +512,30 @@ Closes H-01, H-02, H-03, H-05, H-09 and the editor part of H-06.
   a height above the ground) and its result lists the column and row of every legend object, so an AI moves a hazard
   in a 300-column level without rewriting the rows. Acceptance: a tooling test edits a map with each operation and the
   written rows and scene match a map written by hand; the AI_GUIDE 9.8 recipe uses it.
+- Found writing the M21 tutorials: the editor's Undo covers scene edits only, so the scripts and tests an AI writes can
+  only be undone with git (a "checkpoint" or "revert the last AI run" button would fit an AI-first editor); the
+  Screenshot button saves into the hidden `.factoria/screenshots/` with no "open folder" button; `factoria validate`
+  warns "not in the canonical layout" on any hand-written scene, so docs/MAKE_BY_HAND.md sends people to `scene.format`.
+  Not taken: an example script and test in the empty templates (they stay minimal).
 
 Acceptance criteria:
 - The editor autotest edits a field in the inspector and the scene file changes.
 - An integration test drives the DAP server over stdio and stops at a breakpoint in a template behaviour.
 - The profiler report lists each behaviour class with its milliseconds per frame.
 
-## M21. Docs and material for shipping (M, high)
+## M21. Docs and material for shipping (M, high) — DONE (PRs #115-#124, the `m21/reference-game` and `m21/ai-cost-guide` PRs)
 
-Closes D-01..D-05, D-07 and the store-page notes of the report.
+Built: [ROADMAP_DONE.md](ROADMAP_DONE.md), M21.
 
-- Docs marked by version ("since 0.1.x"); `factoria docs` already serves the docs of its own binary.
-- A publishing guide per store with a checklist (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io):
-  what the engine does and what the developer still does by hand.
-- A "finish your game" guide (menus, options, saves, localization, accessibility, credits) with M10-M14.
-- A complete reference game built on M10-M14 and the fake platform backend, with its own ENGINE_FEEDBACK.json, so the
-  feedback loop sees what jam-sized examples never reach.
-- Tutorials for people and a browsable API reference generated from `factoria api --md`.
-- An AI cost guide (tokens and money for a typical game, from `--max-cost` and the editor's usage records).
-- Store page material: screenshots and capsule art at each store's sizes, gameplay video recorded from a replay,
-  store metadata as text files per language.
-
-Acceptance criteria: every guide is embedded in the binary and listed by `factoria docs`; a replay can be written to a
-video file.
-
-Done (the `m21/reference-game` PR, 2026-10-19): the reference game, first because the guides are better written with it
-in hand. **Lantern Keep** (`examples/lantern-keep`, its README) is a 2D platformer, six short levels in two worlds, built
-the way a game maker's AI builds a game (the generated AGENTS.md, `factoria docs`, the public commands, no engine change)
-in six worker packages: core game and the menu kit (P1), three save slots, level select, a versioned save format and
-cloud saves (P2), achievements, stats, leaderboards and a cosmetics shop on the fake store (P3), accessibility: text size,
-assist mode, reduced effects, hazards readable without colour (P4), shipping: export and publish settings, icon, touch
-gamepad, store texts and `SHIPPING.md` (P5), German and Arabic with every screen checked in four languages at 100 % and
-200 % text (P6). 120 tests; ctest runs it as `example_lantern-keep_*`.
-
-What it found: 45 open feedback entries (ranked at the top of this file), none a blocker or major, so M10-M18 hold up for
-a complete small game. They cluster in UI layout at large text and right to left (widgets that do not fit their label, no
-mirrored rows, focus navigation), tests (no `none` backend, no widget press helper, test runtime gaps), `scene.import_ascii`
-copying prefabs into levels, `game.paused` resetting `time.scale`, rendering at store sizes, and exports that need
-downloads or tools this machine lacks (web, Linux, macOS players; Android NDK; MSIX).
-
-Triaged 2026-10-19 (see the top of this section): most entries became M24; the ones that belong to M21's own items are
-below.
-
-Done in M21: the publishing guides per store, `docs/PUBLISHING.md` (PR #118), the "finish your game" guide,
-`docs/FINISHING.md` with Lantern Keep's save recipe (PR #119), store page material: `assets.draw_capsules` (every
-store's images from one key art and a logo) and `factoria run --record-video` (a trailer from an input replay, .avi or
-.mp4 through ffmpeg) (PR #121), and versioned docs: the generated reference (docs/COMPONENTS.md, `factoria api`, MCP)
-says which version added each component, field and command, from tools/common/api_since.json (the hand-written guides
-carry no marks) (PR #122). Left in M21: tutorials and the API reference, the AI cost guide. Lantern
-Keep's entries that these items close (LK/FB-0014, LK/FB-0017 and LK/FB-0022 are done, in PRs #115-#117; LK/FB-0023
-is left for M23):
-- Publishing guides, done in PR #115: one table in docs/EXPORTING.md of platform x what its export needs (players
-  download, NDK, CMake, Gradle, Xcode) x whether this machine can do it offline from a source build, from a download, or
-  not at all (LK/FB-0022); the Microsoft Store section says what the engine covers today (nothing beyond the Windows
-  folder export) and the steps by hand; the MSIX export itself is left for M23 (LK/FB-0023).
-- "Finish your game" guide: the save-file recipe of Lantern Keep (a version field, migration, three slots, a damaged
-  save screen), on top of M24.6's engine part (LK/FB-0013).
-- Store page material, done in PRs #116 and #117: `factoria run --headless --render-scale 1.5` and
-  `game.screenshot {scale}` make store screenshots at 1920x1080 or phone sizes native, not enlarged (LK/FB-0017);
-  `assets.draw_icon` draws a real icon (shapes, text, colours into a 1024x1024 PNG plus the Android adaptive foreground),
-  so no Python or paid provider is needed (LK/FB-0014). Acceptance: a test renders a 1280x720 scene at scale 1.5 and the
-  PNG is 1920x1080 with the HUD in the same place relative to the screen; `assets.draw_icon` writes both icons and the
-  export uses them.
+Left open:
+- LK/FB-0023, the MSIX export for the Microsoft Store, is M23's (the steps by hand are in docs/EXPORTING.md, from #115).
+- docs/FIRST_GAME_WITH_AI.md was not played through with a real AI: its rounds depend on what the AI answers, so only the
+  buttons, keys and commands it names were checked against the editor's code.
+- docs/AI_COSTS.md has one measured game (Lantern Keep, six Sonnet 5.5 workers on 2026-10-19): output tokens are
+  estimated from the written content and the totals are a floor, because the model's thinking is not recorded. Its
+  prices are as of 2026-10-20.
+- Store facts (docs/PUBLISHING.md, the `assets.draw_capsules` sizes) are as of 2026-10; the GOG and itch.io sizes have
+  no official page.
 
 ## M22. Production quality and legal (M, high)
 
@@ -631,7 +593,7 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: the rest of "Left in M21" (tutorials and the API reference, the AI cost guide), or M22.
+Next: M22.
 
 ## Out of scope: Roblox
 
