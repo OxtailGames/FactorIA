@@ -1,0 +1,7 @@
+{
+  "keyArt": "store/keyart.png",
+  "focus": [0.35, 0.55],
+  "logo": { "text": "Lantern Keep", "fill": "#ffd98a", "outline": "#1a0f08" },
+  "name": "lantern-keep",
+  "stores": ["steam", "epic", "itch", "microsoft", "googleplay"]
+}

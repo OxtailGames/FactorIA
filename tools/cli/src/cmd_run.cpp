@@ -6,6 +6,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/export_settings.h"
 #include "fa/tooling/shaders.h"
 
 namespace fa::cli {
@@ -49,7 +50,7 @@ Command make_run_command() {
         "Input replay JSON: {\"frames\": {\"0\": {\"press\": [\"jump\"]}, \"30\": {\"release\": [\"jump\"]}}}\n\n"
         "File paths: an INPUT file (--input) is looked up in the current directory first, then in the project folder, so\n"
         "'factoria run games/x --headless --input replays/jump.json' works from anywhere; the error lists both places.\n"
-        "OUTPUT files (--state-out, --screenshot-pattern, --record-audio) are relative to the current directory; the\n"
+        "OUTPUT files (--state-out, --screenshot-pattern, --record-audio, --record-video) are relative to the current directory; the\n"
         "report prints the absolute path written. --scene is project-relative (it names a scene of the project).";
     c.maxPositional = 1;
     c.flags = {{"project", "DIR", "Project folder (alternative to the positional argument)."},
@@ -64,6 +65,7 @@ Command make_run_command() {
                {"screenshot-pattern", "PATTERN", "PNG path with {frame}, relative to the current directory (default <project>/.factoria/screenshots/frame_{frame}.png)."},
                {"state-out", "FILE", "Headless: write the final world state JSON here (relative to the current directory)."},
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
+               {"record-video", "FILE", "Headless: write every frame (drawn at --render-scale, at the project's fixedHz fps) and the audio to a video. .avi (Motion-JPEG + PCM) needs nothing; .mp4 (H.264 + AAC) needs ffmpeg (FACTORIA_FFMPEG, publish.ffmpeg in ~/.factoria/export.json, or PATH). Relative to the current directory."},
                {"seed", "N", "World RNG seed (default 1)."},
                {"allow-script-errors", "", "Headless: exit 0 even if scripts raised errors."},
                {"render-all", "", "Headless: draw every frame (default: only screenshot frames and the last frame)."},
@@ -85,7 +87,7 @@ Command make_run_command() {
         cfg.height = a.integer("height", 0);
         cfg.seed = a.uinteger("seed", 1);
         if (!a.has("headless")) {
-            for (const char* f : {"frames", "input", "screenshot-at", "render-scale", "screenshot-pattern", "state-out", "record-audio", "render-all", "persist-storage"})
+            for (const char* f : {"frames", "input", "screenshot-at", "render-scale", "screenshot-pattern", "state-out", "record-audio", "record-video", "render-all", "persist-storage"})
                 if (a.has(f)) throw UsageError(std::string("--") + f + " only works with --headless.", "Add --headless.");
             cfg.headless = false;
             return run_windowed(cfg);
@@ -110,6 +112,10 @@ Command make_run_command() {
         ho.renderScale = a.number("render-scale", 1.0);
         if (a.has("state-out")) ho.stateOutPath = absolute_path(a.str("state-out"));
         if (a.has("record-audio")) ho.audioOutPath = absolute_path(a.str("record-audio"));
+        if (a.has("record-video")) {
+            ho.videoOutPath = absolute_path(a.str("record-video"));
+            ho.ffmpegPath = find_ffmpeg();
+        }
         ho.failOnScriptError = !a.has("allow-script-errors");
 
         Json report = Json::object();
@@ -139,6 +145,9 @@ Command make_run_command() {
             ctx.out << "screenshot: " << (s.is_string() ? s.get<std::string>() : s.dump()) << "\n";
         if (!ho.stateOutPath.empty()) ctx.out << "state: " << ho.stateOutPath << "\n";
         if (!ho.audioOutPath.empty()) ctx.out << "audio: " << ho.audioOutPath << "\n";
+        if (report.contains("videoPath"))
+            ctx.out << "video: " << report["videoPath"].get<std::string>() << " (" << report["videoFrames"].dump() << " frames"
+                    << (report.value("videoAudio", false) ? ", with audio" : ", no audio") << ")\n";
         for (const char* key : {"scriptErrors", "sceneErrors"})
             if (report.contains(key) && report[key].is_array())
                 for (const auto& e : report[key]) ctx.out << key << ": " << (e.is_string() ? e.get<std::string>() : e.dump()) << "\n";

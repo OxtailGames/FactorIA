@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #endif
 
+#include "fa/core/process.h"
 #include "fa/tooling/export_settings.h"
 #include "test_helpers.h"
 
@@ -881,4 +882,17 @@ TEST_CASE("export settings: scriptBytecode is saved only when it is not the defa
     back->scriptBytecode = true;  // the default again: the key goes away, and so does the empty "export"
     REQUIRE(save_export_settings(tmp.str(), *back).ok());
     CHECK(testing::read_all(project_file(tmp)) == kTemplateStyle);
+}
+
+TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") {
+    testing::TempDir t;
+    testing::write_all(t.path / "tools" / "ffmpeg", "x");
+    testing::write_all(t.path / "other" / "ffmpeg.exe", "x");
+    testing::write_all(t.path / "export.json", R"({"publish": {"ffmpeg": ")" + (t.path / "other").generic_string() + R"("}})");
+    const std::string config = (t.path / "export.json").string();
+    const auto env = [&](const std::string& name) -> std::string { return name == "FACTORIA_FFMPEG" ? (t.path / "tools").generic_string() : ""; };
+    CHECK(find_ffmpeg(env, config) == (t.path / "tools" / "ffmpeg").generic_string());  // a folder: the executable inside
+    const auto none = [](const std::string&) -> std::string { return ""; };
+    CHECK(find_ffmpeg(none, config) == (t.path / "other" / "ffmpeg.exe").generic_string());
+    CHECK(find_ffmpeg(none, (t.path / "missing.json").string()) == which("ffmpeg"));
 }

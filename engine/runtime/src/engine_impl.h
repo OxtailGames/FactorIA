@@ -61,6 +61,7 @@ struct Engine::Impl {
     std::unique_ptr<Renderer> renderer;
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
 
+    double heldScale = 1.0;         // Engine::hold_render_scale: the render scale between captures
     bool renderStale = false;       // OnDemand: simulated since the last draw
     double lastRenderDt = 0.0;
     std::uint64_t renderedFrame = 0;  // frame index at the last draw

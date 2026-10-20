@@ -182,6 +182,11 @@ struct MachineExportConfig {
 // (%USERPROFILE%\.factoria\export.json on Windows); else ".factoria/export.json".
 std::string machine_export_config_path(const ExportEnvLookup& env = system_export_env());
 
+// The ffmpeg executable that turns a recorded .avi into an .mp4 (`factoria run --record-video x.mp4`): the environment
+// variable FACTORIA_FFMPEG (the executable or its folder), else "publish": {"ffmpeg": "<path>"} of the machine settings
+// (`configPath` "" = machine_export_config_path()), else PATH. "" when none is found. Same order as the store tools.
+std::string find_ffmpeg(const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
+
 // A missing file is not an error (defaults come back). Unreadable JSON, a wrong "format" or a value of the wrong
 // type is, naming the file and the key. `path` "" = machine_export_config_path().
 Result<MachineExportConfig> load_machine_export_config(const std::string& path = {});

@@ -957,6 +957,29 @@ std::string machine_export_config_path(const ExportEnvLookup& env) {
     return ".factoria/export.json";
 }
 
+std::string find_ffmpeg(const ExportEnvLookup& env, const std::string& configPathIn) {
+    namespace stdfs = std::filesystem;
+    const auto resolve = [&](const std::string& value) -> std::string {
+        const stdfs::path p(tooling_detail::expand_home(value, env));
+        std::error_code ec;
+        if (stdfs::is_regular_file(p, ec)) return p.generic_string();
+        for (const char* name : {"ffmpeg.exe", "ffmpeg"})
+            if (stdfs::is_regular_file(p / name, ec)) return (p / name).generic_string();
+        return {};
+    };
+    if (const std::string v = env("FACTORIA_FFMPEG"); !v.empty())
+        if (std::string f = resolve(v); !f.empty()) return f;
+    const std::string configPath = configPathIn.empty() ? machine_export_config_path(env) : configPathIn;
+    std::error_code ec;
+    if (stdfs::exists(stdfs::path(configPath), ec))
+        if (auto text = tooling_detail::read_file(stdfs::path(configPath)))
+            if (auto parsed = parse_json(*text, configPath); parsed.ok() && parsed->is_object())
+                if (auto pub = parsed->find("publish"); pub != parsed->end() && pub->is_object())
+                    if (auto v = pub->find("ffmpeg"); v != pub->end() && v->is_string())
+                        if (std::string f = resolve(v->get<std::string>()); !f.empty()) return f;
+    return which("ffmpeg");
+}
+
 namespace {
 
 std::string config_path_or_default(const std::string& path) { return path.empty() ? machine_export_config_path() : path; }
