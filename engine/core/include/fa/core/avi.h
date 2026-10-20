@@ -40,6 +40,7 @@ private:
     double fps_ = 0;
     std::ofstream spool_;
     std::vector<std::uint32_t> sizes_;  // JPEG byte count of each frame, in the spool
+    std::uint64_t spooled_ = 0;         // bytes the chunks of the frames will take in the file (headers and padding included)
     bool open_ = false;
 };
 

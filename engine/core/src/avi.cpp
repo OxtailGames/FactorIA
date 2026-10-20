@@ -35,7 +35,10 @@ void list(std::vector<std::uint8_t>& b, const char* type, const std::vector<std:
     b.insert(b.end(), body.begin(), body.end());
 }
 
-constexpr std::uint64_t kMaxFileBytes = 0x7ff00000;  // classic AVI: RIFF sizes are 32 bit
+// ponytail: a classic AVI keeps every size in 32 bits, so a file tops out near 2 GB (about 3 minutes of 1080p60 at the
+// ~10 MB/s our JPEG frames take). Upgrade path: OpenDML (AVIX RIFF extensions, 64-bit super index), or for .mp4 let ffmpeg
+// read a JPEG sequence instead of the AVI, which has no such limit.
+constexpr std::uint64_t kMaxFileBytes = 0x7ff00000;
 
 }  // namespace
 
@@ -60,12 +63,22 @@ Result<void> AviWriter::begin(const std::string& path, int width, int height, do
     if (!spool_) return make_error("Cannot write " + spoolPath_ + ".", "Check that the folder exists and is writable.");
     open_ = true;
     sizes_.clear();
+    spooled_ = 0;
     return {};
 }
 
 Result<void> AviWriter::add_frame(const std::vector<std::uint8_t>& jpeg) {
     if (!open_) return make_error("AVI: begin() was not called.");
     if (jpeg.empty()) return make_error("AVI: an empty JPEG frame.");
+    // Stop as soon as the file could no longer be written (frames, 32 bytes of chunk header and index each, and the
+    // audio of 48 kHz stereo 16-bit those frames last), not after the whole run.
+    const std::uint64_t frames = sizes_.size() + 1;
+    const std::uint64_t audioReserve = std::uint64_t(double(frames) / fps_ * 192000.0);
+    if (spooled_ + 8 + jpeg.size() + 1 + 32 * frames + audioReserve + 4096 > kMaxFileBytes)
+        return make_error("The video reached the 2 GB limit of an AVI file after " + std::to_string(sizes_.size()) + " frames (" +
+                              std::to_string(std::uint64_t(double(sizes_.size()) / fps_)) + " s).",
+                          "Record fewer frames or use a smaller --render-scale; about 3 minutes of 1080p at 60 fps fit.");
+    spooled_ += 8 + jpeg.size() + (jpeg.size() & 1);
     spool_.write(reinterpret_cast<const char*>(jpeg.data()), std::streamsize(jpeg.size()));
     if (!spool_) return make_error("Cannot write " + spoolPath_ + ": the disk may be full.");
     sizes_.push_back(std::uint32_t(jpeg.size()));

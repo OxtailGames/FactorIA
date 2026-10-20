@@ -891,8 +891,21 @@ TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") 
     testing::write_all(t.path / "export.json", R"({"publish": {"ffmpeg": ")" + (t.path / "other").generic_string() + R"("}})");
     const std::string config = (t.path / "export.json").string();
     const auto env = [&](const std::string& name) -> std::string { return name == "FACTORIA_FFMPEG" ? (t.path / "tools").generic_string() : ""; };
-    CHECK(find_ffmpeg(env, config) == (t.path / "tools" / "ffmpeg").generic_string());  // a folder: the executable inside
+    auto found = find_ffmpeg(env, config);
+    REQUIRE(found.ok());
+    CHECK(found->path == (t.path / "tools" / "ffmpeg").generic_string());  // a folder: the executable inside
+    CHECK(found->from == "FACTORIA_FFMPEG");
     const auto none = [](const std::string&) -> std::string { return ""; };
-    CHECK(find_ffmpeg(none, config) == (t.path / "other" / "ffmpeg.exe").generic_string());
-    CHECK(find_ffmpeg(none, (t.path / "missing.json").string()) == which("ffmpeg"));
+    found = find_ffmpeg(none, config);
+    REQUIRE(found.ok());
+    CHECK(found->path == (t.path / "other" / "ffmpeg.exe").generic_string());
+    CHECK(found->from == "export.json");
+    // A variable that points at nothing is an error, not a silent fall-through to PATH.
+    const auto wrong = [&](const std::string& name) -> std::string { return name == "FACTORIA_FFMPEG" ? (t.path / "nowhere").generic_string() : ""; };
+    const auto bad = find_ffmpeg(wrong, config);
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("FACTORIA_FFMPEG") != std::string::npos);
+    CHECK(bad.error().hint.find("ffmpeg.org") != std::string::npos);
+    const auto onPath = find_ffmpeg(none, (t.path / "missing.json").string());
+    CHECK(onPath.ok() == !which("ffmpeg").empty());
 }
