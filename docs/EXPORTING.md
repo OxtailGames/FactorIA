@@ -200,6 +200,34 @@ asset in `assets.json` has `provenance.ai: true`, the export writes `AI_CONTENT_
 and paste into the store form; leave it out of what you ship if you like. No AI assets, no file. What it says, where the
 records come from and `assets.disclosure` are in [ASSETS.md](ASSETS.md#provenance-and-store-disclosure).
 
+## What each export needs
+
+One row per export. A **source build** is a `factoria` compiled from the repository: it has its own OS's player but no
+`mobile/` libraries, no `web/` and no players of the other OSes. The **download** (the FactorIA package) carries `mobile/`
+(Android; iOS only in the macOS package), `web/` and the player of its own OS. The host columns say whether a machine can
+do the export with a source build: **yes** = offline, nothing is downloaded; **after setup** = offline once the named
+download is done; **no** = that host cannot do it. The cells come from the export code and `factoria setup`; `factoria setup`
+(no arguments) lists what a computer already has.
+
+| Export | What it needs | Windows host | Linux host | macOS host |
+|---|---|---|---|---|
+| `windows` folder ([Desktop](#desktop-linux-windows-macos)) | the Windows player: from the download, or `factoria setup players` (about 60 MB for all OSes) or `--player`. The exe's icon and version info are written by the export on any host. Signing is by hand with `signtool` (patching the exe removes the player's signature) | yes | after setup | after setup |
+| `linux` folder | the Linux player, same sources | after setup | yes | after setup |
+| `linux --format appimage` ([AppImage](#linux-appimage)) | `factoria setup appimage` (about 16 MB; Linux x86_64 only, so WSL on Windows) | in WSL, after setup | after setup (x86_64) | no |
+| `macos` `.app` | the macOS player, same sources. The ad hoc `codesign` runs only on a Mac; elsewhere the app is not signed | after setup | after setup | yes |
+| `macos` signed and notarized ([Signing and notarizing](#signing-and-notarizing-for-macos)) | `codesign`, `xcrun notarytool` and `stapler` (Xcode command-line tools), a Developer ID Application certificate (Apple Developer Program) and a notary profile. Notarization uploads to Apple | no | no | online (notarization) |
+| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
+| `android --format gradle` ([Android](#android)) | no JDK, no SDK. The project holds the Android libraries (prebuilt mode) or is generated from an engine checkout (source mode) | after setup (`players --platforms mobile`) or with a checkout: yes | same | same |
+| `android` apk / aab, **prebuilt** ([modes](#mobile-exports-prebuilt-or-source)) | a JDK 17+ (17 and 21 are tested; `factoria setup android` installs Temurin 21) and the Android SDK with `platforms;android-36` and `build-tools;35.0.0` (same command, about 500 MB, accepts the SDK license); the Android libraries as above. No NDK, no CMake. The first build downloads Gradle 8.14.3 and the Android Gradle plugin | after setup, then after one online build | same | same |
+| `android` apk / aab, **from source** | the same JDK and SDK, an engine checkout (`--engine-root` or `FACTORIA_ENGINE_DIR`), and NDK r27+ (`ndk;27.2.12479018`) and CMake 3.31.6 in the SDK. `factoria setup android` does not install those two: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`. Compiles the engine for two ABIs (minutes) | after setup, then after one online build | same | same |
+| `android --release` (Google Play) | the above plus a keystore and `FACTORIA_ANDROID_KEYSTORE_PASSWORD` ([Signing](#android)); without a keystore it is an error unless `--allow-debug-key` (never upload that build) | same | same | same |
+| `ios` project ([iOS](#ios)) | prebuilt: the iOS libraries (in the macOS download; on Windows and Linux `factoria setup players --platforms mobile`); source: an engine checkout | prebuilt: after setup; source: yes | same | yes with the macOS download or a checkout |
+| `ios` app (`build_ios.sh`) | a Mac with Xcode (from the App Store; `factoria setup xcode` checks it) and CMake 3.24+ (`factoria setup cmake` installs 3.31.6, about 75 MB); a device build also needs an Apple Team ID | no | no | yes |
+
+Uploading the result is a separate step: [Uploading to stores](#uploading-to-stores). What each `factoria setup` component
+installs, and where: [Setting up this computer](#setting-up-this-computer). A source build ahead of the last release cannot
+run `factoria setup players` (error `no_release`): build the player on that OS and pass `--player`.
+
 ## Setting up this computer
 
 An export needs things that are not part of FactorIA: a JDK and the Android SDK for an APK or AAB, the `factoria_player`
@@ -1306,6 +1334,29 @@ publish_googleplay {"dryRun":true}
 -> steps[0].commandLine: fastlane supply --aab .../space-dodge.aab --track internal --release_status draft --package_name com.mystudio.spacedodge --json_key ~/keys/play.json ...
 -> uploads: android -> Google Play com.mystudio.spacedodge, track internal (draft, version code 10203), 1 file, 24.1 MB
 ```
+
+### Microsoft Store
+
+The engine covers the Windows folder only: `factoria export --platform windows` writes the exe with the game's icon and
+version information (name, version, file name) and, with `--release`, `game.pak`. It does not sign the exe (patching it
+removes the player's signature), does not build an MSIX package and does not upload to Partner Center. An
+`export.windows.msix` option that builds the package is planned. Until then, by hand with the Windows SDK:
+
+1. In Partner Center reserve the app name. Its product identity page gives the package `Identity Name` (like
+   `12345Studio.MyGame`), the `Publisher` (a `CN=...` string) and the publisher display name: copy them exactly.
+2. Put the exported folder in a package folder with an `AppxManifest.xml` (`Identity Name=` and `Publisher=` from step 1, a
+   four-number `Version`, `Executable` the game's exe, `EntryPoint="Windows.FullTrustApplication"`, capability `runFullTrust`)
+   and the logos in `Assets/`. The MSIX Packaging Tool can write the manifest from the folder. Microsoft requires the
+   `StoreLogo` (50x50 at 100% scale) and at least the medium tile at 100%; provide `Square44x44Logo`, `Square150x150Logo` and
+   `StoreLogo` at 100%, 200% and 400% (`.scale-200.png` names), plus the 16 to 256 target-size icons from the
+   [icon list](https://learn.microsoft.com/windows/apps/design/iconography/app-icon-construction).
+3. `makeappx pack /d <package folder> /p MyGame.msix`.
+4. To try it on your PC, sign it with `signtool sign /fd SHA256 /f test.pfx /p <password> MyGame.msix` (a certificate whose
+   subject equals the manifest `Publisher`). For the Store, upload it unsigned: Microsoft signs it after certification.
+   Microsoft's [manual packaging guide](https://learn.microsoft.com/windows/msix/package/manual-packaging-root) covers each tool.
+5. Create the submission in Partner Center (pricing, age rating, privacy policy URL, listing and screenshots; see
+   [AI content disclosure](#ai-content-disclosure) for the content questions), upload the `.msix` and send it to
+   certification. An update raises the manifest `Version`.
 
 ### Testing without a store
 
