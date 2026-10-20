@@ -47,7 +47,7 @@
               "Button": {
                 "text": "Video",
                 "key": "options.tab.video",
-                "size": [160, 48],
+                "size": [160, 44],
                 "layer": 302,
                 "autoFocus": true,
                 "fontSize": 22,
@@ -61,7 +61,7 @@
               "Button": {
                 "text": "Audio",
                 "key": "options.tab.audio",
-                "size": [160, 48],
+                "size": [160, 44],
                 "layer": 302,
                 "fontSize": 22,
                 "autoSize": true
@@ -74,7 +74,7 @@
               "Button": {
                 "text": "Controls",
                 "key": "options.tab.controls",
-                "size": [160, 48],
+                "size": [160, 44],
                 "layer": 302,
                 "fontSize": 22,
                 "autoSize": true
@@ -87,7 +87,7 @@
               "Button": {
                 "text": "Language",
                 "key": "options.tab.language",
-                "size": [160, 48],
+                "size": [160, 44],
                 "layer": 302,
                 "fontSize": 22,
                 "autoSize": true
@@ -100,7 +100,7 @@
               "Button": {
                 "text": "Access",
                 "key": "options.tab.accessibility",
-                "size": [160, 48],
+                "size": [160, 44],
                 "layer": 302,
                 "fontSize": 22,
                 "autoSize": true

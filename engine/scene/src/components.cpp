@@ -832,7 +832,19 @@ void register_builtin_components(TypeRegistry& r) {
                         "Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.")
             .field("fit", &Panel::fit,
                    "true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); "
-                   "the pivot then decides which point of the fitted box stays on the position.");
+                   "the pivot then decides which point of the fitted box stays on the position.")
+            .enum_field("fallbackLayout", &Panel::fallbackLayout, {"none", "row", "column", "grid"},
+                        "Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen "
+                        "(none = never switch). The panel leaves the screen when its content size + padding, or the size of "
+                        "the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller "
+                        "and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a "
+                        "time until it fits; the choice is made again every frame, so it follows the text size and the "
+                        "language and goes back to `layout` when the texts shrink. Example: a column of two blocks with "
+                        "fallbackLayout \"row\" stands them side by side at a big text size; a row of buttons with "
+                        "fallbackLayout \"column\" stacks them. Scripts that must adapt read `usingFallback`.")
+            .field("usingFallback", &Panel::usingFallback,
+                   "Runtime: true while the panel is laid out with `fallbackLayout` instead of `layout`.")
+            .runtime_only().read_only();
     }
     {
         auto button = r.add<Button>("Button",

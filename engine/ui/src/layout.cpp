@@ -102,24 +102,19 @@ Rect inner_box(const Rect& r, const Vec4& pad) {
     return {r.x + pad.x, r.y + pad.y, std::max(0.0f, r.w - pad.x - pad.z), std::max(0.0f, r.h - pad.y - pad.w)};
 }
 
-void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure& m, std::unordered_set<u64>& warned) {
-    if (p.layout == UiLayout::None) return;  // ponytail: fit needs a layout; with none the content has no defined size
+// The layout the panel is laid out with right now.
+UiLayout used_layout(const Panel& p) { return p.usingFallback ? p.fallbackLayout : p.layout; }
+
+void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure& m) {
+    const UiLayout layout = used_layout(p);
+    if (layout == UiLayout::None) return;  // ponytail: fit needs a layout; with none the content has no defined size
     const std::vector<Child> ch = children_of(w, e, design, m);
     if (p.fit) {
-        const Vec2 c = content_size(p.layout, ch, p.spacing, p.columns);
+        const Vec2 c = content_size(layout, ch, p.spacing, p.columns);
         p.size = {c.x + p.padding.x + p.padding.z, c.y + p.padding.y + p.padding.w};
-        if (p.size.x > design.x + 0.5f || p.size.y > design.y + 0.5f) {
-            if (warned.insert(e.bits()).second)
-                FA_WARN("ui",
-                        "Panel '{}' (fit) is {} x {} px, larger than the {} x {} px screen, so part of it is off screen. Shorten its "
-                        "texts, make a ScrollList in it `fill` the free height, or lower the font sizes.",
-                        w.info(e).id, int(std::ceil(p.size.x)), int(std::ceil(p.size.y)), int(design.x), int(design.y));
-        } else {
-            warned.erase(e.bits());
-        }
     }
     const Rect inner = inner_box(*ui_rect(w, e, design), p.padding);
-    std::vector<Vec2> slots = place(p.layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
+    std::vector<Vec2> slots = place(layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
     // Right to left: the left-to-right layout flipped about the middle of the box, so the first child, `start` and a grid's
     // first column all end up on the right.
     if (p.direction == UiDirection::Rtl || (p.direction == UiDirection::Auto && w.rtl()))
@@ -197,7 +192,7 @@ void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
     ScrollList* s = w.get<ScrollList>(e);
     const Entity parent = w.parent(e);
     const Panel* p = parent ? w.get<Panel>(parent) : nullptr;
-    if (!s->fill || !p || p->layout != UiLayout::Column) return;
+    if (!s->fill || !p || used_layout(*p) != UiLayout::Column) return;
     float others = 0;
     int kids = 0, fills = 0;
     for (const Child& c : children_of(w, parent, design, m)) {
@@ -237,6 +232,21 @@ void layout_scroll(World& w, Entity e, ScrollList& s, Entity focus, Vec2 design,
     s.scroll = std::clamp(s.scroll, 0.0f, std::max(0.0f, content.y - inner.h));
     std::vector<Vec2> slots = place(UiLayout::Column, ch, inner, s.spacing, 1, UiAlign::Start, UiAlign::Start);
     for (std::size_t i = 0; i < ch.size(); ++i) move_to(w, ch[i], {slots[i].x, slots[i].y - s.scroll});
+}
+
+// Whether `e` (laid out with its `layout`) leaves the screen: the size it needs, or the size of the outermost fit Panel around
+// it, is too wide for a row / grid or too tall for a column / grid.
+bool leaves_screen(const World& w, Entity e, const Panel& p, Vec2 design, const VisualMeasure& m) {
+    const Vec2 c = content_size(p.layout, children_of(w, e, design, m), p.spacing, p.columns);
+    Vec2 need{c.x + p.padding.x + p.padding.z, c.y + p.padding.y + p.padding.w};
+    for (Entity a = w.parent(e); a; a = w.parent(a)) {
+        const Panel* up = w.get<Panel>(a);
+        if (!up || !up->fit || used_layout(*up) == UiLayout::None) break;
+        need = up->size;
+    }
+    const bool wide = need.x > design.x + 0.5f, tall = need.y > design.y + 0.5f;
+    return (wide && (p.layout == UiLayout::Row || p.layout == UiLayout::Grid)) ||
+           (tall && (p.layout == UiLayout::Column || p.layout == UiLayout::Grid));
 }
 
 }  // namespace
@@ -292,12 +302,42 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
     std::stable_sort(containers.begin(), containers.end(), [&](const auto& a, const auto& b) {
         return a.first != b.first ? a.first > b.first : (!fills(a.second) && fills(b.second));
     });
-    for (const auto& [depth, e] : containers) {
-        if (ScrollList* s = w.get<ScrollList>(e)) {
-            apply_fill(w, e, design, m);
-            layout_scroll(w, e, *s, scrollToFocus_ ? focus_ : kNullEntity, design, m);
-        } else if (Panel* p = w.get<Panel>(e)) {
-            layout_panel(w, e, *p, design, m, warnedFit_);
+    for (const auto& [depth, e] : containers)
+        if (Panel* p = w.get<Panel>(e)) p->usingFallback = false;
+    // ponytail: a panel that falls back costs one more layout pass per frame (cheap while UI trees are small).
+    for (;;) {
+        for (const auto& [depth, e] : containers) {
+            if (ScrollList* s = w.get<ScrollList>(e)) {
+                apply_fill(w, e, design, m);
+                layout_scroll(w, e, *s, scrollToFocus_ ? focus_ : kNullEntity, design, m);
+            } else if (Panel* p = w.get<Panel>(e)) {
+                layout_panel(w, e, *p, design, m);
+            }
+        }
+        std::vector<Entity> candidates;
+        int deepest = -1;
+        for (const auto& [depth, e] : containers) {
+            const Panel* p = w.get<Panel>(e);
+            if (!p || p->fallbackLayout == UiLayout::None || p->fallbackLayout == p->layout || p->usingFallback ||
+                p->layout == UiLayout::None || !leaves_screen(w, e, *p, design, m))
+                continue;
+            if (depth > deepest) candidates.clear();
+            if (depth >= deepest) candidates.push_back(e), deepest = depth;
+        }
+        if (candidates.empty()) break;
+        for (Entity e : candidates) w.get<Panel>(e)->usingFallback = true;
+    }
+    for (const auto& [depth, e] : containers) {  // only the final layout can be too big
+        const Panel* p = w.get<Panel>(e);
+        if (!p || !p->fit || used_layout(*p) == UiLayout::None) continue;
+        if (p->size.x > design.x + 0.5f || p->size.y > design.y + 0.5f) {
+            if (warnedFit_.insert(e.bits()).second)
+                FA_WARN("ui",
+                        "Panel '{}' (fit) is {} x {} px, larger than the {} x {} px screen, so part of it is off screen. Shorten its "
+                        "texts, make a ScrollList in it `fill` the free height, set a `fallbackLayout`, or lower the font sizes.",
+                        w.info(e).id, int(std::ceil(p->size.x)), int(std::ceil(p->size.y)), int(design.x), int(design.y));
+        } else {
+            warnedFit_.erase(e.bits());
         }
     }
     scrollToFocus_ = false;
