@@ -81,5 +81,11 @@ TEST_CASE("speech: a backend that cannot speak says nothing and reports it") {
 TEST_CASE("speech: this platform's backend can be made and asked") {
     auto backend = make_system_speech_backend();
     REQUIRE(backend);
-    (void)backend->available();  // true or false depending on the machine; it must not crash
+    const bool available = backend->available();  // true or false depending on the machine; it must not crash
+    MESSAGE("system speech available: ", available);
+    if (available) {  // say and stop at once: nothing audible for long, and it must not crash
+        backend->speak("test", "en", true);
+        backend->speak("test", "es-ES", false);
+        backend->stop();
+    }
 }
