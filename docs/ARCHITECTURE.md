@@ -84,6 +84,13 @@ pending-destroy entity as gone at once: no body, no collisions, no query hits).
 documented fields. From it we derive: JSON load/save, `scene.set_component`, script
 property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
+Versions: `tools/common/api_since.json` says which release added each component, field (`Component.field`) and
+command, and the generated reference prints it. A new component, field or command needs an `"unreleased"` entry there
+(not in the registration call); the test `api_since` in `tools/common/tests` lists the exact lines to add. A release
+renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
+`"unreleased"` with it and regenerate `docs/COMPONENTS.md` (`factoria api --md --out docs/COMPONENTS.md`, plus
+`factoria api --dts --project examples/<name>` for the committed typings).
+
 ### Commands (the tool system)
 `fa::CommandRegistry` (core/command.h) maps `"area.verb"` names to
 `JSON -> JSON` handlers with a JSON Schema and docs. Commands come from:

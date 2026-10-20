@@ -378,7 +378,7 @@ Command make_api_command() {
             auto session = open_tool_session(ctx, Gfx::None);
             Session& s = *session;
             if (a.has("dts")) {
-                text = s.engine().scripts().typescript_declarations();
+                text = export_typescript(s.engine().scripts());
                 if (out.empty() && !s.scratch() && a.has("project")) out = (fsys::path(s.project_dir()) / "types" / "factoria.d.ts").string();
             } else if (a.has("json")) {
                 Json j = Json::object();
@@ -388,7 +388,7 @@ Command make_api_command() {
                 text = dump_json(j);
             } else {
                 text = export_components_markdown() + "\n" + export_commands_markdown(s.registry()) +
-                       "\n## Scripting API (TypeScript declarations)\n\n```ts\n" + s.engine().scripts().typescript_declarations() + "\n```\n";
+                       "\n## Scripting API (TypeScript declarations)\n\n```ts\n" + export_typescript(s.engine().scripts()) + "\n```\n";
             }
         }
         if (out.empty()) {
