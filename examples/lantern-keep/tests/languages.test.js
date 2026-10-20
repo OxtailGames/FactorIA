@@ -64,7 +64,7 @@ test("the language button of the options cycles through the four languages and e
   ]);
 });
 
-test("in Arabic the HUD is mirrored and wrapped texts are right-aligned; in the other languages neither", () => {
+test("in Arabic the HUD is mirrored and rows run right to left and wrapped texts start on the right; in the other languages neither", () => {
   for (const language of ["en", "ar"]) {
     i18n.setLanguage(language);
     game.load(LEVELS[0].scene);
@@ -72,8 +72,8 @@ test("in Arabic the HUD is mirrored and wrapped texts are right-aligned; in the 
     const rtl = language === "ar";
     expect(game.find("hud_level").get("Text").anchor.x).toBe(rtl ? 1 : 0);
     expect(game.find("hud_embers").get("Text").anchor.x).toBe(rtl ? 0 : 1);
-    expect(game.find("hud_level").get("Text").align).toBe(rtl ? "right" : "left");
-    expect(game.find("hud_embers").get("Text").align).toBe(rtl ? "left" : "right");
+    expect(game.find("hud_level").get("Text").align).toBe("start");
+    expect(game.find("hud_embers").get("Text").align).toBe("end");
   }
   i18n.setLanguage("ar");
   game.load("scenes/menu.scene.json");
@@ -81,7 +81,8 @@ test("in Arabic the HUD is mirrored and wrapped texts are right-aligned; in the 
   ui.focus(game.find("shop_button"));
   game.gamepad(0).tap("A");
   game.step(3);
-  expect(game.find("shop_note").get("Text").align).toBe("right");
+  expect(game.find("shop_note").get("Text").align).toBe("start"); // the right edge in Arabic (i18n.direction)
+  expect(ui.rectOf("shop_note").x + ui.rectOf("shop_note").w).toBeLessThanOrEqual(1280);
   expect(game.find("shop_note").get("Text").text).toBe(ar.shop.note);
   i18n.setLanguage("en");
 });

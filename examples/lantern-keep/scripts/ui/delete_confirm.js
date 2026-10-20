@@ -4,7 +4,6 @@
 import { Behaviour, ui, i18n, world, session } from "factoria";
 import * as saves from "../saves.js";
 import { MenuStack } from "./menu_stack.js";
-import { fitWidgets } from "./text_fit.js";
 
 export default class DeleteConfirm extends Behaviour {
   onStart() {
@@ -23,5 +22,4 @@ export default class DeleteConfirm extends Behaviour {
 /** Writes the question for session.pendingDelete. */
 function refreshConfirm() {
   world.find("confirm_title").get("Text").text = i18n.t("slots.confirm", { n: session.pendingDelete });
-  fitWidgets(world.find("delete_confirm")); // "Keep it" and "Delete" as big as their text needs
 }

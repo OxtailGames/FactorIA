@@ -6,7 +6,6 @@ import { Behaviour, ui, i18n, world } from "factoria";
 import { next, EMBERS_PER_LEVEL } from "../levels.js";
 import { startLevel, openMenu } from "../flow.js";
 import { formatTime } from "../time_format.js";
-import { fitWidgets } from "./text_fit.js";
 
 export default class LevelEnd extends Behaviour {
   runWhilePaused = true;
@@ -41,7 +40,6 @@ export default class LevelEnd extends Behaviour {
    * buttons beside the text (the column would be taller than the screen).
    */
   arrange() {
-    fitWidgets(this.entity);
     const box = world.find("end_box").get("Panel");
     const beside = ui.textScale > 1.25;
     box.layout = beside ? "row" : "column";

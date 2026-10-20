@@ -4,7 +4,6 @@
 // (delete_confirm). The slots are written every time the screen is shown (onEnable); when the main menu opens it the cloud
 // copies are compared with the local ones (syncSlots, saves.syncCloud).
 import { Behaviour, ui, i18n, world, session } from "factoria";
-import { fitWidgets } from "./text_fit.js";
 import * as saves from "../saves.js";
 import { MenuStack } from "./menu_stack.js";
 import { formatTime } from "../time_format.js";
@@ -52,7 +51,6 @@ function refreshSlots() {
     damaged ||= p.status === "damaged";
   }
   world.find("slots_note").get("Text").text = damaged ? i18n.t("slots.damagedNote") : "";
-  fitWidgets(world.find("slots")); // the buttons as big as their text needs at this text size and language
 }
 
 /** The widest a slot line is before it goes on two lines (after "Slot 2:"), so the Delete button still fits beside it. */

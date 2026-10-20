@@ -5,7 +5,6 @@
 import { Behaviour, i18n, ui, game } from "factoria";
 import { formatTime } from "./time_format.js";
 import { find, EMBERS_PER_LEVEL } from "./levels.js";
-import { isRtl } from "./ui/text_fit.js";
 
 export default class Hud extends Behaviour {
   onStart() {
@@ -43,19 +42,19 @@ export default class Hud extends Behaviour {
     this.mirror();
   }
 
-  /** Arabic reads from the right: the level name goes to the right corner and the embers to the left one (the engine does not mirror). */
+  /** Arabic reads from the right: the level name goes to the right corner and the embers to the left one (anchors are not mirrored by the engine). */
   mirror() {
-    const rtl = isRtl();
-    const put = (id, right) => {
+    const rtl = i18n.direction === "rtl";
+    const put = (id, right, align) => {
       const entity = this.world.find(id);
       const text = entity.get("Text");
       text.anchor = [right ? 1 : 0, 0];
       text.pivot = [right ? 1 : 0, 1];
-      text.align = right ? "right" : "left";
+      text.align = align; // `start` is the side where the language begins, `end` the other
       entity.position.x = right ? -24 : 24;
     };
-    put("hud_level", rtl);
-    put("hud_embers", !rtl);
+    put("hud_level", rtl, "start");
+    put("hud_embers", !rtl, "end");
   }
 
   onUpdate() {

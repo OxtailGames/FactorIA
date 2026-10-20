@@ -6,7 +6,9 @@ import { LEVELS, EMBERS_PER_LEVEL } from "../levels.js";
 import * as progress from "../progress.js";
 import { startLevel } from "../flow.js";
 import { formatTime } from "../time_format.js";
-import { fitWidgets } from "./text_fit.js";
+
+/** The design size of a level button in the prefab (autoSize makes each one at least this big). */
+const design = [320, 84];
 
 export default class LevelSelect extends Behaviour {
   onStart() {
@@ -37,18 +39,18 @@ function refreshSelect() {
 }
 
 /**
- * The six buttons are as wide as the widest text needs (the same for all). Three of them side by side while that fits the
- * screen; at a big text size or with long names the worlds stand side by side instead and each world's levels are a column.
+ * The six buttons are as wide as the widest label needs (the same for all: autoSize only grows a button to its own label,
+ * so the common size is written as their design size). Three of them side by side while that fits the screen; at a big
+ * text size or with long names the worlds stand side by side instead and each world's levels are a column.
  */
 function layoutSelect() {
-  const root = world.find("level_select");
   const sets = (id, layout) => (world.find(id).get("Panel").layout = layout);
   for (const id of ["select_row_1", "select_row_2"]) sets(id, "row");
   sets("select_worlds", "column");
-  fitWidgets(root);
   const buttons = LEVELS.map((l) => world.find(`lvl_${l.id}`).get("Button"));
-  const width = Math.max(...buttons.map((b) => b.size.x));
-  const height = Math.max(...buttons.map((b) => b.size.y));
+  const labels = buttons.map((b) => ui.measureText(b.text, { fontSize: b.fontSize }));
+  const width = Math.max(design[0], ...labels.map((m) => Math.ceil(m.width + 40))); // 20 px of margin on each side
+  const height = Math.max(design[1], ...labels.map((m) => Math.ceil(m.height + 16)));
   for (const b of buttons) b.size = [width, height];
   if (3 * width + 2 * 12 + 2 * 24 > 1240) {
     for (const id of ["select_row_1", "select_row_2"]) sets(id, "column");
