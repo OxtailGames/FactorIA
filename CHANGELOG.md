@@ -137,6 +137,13 @@ A complete example game
   including Arabic, an on-screen gamepad for phones and export settings ready for the stores. Read it, copy from it, or
   point your AI at it. Its `SHIPPING.md` lists what each store needs and what is still done by hand.
 
+Guides for finishing and publishing
+
+- `factoria docs read finishing` takes a game that plays to a game a store accepts, step by step with Lantern Keep's
+  code: menus, options that stay set, saves that survive updates, languages, accessibility, credits and tests.
+- `factoria docs read publishing` has one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App
+  Store, itch.io, your own site): what FactorIA does for you and what you still do by hand, with fees and review times.
+
 Fixed while making Lantern Keep
 
 Lantern Keep showed what a complete game still had to work around. These are now in the engine, so your AI writes less
@@ -179,6 +186,13 @@ code of its own:
   works before the store's upload tool is installed and lists what is missing. The exported game takes `--frames 120` to
   run a few frames and exit, as a quick check in CI. `factoria validate` warns about pictures phones cannot compress, and
   new projects keep `build/` out of git.
+- The export guide (`factoria docs read exporting`) has one table of what each export needs (downloads, Android tools,
+  Xcode) and whether your computer can make it at all, offline or after a download. A new Microsoft Store section says
+  what FactorIA covers and what you still do by hand.
+- A game icon without an image service: `assets.draw_icon` draws your icon and the Android icon from shapes, colours and
+  text, so you need no paid picture provider and no Python.
+- Store screenshots at full size: `game.screenshot` takes a `scale` (so does `factoria run --render-scale`), so a
+  1280x720 game makes sharp 1920x1080 pictures instead of enlarged ones. The HUD and the visible area stay the same.
 - `i18n.import` for a new language keeps the shape of your main language file, and `factoria docs read` prints clean
   text on Windows.
 
