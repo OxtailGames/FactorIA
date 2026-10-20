@@ -391,6 +391,49 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
     }
 }
 
+// docs/MAKE_BY_HAND.md gives every file of its game, and tools/cli/tests/fixtures/gem-grab is that game, run by ctest
+// (fixture_gem_grab_*). A code block whose info string names a file ("```js scripts/player.js") must be the fixture's
+// file: the same text for scripts, the same JSON for scenes (the doc keeps a shorter layout than `scene.format`).
+TEST_CASE("docs/MAKE_BY_HAND.md: every file it gives is the tested fixture's") {
+    const stdfs::path repo = FA_REPO_ROOT;
+    const auto read = [](const stdfs::path& p) {
+        std::ifstream f(p, std::ios::binary);
+        std::string s((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        std::erase(s, '\r');
+        return s;
+    };
+    std::istringstream doc(read(repo / "docs/MAKE_BY_HAND.md"));
+    std::string line, lang, path, body;
+    bool inBlock = false;
+    std::set<std::string> given;
+    while (std::getline(doc, line)) {
+        if (line.rfind("```", 0) != 0) {
+            if (inBlock) body += line + "\n";
+            continue;
+        }
+        if (!inBlock) {
+            const size_t sp = line.find(' ');
+            lang = line.substr(3, sp == std::string::npos ? std::string::npos : sp - 3);
+            path = sp == std::string::npos ? "" : line.substr(sp + 1);
+            body.clear();
+        } else if (!path.empty()) {
+            CAPTURE(path);
+            const std::string file = read(repo / "tools/cli/tests/fixtures/gem-grab" / path);
+            REQUIRE_MESSAGE(!file.empty(), "the fixture has no " << path);
+            if (lang == "json")
+                CHECK(fa::Json::parse(body, nullptr, false) == fa::Json::parse(file, nullptr, false));
+            else
+                CHECK(body == file);
+            given.insert(path);
+        }
+        inBlock = !inBlock;
+    }
+    // Every file of the project, so a file added to the fixture but not to the tutorial fails too.
+    for (const char* file : {"scenes/main.scene.json", "scenes/win.scene.json", "scripts/player.js", "scripts/score.js",
+                             "scripts/win.js", "tests/game.test.js"})
+        CHECK_MESSAGE(given.count(file) == 1, "docs/MAKE_BY_HAND.md does not give " << file);
+}
+
 // `factoria test <project> <file|glob>...` and the `files` of project.test run only the named test files; a path that is
 // not a test file is an error that says what to pass (run_project_tests is what the command runs).
 TEST_CASE("test: named files, folders and globs select what runs; a non-test path is a teaching error") {
