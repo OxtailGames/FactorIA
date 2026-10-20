@@ -32,6 +32,7 @@
 #include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
+#include "fa/platform/speech.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -122,6 +123,16 @@ public:
         if (error) *error = "this host cannot render at a scale other than 1";
         return false;
     }
+    // Same, then converts the saved picture to what a colour-blind viewer sees (`simulate`: greyscale, protanopia,
+    // deuteranopia, tritanopia; "" or "none" = unchanged; see simulate_color_vision in fa/core/image.h). The player's
+    // view is not changed, only the file. Hosts without a renderer keep the default, which refuses a simulation.
+    virtual bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) {
+        if (!simulate.empty() && simulate != "none") {
+            if (error) *error = "this host cannot simulate colour vision (no renderer)";
+            return false;
+        }
+        return screenshot_scaled(path, scale, error);
+    }
     // The player's "text size" option (`ui.textScale`, the `ui.set_text_scale` command): screen-space Text and UI labels
     // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
     // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:
@@ -129,8 +140,13 @@ public:
     float text_scale() const { return textScale_; }
     virtual void set_text_scale(float scale) { textScale_ = scale; }
 
+    // Text to speech (`ui.speak`, the `ui.speak` command). Records every line; a game with its own window also gets the
+    // system's speech (set_backend_factory), headless runs and tests only record (`game.spoken()`).
+    Speech& speech() { return speech_; }
+
 private:
     float textScale_ = 1.0f;
+    Speech speech_;
 };
 
 // Where `storage.*` keeps its data. Persistent: <user dir>/storage.json (default). Memory: never touches disk

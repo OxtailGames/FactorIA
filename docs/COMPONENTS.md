@@ -46,6 +46,7 @@ Renders the scene to the screen. The active camera with primary=true and the low
 | `bloomIntensity` | float | `1.2` | Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10. Range 0.0..10.0. |
 | `bloomRadius` | float | `20.0` | Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128. Range 1.0..128.0. |
 | `bloomScreenSpace` | bool | `true` | Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow. |
+| `colorFilter` | enum: none \\| greyscale \\| highContrast \\| protanopia \\| deuteranopia \\| tritanopia | `"none"` | Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. (not released yet, on main after 0.1.6) |
 
 ## 2D
 
@@ -1294,12 +1295,13 @@ Example: game.resume {}
 
 Capture the game view as a PNG and show it.
 
-Draws the game view as it is now (design resolution), saves it and returns the path; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. Example: game.screenshot {"path":"shots/start.png","scale":1.5}
+Draws the game view as it is now (design resolution), saves it and returns the path; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the saved PNG to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons read without their colour. Example: game.screenshot {"path":"shots/start.png","scale":1.5} or game.screenshot {"path":"shots/deut.png","simulate":"deuteranopia"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | no | Output PNG (project-relative or absolute). |
 | `scale` | number | no | Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Default 1. |
+| `simulate` | string ["none","greyscale","protanopia","deuteranopia","tritanopia"] | no | Convert the saved PNG to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged. Default "none". |
 
 ### `game.state`
 
@@ -2045,6 +2047,19 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 |---|---|---|---|
 | `scale` | number | yes | Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half. |
 
+### `ui.speak` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Say a line aloud with the system's text to speech (or record it, headless).
+
+The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and record the line (game.spoken() in tests). Example: ui.speak {"text":"Play"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | What to say, already localized. |
+| `interrupt` | boolean | no | Stop what is being said first (default true); false queues the line. |
+
 ### `ui.state`
 
 Since 0.1.6.
@@ -2052,6 +2067,14 @@ Since 0.1.6.
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.
 
 Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space "screen") follow the widgets as {id, kind: "Text", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}
+
+### `ui.stop_speaking` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Stop what is being said by ui.speak and drop the queued lines.
+
+The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. Example: ui.stop_speaking {}
 
 
 ## Scripting API (TypeScript declarations)
@@ -3227,6 +3250,18 @@ declare module "factoria" {
      */
     focus(target: Entity | string | null): void;
     /**
+     * Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t("menu.play")). Example: ui.on("focus", (e) => ui.speak(e.entity.get("Button").text)). Same as the ui.speak command.
+     */
+    speak(text: string, opts?: { interrupt?: boolean }): void;
+    /**
+     * Stops what is being said and drops the queued lines. Does nothing when nothing is being said or the system has no speech. Same as the ui.stop_speaking command.
+     */
+    stopSpeaking(): void;
+    /**
+     * True when the system can speak. False on a Linux without speech-dispatcher (libspeechd.so.2) or an Android without a speech engine: hide your "read menus aloud" option then. Headless runs and tests report true because they record what would be said (game.spoken()).
+     */
+    readonly speechAvailable: boolean;
+    /**
      * The widget that has keyboard / gamepad focus, or null.
      */
     readonly focused: Entity | null;
@@ -4024,6 +4059,11 @@ declare module "factoria" {
      * Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow.
      */
     bloomScreenSpace: boolean;
+    /**
+     * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead.
+     * @since unreleased
+     */
+    colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
   }
   /**
    * Draws a textured (or solid color) quad. Use `region` to pick a frame from a sprite sheet. Draw order: higher `layer` on top; ties sort by position.y (lower y on top), then creation order.
@@ -6191,7 +6231,7 @@ declare module "factoria" {
   export interface ComponentInit {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
-    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean };
+    Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia" };
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
@@ -6290,6 +6330,24 @@ declare module "factoria:test" {
   export interface DescribeFn {
     (name: string, fn: () => void): void;
     skip(name: string, fn: () => void): void;
+  }
+
+  /**
+   * One entry of game.spoken(): a ui.speak call (or ui.speak command) that was recorded instead of spoken.
+   */
+  export interface SpokenLine {
+    /**
+     * The text, as given.
+     */
+    readonly text: string;
+    /**
+     * The game language (i18n.language) when it was asked; "" when the game has no localization.
+     */
+    readonly language: string;
+    /**
+     * True when the call interrupted what was being said (the default), false when it queued.
+     */
+    readonly interrupt: boolean;
   }
 
   /**
@@ -6506,9 +6564,9 @@ declare module "factoria:test" {
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**
-     * Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots).
+     * Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots). options.simulate converts the saved PNG to what a colour-blind viewer sees (greyscale, protanopia, deuteranopia, tritanopia: Machado 2009 matrices, severity 1.0, in linear light on the sRGB pixels) so a test or an AI checks that hazards read without their colour; the player's view (Camera.colorFilter) is not changed.
      */
-    screenshot(path: string, options?: { scale?: number }): void;
+    screenshot(path: string, options?: { scale?: number; simulate?: "none" | "greyscale" | "protanopia" | "deuteranopia" | "tritanopia" }): void;
     /**
      * JSON dump of the game state.
      */
@@ -6521,6 +6579,14 @@ declare module "factoria:test" {
      * Empties the audio log (e.g. after setup, before the action under test).
      */
     clearAudioLog(): void;
+    /**
+     * What ui.speak was asked to say since the current test started (cleared before each test), oldest first: { text, language, interrupt }. Headless runs and tests speak nothing, they only record. Example: expect(game.spoken().map((l) => l.text)).toEqual(["Play", "Options"]).
+     */
+    spoken(): SpokenLine[];
+    /**
+     * Empties the list of spoken lines (e.g. after setup, before the action under test).
+     */
+    clearSpoken(): void;
     /**
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
      */

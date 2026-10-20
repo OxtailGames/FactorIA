@@ -360,7 +360,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.projectMtime = fs::modified_time(kProjectFileName);
     I.paused = config.editorMode;
     I.windowed = gfx != nullptr && !config.headless;
-    if (I.windowed && !config.editorMode) I.appWindow = std::make_unique<AppWindowControl>();
+    if (I.windowed && !config.editorMode) {
+        I.appWindow = std::make_unique<AppWindowControl>();
+        speech().set_backend_factory(make_system_speech_backend);  // headless runs, tests and the editor only record
+    }
 
     // World + input.
     I.world.rng().reseed(config.seed);
@@ -590,8 +593,22 @@ bool Engine::hold_render_scale(double scale, std::string* error) {
 }
 
 bool Engine::screenshot_scaled(std::string_view path, double scale, std::string* error) {
+    return screenshot_simulated(path, scale, {}, error);
+}
+
+bool Engine::screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) {
+    ColorSimulation mode = ColorSimulation::None;
+    if (!simulate.empty()) {
+        auto parsed = parse_color_simulation(simulate);
+        if (!parsed.ok()) {
+            if (error) *error = parsed.error().to_string();
+            return false;
+        }
+        mode = *parsed;
+    }
     Image img;
     if (!capture_scaled(img, scale, error)) return false;
+    simulate_color_vision(img, mode);
     auto r = save_png(img, path);
     if (!r.ok()) {
         if (error) *error = r.error().to_string();

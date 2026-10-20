@@ -20,13 +20,19 @@
     "windowSizeFullscreen": "حجم النافذة: ملء الشاشة",
     "frameCap": "حد الإطارات: {fps} إطار/ث",
     "frameCapOff": "حد الإطارات: متوقف",
+    "colorFilter": "فلتر الألوان: {filter}",
+    "filter": { "none": "متوقف", "greyscale": "تدرج رمادي", "highContrast": "تباين عالٍ", "protanopia": "عمى اللون الأحمر", "deuteranopia": "عمى اللون الأخضر", "tritanopia": "عمى اللون الأزرق" },
     "videoNote": "تُطبَّق إعدادات الفيديو عندما تعمل اللعبة في نافذتها الخاصة.",
     "volume": { "master": "العام", "music": "الموسيقى", "effects": "المؤثرات", "interface": "الواجهة" },
     "action": { "move_left": "تحرك يسارًا", "move_right": "تحرك يمينًا", "jump": "اقفز", "pause": "إيقاف مؤقت" },
     "binding": "{action}: {button}",
     "pressKey": "{action}: اضغط مفتاحًا أو زرًا (Esc للإلغاء)",
     "resetControls": "استعادة الإعدادات الافتراضية",
-    "language": "اللغة: {language}"
+    "language": "اللغة: {language}",
+    "readAloud": "قراءة القوائم بصوت عالٍ",
+    "on": "مفعّل",
+    "off": "معطّل",
+    "percent": "{value} بالمئة"
   },
   "credits": {
     "madeWith": "صُنعت باستخدام FactorIA",

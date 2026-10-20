@@ -1685,6 +1685,18 @@
        "doc": "Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false)."
       },
       {
+       "sig": "speak(text: string, opts?: { interrupt?: boolean }): void",
+       "doc": "Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t(\"menu.play\")). Example: ui.on(\"focus\", (e) => ui.speak(e.entity.get(\"Button\").text)). Same as the ui.speak command."
+      },
+      {
+       "sig": "stopSpeaking(): void",
+       "doc": "Stops what is being said and drops the queued lines. Does nothing when nothing is being said or the system has no speech. Same as the ui.stop_speaking command."
+      },
+      {
+       "sig": "readonly speechAvailable: boolean",
+       "doc": "True when the system can speak. False on a Linux without speech-dispatcher (libspeechd.so.2) or an Android without a speech engine: hide your \"read menus aloud\" option then. Headless runs and tests report true because they record what would be said (game.spoken())."
+      },
+      {
        "sig": "readonly focused: Entity | null",
        "doc": "The widget that has keyboard / gamepad focus, or null."
       },
@@ -2671,6 +2683,25 @@
     },
     {
      "kind": "interface",
+     "name": "SpokenLine",
+     "doc": "One entry of game.spoken(): a ui.speak call (or ui.speak command) that was recorded instead of spoken.",
+     "members": [
+      {
+       "sig": "readonly text: string",
+       "doc": "The text, as given."
+      },
+      {
+       "sig": "readonly language: string",
+       "doc": "The game language (i18n.language) when it was asked; \"\" when the game has no localization."
+      },
+      {
+       "sig": "readonly interrupt: boolean",
+       "doc": "True when the call interrupted what was being said (the default), false when it queued."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "AudioPlay",
      "doc": "One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.",
      "members": [
@@ -2927,8 +2958,8 @@
        "doc": ""
       },
       {
-       "sig": "screenshot(path: string, options?: { scale?: number }): void",
-       "doc": "Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots)."
+       "sig": "screenshot(path: string, options?: { scale?: number; simulate?: \"none\" | \"greyscale\" | \"protanopia\" | \"deuteranopia\" | \"tritanopia\" }): void",
+       "doc": "Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots). options.simulate converts the saved PNG to what a colour-blind viewer sees (greyscale, protanopia, deuteranopia, tritanopia: Machado 2009 matrices, severity 1.0, in linear light on the sRGB pixels) so a test or an AI checks that hazards read without their colour; the player's view (Camera.colorFilter) is not changed."
       },
       {
        "sig": "state(): Json",
@@ -2941,6 +2972,14 @@
       {
        "sig": "clearAudioLog(): void",
        "doc": "Empties the audio log (e.g. after setup, before the action under test)."
+      },
+      {
+       "sig": "spoken(): SpokenLine[]",
+       "doc": "What ui.speak was asked to say since the current test started (cleared before each test), oldest first: { text, language, interrupt }. Headless runs and tests speak nothing, they only record. Example: expect(game.spoken().map((l) => l.text)).toEqual([\"Play\", \"Options\"])."
+      },
+      {
+       "sig": "clearSpoken(): void",
+       "doc": "Empties the list of spoken lines (e.g. after setup, before the action under test)."
       },
       {
        "sig": "readonly platform: TestPlatform",

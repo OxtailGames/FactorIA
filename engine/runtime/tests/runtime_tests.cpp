@@ -554,6 +554,79 @@ TEST_CASE("engine: screenshot scale draws the same frame natively larger") {
     CHECK(r.error.dump().find("scale") != std::string::npos);
 }
 
+TEST_CASE("engine: Camera.colorFilter is part of the frame, game.screenshot simulate only changes the saved file") {
+    TempProject p("engine_shot_filter");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    auto r = c.call("scene.spawn", Json::parse(R"({"name":"Hud","components":{"Shape2D":{"space":"screen","anchor":[0,0],
+        "pivot":[0,1],"size":[60,30],"color":"#ff0000"},"Transform":{"position":[20,10,0]}}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    e.step(1);
+    auto shot = [&](const char* name, Json args) {
+        const std::string path = (p.dir / name).generic_string();
+        args["path"] = path;
+        auto sr = c.call("game.screenshot", args);
+        INFO(sr.error.dump());
+        REQUIRE(sr.ok);
+        auto img = load_image(path);
+        REQUIRE(img.ok());
+        return img->pixel(40, 25);  // inside the red box
+    };
+    Color plain = shot("plain.png", Json::object());
+    CHECK(plain.r > 0.9f);
+    CHECK(plain.g < 0.1f);
+    // simulate: the file shows what a colour-blind viewer sees (red through the greyscale and protanopia matrices) ...
+    Color grey = shot("sim_grey.png", Json{{"simulate", "greyscale"}});
+    CHECK(grey.r == doctest::Approx(0.498f).epsilon(0.02));
+    CHECK(grey.g == doctest::Approx(grey.r).epsilon(0.01));
+    Color prot = shot("sim_prot.png", Json{{"simulate", "protanopia"}});
+    CHECK(prot.r == doctest::Approx(0.4266f).epsilon(0.02));
+    CHECK(prot.g == doctest::Approx(0.3727f).epsilon(0.02));
+    // ... and the game is unchanged afterwards.
+    Color again = shot("plain2.png", Json::object());
+    CHECK(again.r > 0.9f);
+    CHECK(again.g < 0.1f);
+    // A typo teaches.
+    auto bad = c.call("game.screenshot", Json{{"simulate", "deuteranopa"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("deuteranopia") != std::string::npos);
+
+    // Camera.colorFilter is drawn into the frame: the screenshot shows it without any `simulate`.
+    r = c.call("scene.spawn", Json::parse(R"({"name":"FilterCam","components":{"Camera":{"depth":-100,"colorFilter":"greyscale"}}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    e.step(1);
+    Color filtered = shot("filtered.png", Json::object());
+    CHECK(filtered.r == doctest::Approx(0.498f).epsilon(0.02));
+    CHECK(filtered.g == doctest::Approx(filtered.r).epsilon(0.01));
+}
+
+TEST_CASE("run_headless: screenshotSimulate converts the screenshots and a typo is reported") {
+    TempProject p("run_headless_simulate");
+    EngineConfig c = headless_cfg(p);
+    HeadlessRunOptions o;
+    o.frames = 2;
+    o.screenshotFrames = {1};
+    o.screenshotPattern = (p.dir / "out" / "f_{frame}.png").generic_string();
+    o.screenshotSimulate = "greyscale";
+    Json report;
+    REQUIRE(run_headless(c, o, &report) == 0);
+    REQUIRE(report["screenshots"].size() == 1);
+    auto img = load_image((p.dir / "out" / "f_1.png").generic_string());
+    REQUIRE(img.ok());
+    for (int y = 0; y < img->height; y += 9)
+        for (int x = 0; x < img->width; x += 9) {
+            Color px = img->pixel(x, y);
+            REQUIRE(px.r == doctest::Approx(px.g).epsilon(0.01));
+            REQUIRE(px.g == doctest::Approx(px.b).epsilon(0.01));
+        }
+    o.screenshotSimulate = "greeyscale";
+    CHECK(run_headless(c, o, &report) == 0);  // screenshot problems are reported, the run goes on
+    REQUIRE(report.contains("problems"));
+    CHECK(report["problems"][0].get<std::string>().find("greyscale") != std::string::npos);
+}
+
 TEST_CASE("engine: graphics=false runs pure logic and reports screenshot unavailability") {
     TempProject p("engine_nogfx");
     EngineConfig c = headless_cfg(p);

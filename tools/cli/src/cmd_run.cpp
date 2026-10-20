@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/tooling/export_settings.h"
@@ -62,6 +63,7 @@ Command make_run_command() {
                {"input", "FILE", "Headless: input replay JSON. A relative path is looked up in the current directory, then in the project."},
                {"screenshot-at", "F1,F2", "Headless: frame numbers to capture as PNG."},
                {"render-scale", "S", "Headless: screenshots are design size * S (0.25 to 4, default 1) drawn natively and sharp: HUD and visible area unchanged, 1.5 on 1280x720 = 1920x1080 for store screenshots."},
+               {"screenshot-simulate", "MODE", "Headless: save the screenshots as a colour-blind viewer sees them: greyscale, protanopia, deuteranopia or tritanopia (Machado 2009, severity 1.0; the video and the game are unchanged). Checks that hazards read without colour."},
                {"screenshot-pattern", "PATTERN", "PNG path with {frame}, relative to the current directory (default <project>/.factoria/screenshots/frame_{frame}.png)."},
                {"state-out", "FILE", "Headless: write the final world state JSON here (relative to the current directory)."},
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
@@ -87,7 +89,7 @@ Command make_run_command() {
         cfg.height = a.integer("height", 0);
         cfg.seed = a.uinteger("seed", 1);
         if (!a.has("headless")) {
-            for (const char* f : {"frames", "input", "screenshot-at", "render-scale", "screenshot-pattern", "state-out", "record-audio", "record-video", "render-all", "persist-storage"})
+            for (const char* f : {"frames", "input", "screenshot-at", "render-scale", "screenshot-simulate", "screenshot-pattern", "state-out", "record-audio", "record-video", "render-all", "persist-storage"})
                 if (a.has(f)) throw UsageError(std::string("--") + f + " only works with --headless.", "Add --headless.");
             cfg.headless = false;
             return run_windowed(cfg);
@@ -110,6 +112,11 @@ Command make_run_command() {
                              "Example: --screenshot-pattern out/shot_{frame}.png");
         ho.screenshotPattern = pattern;
         ho.renderScale = a.number("render-scale", 1.0);
+        if (a.has("screenshot-simulate")) {
+            ho.screenshotSimulate = a.str("screenshot-simulate");
+            if (auto parsed = parse_color_simulation(ho.screenshotSimulate); !parsed.ok())
+                throw UsageError("--screenshot-simulate: " + parsed.error().message, parsed.error().hint);
+        }
         if (a.has("state-out")) ho.stateOutPath = absolute_path(a.str("state-out"));
         if (a.has("record-audio")) ho.audioOutPath = absolute_path(a.str("record-audio"));
         if (a.has("record-video")) {

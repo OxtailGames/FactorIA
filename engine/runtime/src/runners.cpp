@@ -417,7 +417,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         if (std::binary_search(shots.begin(), shots.end(), f)) {
             std::string path = replace_all(options.screenshotPattern, "{frame}", std::to_string(f));
             std::string serr;
-            if (engine.screenshot_scaled(path, options.renderScale, &serr))
+            if (engine.screenshot_simulated(path, options.renderScale, options.screenshotSimulate, &serr))
                 shotPaths.push_back(fs::is_absolute(path) ? path : fs::resolve(path).generic_string());
             else
                 replayProblems.push_back("screenshot at frame " + std::to_string(f) + ": " + serr);

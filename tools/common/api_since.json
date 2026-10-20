@@ -55,6 +55,7 @@
     "Camera.bloomThreshold": "0.1.0",
     "Camera.clear": "0.1.0",
     "Camera.clearColor": "0.1.0",
+    "Camera.colorFilter": "unreleased",
     "Camera.depth": "0.1.0",
     "Camera.farPlane": "0.1.0",
     "Camera.fov": "0.1.0",
@@ -543,6 +544,8 @@
     "shader.compile": "unreleased",
     "sign.macos": "unreleased",
     "ui.set_text_scale": "unreleased",
+    "ui.speak": "unreleased",
+    "ui.stop_speaking": "unreleased",
     "ui.state": "0.1.6"
   }
 }

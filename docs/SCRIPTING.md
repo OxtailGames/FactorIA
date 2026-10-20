@@ -447,6 +447,14 @@ Both are described with examples in [ANIMATION.md](ANIMATION.md).
   Button, Toggle, Slider and TextField are drawn and measured at `fontSize * ui.textScale`; world-space `Text` is never
   scaled. A value outside the range throws. The engine does not save it (keep it in `storage`), and each test file starts
   at 1. The command is `ui.set_text_scale`. Fonts, languages and right-to-left text: [TEXT.md](TEXT.md).
+- `ui.speak(text, { interrupt = true })` says `text` aloud with the system's text to speech, in `i18n.language` (the system
+  voice for it when there is one); `interrupt: false` queues it after what is being said. `ui.stopSpeaking()` stops and
+  clears the queue. `ui.speechAvailable` is false where the system has no speech (Linux without speech-dispatcher, Android
+  without a speech engine): `ui.speak` is then a no-op that logs one warning per run, so hide a "read menus aloud" option.
+  Output only: it never touches the simulation. Headless runs, tests and the editor speak nothing and record every line:
+  `game.spoken()` in `factoria:test` returns `[{ text, language, interrupt }]` (`game.clearSpoken()` empties it, and it
+  is cleared before each test). Commands: `ui.speak`, `ui.stop_speaking`. Recipe (speak the focused widget, behind an
+  option) and how to hear it on each system: [MENUS.md](MENUS.md).
 - `ui.on`, `ui.focus`, `ui.focused` and `ui.hovered` belong to the widgets: see the next section.
 
 ### UI: menus, settings screens and HUD widgets
@@ -726,7 +734,7 @@ test("player jumps", () => {
   `keyDown(key)`, `keyUp(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
   `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
-  `clearAudioLog()`
+  `clearAudioLog()`, `spoken()` (what `ui.speak` was asked to say: `[{ text, language, interrupt }]`, cleared before each test), `clearSpoken()`
 
 `game.gamepad(index = 0)` drives a pad: `press(button)`, `release(button)`, `tap(button)` (press, step, release, step, like
 `game.tap`), `axis(name, value)`, `connect()` and `disconnect()`. Like `keyDown`, `press`, `release` and `axis` act at once and

@@ -151,7 +151,12 @@ that adds its glow INTO that same target (`engine/render/src/bloom.cpp`,
 `shaders/bloom.glsl`), so screenshots include it. With `Camera.bloomScreenSpace = false`
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
-HUD pass loads it again, so the HUD is multisampled too. Shaders are GLSL annotated for
+HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is the last post-process
+(`Renderer::Impl::apply_color_filter`, `shaders/colorfilter.glsl`): a pass cannot read what it writes, so the filter
+draws the finished target into a second image of the same size, and `present()`, `capture()` (screenshots, video) and
+the editor viewport read that image while a filter is on; `none` skips the pass and the image. The colour-blind
+CHECK (`simulate` of `game.screenshot`) is separate: `simulate_color_vision()` in `fa/core/image.h` on the captured
+pixels. Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
 `mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
 `@block fa_user` (a `surface()` snippet, plus `vertex()` with `FA_HAS_VERTEX`), `@include`s the template and declares

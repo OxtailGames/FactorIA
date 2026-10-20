@@ -532,10 +532,15 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. "
            "Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image "
            "scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, "
-           "so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. Example: game.screenshot {\"path\":\"shots/start.png\",\"scale\":1.5}",
+           "so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. `simulate` (greyscale, protanopia, deuteranopia, tritanopia) converts the saved "
+           "PNG to what a colour-blind viewer sees (Machado 2009 matrices, severity 1.0, applied to the sRGB pixels in linear light; "
+           "greyscale = Rec. 709 luminance) without changing what the player sees: use it to check that hazards, pickups and buttons "
+           "read without their colour. Example: game.screenshot {\"path\":\"shots/start.png\",\"scale\":1.5} or "
+           "game.screenshot {\"path\":\"shots/deut.png\",\"simulate\":\"deuteranopia\"}",
            parse_schema(R"({"type":"object","properties":{
                "path":{"type":"string","description":"Output PNG (project-relative or absolute)."},
-               "scale":{"type":"number","default":1,"minimum":0.25,"maximum":4,"description":"Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080."}}})"),
+               "scale":{"type":"number","default":1,"minimum":0.25,"maximum":4,"description":"Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080."},
+               "simulate":{"type":"string","enum":["none","greyscale","protanopia","deuteranopia","tritanopia"],"default":"none","description":"Convert the saved PNG to what a colour-blind viewer sees (Machado 2009, severity 1.0, linear light) to check that things read without colour. The player's view is unchanged."}}})"),
            true, "game"},
           [&engine, &I](const Json& a) {
               std::string path = a.value("path", ".factoria/screenshots/frame_" + std::to_string(I.frame) + ".png");
@@ -544,7 +549,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               if (!(scale >= 0.25 && scale <= 4.0))
                   throw CommandError("invalid_argument", "scale " + std::to_string(scale) + " is out of range.",
                                      "scale must be between 0.25 and 4: the image is design size * scale. Example: 1.5 on a 1280x720 game gives 1920x1080.");
-              if (!engine.screenshot_scaled(path, scale, &err))
+              const std::string simulate = a.value("simulate", std::string("none"));
+              if (auto parsed = parse_color_simulation(simulate); !parsed.ok())
+                  throw CommandError("invalid_argument", parsed.error().message, parsed.error().hint);
+              if (!engine.screenshot_simulated(path, scale, simulate, &err))
                   throw CommandError("unavailable", err, "Screenshots need graphics (headless needs Mesa/EGL).");
               std::string abs = abs_path(path);
               Json j = Json::object();
@@ -619,6 +627,32 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine](const Json& a) {  // the schema has already checked the range
               engine.set_text_scale(a.at("scale").get<float>());
               return Json::object({{"textScale", engine.text_scale()}});
+          });
+
+    I.commands.add({"ui.speak", "Say a line aloud with the system's text to speech (or record it, headless).",
+           "The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) "
+           "with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. "
+           "Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android "
+           "without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and "
+           "record the line (game.spoken() in tests). Example: ui.speak {\"text\":\"Play\"}",
+           parse_schema(R"({"type":"object","required":["text"],"properties":{
+               "text":{"type":"string","description":"What to say, already localized."},
+               "interrupt":{"type":"boolean","description":"Stop what is being said first (default true); false queues the line."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {
+              const I18n* L = engine.i18n();
+              const std::string language = L && L->enabled() ? L->language() : std::string();
+              const bool said = engine.speech().speak(a.at("text").get<std::string>(), language, a.value("interrupt", true));
+              return Json::object({{"spoken", said}, {"language", language}});
+          });
+
+    I.commands.add({"ui.stop_speaking", "Stop what is being said by ui.speak and drop the queued lines.",
+           "The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. "
+           "Example: ui.stop_speaking {}",
+           parse_schema(R"({"type":"object","properties":{}})"), false, "ui"},
+          [&engine](const Json&) {
+              engine.speech().stop();
+              return Json::object();
           });
 
     I.commands.add({"screen.set_safe_area", "Pretend the device has a notch, rounded corners or system bars (a notched phone, headless).",

@@ -135,6 +135,9 @@ public:
     // Render scale (0.25 .. 4, output at most 8192 px per side): draws the same design-size frame into an image `scale`
     // times larger, like a fullscreen window does (layout, camera and visible area unchanged, text and shapes sharp).
     bool screenshot_scaled(std::string_view path, double scale, std::string* error) override;
+    // Same, with the colour-vision simulation `simulate` ("", "none", "greyscale", "protanopia", "deuteranopia",
+    // "tritanopia") applied to the saved pixels on the CPU. What the game draws is not changed.
+    bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) override;
     // The same picture as screenshot_scaled, as pixels (row 0 = top).
     bool capture_scaled(Image& out, double scale, std::string* error);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
@@ -211,6 +214,7 @@ struct HeadlessRunOptions {
     std::string inputReplayPath;          // optional
     std::vector<int> screenshotFrames;    // frame indices to capture
     std::string screenshotPattern = ".factoria/screenshots/frame_{frame}.png";
+    std::string screenshotSimulate;       // "" / none, greyscale, protanopia, deuteranopia, tritanopia: screenshots (not the video) are converted to what a colour-blind viewer sees
     double renderScale = 1.0;             // screenshots are design size * this (0.25 .. 4), drawn natively: 1.5 on 1280x720 = 1920x1080
     std::string stateOutPath;             // optional JSON state dump at the end
     std::string audioOutPath;             // optional WAV recording
