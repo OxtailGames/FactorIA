@@ -145,8 +145,10 @@ Same seed + same input = same state and pixels.
 ### `factoria screenshot [project] [--frames N] [--out shot.png] [--json]`
 Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.factoria/screenshots/shot.png`).
 
-### `factoria test [project] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
-Runs `tests/**/*.test.js` on a headless engine; prints one line per test, failure messages with expected/actual and
+### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
+Runs `tests/**/*.test.js` on a headless engine (or only the files, folders or globs named after the project, relative to
+it: `factoria test tests/saves.test.js`, `factoria test my-game "tests/ui*.test.js"`; a path that is not a `*.test.js`
+file is an error); prints one line per test, failure messages with expected/actual and
 the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
 screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
 and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.
