@@ -888,7 +888,7 @@ TEST_CASE("find_ffmpeg: the environment variable, then export.json, then PATH") 
     testing::TempDir t;
     testing::write_all(t.path / "tools" / "ffmpeg", "x");
     testing::write_all(t.path / "other" / "ffmpeg.exe", "x");
-    testing::write_all(t.path / "export.json", R"({"publish": {"ffmpeg": ")" + (t.path / "other").generic_string() + R"("}})");
+    testing::write_all(t.path / "export.json", R"({"publish": {"ffmpeg": ")" + (t.path / "other" / "ffmpeg.exe").generic_string() + R"("}})");
     const std::string config = (t.path / "export.json").string();
     const auto env = [&](const std::string& name) -> std::string { return name == "FACTORIA_FFMPEG" ? (t.path / "tools").generic_string() : ""; };
     auto found = find_ffmpeg(env, config);
