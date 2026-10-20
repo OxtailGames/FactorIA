@@ -43,6 +43,7 @@ TEST_CASE("scaffold: every template produces a valid project") {
             CHECK_MESSAGE(stdfs::exists(stdfs::path(dir) / f), f);
         CHECK(testing::read_all(stdfs::path(dir) / "AGENTS.md") == testing::read_all(stdfs::path(dir) / "CLAUDE.md"));
         CHECK(testing::read_all(stdfs::path(dir) / ".gitignore").find(".factoria/") != std::string::npos);
+        CHECK(testing::read_all(stdfs::path(dir) / ".gitignore").find("\nbuild/\n") != std::string::npos);
         CHECK_FALSE(stdfs::exists(stdfs::path(dir) / "template.json"));
 
         // No unreplaced placeholders anywhere; all JSON parses.
