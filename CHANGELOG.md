@@ -143,6 +143,10 @@ Guides for finishing and publishing
   code: menus, options that stay set, saves that survive updates, languages, accessibility, credits and tests.
 - `factoria docs read publishing` has one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App
   Store, itch.io, your own site): what FactorIA does for you and what you still do by hand, with fees and review times.
+- Store images and trailers: `assets.draw_capsules` makes every picture a store page asks for (Steam capsules, Epic,
+  GOG, Microsoft Store, Google Play, App Store screenshots, the itch.io cover) from one picture of your game and your
+  logo or title. `factoria run --headless --input replay.json --record-video trailer.avi` records a trailer from an
+  input replay, with sound; ask for `trailer.mp4` when ffmpeg is installed.
 
 Fixed while making Lantern Keep
 

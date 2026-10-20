@@ -845,6 +845,13 @@ note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py,
 - "Finish your game" guide (PR #119): docs/FINISHING.md, from a playable prototype to a game ready for a store in eight
   recipes with Lantern Keep's code (menus, options, saves with versions and migration, languages, accessibility, the
   platform services, credits and crash reports, tests) and a checklist. Its saves section is the M21 part of LK/FB-0013.
+- Store page material (PR #121): `assets.draw_capsules` cover-crops one key art around a focal point and places a logo
+  (an image or title text, drawn by `assets.draw_icon`'s rasterizer) at every image size of Steam, Epic, GOG, Microsoft
+  Store, Google Play, the App Store and itch.io (one table, as of 2026-10; GOG and itch.io sizes not confirmed by an
+  official page), into `store/capsules/<store>/`. `factoria run --headless --input replay.json --record-video out.avi`
+  draws every frame at `--render-scale` into a Motion-JPEG AVI with the run's audio (no dependency; about 2 GB at most,
+  stopped early past it); `.mp4` (H.264 + AAC) goes through ffmpeg, found like the store uploaders by one shared lookup
+  (`find_machine_tool`). Lantern Keep has its key art, `tools/capsules.json` and a trailer replay.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
