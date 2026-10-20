@@ -1336,8 +1336,8 @@ publish_googleplay {"dryRun":true}
 
 The engine covers the Windows folder only: `factoria export --platform windows` writes the exe with the game's icon and
 version information (name, version, file name) and, with `--release`, `game.pak`. It does not sign the exe (patching it
-removes the player's signature, and the next steps say so), does not build an MSIX package and does not upload to Partner
-Center. An `export.windows.msix` option that builds the package is planned. Until then, by hand with the Windows SDK:
+removes the player's signature), does not build an MSIX package and does not upload to Partner Center. An
+`export.windows.msix` option that builds the package is planned. Until then, by hand with the Windows SDK:
 
 1. In Partner Center reserve the app name. Its product identity page gives the package `Identity Name` (like
    `12345Studio.MyGame`), the `Publisher` (a `CN=...` string) and the publisher display name: copy them exactly.
@@ -1349,7 +1349,7 @@ Center. An `export.windows.msix` option that builds the package is planned. Unti
    [icon list](https://learn.microsoft.com/windows/apps/design/iconography/app-icon-construction).
 3. `makeappx pack /d <package folder> /p MyGame.msix`.
 4. To try it on your PC, sign it with `signtool sign /fd SHA256 /f test.pfx /p <password> MyGame.msix` (a certificate whose
-   subject equals the manifest `Publisher`). For the Store upload the package: Microsoft signs it after certification.
+   subject equals the manifest `Publisher`). For the Store, upload it unsigned: Microsoft signs it after certification.
    Microsoft's [manual packaging guide](https://learn.microsoft.com/windows/msix/package/manual-packaging-root) covers each tool.
 5. Create the submission in Partner Center (pricing, age rating, privacy policy URL, listing and screenshots; see
    [AI content disclosure](#ai-content-disclosure) for the content questions), upload the `.msix` and send it to
