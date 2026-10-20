@@ -18,7 +18,7 @@ struct WindowedState {
     bool ok = false;
     int exitCode = 0;
     int framesRendered = 0;  // drawn frames, for the run marker in AppDesc.frame
-    int framesDrawn = 0;     // frames run so far, for EngineConfig::maxFrames
+    int framesRun = 0;       // frames run so far, for EngineConfig::maxFrames
     int framesSinceResume = -1;  // -1: not waiting for the post-resume marker; else drawn frames since Resumed
     // What the window shows of Input's requested cursor and on-screen keyboard state (input.mouse.visible/locked,
     // input.showKeyboard): scripts change Input, apply_input_requests() makes the window follow.
@@ -164,7 +164,7 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             st->framesSinceResume = -1;
         }
         if (st->engine.quit_requested()) app_request_quit();
-        if (st->cfg.maxFrames > 0 && ++st->framesDrawn >= st->cfg.maxFrames) {
+        if (st->cfg.maxFrames > 0 && ++st->framesRun >= st->cfg.maxFrames) {
             for (const ScriptError& e : st->engine.scripts().errors()) {
                 FA_ERROR("player", "script error: {}", e.to_string());
                 st->exitCode = 1;
