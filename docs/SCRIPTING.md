@@ -724,7 +724,7 @@ test("player jumps", () => {
   the first finger also moves the mouse and holds the left button, so `touch` alone tests mouse handling too: no
   `click` needed), `press(action)`, `release(action)`, `tap(action)`,
   `keyDown(key)`, `keyUp(key)`, `gamepad(index = 0)`, `mouseMove(screenPos)`, `click(screenPos, button?)`, `find(idOrName)`,
-  `world`, `time`, `screenshot(path)`, `state()`, `audioLog()` (sounds played since the test started:
+  `world`, `time`, `screenshot(path, {scale?})` (scale 0.25 to 4 renders natively larger), `state()`, `audioLog()` (sounds played since the test started:
   `[{ seq, frame, time, path, volume, pitch, pan, bus, loop, music, source, ok }]`, cleared before each test),
   `clearAudioLog()`
 

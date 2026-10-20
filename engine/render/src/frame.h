@@ -14,6 +14,7 @@ struct Frame {
     RenderStats* stats = nullptr;
     Assets* assets = nullptr;
     Fonts* fonts = nullptr;
+    float renderScale = 1.0f;  // Renderer::set_render_scale: glyphs are rasterized this many times larger (sharp text)
     float textScale = 1.0f;  // Renderer::set_text_scale: multiplies the font size of screen-space Text and UI labels
     bool white_used = false;
     // Lit 2D visuals (Sprite.lit, Tilemap.lit): the lights of this frame (gather_2d) and the base light.

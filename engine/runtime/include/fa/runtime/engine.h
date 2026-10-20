@@ -131,7 +131,10 @@ public:
     bool render_pending() const;
 
     // Screenshot of the game target (PNG). Works headless and windowed.
-    bool screenshot(std::string_view path, std::string* error) override;
+    bool screenshot(std::string_view path, std::string* error) override { return screenshot_scaled(path, 1.0, error); }
+    // Render scale (0.25 .. 4, output at most 8192 px per side): draws the same design-size frame into an image `scale`
+    // times larger, like a fullscreen window does (layout, camera and visible area unchanged, text and shapes sharp).
+    bool screenshot_scaled(std::string_view path, double scale, std::string* error) override;
     // JSON dump of the world for AIs: entities, components, physics, logs, errors.
     Json state(const Json& query = Json::object());
 
@@ -201,6 +204,7 @@ struct HeadlessRunOptions {
     std::string inputReplayPath;          // optional
     std::vector<int> screenshotFrames;    // frame indices to capture
     std::string screenshotPattern = ".factoria/screenshots/frame_{frame}.png";
+    double renderScale = 1.0;             // screenshots are design size * this (0.25 .. 4), drawn natively: 1.5 on 1280x720 = 1920x1080
     std::string stateOutPath;             // optional JSON state dump at the end
     std::string audioOutPath;             // optional WAV recording
     bool failOnScriptError = true;
