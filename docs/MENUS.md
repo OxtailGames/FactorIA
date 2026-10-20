@@ -52,6 +52,13 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   level buttons as wide as the widest label:
   `{ "id": "levels", "components": { "Panel": { "layout": "grid", "columns": 3, "fit": true, "uniformSize": true } } }`
   with children `{ "components": { "Button": { "autoSize": true, "text": "Level 1" } } }`, `"Level 10"`, `"Level 100"`.
+- **Panels that wrap.** A panel can name a second layout for when the first would not fit the screen:
+  `"layout": "column", "fallbackLayout": "row"` stands a column's children side by side at a big text size, and a row of
+  buttons with `"fallbackLayout": "column"` stacks them. The panel (its content plus padding, and every `fit` panel
+  around it) must fit the screen; the deepest panels switch first, so a level select stacks its rows of buttons
+  before it puts the worlds side by side. It is chosen again every frame, so it follows the text size and the language.
+  A script that must adapt (narrow a text when the column became a row) reads `Panel.usingFallback`. To read a size
+  right after changing a text, call `ui.layout()` instead of measuring labels and adding margins.
 
 - **Focus and navigation.** Direction presses (`ui_up/down/left/right`) move the focus to the nearest interactable widget
   in the pressed direction that is lined up with the focused one: its rectangle overlaps the focused rectangle across

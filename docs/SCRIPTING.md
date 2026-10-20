@@ -176,7 +176,9 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   rectangle: it is skipped, and an entity that only has screen-space visuals returns `null`. Lay HUD items out with
   `game.screenSize` and their `anchor`. To know where a widget or a screen-space `Text` really is (anchor, pivot, safe
   area and layout applied), use `ui.rectOf(entityOrId)`: a `Rect` in design pixels with `(x, y)` at the TOP-LEFT and y
-  growing downwards, or `null` for anything else. `ui.state` lists the same rectangles, screen-space `Text` included.
+  growing downwards, or `null` for anything else. Layout runs each frame; call `ui.layout()` to run it now (autoSize
+  and fit sizes, positions, `Panel.fallbackLayout`) and read a size right after changing a text, with no `game.step`.
+  `ui.state` lists the same rectangles, screen-space `Text` included.
 - Children are not included. `active` and colour alpha are ignored: a hidden entity still has bounds.
 
 Component views expose exactly the reflected fields listed by `factoria api
@@ -521,6 +523,8 @@ the press is released over the same widget; a Slider follows the pointer while p
   ui.on("click", "play_button", () => scene.load("scenes/level1.scene.json"));
   ui.on("change", "music_volume", (e) => audio.setVolume("music", e.value));
   ```
+- `ui.layout()` runs the UI layout now, as every frame does: change a label, call it, then read `Button.size`,
+  `Panel.size` or `ui.rectOf(...)`. `Panel.usingFallback` tells whether a panel is laid out with its `fallbackLayout`.
 - `ui.focus(target | null)` gives the focus to a widget (null clears it) and sends `ui.focus`; it throws, saying why, when
   the entity is not a focusable widget, is inactive or has `interactable: false`. `ui.focused` and `ui.hovered`
   are the focused widget and the one under the pointer (Entity or `null`): check `ui.hovered` so a click meant for a
