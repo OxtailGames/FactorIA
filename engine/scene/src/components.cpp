@@ -837,7 +837,19 @@ void register_builtin_components(TypeRegistry& r) {
                    "true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children "
                    "of the panels and lists inside it; active ones only) takes the size of the largest of them, width and "
                    "height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a "
-                   "grid of level buttons as wide as the widest label.");
+                   "grid of level buttons as wide as the widest label.")
+            .enum_field("fallbackLayout", &Panel::fallbackLayout, {"none", "row", "column", "grid"},
+                        "Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen "
+                        "(none = never switch). The panel leaves the screen when its content size + padding, or the size of "
+                        "the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller "
+                        "and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a "
+                        "time until it fits; the choice is made again every frame, so it follows the text size and the "
+                        "language and goes back to `layout` when the texts shrink. Example: a column of two blocks with "
+                        "fallbackLayout \"row\" stands them side by side at a big text size; a row of buttons with "
+                        "fallbackLayout \"column\" stacks them. Scripts that must adapt read `usingFallback`.")
+            .field("usingFallback", &Panel::usingFallback,
+                   "Runtime: true while the panel is laid out with `fallbackLayout` instead of `layout`.")
+            .runtime_only().read_only();
     }
     {
         auto button = r.add<Button>("Button",

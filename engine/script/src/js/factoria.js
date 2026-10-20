@@ -1213,7 +1213,7 @@
     },
     // Where a widget or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
     // the safe area included (not the +Y-up convention of entity.bounds()). Takes an Entity or an id/name; null for anything
-    // that is neither (a world-space sprite). Layout runs each frame: read it after game.step.
+    // that is neither (a world-space sprite). Layout runs each frame: read it after game.step or ui.layout().
     rectOf(entityOrId) {
       const r = N.screenRect(entityHandle(entityOrId, "ui.rectOf"));
       return r === null ? null : new Rect(r[0], r[1], r[2], r[3]);
@@ -1244,6 +1244,8 @@
         fn({ type, id: data?.id ?? null, entity: source, value: data?.value });
       }, null);
     },
+    // Runs the UI layout now (autoSize sizes, fit sizes, positions, fallbackLayout), exactly what each frame does.
+    layout() { N.uiLayout(); },
     // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
     // the entity cannot take focus.
     focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
