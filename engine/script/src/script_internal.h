@@ -223,7 +223,7 @@ struct ScriptSystem::Impl {
 
     // ================= api (script_api.cpp)
     Json api_manifest() const;
-    std::string typescript_declarations() const;
+    std::string typescript_declarations(const ScriptSystem::SinceFn& since) const;
 
     // ================= natives (script_natives.cpp)
     void install_natives(JSValue N);

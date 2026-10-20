@@ -199,6 +199,9 @@ code of its own:
   1280x720 game makes sharp 1920x1080 pictures instead of enlarged ones. The HUD and the visible area stay the same.
 - `i18n.import` for a new language keeps the shape of your main language file, and `factoria docs read` prints clean
   text on Windows.
+- The reference (`factoria api`, `docs/COMPONENTS.md`, the MCP tool list) now says which version added each component,
+  field and command, and marks with "Not released yet" what is only on the main branch, so you can tell what your
+  installed FactorIA has.
 
 ## 0.1.6
 
