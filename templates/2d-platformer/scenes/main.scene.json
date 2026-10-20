@@ -94,606 +94,251 @@
     },
     {
       "id": "coin_1",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1936.0, 752.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_2",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1968.0, 752.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_3",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1712.0, 656.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_4",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1744.0, 656.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_5",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2160.0, 592.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_6",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2192.0, 592.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_7",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1488.0, 560.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_8",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1520.0, 560.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_9",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1264.0, 464.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_10",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1296.0, 464.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_11",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2352.0, 432.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_12",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2384.0, 432.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_13",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1040.0, 368.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_14",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1072.0, 368.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_15",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [816.0, 272.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_16",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [848.0, 272.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_17",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1360.0, 208.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_18",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1392.0, 208.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "player",
-      "name": "Player",
+      "prefab": "prefabs/player.prefab.json",
       "tags": ["player", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [112.0, 152.0, 0.0]
-        },
-        "Shape2D": {
-          "size": [32.0, 48.0],
-          "color": [0.95, 0.35, 0.3, 1.0],
-          "layer": 2
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [32.0, 48.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/player.js",
-          "props": {
-            "speed": 300,
-            "jumpSpeed": 620
-          }
         }
       }
     },
     {
       "id": "coin_19",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [272.0, 144.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_20",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [304.0, 144.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_21",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [336.0, 144.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_22",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2384.0, 144.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_23",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2416.0, 144.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_24",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [2448.0, 144.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "circle",
-          "size": [24.0, 24.0],
-          "color": [1.0, 0.85, 0.2, 1.0],
-          "layer": 1
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     }
