@@ -800,8 +800,19 @@ constexpr const char* kSchemaText =
           "items": {
             "type": "object",
             "required": [
-              "id",
-              "name"
+              "id"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "nameKey"
+                ]
+              }
             ],
             "properties": {
               "id": {
@@ -814,9 +825,19 @@ constexpr const char* kSchemaText =
                 "minLength": 1,
                 "description": "The achievement's title."
               },
+              "nameKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A key of locales/<language>.json instead of \"name\": the title in the current language (docs/PLATFORM.md, \"Translated texts\")."
+              },
               "description": {
                 "type": "string",
                 "description": "What the player did to earn it."
+              },
+              "descriptionKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A key of locales/<language>.json instead of \"description\"."
               },
               "hidden": {
                 "type": "boolean",
@@ -922,8 +943,19 @@ constexpr const char* kSchemaText =
             "type": "object",
             "required": [
               "id",
-              "type",
-              "title"
+              "type"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "title"
+                ]
+              },
+              {
+                "required": [
+                  "titleKey"
+                ]
+              }
             ],
             "properties": {
               "id": {
@@ -944,9 +976,19 @@ constexpr const char* kSchemaText =
                 "minLength": 1,
                 "description": "The product's name. Real stores show their own; the fake backend uses this."
               },
+              "titleKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A key of locales/<language>.json instead of \"title\": the product's name in the current language. Real stores show their own; the fake backend uses this."
+              },
               "description": {
                 "type": "string",
                 "description": "What it gives. Real stores show their own; the fake backend uses this."
+              },
+              "descriptionKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A key of locales/<language>.json instead of \"description\"."
               },
               "price": {
                 "type": "number",

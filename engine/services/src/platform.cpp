@@ -153,7 +153,16 @@ struct PrepareContext {
     const PlatformCatalog& catalog;
     const std::string& backend;
     const std::map<std::string, std::string>& transactions;  // transactionId -> product id
+    const PlatformServices::Translator& translator;
 };
+
+// The text of a catalog entry in the current language: its locale key translated, else the plain text, else the key.
+std::string localized(const std::string& text, const std::string& key, const PlatformServices::Translator& translate) {
+    if (key.empty()) return text;
+    if (translate)
+        if (auto t = translate(key)) return *t;
+    return text.empty() ? key : text;
+}
 
 Json id_pair(const PlatformEntry& e, const std::string& backend) { return Json::object({{"id", e.id}, {"storeId", e.store_id(backend)}}); }
 
@@ -164,12 +173,12 @@ Json id_pairs(const std::vector<T>& entries, const std::string& backend) {
     return a;
 }
 
-Json product_args(const PlatformProduct& p, const std::string& backend, bool withCatalogData) {
+Json product_args(const PlatformProduct& p, const std::string& backend, bool withCatalogData, const PlatformServices::Translator& tr) {
     Json j = id_pair(p, backend);
     j["type"] = p.type;
     if (withCatalogData) {  // for backends that have no store to ask (the fake); real stores answer with their own
-        j["title"] = p.title;
-        j["description"] = p.description;
+        j["title"] = localized(p.title, p.titleKey, tr);
+        j["description"] = localized(p.description, p.descriptionKey, tr);
         j["price"] = p.price;
         j["currency"] = p.currency;
     }
@@ -200,7 +209,15 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         return out;
     }
     if (method == "achievements.list" || method == "achievements.reset")
-        return Json::object({{"achievements", id_pairs(cat.achievements, be)}});
+    {
+        Json list = id_pairs(cat.achievements, be);
+        if (method == "achievements.list")  // the catalog's texts, in the current language, for a backend with none of its own
+            for (std::size_t i = 0; i < list.size(); ++i) {
+                list[i]["name"] = localized(cat.achievements[i].name, cat.achievements[i].nameKey, c.translator);
+                list[i]["description"] = localized(cat.achievements[i].description, cat.achievements[i].descriptionKey, c.translator);
+            }
+        return Json::object({{"achievements", std::move(list)}});
+    }
 
     if (method == "stats.get" || method == "stats.set") {
         const auto& s = lookup(cat.stats, need_string(in, "id", "the id of a stat"), "a stat", "stats", "{\"id\": \"wins\", \"type\": \"int\"}");
@@ -271,22 +288,22 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
             if (!it->is_array()) throw Bad{"\"ids\" must be an array of product ids, got " + describe_json_value(*it), {}};
             for (const Json& id : *it) {
                 if (!id.is_string()) throw Bad{"\"ids\" must hold product ids (strings), got " + describe_json_value(id), {}};
-                list.push_back(product_args(lookup(cat.products, id.get<std::string>(), "a product", "products", "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}"), be, true));
+                list.push_back(product_args(lookup(cat.products, id.get<std::string>(), "a product", "products", "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}"), be, true, c.translator));
             }
         } else {
-            for (const PlatformProduct& p : cat.products) list.push_back(product_args(p, be, true));
+            for (const PlatformProduct& p : cat.products) list.push_back(product_args(p, be, true, c.translator));
         }
         return Json::object({{"products", list}});
     }
     if (method == "purchases.restore") {
         Json list = Json::array();
-        for (const PlatformProduct& p : cat.products) list.push_back(product_args(p, be, false));
+        for (const PlatformProduct& p : cat.products) list.push_back(product_args(p, be, false, c.translator));
         return Json::object({{"products", list}});
     }
     if (method == "purchases.buy") {
         const auto& p = lookup(cat.products, need_string(in, "id", "the id of a product"), "a product", "products",
                                "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}");
-        return product_args(p, be, false);
+        return product_args(p, be, false, c.translator);
     }
     if (method == "purchases.finish") {
         const std::string& tx = need_string(in, "transactionId", "the transactionId of a purchase result or event");
@@ -296,7 +313,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
                       "Pass the transactionId of a purchases.buy() result, a platform.on(\"purchase\") event or a restore() entry, and finish "
                       "each transaction once."};
         const PlatformProduct* p = cat.find_product(it->second);
-        Json out = p ? product_args(*p, be, false) : Json::object({{"id", it->second}, {"storeId", it->second}, {"type", "consumable"}});
+        Json out = p ? product_args(*p, be, false, c.translator) : Json::object({{"id", it->second}, {"storeId", it->second}, {"type", "consumable"}});
         out["transactionId"] = tx;
         return out;
     }
@@ -376,6 +393,7 @@ struct PlatformSink::State {
     std::uint64_t generation = 1;  // of the current backend: a replaced backend's sink does nothing
     std::uint64_t nextId = 1;
     PlatformCatalog catalog;
+    PlatformServices::Translator translator;
     std::string backendName = "none";
     std::vector<std::string> services;
 
@@ -434,7 +452,16 @@ struct PlatformSink::State {
             if (result.is_object()) merge_player(result);
         } else if (m == "achievements.list" || m == "purchases.products") {
             if (!result.is_array()) return;
+            const Json* asked = m == "achievements.list" && p.args.contains("achievements") ? &p.args["achievements"] : nullptr;
             for (Json& e : result) {
+                if (asked && e.is_object())  // a backend list without texts gets the catalog's, as prepared
+                    for (const Json& a : *asked) {
+                        const std::string id = a.value("id", std::string()), store = a.value("storeId", std::string());
+                        if (e.value("id", std::string()) != id && e.value("storeId", std::string()) != store) continue;
+                        for (const char* key : {"name", "description"})
+                            if (!e.contains(key) && a.contains(key)) e[key] = a[key];
+                        break;
+                    }
                 if (!e.is_object() || e.contains("id") || !e.contains("storeId") || !e["storeId"].is_string()) continue;
                 const std::string store = e["storeId"].get<std::string>();
                 e["id"] = m == "purchases.products" ? product_id_from(store) : store_to_achievement(store);
@@ -576,6 +603,11 @@ void PlatformServices::set_catalog(PlatformCatalog catalog) {
     state_->catalog = std::move(catalog);
 }
 
+void PlatformServices::set_translator(Translator translator) {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->translator = std::move(translator);
+}
+
 const PlatformCatalog& PlatformServices::catalog() const { return state_->catalog; }
 
 void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend, std::string why) {
@@ -631,7 +663,7 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         std::lock_guard<std::mutex> lock(s.mutex);
         backendName = s.backendName;
         try {
-            prepared = prepare(method, args, {s.catalog, s.backendName, s.transactions});
+            prepared = prepare(method, args, {s.catalog, s.backendName, s.transactions, s.translator});
         } catch (const Bad& b) {
             return make_error(b.message, b.hint);
         }

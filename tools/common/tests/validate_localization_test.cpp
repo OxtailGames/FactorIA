@@ -368,3 +368,24 @@ TEST_CASE("validate: the name of a language must be drawable in the other langua
     CHECK(mentions(*name[0], "while the game runs in 'en'"));
     CHECK(mentions(*name[0], "localization.fallbackFonts"));
 }
+
+TEST_CASE("validate: a locale key the platform catalog names must be in the default table (did you mean)") {
+    Project p(kTwoLanguages);
+    p.table("en", kEn);
+    p.table("es", kEs);
+    auto j = load_json_file(p.dir + "/factoria.json");
+    REQUIRE(j.ok());
+    (*j)["platform"] = Json::parse(R"({
+        "achievements": [{"id": "play", "nameKey": "menu.play"}, {"id": "quit", "nameKey": "menu.quti", "descriptionKey": "menu.quit"}],
+        "products": [{"id": "gems", "type": "consumable", "titleKey": "shop.gems"}]})");
+    REQUIRE(save_json_file(p.dir + "/factoria.json", *j).ok());
+    const ValidationReport r = p.validate();
+    CHECK(at(r.errors, "factoria.json", "/platform/achievements/0/nameKey").empty());
+    CHECK(at(r.errors, "factoria.json", "/platform/achievements/1/descriptionKey").empty());
+    const auto typo = at(r.errors, "factoria.json", "/platform/achievements/1/nameKey");
+    REQUIRE(typo.size() == 1);
+    CHECK(mentions(*typo[0], "'menu.quti'"));
+    CHECK(mentions(*typo[0], "locales/en.json"));
+    CHECK(mentions(*typo[0], "Did you mean 'menu.quit'?"));
+    CHECK(at(r.errors, "factoria.json", "/platform/products/0/titleKey").size() == 1);
+}
