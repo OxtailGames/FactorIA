@@ -72,6 +72,12 @@ std::optional<std::array<std::uint8_t, 3>> opaque_corner_color(const Image& imag
 
 void register_slice_sheet_command(CommandRegistry& registry, const std::string& projectDir);
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir);
+void register_draw_capsules_command(CommandRegistry& registry, const std::string& projectDir);
+
+// Title text as a tightly cropped transparent image (assets_draw_icon.cpp: the rasterizer of assets.draw_icon's text
+// layers), the largest that fits maxW x maxH; `outline` (or null) draws an outline around the letters. A project font is
+// read from the VFS project root (hold a ProjectRootGuard). Throws CommandError for an unreadable font or empty text.
+Image draw_title_logo(const std::string& text, const std::string& font, const Color& fill, const Color* outline, int maxW, int maxH);
 
 // ---- project.validate (validate_assets.cpp) --------------------------------------------------------------
 
@@ -83,6 +89,12 @@ void check_sprite_textures(const std::string& projectDir, const std::set<std::st
 // ---- command helpers -------------------------------------------------------------------------------------
 
 [[noreturn]] void fail(const char* code, const std::string& message, const std::string& hint = {});
+
+// Argument errors of the drawing commands (assets_draw_icon.cpp): "<command> <JSON pointer>: <what>" with a hint; unknown
+// keys get a "did you mean"; colours are "#rrggbb", "#rrggbbaa", a name or [r, g, b].
+[[noreturn]] void arg_error(const char* command, const std::string& pointer, const std::string& what, const std::string& hint);
+void check_arg_keys(const char* command, const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed);
+Color colour_arg(const char* command, const Json& v, const std::string& pointer);
 
 // The absolute path of the project-relative `rel` (sandboxed: it cannot leave the project), or a CommandError.
 stdfs::path project_file(const std::string& projectDir, const std::string& rel);

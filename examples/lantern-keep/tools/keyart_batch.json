@@ -1,0 +1,7 @@
+[
+  {"command": "scene.load", "args": {"path": "scenes/levels/2-1.scene.json"}},
+  {"command": "game.step", "args": {"frames": 90}},
+  {"command": "script.eval", "args": {"code": "for (const id of ['hud_bar', 'hud_level', 'hud_timer', 'hud_embers']) world.find(id).destroy()"}},
+  {"command": "game.step", "args": {"frames": 1}},
+  {"command": "game.screenshot", "args": {"path": "store/keyart.png", "scale": 1.5}}
+]

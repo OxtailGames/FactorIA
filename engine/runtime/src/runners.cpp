@@ -3,7 +3,10 @@
 #include <filesystem>
 
 #include "engine_impl.h"
+#include "fa/core/avi.h"
 #include "fa/core/fs.h"
+#include "fa/core/image.h"
+#include "fa/core/process.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 
@@ -339,7 +342,43 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             }
         }
     }
-    if (!options.audioOutPath.empty()) I.audio.start_recording();
+    // Video: validated before the run, so a wrong request does not cost a whole replay.
+    const bool wantVideo = !options.videoOutPath.empty();
+    const std::string videoExt = wantVideo ? fs::extension(options.videoOutPath) : std::string();
+    AviWriter avi;
+    std::string aviPath;  // where the AVI is written: the output itself, or a temporary one that ffmpeg converts
+    bool videoFailed = false;
+    const auto video_fail = [&](const std::string& why) {  // the report says why; the video stops, the run goes on
+        replayProblems.push_back("video: " + why);
+        videoFailed = true;
+    };
+    if (wantVideo) {
+        if (videoExt != ".avi" && videoExt != ".mp4") {
+            report["error"] = "--record-video writes .avi or .mp4 files, but '" + options.videoOutPath + "' ends in '" + videoExt +
+                              "'. Use a name like out/trailer.avi (no extra tools needed) or out/trailer.mp4 (needs ffmpeg).";
+            return finish(2);
+        }
+        if (videoExt == ".mp4" && options.ffmpegPath.empty()) {
+            report["error"] = "Recording an .mp4 needs ffmpeg, and it was not found (looked at: the FACTORIA_FFMPEG environment "
+                              "variable, \"publish\": {\"ffmpeg\": \"<path>\"} in ~/.factoria/export.json, and PATH). Install ffmpeg "
+                              "(https://ffmpeg.org/download.html; Windows: winget install ffmpeg, macOS: brew install ffmpeg, Linux: "
+                              "apt install ffmpeg) or record an .avi, which needs nothing, and convert it later with: ffmpeg -i "
+                              "trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4";
+            return finish(2);
+        }
+        if (!I.renderer) {
+            report["error"] = "--record-video needs a GPU renderer, and this run has none (graphics=false or no GPU found). Headless "
+                              "EGL works with Mesa (llvmpipe).";
+            return finish(2);
+        }
+        std::string serr;
+        if (!engine.hold_render_scale(options.renderScale, &serr)) {
+            report["error"] = "--render-scale: " + serr;
+            return finish(2);
+        }
+        aviPath = videoExt == ".mp4" ? options.videoOutPath + ".tmp.avi" : options.videoOutPath;
+    }
+    if (!options.audioOutPath.empty() || wantVideo) I.audio.start_recording();
 
     std::vector<int> shots = options.screenshotFrames;
     std::sort(shots.begin(), shots.end());
@@ -353,6 +392,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             engine.step(1);
         }
         ++ran;
+        if (wantVideo && !videoFailed) {
+            Image frameImg;
+            std::string verr;
+            if (!engine.capture_scaled(frameImg, options.renderScale, &verr)) {
+                video_fail("frame " + std::to_string(f) + ": " + verr);
+            } else {
+                if (avi.frame_count() == 0)
+                    if (auto b = avi.begin(aviPath, frameImg.width, frameImg.height, 1.0 / engine.fixed_dt()); !b.ok()) video_fail(b.error().to_string());
+                if (!videoFailed)
+                    if (auto a = avi.add_frame(encode_jpeg(frameImg, 85)); !a.ok())
+                        video_fail(a.error().to_string() + " The video stops here (" + std::to_string(avi.frame_count()) + " frames); the run goes on.");
+            }
+        }
         if (std::binary_search(shots.begin(), shots.end(), f)) {
             std::string path = replace_all(options.screenshotPattern, "{frame}", std::to_string(f));
             std::string serr;
@@ -365,12 +417,45 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     engine.render_now();  // OnDemand: the last frame is drawn so renderStats / the final picture exist
     report["frames"] = ran;
     report["screenshots"] = shotPaths;
-    if (!options.audioOutPath.empty()) {
+    std::vector<std::int16_t> pcm;
+    int pcmRate = 0;
+    if (!options.audioOutPath.empty() || wantVideo) {
         std::string aerr;
-        if (I.audio.stop_recording(options.audioOutPath, &aerr))
-            report["audioPath"] = fs::is_absolute(options.audioOutPath) ? options.audioOutPath : fs::resolve(options.audioOutPath).generic_string();
-        else
+        if (I.audio.stop_recording(options.audioOutPath, &aerr, wantVideo ? &pcm : nullptr, &pcmRate)) {
+            if (!options.audioOutPath.empty())
+                report["audioPath"] = fs::is_absolute(options.audioOutPath) ? options.audioOutPath : fs::resolve(options.audioOutPath).generic_string();
+        } else {
             replayProblems.push_back("audio recording: " + aerr);
+        }
+    }
+    if (wantVideo && !videoFailed) {
+        const bool audible = std::any_of(pcm.begin(), pcm.end(), [](std::int16_t v) { return v != 0; });  // a silent run has no track
+        const int videoFrames = avi.frame_count();
+        auto w = videoFrames == 0 ? Result<void>(make_error("the run drew no frame (--frames 0?)", "Run at least one frame."))
+                                  : avi.finish(audible ? pcm.data() : nullptr, audible ? pcm.size() / 2 : 0, pcmRate);
+        if (!w.ok()) {
+            video_fail(w.error().to_string());
+        } else if (videoExt == ".mp4") {
+            ProcessOptions po;
+            po.argv = {options.ffmpegPath, "-y", "-loglevel", "error", "-i", aviPath, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                       "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                       "-movflags", "+faststart", options.videoOutPath};
+            po.captureStdout = false;
+            po.timeoutSeconds = 1800;
+            auto pr = run_process(po);
+            std::error_code ec;
+            std::filesystem::remove(fs::os_path(aviPath), ec);
+            if (!pr.ok())
+                video_fail("cannot start ffmpeg (" + options.ffmpegPath + "): " + pr.error().to_string());
+            else if (pr->exitCode != 0)
+                video_fail("ffmpeg failed (exit " + std::to_string(pr->exitCode) + "): " + pr->stderrText.substr(0, 600) +
+                           " Record an .avi instead if this keeps failing.");
+        }
+        if (!videoFailed) {
+            report["videoPath"] = fs::is_absolute(options.videoOutPath) ? options.videoOutPath : fs::resolve(options.videoOutPath).generic_string();
+            report["videoFrames"] = videoFrames;
+            report["videoAudio"] = audible;
+        }
     }
     if (!options.stateOutPath.empty()) {
         auto w = fs::write_text(options.stateOutPath, dump_json(engine.state()));
@@ -389,6 +474,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     if (!replayProblems.empty()) report["problems"] = replayProblems;
     int code = 0;
     if (options.failOnScriptError && (!scriptErrs.empty() || I.sceneErrorCount > 0)) code = 1;
+    if (videoFailed) code = 2;
     engine.shutdown();
     return finish(code);
 }
