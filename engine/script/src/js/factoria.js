@@ -1502,6 +1502,8 @@
     // The game's languages, as in factoria.json localization.languages (a copy).
     get languages() { return N.i18nInfo().languages; },
     get defaultLanguage() { return N.i18nInfo().defaultLanguage; },
+    // "rtl" when the current language is written right to left (Arabic, Hebrew, Persian, Urdu...), else "ltr".
+    get direction() { return N.i18nInfo().direction; },
     // The player's system languages, best first (BCP 47). Empty in headless runs and tests.
     get systemLanguages() { return N.i18nInfo().systemLanguages; },
     // The language's own name for a menu ("Español"): "$name" of its table, else the tag.

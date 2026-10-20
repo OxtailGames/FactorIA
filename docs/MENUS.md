@@ -114,6 +114,8 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
   translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the
   language's own name in `"$name"`: it is what the Language button shows.
+  For a right-to-left language (Arabic, Hebrew, Persian, Urdu) the options panel mirrors itself: its tabs row has
+  `"direction": "auto"` and the panels and the wrapped note use `"align": "start"` (docs/LOCALIZATION.md, section 6).
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
   section 9.22.
 - **Phones: notch and Back.** A panel or text pinned to a screen edge (a top bar, a corner button, the "Loading..." text)
@@ -503,13 +505,14 @@ export default class StoreEvents extends Behaviour {
   "entity": {
     "name": "Options",
     "components": {
-      "Panel": { "size": [760, 620], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
+      "Panel": { "size": [760, 620], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "direction": "auto", "align": "start",
+        "spacing": 16, "padding": [24, 24, 24, 24] },
       "Script": { "path": "scripts/ui/options.js" }
     },
     "children": [
       { "name": "Title", "components": { "Text": { "text": "Options", "key": "options.title", "fontSize": 40, "space": "screen", "layer": 301 } } },
       { "name": "Tabs",
-        "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "padding": [0, 0, 0, 0], "fit": true } },
+        "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "direction": "auto", "padding": [0, 0, 0, 0], "fit": true } },
         "children": [
           { "id": "tab_video", "components": { "Button": { "autoSize": true, "text": "Video", "key": "options.tab.video", "size": [160, 48], "layer": 302, "autoFocus": true } } },
           { "id": "tab_audio", "components": { "Button": { "autoSize": true, "text": "Audio", "key": "options.tab.audio", "size": [160, 48], "layer": 302 } } },
@@ -517,14 +520,14 @@ export default class StoreEvents extends Behaviour {
           { "id": "tab_language", "components": { "Button": { "autoSize": true, "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
         ] },
       { "id": "video_section",
-        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
+        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 12 } },
         "children": [
           { "id": "fullscreen", "components": { "Toggle": { "autoSize": true, "label": "Full screen", "key": "options.fullscreen", "size": [560, 44], "layer": 302 } } },
           { "id": "resolution", "components": { "Button": { "autoSize": true, "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "vsync", "components": { "Toggle": { "autoSize": true, "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
           { "id": "frame_cap", "components": { "Button": { "autoSize": true, "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.", "key": "options.videoNote",
-            "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "layer": 302 } } }
+            "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "align": "start", "maxWidth": 560, "layer": 302 } } }
         ] },
       { "id": "audio_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },

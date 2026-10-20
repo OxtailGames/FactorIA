@@ -939,3 +939,64 @@ TEST_CASE("ui layout: a fit panel larger than the screen logs one warning naming
         if (e.message.find("huge_menu") != std::string::npos) ++warnings;
     CHECK(warnings == 1);
 }
+
+// ------------------------------------------------------------------------------- right-to-left layouts --
+TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-left language only") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {0, 0}, {300, 100});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Row;
+    panel.spacing = 5;
+    panel.padding = {10, 0, 20, 0};  // inner box x 10 .. 280
+    panel.align = UiAlign::Start;
+    Entity a = t.button("a", {0, 0}, {50, 20}, p), b = t.button("b", {0, 0}, {30, 40}, p);
+
+    for (UiDirection d : {UiDirection::Ltr, UiDirection::Auto}) {  // English: both read left to right
+        panel.direction = d;
+        t.w.set_rtl(false);
+        t.ui.layout(t.w, t.design, {});
+        CHECK(t.rect(a).x == doctest::Approx(10));
+        CHECK(t.rect(b).x == doctest::Approx(65));
+    }
+    panel.direction = UiDirection::Auto;
+    t.w.set_rtl(true);  // Arabic: the first child is at the right edge of the padded box, start = right
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(230));  // 280 - 50
+    CHECK(t.rect(b).x == doctest::Approx(195));  // 230 - 5 - 30
+    panel.direction = UiDirection::Ltr;  // an explicit ltr ignores the language
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(10));
+    panel.direction = UiDirection::Rtl;  // an explicit rtl ignores it too
+    t.w.set_rtl(false);
+    panel.justify = UiAlign::End;  // end = the left edge of an rtl panel
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(b).x == doctest::Approx(10));
+    CHECK(t.rect(a).x == doctest::Approx(45));  // 10 + 30 + 5
+}
+
+TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in English and right in Arabic") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {0, 0}, {300, 200});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Column;
+    panel.padding = {10, 10, 10, 10};
+    panel.align = UiAlign::Start;
+    panel.direction = UiDirection::Auto;
+    Entity label = t.w.create("note", "note");
+    t.w.set_parent(label, p);
+    Text& txt = t.w.add<Text>(label);
+    txt.text = "a long note that wraps inside its box";
+    txt.fontSize = 10;
+    txt.space = RenderSpace::Screen;
+    txt.pivot = {0, 1};
+    txt.maxWidth = 120;
+    txt.align = Align::Start;
+    t.ui.layout(t.w, t.design, {});
+    const Rect en = *ui_screen_rect(t.w, label, t.design);
+    CHECK(en.x == doctest::Approx(10));
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    const Rect ar = *ui_screen_rect(t.w, label, t.design);
+    CHECK(ar.x + ar.w == doctest::Approx(290));  // the box ends at the right edge of the padded box
+    CHECK(ar.w == doctest::Approx(en.w));
+}

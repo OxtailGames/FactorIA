@@ -97,6 +97,9 @@ Arabic run starts).
 right edge, for Arabic too. For an Arabic or Hebrew label, set `align: "right"` (and `pivot: [1, 1]`, or an `anchor` on the
 right side of the screen) when it should hug the right edge. The first line of an unwrapped Text starts at the pivot as
 usual.
+`align: "start"` and `"end"` are the direction-aware values: start is the left edge in a left-to-right language and the
+right edge in a right-to-left one (`i18n.direction`), so one Text serves English and Arabic. Panels mirror their rows with
+`direction: "auto"` (docs/LOCALIZATION.md, section 6).
 
 ## Line breaking
 

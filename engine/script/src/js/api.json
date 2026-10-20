@@ -2059,6 +2059,10 @@
        "doc": "factoria.json localization.defaultLanguage: the language of the text written in scenes and the last fallback."
       },
       {
+       "sig": "readonly direction: \"ltr\" | \"rtl\"",
+       "doc": "The writing direction of the current language: \"rtl\" for Arabic, Hebrew, Persian, Urdu and the other right-to-left languages, else \"ltr\" (also when the game has no localization). Text align \"start\"/\"end\" and Panel direction \"auto\" follow it by themselves; read it to mirror what they do not reach, such as an anchor or a pivot (docs/LOCALIZATION.md, section 6)."
+      },
+      {
        "sig": "readonly systemLanguages: string[]",
        "doc": "The player's system languages, best first (BCP 47 tags such as \"es-MX\"). Empty in headless runs and tests: the start language does not depend on the machine there."
       },
