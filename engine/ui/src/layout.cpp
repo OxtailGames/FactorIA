@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "fa/core/log.h"
 #include "ui_internal.h"
 
 namespace fa {
@@ -101,16 +102,117 @@ Rect inner_box(const Rect& r, const Vec4& pad) {
     return {r.x + pad.x, r.y + pad.y, std::max(0.0f, r.w - pad.x - pad.z), std::max(0.0f, r.h - pad.y - pad.w)};
 }
 
-void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure& m) {
+void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure& m, std::unordered_set<u64>& warned) {
     if (p.layout == UiLayout::None) return;  // ponytail: fit needs a layout; with none the content has no defined size
     const std::vector<Child> ch = children_of(w, e, design, m);
     if (p.fit) {
         const Vec2 c = content_size(p.layout, ch, p.spacing, p.columns);
         p.size = {c.x + p.padding.x + p.padding.z, c.y + p.padding.y + p.padding.w};
+        if (p.size.x > design.x + 0.5f || p.size.y > design.y + 0.5f) {
+            if (warned.insert(e.bits()).second)
+                FA_WARN("ui",
+                        "Panel '{}' (fit) is {} x {} px, larger than the {} x {} px screen, so part of it is off screen. Shorten its "
+                        "texts, make a ScrollList in it `fill` the free height, or lower the font sizes.",
+                        w.info(e).id, int(std::ceil(p.size.x)), int(std::ceil(p.size.y)), int(design.x), int(design.y));
+        } else {
+            warned.erase(e.bits());
+        }
     }
     const Rect inner = inner_box(*ui_rect(w, e, design), p.padding);
-    const std::vector<Vec2> slots = place(p.layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
+    std::vector<Vec2> slots = place(p.layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
+    // Right to left: the left-to-right layout flipped about the middle of the box, so the first child, `start` and a grid's
+    // first column all end up on the right.
+    if (p.direction == UiDirection::Rtl || (p.direction == UiDirection::Auto && w.rtl()))
+        for (std::size_t i = 0; i < ch.size(); ++i) slots[i].x = 2.0f * inner.x + inner.w - slots[i].x - ch[i].r.w;
     for (std::size_t i = 0; i < ch.size(); ++i) move_to(w, ch[i], slots[i]);
+}
+
+// Size of `s` as the renderer draws a UI label: at the player's text size (the measure does that), wrapped at `maxWidth` if > 0.
+Vec2 label_extent(const VisualMeasure& m, const std::string& s, const std::string& font, float fontSize, float maxWidth) {
+    if (s.empty()) return {0, 0};
+    Text t;
+    t.text = s;
+    t.font = font;
+    t.fontSize = fontSize;
+    t.maxWidth = maxWidth;
+    t.space = RenderSpace::Screen;
+    return m.textSize ? m.textSize(t) : approx_text_size(s, fontSize, maxWidth);
+}
+
+// The size a Button / Toggle / Slider with autoSize takes: its `design` size, or what its label needs when that is more.
+// The margins match what fa_render draws (ui2d.cpp): a toggle's box and a slider's label / track / value zones.
+Vec2 fitted_size(const Button& b, Vec2 design, const VisualMeasure& m) {
+    Vec2 label = label_extent(m, b.text, b.font, b.fontSize, 0.0f);
+    if (b.maxWidth > 0 && label.x > b.maxWidth) label = label_extent(m, b.text, b.font, b.fontSize, b.maxWidth);
+    if (label.x <= 0) return design;
+    return {std::max(design.x, std::ceil(label.x + 32.0f)), std::max(design.y, std::ceil(label.y + 16.0f))};
+}
+
+Vec2 fitted_size(const Toggle& t, Vec2 design, const VisualMeasure& m) {
+    const Vec2 label = label_extent(m, t.label, t.font, t.fontSize, 0.0f);
+    if (label.x <= 0) return design;
+    const float h = std::max(design.y, std::ceil(label.y + 16.0f));
+    return {std::max(design.x, std::ceil(h + 16.0f + label.x)), h};  // 6 margin + (h - 12) box + 10 gap + label + 12 margin
+}
+
+Vec2 fitted_size(const Slider& s, Vec2 design, const VisualMeasure& m) {
+    const Vec2 label = label_extent(m, s.label, s.font, s.fontSize, 0.0f);
+    float inner = label.x > 0 ? (label.x + 12.0f) / 0.35f : 0.0f;  // the label gets 35% of the width inside the 8 px margins
+    float textH = label.y;
+    if (s.showValue) {
+        Vec2 value{0, 0};
+        for (float v : {s.min, s.max}) {  // the ends of the range: the size must not change while the knob moves
+            const Vec2 e = label_extent(m, ui_slider_value_text(s, v), s.font, s.fontSize, 0.0f);
+            value = {std::max(value.x, e.x), std::max(value.y, e.y)};
+        }
+        inner = std::max(inner, (value.x - 16.0f) / 0.15f);  // the value gets the last 15%; it may spill 8 px each side
+        textH = std::max(textH, value.y);
+    }
+    if (inner <= 0) return design;
+    return {std::max(design.x, std::ceil(inner + 16.0f)), std::max(design.y, std::ceil(textH + 8.0f))};
+}
+
+// Sets the size of every autoSize widget of kind T. The design size is remembered: the UI wrote `applied` last time, so a
+// different size now was written by the game (or the file) and is the new design size.
+template <class T, class Memo>
+void autosize_kind(World& w, Memo& memo, const VisualMeasure& m) {
+    for (Entity e : w.entities_with(&World::type_of<T>())) {
+        if (!w.alive(e)) continue;
+        T* c = w.get<T>(e);
+        const auto it = memo.find(e.bits());
+        if (!c->autoSize) {
+            if (it != memo.end()) memo.erase(it);
+            continue;
+        }
+        if (!w.active_in_hierarchy(e)) continue;
+        const bool ours = it != memo.end() && it->second.applied.x == c->size.x && it->second.applied.y == c->size.y;
+        const Vec2 design = ours ? it->second.design : c->size;
+        c->size = fitted_size(*c, design, m);
+        memo[e.bits()] = {design, c->size};
+    }
+}
+
+// ScrollList.fill: the height the parent column leaves, see the field's doc.
+void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
+    ScrollList* s = w.get<ScrollList>(e);
+    const Entity parent = w.parent(e);
+    const Panel* p = parent ? w.get<Panel>(parent) : nullptr;
+    if (!s->fill || !p || p->layout != UiLayout::Column) return;
+    float others = 0;
+    int kids = 0, fills = 0;
+    for (const Child& c : children_of(w, parent, design, m)) {
+        ++kids;
+        const ScrollList* l = w.get<ScrollList>(c.e);
+        if (l && l->fill) ++fills;
+        else others += c.r.h;
+    }
+    float room = p->size.y;
+    if (p->fit) {
+        const EdgeInsets& in = w.safe_insets();
+        room = p->safeArea ? design.y - in.top - in.bottom : design.y;
+    }
+    const float free = room - p->padding.y - p->padding.w - p->spacing * float(std::max(0, kids - 1)) - others;
+    s->size.y = std::max(64.0f, std::floor(free / float(std::max(1, fills))));
 }
 
 // `focus`: the entity to scroll into view (null when the focus did not just change).
@@ -173,13 +275,30 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
     // Containers deepest first: a nested container is sized and fills itself before the container around it places it
     // (moving a container moves its whole subtree, so what it already placed stays in place).
     std::vector<std::pair<int, Entity>> containers;
+    // Widgets that fit their label come first, so every container sees their final sizes.
+    autosize_kind<Button>(w, autoSizes_, m);
+    autosize_kind<Toggle>(w, autoSizes_, m);
+    autosize_kind<Slider>(w, autoSizes_, m);
+    for (auto it = autoSizes_.begin(); it != autoSizes_.end();)
+        it = w.alive(Entity::from_bits(it->first)) ? std::next(it) : autoSizes_.erase(it);
     for (const TypeInfo* type : {&World::type_of<Panel>(), &World::type_of<ScrollList>()})
         for (Entity e : w.entities_with(type))
             if (w.alive(e) && w.active_in_hierarchy(e)) containers.push_back({depth_of(w, e), e});
-    std::stable_sort(containers.begin(), containers.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    // A `fill` list comes last among its siblings: the other children (nested panels included) have their final height by then.
+    const auto fills = [&](Entity e) {
+        const ScrollList* s = w.get<ScrollList>(e);
+        return s && s->fill;
+    };
+    std::stable_sort(containers.begin(), containers.end(), [&](const auto& a, const auto& b) {
+        return a.first != b.first ? a.first > b.first : (!fills(a.second) && fills(b.second));
+    });
     for (const auto& [depth, e] : containers) {
-        if (ScrollList* s = w.get<ScrollList>(e)) layout_scroll(w, e, *s, scrollToFocus_ ? focus_ : kNullEntity, design, m);
-        else if (Panel* p = w.get<Panel>(e)) layout_panel(w, e, *p, design, m);
+        if (ScrollList* s = w.get<ScrollList>(e)) {
+            apply_fill(w, e, design, m);
+            layout_scroll(w, e, *s, scrollToFocus_ ? focus_ : kNullEntity, design, m);
+        } else if (Panel* p = w.get<Panel>(e)) {
+            layout_panel(w, e, *p, design, m, warnedFit_);
+        }
     }
     scrollToFocus_ = false;
 }

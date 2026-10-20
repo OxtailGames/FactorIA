@@ -75,7 +75,8 @@ enum class RenderSpace : std::int32_t { World, Screen };
 // lasers), multiply (shadows, tinting).
 enum class BlendMode : std::int32_t { Alpha, Additive, Multiply };
 
-enum class Align : std::int32_t { Left, Center, Right };
+// Start / End are the left / right edge in a left-to-right language and the right / left edge in a right-to-left one.
+enum class Align : std::int32_t { Left, Center, Right, Start, End };
 
 struct Sprite {
     std::string texture;              // asset path; "" draws a solid quad of `color`
@@ -222,6 +223,8 @@ struct ParticleEmitter {
 // scene/ui_rect.h. components.cpp registers them (category "UI") with ui_box_fields(), so the shared doc strings exist once.
 enum class UiLayout : std::int32_t { None, Row, Column, Grid };
 enum class UiAlign : std::int32_t { Start, Center, End };
+// Panel.direction: Ltr = start is left; Rtl = start is right (rows run right to left); Auto = follows the current language.
+enum class UiDirection : std::int32_t { Ltr, Auto, Rtl };
 
 // Geometry and background shared by every widget.
 struct UiBox {
@@ -257,17 +260,21 @@ struct Panel : UiBox {
     std::int32_t columns = 2;                 // grid only
     UiAlign align = UiAlign::Center;          // cross axis
     UiAlign justify = UiAlign::Start;         // main axis
+    UiDirection direction = UiDirection::Ltr; // horizontal reading direction of the layout
     bool fit = false;                         // size = content + padding, every frame
 };
 
 struct Button : UiControl {
     std::string text = "Button";
+    float maxWidth = 0.0f;                    // > 0 wraps the label at this width (design pixels); 0 = no wrap
+    bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     Button() { size = {240, 56}; }
 };
 
 struct Toggle : UiControl {
     std::string label = "Toggle";
     bool value = false;
+    bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     Toggle() { size = {240, 40}; }
 };
 
@@ -278,6 +285,7 @@ struct Slider : UiControl {
     float max = 1.0f;
     float step = 0.1f;                        // keyboard / gamepad increment and snapping; 0 = continuous
     bool showValue = true;
+    bool autoSize = false;                    // grow to fit the label and value text (at least `size`), at the current ui.textScale
     Slider() { size = {320, 40}; }
 };
 
@@ -295,6 +303,7 @@ struct ScrollList : UiBox {
     Vec4 padding{8, 8, 8, 8};
     float scroll = 0.0f;                      // runtime: pixels scrolled from the top
     float scrollSpeed = 40.0f;                // pixels per mouse-wheel notch
+    bool fill = false;                        // inside a column Panel: take the height the other children leave
     ScrollList() { size = {320, 240}; }
 };
 

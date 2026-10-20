@@ -99,6 +99,13 @@ The language is not saved between runs. A game that lets the player choose keeps
 - Saving a scene of a running game in another language would save the translations: edit and save scenes in the
   default language.
 
+### Store catalog texts
+
+The achievements and products of `factoria.json` `"platform"` (docs/PLATFORM.md) take their texts from the same tables:
+`nameKey`, `descriptionKey` (achievements) and `titleKey`, `descriptionKey` (products) name a key instead of writing the
+text, and `platform.achievements.list()` and `platform.purchases.products()` answer in the current language. The stores'
+own screens are translated in each store's console (see PLATFORM.md, "Translated texts").
+
 ## 5. Scripts: the `i18n` object
 
 ```js
@@ -135,11 +142,35 @@ const off = i18n.on("change", ({ language, previous }) => { /* write your own te
   read when some text needs it, and the list follows `i18n.setLanguage` at once, for the text already on screen too.
   `factoria validate` fails when a table string has a character no font of its chain has (section 7).
 - **Right-to-left text.** Arabic and Hebrew are ordered with the Unicode bidirectional algorithm and joined by the
-  shaper, with nothing to configure. `align` does not follow the text direction (`"left"` is always the left edge):
-  give an Arabic or Hebrew label `align: "right"` and a pivot or anchor on the right. A menu laid out for English
-  does not mirror itself; check it with `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
+  shaper, with nothing to configure. The layout around the text is yours, and it follows the language when you ask:
+  - `i18n.direction` is `"rtl"` or `"ltr"` for the current language (Arabic, Hebrew, Persian, Urdu and the other
+    right-to-left languages are `"rtl"`; a game without localization is `"ltr"`).
+  - `Text.align` takes `"start"` and `"end"` next to `"left"`, `"center"` and `"right"`: start is the left edge in a
+    left-to-right language and the right edge in a right-to-left one, end the other. `"left"` and `"right"` stay
+    explicit (`"left"` is always the left edge), so a game written before keeps its look. Use `start` for a label or
+    a wrapped paragraph that must sit against the side where its language begins.
+  - `Panel.direction` is `"ltr"` (default), `"rtl"` or `"auto"` (`rtl` in a right-to-left language). In an `rtl`
+    panel a row runs right to left (the first child is at the right edge), a grid fills its columns from the right,
+    and the panel's `align` and `justify` values `start` and `end` mean the right and the left edge. A column keeps its
+    order from top to bottom. One scene therefore serves both directions: `"direction": "auto"` on the panels,
+    `"align": "start"` on the columns and the wrapped Texts.
+  - Not mirrored by themselves: anchors and pivots, and the inside of a Toggle (box on the left) and a Slider. For a
+    HUD corner, read the direction once and pick the corner:
+
+    ```js
+    const rtl = i18n.direction === "rtl";
+    const name = world.find("player_name").get("Text");
+    name.anchor = [rtl ? 1 : 0, 0];   // the corner where the reading starts
+    name.pivot = [rtl ? 1 : 0, 1];
+    name.align = "start";
+    ```
+
+  The menus fixture (`tools/cli/tests/fixtures/menus`, [MENUS.md](MENUS.md)) is mirrored this way: its options panel has
+  `direction: "auto"` and `align: "start"`, and `locales/ar.json` is its Arabic table. Check a layout with
+  `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
 - **Text size.** `ui.textScale` (0.5 to 3) makes every text bigger for players who ask: translations are longer than
-  English, so lay buttons out with room for it.
+  English, so give buttons, toggles and sliders `"autoSize": true`: they stay at their design size and grow to their
+  label at the current language and text size (docs/TEXT.md, "Text size").
 
 ## 7. Checks: `factoria validate`
 
@@ -156,6 +187,7 @@ a key that is one letter off. Errors fail the validation; warnings do not.
 | `{placeholders}` that differ from the default language's text, a key that is plain text in one table and plural in the other | warning |
 | A plural entry without a form the language uses (`few` and `many` in Russian: the line says which counts show `other` instead), or with a form no count picks (`zero` in Japanese) | warning |
 | A `key` of a Text or widget that the default table lacks (the game would show the scene's text and log a warning) | error |
+| A `nameKey`, `descriptionKey` or `titleKey` of the platform catalog that the default table lacks (file `factoria.json`, pointer, closest key) | error |
 | A `key` of a plural entry or of a text with `{placeholders}`: a component has no count or arguments | warning |
 | `factoria.json` without a section but with `key` fields in scenes, or a `locales/` folder | warning |
 | A character that no font of the chain has a glyph for | error |

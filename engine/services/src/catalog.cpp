@@ -82,6 +82,25 @@ struct Parser {
         dst = it->get<std::string>();
     }
 
+    // A text that is either written in factoria.json (`key`) or names a locale key (`keyKey`, e.g. "name" / "nameKey"). The
+    // text is required unless `required` is false; one of the two must be there when it is required.
+    void text_or_key(const Json& obj, const std::string& pointer, const char* key, const char* keyKey, std::string& text,
+                     std::string& locKey, bool required, const std::string& example) {
+        const bool hasKey = obj.contains(keyKey) && !obj[keyKey].is_null();
+        if (hasKey) {
+            const Json& v = obj[keyKey];
+            if (!v.is_string() || v.get<std::string>().empty()) {
+                issue(pointer + "/" + keyKey, "expected a locale key (a non-empty string), got " + describe_json_value(v),
+                      "Write the key of locales/<language>.json, e.g. \"" + std::string(keyKey) + "\": \"store.first_win.name\".");
+                return;
+            }
+            locKey = v.get<std::string>();
+            out.catalog.textKeyRefs.push_back({pointer + "/" + keyKey, locKey});
+        }
+        if (required && !hasKey) need_string(obj, pointer, key, text, example);
+        else opt_string(obj, pointer, key, text);
+    }
+
     void opt_bool(const Json& obj, const std::string& pointer, const char* key, bool& dst) {
         auto it = obj.find(key);
         if (it == obj.end() || it->is_null()) return;
@@ -285,9 +304,9 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
     p.read_section<PlatformAchievement>(
         section, "achievements", "achievement",
         [&](const Json& e, const std::string& ptr, PlatformAchievement& a) {
-            p.unknown_keys(e, ptr, {"id", "name", "description", "hidden", "ids"});
-            p.need_string(e, ptr, "name", a.name, "\"First win\"");
-            p.opt_string(e, ptr, "description", a.description);
+            p.unknown_keys(e, ptr, {"id", "name", "nameKey", "description", "descriptionKey", "hidden", "ids"});
+            p.text_or_key(e, ptr, "name", "nameKey", a.name, a.nameKey, true, "\"First win\" (or \"nameKey\": a locale key)");
+            p.text_or_key(e, ptr, "description", "descriptionKey", a.description, a.descriptionKey, false, "");
             p.opt_bool(e, ptr, "hidden", a.hidden);
             p.read_ids(e, ptr, a);
         },
@@ -315,10 +334,10 @@ PlatformCatalogParse parse_platform_catalog(const Json& section) {
     p.read_section<PlatformProduct>(
         section, "products", "product",
         [&](const Json& e, const std::string& ptr, PlatformProduct& pr) {
-            p.unknown_keys(e, ptr, {"id", "type", "title", "description", "price", "currency", "ids"});
+            p.unknown_keys(e, ptr, {"id", "type", "title", "titleKey", "description", "descriptionKey", "price", "currency", "ids"});
             p.read_enum(e, ptr, "type", {"consumable", "nonConsumable", "subscription"}, "a product type", pr.type, true);
-            p.need_string(e, ptr, "title", pr.title, "\"100 gems\"");
-            p.opt_string(e, ptr, "description", pr.description);
+            p.text_or_key(e, ptr, "title", "titleKey", pr.title, pr.titleKey, true, "\"100 gems\" (or \"titleKey\": a locale key)");
+            p.text_or_key(e, ptr, "description", "descriptionKey", pr.description, pr.descriptionKey, false, "");
             if (auto it = e.find("price"); it != e.end() && !it->is_null()) {
                 if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() < 0)
                     p.issue(ptr + "/price", "expected a number of at least 0, got " + describe_json_value(*it),

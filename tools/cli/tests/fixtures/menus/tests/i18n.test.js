@@ -33,7 +33,7 @@ function openLanguageTab() {
 
 test("the game declares its languages and starts in the default one", () => {
   load("scenes/menu.scene.json");
-  expect(i18n.languages).toEqual(["en", "es"]);
+  expect(i18n.languages).toEqual(["en", "es", "ar"]);
   expect(i18n.defaultLanguage).toBe("en");
   expect(i18n.language).toBe("en");
   expect(i18n.name("es")).toBe("Español");
@@ -77,7 +77,9 @@ test("the Language tab switches every Text and widget that has a key, at once", 
   expect(button("frame_cap")).toBe("Límite de fotogramas: sin límite");
   expect(button("bind_jump")).toContain("Saltar:");
 
-  pad.tap("A"); // Español -> English (two languages: it wraps around)
+  pad.tap("A"); // Español -> العربية
+  expect(i18n.language).toBe("ar");
+  pad.tap("A"); // العربية -> English (it wraps around)
   expect(i18n.language).toBe("en");
   expect(text("title")).toBe("My Game");
   expect(button("options_back")).toBe("Back");
@@ -101,6 +103,21 @@ test("the choice is saved, and the next run starts with it", () => {
   expect(button("play")).toBe("Jugar");
   openLanguageTab(); // the options script starts when the panel first opens, and reads the language then
   expect(button("language")).toBe("Idioma: Español");
+});
+
+test("Arabic reads right to left: i18n.direction, and the options tabs run right to left", () => {
+  load("scenes/menu.scene.json");
+  expect(i18n.direction).toBe("ltr");
+  i18n.setLanguage("ar");
+  expect(i18n.direction).toBe("rtl");
+  pad.tap("DpadDown");
+  pad.tap("A"); // Options
+  game.step(2);
+  expect(ui.rectOf("tab_video").x).toBeGreaterThan(ui.rectOf("tab_language").x);
+  i18n.setLanguage("en");
+  expect(i18n.direction).toBe("ltr");
+  game.step(2);
+  expect(ui.rectOf("tab_video").x).toBeLessThan(ui.rectOf("tab_language").x);
 });
 
 test("a saved language the game does not have any more is ignored", () => {

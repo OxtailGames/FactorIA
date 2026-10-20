@@ -6,7 +6,7 @@
   "mainScene": "scenes/menu.scene.json",
   "display": { "width": 1280, "height": 720, "scaleMode": "fit", "fullscreen": false, "vsync": true },
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 },
-  "localization": { "defaultLanguage": "en", "languages": ["en", "es"] },
+  "localization": { "defaultLanguage": "en", "languages": ["en", "es", "ar"] },
   "platform": {
     "achievements": [
       { "id": "first_jump", "name": "First jump", "description": "Jump once." },

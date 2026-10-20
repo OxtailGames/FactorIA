@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/core/log.h"
 #include "fa/ui/ui.h"
 
 using namespace fa;
@@ -782,4 +783,220 @@ TEST_CASE("ui.state lists screen-space Text, and ui_screen_rect finds it with th
     tx.safeArea = true;
     t.w.set_safe_insets({40, 0, 0, 0});
     CHECK(ui_screen_rect(t.w, hud, t.design)->x == doctest::Approx(60));  // the notch pushes it in
+}
+
+namespace {
+
+// Text sizes like the renderer's, at the player's text size: the approximation scaled for screen-space text.
+VisualMeasure measure_at(float textScale) {
+    VisualMeasure m;
+    m.textSize = [textScale](const Text& t) {
+        return approx_text_size(t.text, t.fontSize * (t.space == RenderSpace::Screen ? textScale : 1.0f), t.maxWidth);
+    };
+    return m;
+}
+
+}  // namespace
+
+TEST_CASE("ui autoSize: a button is at least its design size and grows to its label at textScale 1 and 2") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity b = t.button("b", {10, 10}, {240, 56});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Play";
+    for (float scale : {1.0f, 2.0f}) {
+        t.ui.layout(t.w, t.design, measure_at(scale));
+        CHECK(btn.size.x == doctest::Approx(240));  // "Play" at 24 px: 58 px (116 at 200 %) + 32 fits
+        CHECK(btn.size.y == doctest::Approx(scale == 1.0f ? 56 : 74));  // 28.8 x 2 + 16 = 73.6 > 56 at 200 %
+    }
+    btn.text = "Volver al menu principal";  // a Spanish label: 24 characters
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x > 240);
+    CHECK(btn.size.x == doctest::Approx(std::ceil(24 * 0.6f * 24 + 32)));
+    t.ui.layout(t.w, t.design, measure_at(2.0f));
+    CHECK(btn.size.x == doctest::Approx(std::ceil(24 * 0.6f * 48 + 32)));
+    // a shorter label (another language) gives the design size back
+    btn.text = "Jugar";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(240));
+    // a size written by a script is the new design size
+    btn.text = "Volver al menu principal";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    btn.size = {500, 56};
+    btn.text = "Ok";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(500));
+    // without autoSize nothing changes
+    btn.autoSize = false;
+    btn.text = "Volver al menu principal";
+    t.ui.layout(t.w, t.design, measure_at(2.0f));
+    CHECK(btn.size.x == doctest::Approx(500));
+}
+
+TEST_CASE("ui autoSize: maxWidth wraps a button label, so it grows taller instead of wider") {
+    Ui t;
+    Entity b = t.button("b", {10, 10}, {240, 56});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.maxWidth = 300;
+    btn.text = "A long label that cannot fit one line of the button at all";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x <= 332);  // wrap width + 2 x 16
+    CHECK(btn.size.x > 240);
+    CHECK(btn.size.y > 56);
+}
+
+TEST_CASE("ui autoSize: toggles and sliders grow to their label at textScale 1 and 2") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity tg = t.add<Toggle>("tg", {10, 10}, {240, 40});
+    Entity sl = t.add<Slider>("sl", {10, 60}, {320, 40});
+    Toggle& toggle = *t.w.get<Toggle>(tg);
+    Slider& slider = *t.w.get<Slider>(sl);
+    toggle.autoSize = slider.autoSize = true;
+    toggle.label = "Mute";
+    slider.label = "Music";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(toggle.size.x == doctest::Approx(240));
+    CHECK(slider.size.x == doctest::Approx(320));
+    toggle.label = "Reducir los movimientos de la camara";
+    slider.label = "Volumen de la musica de fondo";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const Vec2 toggle1 = toggle.size, slider1 = slider.size;
+    CHECK(toggle1.x > 240);
+    CHECK(slider1.x > 320);
+    t.ui.layout(t.w, t.design, measure_at(2.0f));
+    CHECK(toggle.size.x > toggle1.x);
+    CHECK(slider.size.x > slider1.x);
+    // the label fits inside the slider's label zone (35% of the inner width)
+    const Rect r = t.rect(sl);
+    CHECK(0.35f * (r.w - 16) >= 29 * 0.6f * 48);
+    CHECK(toggle.size.y >= 2 * 28.8f + 16 - 1);
+}
+
+TEST_CASE("ui scroll list fill: a column with a fill list stays inside the screen at textScale 1 and 2") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity col = t.add<Panel>("col", {640, 360}, {10, 10});
+    Panel& p = *t.w.get<Panel>(col);
+    p.layout = UiLayout::Column;
+    p.fit = true;
+    p.pivot = {0.5f, 0.5f};
+    p.spacing = 12;
+    p.padding = {16, 16, 16, 16};
+    Entity title = t.w.create("title", "title");
+    t.w.set_parent(title, col);
+    Text& tx = t.w.add<Text>(title);
+    tx.text = "Achievements";
+    tx.fontSize = 48;
+    tx.space = RenderSpace::Screen;
+    Entity list = t.add<ScrollList>("list", {0, 0}, {400, 100}, col);
+    t.w.get<ScrollList>(list)->fill = true;
+    for (int i = 0; i < 40; ++i) t.button(("item" + std::to_string(i)).c_str(), {0, 0}, {300, 40}, list);
+    Entity back = t.button("back", {0, 0}, {240, 56}, col);
+    for (float scale : {1.0f, 2.0f}) {
+        t.ui.layout(t.w, t.design, measure_at(scale));
+        const Rect pr = t.rect(col);
+        INFO("scale " << scale << " panel " << pr.y << " + " << pr.h);
+        CHECK(pr.y >= -0.5f);
+        CHECK(pr.y + pr.h <= 720.5f);
+        const float other = 48 * 1.2f * scale + 56;
+        CHECK(t.w.get<ScrollList>(list)->size.y == doctest::Approx(std::floor(720 - 32 - 24 - other)));
+        CHECK(t.rect(back).y + t.rect(back).h <= pr.y + pr.h);
+    }
+}
+
+TEST_CASE("ui scroll list fill: a column without fit gives the list the rest of its own height; other parents are ignored") {
+    Ui t;
+    Entity col = t.add<Panel>("col", {0, 0}, {200, 150});
+    Panel& p = *t.w.get<Panel>(col);
+    p.layout = UiLayout::Column;
+    p.spacing = 10;
+    p.padding = {10, 10, 10, 10};
+    t.button("top", {0, 0}, {100, 30}, col);
+    Entity list = t.add<ScrollList>("list", {0, 0}, {100, 20}, col);
+    t.w.get<ScrollList>(list)->fill = true;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.get<ScrollList>(list)->size.y == doctest::Approx(150 - 20 - 10 - 30));
+    Entity loose = t.add<ScrollList>("loose", {0, 0}, {100, 20});
+    t.w.get<ScrollList>(loose)->fill = true;
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.get<ScrollList>(loose)->size.y == doctest::Approx(20));
+}
+
+TEST_CASE("ui layout: a fit panel larger than the screen logs one warning naming it") {
+    Ui t;
+    clear_recent_logs();
+    Entity col = t.add<Panel>("huge_menu", {0, 0}, {10, 10});
+    Panel& p = *t.w.get<Panel>(col);
+    p.layout = UiLayout::Column;
+    p.fit = true;
+    for (int i = 0; i < 12; ++i) t.button(("b" + std::to_string(i)).c_str(), {0, 0}, {100, 30}, col);  // 12 x 30 > 180
+    for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
+    int warnings = 0;
+    for (const LogEntry& e : recent_logs(200, LogLevel::Warn))
+        if (e.message.find("huge_menu") != std::string::npos) ++warnings;
+    CHECK(warnings == 1);
+}
+
+// ------------------------------------------------------------------------------- right-to-left layouts --
+TEST_CASE("ui layout: direction auto lays a row out right to left in a right-to-left language only") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {0, 0}, {300, 100});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Row;
+    panel.spacing = 5;
+    panel.padding = {10, 0, 20, 0};  // inner box x 10 .. 280
+    panel.align = UiAlign::Start;
+    Entity a = t.button("a", {0, 0}, {50, 20}, p), b = t.button("b", {0, 0}, {30, 40}, p);
+
+    for (UiDirection d : {UiDirection::Ltr, UiDirection::Auto}) {  // English: both read left to right
+        panel.direction = d;
+        t.w.set_rtl(false);
+        t.ui.layout(t.w, t.design, {});
+        CHECK(t.rect(a).x == doctest::Approx(10));
+        CHECK(t.rect(b).x == doctest::Approx(65));
+    }
+    panel.direction = UiDirection::Auto;
+    t.w.set_rtl(true);  // Arabic: the first child is at the right edge of the padded box, start = right
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(230));  // 280 - 50
+    CHECK(t.rect(b).x == doctest::Approx(195));  // 230 - 5 - 30
+    panel.direction = UiDirection::Ltr;  // an explicit ltr ignores the language
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(a).x == doctest::Approx(10));
+    panel.direction = UiDirection::Rtl;  // an explicit rtl ignores it too
+    t.w.set_rtl(false);
+    panel.justify = UiAlign::End;  // end = the left edge of an rtl panel
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(b).x == doctest::Approx(10));
+    CHECK(t.rect(a).x == doctest::Approx(45));  // 10 + 30 + 5
+}
+
+TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in English and right in Arabic") {
+    Ui t;
+    Entity p = t.add<Panel>("p", {0, 0}, {300, 200});
+    Panel& panel = *t.w.get<Panel>(p);
+    panel.layout = UiLayout::Column;
+    panel.padding = {10, 10, 10, 10};
+    panel.align = UiAlign::Start;
+    panel.direction = UiDirection::Auto;
+    Entity label = t.w.create("note", "note");
+    t.w.set_parent(label, p);
+    Text& txt = t.w.add<Text>(label);
+    txt.text = "a long note that wraps inside its box";
+    txt.fontSize = 10;
+    txt.space = RenderSpace::Screen;
+    txt.pivot = {0, 1};
+    txt.maxWidth = 120;
+    txt.align = Align::Start;
+    t.ui.layout(t.w, t.design, {});
+    const Rect en = *ui_screen_rect(t.w, label, t.design);
+    CHECK(en.x == doctest::Approx(10));
+    t.w.set_rtl(true);
+    t.ui.layout(t.w, t.design, {});
+    const Rect ar = *ui_screen_rect(t.w, label, t.design);
+    CHECK(ar.x + ar.w == doctest::Approx(290));  // the box ends at the right edge of the padded box
+    CHECK(ar.w == doctest::Approx(en.w));
 }

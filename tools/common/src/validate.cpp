@@ -1,6 +1,7 @@
 #include "fa/tooling/validate.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <set>
 #include <sstream>
@@ -23,6 +24,7 @@
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
 #include "fa/tooling/shaders.h"
+#include "fa/ui/ui.h"
 #include "assets_internal.h"
 #include "localization_check.h"
 #include "util.h"
@@ -43,6 +45,7 @@ struct Ctx {
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
+    std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
     bool projectFileRead = false;                             // factoria.json parsed as an object
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
@@ -166,6 +169,25 @@ void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer
                    " cannot draw from an atlas: an exported game would show the whole atlas image here.",
                "Set the \"atlas\" import setting of '" + path + "' to \"\" in assets.json, or point " + f.name +
                    " at a copy of the image that is not in a group. Tilemap tilesets and MeshRenderer textures cannot be packed.");
+    }
+}
+
+// A Panel with `fit` that is larger than the screen at the design size (text size 100 %, texts measured by the approximation
+// the engine uses without a renderer): part of the menu would be off screen. The runtime logs the same at the player's text size.
+void check_fit_panels(Ctx& c, const std::string& file, World& world) {
+    if (!c.projectFileRead || world.entities_with(&World::type_of<Panel>()).empty()) return;
+    auto project = load_project(c.dir);
+    const Vec2 design = project.ok() ? Vec2{float(project->width), float(project->height)} : Vec2{1280, 720};
+    UiSystem ui;
+    ui.layout(world, design, {});
+    for (Entity e : world.entities_with(&World::type_of<Panel>())) {
+        const Panel* p = world.get<Panel>(e);
+        if (!p || !p->fit || !world.active_in_hierarchy(e) || (p->size.x <= design.x + 0.5f && p->size.y <= design.y + 0.5f)) continue;
+        c.warn(file, "",
+               "Panel '" + world.info(e).id + "' (fit) is " + std::to_string(int(std::ceil(p->size.x))) + " x " +
+                   std::to_string(int(std::ceil(p->size.y))) + " px, larger than the " + std::to_string(int(design.x)) + " x " +
+                   std::to_string(int(design.y)) + " px screen at the design size.",
+               "Shorten its texts, lower the font sizes, or put a ScrollList with `fill` in the column so it takes the free height.");
     }
 }
 
@@ -357,6 +379,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     for (const auto& e : publish.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
     for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
+    c.catalogKeys = platform.catalog.textKeyRefs;
     check_localization(c, localization);
     c.projectFileRead = true;
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
@@ -511,6 +534,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
             }
             warn_if_not_canonical(c, rel);
+            check_fit_panels(c, rel, world);
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             if (!text) continue;
             auto parsed = parse_json(*text, rel);
@@ -544,7 +568,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
 
     // String tables, the `key`s scenes use, and whether the fonts have a glyph for every character (not with a broken section).
     if (c.projectFileRead && c.localization.ok())
-        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.report);
+        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.catalogKeys, c.report);
 
     // Custom materials: the *.material.json files and their snippets (all dialects).
     validate_materials(c.dir, options.shaderContext, c.report);
