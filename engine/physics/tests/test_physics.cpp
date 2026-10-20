@@ -910,6 +910,42 @@ TEST_CASE("2d: dynamic body rides a moving kinematic platform") {
     CHECK(s.physics.is_grounded(s.world, box));
 }
 
+TEST_CASE("2d: a rider that sets velocity.x = 0 every frame stays put on a swinging platform, and is not carried in the air") {
+    Sim s;
+    Entity plat = add_box(s.world, "plat", {0, -20}, {400, 40}, BodyType::Kinematic);
+    Entity box = add_box(s.world, "box", {0, 16}, {32, 32}, BodyType::Dynamic);
+    s.world.get<RigidBody2D>(box)->fixedRotation = true;
+    s.run(30);  // settle on the platform
+    const float startX = pos_of(s.world, box).x - pos_of(s.world, plat).x;
+    // Platform velocity from a sine: it travels 96 px between its extremes in 50 frames, and back.
+    const float amp = 48.0f, w = 3.14159265f / 50.0f;
+    float maxOff = 0.0f, platMin = 1e9f, platMax = -1e9f;
+    for (int i = 0; i < 100; ++i) {
+        s.world.get<RigidBody2D>(plat)->velocity = {amp * w * 60.0f * std::cos(w * float(i)), 0};
+        s.world.get<RigidBody2D>(box)->velocity.x = 0;  // what a platformer player script does without input
+        s.run(1);
+        const float px = pos_of(s.world, plat).x;
+        platMin = std::min(platMin, px);
+        platMax = std::max(platMax, px);
+        maxOff = std::max(maxOff, std::fabs(pos_of(s.world, box).x - px - startX));
+    }
+    CHECK(platMax - platMin > 90.0f);
+    CHECK(maxOff < 1.0f);
+    CHECK(s.physics.is_grounded(s.world, box));
+
+    // In the air the body is not carried: lift it clear of the platform and keep it there.
+    s.world.settings().gravity2D = {0, 0};
+    s.world.get<RigidBody2D>(box)->velocity = {0, 200};
+    s.run(10);
+    const float airX = pos_of(s.world, box).x;
+    s.world.get<RigidBody2D>(plat)->velocity = {100, 0};
+    for (int i = 0; i < 30; ++i) {
+        s.world.get<RigidBody2D>(box)->velocity = {0, 0};
+        s.run(1);
+    }
+    CHECK(std::fabs(pos_of(s.world, box).x - airX) < 0.5f);
+}
+
 TEST_CASE("3d: angularVelocity integrates into Transform.rotation") {
     Sim s;
     Entity e = add_box3(s.world, "spinner", {0, 10, 0}, {1, 1, 1}, BodyType::Dynamic, true);

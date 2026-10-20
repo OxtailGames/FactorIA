@@ -127,6 +127,7 @@ struct Shape2D {
     std::int32_t sides = 6;           // polygon: number of sides (3..64); vertices on the ellipse inscribed in the size box, first one up
     std::int32_t points = 5;          // star: number of tips (3..64); tips on the inscribed ellipse, first one up
     float innerRadius = 0.5f;         // star: radius of the notches between the tips as a fraction of the outer radius (0..1)
+    bool lit = false;                 // world space only: shaded by Light2D entities and SceneSettings.ambientLight
 };
 
 struct Text {

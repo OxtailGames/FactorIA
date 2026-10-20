@@ -86,6 +86,11 @@ private:
         std::vector<LocalShape> shapes;
         float contAngle = 0.0f;  // continuous (unwrapped) body angle, radians
         std::uint64_t seen = 0;
+        // Moving platforms: a dynamic body resting on a kinematic one is carried by it. `carrier` is
+        // that kinematic body (null = none, found after each step), `carryVel` the platform velocity (meters / s) added to
+        // the body in the last step: RigidBody2D.velocity of a rider is relative to its platform, as in 3D.
+        Entity carrier;
+        b2Vec2 carryVel{0, 0};
     };
     struct ShapeInfo {
         std::uint64_t entity = 0;
@@ -108,6 +113,8 @@ private:
     void read_joints(World& world);   // reaction force, angle and translation back into the components
     void destroy_joint(std::uint64_t key);
     void push_state(World& world, Entity e, Body& b, RigidBody2D* rb);
+    void apply_carry(World& world);   // riders follow their platform (before the step)
+    void find_carriers(World& world);  // which kinematic body each dynamic body rests on (after the step)
     void writeback(World& world, Entity e, Body& b, RigidBody2D* rb);
     void collect_events(World& world);
     Entity entity_of(b2ShapeId s, bool* trigger = nullptr) const;
