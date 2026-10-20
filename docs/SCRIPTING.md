@@ -57,6 +57,29 @@ later: at the start of the next step, before the entity's first `onUpdate`
 (so `game.load(...)` in a test followed by `game.step()` runs `onStart`; reading
 `.behaviour` fields set in `onStart` needs one `game.step()` first).
 
+This holds for **inactive** entities too: a panel spawned with `active: false`
+already has its `.behaviour` (a never-shown panel can be configured by whoever
+spawns it). Only its hooks wait: `onStart` runs the first time the entity is
+active in the hierarchy (`active = true` on it or on an ancestor).
+
+### Activation order
+For each behaviour, in creation order:
+1. First activation: `onStart()`, then `onEnable()`. So `onEnable` can rely on
+   what `onStart` set up.
+2. Every later `active = true` (or re-enabling the Script): `onEnable()`.
+3. Every `active = false` (of the entity or any ancestor) or `Script.enabled =
+   false`: `onDisable()`.
+4. Destroying an entity that is active: `onDisable()`, then `onDestroy()`.
+
+The hooks run at the start of the next callback phase of the frame and at the
+latest at the end of the frame, **before it is drawn**: a panel shown by a script
+(`MenuStack.show`, `panel.active = true`) never draws its prefab texts, because
+`onEnable` already refreshed them. If `onStart` itself deactivates the entity,
+`onEnable` is skipped. Changes made by an `onEnable`/`onDisable` hook are settled
+in the same pass (bounded to 8 rounds). The order is deterministic (behaviour
+creation order). Hot reload re-creates the behaviour without calling
+`onDisable`/`onDestroy`, like `onDestroy`.
+
 A `Script.props` key that is not an own field of the class (declare it as a
 class field!) logs ONE warning naming the entity, with a "did you mean"
 suggestion; `factoria validate` reports the same through
@@ -74,7 +97,9 @@ suggestion; `factoria validate` reports the same through
 
 | Method | When |
 |---|---|
-| `onStart()` | once, before the first update after the entity exists (props already applied) |
+| `onStart()` | once, the first time the entity is active, before its first update and before the frame is drawn (props already applied) |
+| `onEnable()` | every time the entity becomes active in the hierarchy (first time: right after `onStart`), before the frame is drawn |
+| `onDisable()` | every time it stops being active, and before `onDestroy` of an active entity |
 | `onUpdate(dt)` | every frame, `dt` in seconds (scaled by `time.scale`; not called while it is 0 unless `runWhilePaused`) |
 | `onFixedUpdate(dt)` | every fixed step (default 60 Hz), before physics |
 | `onLateUpdate(dt)` | after all updates (cameras following targets) |

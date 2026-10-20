@@ -773,7 +773,7 @@
   function isBehaviourClass(c) { return typeof c === "function" && c.prototype instanceof Behaviour; }
 
   // The lifecycle methods the engine calls by name (script_behaviours.cpp, script_system.cpp).
-  const HOOKS = ["onStart", "onUpdate", "onFixedUpdate", "onLateUpdate", "onDestroy",
+  const HOOKS = ["onStart", "onEnable", "onDisable", "onUpdate", "onFixedUpdate", "onLateUpdate", "onDestroy",
     "onCollisionEnter", "onCollisionExit", "onTriggerEnter", "onTriggerExit", "onEvent"];
   // Methods that were meant to be hooks but are never called: a hook without its `on` (update, fixedUpdate, Start) or a
   // near-miss of a name that starts with `on` (onupdate, onStrat). Helpers (loadLevel, clickCell) are not near a hook.
