@@ -47,7 +47,6 @@ public:
     // Behave as the "none" backend (no service, every call rejects `unavailable`, signIn answers signed out) until reset().
     // Call PlatformServices::refresh_backend() afterwards so `has` follows.
     void set_none(bool none) { none_ = none; }
-    bool none() const { return none_; }
     // Answers are held for this many engine frames (0 = answered inside request, so a promise resolves at once).
     void set_delay_frames(int frames);
     int delay_frames() const { return delay_; }
