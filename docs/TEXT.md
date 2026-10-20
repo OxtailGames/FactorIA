@@ -138,8 +138,16 @@ storage.set("textScale", ui.textScale);
   `textScale`.
 - **The engine does not save it.** The game keeps the option (`storage`) and sets it at start; every test file starts at 1,
   and `project.test` restores the game's value afterwards.
-- Widgets keep their rectangles and a wrapped Text keeps its `maxWidth`: text at 3× grows taller and may not fit a small
-  button. Lay a menu out with room for the biggest size you offer, and check it with `game.screenshot` at `ui.textScale = 3`.
+- **Widgets that fit their label.** A `Button`, `Toggle` or `Slider` keeps its `size` unless it has `"autoSize": true`:
+  then it is at least that size and grows to its label at the current text size and language (set it once in the scene;
+  nothing to call when `ui.textScale` or the language changes). A `Button` label may have `
+` (every line is centred),
+  `maxWidth` wraps it (the button grows taller instead of wider), and a label that still does not fit is clipped to the
+  button. A column `Panel` with `fit` grows with its children; put a `ScrollList` with `"fill": true` in it and the list
+  takes the height the other children leave, so the column never ends below the screen. A `fit` Panel that is larger
+  than the screen logs one warning naming it, and `factoria validate` reports it for the design size. Check the result
+  with `game.screenshot` at `ui.textScale = 3`. Widgets without `autoSize` keep their rectangles and a wrapped Text keeps
+  its `maxWidth`: text at 3× may not fit a small button.
 - Fonts are rasterized at the scaled size, so scaled text stays sharp.
 
 ## Limits

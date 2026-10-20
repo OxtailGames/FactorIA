@@ -1,6 +1,7 @@
 #include "fa/tooling/validate.h"
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <set>
 #include <sstream>
@@ -23,6 +24,7 @@
 #include "fa/tooling/icons.h"
 #include "fa/tooling/publish.h"
 #include "fa/tooling/shaders.h"
+#include "fa/ui/ui.h"
 #include "assets_internal.h"
 #include "localization_check.h"
 #include "util.h"
@@ -167,6 +169,25 @@ void check_atlas_use(Ctx& c, const std::string& file, const std::string& pointer
                    " cannot draw from an atlas: an exported game would show the whole atlas image here.",
                "Set the \"atlas\" import setting of '" + path + "' to \"\" in assets.json, or point " + f.name +
                    " at a copy of the image that is not in a group. Tilemap tilesets and MeshRenderer textures cannot be packed.");
+    }
+}
+
+// A Panel with `fit` that is larger than the screen at the design size (text size 100 %, texts measured by the approximation
+// the engine uses without a renderer): part of the menu would be off screen. The runtime logs the same at the player's text size.
+void check_fit_panels(Ctx& c, const std::string& file, World& world) {
+    if (!c.projectFileRead || world.entities_with(&World::type_of<Panel>()).empty()) return;
+    auto project = load_project(c.dir);
+    const Vec2 design = project.ok() ? Vec2{float(project->width), float(project->height)} : Vec2{1280, 720};
+    UiSystem ui;
+    ui.layout(world, design, {});
+    for (Entity e : world.entities_with(&World::type_of<Panel>())) {
+        const Panel* p = world.get<Panel>(e);
+        if (!p || !p->fit || !world.active_in_hierarchy(e) || (p->size.x <= design.x + 0.5f && p->size.y <= design.y + 0.5f)) continue;
+        c.warn(file, "",
+               "Panel '" + world.info(e).id + "' (fit) is " + std::to_string(int(std::ceil(p->size.x))) + " x " +
+                   std::to_string(int(std::ceil(p->size.y))) + " px, larger than the " + std::to_string(int(design.x)) + " x " +
+                   std::to_string(int(design.y)) + " px screen at the design size.",
+               "Shorten its texts, lower the font sizes, or put a ScrollList with `fill` in the column so it takes the free height.");
     }
 }
 
@@ -513,6 +534,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                 (m.severity == LoadMessage::Severity::Error ? c.report.errors : c.report.warnings).push_back(std::move(issue));
             }
             warn_if_not_canonical(c, rel);
+            check_fit_panels(c, rel, world);
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / rel);
             if (!text) continue;
             auto parsed = parse_json(*text, rel);
