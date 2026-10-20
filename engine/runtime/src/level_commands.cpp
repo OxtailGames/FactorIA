@@ -800,15 +800,19 @@ std::map<std::string, PrefabRef> prefab_refs(const Request& q, const std::string
     if (sourceExists)
         if (auto raw = load_json_file(source); raw.ok() && raw.value().is_object() && raw.value().contains("entities"))
             collect_base_refs(raw.value()["entities"], q.mapId, refs);
+    std::map<std::string, Json> tagsOf;  // prefab path -> its tags plus the map's tag, read once per prefab
     for (const Cell& cell : cells) {
         if (!cell.has_object()) continue;
         const LegendEntry& le = *cell.entry;
-        Json tags = Json::array();
-        if (auto pf = load_json_file(le.prefab); pf.ok() && pf.value().contains("entity") && pf.value()["entity"].contains("tags") &&
-                                                  pf.value()["entity"]["tags"].is_array())
-            tags = pf.value()["entity"]["tags"];
-        const std::string tag = kTagPrefix + q.mapId;
-        if (std::find(tags.begin(), tags.end(), Json(tag)) == tags.end()) tags.push_back(tag);
+        auto [slot, isNew] = tagsOf.try_emplace(le.prefab, Json::array());
+        Json& tags = slot->second;
+        if (isNew) {
+            if (auto pf = load_json_file(le.prefab); pf.ok() && pf.value().contains("entity") && pf.value()["entity"].contains("tags") &&
+                                                      pf.value()["entity"]["tags"].is_array())
+                tags = pf.value()["entity"]["tags"];
+            const std::string tag = kTagPrefix + q.mapId;
+            if (std::find(tags.begin(), tags.end(), Json(tag)) == tags.end()) tags.push_back(tag);
+        }
         Json ref = Json::object({{"id", cell.id}, {"prefab", le.prefab}, {"tags", tags}});
         ref["components"] = le.overrides;
         refs[cell.id] = PrefabRef{ref, true};
