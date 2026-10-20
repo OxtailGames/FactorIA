@@ -87,7 +87,10 @@ public:
     void advance_null_device(double seconds);
     // Recording of the mixed output (any mode). Stops + writes on stop_recording.
     void start_recording();
-    bool stop_recording(std::string_view wavPath, std::string* error);
+    // Writes the WAV (an empty path writes nothing). `pcmOut` / `rateOut` also get the mix as interleaved 16-bit
+    // stereo and its sample rate (the audio track of a video, core/avi.h).
+    bool stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut = nullptr,
+                        int* rateOut = nullptr);
 
     // Active voices, loaded clips, peak level of the last frame, decodedBytes (PCM held by loaded clips plus the buffers
     // of the voices that stream) and streamedClips (the loaded clips that stream).

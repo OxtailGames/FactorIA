@@ -15,6 +15,23 @@
 
 namespace fa::assets_detail {
 
+void arg_error(const char* command, const std::string& pointer, const std::string& what, const std::string& hint) {
+    fail("invalid_argument", std::format("{} {}: {}", command, pointer.empty() ? "arguments" : pointer, what), hint);
+}
+
+void check_arg_keys(const char* command, const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
+    for (auto it = obj.begin(); it != obj.end(); ++it)
+        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
+            arg_error(command, pointer + "/" + it.key(), "unknown key '" + it.key() + "'.", did_you_mean(it.key(), allowed));
+}
+
+Color colour_arg(const char* command, const Json& v, const std::string& pointer) {
+    Color c;
+    std::string err;
+    if (!json_to(v, c, &err)) arg_error(command, pointer, err, "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
+    return c;
+}
+
 namespace {
 
 constexpr int kIconSize = 1024;
@@ -43,16 +60,9 @@ struct Spec {
     std::vector<Layer> layers;
 };
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
-    fail("invalid_argument", std::format("assets.draw_icon {}: {}", pointer.empty() ? "arguments" : pointer, what), hint);
-}
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error("assets.draw_icon", pointer, what, hint); }
 
-void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
-    for (auto it = obj.begin(); it != obj.end(); ++it) {
-        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
-            bad(pointer + "/" + it.key(), "unknown key '" + it.key() + "'.", did_you_mean(it.key(), allowed));
-    }
-}
+void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) { check_arg_keys("assets.draw_icon", obj, pointer, allowed); }
 
 double number(const Json& obj, const std::string& pointer, const char* key, bool required, double def = 0) {
     auto it = obj.find(key);
@@ -64,12 +74,7 @@ double number(const Json& obj, const std::string& pointer, const char* key, bool
     return it->get<double>();
 }
 
-Color colour(const Json& v, const std::string& pointer) {
-    Color c;
-    std::string err;
-    if (!json_to(v, c, &err)) bad(pointer, err, "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
-    return c;
-}
+Color colour(const Json& v, const std::string& pointer) { return colour_arg("assets.draw_icon", v, pointer); }
 
 bool optional_colour(const Json& obj, const std::string& pointer, const char* key, Color& out) {
     auto it = obj.find(key);
@@ -178,21 +183,23 @@ Spec parse_spec(const Json& a) {
 // ---- drawing ---------------------------------------------------------------------------------------------------
 
 struct Canvas {
-    int size;
+    int width, height;
     std::vector<float> px;  // straight (not premultiplied) RGBA
-    explicit Canvas(int n) : size(n), px(std::size_t(n) * n * 4, 0.0f) {}
+    explicit Canvas(int n) : Canvas(n, n) {}
+    Canvas(int w, int h) : width(w), height(h), px(std::size_t(w) * h * 4, 0.0f) {}
 
     void over(int x, int y, const Color& c, float cover) {
         const float a = c.a * std::clamp(cover, 0.0f, 1.0f);
         if (a <= 0) return;
-        float* p = &px[(std::size_t(y) * size + x) * 4];
+        float* p = &px[(std::size_t(y) * width + x) * 4];
         const float outA = a + p[3] * (1 - a);
         for (int i = 0; i < 3; ++i) p[i] = ((&c.r)[i] * a + p[i] * p[3] * (1 - a)) / outA;
         p[3] = outA;
     }
     Image image() const {
         Image img;
-        img.width = img.height = size;
+        img.width = width;
+        img.height = height;
         img.rgba.resize(px.size());
         for (std::size_t i = 0; i < px.size(); ++i) img.rgba[i] = std::uint8_t(std::lround(std::clamp(px[i], 0.0f, 1.0f) * 255));
         return img;
@@ -252,12 +259,12 @@ void draw_sdf(Canvas& c, const Sdf& sdf, const Mapping& m, const Layer& l, doubl
     const double ow = l.outlineWidth * m.k;
     const double pad = std::max(soft * 2, l.hasOutline ? ow : 0.0) + 2;
     const int ix0 = std::max(0, int(std::floor(x0 - pad))), iy0 = std::max(0, int(std::floor(y0 - pad)));
-    const int ix1 = std::min(c.size - 1, int(std::ceil(x1 + pad))), iy1 = std::min(c.size - 1, int(std::ceil(y1 + pad)));
+    const int ix1 = std::min(c.width - 1, int(std::ceil(x1 + pad))), iy1 = std::min(c.height - 1, int(std::ceil(y1 + pad)));
     for (int y = iy0; y <= iy1; ++y)
         for (int x = ix0; x <= ix1; ++x) {
             const double d = sdf(x + 0.5, y + 0.5);
             if (l.hasFill) {
-                const Color col = l.hasGradient ? mix(l.fill, l.fillBottom, (y + 0.5) / c.size) : l.fill;
+                const Color col = l.hasGradient ? mix(l.fill, l.fillBottom, (y + 0.5) / c.height) : l.fill;
                 c.over(x, y, col, coverage(d, soft));
             }
             if (l.hasOutline) c.over(x, y, l.outline, coverage(std::abs(d) - ow / 2, 0));
@@ -274,7 +281,7 @@ void draw_layer(Canvas& c, const Layer& l, const Mapping& m, const std::string& 
         for (int y = 0; y < bmp->height; ++y)
             for (int x = 0; x < bmp->width; ++x) {
                 const int px = left + x, py = top + y;
-                if (px >= 0 && py >= 0 && px < c.size && py < c.size)
+                if (px >= 0 && py >= 0 && px < c.width && py < c.height)
                     c.over(px, py, l.fill, bmp->coverage[std::size_t(y) * bmp->width + x] / 255.0f);
             }
         return;
@@ -431,6 +438,37 @@ Json draw_icon(const std::string& projectDir, const Json& a) {
 }
 
 }  // namespace
+
+// Title text as a transparent logo image, drawn with the same text rasterizer and Canvas as the icon's text layers: the
+// largest size at which the text (and its outline) fits maxW x maxH, tightly cropped.
+Image draw_title_logo(const std::string& text, const std::string& font, const Color& fill, const Color* outline, int maxW, int maxH) {
+    auto ref = rasterize_text(text, font, 100.0f);
+    if (!ref.ok()) fail("invalid_argument", "assets.draw_capsules logo text: " + ref.error().message, ref.error().hint);
+    if (ref->width <= 0 || ref->height <= 0) fail("invalid_argument", "assets.draw_capsules logo text '" + text + "' has nothing to draw.", "Use a non-empty title.");
+    const double fit = std::min(double(maxW) / ref->width, double(maxH) / ref->height) * (outline ? 0.9 : 1.0);
+    const float em = float(std::max(4.0, 100.0 * fit));
+    auto bmp = rasterize_text(text, font, em);
+    if (!bmp.ok()) fail("invalid_argument", "assets.draw_capsules logo text: " + bmp.error().message, bmp.error().hint);
+    const double ow = outline ? std::max(1.0, em * 0.05) : 0.0;
+    const int pad = int(std::ceil(ow)) + 1;
+    Canvas c(bmp->width + 2 * pad, bmp->height + 2 * pad);
+    if (outline) {
+        std::vector<float> ring(std::size_t(c.width) * c.height, 0.0f);  // widest coverage over the ring of offsets
+        for (int k = 0; k < 24; ++k) {
+            const int dx = int(std::lround(ow * std::cos(k * 6.2831853 / 24))), dy = int(std::lround(ow * std::sin(k * 6.2831853 / 24)));
+            for (int y = 0; y < bmp->height; ++y)
+                for (int x = 0; x < bmp->width; ++x) {
+                    float& r = ring[std::size_t(y + pad + dy) * c.width + x + pad + dx];
+                    r = std::max(r, bmp->coverage[std::size_t(y) * bmp->width + x] / 255.0f);
+                }
+        }
+        for (int y = 0; y < c.height; ++y)
+            for (int x = 0; x < c.width; ++x) c.over(x, y, *outline, ring[std::size_t(y) * c.width + x]);
+    }
+    for (int y = 0; y < bmp->height; ++y)
+        for (int x = 0; x < bmp->width; ++x) c.over(x + pad, y + pad, fill, bmp->coverage[std::size_t(y) * bmp->width + x] / 255.0f);
+    return c.image();
+}
 
 void register_draw_icon_command(CommandRegistry& registry, const std::string& projectDir) {
     CommandInfo info;

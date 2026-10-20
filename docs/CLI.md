@@ -23,7 +23,7 @@ replays/jump.json` works from any folder:
 | Kind | Options | Rule |
 |---|---|---|
 | Input file | `--input` (`run`, `call`, `session`), `@args.json` and `--batch-file` (`call`) | Absolute: used as it is. Relative: the file in the **current directory** if it exists there, otherwise the one in the **project folder**. When neither is a file, the error lists every location tried (absolute) and suggests a similarly named file; exit code 2. |
-| Output file | `--state-out`, `--screenshot-pattern`, `--record-audio` (`run`), `--out` (`screenshot`, `api`) | Relative to the **current directory**, like any shell tool; parent folders are created. The report prints the absolute path written. Defaults live in the project: `<project>/.factoria/screenshots/...`. |
+| Output file | `--state-out`, `--screenshot-pattern`, `--record-audio` and `--record-video` (`run`), `--out` (`screenshot`, `api`) | Relative to the **current directory**, like any shell tool; parent folders are created. The report prints the absolute path written. Defaults live in the project: `<project>/.factoria/screenshots/...`. |
 | Project path | `--scene`, and the paths inside command arguments (`scene.load`, `scene.import_ascii` `path`/`from`, `game.screenshot`, `fs.*`) | Relative to the **project folder** (the engine's file system). Not looked up in the current directory. |
 
 Writes made by commands (`scene.save`, `scene.import_ascii` with `path`, `fs.write`, `fs.edit`, `fs.delete`) never go
@@ -130,6 +130,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--screenshot-pattern P` | PNG path containing `{frame}`, relative to the current directory (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
 | `--state-out f.json` | Final world state dump (relative to the current directory) |
 | `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
+| `--record-video f.avi` | Record a video of the run: every frame drawn at `--render-scale`, at the project's `fixedHz` fps, with the audio mix when the run is not silent. `.avi` (Motion-JPEG + PCM) needs nothing; `.mp4` (H.264 + AAC) needs ffmpeg (`FACTORIA_FFMPEG`, `publish.ffmpeg` in `~/.factoria/export.json`, or `PATH`). Relative to the current directory; see `docs/EXPORTING.md` "Store page material" |
 | `--seed N` | World RNG seed |
 | `--allow-script-errors` | Exit 0 even if scripts raised errors |
 | `--render-all` | Draw every frame (default headless: simulate every frame, draw only screenshot frames and the last frame; screenshots are pixel-identical either way) |
@@ -140,7 +141,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 factoria run
 factoria run --headless --frames 120 --screenshot-at 10,60 --json
 ```
-Report (JSON): `{ok, exitCode, frames, screenshots:[paths], scriptErrors:[...], sceneErrors:[...], stateOut?, audioOut?}`.
+Report (JSON): `{ok, exitCode, frames, screenshots:[paths], scriptErrors:[...], sceneErrors:[...], stateOut?, audioOut?, videoPath?, videoFrames?}`.
 Same seed + same input = same state and pixels.
 
 ### `factoria screenshot [project] [--frames N] [--out shot.png] [--render-scale S] [--json]`

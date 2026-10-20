@@ -554,11 +554,12 @@ downloads or tools this machine lacks (web, Linux, macOS players; Android NDK; M
 Triaged 2026-10-19 (see the top of this section): most entries became M24; the ones that belong to M21's own items are
 below.
 
-Done in M21: the publishing guides per store, `docs/PUBLISHING.md` (PR #118), and the "finish your game" guide,
-`docs/FINISHING.md` with Lantern Keep's save recipe (PR #119). Versioned docs are done too: the generated reference
-(docs/COMPONENTS.md, `factoria api`, MCP) says which version added each component, field and command, from
-tools/common/api_since.json (the hand-written guides carry no marks). Left in M21: tutorials and the API
-reference, the AI cost guide, store page material (capsules at each store's sizes, video from a replay). Lantern
+Done in M21: the publishing guides per store, `docs/PUBLISHING.md` (PR #118), the "finish your game" guide,
+`docs/FINISHING.md` with Lantern Keep's save recipe (PR #119), store page material: `assets.draw_capsules` (every
+store's images from one key art and a logo) and `factoria run --record-video` (a trailer from an input replay, .avi or
+.mp4 through ffmpeg) (PR #121), and versioned docs: the generated reference (docs/COMPONENTS.md, `factoria api`, MCP)
+says which version added each component, field and command, from tools/common/api_since.json (the hand-written guides
+carry no marks) (PR #122). Left in M21: tutorials and the API reference, the AI cost guide. Lantern
 Keep's entries that these items close (LK/FB-0014, LK/FB-0017 and LK/FB-0022 are done, in PRs #115-#117; LK/FB-0023
 is left for M23):
 - Publishing guides, done in PR #115: one table in docs/EXPORTING.md of platform x what its export needs (players
@@ -630,7 +631,7 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: store page material first (then the rest of "Left in M21").
+Next: the rest of "Left in M21" (tutorials and the API reference, the AI cost guide), or M22.
 
 ## Out of scope: Roblox
 
