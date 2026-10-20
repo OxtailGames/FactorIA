@@ -58,6 +58,9 @@ struct EngineConfig {
     bool audioDevice = true;       // false = null audio device (always false when headless)
     int width = 0, height = 0;     // override design resolution (0 = project)
     std::uint64_t seed = 1;        // world RNG seed
+    // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
+    // a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 = run until closed.
+    int maxFrames = 0;
     bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
     // Watch only the files the renderer rebuilds in place (materials, shader snippets, textures, fonts, models) and
     // leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
