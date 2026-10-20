@@ -1,6 +1,8 @@
 #include <doctest.h>
 
 #include <filesystem>
+#include <set>
+#include <string>
 
 #include "fa/tooling/api_export.h"
 #include "fa/tooling/docs.h"
@@ -209,6 +211,16 @@ TEST_CASE("docs: list, read and search the bundled documentation") {
     CHECK(scriptingHit);
     CHECK(search_docs("zzzqqqxxx").empty());
     CHECK(search_docs("").empty());
+}
+
+TEST_CASE("docs: search puts each doc's best section first, so the top is not one guide") {
+    const auto hits = search_docs("onTriggerEnter", 100);
+    std::set<std::string> docs;
+    for (const auto& h : hits) docs.insert(h.doc);
+    REQUIRE(docs.size() >= 3);
+    std::set<std::string> top;
+    for (size_t i = 0; i < docs.size(); ++i) CHECK(top.insert(hits[i].doc).second);  // the first N hits: N distinct docs
+    for (size_t i = 1; i < docs.size(); ++i) CHECK(hits[i - 1].score >= hits[i].score);
 }
 
 TEST_CASE("docs: commands") {

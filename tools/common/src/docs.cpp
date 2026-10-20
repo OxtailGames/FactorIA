@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <set>
 #include <sstream>
 
 #include "fa/core/strings.h"
@@ -142,6 +143,11 @@ std::vector<DocHit> search_docs(std::string_view query, std::size_t maxResults) 
         flush(lines.size());
     }
     std::stable_sort(hits.begin(), hits.end(), [](const DocHit& a, const DocHit& b) { return a.score > b.score; });
+    // Diverse top: each doc's best section first (by score), then every other section by score. Nothing is dropped; a
+    // query for an API name no longer returns eight sections of one guide ahead of the reference.
+    std::stable_partition(hits.begin(), hits.end(), [seen = std::set<std::string>()](const DocHit& h) mutable {
+        return seen.insert(h.doc).second;
+    });
     if (hits.size() > maxResults) hits.resize(maxResults);
     return hits;
 }
