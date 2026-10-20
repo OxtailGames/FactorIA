@@ -79,8 +79,7 @@ std::string normalize_language_tag(std::string_view raw) {
 bool is_language_tag(std::string_view tag) { return !tag.empty() && normalize_language_tag(tag) == tag; }
 
 bool is_rtl_language(std::string_view tag) {
-    std::string lower;
-    for (char c : tag) lower += (c >= 'A' && c <= 'Z') ? char(c + 32) : (c == '_' ? '-' : c);
+    const std::string lower = to_lower(normalize_language_tag(tag));
     const std::string_view t = lower;
     if (t.find("-arab") != std::string_view::npos || t.find("-hebr") != std::string_view::npos) return true;
     if (t.find("-latn") != std::string_view::npos || t.find("-cyrl") != std::string_view::npos) return false;
