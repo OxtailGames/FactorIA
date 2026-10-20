@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -538,7 +539,7 @@ std::string Engine::set_language(std::string_view language) {
 
 ScriptSystem& Engine::scripts() { return impl_->scripts; }
 
-bool Engine::screenshot(std::string_view path, std::string* error) {
+bool Engine::screenshot_scaled(std::string_view path, double scale, std::string* error) {
     Impl& I = *impl_;
     auto fail = [&](const std::string& m) {
         if (error) *error = m;
@@ -548,10 +549,24 @@ bool Engine::screenshot(std::string_view path, std::string* error) {
         return fail("No renderer: the engine runs with graphics=false" +
                     std::string(I.startupProblems.empty() ? "" : " (" + I.startupProblems.front() + ")") +
                     ". Run with a GPU (headless EGL needs Mesa) to take screenshots.");
+    constexpr double kMaxSide = 8192;
+    if (!(scale >= Renderer::kMinRenderScale && scale <= Renderer::kMaxRenderScale))
+        return fail("Screenshot scale " + (std::isfinite(scale) ? std::to_string(scale) : std::string("(not a number)")) +
+                    " is out of range. scale draws the same design-size frame into an image scale times larger (sharp, not "
+                    "upscaled); it must be between 0.25 and 4. Example: scale 1.5 on a 1280x720 game writes a 1920x1080 PNG.");
+    if (scale * std::max(I.renderer->target_width(), I.renderer->target_height()) > kMaxSide)
+        return fail("Screenshot scale " + std::to_string(scale) + " would make an image wider than 8192 px (the game is " +
+                    std::to_string(I.renderer->target_width()) + "x" + std::to_string(I.renderer->target_height()) +
+                    "). Use a smaller scale.");
+    struct ScaleGuard {  // back to scale 1 afterwards; the next picture is drawn again
+        Impl& I; bool on;
+        ~ScaleGuard() { if (on) { I.renderer->set_render_scale(1.0f); I.renderStale = true; } }
+    } guard{I, scale != 1.0};
+    if (guard.on) I.renderer->set_render_scale(float(scale));  // new images: the picture must be drawn again
     if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
     // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
     // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
-    else if (!I.inFrame && (!I.windowed || I.cfg.editorMode || I.frame == 0)) I.draw(0.0);
+    else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0)) I.draw(0.0);
     Image img;
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
