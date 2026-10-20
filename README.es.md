@@ -129,6 +129,8 @@ La documentación de referencia está en inglés; hay traducción al español de
 página y de la guía de primeros pasos.
 
 - [docs/i18n/es/GETTING_STARTED.md](docs/i18n/es/GETTING_STARTED.md): compilar, crear un juego y conectar una IA (en español).
+- [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md): tutorial para personas: tu primer juego con una IA en el editor, paso a paso (en inglés).
+- [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md): tutorial: haz un juego pequeño a mano (escena, script, test, exportar) para entender qué hace la IA por ti (en inglés).
 - [docs/AI_GUIDE.md](docs/AI_GUIDE.md): cómo crear un juego con FactorIA (para agentes de IA).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión.
 - [docs/SCRIPTING.md](docs/SCRIPTING.md): scripts de JavaScript: comportamientos, herramientas y tests.
