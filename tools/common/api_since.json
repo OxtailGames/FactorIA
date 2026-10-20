@@ -453,6 +453,7 @@
     "api.scripting": "0.1.0",
     "assets.analyze_audio": "0.1.6",
     "assets.disclosure": "0.1.6",
+    "assets.draw_capsules": "unreleased",
     "assets.draw_icon": "unreleased",
     "assets.generate_image": "0.1.6",
     "assets.generate_model": "0.1.6",
