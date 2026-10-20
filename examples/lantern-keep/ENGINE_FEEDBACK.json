@@ -1029,7 +1029,7 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: confirmed open; work package M24.13 (Right-to-left layouts) in feedback/ROADMAP.md.",
-        "Fixed in 3e08028 (M24.13): `Text.align` takes start / end (follow the language's direction), `Panel.direction` ltr / rtl / auto mirrors rows and grids, and scripts read `i18n.direction`; LOCALIZATION.md section 6 has a HUD-corner recipe for anchors and pivots. Lantern Keep's row panels use direction auto and the HUD align start / end."
+        "Fixed in 2320973 (M24.13): `Text.align` takes start / end (follow the language's direction), `Panel.direction` ltr / rtl / auto mirrors rows and grids, and scripts read `i18n.direction`; LOCALIZATION.md section 6 has a HUD-corner recipe for anchors and pivots. Lantern Keep's row panels use direction auto and the HUD align start / end."
       ],
       "engineIssue": "#110"
     },

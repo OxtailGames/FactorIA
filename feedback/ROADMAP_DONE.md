@@ -791,7 +791,7 @@ the `m24/bookkeeping-2` PR.
   after `onStart`; they and `onStart` of a script-activated entity run before the frame is drawn
   (`ScriptSystem::settle_activation()` after `late_update`, at most 8 rounds); an inactive entity with a `Script` has its
   behaviour at once.
-- M24.13 Right-to-left layouts (PR #110, `3e08028`): `Text.align` `start` / `end` follow the language's direction (`left` /
+- M24.13 Right-to-left layouts (PR #110, `2320973`): `Text.align` `start` / `end` follow the language's direction (`left` /
   `right` stay explicit, as M14 decided); `Panel.direction` `ltr` (default) / `rtl` / `auto` mirrors rows, grids and the
   panel's `start` / `end`; `i18n.direction` in scripts; `World::rtl()` follows the language. The menus fixture has an
   Arabic table and a mirrored options panel, with a golden.

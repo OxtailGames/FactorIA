@@ -147,7 +147,7 @@ Re-triage 2026-10-20, after M24.1-M24.6 (merges `b6c6f3b`, `1341def`, `2ee41ac`,
 Lantern Keep entries are fixed, each with a `Fixed in <commit>` note, and the game dropped their workarounds in the
 `m24/bookkeeping` PR; LK/FB-0026 stays open for its matchers (M24.7). 29 Lantern Keep entries are open.
 
-Re-triage 2026-10-20, after M24.7-M24.14 (merges `da5f957`, `7506b4b`, `343a7b8`, `7c29612`, `3768d21`, `f4071e7`, `3e08028`,
+Re-triage 2026-10-20, after M24.7-M24.14 (merges `da5f957`, `7506b4b`, `343a7b8`, `7c29612`, `3768d21`, `f4071e7`, `2320973`,
 `2e0fa55`): 22 more Lantern Keep entries are fixed, each with a `Fixed in <commit>` note, and the game dropped their
 workarounds in the `m24/bookkeeping-2` PR (`scripts/ui/text_fit.js` is gone). Dropping it showed two new gaps,
 LK/FB-0046 and LK/FB-0047 (M24.15, M24.16). 9 Lantern Keep entries are open.
@@ -658,8 +658,7 @@ drop the workaround (its `workaroundFiles` say where).
 `m24/bookkeeping-2` PRs; what they built is in [ROADMAP_DONE.md](ROADMAP_DONE.md), M24.1-M24.6 and M24.7-M24.14). Left
 open from them:
 - M24.3: the released Windows binary was never checked (`factoria docs read menus > f` and `factoria call docs.read`
-  with no `
-`); do it once with the next release.
+  with no `\r`); do it once with the next release.
 - M24.6: the web (IndexedDB) and mobile save paths run the same code but were not run with a damaged file; the save
   recipe with versions and migration is M21's.
 - M24.8: saving a scene while a widget is grown by `autoSize` (another language or a bigger text size than the design)
