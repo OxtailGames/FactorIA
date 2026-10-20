@@ -824,10 +824,26 @@ those two PRs (shop.js and options.js in #112, level_select.js in #113).
   label gets shorter; widgets without `autoSize` keep their size and do not count. Lantern Keep's `select_worlds` has
   `uniformSize`, and level_select.js drops its label measure and its common-size writing.
 
-## M21 (part). The export table, store page material and the guides — DONE (PRs #115-#119)
+## M21. Docs and material for shipping — DONE (PRs #115-#124, the `m21/reference-game` and `m21/ai-cost-guide` PRs)
 
-Closes LK/FB-0014, LK/FB-0017 and LK/FB-0022; LK/FB-0023 stays open for M23's MSIX export. Each entry has a `Fixed in <commit>`
-note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py, tools/make_screenshots.py).
+Closes D-01..D-05, D-07 and the store-page notes of the external evaluation: a reference game, docs marked by version, a
+publishing guide per store, a "finish your game" guide, tutorials for people, a browsable API reference, an AI cost
+guide and store page material. Every guide is embedded in the binary and listed by `factoria docs`; a replay can be
+written to a video file.
+
+The reference game came first (the `m21/reference-game` PR, 2026-10-19), because the guides are better written with it
+in hand. **Lantern Keep** (`examples/lantern-keep`, its README) is a 2D platformer, six short levels in two worlds, built
+the way a game maker's AI builds a game (the generated AGENTS.md, `factoria docs`, the public commands, no engine change)
+in six worker packages: core game and the menu kit (P1), three save slots, level select, a versioned save format and
+cloud saves (P2), achievements, stats, leaderboards and a cosmetics shop on the fake store (P3), accessibility: text size,
+assist mode, reduced effects, hazards readable without colour (P4), shipping: export and publish settings, icon, touch
+gamepad, store texts and `SHIPPING.md` (P5), German and Arabic with every screen checked in four languages at 100 % and
+200 % text (P6). 120 tests; ctest runs it as `example_lantern-keep_*`. It found 45 feedback entries, none a blocker or
+major, so M10-M18 held up for a complete small game; most became M24.
+
+The rest closes LK/FB-0014, LK/FB-0017 and LK/FB-0022; LK/FB-0023 stays open for M23's MSIX export. Each entry has a
+`Fixed in <commit>` note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py,
+tools/make_screenshots.py).
 
 - Export table (PR #115, `02b1555`): docs/EXPORTING.md has "What each export needs", one row per export: the download or
   tool it needs, and for a Windows, Linux and macOS host whether a source build can make it offline, after a setup
@@ -852,6 +868,26 @@ note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py,
   draws every frame at `--render-scale` into a Motion-JPEG AVI with the run's audio (no dependency; about 2 GB at most,
   stopped early past it); `.mp4` (H.264 + AAC) goes through ffmpeg, found like the store uploaders by one shared lookup
   (`find_machine_tool`). Lantern Keep has its key art, `tools/capsules.json` and a trailer replay.
+- Versioned docs (PR #122, `6e9d3c7`): tools/common/api_since.json says which release added each component, field and
+  command, filled in from the `factoria api --json` of every release from v0.1.0 to v0.1.6. docs/COMPONENTS.md,
+  `factoria api` (`--md`, `--json`, `--dts` with `@since`) and MCP print "(Since 0.1.x)" or "Not released yet". The test
+  `api_since` lists the lines a new entry needs and, once CHANGELOG.md has no "Unreleased" section, every `"unreleased"`
+  left to replace. The hand-written guides carry no marks.
+- Tutorials (PR #124): docs/FIRST_GAME_WITH_AI.md, six rounds with the editor and an AI from `2d-platformer` (the prompts
+  word for word, what to look for, and undo: Ctrl+Z for scene edits, git for scripts and tests); docs/MAKE_BY_HAND.md,
+  Gem Grab by hand from `2d-empty`, each file whole with its check (`validate`, `screenshot`, `run --headless`, `test`,
+  `export`). The finished game is the fixture tools/cli/tests/fixtures/gem-grab, which ctest validates and tests, and a
+  cli test fails when a file the guide shows differs from it. `docs.search` puts each doc's best section first, so the
+  tutorials do not push the scripting reference out of the top hits.
+- API reference (PR #123): `docs.write_reference {"out":"docs"}` writes docs/COMPONENTS.md and docs/reference/ (an index
+  of every component and command with its version mark, then one page per component category and per command category)
+  with the same generators as `factoria api --md`: sorted, LF only, the same on every OS. The test `api_reference` fails
+  when the committed files differ and names the command to run. The pages are not embedded in the binary; AIs get the
+  same data from `docs.components` and `docs.commands`.
+- AI cost guide (the `m21/ai-cost-guide` PR): docs/AI_COSTS.md says what is billed (token kinds and prices, API key or subscription plan,
+  asset providers), what Lantern Keep cost (466 model requests, about $20 at API prices, a floor), what makes a run
+  cheap or dear, how to cap it (`limits` in ai.json, `--max-turns`, `--max-cost`) and where to see what was spent (the
+  editor's usage lines, the summary of `factoria ai run`, the run transcripts).
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
