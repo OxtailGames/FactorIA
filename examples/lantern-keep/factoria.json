@@ -20,6 +20,7 @@
   "icon": "assets/icon.png",
   "export": {
     "scriptBytecode": true,
+    "exclude": ["levels/**", "screenshots/**", "store/**"],
     "macos": { "category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 Oxtail Games" },
     "linux": { "categories": ["Game", "ArcadeGame"] },
     "android": {
@@ -44,14 +45,14 @@
   },
   "platform": {
     "achievements": [
-      { "id": "first_light", "name": "First Light", "description": "Finish level 1-1." },
-      { "id": "courtyard_clear", "name": "Courtyard Cleared", "description": "Finish all three levels of the Courtyard." },
-      { "id": "cellars_clear", "name": "Out of the Cellars", "description": "Finish all three levels of the Cellars." },
-      { "id": "all_embers", "name": "Ember Keeper", "description": "Find all 18 embers." },
-      { "id": "untouched", "name": "Untouched", "description": "Finish a level without dying." },
-      { "id": "quick_feet", "name": "Quick Feet", "description": "Finish level 1-1 in under 28 seconds." },
-      { "id": "jumper", "name": "Leap of Faith", "description": "Jump 500 times." },
-      { "id": "hard_lessons", "name": "Hard Lessons", "description": "Fall, burn or get caught 25 times." }
+      { "id": "first_light", "name": "First Light", "nameKey": "achievements.first_light.name", "description": "Finish level 1-1.", "descriptionKey": "achievements.first_light.description" },
+      { "id": "courtyard_clear", "name": "Courtyard Cleared", "nameKey": "achievements.courtyard_clear.name", "description": "Finish all three levels of the Courtyard.", "descriptionKey": "achievements.courtyard_clear.description" },
+      { "id": "cellars_clear", "name": "Out of the Cellars", "nameKey": "achievements.cellars_clear.name", "description": "Finish all three levels of the Cellars.", "descriptionKey": "achievements.cellars_clear.description" },
+      { "id": "all_embers", "name": "Ember Keeper", "nameKey": "achievements.all_embers.name", "description": "Find all 18 embers.", "descriptionKey": "achievements.all_embers.description" },
+      { "id": "untouched", "name": "Untouched", "nameKey": "achievements.untouched.name", "description": "Finish a level without dying.", "descriptionKey": "achievements.untouched.description" },
+      { "id": "quick_feet", "name": "Quick Feet", "nameKey": "achievements.quick_feet.name", "description": "Finish level 1-1 in under 28 seconds.", "descriptionKey": "achievements.quick_feet.description" },
+      { "id": "jumper", "name": "Leap of Faith", "nameKey": "achievements.jumper.name", "description": "Jump 500 times.", "descriptionKey": "achievements.jumper.description" },
+      { "id": "hard_lessons", "name": "Hard Lessons", "nameKey": "achievements.hard_lessons.name", "description": "Fall, burn or get caught 25 times.", "descriptionKey": "achievements.hard_lessons.description" }
     ],
     "stats": [
       { "id": "jumps", "type": "int" },
@@ -69,8 +70,8 @@
       { "id": "time_total", "name": "Best total time", "order": "ascending" }
     ],
     "products": [
-      { "id": "lantern_colours", "type": "nonConsumable", "title": "Lantern colours", "description": "Four colours for your lantern and its light.", "price": 1.99 },
-      { "id": "supporter", "type": "nonConsumable", "title": "Supporter", "description": "A gold lantern and your name's place in the credits.", "price": 4.99 }
+      { "id": "lantern_colours", "type": "nonConsumable", "title": "Lantern colours", "titleKey": "shop.product.lantern_colours", "description": "Four colours for your lantern and its light.", "price": 1.99 },
+      { "id": "supporter", "type": "nonConsumable", "title": "Supporter", "titleKey": "shop.product.supporter", "description": "A gold lantern and your name's place in the credits.", "price": 4.99 }
     ]
   },
   "feedbackFile": "ENGINE_FEEDBACK.json"

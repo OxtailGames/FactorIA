@@ -351,7 +351,11 @@ void register_builtin_components(TypeRegistry& r) {
                      "localization.languageFonts) to cover every Text of the game (docs/TEXT.md).")
         .field("fontSize", &Text::fontSize, "Glyph height in world units (pixels in 2D).").range(1, 4096)
         .field("color", &Text::color, "Text color.")
-        .enum_field("align", &Text::align, {"left", "center", "right"}, "Horizontal alignment of lines inside the text box.")
+        .enum_field("align", &Text::align, {"left", "center", "right", "start", "end"},
+                    "Horizontal alignment of lines inside the text box. left / right are always the left / right edge, "
+                    "even for right-to-left text. start / end follow the current language: start = left and end = right "
+                    "in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left "
+                    "languages (i18n.direction); use them for text that must read from its start side.")
         .field("pivot", &Text::pivot, "Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right.")
         .field("maxWidth", &Text::maxWidth, "If > 0, lines wrap at this width in world units. 0 = no wrapping.").range(0, 100000)
         .field("layer", &Text::layer, "Draw order. Higher layers draw on top. Text defaults above sprites.")
@@ -815,10 +819,17 @@ void register_builtin_components(TypeRegistry& r) {
             .field("columns", &Panel::columns, "Grid only: number of columns.").range(1, 64)
             .enum_field("align", &Panel::align, {"start", "center", "end"},
                         "Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = "
-                        "left / top, end = right / bottom.")
+                        "left / top, end = right / bottom (a panel with `direction` rtl, or auto in a right-to-left language, swaps left and "
+                        "right: start = right).")
             .enum_field("justify", &Panel::justify, {"start", "center", "end"},
                         "Main-axis placement of the whole run of children inside the padded box: start = packed at the "
-                        "left / top, center, end = packed at the right / bottom. A grid is placed as one block on both axes.")
+                        "left / top, center, end = packed at the right / bottom (with a right-to-left `direction`, start = the right edge). "
+                        "A grid is placed as one block on both axes.")
+            .enum_field("direction", &Panel::direction, {"ltr", "auto", "rtl"},
+                        "Horizontal reading direction of the layout. ltr (default) = a row runs left to right and start means "
+                        "left. rtl = the first child of a row is at the right, a grid fills its columns from the right and "
+                        "align / justify `start` means the right edge. auto = ltr in a left-to-right language and rtl in Arabic, "
+                        "Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.")
             .field("fit", &Panel::fit,
                    "true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); "
                    "the pivot then decides which point of the fitted box stays on the position.");

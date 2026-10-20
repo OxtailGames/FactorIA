@@ -37,7 +37,10 @@ Options > Controls.
 - `levels/<id>.json`: the ASCII map of each level, the arguments of `scene.import_ascii`. They start from
   `levels/base_day.scene.json` or `levels/base_dark.scene.json` (camera, HUD, the level's rules, pause menu, store events,
   the lighting and the background of the Cellars) and write `scenes/levels/<id>.scene.json`. Edit the map, then rebuild
-  the scene: `factoria call scene.import_ascii @levels/1-1.json`, and `factoria call scene.format`.
+  the scene: `factoria call scene.import_ascii @levels/1-1.json`, and `factoria call scene.format`. Editing a prefab
+  (an ember, the touch controls) needs no new import: the level files keep the prefab references.
+  The legend common to all maps is `levels/legend.json` (`legendFrom` in each map, the Courtyard's tiles and plain
+  hazards); a map keeps in its own `legend` only what differs (the Cellars' tile numbers and lit hazards).
   Legend: `#` ground, `%` earth, `=` bricks and ledges, `*` flowers (decoration), `P` player, `X` exit, `1 2 3` embers,
   `C` checkpoint, `^` spikes, `e` and `f` enemies (walking left or right first), `m` moving platform (sideways),
   `n` moving platform (up and down), `-` one-way platform. Row 0 is the top row. To add a level: its map in `levels/`, a line in `scripts/levels.js`, its name in every `locales/*.json`, then rebuild
@@ -58,7 +61,7 @@ Options > Controls.
   `achievements.js`, `leaderboards.js` and `store_ui.js` (what the three screens share), `prefabs/ui/shop`, `achievements` and
   `leaderboards`. The main menu has a row with the three buttons; `lanternColour` is a player setting in `settings.js`.
 - Accessibility (see the section below): `scripts/assist.js` (assist speed and invincibility), `scripts/effects.js` (shake and
-  sparks, each gated by an option), `scripts/ui/text_fit.js` (sizes widgets for the text size and language; aligns wrapped texts for right-to-left), the Access tab in
+  sparks, each gated by an option), `autoSize` on every button, toggle and slider (they grow to their label at any text size and language), the Access tab in
   `prefabs/ui/options.prefab.json` and `scripts/ui/options.js`, the options in `scripts/settings.js`.
 - `locales/en.json`, `es.json`, `de.json`, `ar.json`: every text. Groups: `menu`, `loading`, `pause`, `options` (with `options.accessibility.*` and `options.tab.accessibility`), `credits` (the recipe's),
   `hud.*`, `level.*` (level and world names), `levelEnd.*`, the saves' `slots.*` and `select.*`, and the store's `achievements.*`, `leaderboards.*`, `shop.*` and
@@ -81,8 +84,8 @@ Options > Controls.
   in greyscale; `main-menu-ar.png`, `level-select-ar.png` (Arabic) and `options-de-200.png` (German at 200% text).
 - Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
   (the on-screen gamepad, an entity of both base scenes), `store/` (store texts and release notes in the four languages),
-  `.store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed, and a dot-folder so exports
-  leave them out),
+  `store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed; `export.exclude` in
+  `factoria.json` keeps `store/`, `levels/` and `screenshots/` out of exports),
   `tests/shipping.test.js` (touch controls, safe area, the settings the exports rely on, the store texts of every language), `SHIPPING.md`.
 
 ## Saves and the level select
@@ -154,11 +157,10 @@ itself, and the choice is saved with the settings. No font was added: the engine
   result). Arabic has six plural forms, but the game's texts have no plural (they show `3/18`, not "3 embers"), so none
   of the six is used and the `i18n.import` check could not exercise them: a new text with a count needs `zero` to `other`.
   Letters are joined and ordered by the engine, numbers keep left-to-right inside the sentence ("1-1  أول ضوء").
-  What the game does for right-to-left (`isRtl()` in `scripts/ui/text_fit.js`): `align: "right"` on every wrapped Text (the
-  engine's `align` never follows the language), and the HUD corners swapped (name on the right, embers on the left).
-  **Not mirrored**: rows of buttons and panels (the main menu's row of three, the level end panel's text and buttons, the
-  level select rows keep the first item on the left) and the lines of a two-line button stay left-aligned: the engine has
-  no right-to-left row layout or Button `align` (`ENGINE_FEEDBACK.json` FB-0040, FB-0011). Everything is readable.
+  What the game does for right-to-left: `direction: "auto"` on every row panel (the main menu's row of three, the options
+  tabs, the level select rows and the level end panel are mirrored by the engine), `align: "start"` on every wrapped Text,
+  and the HUD corners chosen from `i18n.direction` in `hud.js` (name on the right, embers on the left): anchors and
+  pivots are not mirrored by themselves. The lines of a two-line button are centred by the engine.
 - **Every screen at 100% and 200% in every language** (main menu, options tabs, credits, slots, delete confirmation, level
   select, achievements, leaderboards and shop with a working and a signed-out store, HUD, pause, level end panel) is
   checked by `tests/accessibility.test.js`. Making them fit meant: widgets fitted to their label on every screen
@@ -286,7 +288,7 @@ Saved with the other settings (`storage` key `settings`, `scripts/settings.js`) 
 
 | Option | How it works |
 |---|---|
-| Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `scripts/ui/text_fit.js` makes every button, toggle and slider as big as its label needs; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in every language at 100% and 200%: widgets inside the screen, labels inside their widget, no text wider than its box, every panel big enough for its content (`tests/helpers/screens.js`). |
+| Text size | 100, 125, 150, 175 or 200%: `ui.textScale`. `autoSize: true` on every button, toggle and slider makes it as big as its label needs, and `ScrollList.fill` gives the achievements and leaderboards lists the height the screen leaves; the options and credits panels get wider (up to 1240 px), the level end panel puts the buttons beside the text, the HUD puts the timer on a second row when the three texts would touch. `tests/accessibility.test.js` checks every screen in every language at 100% and 200%: widgets inside the screen, labels inside their widget, no text wider than its box, every panel big enough for its content (`tests/helpers/screens.js`). |
 | Game speed | 100, 90, 80, 70 or 60%: `time.scale` while playing (`assist.applySpeed()` sets it at the start of a level). The pause menu is `game.paused`: pausing remembers the `time.scale` and resuming restores it, so the assist speed survives; a speed picked in Options while paused is the one restored (engine feedback FB-0036). `flow.js` sets `time.scale = 1` when a scene is left (a scene load keeps `time.scale`), and `level.js` `refreshAssist()` marks the run as assisted at the start of a level and after each resume. Level times are game time. |
 | Invincible | Spikes and enemies do nothing. A fall puts the player back at the last checkpoint (or the start) and does **not** count as a death: no `player_died`, no shake, no hurt sound. |
 | Screen shake | Off: `effects.js` `deathShake()` does nothing. |
@@ -310,8 +312,8 @@ jump is one press).
 ## What the engine does for this game
 
 - **Levels are ASCII maps.** `scene.import_ascii` with `from` (a base scene with the camera, HUD and rules), `edits`
-  (the level's id, the lit map) and `path` builds every level file; the legend's `id` and `overrides` give the three embers
-  their numbers. A test rebuilds each map into a scratch file and compares it with the scene on disk.
+  (the level's id, the lit map) and `path` builds every level file, as prefab references (editing a prefab changes every level at once); the
+  legend's `id` and `overrides` give the three embers their numbers, and `legendFrom` shares one legend between the six maps. A test rebuilds each map into a scratch file and compares it with the scene on disk.
 - **Menus and settings** are the engine's own recipe, driven by tests with the gamepad only; `ui.on` events, `MenuStack`,
   `game.paused`, `input.rebind`, `storage`, `window.available`.
 - **Languages.** `factoria.json` `localization`, a `key` on every Text and widget the scenes write, `i18n.t` for the text
@@ -322,6 +324,10 @@ jump is one press).
   (it carries the player),
   triggers for embers, checkpoints, spikes and the exit, `entity.isGrounded()` for jumping.
 - **Camera.** `entity.bounds()` of the Tilemap limits the follow camera.
-- **Tests.** `game.gamepad()`, `game.audioLog()`, `fa.call("scene.import_ascii")`, events through `world.on`.
+- **Panels that refresh themselves.** `onEnable()` writes the level end panel, the save slots, the level select and the
+  delete question every time they are shown (before the frame is drawn); the code that shows a panel only hands it data.
+- **Tests.** `game.gamepad()`, `game.audioLog()`, `fa.call("scene.import_ascii")`, events through `world.on`,
+  `game.platform.set({ backend: "none" })` for a game without a store, `game.touch(id)` / `ui.rectOf(id)` for the
+  on-screen controls and `toMatchObject`.
 
 The gaps found while making the game are in `ENGINE_FEEDBACK.json`.

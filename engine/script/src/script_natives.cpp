@@ -1980,10 +1980,11 @@ NATIVE(i18nInfo) {  // {enabled, language, defaultLanguage, languages, names, sy
     SETUP;
     const I18n* L = I->host->i18n();
     Json j = Json::object({{"enabled", L && L->enabled()}, {"language", ""}, {"defaultLanguage", ""}, {"languages", Json::array()},
-                           {"names", Json::object()}, {"systemLanguages", Json::array()}});
+                           {"names", Json::object()}, {"systemLanguages", Json::array()}, {"direction", "ltr"}});
     if (L && L->enabled()) {
         j["language"] = L->language();
         j["defaultLanguage"] = L->default_language();
+        j["direction"] = L->rtl() ? "rtl" : "ltr";
         for (const std::string& code : L->languages()) {
             j["languages"].push_back(code);
             j["names"][code] = L->name(code);
