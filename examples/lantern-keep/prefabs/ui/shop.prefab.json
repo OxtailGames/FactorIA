@@ -66,7 +66,8 @@
                     "layer": 301,
                     "key": "shop.note",
                     "color": [0.75, 0.8, 0.9, 1],
-                    "maxWidth": 740
+                    "maxWidth": 740,
+                    "align": "start"
                   }
                 }
               }
@@ -92,7 +93,8 @@
                     "text": "Lantern colours",
                     "layer": 302,
                     "autoFocus": true,
-                    "size": [620, 56]
+                    "size": [620, 56],
+                    "autoSize": true
                   }
                 }
               },
@@ -102,7 +104,8 @@
                   "Button": {
                     "text": "Supporter",
                     "layer": 302,
-                    "size": [620, 56]
+                    "size": [620, 56],
+                    "autoSize": true
                   }
                 }
               },
@@ -112,7 +115,8 @@
                   "Button": {
                     "text": "Lantern colour",
                     "layer": 302,
-                    "size": [620, 56]
+                    "size": [620, 56],
+                    "autoSize": true
                   }
                 }
               },
@@ -123,7 +127,8 @@
                     "text": "Restore purchases",
                     "layer": 302,
                     "key": "shop.restore",
-                    "size": [620, 56]
+                    "size": [620, 56],
+                    "autoSize": true
                   }
                 }
               },
@@ -136,7 +141,8 @@
                     "space": "screen",
                     "layer": 301,
                     "color": [0.75, 0.8, 0.9, 1],
-                    "maxWidth": 740
+                    "maxWidth": 740,
+                    "align": "start"
                   }
                 }
               },
@@ -146,7 +152,8 @@
                   "Button": {
                     "text": "Back",
                     "layer": 302,
-                    "key": "menu.back"
+                    "key": "menu.back",
+                    "autoSize": true
                   }
                 },
                 "tags": ["back"]
