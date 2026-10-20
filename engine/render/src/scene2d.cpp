@@ -308,6 +308,7 @@ void gather_2d(World& world, Frame& f) {
         if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f);
         QuadList& list = pick(s.space);
         list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
+        if (s.lit && !screen) list.set_lit(nullptr);
         QuadEmitter em{list, m, screen, pack_color(s.color), kModeTextured, 0};
         // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
         float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
