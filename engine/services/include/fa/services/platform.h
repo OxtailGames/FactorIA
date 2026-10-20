@@ -17,6 +17,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -41,6 +42,7 @@ struct PlatformEntry {
 
 struct PlatformAchievement : PlatformEntry {
     std::string name, description;
+    std::string nameKey, descriptionKey;  // locale keys (locales/<language>.json); when set they win over the plain text
     bool hidden = false;
 };
 struct PlatformStat : PlatformEntry {
@@ -53,6 +55,7 @@ struct PlatformLeaderboard : PlatformEntry {
 struct PlatformProduct : PlatformEntry {
     std::string type;  // "consumable" | "nonConsumable" | "subscription"
     std::string title, description;
+    std::string titleKey, descriptionKey;  // locale keys; when set they win over the plain text
     double price = 0.0;  // only the fake backend uses it: real stores give their own
     std::string currency = "USD";
 };
@@ -72,6 +75,12 @@ struct PlatformCatalog {
         std::string pointer, name;
     };
     std::vector<BackendRef> backendRefs;
+
+    // Every locale key the catalog names (nameKey, descriptionKey, titleKey) with its JSON pointer, for `factoria validate`.
+    struct TextKeyRef {
+        std::string pointer, key;
+    };
+    std::vector<TextKeyRef> textKeyRefs;
 
     // The backend the file asks for on `platform` ("windows", "macos", ...): its entry, else the plain string; "" = auto.
     std::string backend_for(const std::string& platform) const;
@@ -193,6 +202,10 @@ public:
     PlatformServices& operator=(const PlatformServices&) = delete;
 
     void set_catalog(PlatformCatalog catalog);
+    // How a locale key of the catalog becomes text in the current language (nullopt: no table has it). Without one, or for
+    // a key it does not know, the plain text of the entry is used, else the key itself.
+    using Translator = std::function<std::optional<std::string>(const std::string& key)>;
+    void set_translator(Translator translator);
     const PlatformCatalog& catalog() const;
     // Replaces the backend (the default is "none"): requests still pending on the old one are dropped. `why` says in a
     // sentence why this backend runs (the `platform.*` commands quote it when they refuse to act on a real store).

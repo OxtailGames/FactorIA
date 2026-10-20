@@ -54,7 +54,10 @@ void Engine::Impl::reload_localization() {
     if (renderer) renderStale = true;
 }
 
-void Engine::Impl::apply_localization() { localize_world(world, i18n); }
+void Engine::Impl::apply_localization() {
+    world.set_rtl(i18n.rtl());
+    localize_world(world, i18n);
+}
 
 Result<std::string> Engine::Impl::switch_language(std::string_view requested) {
     const std::string previous = i18n.language();

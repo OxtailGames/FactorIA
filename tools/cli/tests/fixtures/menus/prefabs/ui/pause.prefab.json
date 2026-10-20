@@ -41,6 +41,7 @@
             "id": "resume",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Resume",
                 "key": "pause.resume",
                 "layer": 302,
@@ -52,6 +53,7 @@
             "id": "pause_options",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Options",
                 "key": "menu.options",
                 "layer": 302
@@ -62,6 +64,7 @@
             "id": "to_main_menu",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Main menu",
                 "key": "pause.mainMenu",
                 "layer": 302

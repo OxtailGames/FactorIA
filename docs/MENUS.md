@@ -38,6 +38,15 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 
 ## How it works, and what to change
 
+- **Labels that fit.** Every button, toggle and slider of the kit has `"autoSize": true`: it is at least the `size` the
+  file gives and grows to its label in the player's language and at the player's text size (`ui.textScale`), so a Spanish
+  label or 200 % text never sticks out and no script measures anything. The main menu is a `fit` column, which grows
+  with its buttons. A long label can wrap with `maxWidth` on the button, and a two-line label (`
+`) is centred line by
+  line. A column that holds a `ScrollList` (a list of saves, achievements) gives it `"fill": true`: the list takes the
+  height the other children leave and the column stays inside the screen. A `fit` panel that is still bigger than the
+  screen logs a warning, and `factoria validate` reports it for the design size.
+
 - **Focus and navigation.** Direction presses (`ui_up/down/left/right`) move the focus to the nearest interactable widget
   in the pressed direction that is lined up with the focused one: its rectangle overlaps the focused rectangle across
   the direction (for Right, they share some rows of pixels). So Right from a tab reaches the next tab and not a wide
@@ -105,6 +114,8 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
   translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the
   language's own name in `"$name"`: it is what the Language button shows.
+  For a right-to-left language (Arabic, Hebrew, Persian, Urdu) the options panel mirrors itself: its tabs row has
+  `"direction": "auto"` and the panels and the wrapped note use `"align": "start"` (docs/LOCALIZATION.md, section 6).
 - **Restyle.** `color`, `textColor`, `accentColor`, or a `texture` with `slice` (9-slice) on any widget: AI guide
   section 9.22.
 - **Phones: notch and Back.** A panel or text pinned to a screen edge (a top bar, a corner button, the "Loading..." text)
@@ -259,11 +270,11 @@ export class MenuStack {
         "Script": { "path": "scripts/main_menu.js" } },
       "children": [
         { "id": "title", "components": { "Text": { "text": "My Game", "key": "menu.title", "fontSize": 64, "space": "screen" } } },
-        { "id": "play", "components": { "Button": { "text": "Play", "key": "menu.play", "autoFocus": true } } },
-        { "id": "options_button", "components": { "Button": { "text": "Options", "key": "menu.options" } } },
-        { "id": "credits_button", "components": { "Button": { "text": "Credits", "key": "menu.credits" } } },
-        { "id": "shop_button", "active": false, "components": { "Button": { "text": "Shop", "key": "menu.shop" } } },
-        { "id": "quit", "components": { "Button": { "text": "Quit", "key": "menu.quit" } } }
+        { "id": "play", "components": { "Button": { "autoSize": true, "text": "Play", "key": "menu.play", "autoFocus": true } } },
+        { "id": "options_button", "components": { "Button": { "autoSize": true, "text": "Options", "key": "menu.options" } } },
+        { "id": "credits_button", "components": { "Button": { "autoSize": true, "text": "Credits", "key": "menu.credits" } } },
+        { "id": "shop_button", "active": false, "components": { "Button": { "autoSize": true, "text": "Shop", "key": "menu.shop" } } },
+        { "id": "quit", "components": { "Button": { "autoSize": true, "text": "Quit", "key": "menu.quit" } } }
       ] },
     { "id": "options", "active": false, "prefab": "prefabs/ui/options.prefab.json" },
     { "id": "shop", "active": false,
@@ -273,11 +284,11 @@ export class MenuStack {
       "children": [
         { "id": "shop_title", "components": { "Text": { "text": "Shop", "key": "shop.title", "fontSize": 40, "space": "screen", "layer": 301 } } },
         { "id": "gems_label", "components": { "Text": { "text": "Gems: 0", "fontSize": 28, "space": "screen", "layer": 301 } } },
-        { "id": "buy_gems", "components": { "Button": { "text": "100 gems", "layer": 302, "autoFocus": true } } },
-        { "id": "buy_remove_ads", "components": { "Button": { "text": "Remove ads", "layer": 302 } } },
-        { "id": "restore", "components": { "Button": { "text": "Restore purchases", "key": "shop.restore", "layer": 302 } } },
+        { "id": "buy_gems", "components": { "Button": { "autoSize": true, "text": "100 gems", "layer": 302, "autoFocus": true } } },
+        { "id": "buy_remove_ads", "components": { "Button": { "autoSize": true, "text": "Remove ads", "layer": 302 } } },
+        { "id": "restore", "components": { "Button": { "autoSize": true, "text": "Restore purchases", "key": "shop.restore", "layer": 302 } } },
         { "id": "shop_status", "components": { "Text": { "text": "", "fontSize": 22, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "maxWidth": 700, "layer": 301 } } },
-        { "id": "shop_back", "tags": ["back"], "components": { "Button": { "text": "Back", "key": "menu.back", "layer": 302 } } }
+        { "id": "shop_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
       ] },
     { "id": "credits", "active": false,
       "components": {
@@ -285,7 +296,7 @@ export class MenuStack {
         "Script": { "path": "scripts/ui/credits.js" } },
       "children": [
         { "id": "credits_list", "components": { "ScrollList": { "size": [712, 476], "layer": 301, "color": [0, 0, 0, 0.25], "spacing": 14, "padding": [16, 16, 16, 16] } } },
-        { "id": "credits_back", "tags": ["back"], "components": { "Button": { "text": "Back", "key": "menu.back", "layer": 302, "autoFocus": true } } }
+        { "id": "credits_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302, "autoFocus": true } } }
       ] }
   ]
 }
@@ -494,49 +505,50 @@ export default class StoreEvents extends Behaviour {
   "entity": {
     "name": "Options",
     "components": {
-      "Panel": { "size": [760, 620], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "spacing": 16, "padding": [24, 24, 24, 24] },
+      "Panel": { "size": [760, 620], "anchor": [0.5, 0.5], "layer": 300, "layout": "column", "direction": "auto", "align": "start",
+        "spacing": 16, "padding": [24, 24, 24, 24] },
       "Script": { "path": "scripts/ui/options.js" }
     },
     "children": [
       { "name": "Title", "components": { "Text": { "text": "Options", "key": "options.title", "fontSize": 40, "space": "screen", "layer": 301 } } },
       { "name": "Tabs",
-        "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "padding": [0, 0, 0, 0], "fit": true } },
+        "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "row", "direction": "auto", "padding": [0, 0, 0, 0], "fit": true } },
         "children": [
-          { "id": "tab_video", "components": { "Button": { "text": "Video", "key": "options.tab.video", "size": [160, 48], "layer": 302, "autoFocus": true } } },
-          { "id": "tab_audio", "components": { "Button": { "text": "Audio", "key": "options.tab.audio", "size": [160, 48], "layer": 302 } } },
-          { "id": "tab_controls", "components": { "Button": { "text": "Controls", "key": "options.tab.controls", "size": [160, 48], "layer": 302 } } },
-          { "id": "tab_language", "components": { "Button": { "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
+          { "id": "tab_video", "components": { "Button": { "autoSize": true, "text": "Video", "key": "options.tab.video", "size": [160, 48], "layer": 302, "autoFocus": true } } },
+          { "id": "tab_audio", "components": { "Button": { "autoSize": true, "text": "Audio", "key": "options.tab.audio", "size": [160, 48], "layer": 302 } } },
+          { "id": "tab_controls", "components": { "Button": { "autoSize": true, "text": "Controls", "key": "options.tab.controls", "size": [160, 48], "layer": 302 } } },
+          { "id": "tab_language", "components": { "Button": { "autoSize": true, "text": "Language", "key": "options.tab.language", "size": [160, 48], "layer": 302 } } }
         ] },
       { "id": "video_section",
-        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
+        "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "direction": "auto", "align": "start", "spacing": 12 } },
         "children": [
-          { "id": "fullscreen", "components": { "Toggle": { "label": "Full screen", "key": "options.fullscreen", "size": [560, 44], "layer": 302 } } },
-          { "id": "resolution", "components": { "Button": { "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
-          { "id": "vsync", "components": { "Toggle": { "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
-          { "id": "frame_cap", "components": { "Button": { "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "fullscreen", "components": { "Toggle": { "autoSize": true, "label": "Full screen", "key": "options.fullscreen", "size": [560, 44], "layer": 302 } } },
+          { "id": "resolution", "components": { "Button": { "autoSize": true, "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "vsync", "components": { "Toggle": { "autoSize": true, "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
+          { "id": "frame_cap", "components": { "Button": { "autoSize": true, "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.", "key": "options.videoNote",
-            "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "layer": 302 } } }
+            "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "align": "start", "maxWidth": 560, "layer": 302 } } }
         ] },
       { "id": "audio_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
-          { "id": "master_volume", "components": { "Slider": { "label": "Master", "key": "options.volume.master", "size": [560, 44], "layer": 302 } } },
-          { "id": "music_volume", "components": { "Slider": { "label": "Music", "key": "options.volume.music", "size": [560, 44], "layer": 302 } } },
-          { "id": "sfx_volume", "components": { "Slider": { "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
-          { "id": "ui_volume", "components": { "Slider": { "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } }
+          { "id": "master_volume", "components": { "Slider": { "autoSize": true, "label": "Master", "key": "options.volume.master", "size": [560, 44], "layer": 302 } } },
+          { "id": "music_volume", "components": { "Slider": { "autoSize": true, "label": "Music", "key": "options.volume.music", "size": [560, 44], "layer": 302 } } },
+          { "id": "sfx_volume", "components": { "Slider": { "autoSize": true, "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
+          { "id": "ui_volume", "components": { "Slider": { "autoSize": true, "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } }
         ] },
       { "id": "controls_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
           { "id": "bindings", "components": { "Panel": { "layer": 301, "color": [0, 0, 0, 0], "layout": "column", "padding": [0, 0, 0, 0], "fit": true } } },
-          { "id": "reset_controls", "components": { "Button": { "text": "Reset to defaults", "key": "options.resetControls", "size": [560, 44], "layer": 302, "fontSize": 22 } } }
+          { "id": "reset_controls", "components": { "Button": { "autoSize": true, "text": "Reset to defaults", "key": "options.resetControls", "size": [560, 44], "layer": 302, "fontSize": 22 } } }
         ] },
       { "id": "language_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
         "children": [
-          { "id": "language", "components": { "Button": { "text": "Language: English", "size": [560, 44], "layer": 302 } } }
+          { "id": "language", "components": { "Button": { "autoSize": true, "text": "Language: English", "size": [560, 44], "layer": 302 } } }
         ] },
-      { "id": "options_back", "tags": ["back"], "components": { "Button": { "text": "Back", "key": "menu.back", "layer": 302 } } }
+      { "id": "options_back", "tags": ["back"], "components": { "Button": { "autoSize": true, "text": "Back", "key": "menu.back", "layer": 302 } } }
     ]
   }
 }
@@ -776,9 +788,9 @@ export default class Loading extends Behaviour {
         "components": { "Panel": { "layer": 300, "layout": "column", "spacing": 12, "padding": [32, 24, 32, 32], "fit": true } },
         "children": [
           { "id": "pause_title", "components": { "Text": { "text": "Paused", "key": "pause.title", "fontSize": 40, "layer": 301, "space": "screen" } } },
-          { "id": "resume", "components": { "Button": { "text": "Resume", "key": "pause.resume", "layer": 302, "autoFocus": true } } },
-          { "id": "pause_options", "components": { "Button": { "text": "Options", "key": "menu.options", "layer": 302 } } },
-          { "id": "to_main_menu", "components": { "Button": { "text": "Main menu", "key": "pause.mainMenu", "layer": 302 } } }
+          { "id": "resume", "components": { "Button": { "autoSize": true, "text": "Resume", "key": "pause.resume", "layer": 302, "autoFocus": true } } },
+          { "id": "pause_options", "components": { "Button": { "autoSize": true, "text": "Options", "key": "menu.options", "layer": 302 } } },
+          { "id": "to_main_menu", "components": { "Button": { "autoSize": true, "text": "Main menu", "key": "pause.mainMenu", "layer": 302 } } }
         ] }
     ]
   }
