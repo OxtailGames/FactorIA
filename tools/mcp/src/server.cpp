@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "fa/core/strings.h"
+#include "fa/tooling/api_export.h"
 
 namespace fa {
 
@@ -119,7 +120,10 @@ Json McpServer::tools_json() const {
         t["title"] = humanize(c->name);
         std::string desc = c->summary;
         if (!c->description.empty()) desc += "\n\n" + c->description;
+        const std::string since = api_since("commands", c->name);
+        if (!since.empty() && since != "0.1.0") desc += "\n\n" + api_since_label(since) + ".";
         t["description"] = desc;
+        if (!since.empty()) t["_meta"] = Json::object({{"since", since}});
         Json schema = c->inputSchema.is_object() ? c->inputSchema : Json::object();
         if (!schema.contains("type")) schema["type"] = "object";
         t["inputSchema"] = schema;

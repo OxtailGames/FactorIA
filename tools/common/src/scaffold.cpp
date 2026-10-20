@@ -10,6 +10,7 @@
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/api_export.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/feedback.h"
 #include "fa/tooling/mcp_config.h"
@@ -86,7 +87,7 @@ Result<std::string> write_project_typings(const std::string& projectDir) {
             fs::set_project_root(savedRoot);
             return make_error("Cannot generate typings: " + err, "Run `factoria validate` to see what is wrong with the project.");
         }
-        text = engine.scripts().typescript_declarations();
+        text = export_typescript(engine.scripts());
         engine.shutdown();
     }
     fs::set_project_root(savedRoot);

@@ -34,7 +34,8 @@ list(APPEND FA_EMBED_LICENSES ${FA_ROOT}/LICENSE)
 # compiled against it (docs/design/CUSTOM_SHADERS.md), also by an installed factoria without the engine source.
 file(GLOB FA_EMBED_SHADER_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/engine/render/shaders/*_common.glsl)
 # The C API of native plugins: project.new_plugin copies it into every new plugin.
-set(FA_EMBED_ALL ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
+# Which version added each component, field and command (fa/tooling/api_export.h).
+set(FA_EMBED_ALL ${CMAKE_CURRENT_SOURCE_DIR}/api_since.json ${FA_EMBED_DOCS} ${FA_EMBED_TEMPLATES} ${FA_EMBED_SCHEMAS} ${FA_EMBED_PLATFORMS} ${FA_EMBED_LICENSES}
     ${FA_EMBED_SHADER_TEMPLATES}
     ${FA_ROOT}/engine/runtime/include/fa/runtime/fa_plugin.h)
 if(FA_EMBED_ALL)
@@ -50,7 +51,7 @@ if(FA_BUILD_TESTS)
     file(GLOB_RECURSE tooling_tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp)
     if(tooling_tests)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
-        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder)  # export_web_test.cpp unzips with its miniz
+        target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ai fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder)  # export_web_test.cpp unzips with its miniz; api_since_test.cpp registers ai.* like the CLI
         target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
         add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders
