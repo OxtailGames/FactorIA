@@ -134,7 +134,8 @@ página y de la guía de primeros pasos.
 - [docs/AI_GUIDE.md](docs/AI_GUIDE.md): cómo crear un juego con FactorIA (para agentes de IA).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión.
 - [docs/SCRIPTING.md](docs/SCRIPTING.md): scripts de JavaScript: comportamientos, herramientas y tests.
-- [docs/COMPONENTS.md](docs/COMPONENTS.md): todos los componentes y campos (generado).
+- [docs/reference/README.md](docs/reference/README.md): referencia de la API navegable, una pagina por categoria de componentes y de comandos (generada, en ingles).
+- [docs/COMPONENTS.md](docs/COMPONENTS.md): todos los componentes y campos en un solo archivo (generado).
 - [docs/EXTENDING.md](docs/EXTENDING.md): crear herramientas, comandos, componentes y sistemas.
 - [docs/CLI.md](docs/CLI.md) y [docs/MCP.md](docs/MCP.md): la CLI `factoria` y el servidor MCP.
 - [docs/EDITOR.md](docs/EDITOR.md): el editor visual, centrado en la IA (en inglés): vista del juego, chat con la IA, selección, registro de audio.
