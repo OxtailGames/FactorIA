@@ -139,6 +139,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): publishing guide with one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io, web).
 - [docs/LOCALIZATION.md](docs/LOCALIZATION.md): several languages: string tables, `key` fields, the `i18n` script API.
 - [docs/AI_COSTS.md](docs/AI_COSTS.md): what making a game with AI costs (measured on a real game), what drives it, how to cap and check it.
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md): frame time, memory and draw-call budgets: measure a game, keep a baseline per machine, fail CI on a regression.
 - [docs/FINISHING.md](docs/FINISHING.md): finish your game: menus, options, saves, languages, accessibility, store services, credits, tests, and a checklist.
 
 If you are going to modify the engine, read [CLAUDE.md](CLAUDE.md) and

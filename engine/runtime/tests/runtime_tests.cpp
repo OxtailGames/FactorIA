@@ -587,6 +587,13 @@ TEST_CASE("run_headless: replay, screenshots, state dump, report, exit codes") {
     CHECK(rc == 0);
     CHECK(report["frames"] == 4);
     CHECK(report["exitCode"] == 0);
+    REQUIRE(report["perf"].is_object());  // what the run cost (docs/PERFORMANCE.md)
+    CHECK(report["perf"]["frames"] == 4);
+    CHECK(report["perf"]["cpuMsAvg"].get<double>() >= 0.0);
+    CHECK(report["perf"]["cpuMsMax"].get<double>() >= report["perf"]["cpuMsAvg"].get<double>());
+    CHECK(report["perf"]["peakMemoryMB"].get<double>() > 0.0);
+    CHECK(report["perf"]["entities"].get<int>() >= 1);
+    CHECK(report["perf"].contains("drawCalls"));
     REQUIRE(report["screenshots"].size() == 2);
     CHECK(stdfs::exists(p.dir / "out" / "f_0.png"));
     CHECK(stdfs::exists(p.dir / "out" / "f_3.png"));

@@ -78,6 +78,14 @@ if(FA_BUILD_TESTS)
             add_test(NAME example_${ex_name}_validate COMMAND factoria validate ${ex} WORKING_DIRECTORY ${FA_ROOT})
             add_test(NAME example_${ex_name}_test COMMAND factoria test ${ex} WORKING_DIRECTORY ${FA_ROOT})
             set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+            # Performance budget (docs/PERFORMANCE.md): a fixed number of frames with the GPU renderer, compared with the
+            # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
+            # (the CI environment variable); a runner with no baseline passes and prints the entry to commit.
+            file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json\"}")
+            add_test(NAME example_${ex_name}_perf
+                COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
+                WORKING_DIRECTORY ${FA_ROOT})
+            set_tests_properties(example_${ex_name}_perf PROPERTIES LABELS "gpu;perf" TIMEOUT 600)
         endif()
     endforeach()
     # The menu kit of docs/MENUS.md as a project, checked the same way and driven with a gamepad only.
@@ -85,4 +93,12 @@ if(FA_BUILD_TESTS)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
     add_test(NAME fixture_menus_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(fixture_menus_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+    # The budget check must fail on a game heavier than its baseline: tests/perf/regression.perf.json holds an impossibly
+    # small baseline for the runner id "regression-test" (FACTORIA_PERF_RUNNER), so memory and draw calls are over it.
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/regression.args.json "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/regression.perf.json\"}")
+    add_test(NAME perf_regression_detected
+        COMMAND factoria call --no-graphics --project ${fx} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/regression.args.json
+        WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(perf_regression_detected PROPERTIES LABELS "gpu;perf" TIMEOUT 300
+        ENVIRONMENT "FACTORIA_PERF_RUNNER=regression-test" PASS_REGULAR_EXPRESSION "perf_budget_exceeded")
 endif()

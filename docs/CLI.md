@@ -141,7 +141,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 factoria run
 factoria run --headless --frames 120 --screenshot-at 10,60 --json
 ```
-Report (JSON): `{ok, exitCode, frames, screenshots:[paths], scriptErrors:[...], sceneErrors:[...], stateOut?, audioOut?, videoPath?, videoFrames?}`.
+Report (JSON): `{ok, exitCode, frames, screenshots:[paths], scriptErrors:[...], sceneErrors:[...], stateOut?, audioOut?, videoPath?, videoFrames?, perf}`. `perf` is what the run cost (CPU ms per frame avg/p95/max, peak memory, draw calls, entities) and the input of the budgets in [PERFORMANCE.md](PERFORMANCE.md) (`factoria call perf.check`).
 Same seed + same input = same state and pixels.
 
 ### `factoria screenshot [project] [--frames N] [--out shot.png] [--render-scale S] [--json]`

@@ -1,5 +1,6 @@
 // make_app_desc / run_windowed / run_headless.
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -8,7 +9,9 @@
 #include "fa/core/image.h"
 #include "fa/core/process.h"
 #include "fa/core/log.h"
+#include "fa/core/perf.h"
 #include "fa/core/strings.h"
+#include "fa/runtime/play_session.h"
 
 namespace fa {
 
@@ -384,13 +387,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     std::sort(shots.begin(), shots.end());
     Json shotPaths = Json::array();
     int ran = 0;
+    std::vector<double> cpuMs;  // CPU time of each frame (process CPU, not wall clock): report["perf"]
+    int maxDrawCalls = 0, maxEntities = 0;
     for (int f = 0; f < options.frames && !engine.quit_requested(); ++f) {
         if (auto it = replay.find(f); it != replay.end()) apply_replay_entry(I, it->second, replayProblems, f);
+        const double cpu0 = process_cpu_seconds();
         if (std::size_t(f) < timing.size()) {
             I.run_frame(timing[f].first, timing[f].second);
         } else {
             engine.step(1);
         }
+        cpuMs.push_back((process_cpu_seconds() - cpu0) * 1000.0);
+        maxEntities = std::max(maxEntities, int(engine.world().entity_count()));
+        if (Renderer* r = engine.renderer()) maxDrawCalls = std::max(maxDrawCalls, r->stats().drawCalls);  // OnDemand: the last drawn frame
         ++ran;
         if (wantVideo && !videoFailed) {
             Image frameImg;
@@ -417,6 +426,22 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     engine.render_now();  // OnDemand: the last frame is drawn so renderStats / the final picture exist
     report["frames"] = ran;
     report["screenshots"] = shotPaths;
+    if (Renderer* r = engine.renderer()) maxDrawCalls = std::max(maxDrawCalls, r->stats().drawCalls);
+    {
+        const FrameStats cpu = compute_frame_stats(cpuMs);
+        auto r3 = [](double v) { return std::round(v * 1000.0) / 1000.0; };
+        Json perf = Json::object();
+        perf["frames"] = cpu.count;
+        perf["cpuMsAvg"] = r3(cpu.avgMs);
+        perf["cpuMsP95"] = r3(cpu.p95Ms);
+        perf["cpuMsMax"] = r3(cpu.maxMs);
+        perf["cpuClock"] = cpu_time_is_wall_clock() ? "wall" : "process";
+        perf["peakMemoryMB"] = std::round(double(peak_memory_bytes()) / (1024.0 * 1024.0) * 10.0) / 10.0;
+        perf["drawCalls"] = maxDrawCalls;
+        perf["entities"] = maxEntities;
+        perf["graphics"] = I.renderer ? Json(I.gpu ? I.gpu->description() : "window") : Json("none");
+        report["perf"] = perf;
+    }
     std::vector<std::int16_t> pcm;
     int pcmRate = 0;
     if (!options.audioOutPath.empty() || wantVideo) {

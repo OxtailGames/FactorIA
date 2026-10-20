@@ -1,0 +1,16 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 60,
+  "runners": {
+    "regression-test": {
+      "frames": 60,
+      "cpuMsAvg": 0.001,
+      "cpuMsP95": 0.001,
+      "cpuMsMax": 0.001,
+      "peakMemoryMB": 1,
+      "drawCalls": 0,
+      "entities": 0,
+      "graphics": "test"
+    }
+  }
+}
