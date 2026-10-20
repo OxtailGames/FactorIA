@@ -154,7 +154,7 @@ storage.set("textScale", ui.textScale);
   script reads `Panel.usingFallback`. After changing a text, `ui.layout()` applies the sizes at once, so read
   `Button.size` or `ui.rectOf(...)` right away instead of measuring labels and adding margins. Put
   `"uniformSize": true` on the Panel that holds `autoSize` widgets and they all take the size of the largest one.
-  Widgets without `autoSize` keep their rectangles and a wrapped Text keeps its `maxWidth`: text at 3x may not fit a
+  Widgets without `autoSize` keep their rectangles and a wrapped Text keeps its `maxWidth`: text at 3× may not fit a
   small button.
 - Fonts are rasterized at the scaled size, so scaled text stays sharp.
 
