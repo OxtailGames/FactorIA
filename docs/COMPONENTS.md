@@ -2281,8 +2281,6 @@ declare module "factoria" {
      * Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn.
      */
     onDisable?(): void;
-     */
-    onStart?(): void;
     /**
      * Every frame; dt in seconds scaled by time.scale.
      */
