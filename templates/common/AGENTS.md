@@ -81,6 +81,9 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - **Custom shaders:** `MeshRenderer.material` names a `materials/*.material.json` (a GLSL `surface()` snippet that changes
   what the standard material computed, optional `vertex()`, typed params). Write the two files, call `shader.compile`
   (MCP `shader_compile`) until `ok`, then look at a screenshot. Full guide with five worked examples: `factoria docs read shaders`.
+- **Menus and finishing the game:** a main menu, options, pause, saves, languages and accessibility are not in an empty project.
+  When the game needs them, `factoria docs read menus` has the files to copy and `factoria docs read finishing` the ordered
+  path to a game ready for a store, with a checklist.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
   ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep
