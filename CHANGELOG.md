@@ -137,6 +137,13 @@ A complete example game
   including Arabic, an on-screen gamepad for phones and export settings ready for the stores. Read it, copy from it, or
   point your AI at it. Its `SHIPPING.md` lists what each store needs and what is still done by hand.
 
+Guides for finishing and publishing
+
+- `factoria docs read finishing` takes a game that plays to a game a store accepts, step by step with Lantern Keep's
+  code: menus, options that stay set, saves that survive updates, languages, accessibility, credits and tests.
+- `factoria docs read publishing` has one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App
+  Store, itch.io, your own site): what FactorIA does for you and what you still do by hand, with fees and review times.
+
 Fixed while making Lantern Keep
 
 Lantern Keep showed what a complete game still had to work around. These are now in the engine, so your AI writes less
