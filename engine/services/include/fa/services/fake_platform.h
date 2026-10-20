@@ -22,8 +22,8 @@ class FakeBackend final : public PlatformBackend {
 public:
     FakeBackend();
 
-    std::string name() const override { return "fake"; }
-    std::vector<std::string> services() const override { return platform_services_all(); }
+    std::string name() const override { return none_ ? "none" : "fake"; }
+    std::vector<std::string> services() const override { return none_ ? std::vector<std::string>{} : platform_services_all(); }
     void attach(const PlatformSink& sink) override { sink_ = sink; }
     void request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) override;
     void frame() override;
@@ -44,6 +44,9 @@ public:
     // Not signed in: every method but player.signIn answers "notSignedIn". Sends a `player` event when it changes.
     void set_signed_in(bool signedIn);
     bool signed_in() const { return signedIn_; }
+    // Behave as the "none" backend (no service, every call rejects `unavailable`, signIn answers signed out) until reset().
+    // Call PlatformServices::refresh_backend() afterwards so `has` follows.
+    void set_none(bool none) { none_ = none; }
     // Answers are held for this many engine frames (0 = answered inside request, so a promise resolves at once).
     void set_delay_frames(int frames);
     int delay_frames() const { return delay_; }
@@ -84,6 +87,7 @@ private:
 
     PlatformSink sink_;
     bool signedIn_ = true;
+    bool none_ = false;
     int delay_ = 0;
     std::uint64_t frames_ = 0, seq_ = 0, nextTx_ = 1, nextIntegrity_ = 1, callsDropped_ = 0;
     std::map<std::string, std::deque<Scripted>> scripted_;

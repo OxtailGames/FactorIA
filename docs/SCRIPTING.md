@@ -174,7 +174,9 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   An entity that has several visuals (a `Sprite` and a `Text`) gets the union of their rectangles.
 - **Screen space.** A visual with `space: "screen"` is positioned on the screen, not in the world, so it has no world
   rectangle: it is skipped, and an entity that only has screen-space visuals returns `null`. Lay HUD items out with
-  `game.screenSize` and their `anchor`.
+  `game.screenSize` and their `anchor`. To know where a widget or a screen-space `Text` really is (anchor, pivot, safe
+  area and layout applied), use `ui.rectOf(entityOrId)`: a `Rect` in design pixels with `(x, y)` at the TOP-LEFT and y
+  growing downwards, or `null` for anything else. `ui.state` lists the same rectangles, screen-space `Text` included.
 - Children are not included. `active` and colour alpha are ignored: a hidden entity still has bounds.
 
 Component views expose exactly the reflected fields listed by `factoria api
@@ -759,8 +761,15 @@ reseeds the world RNG with the project seed, clears input overrides, timers and
 behaviours; `game.load` also reseeds. Before each test input overrides, the gamepads (unplugged),
 `input.deadzone` (back to the project's value), `time.scale` and the audio log are reset. Results are deterministic. Extras: `describe.skip`,
 `beforeEach(fn)` / `afterEach(fn)` inside `describe`, matchers `toBeUndefined`,
-`toBeNaN`, `toMatch`, `toBeInstanceOf`. Failures print expected/received and
-`file:line` of the failing `expect`.
+`toBeNaN`, `toMatch`, `toBeInstanceOf`, `toMatchObject(subset)` (every field of the subset is in the
+received object with an equal value, recursively; the object may have more). Failures print expected/received and
+`file:line` of the failing `expect`. A `TypeError: ... is not a function` in a test or a script shows the source line
+with a caret under the call, because QuickJS does not name the missing function.
+
+Timing in a test: `world.emit(name, data)` is queued, and its listeners (`world.on`, `onEvent`) run at the next
+`game.step`, so call `game.step(1)` after emitting before you check or await a script that waits for it. The answers
+of `platform.*` (the fake store) are ready at once, unless `game.platform.set({ delayFrames })` holds them. Run only some
+test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"` (MCP `project_test` takes `files`).
 
 ## Runtime notes
 - `Math.random()` is routed to the deterministic world RNG (`rng.*`); never use
