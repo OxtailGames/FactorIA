@@ -91,335 +91,136 @@
     },
     {
       "id": "coin_1",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1168.0, 336.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_2",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1232.0, 336.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_3",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [592.0, 304.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_4",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1648.0, 304.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "goal",
-      "name": "Goal Flag",
+      "prefab": "prefabs/goal.prefab.json",
       "tags": ["goal", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1872.0, 320.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/flag.png",
-          "size": [40.0, 96.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [30.0, 96.0],
-          "isTrigger": true
-        },
         "Script": {
-          "path": "scripts/goal.js",
           "props": {
             "next": "scenes/generated.scene.json"
           }
+        },
+        "Transform": {
+          "position": [1872.0, 320.0, 0.0]
         }
       }
     },
     {
       "id": "coin_5",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [336.0, 240.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_6",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [400.0, 240.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "coin_7",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [944.0, 240.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "player",
-      "name": "Player",
+      "prefab": "prefabs/player.prefab.json",
       "tags": ["player", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [112.0, 208.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/player.png",
-          "size": [32.0, 48.0],
-          "layer": 3,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [26.0, 46.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/player.js"
         }
       }
     },
     {
       "id": "enemy_1",
-      "name": "Crawler",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1360.0, 204.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [36.0, 28.0],
-          "layer": 2,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [34.0, 26.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/enemy.js",
-          "props": {
-            "speed": 60
-          }
         }
       }
     },
     {
       "id": "enemy_2",
-      "name": "Crawler",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [336.0, 140.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [36.0, 28.0],
-          "layer": 2,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [34.0, 26.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/enemy.js",
-          "props": {
-            "speed": 60
-          }
         }
       }
     },
     {
       "id": "coin_8",
-      "name": "Coin",
+      "prefab": "prefabs/coin.prefab.json",
       "tags": ["coin", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [496.0, 112.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/coin.png",
-          "size": [24.0, 24.0],
-          "layer": 1,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "radius": 12.0,
-          "isTrigger": true
         }
       }
     },
     {
       "id": "enemy_3",
-      "name": "Crawler",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1008.0, 108.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [36.0, 28.0],
-          "layer": 2,
-          "pixelArt": false
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [34.0, 26.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/enemy.js",
-          "props": {
-            "speed": 60
-          }
         }
       }
     }
