@@ -72,7 +72,8 @@ Do these once, in this order. Each is a full section elsewhere.
 - Store page: short and long description, tags, system requirements, trailer, screenshots, and the capsule images
   (header, small, main, vertical, hero, logo; sizes in [Store page material](EXPORTING.md#store-page-material)).
   Blocks the release: Valve reviews the page.
-- Content survey (AI-generated content included), age rating questionnaire (IARC), the tax/"distribution" agreement.
+- Content survey (AI-generated content included): Steam rates the game from it (no IARC), and Germany and Indonesia
+  hide a game without a rating. The tax/"distribution" agreement.
 - Reviews: the store page and then each build are reviewed, about 1 to 5 days each as of 2026-10. Valve also wants the
   page public as "coming soon" for a while and a waiting period after the fee before release; both have been reported
   with different lengths, so read Steamworks' release checklist and plan weeks, not days.
