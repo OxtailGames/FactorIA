@@ -774,7 +774,7 @@ TEST_CASE("import_ascii path: builds a new scene file from an empty scene and le
     CHECK(worldAfter["frame"] == worldBefore["frame"]);
 }
 
-TEST_CASE("import_ascii path: the file is exactly what the running-world import plus scene.save writes") {
+TEST_CASE("import_ascii path: the file loads to exactly what the running-world import plus scene.save writes") {
     Session s("file_canonical");
     auto f = s.import(level(R"({"path":".factoria/tmp/by_file.scene.json","from":"scenes/main.scene.json"})"));
     REQUIRE_MESSAGE(f.ok, error_text(f));
@@ -782,7 +782,11 @@ TEST_CASE("import_ascii path: the file is exactly what the running-world import 
     REQUIRE(s.call("scene.save", Json{{"path", ".factoria/tmp/by_world.scene.json"}}).ok);
     const std::string byFile = slurp(s.project.dir / ".factoria/tmp/by_file.scene.json");
     CHECK_FALSE(byFile.empty());
-    CHECK(byFile == slurp(s.project.dir / ".factoria/tmp/by_world.scene.json"));
+    CHECK(byFile.find("\"prefab\"") != std::string::npos);  // the file keeps the prefab references
+    // Loading the references expands them to the very entities the running world got (the file itself is smaller).
+    REQUIRE(s.call("scene.load", Json{{"path", ".factoria/tmp/by_file.scene.json"}}).ok);
+    REQUIRE(s.call("scene.save", Json{{"path", ".factoria/tmp/by_file_loaded.scene.json"}}).ok);
+    CHECK(slurp(s.project.dir / ".factoria/tmp/by_file_loaded.scene.json") == slurp(s.project.dir / ".factoria/tmp/by_world.scene.json"));
     // Re-running the file import is idempotent: same bytes.
     REQUIRE(s.import(level(R"({"path":".factoria/tmp/by_file.scene.json","from":"scenes/main.scene.json"})")).ok);
     CHECK(slurp(s.project.dir / ".factoria/tmp/by_file.scene.json") == byFile);
@@ -1182,4 +1186,91 @@ TEST_CASE("import_ascii: documented path, from and dryRun") {
     CHECK(contains(info->description, "unsafe_save"));
     CHECK(contains(info->description, "dryRun"));
     CHECK(contains(info->description, "scratch"));
+    REQUIRE(info->inputSchema["properties"].contains("legendFrom"));
+    CHECK(contains(info->description, "legendFrom"));
+    CHECK(contains(info->description, "PREFAB REFERENCES"));
+}
+
+TEST_CASE("import_ascii path: the level keeps prefab references; editing a prefab changes the loaded level with no import") {
+    Session s("file_prefab_refs");
+    s.project.write("levels/base.scene.json", R"({"format":"factoria.scene/1","entities":[
+        {"id":"camera","components":{"Camera":{}}},
+        {"id":"guard","prefab":"prefabs/enemy.prefab.json","components":{"Transform":{"position":[5,6,0]}}}]})");
+    Json a = level(R"({"path":"scenes/refs.scene.json","from":"levels/base.scene.json"})");
+    a["legend"]["o"]["overrides"] = Json::parse(R"({"Shape2D":{"layer":9}})");
+    auto r = s.import(a);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["warnings"].empty());
+
+    Json file = scene_file(s, "scenes/refs.scene.json");
+    const Json& guard = file["entities"][1];
+    CHECK(guard["id"] == "guard");
+    CHECK(guard["prefab"] == "prefabs/enemy.prefab.json");  // the base scene's prefab entity stays a reference
+    CHECK_FALSE(guard["components"].contains("Shape2D"));
+    const Json* coin = nullptr;
+    for (const Json& e : file["entities"])
+        if (e["id"] == "coin_1") coin = &e;
+    REQUIRE(coin != nullptr);
+    CHECK((*coin)["prefab"] == "prefabs/coin.prefab.json");
+    CHECK((*coin)["tags"] == Json::parse(R"(["coin","tilemap:tilemap"])"));
+    CHECK((*coin)["components"]["Shape2D"] == Json::parse(R"({"layer":9})"));
+    CHECK((*coin)["components"]["Transform"]["position"].size() == 3);
+    CHECK_FALSE((*coin)["components"].contains("Collider2D"));
+
+    // Editing the prefab changes the level when it is loaded; the level is not imported again.
+    s.project.write("prefabs/coin.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Coin","tags":["coin"],
+        "components":{"Shape2D":{"shape":"circle","size":[40,40],"color":"#ff0000","layer":5}}}})");
+    s.project.write("prefabs/enemy.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Crawler","components":{"Shape2D":{"size":[77,20]}}}})");
+    REQUIRE(s.call("scene.load", Json{{"path", "scenes/refs.scene.json"}}).ok);
+    Json c = s.entity("coin_1");
+    CHECK(c["components"]["Shape2D"]["size"] == Json::parse("[40,40]"));
+    CHECK(c["components"]["Shape2D"]["layer"] == 9);  // the legend override still wins
+    CHECK(s.entity("guard")["components"]["Shape2D"]["size"] == Json::parse("[77,20]"));
+    CHECK(ids_with_tag(s, "tilemap:tilemap").size() == 4);
+
+    // Importing again over that file replaces the references (no duplicates), and edits make an entity expanded.
+    a["path"] = "scenes/refs.scene.json";
+    a.erase("from");
+    a["edits"] = Json::parse(R"({"player":{"Shape2D":{"layer":1}}})");
+    r = s.import(a);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    file = scene_file(s, "scenes/refs.scene.json");
+    int refs = 0;
+    for (const Json& e : file["entities"]) {
+        if (e["id"] == "player") CHECK_FALSE(e.contains("prefab"));
+        if (e.contains("prefab")) ++refs;
+    }
+    CHECK(refs == 4);  // guard + 3 coins
+}
+
+TEST_CASE("import_ascii: legendFrom merges a shared legend under the map's own, without unused warnings") {
+    Session s("legend_from");
+    s.project.write("levels/legend.json", R"({"#":0,"@":1,"o":{"prefab":"prefabs/coin.prefab.json"},
+        "E":{"prefab":"prefabs/enemy.prefab.json"},"P":{"prefab":"prefabs/player.prefab.json","id":"shared_player"}})");
+    Json a = level();
+    a["legend"] = Json::parse(R"({"P":{"prefab":"prefabs/player.prefab.json","id":"player"}})");
+    a["legendFrom"] = "levels/legend.json";
+    a["path"] = "scenes/shared.scene.json";
+    a["from"] = "scenes/main.scene.json";
+    auto r = s.import(a);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK_MESSAGE(r.result["warnings"].empty(), r.result["warnings"].dump());  // E is shared and unused
+    CHECK(has(entity_ids(scene_file(s, "scenes/shared.scene.json")), "player"));  // the map's own entry wins
+
+    a["legend"] = Json::parse(R"({"Z":3})");
+    a["rows"] = Json::parse(R"(["..o.","#@##"])");
+    r = s.import(a);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["warnings"].size() == 1);  // only the map's own unused Z
+    CHECK(contains(r.result["warnings"].dump(), "'Z'"));
+
+    a.erase("legend");  // only legendFrom, no legend at all
+    r = s.import(a);
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["warnings"].empty());
+
+    a["legendFrom"] = "levels/legnd.json";
+    r = s.import(a);
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(error_text(r), "levels/legend.json"));
 }
