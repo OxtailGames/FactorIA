@@ -24,7 +24,7 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-const char* kFile = "tools/common/api_since.json";
+const std::string kFile = "tools/common/api_since.json";
 
 Json read_since_file() {
     const std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / kFile);
@@ -142,7 +142,7 @@ TEST_CASE("api_since: nothing is unreleased once CHANGELOG.md has no Unreleased 
             if (it->is_string() && it->get<std::string>() == "unreleased") left += std::string("    ") + section + " / " + it.key() + "\n";
     CHECK_MESSAGE(left.empty(), "CHANGELOG.md has no \"## Unreleased\" section, so this is a release: a release renames \"## Unreleased\" to "
                                 "\"## <version>\". Replace every \"unreleased\" in "
-                                    << kFile << " with that version and regenerate docs/COMPONENTS.md (factoria api --md --out docs/COMPONENTS.md) and the typings of the examples (factoria api --dts --project examples/<name>). Still unreleased:\n"
+                                    << kFile << " with that version and regenerate docs/COMPONENTS.md and docs/reference/ (factoria call docs.write_reference '{\"out\":\"docs\"}') and the typings of the examples (factoria api --dts --project examples/<name>). Still unreleased:\n"
                                     << left);
 }
 

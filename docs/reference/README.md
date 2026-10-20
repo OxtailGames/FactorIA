@@ -86,6 +86,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 - [`assets.analyze_audio`](commands/assets.md#assetsanalyze_audio-modifies-state): Measure the loudness of a sound (or of every sound) and keep the result in assets.json. _Since 0.1.6._
 - [`assets.disclosure`](commands/assets.md#assetsdisclosure): Write the AI-generated content disclosure for store forms (Steam) from the provenance records. _Since 0.1.6._
+- [`assets.draw_capsules`](commands/assets.md#assetsdraw_capsules-modifies-state): Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo. _Not released yet._
 - [`assets.draw_icon`](commands/assets.md#assetsdraw_icon-modifies-state): Draw the game's icon (1024x1024 PNG) and the Android adaptive-icon foreground from shapes and text, no image provider needed. _Not released yet._
 - [`assets.generate_image`](commands/assets.md#assetsgenerate_image-modifies-state): Generate a PNG image with the image asset provider and record where it came from. _Since 0.1.6._
 - [`assets.generate_model`](commands/assets.md#assetsgenerate_model-modifies-state): Generate a 3D model with the model3d asset provider and record where it came from. _Since 0.1.6._
