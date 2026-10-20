@@ -434,4 +434,6 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` and `docs/ENGINE_FEEDBACK.md`: connecting AI and recording what the engine is missing.
 - `docs/BUILDING.md`: requirements and builds per platform.
 - `docs/EXPORTING.md` and `docs/MOBILE.md`: exporting games and building them for mobile.
+- `docs/FIRST_GAME_WITH_AI.md` (`factoria docs read first-game-with-ai`): a first session with the AI in the editor, round by round, for a person.
+- `docs/MAKE_BY_HAND.md` (`factoria docs read make-by-hand`): write a small game yourself (scene, script, test, export) to see what the AI does for you.
 - `docs/PUBLISHING.md`: what to do, per store, to publish the game (engine steps and steps by hand).
