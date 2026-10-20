@@ -353,6 +353,9 @@ of Android (mipmaps from 48 to 192 px, a round variant and the adaptive icon), t
 no transparency) and the PNG of a Linux build. `export.<platform>.icon` replaces it for one platform. No icon at all
 means the platform's default icon (and a warning from the export).
 
+No image tool or provider? `assets.draw_icon` draws the icon and the Android foreground from shapes and text
+([ASSETS.md](ASSETS.md#the-game-icon-without-a-provider-assetsdraw_icon)).
+
 The same image is the window icon of the running game on Windows and Linux (title bar and taskbar, also when the game
 is started from `factoria run`): the player reads `icon`, or `export.<this platform>.icon`, from `factoria.json` and hands
 it to the window in 16 to 256 px. On macOS the Dock icon comes from the `.app`; mobile has no window. A missing or
