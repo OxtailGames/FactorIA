@@ -933,11 +933,16 @@ TEST_CASE("ui layout: a fit panel larger than the screen logs one warning naming
     p.layout = UiLayout::Column;
     p.fit = true;
     for (int i = 0; i < 12; ++i) t.button(("b" + std::to_string(i)).c_str(), {0, 0}, {100, 30}, col);  // 12 x 30 > 180
+    const auto warnings = [] {
+        int n = 0;
+        for (const LogEntry& e : recent_logs(200, LogLevel::Warn))
+            if (e.message.find("huge_menu") != std::string::npos) ++n;
+        return n;
+    };
+    t.ui.layout(t.w, t.design, {}, false);  // ui.layout() from a script: it is still changing the menu
+    CHECK(warnings() == 0);
     for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
-    int warnings = 0;
-    for (const LogEntry& e : recent_logs(200, LogLevel::Warn))
-        if (e.message.find("huge_menu") != std::string::npos) ++warnings;
-    CHECK(warnings == 1);
+    CHECK(warnings() == 1);
 }
 
 // ------------------------------------------------------------------------------- right-to-left layouts --

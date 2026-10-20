@@ -152,8 +152,8 @@ storage.set("textScale", ui.textScale);
   with `game.screenshot` at `ui.textScale = 3`. A panel can switch to another layout when it would not fit:
   `"layout": "column", "fallbackLayout": "row"` (a row of buttons with `"fallbackLayout": "column"` stacks them); a
   script reads `Panel.usingFallback`. After changing a text, `ui.layout()` applies the sizes at once, so read
-  `Button.size` or `ui.rectOf(...)` right away instead of measuring labels and adding margins. Widgets without `autoSize` keep their rectangles and a wrapped Text keeps
-  its `maxWidth`: text at 3× may not fit a small button.
+  `Button.size` or `ui.rectOf(...)` right away instead of measuring labels and adding margins. Widgets without
+  `autoSize` keep their rectangles and a wrapped Text keeps its `maxWidth`: text at 3× may not fit a small button.
 - Fonts are rasterized at the scaled size, so scaled text stays sharp.
 
 ## Limits

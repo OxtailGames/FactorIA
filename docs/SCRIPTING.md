@@ -177,7 +177,8 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
   `game.screenSize` and their `anchor`. To know where a widget or a screen-space `Text` really is (anchor, pivot, safe
   area and layout applied), use `ui.rectOf(entityOrId)`: a `Rect` in design pixels with `(x, y)` at the TOP-LEFT and y
   growing downwards, or `null` for anything else. Layout runs each frame; call `ui.layout()` to run it now (autoSize
-  and fit sizes, positions, `Panel.fallbackLayout`) and read a size right after changing a text, with no `game.step`. `ui.state` lists the same rectangles, screen-space `Text` included.
+  and fit sizes, positions, `Panel.fallbackLayout`) and read a size right after changing a text, with no `game.step`.
+  `ui.state` lists the same rectangles, screen-space `Text` included.
 - Children are not included. `active` and colour alpha are ignored: a hidden entity still has bounds.
 
 Component views expose exactly the reflected fields listed by `factoria api
