@@ -1,0 +1,157 @@
+{
+  "format": "factoria.scene/1",
+  "settings": {
+    "gravity2D": [0, 0]
+  },
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Camera": {
+          "projection": "orthographic",
+          "clearColor": [0.08, 0.09, 0.14, 1],
+          "primary": true
+        }
+      }
+    },
+    {
+      "id": "player",
+      "name": "Player",
+      "tags": ["player"],
+      "components": {
+        "Transform": {
+          "position": [-200, 0, 0]
+        },
+        "Shape2D": {
+          "shape": "rectangle",
+          "size": [40, 40],
+          "color": [0.3, 0.7, 1, 1],
+          "layer": 2
+        },
+        "RigidBody2D": {
+          "type": "dynamic",
+          "fixedRotation": true
+        },
+        "Collider2D": {
+          "shape": "box",
+          "size": [40, 40]
+        },
+        "Script": {
+          "path": "scripts/player.js"
+        }
+      }
+    },
+    {
+      "id": "gem1",
+      "tags": ["gem"],
+      "components": {
+        "Transform": {
+          "position": [100, 0, 0]
+        },
+        "Shape2D": {
+          "shape": "diamond",
+          "size": [28, 28],
+          "color": [1, 0.85, 0.2, 1],
+          "layer": 1
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "shape": "circle",
+          "radius": 14,
+          "isTrigger": true
+        }
+      }
+    },
+    {
+      "id": "gem2",
+      "tags": ["gem"],
+      "components": {
+        "Transform": {
+          "position": [200, 150, 0]
+        },
+        "Shape2D": {
+          "shape": "diamond",
+          "size": [28, 28],
+          "color": [1, 0.85, 0.2, 1],
+          "layer": 1
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "shape": "circle",
+          "radius": 14,
+          "isTrigger": true
+        }
+      }
+    },
+    {
+      "id": "gem3",
+      "tags": ["gem"],
+      "components": {
+        "Transform": {
+          "position": [-100, 150, 0]
+        },
+        "Shape2D": {
+          "shape": "diamond",
+          "size": [28, 28],
+          "color": [1, 0.85, 0.2, 1],
+          "layer": 1
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "shape": "circle",
+          "radius": 14,
+          "isTrigger": true
+        }
+      }
+    },
+    {
+      "id": "gem4",
+      "tags": ["gem"],
+      "components": {
+        "Transform": {
+          "position": [200, -150, 0]
+        },
+        "Shape2D": {
+          "shape": "diamond",
+          "size": [28, 28],
+          "color": [1, 0.85, 0.2, 1],
+          "layer": 1
+        },
+        "RigidBody2D": {
+          "type": "static"
+        },
+        "Collider2D": {
+          "shape": "circle",
+          "radius": 14,
+          "isTrigger": true
+        }
+      }
+    },
+    {
+      "id": "score",
+      "name": "Score",
+      "components": {
+        "Transform": {
+          "position": [24, 24, 0]
+        },
+        "Text": {
+          "text": "Gems: 0 / 4",
+          "fontSize": 32,
+          "pivot": [0, 1],
+          "space": "screen",
+          "anchor": [0, 0]
+        },
+        "Script": {
+          "path": "scripts/score.js"
+        }
+      }
+    }
+  ]
+}
