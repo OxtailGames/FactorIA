@@ -6,7 +6,7 @@ and the 42 open ones became work packages, most of them M24, the rest in M20-M23
 (M24.1-M24.16, 2026-10-20), two of them found on the way; the 4 still open are ranked below, all in M20-M23. M1-M11 and
 M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile
 store-ready), M17 (web export), M18 (animation and production 3D) and M21 (docs and material for shipping) are done;
-M24 is done (M24.1-M24.16); M19, M20, M22 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
+M24 is done (M24.1-M24.16); M22 is planned (M22.1-M22.6, 2026-10-20); M19, M20 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
 2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can
 close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this
 file keeps what they left open and the decisions to respect.
@@ -361,7 +361,8 @@ Play Console app, a build on a testing track, license testers and a phone with G
 API, no cloud project number, so an app distributed outside Play cannot get tokens). Apple's App Attest is not an
 `integrity` backend yet.
 
-Left open (the next M12 packages): Epic Online Services and GOG Galaxy, ads with consent, analytics and remote config, push
+Left open (the next M12 packages): Epic Online Services and GOG Galaxy, ads with consent (and the GDPR/COPPA consent
+screen, moved here from M22), analytics and remote config, push
 notifications and deep links, the Android stores outside Play. `PlatformServices` keeps no receipts or entitlement cache: a
 backend answers `restore()` itself. Overlay and presence are one call each; there is no `achievements.onUnlocked`
 event, rich presence has no localization, and `platform.stats.add` is a get then a set (not atomic across devices).
@@ -539,21 +540,70 @@ Left open:
 
 ## M22. Production quality and legal (M, high)
 
-Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14).
+Closes Q-04, Q-05, the rest of Q-06 and U-05 (except text scaling, in M14), and LK/FB-0037 and LK/FB-0038.
 
-- Frame time and memory of every example on every CI runner, recorded and failing on regressions.
-- Game updates: a content version in `factoria.json` and save migration (with M19's save versions).
-- Templates and guidance: EULA, privacy policy, a GDPR/COPPA consent screen (on M10), age ratings (IARC, PEGI, ESRB).
-- Accessibility: a subtitles component, colour-blind filters (post-processing), screen-reader hooks where the platform
-  has them. Lantern Keep asked for both: `Camera.colorFilter` (none, greyscale, protanopia, deuteranopia, tritanopia,
-  high contrast) that `game.screenshot` also applies, so a player can pick it and an AI can check hazards read without
-  colour (LK/FB-0037); and read-only `platform.accessibility` (`textScale`, `reduceMotion`, `highContrast`,
-  `screenReader`) from the OS, plus `ui.speak(text)` or a focus-change event a screen-reader plugin can use
-  (LK/FB-0038, large).
+Planned 2026-10-20 against `4553805`, after checking what earlier milestones already built:
+- Already done, not a package: versioned saves with migration (M21's recipe, docs/FINISHING.md section 3, and Lantern
+  Keep's `tests/saves.test.js`); the game's version is `factoria.json` `version` (E-02); age ratings (IARC, Steam's
+  content survey, Apple's questionnaire) are in docs/PUBLISHING.md.
+- Moved to M12's "ads with consent": the GDPR/COPPA consent screen. The engine collects nothing and has no ads or
+  analytics yet; Google UMP and Apple ATT bring their own consent forms, so a screen of our own only matters for desktop
+  or web analytics, once there are any.
+- Not `platform.accessibility`: `platform` is the store services (every call a Promise). The OS settings are
+  `game.accessibility`, next to `game.platform`.
 
-Acceptance criteria: a CI job fails when an example's frame time or memory regresses past its budget; the consent screen
-and subtitles are in the M10 menu recipe and its fixture, with tests; a golden shows each colour filter and a test reads
-`platform.accessibility` from the fake backend.
+Six packages, none needing another's result. At most three workers build at once: M22.1, M22.2 and M22.4 (the largest)
+first, then M22.3, M22.5 and M22.6. They share `factoria.js`, `api.json` and the generated reference (`docs/reference/`,
+`docs/COMPONENTS.md`): whoever merges second merges `origin/main` and regenerates the reference (`docs.write_reference`).
+No package edits docs/FINISHING.md section 5 ("Not in the engine") or Lantern Keep: the bookkeeping PR after them does,
+marks LK/FB-0037 and LK/FB-0038, and lets Lantern Keep use the filters, the OS settings and speech.
+
+- **M22.1 Performance budgets in CI (M; Q-04).** The `factoria run --headless --json` report gains `perf`: the engine's
+  CPU time per frame (avg, p95, max; process CPU time, not wall clock, so a busy machine moves it less), the process's
+  peak memory, and draw calls and entities (max). A ctest per example (`example_<name>_perf`: a fixed number of frames,
+  with the GPU renderer where there is one) compares it with a committed baseline per runner and fails past a tolerance
+  (memory and draw calls tight, time loose). Outside CI (no `CI` variable) the time limits only warn: the full `ctest`
+  also runs on loaded machines. A command writes or refreshes the baselines (a capability for tools and game AIs, not a
+  CLI flag), and its docs say how a game sets a budget of its own. Runners: Linux GCC, Windows MSVC, macOS; web and the
+  mobile jobs are left open. Acceptance: on each runner the check fails on a fixture made heavier than its baseline and
+  passes on main.
+- **M22.2 Colour filters (M; LK/FB-0037).** For players, `Camera.colorFilter` (`none`, `greyscale`, `highContrast`, and
+  `protanopia`, `deuteranopia`, `tritanopia` as daltonize corrections) as the last post-process pass on every backend
+  (a shader in `engine/render/shaders/`, headers regenerated), so screenshots and `--record-video` show it. For checks,
+  `game.screenshot` and `--screenshot-at` take a `simulate` option (`greyscale`, `protanopia`, `deuteranopia`,
+  `tritanopia`; Machado 2009 matrices on the CPU), so an AI checks that hazards read without colour without changing what
+  the player sees. Acceptance: a golden per filter, a test per simulation against known colours, and the menus fixture's
+  options screen switches the filter (test).
+- **M22.3 Operating-system accessibility settings (M; LK/FB-0038, first half).** Read-only `game.accessibility`
+  (`textScale`, `reduceMotion`, `highContrast`, `screenReader`), read like the system language
+  (`engine/platform/src/system_language_*`: Windows, Apple for macOS and iOS, Android, Linux, web) and again when the
+  window regains focus or the app resumes. Headless runs and tests give the defaults (1, false, false, false), and
+  `factoria:test` sets them (`game.setAccessibility`). The engine applies none of them: the game starts its options from
+  them on the first run and saves its own choice (M14's rule); the recipe is in docs/MENUS.md. Acceptance: a fixture test
+  reads values set through the test API; the platform code builds in every CI job.
+- **M22.4 Text to speech (L; LK/FB-0038, second half).** `ui.speak(text, { interrupt })`, `ui.stopSpeaking()` and
+  `ui.speechAvailable`, in the current language: SAPI 5 on Windows, AVSpeechSynthesizer on macOS and iOS, Android's
+  TextToSpeech through JNI, speech-dispatcher on Linux loaded at run time (missing: one warning, `speechAvailable` false),
+  `speechSynthesis` on the web. Headless runs and tests speak nothing and record the lines (`game.spoken()` in
+  `factoria:test`). The UI `focus` event already exists: the docs/MENUS.md recipe speaks the focused widget's text when
+  the game's "read menus aloud" option is on. Acceptance: the menus fixture's test reads a menu by moving the focus; the
+  platform code builds in every CI job and is heard on Windows (manual check, steps in the docs); what was not heard on
+  other systems is listed as left open.
+- **M22.5 Captions (M; Q-06 subtitles).** A `Captions` UI component (where captions appear, how many lines, background;
+  text styled like `Text`, with `ui.textScale`, localization and right to left) fed two ways: `audio.play(path,
+  { caption, speaker })` (a localization key or plain text, shown while the sound plays) and `ui.caption(text, seconds)`
+  for lines without a sound. `game.captions()` in `factoria:test` lists what is on screen. Acceptance: a fixture test
+  captions a sound and a line in two languages, and a golden shows the component.
+- **M22.6 Privacy policy and EULA templates (S; Q-05).** `docs/LEGAL.md`: a privacy policy for a game that collects
+  nothing (the engine sends nothing by itself; `log.txt` and crash reports stay on the device), the paragraphs to add for
+  analytics, ads, accounts, cloud saves or a crash upload, and when a game needs an EULA of its own beyond the stores'
+  (Steam's subscriber agreement, Apple's standard EULA, Google Play's terms). It says it is not legal advice;
+  docs/PUBLISHING.md links it. Acceptance: the docs tests pass (it is embedded) and `docs.search "privacy policy"`
+  finds it first.
+
+Acceptance criteria: a CI check fails when an example's CPU time, memory or draw calls regress past its baseline
+(M22.1); a golden shows each colour filter (M22.2); a test reads `game.accessibility` set through the test API (M22.3);
+the menus fixture reads a menu aloud in a test (M22.4) and shows captions (M22.5).
 
 ## M23. Closed stores and consoles (L each, later)
 
