@@ -171,7 +171,7 @@ once, without `game.step()`.
 |---|---|
 | `game.platform.respond(method, answer, times = 1)` | Queues the answer of the next `times` calls of `method` (`"purchases.buy"`; first come, first served). `answer` is `{ error: "network", message?, hint? }` to fail, `{ result: value }` to answer exactly that, or fields merged into the default result: `{ status: "cancelled" }`. A cancelled buy owns nothing. |
 | `game.platform.emit(event, data)` | Sends `"purchase"`, `"overlay"` or `"player"` to the `platform.on` listeners at the next `game.step()`. An emitted purchased `purchase` is also an unfinished transaction. |
-| `game.platform.set({ signedIn, delayFrames })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. |
+| `game.platform.set({ signedIn, delayFrames, backend })` | `signedIn: false` makes every call but `signIn()` reject `notSignedIn`. `delayFrames: n` holds every answer for `n` engine frames: a test can see the "waiting" state, then `game.step(n)`. `backend: "none"` makes the fake behave as the none backend (section 4) until `reset()`: `platform.has(...)` is false, every call rejects `unavailable`, `signIn()` answers signed out; use it to test what an exported game without a store plugin does. An unknown option throws with a "did you mean". `platform.*` answers are ready at once (unless delayed), but `emit` events and `world.emit` reach listeners at the next `game.step`. |
 | `game.platform.state()` | The backend, services, player, the catalog's ids, the number of pending requests, and `fake`: achievements, stats, leaderboards, cloud, owned, unfinished, presence, and `calls`, the log of every request (`{ seq, frame, method, args }`). |
 | `game.platform.calls()` | `state().fake.calls`. |
 | `game.platform.reset()` | A fresh fake: signed in, no delay, nothing owned, no scripted answers, an empty log; transactions and integrity tokens are numbered from 1 again. |
@@ -204,7 +204,7 @@ test("the store overlay pauses the game", () => {
 
 The same controls are commands, for MCP clients and `factoria call` (they work on the fake only, and say which backend
 runs when it is another): `platform.state`, `platform.reset`, `platform.respond {method, answer, times}`,
-`platform.emit {event, data}`, `platform.set_fake {signedIn, delayFrames}`.
+`platform.emit {event, data}`, `platform.set_fake {signedIn, delayFrames, backend}` (an unknown option is refused with a "did you mean").
 
 ## 4. Which backend runs
 

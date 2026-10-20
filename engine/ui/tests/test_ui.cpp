@@ -758,3 +758,28 @@ TEST_CASE("ui focus: a greyed-out autoFocus button hands the focus to the first 
     h.frame();
     CHECK(h.ui.focused() == kNullEntity);
 }
+
+TEST_CASE("ui.state lists screen-space Text, and ui_screen_rect finds it with the safe area applied") {
+    Ui t;
+    t.button("play", {10, 10});
+    Entity hud = t.w.create("score", "score");
+    t.w.get<Transform>(hud)->position = {20, 30, 0};
+    Text& tx = t.w.add<Text>(hud);
+    tx.text = "Score: 0";
+    tx.space = RenderSpace::Screen;
+    Entity world = t.w.create("label", "label");
+    t.w.add<Text>(world);  // world space: not listed
+    t.frame();
+    Json st = t.ui.state(t.w, t.design);
+    REQUIRE(st["widgets"].size() == 2);
+    CHECK(st["widgets"][1]["kind"] == "Text");
+    CHECK(st["widgets"][1]["id"] == "score");
+    CHECK(st["widgets"][1]["text"] == "Score: 0");
+    CHECK(st["widgets"][1]["rect"][0] == 20);
+    CHECK(st["widgets"][1]["rect"][1] == 30);
+    CHECK(ui_screen_rect(t.w, hud, t.design)->x == doctest::Approx(20));
+    CHECK_FALSE(ui_screen_rect(t.w, world, t.design).has_value());
+    tx.safeArea = true;
+    t.w.set_safe_insets({40, 0, 0, 0});
+    CHECK(ui_screen_rect(t.w, hud, t.design)->x == doctest::Approx(60));  // the notch pushes it in
+}

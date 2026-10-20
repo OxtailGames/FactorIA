@@ -6,6 +6,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/runtime/test_files.h"
 #include "fa/scene/serialize.h"
 #include "fa/services/platform_commands.h"
 
@@ -578,7 +579,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                    {"logs", list}});
           });
 
-    I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton) and which has focus.",
+    I.commands.add({"ui.state", "List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.",
            "Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, "
            "value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy "
            "are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {\"mouse\": "
@@ -587,10 +588,11 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
            "entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). "
            "`value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton "
            "is a finger holding it (drive one with game.input {\"touch\": ...}); `text` is a Button's or TouchButton's text, a "
-           "Toggle's or Slider's label or a TextField's contents. `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
+           "Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space \"screen\") follow the widgets as "
+           "{id, kind: \"Text\", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}",
            parse_schema(R"({"type":"object","properties":{}})"), true, "ui"},
           [&engine, &I](const Json&) {
-              Json state = I.ui.state(I.world, I.design_size());
+              Json state = I.ui.state(I.world, I.design_size(), I.measure());
               state["textScale"] = engine.text_scale();
               return state;
           });
@@ -734,19 +736,20 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add({"project.test", "Run the project's JavaScript tests (tests/*.test.js) headless and return the report.",
            "Tests run inside this engine instance and change the world; reload the scene afterwards (scene.reload). "
-           "Example: project.test {\"filter\":\"player\"}",
+           "`files` runs only those test files: project-relative paths, folders or globs such as tests/ui*.test.js (a path that is not a "
+           "*.test.js file is an error that says what to pass). Example: project.test {\"filter\":\"player\",\"files\":[\"tests/saves.test.js\"]}",
            parse_schema(R"({"type":"object","properties":{
                "filter":{"type":"string","description":"Only run test cases whose name contains this."},
-               "files":{"type":"array","items":{"type":"string"},"description":"Test files (default: tests/*.test.js)."}}})"),
+               "files":{"type":"array","items":{"type":"string"},"description":"Test files, folders or globs, project-relative (default: every tests/**/*.test.js)."}}})"),
            false, "project"},
           [&engine, &I](const Json& a) {
               I.refresh_from_disk();  // factoria.json input actions and edited scripts, like a scene load
-              std::vector<std::string> files;
+              std::vector<std::string> wanted;
               if (a.contains("files") && a["files"].is_array())
-                  for (const Json& f : a["files"]) files.push_back(f.get<std::string>());
-              else
-                  for (const auto& f : fs::list("tests", true, ".js"))
-                      if (ends_with(f, ".test.js")) files.push_back(f);
+                  for (const Json& f : a["files"]) wanted.push_back(f.get<std::string>());
+              auto resolved = resolve_test_files(wanted);
+              if (!resolved.ok()) throw CommandError("invalid_argument", resolved.error().message, resolved.error().hint);
+              const std::vector<std::string> files = *resolved;
               TestReport rep = I.scripts.run_tests(files, a.value("filter", std::string()));
               Json j = rep.to_json();
               if (j.is_object()) {
