@@ -225,6 +225,21 @@ struct Shipper {
 
 }  // namespace
 
+std::string not_block_sized_message(const std::vector<std::string>& paths) {
+    std::string list;
+    for (std::size_t i = 0; i < paths.size() && i < 5; ++i) list += (i ? ", " : "") + paths[i];
+    if (paths.size() > 5) list += ", ...";
+    return std::to_string(paths.size()) + " texture(s) ship as PNG, uncompressed: " + list +
+           ". GPU compression needs a width and height that are multiples of 4 pixels. Resize them, or "
+           "set their import setting atlas to a group (atlas images are always sized for it)";
+}
+
+bool texture_block_compressed(const Json& manifest, const std::string& path, int width, int height) {
+    if (std::min(width, height) < kBlock || (width % kBlock == 0 && height % kBlock == 0)) return true;
+    const Json s = assets::import_settings(manifest, path);
+    return setting(s, "compression") == "none" || !setting(s, "atlas").empty();
+}
+
 Result<void> convert_textures(ExportAssets& ea) {
     const std::string icon = ea.project.settings.icon_for(ea.platform);
     const std::string iconPath = icon.empty() ? icon : generic(stdfs::path(icon).lexically_normal());
@@ -295,14 +310,7 @@ Result<void> convert_textures(ExportAssets& ea) {
         shipper.ship(path, mode, *img, false);
     }
 
-    if (!shipper.notBlockSized.empty()) {
-        std::string list;
-        for (std::size_t i = 0; i < shipper.notBlockSized.size() && i < 5; ++i) list += (i ? ", " : "") + shipper.notBlockSized[i];
-        if (shipper.notBlockSized.size() > 5) list += ", ...";
-        ea.report.warnings.push_back(std::to_string(shipper.notBlockSized.size()) + " texture(s) ship as PNG, uncompressed: " + list +
-                                     ". GPU compression needs a width and height that are multiples of 4 pixels. Resize them, or "
-                                     "set their import setting atlas to a group (atlas images are always sized for it)");
-    }
+    if (!shipper.notBlockSized.empty()) ea.report.warnings.push_back(not_block_sized_message(shipper.notBlockSized));
 
     // 3. The cache keeps what this export used, but not what no longer matches any texture.
     std::error_code ec;
