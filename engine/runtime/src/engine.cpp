@@ -593,8 +593,22 @@ bool Engine::hold_render_scale(double scale, std::string* error) {
 }
 
 bool Engine::screenshot_scaled(std::string_view path, double scale, std::string* error) {
+    return screenshot_simulated(path, scale, {}, error);
+}
+
+bool Engine::screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) {
+    ColorSimulation mode = ColorSimulation::None;
+    if (!simulate.empty()) {
+        auto parsed = parse_color_simulation(simulate);
+        if (!parsed.ok()) {
+            if (error) *error = parsed.error().to_string();
+            return false;
+        }
+        mode = *parsed;
+    }
     Image img;
     if (!capture_scaled(img, scale, error)) return false;
+    simulate_color_vision(img, mode);
     auto r = save_png(img, path);
     if (!r.ok()) {
         if (error) *error = r.error().to_string();

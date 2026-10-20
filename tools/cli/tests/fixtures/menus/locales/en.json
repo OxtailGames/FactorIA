@@ -20,6 +20,8 @@
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "colorFilter": "Color filter: {filter}",
+    "filter": { "none": "off", "greyscale": "greyscale", "highContrast": "high contrast", "protanopia": "protanopia (red)", "deuteranopia": "deuteranopia (green)", "tritanopia": "tritanopia (blue)" },
     "videoNote": "Video settings apply when the game runs in its own window.",
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },

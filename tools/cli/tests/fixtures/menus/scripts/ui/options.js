@@ -1,5 +1,6 @@
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video,
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
+// colour filter, an accessibility option that works without a window),
 // Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
@@ -68,6 +69,13 @@ export default class Options extends Behaviour {
       const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
       this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
+    ui.on("click", "color_filter", () => {
+      const all = settings.COLOR_FILTERS;
+      s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
+      settings.applyColorFilter(s); // Camera.colorFilter: the whole frame, this panel included
+      settings.save(s);
+      this.refreshVideo();
+    });
   }
 
   /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
@@ -91,6 +99,7 @@ export default class Options extends Behaviour {
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
       : i18n.t("options.frameCapOff");
+    world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
 
   // ------------------------------------------------------------------------------------------------------------ audio

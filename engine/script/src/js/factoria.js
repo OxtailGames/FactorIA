@@ -1835,7 +1835,8 @@
     get world() { return world; },
     get time() { return time; },
     screenshot(path, options) {
-      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : 1);
+      const err = N.testScreenshot(path, options && options.scale !== undefined ? options.scale : 1,
+        options && options.simulate !== undefined ? String(options.simulate) : "");
       if (err) throw new Error(`game.screenshot('${path}') failed: ${err}`);
     },
     state() { return N.testState(); },

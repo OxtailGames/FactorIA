@@ -178,7 +178,19 @@ void register_builtin_components(TypeRegistry& r) {
                "(Sprite, Shape2D, Text with space \"screen\", and debug text) included, so a bright neon title or HUD "
                "icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays "
                "crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text "
-               "over a glowing world; leave it true to make a screen-space title or logo glow.");
+               "over a glowing world; leave it true to make a screen-space title or logo glow.")
+        .enum_field("colorFilter", &Camera::colorFilter,
+                    {"none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"},
+                    "Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame "
+                    "(HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and "
+                    "--record-video show it too. A game's options screen sets it from the player's choice (it is not saved "
+                    "by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: "
+                    "contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize "
+                    "correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) "
+                    "and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours "
+                    "that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game "
+                    "without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate "
+                    "instead.");
 
     // --------------------------------------------------------------- 2D ---
     r.add<Sprite>("Sprite",

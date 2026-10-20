@@ -38,7 +38,7 @@ what it did. View > Reset layout restores this layout (`~/.factoria/editor_layou
 | Panel | What it does |
 |---|---|
 | Toolbar | Play, Pause, Step, Stop; Save, Reload, Validate, Screenshot, Export; Undo, Redo. |
-| Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` included). Click an entity to select it: the selection outline shows what you point at. Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
+| Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at. Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
