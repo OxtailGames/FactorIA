@@ -148,6 +148,19 @@ Guides for finishing and publishing
   logo or title. `factoria run --headless --input replay.json --record-video trailer.avi` records a trailer from an
   input replay, with sound; ask for `trailer.mp4` when ffmpeg is installed.
 
+Learn FactorIA
+
+- Two tutorials for people. `factoria docs read first-game-with-ai` makes your first game with the editor and an AI in
+  six rounds, starting from the 2D platformer template: what to type, what to look for and how to undo.
+  `factoria docs read make-by-hand` builds a small game by hand from the empty template (collect four gems, then a "You
+  win!" screen), one whole file at a time, with a check after each step.
+- What a game costs to make with AI: `factoria docs read ai-costs` shows what a complete game cost in a real run, what
+  makes a run cheap or expensive, how to set a spending limit and where to see what you spent.
+- A browsable API reference in the FactorIA repository: `docs/reference/` has an index of every component and command,
+  one page per category, and the version that added each one.
+- Searching the docs (`factoria docs search`, and your AI over MCP) shows the best section of each guide first, so a
+  name like `onTriggerEnter` finds the scripting reference instead of many sections of one tutorial.
+
 Fixed while making Lantern Keep
 
 Lantern Keep showed what a complete game still had to work around. These are now in the engine, so your AI writes less
