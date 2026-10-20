@@ -137,6 +137,45 @@ A complete example game
   including Arabic, an on-screen gamepad for phones and export settings ready for the stores. Read it, copy from it, or
   point your AI at it. Its `SHIPPING.md` lists what each store needs and what is still done by hand.
 
+Fixed while making Lantern Keep
+
+Lantern Keep showed what a complete game still had to work around. These are now in the engine, so your AI writes less
+code of its own:
+
+- Menus fit their texts: `autoSize` on `Button`, `Toggle` and `Slider` grows the widget to its label at a big text
+  size or in a longer language. A button label with several lines is centred line by line, `maxWidth` wraps it, and a
+  label that still does not fit is cut at the button's edge. `ScrollList.fill` lets a list take the height the rest of a
+  column leaves, and a fitted panel bigger than the screen logs a warning naming it.
+- Right-to-left languages: a `Text` with `align: "start"` or `"end"` follows the language's direction, and a panel with
+  `direction: "auto"` lays out its rows right to left in Arabic or Hebrew. Scripts read `i18n.direction`.
+- Panels: a script hook `onEnable()` runs every time an entity is shown and `onDisable()` every time it is hidden, before
+  the frame is drawn, so a panel never shows its placeholder texts for a frame. A hidden panel already has its
+  `.behaviour`.
+- Focus with a gamepad or the keyboard goes to the widget you expect in the direction you press, and a greyed-out
+  `autoFocus` button no longer keeps the focus.
+- 2D: a moving platform carries the bodies standing on it, also when the player's script sets its speed every frame
+  (that speed is now relative to the platform; drop any carry code of your own). `Shape2D.lit` lets the placeholder
+  shapes be lit by `Light2D`.
+- ASCII levels: `scene.import_ascii` keeps prefabs as references, so editing a prefab changes every level without
+  importing the maps again, and level files stay small. Several maps can share one legend file (`legendFrom`).
+- Scripts: vectors and colours work like small arrays (`const [x, y] = position`, `position[0]`, `...color`), reading
+  `game.screenSize` is about 60 times faster, and a promise rejection you handle a moment later is no longer reported.
+  Unpausing the game keeps the speed you set in `time.scale`.
+- Saves: a save file is written in one go, so a crash cannot leave half a file. A save file that does not load is kept
+  as `storage.corrupt.json` instead of being overwritten, and `storage.corrupt` tells your game.
+- Store texts can be translated: achievements and products in `factoria.json` can name a key of your `locales` files
+  (`nameKey`, `descriptionKey`, `titleKey`), and the game lists them in the player's language.
+- Tests: `factoria test tests/saves.test.js` runs one test file (or several, or a pattern). `game.click("playButton")`
+  presses a widget by its id, `ui.rectOf` gives where a widget is on screen, `expect(x).toMatchObject({...})` checks
+  some fields of an object, `game.platform.set({ backend: "none" })` tests the game as on a store-less build, and a
+  "not a function" error shows the line with a mark under the call.
+- Exports: `export.exclude` in `factoria.json` leaves folders out of every export (`"store/**"`). A publish dry run
+  works before the store's upload tool is installed and lists what is missing. The exported game takes `--frames 120` to
+  run a few frames and exit, as a quick check in CI. `factoria validate` warns about pictures phones cannot compress, and
+  new projects keep `build/` out of git.
+- `i18n.import` for a new language keeps the shape of your main language file, and `factoria docs read` prints clean
+  text on Windows.
+
 ## 0.1.6
 
 Menus and on-screen interface

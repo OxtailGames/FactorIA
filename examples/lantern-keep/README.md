@@ -163,11 +163,12 @@ itself, and the choice is saved with the settings. No font was added: the engine
   pivots are not mirrored by themselves. The lines of a two-line button are centred by the engine.
 - **Every screen at 100% and 200% in every language** (main menu, options tabs, credits, slots, delete confirmation, level
   select, achievements, leaderboards and shop with a working and a signed-out store, HUD, pause, level end panel) is
-  checked by `tests/accessibility.test.js`. Making them fit meant: widgets fitted to their label on every screen
-  (`fitWidgets`, also for two-line labels), a slot line breaking after "Slot 2:" when it is wide, the level select putting the
-  two worlds side by side with a column of three levels each when three buttons no longer fit a row, the shop putting its note
-  beside the buttons when one column is taller than the screen, and the achievements and leaderboards lists taking the height
-  the other texts leave (`fitList`).
+  checked by `tests/accessibility.test.js`. Making them fit meant: `autoSize` on every button, toggle and slider (the engine
+  grows them to their label, two-line labels included), a slot line breaking after "Slot 2:" when it is wide, the level select
+  giving its six buttons one common size and putting the two worlds side by side with a column of three levels each when
+  three buttons no longer fit a row, the shop putting its note beside the buttons when one column is taller than the screen
+  (both still measured in script: LK/FB-0046, LK/FB-0047), and the achievements and leaderboards lists taking the height the
+  other texts leave (`ScrollList.fill`).
 - **Store texts** for every language are in `store/store.<tag>.json` and `store/whats-new-<tag>.txt`; `factoria.json` `publish`
   lists the languages for GOG and the Google Play changelogs (`SHIPPING.md`).
 - **Adding a language:** add the tag to `localization.languages`, `i18n.export` it, fill the file, `i18n.import`, `factoria validate`
