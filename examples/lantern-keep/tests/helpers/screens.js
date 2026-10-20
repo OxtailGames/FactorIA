@@ -1,28 +1,23 @@
 // What a screen must satisfy at any language and text size: every visible widget is inside the screen, every label is inside
 // its widget, no text is wider than its box, and every layout panel is big enough for its children. Measured with
-// `ui.measureText` (the real font, the same layout that is drawn) and `ui.state` (the rectangles the UI laid out).
+// `ui.state` (the rectangles the UI laid out, widgets and screen-space Texts) and `ui.measureText` (the real font) for
+// a label inside its button.
 import { game } from "factoria:test";
 import { ui, fa } from "factoria";
 
 const SCREEN = [1280, 720];
 
-/** The size of one child of a layout panel: a widget from `ui.state`, a Text measured at the player's text size. */
+/** The size of one child of a layout panel: its laid-out rectangle in `ui.state` (a widget or a screen-space Text). */
 function childSize(entity, rects) {
-  if (rects.has(entity.id)) return rects.get(entity.id).slice(2);
-  if (entity.has("Text")) {
-    const t = entity.get("Text");
-    if (!t.text) return [0, 0];
-    const m = ui.measureText(t.text, { fontSize: t.fontSize, maxWidth: t.maxWidth || 0 });
-    return [m.width, m.height];
-  }
-  return [0, 0];
+  return rects.has(entity.id) ? rects.get(entity.id).slice(2) : [0, 0];
 }
 
 /** Returns the list of problems on the screen as it is now (empty = fine). `where` names the screen in each message. */
 export function screenProblems(where) {
   const problems = [];
-  const widgets = fa.call("ui.state").widgets.filter((w) => w.visible);
-  const rects = new Map(widgets.map((w) => [w.id, w.rect]));
+  const visible = fa.call("ui.state").widgets.filter((w) => w.visible);
+  const widgets = visible.filter((w) => w.kind !== "Text");
+  const rects = new Map(visible.filter((w) => w.kind !== "Text" || w.text).map((w) => [w.id, w.rect]));
   for (const w of widgets) {
     const [x, y, width, height] = w.rect;
     if (x < 0 || y < 0 || x + width > SCREEN[0] || y + height > SCREEN[1]) {
@@ -56,13 +51,11 @@ export function screenProblems(where) {
     }
   }
   // Text: a word (or a line without spaces) wider than the box sticks out, and nothing is wider than the screen
-  for (const e of game.world.entities()) {
-    if (!e.has("Text") || !e.activeInHierarchy) continue;
-    const t = e.get("Text");
-    if (t.space !== "screen" || !t.text) continue;
-    const m = ui.measureText(t.text, { fontSize: t.fontSize, maxWidth: t.maxWidth || 0 });
-    const limit = t.maxWidth > 0 ? t.maxWidth : SCREEN[0] - 48;
-    if (m.width > limit + 1) problems.push(`${where}: the text "${e.id}" is ${Math.round(m.width)} wide, more than ${Math.round(limit)}`);
+  for (const w of visible) {
+    if (w.kind !== "Text" || !w.text) continue;
+    const maxWidth = game.find(w.id)?.get("Text").maxWidth || 0;
+    const limit = maxWidth > 0 ? maxWidth : SCREEN[0] - 48;
+    if (w.rect[2] > limit + 1) problems.push(`${where}: the text "${w.id}" is ${Math.round(w.rect[2])} wide, more than ${Math.round(limit)}`);
   }
   return problems;
 }

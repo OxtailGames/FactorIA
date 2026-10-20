@@ -1,13 +1,12 @@
 // @ts-check
 // The save slot screen (prefabs/ui/slots.prefab.json), opened by the main menu's Play. An empty slot says "New game", a
 // used one its summary; choosing one makes it the current slot and opens the level select. "Delete" asks first
-// (delete_confirm). When the screen opens the cloud copies are compared with the local ones (saves.syncCloud).
+// (delete_confirm). The slots are written every time the screen is shown (onEnable); when the main menu opens it the cloud
+// copies are compared with the local ones (syncSlots, saves.syncCloud).
 import { Behaviour, ui, i18n, world, session } from "factoria";
 import { fitWidgets } from "./text_fit.js";
 import * as saves from "../saves.js";
 import { MenuStack } from "./menu_stack.js";
-import { refreshConfirm } from "./delete_confirm.js";
-import { refreshSelect } from "./level_select.js";
 import { formatTime } from "../time_format.js";
 
 export default class Slots extends Behaviour {
@@ -17,10 +16,12 @@ export default class Slots extends Behaviour {
       ui.on("click", `delete_${n}`, () => {
         session.pendingDelete = n;
         MenuStack.main.show("delete_confirm");
-        refreshConfirm();
       });
     }
     i18n.on("change", refreshSlots);
+  }
+
+  onEnable() {
     refreshSlots();
   }
 
@@ -28,18 +29,16 @@ export default class Slots extends Behaviour {
     if (saves.peek(n).status === "damaged") return; // the slot says so; Delete empties it
     saves.choose(n);
     MenuStack.main.show("level_select");
-    refreshSelect();
   }
 }
 
-/** The main menu calls this when it shows the screen: draws the slots, then again if the cloud had better copies. */
-export async function openSlots() {
-  refreshSlots();
+/** The main menu calls this when it shows the screen: draws the slots again if the cloud had better copies. */
+export async function syncSlots() {
   if (await saves.syncCloud()) refreshSlots();
 }
 
-/** Writes the slot buttons from the saves (the screen is inactive until shown, so this is a function, not a method). */
-export function refreshSlots() {
+/** Writes the slot buttons from the saves. */
+function refreshSlots() {
   let damaged = false;
   for (const n of saves.SLOTS) {
     const p = saves.peek(n);

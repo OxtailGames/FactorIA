@@ -37,7 +37,10 @@ Options > Controls.
 - `levels/<id>.json`: the ASCII map of each level, the arguments of `scene.import_ascii`. They start from
   `levels/base_day.scene.json` or `levels/base_dark.scene.json` (camera, HUD, the level's rules, pause menu, store events,
   the lighting and the background of the Cellars) and write `scenes/levels/<id>.scene.json`. Edit the map, then rebuild
-  the scene: `factoria call scene.import_ascii @levels/1-1.json`, and `factoria call scene.format`.
+  the scene: `factoria call scene.import_ascii @levels/1-1.json`, and `factoria call scene.format`. Editing a prefab
+  (an ember, the touch controls) needs no new import: the level files keep the prefab references.
+  The legend common to all maps is `levels/legend.json` (`legendFrom` in each map, the Courtyard's tiles and plain
+  hazards); a map keeps in its own `legend` only what differs (the Cellars' tile numbers and lit hazards).
   Legend: `#` ground, `%` earth, `=` bricks and ledges, `*` flowers (decoration), `P` player, `X` exit, `1 2 3` embers,
   `C` checkpoint, `^` spikes, `e` and `f` enemies (walking left or right first), `m` moving platform (sideways),
   `n` moving platform (up and down), `-` one-way platform. Row 0 is the top row. To add a level: its map in `levels/`, a line in `scripts/levels.js`, its name in every `locales/*.json`, then rebuild
@@ -81,8 +84,8 @@ Options > Controls.
   in greyscale; `main-menu-ar.png`, `level-select-ar.png` (Arabic) and `options-de-200.png` (German at 200% text).
 - Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
   (the on-screen gamepad, an entity of both base scenes), `store/` (store texts and release notes in the four languages),
-  `.store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed, and a dot-folder so exports
-  leave them out),
+  `store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed; `export.exclude` in
+  `factoria.json` keeps `store/`, `levels/` and `screenshots/` out of exports),
   `tests/shipping.test.js` (touch controls, safe area, the settings the exports rely on, the store texts of every language), `SHIPPING.md`.
 
 ## Saves and the level select
@@ -310,8 +313,8 @@ jump is one press).
 ## What the engine does for this game
 
 - **Levels are ASCII maps.** `scene.import_ascii` with `from` (a base scene with the camera, HUD and rules), `edits`
-  (the level's id, the lit map) and `path` builds every level file; the legend's `id` and `overrides` give the three embers
-  their numbers. A test rebuilds each map into a scratch file and compares it with the scene on disk.
+  (the level's id, the lit map) and `path` builds every level file, as prefab references (editing a prefab changes every level at once); the
+  legend's `id` and `overrides` give the three embers their numbers, and `legendFrom` shares one legend between the six maps. A test rebuilds each map into a scratch file and compares it with the scene on disk.
 - **Menus and settings** are the engine's own recipe, driven by tests with the gamepad only; `ui.on` events, `MenuStack`,
   `game.paused`, `input.rebind`, `storage`, `window.available`.
 - **Languages.** `factoria.json` `localization`, a `key` on every Text and widget the scenes write, `i18n.t` for the text
@@ -322,6 +325,10 @@ jump is one press).
   (it carries the player),
   triggers for embers, checkpoints, spikes and the exit, `entity.isGrounded()` for jumping.
 - **Camera.** `entity.bounds()` of the Tilemap limits the follow camera.
-- **Tests.** `game.gamepad()`, `game.audioLog()`, `fa.call("scene.import_ascii")`, events through `world.on`.
+- **Panels that refresh themselves.** `onEnable()` writes the level end panel, the save slots, the level select and the
+  delete question every time they are shown (before the frame is drawn); the code that shows a panel only hands it data.
+- **Tests.** `game.gamepad()`, `game.audioLog()`, `fa.call("scene.import_ascii")`, events through `world.on`,
+  `game.platform.set({ backend: "none" })` for a game without a store, `game.touch(id)` / `ui.rectOf(id)` for the
+  on-screen controls and `toMatchObject`.
 
 The gaps found while making the game are in `ENGINE_FEEDBACK.json`.

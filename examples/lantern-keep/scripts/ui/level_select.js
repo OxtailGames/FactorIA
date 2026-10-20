@@ -12,12 +12,15 @@ export default class LevelSelect extends Behaviour {
   onStart() {
     for (const level of LEVELS) ui.on("click", `lvl_${level.id}`, () => progress.isUnlocked(level.id) && startLevel(level.id));
     i18n.on("change", refreshSelect);
+  }
+
+  onEnable() {
     refreshSelect();
   }
 }
 
-/** Writes the level buttons from progress (the screen is inactive until shown, so this is a function, not a method). */
-export function refreshSelect() {
+/** Writes the level buttons from progress. */
+function refreshSelect() {
   for (const level of LEVELS) {
     const r = progress.of(level.id);
     const open = progress.isUnlocked(level.id);

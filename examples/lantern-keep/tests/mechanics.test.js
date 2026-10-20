@@ -160,9 +160,7 @@ test("the exit ends the level: level_completed with the time, the embers and the
   teleportOnto(player, "exit");
   expect(seen.level_completed).toHaveLength(1);
   const r = seen.level_completed[0];
-  expect(r.level).toBe("1-1");
-  expect(r.embers).toEqual([false, false, true]);
-  expect(r.deaths).toBe(1);
+  expect(r).toMatchObject({ level: "1-1", embers: [false, false, true], deaths: 1 });
   expect(r.time).toBeGreaterThan(2);
   expect(r.time).toBeLessThan(5);
   expect(game.audioLog()).toContainPlayed("win.wav");
