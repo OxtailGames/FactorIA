@@ -104,7 +104,9 @@ private:
 void register_cli_commands(CommandRegistry& registry, const std::string& projectDir, Engine* engine);
 
 // Runs tests/**/*.test.js on the engine's scripts.
-TestReport run_project_tests(Engine& engine, const std::string& nameFilter);
+// `testFiles`: files, folders or globs relative to the project (empty: every tests/**/*.test.js); throws CliError for a path
+// that is not a test file.
+TestReport run_project_tests(Engine& engine, const std::string& nameFilter, const std::vector<std::string>& testFiles = {});
 
 // --- batch / session helpers (cmd_session.cpp) ---
 // Runs `{"command": "...", "args": {...}}` on `registry`; returns {"ok":true,"result":...} or

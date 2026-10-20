@@ -1211,6 +1211,13 @@
       const m = N.measureText(String(text), o.fontSize ?? 16, o.font ?? "", o.maxWidth ?? 0, space === "screen");
       return { width: m[0], height: m[1] };
     },
+    // Where a widget or a screen-space Text really is: a Rect { x, y, w, h } in design pixels, (x, y) the TOP-LEFT corner, y down,
+    // the safe area included (not the +Y-up convention of entity.bounds()). Takes an Entity or an id/name; null for anything
+    // that is neither (a world-space sprite). Layout runs each frame: read it after game.step.
+    rectOf(entityOrId) {
+      const r = N.screenRect(entityHandle(entityOrId, "ui.rectOf"));
+      return r === null ? null : new Rect(r[0], r[1], r[2], r[3]);
+    },
     // The player's "text size" option, 0.5 .. 3 (1 = normal): screen-space Text and the labels of UI widgets are drawn and
     // measured at their font size times this; world-space Text is not scaled. Not saved by the engine: store it with `storage`.
     // Setting a number outside 0.5 .. 3 throws.
@@ -1655,6 +1662,18 @@
         const pass = typeof received === "string" && (re instanceof RegExp ? re.test(received) : received.includes(re));
         check(pass, "toMatch", re instanceof RegExp ? String(re) : re, { expectedText: `to match ${re}` });
       },
+      // toMatchObject(subset): every field of `subset` is in the received object with an equal value, recursively (an
+      // object may have more fields; arrays must have the same length and each element matches its subset).
+      toMatchObject(subset) {
+        if (!isObj(received) || !isObj(subset)) throw new AssertionError(`expect(x).toMatchObject(subset): both the received value and the subset must be objects, got ${short(received)} and ${short(subset)}`);
+        const sub = (a, b) => {
+          a = normalizeForEq(a); b = normalizeForEq(b);
+          if (!isObj(a) || !isObj(b) || a instanceof Entity || b instanceof Entity) return deepEqual(a, b);
+          if (Array.isArray(b)) return Array.isArray(a) && a.length === b.length && b.every((x, i) => sub(a[i], x));
+          return Object.keys(b).every((k) => b[k] === undefined ? true : k in a && sub(a[k], b[k]));
+        };
+        check(sub(received, subset), "toMatchObject", subset, { expectedText: `an object containing ${short(subset)}` });
+      },
       toBeInstanceOf(C) { check(received instanceof C, "toBeInstanceOf", C.name, { expectedText: `instance of ${C.name}` }); },
       toContainPlayed(path, o) { played("toContainPlayed", path, o); },
       toHavePlayed(path, o) { played("toHavePlayed", path, o); },
@@ -1712,7 +1731,14 @@
   const afterEach = (fn) => { if (suiteStack.length) suiteStack[suiteStack.length - 1].afterEach.push(fn); else throw new Error("afterEach must be called inside describe()"); };
 
   const stepN = (n) => N.testStep(n);
+  // A position, or a widget id / Entity: the centre of its laid-out rectangle (the safe area is included; a widget moves one
+  // game.step after game.setSafeArea).
   const posArg = (p, what) => {
+    if (typeof p === "string" || p instanceof Entity) {
+      const r = N.screenRect(entityHandle(p, what));
+      if (r === null) throw new Error(`${what}: ${inspect(p)} has no screen rectangle: pass a UI widget or a screen-space Text, or a position {x, y}`);
+      return [r[0] + r[2] / 2, r[1] + r[3] / 2];
+    }
     if (Array.isArray(p)) return [p[0], p[1]];
     if (isObj(p) && typeof p.x === "number") return [p.x, p.y];
     throw new Error(`${what} expects a screen position {x, y} or [x, y], got ${inspect(p)}`);
@@ -1809,7 +1835,9 @@
       // emit(event, data): sends "purchase", "overlay" or "player" to platform.on listeners at the next game.step().
       emit(event, data = {}) { fa.call("platform.emit", { event, data: plain(data) }); },
       reset() { fa.call("platform.reset"); },
-      // set({ signedIn, delayFrames }): signedIn false rejects everything with notSignedIn; delayFrames holds each answer.
+      // set({ signedIn, delayFrames, backend }): signedIn false rejects everything with notSignedIn; delayFrames holds each
+      // answer; backend "none" behaves as a game without a store (platform.has false, calls reject unavailable) until reset().
+      // An unknown option throws with a "did you mean".
       set(options) { fa.call("platform.set_fake", plain(options)); },
       state() { return fa.call("platform.state"); },
       // Every request the game made: [{ seq, frame, method, args, ok, result | error }], oldest first.
@@ -1856,8 +1884,13 @@
       } catch (e) {
         passed = false;
         const loc = locate(e);
+        let caret = "";
+        if (!(e instanceof AssertionError) && loc && /not a function/.test(String(e && e.message))) {
+          const m = loc.match(/^(.*):(\d+):(\d+)$/);
+          if (m) caret = N.sourceCaret(m[1], Number(m[2]), Number(m[3]));
+        }
         if (e instanceof AssertionError) message = e.message + (loc ? `\n  at ${loc}` : "");
-        else message = `${e && e.name ? e.name : "Error"}: ${e && e.message !== undefined ? e.message : String(e)}` + (loc ? `\n  at ${loc}` : "") +
+        else message = `${e && e.name ? e.name : "Error"}: ${e && e.message !== undefined ? e.message : String(e)}` + (loc ? `\n  at ${loc}` : "") + caret +
           "\n  (an exception was thrown inside the test; check the game scripts too: `factoria` logs script errors)";
       }
       N.guardEnd();

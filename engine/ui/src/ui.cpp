@@ -365,7 +365,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 }
 
 // ----------------------------------------------------------------------------------------------------------- state --
-Json UiSystem::state(const World& w, Vec2 design) const {
+Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) const {
     std::vector<Item> items;
     for (Entity e : w.entities()) {
         const UiKind k = ui_kind(w, e);
@@ -402,6 +402,23 @@ Json UiSystem::state(const World& w, Vec2 design) const {
             if (!tb->text.empty()) j["text"] = tb->text;
         }
         list.push_back(std::move(j));
+    }
+    // Screen-space Text is no widget, but a test checks where the HUD text is (and that it fits).
+    std::vector<std::pair<Rect, Entity>> texts;
+    for (Entity e : w.entities()) {
+        const Text* t = w.get<Text>(e);
+        if (!t || t->space != RenderSpace::Screen || !w.active_in_hierarchy(e)) continue;
+        if (const std::optional<Rect> r = ui_detail::screen_rect(w, e, design, measure)) texts.push_back({*r, e});
+    }
+    std::stable_sort(texts.begin(), texts.end(), [](const auto& a, const auto& b) {
+        return a.first.y != b.first.y ? a.first.y < b.first.y : a.first.x < b.first.x;
+    });
+    for (const auto& [rect, e] : texts) {
+        const std::optional<Rect> clip = ui_clip_rect(w, e, design);  // a ScrollList clips its Text children like its widgets
+        const bool visible = !clip || (clip->w > 0 && clip->h > 0 && clip->overlaps(rect));
+        list.push_back(Json::object({{"id", w.id_of(e)}, {"kind", "Text"}, {"rect", to_json(rect)}, {"text", w.get<Text>(e)->text},
+                                     {"focused", false}, {"hovered", false}, {"pressed", false}, {"interactable", false},
+                                     {"visible", visible}}));
     }
     return Json::object({{"focused", focus_ && w.alive(focus_) ? Json(w.id_of(focus_)) : Json(nullptr)},
                          {"hovered", hover_ && w.alive(hover_) ? Json(w.id_of(hover_)) : Json(nullptr)},

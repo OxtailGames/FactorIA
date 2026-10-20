@@ -1026,6 +1026,11 @@ constexpr const char* kSchemaText =
           "default": true,
           "description": "Release builds of the desktop platforms (factoria export --release for windows, macos, linux): compile the scripts (.js) to QuickJS bytecode inside the game pack instead of shipping their source. Default true. The compiled scripts only run on the FactorIA version that wrote them (a game that meets another version says so and asks for a new export), keep their file names and line numbers in error messages, and leave out the source text. false ships the scripts as plain source in the pack. A script with a syntax error is shipped as source with a warning. Without --release, and on Android and iOS, the setting changes nothing. See docs/EXPORTING.md, \"Release build\"."
         },
+        "exclude": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Project-relative globs no export ships (folder, game.pak, web, android, ios): \"store/**\", \"levels/*.tmx\", \"notes\" (a folder). '*' matches inside one folder, '**' crosses folders, '?' one character. Added to the files and folders every export already leaves out (hidden files and folders whose name starts with a dot, build/, tests/, tools/, types/, README.md, the feedback file, AGENTS.md, CLAUDE.md). `factoria validate` warns about a glob that matches no file and fails when one matches the main scene. See docs/EXPORTING.md, \"What is shipped\"."
+        },
         "windows": {
           "type": "object",
           "description": "Windows export settings (factoria export --platform windows).",

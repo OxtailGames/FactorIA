@@ -165,6 +165,10 @@ std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const
 
 }  // namespace ui_detail
 
+std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
+    return ui_detail::screen_rect(w, e, designSize, measure);
+}
+
 void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
     // Containers deepest first: a nested container is sized and fills itself before the container around it places it
     // (moving a container moves its whole subtree, so what it already placed stays in place).

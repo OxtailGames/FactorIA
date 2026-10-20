@@ -40,6 +40,7 @@ Json number_json(double v, bool whole) { return whole ? Json(static_cast<long lo
 FakeBackend::FakeBackend() { reset(); }
 
 void FakeBackend::reset() {
+    none_ = false;
     signedIn_ = true;
     delay_ = 0;
     frames_ = seq_ = callsDropped_ = 0;
@@ -133,6 +134,11 @@ Json* FakeBackend::log_entry(std::uint64_t seq) {
 
 void FakeBackend::request(std::uint64_t id, const std::string& method, const Json& args, const PlatformSink& sink) {
     sink_ = sink;
+    if (none_) {  // the "none" backend: only player.signIn is answered, as signed out
+        if (method == "player.signIn") sink.complete(id, player_json(false));
+        else sink.fail(id, {"unavailable", "the \"none\" backend answers nothing but player.signIn", {}});
+        return;
+    }
     const std::uint64_t seq = ++seq_;
     log_.push_back(Json::object({{"seq", seq}, {"frame", frames_}, {"method", method}, {"args", args}, {"answered", false}}));
     if (log_.size() > kMaxLoggedCalls) {
@@ -352,6 +358,7 @@ Json FakeBackend::state() const {
     for (const Json& c : log_) calls.push_back(c);
     return Json::object({{"player", player_json(signedIn_)},
                          {"signedIn", signedIn_},
+                         {"none", none_},
                          {"delayFrames", delay_},
                          {"frame", frames_},
                          {"achievements", ach},

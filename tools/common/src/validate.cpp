@@ -268,6 +268,32 @@ void check_export_settings(Ctx& c, const ExportSettingsParse& parsed) {
     check_icon_file(c, "/export/android/adaptiveIcon/monochrome", s.android.adaptiveIcon.monochrome, kLayerSize);
 }
 
+// `export.exclude`: a glob that matches no file is probably a typo (warning); one that matches the main scene would ship a
+// game that cannot start (error).
+void check_export_exclude(Ctx& c, const std::vector<std::string>& globs, const std::string& mainScene) {
+    if (globs.empty()) return;
+    std::vector<std::string> files;
+    std::error_code ec;
+    for (stdfs::recursive_directory_iterator it(c.dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (it->is_directory(ec) && (name == "build" || name == "node_modules" || (!name.empty() && name[0] == '.'))) {
+            it.disable_recursion_pending();
+            continue;
+        }
+        if (it->is_regular_file(ec)) files.push_back(stdfs::relative(it->path(), c.dir, ec).generic_string());
+    }
+    for (std::size_t i = 0; i < globs.size(); ++i) {
+        const std::string ptr = "/export/exclude/" + std::to_string(i);
+        const std::vector<std::string> one{globs[i]};
+        if (tooling_detail::export_excluded(one, mainScene))
+            c.error(kProjectFileName, ptr, "'" + globs[i] + "' excludes the main scene '" + mainScene + "', so the exported game cannot start.",
+                    "Narrow the glob, or change mainScene.");
+        else if (std::none_of(files.begin(), files.end(), [&](const std::string& f) { return tooling_detail::export_excluded(one, f); }))
+            c.warn(kProjectFileName, ptr, "'" + globs[i] + "' matches no file of the project, so it excludes nothing.",
+                   "Globs are project-relative with forward slashes: '*' stays in one folder, '**' crosses folders (\"store/**\").");
+    }
+}
+
 // The "platform" catalog: every problem with how to fix it (the messages of fa_services), and a "backend" that names a
 // plugin the game does not declare. The schema checks the shape too; where the catalog has errors its messages replace the
 // schema's, which cannot suggest anything.
@@ -340,6 +366,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     if (!stdfs::exists(stdfs::path(c.dir) / mainScene))
         c.error(kProjectFileName, "/mainScene", "Main scene '" + mainScene + "' does not exist.",
                 "Create it or point mainScene at an existing scene (see scenes/).");
+    check_export_exclude(c, exportSettings.settings.exclude, mainScene);
     if (pj.contains("input") && pj["input"].is_object() && pj["input"].contains("actions") && pj["input"]["actions"].is_object()) {
         for (auto it = pj["input"]["actions"].begin(); it != pj["input"]["actions"].end(); ++it) {
             if (!it.value().is_array()) continue;

@@ -628,6 +628,12 @@ void PlatformServices::set_backend(std::unique_ptr<PlatformBackend> backend, std
 
 PlatformBackend& PlatformServices::backend() const { return *backend_; }
 
+void PlatformServices::refresh_backend() {
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    state_->backendName = backend_->name();
+    state_->services = backend_->services();
+}
+
 FakeBackend* PlatformServices::fake() const { return dynamic_cast<FakeBackend*>(backend_.get()); }
 
 bool PlatformServices::has_service(const std::string& service) const {
@@ -740,6 +746,7 @@ void PlatformServices::reset_session() {
         state_->player = unknown_player();
     }
     if (FakeBackend* f = fake()) f->reset();
+    refresh_backend();
 }
 
 }  // namespace fa

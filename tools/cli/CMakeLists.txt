@@ -56,6 +56,13 @@ if(FA_BUILD_TESTS)
                     $<TARGET_FILE:fa_test_plugin_example> $<TARGET_FILE:factoria_player>
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_plugin PROPERTIES TIMEOUT 300 LABELS "gpu")
+
+        # factoria_player --frames N: exits 0 after N frames, 1 after a script error (opens a window: label gpu).
+        add_test(NAME cli_player_frames
+            COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/player_frames_test.py $<TARGET_FILE:factoria>
+                    $<TARGET_FILE:factoria_player>
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(cli_player_frames PROPERTIES TIMEOUT 300 LABELS "gpu")
     endif()
 endif()
 

@@ -893,3 +893,20 @@ TEST_CASE("platform catalog: a text can be a locale key instead; errors name the
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.issues[0].pointer == "/platform/achievements/0/nameKey");
 }
+
+TEST_CASE("fake: set_none() behaves as the none backend until reset()") {
+    Game g;
+    CHECK(g.ps.has_service("purchases"));
+    g.fake().set_none(true);
+    g.ps.refresh_backend();
+    CHECK_FALSE(g.ps.has_service("purchases"));
+    CHECK(g.ps.info()["backend"] == "none");
+    PlatformError e = g.fails("achievements.unlock", Json::parse(R"({"id": "first_win"})"));
+    CHECK(e.code == "unavailable");
+    CHECK(g.ok("player.signIn")["signedIn"] == false);
+    g.fake().reset();
+    g.ps.refresh_backend();
+    CHECK(g.ps.has_service("purchases"));
+    CHECK(g.ps.info()["backend"] == "fake");
+    CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["unlocked"] == true);
+}

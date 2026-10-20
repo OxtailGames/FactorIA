@@ -315,6 +315,7 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
         stdfs::path rel = stdfs::relative(full, p.dir, ec);
         std::string name = full.filename().string();
         bool skip = !name.empty() && name[0] == '.';
+        if (!skip && tooling_detail::export_excluded(p.settings.exclude, generic(rel))) skip = true;  // export.exclude (a folder too)
         if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
         if (!skip && (!outDirAbs.empty() || !p.pluginFolders.empty()) && it->is_directory(ec)) {
             std::error_code ec2;
@@ -595,6 +596,7 @@ std::vector<std::string> list_game_files(const stdfs::path& dir, const std::stri
     Project p;
     p.dir = dir;
     p.feedbackFile = feedbackFile;
+    if (auto settings = load_export_settings(generic(dir)); settings.ok()) p.settings.exclude = settings->exclude;
     if (auto project = load_project(generic(dir)); project.ok())
         for (const PluginSettings& plugin : project->plugins)
             if (auto folder = plugin_folder(generic(dir), plugin); folder.ok()) p.pluginFolders.push_back(folder.value());
