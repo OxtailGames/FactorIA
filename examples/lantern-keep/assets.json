@@ -35,20 +35,22 @@
       "provenance": {
         "origin": "original",
         "ai": false,
-        "date": "2026-10-19",
+        "kind": "image",
+        "date": "2026-10-20",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
         "license": "CC0",
-        "author": "Lantern Keep",
-        "source": "Lantern Keep: drawn with tools/make_icon.py (Pillow), no AI"
+        "author": "Lantern Keep"
       }
     },
     "assets/icon_fg.png": {
       "provenance": {
         "origin": "original",
         "ai": false,
-        "date": "2026-10-19",
+        "kind": "image",
+        "date": "2026-10-20",
+        "notes": "Drawn from shapes and text by assets.draw_icon.",
         "license": "CC0",
-        "author": "Lantern Keep",
-        "source": "Lantern Keep: drawn with tools/make_icon.py (Pillow), no AI"
+        "author": "Lantern Keep"
       }
     },
     "assets/sfx/checkpoint.wav": {

@@ -82,7 +82,7 @@ Options > Controls.
 - `screenshots/`: the main menu, the save slots, the level select, a level of each world, the level end panel and the achievements, leaderboards and shop screens;
   `a11y-*.png`: the Accessibility tab, the menu, a level and the level end panel at 200% text, and the hazards in colour and
   in greyscale; `main-menu-ar.png`, `level-select-ar.png` (Arabic) and `options-de-200.png` (German at 200% text).
-- Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `tools/make_icon.py`), `prefabs/ui/touch_controls.prefab.json`
+- Shipping: `assets/icon.png` and `assets/icon_fg.png` (drawn by `assets.draw_icon` from `tools/icon.json`), `prefabs/ui/touch_controls.prefab.json`
   (the on-screen gamepad, an entity of both base scenes), `store/` (store texts and release notes in the four languages),
   `store/screenshots/` (store screenshots made by `tools/make_screenshots.py`; not committed; `export.exclude` in
   `factoria.json` keeps `store/`, `levels/` and `screenshots/` out of exports),
@@ -136,7 +136,7 @@ by hand and what could not be checked on the machine that prepared the export is
 ```bash
 factoria export --platform windows --release        # lantern-keep.exe + game.pak
 factoria export --platform android --format aab --release   # needs the Android toolchain and a keystore
-python tools/make_icon.py                           # redraw the icon (Python and Pillow)
+factoria call assets.draw_icon @tools/icon.json      # redraw the icon and the Android foreground
 python tools/make_screenshots.py factoria           # redraw the store screenshots
 ```
 

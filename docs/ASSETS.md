@@ -127,6 +127,46 @@ character can be given the same voice later. `assets.generate_model` makes an un
 
 Play a sound with an `AudioSource` (`clip`) or `audio.play(path)`; use a model as the `mesh` of a `MeshRenderer`.
 
+### The game icon without a provider: assets.draw_icon
+
+A game made without an image provider still gets a real icon. `assets.draw_icon` draws one from a short description,
+on the CPU (anti-aliased, the same bytes on every machine, no GPU, so it works headless and in CI), and writes the
+1024x1024 icon plus the Android adaptive-icon foreground (432x432, transparent). They go where the export already looks:
+`path` defaults to the `icon` of `factoria.json` (else `assets/icon.png`), `foreground` to
+`export.android.adaptiveIcon.foreground` (else `assets/icon_fg.png`; `false` writes none). A path `factoria.json` does
+not name yet is added to it. Provenance is recorded as `original`, not AI. Existing files are replaced, so change the
+description and call again.
+
+Drawing space: x and y run 0..100 across the icon, origin top-left, y down; every size and radius is in the same units
+(shapes may reach past 0..100: the icon crops them). The foreground scales that 0..100 box into the 66/108 safe zone of the
+adaptive layer, so nothing inside it is cut by a launcher mask. `background` is `color` (optional `colorBottom` for a
+vertical gradient) and `shape`: `square` (the default: fills the canvas, what the stores want), `rounded`, `circle` or
+`transparent`. `layers` are drawn in order:
+
+| `type` | Fields |
+|---|---|
+| `rect` | `x`, `y` (top-left), `w`, `h` |
+| `roundRect` | `x`, `y`, `w`, `h`, `radius` |
+| `circle` | `x`, `y` (centre), `radius` |
+| `ellipse` | `x`, `y` (centre), `rx`, `ry` |
+| `polygon` | `points`: `[[x, y], ...]` |
+| `text` | `text`, `x`, `y` (centre of the text), `size` (em height), `font` (a project `.ttf`; default DejaVu Sans), one line, no shaping |
+
+Shapes take `fill` and/or `outline` (colours `"#rrggbb"`, `"#rrggbbaa"` or names), `fillBottom` (gradient from `fill`
+at the top of the icon to this colour at the bottom), `outlineWidth` (default 2) and `softness` (feathers the edge: a
+glow). Text takes `fill`. `"foreground": false` on a layer keeps it out of the Android foreground (a backdrop: the
+adaptive icon has its own background colour, `export.android.adaptiveIcon.background`). Unknown keys and types are errors
+with a JSON pointer and a suggestion.
+
+```json
+{"background": {"color": "#141428", "shape": "square"},
+ "layers": [{"type": "circle", "x": 50, "y": 50, "radius": 30, "fill": "#ffcc44", "outline": "#ffffff"},
+            {"type": "text", "text": "K", "x": 50, "y": 50, "size": 34, "fill": "#141428"}]}
+```
+
+Run it with `factoria call assets.draw_icon @tools/icon.json` (keep the JSON in the project) and look at the PNGs.
+`examples/lantern-keep/tools/icon.json` draws a lantern this way.
+
 ## Provenance and store disclosure
 
 Every generated asset gets a `provenance` record in assets.json:
