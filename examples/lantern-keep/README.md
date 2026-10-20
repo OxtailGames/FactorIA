@@ -318,7 +318,8 @@ jump is one press).
   scripts build (timer, ember count, the level end panel), `i18n.on("change")` to write them again.
 - **Light and depth.** `Light2D` on the lantern, `lit` on the Cellars' tilemap and sprites, `SceneSettings.ambientLight`,
   `Parallax` with `repeatX` for the arches behind the level.
-- **Physics.** `Collider2D.oneWay` for the one-way ledges, a kinematic body with a velocity for the moving platforms,
+- **Physics.** `Collider2D.oneWay` for the one-way ledges, a kinematic body with a velocity for the moving platforms
+  (it carries the player),
   triggers for embers, checkpoints, spikes and the exit, `entity.isGrounded()` for jumping.
 - **Camera.** `entity.bounds()` of the Tilemap limits the follow camera.
 - **Tests.** `game.gamepad()`, `game.audioLog()`, `fa.call("scene.import_ascii")`, events through `world.on`.

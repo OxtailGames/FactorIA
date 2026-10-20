@@ -196,3 +196,37 @@ TEST_CASE("export: the project's own README.md is not part of any export, a READ
     CHECK_FALSE(stdfs::exists(game + "/Readme.MD"));
     CHECK(stdfs::exists(game + "/data/README.md"));
 }
+
+TEST_CASE("export.exclude: the files and folders it names are in neither the game folder nor game.pak") {
+    testing::TempDir tmp;
+    const std::string proj = make_project(tmp);
+    testing::write_all(stdfs::path(proj) / "store" / "capsule.png", "x");
+    testing::write_all(stdfs::path(proj) / "levels" / "draft" / "a.json", "{}");
+    testing::write_all(stdfs::path(proj) / "data" / "keep.txt", "keep");
+    testing::write_all(stdfs::path(proj) / "data" / "notes.psd", "x");
+    const stdfs::path file = stdfs::path(proj) / "factoria.json";
+    auto j = parse_json(testing::read_all(file), "factoria.json");
+    REQUIRE(j.ok());
+    (*j)["export"]["exclude"] = Json::array({"store/**", "levels", "**/*.psd"});
+    testing::write_all(file, j->dump(2));
+
+    // The game folder.
+    auto folder = export_project(options_for(tmp, proj, "linux", false));
+    REQUIRE_MESSAGE(folder.ok(), (folder.ok() ? "" : folder.error().to_string()));
+    const std::string root = tmp.sub("out/pack-test-linux");
+    CHECK(stdfs::exists(root + "/game/data/keep.txt"));
+    CHECK_FALSE(stdfs::exists(root + "/game/store/capsule.png"));
+    CHECK_FALSE(stdfs::exists(root + "/game/levels"));
+    CHECK_FALSE(stdfs::exists(root + "/game/data/notes.psd"));
+
+    // game.pak.
+    auto release = export_project(options_for(tmp, proj, "linux", true));
+    REQUIRE_MESSAGE(release.ok(), (release.ok() ? "" : release.error().to_string()));
+    auto pack = PackReader::open(root + "/game.pak");
+    REQUIRE(pack.ok());
+    CHECK(pack.value()->contains("data/keep.txt"));
+    CHECK_FALSE(pack.value()->contains("store/capsule.png"));
+    CHECK_FALSE(pack.value()->contains("levels/draft/a.json"));
+    CHECK_FALSE(pack.value()->contains("data/notes.psd"));
+    CHECK(stdfs::exists(stdfs::path(proj) / "store" / "capsule.png"));  // the project itself is untouched
+}
