@@ -388,7 +388,6 @@ void Renderer::set_render_scale(float scale) {
     impl_->renderScale = scale;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
-float Renderer::render_scale() const { return impl_ ? impl_->renderScale : 1.0f; }
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }
 int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
 

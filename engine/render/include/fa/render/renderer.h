@@ -132,7 +132,6 @@ public:
     static constexpr float kMinRenderScale = 0.25f;
     static constexpr float kMaxRenderScale = 4.0f;
     void set_render_scale(float scale);
-    float render_scale() const;
     int target_width() const;
     int target_height() const;
 

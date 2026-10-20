@@ -1,6 +1,6 @@
-#include <cmath>
 // Built-in commands: the AI/tool surface of a running game.
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "engine_impl.h"
