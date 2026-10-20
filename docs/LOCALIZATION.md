@@ -139,7 +139,8 @@ const off = i18n.on("change", ({ language, previous }) => { /* write your own te
   give an Arabic or Hebrew label `align: "right"` and a pivot or anchor on the right. A menu laid out for English
   does not mirror itself; check it with `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
 - **Text size.** `ui.textScale` (0.5 to 3) makes every text bigger for players who ask: translations are longer than
-  English, so lay buttons out with room for it.
+  English, so give buttons, toggles and sliders `"autoSize": true`: they stay at their design size and grow to their
+  label at the current language and text size (docs/TEXT.md, "Text size").
 
 ## 7. Checks: `factoria validate`
 

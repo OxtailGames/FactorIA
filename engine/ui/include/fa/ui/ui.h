@@ -13,6 +13,8 @@
 #pragma once
 
 #include <array>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
@@ -66,6 +68,13 @@ private:
         float time = 0.0f, next = 0.0f;
         bool tick(bool pressed, bool down, float dt);
     };
+
+    // autoSize: the design size of a widget and the size the UI wrote last (a different current size is a new design size).
+    struct AutoSizeMemo {
+        Vec2 design, applied;
+    };
+    std::unordered_map<u64, AutoSizeMemo> autoSizes_;
+    std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view

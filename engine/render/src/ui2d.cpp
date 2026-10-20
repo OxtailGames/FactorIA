@@ -84,12 +84,15 @@ void background(const Ctx& c, const UiBox& b, const Rect& r, Color tint) {
 }
 
 // A single line of text laid out with the widget's font; `top-left` is placed by text().
-TextLayout line(const Ctx& c, const std::string& s, const std::string& font, float size) {
+TextLayout line(const Ctx& c, const std::string& s, const std::string& font, float size, float maxWidth = 0.0f,
+                Align align = Align::Left) {
     Text t;
     t.text = s;
     t.font = font;
     t.fontSize = size;
     t.pivot = {0, 1};
+    t.maxWidth = maxWidth;
+    t.align = align;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
     return c.f.fonts->layout(t, size * c.f.textScale, 1.0f);
 }
@@ -113,15 +116,6 @@ void text_left(const Ctx& c, const std::string& s, const std::string& font, floa
 
 Color scaled(Color k, float mul, float add) { return {k.r * mul + add, k.g * mul + add, k.b * mul + add, k.a}; }
 Color with_alpha(Color k, float a) { return {k.r, k.g, k.b, k.a * a}; }
-
-// "60%" for a 0..1 range, else the number with up to two decimals.
-std::string slider_text(const Slider& s) {
-    if (s.min == 0.0f && s.max == 1.0f) return std::format("{}%", int(std::lround(s.value * 100.0f)));
-    std::string t = std::format("{:.2f}", s.value);
-    while (t.back() == '0') t.pop_back();
-    if (t.back() == '.') t.pop_back();
-    return t;
-}
 
 // A disc (an ellipse when `r` is not square) filling `r`.
 void disc(const Ctx& c, int layer, const Rect& r, Color col) {
@@ -165,8 +159,11 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
     const int layer = b.layer + 1;  // labels and marks; the focus ring is one more
     if (kind == UiKind::Button) {
         const Button& btn = *world.get<Button>(e);
-        const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize);
-        text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, c.clip);
+        // Every line centred (also inside a wrap box); a label that does not fit is cut at the button's edge.
+        const TextLayout lay = line(c, btn.text, btn.font, btn.fontSize, btn.maxWidth, Align::Center);
+        const Rect clip = c.clip.empty() ? r : ui_intersect(r, c.clip);
+        if (!clip.empty())
+            text(c, lay, r.x + (r.w - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, btn.textColor, layer, clip);
     } else if (kind == UiKind::Toggle) {
         const Toggle& t = *world.get<Toggle>(e);
         const float side = std::max(0.0f, r.h - 12.0f);
@@ -186,7 +183,7 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         fill(c, layer, Rect{knobX - 5, midY - std::min(12.0f, (r.h - 8) * 0.5f), 10, std::min(24.0f, r.h - 8)}, s.accentColor, c.clip);
         text_left(c, s.label, s.font, s.fontSize, s.textColor, layer, innerLeft, r, c.clip);
         if (s.showValue) {
-            const TextLayout lay = line(c, slider_text(s), s.font, s.fontSize);
+            const TextLayout lay = line(c, ui_slider_value_text(s, s.value),s.font, s.fontSize);
             const float zone = innerLeft + innerW * 0.85f;
             text(c, lay, zone + (innerLeft + innerW - zone - lay.size.x) * 0.5f, r.y + (r.h - lay.size.y) * 0.5f, s.textColor, layer, c.clip);
         }
