@@ -72,6 +72,7 @@ void Engine::Impl::apply_project_settings() {
     }
     // The platform catalog. A section with errors counts as empty (every platform call then says the id is not declared):
     // the first error is logged here, `factoria validate` lists them all.
+    platform.set_translator([this](const std::string& key) { return i18n.translate(key); });
     auto catalog = load_platform_catalog(project.raw.is_object() && project.raw.contains(kPlatformKey) ? project.raw[kPlatformKey] : Json());
     if (catalog.ok()) {
         platform.set_catalog(std::move(catalog.value()));
@@ -308,6 +309,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     audio.update(world, float(dt));
     if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
     scripts.late_update(float(dt));
+    scripts.settle_activation();  // panels shown or hidden this frame: onStart / onEnable / onDisable before drawing
     apply_localization();  // keys of entities scripts spawned or edited this frame
     render(dt);
     end_of_frame(dt);

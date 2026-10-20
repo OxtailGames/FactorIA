@@ -196,6 +196,7 @@ public:
     void update(float dt);           // create behaviours for new Script components (onStart), then onUpdate
     void fixed_update(float dt);     // onFixedUpdate
     void late_update(float dt);      // onLateUpdate
+    void settle_activation();        // onStart/onEnable/onDisable for entities (de)activated this frame, before drawing
     void dispatch_events();          // world.events() -> onCollision*/onTrigger*/world.on(...) handlers, then clear
     // Start of every engine frame, before the fixed steps: settles the promises of platform requests that were answered
     // since the last frame, then calls the platform.on listeners for the events that came in, then runs pending jobs.

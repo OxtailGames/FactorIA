@@ -862,6 +862,12 @@ void ScriptSystem::late_update(float dt) {
     impl_->run_jobs();
 }
 
+void ScriptSystem::settle_activation() {
+    if (!impl_->initialized) return;
+    impl_->sync();
+    impl_->run_jobs();
+}
+
 Result<Json> ScriptSystem::eval(std::string_view code) {
     if (!impl_->initialized) return Error{"script system is not initialized", ""};
     return impl_->eval(code);

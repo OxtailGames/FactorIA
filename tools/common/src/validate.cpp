@@ -45,6 +45,7 @@ struct Ctx {
     std::set<std::string> spriteTextures;  // what Sprites draw, for the asset checks
     std::vector<localization_detail::SceneText> sceneTexts;  // what scenes and prefabs show, for the string-table and glyph checks
     LocalizationParse localization;                           // the "localization" section of factoria.json
+    std::vector<PlatformCatalog::TextKeyRef> catalogKeys;    // locale keys the "platform" catalog names, checked with the string tables
     bool projectFileRead = false;                             // factoria.json parsed as an object
     ValidationReport report;
     void error(std::string file, std::string pointer, std::string msg, std::string hint = {}) {
@@ -378,6 +379,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     for (const auto& e : publish.errors) c.error(kProjectFileName, e.pointer, e.message, e.hint);  // `publish`: the ids of the game in the stores
     for (const auto& w : publish.warnings) c.warn(kProjectFileName, w.pointer, w.message, w.hint);
     check_platform(c, pj, platform);
+    c.catalogKeys = platform.catalog.textKeyRefs;
     check_localization(c, localization);
     c.projectFileRead = true;
     mainScene = pj.value("mainScene", std::string("scenes/main.scene.json"));
@@ -566,7 +568,7 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
 
     // String tables, the `key`s scenes use, and whether the fonts have a glyph for every character (not with a broken section).
     if (c.projectFileRead && c.localization.ok())
-        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.report);
+        localization_detail::check_localization_content(c.dir, c.localization.settings, c.sceneTexts, c.catalogKeys, c.report);
 
     // Custom materials: the *.material.json files and their snippets (all dialects).
     validate_materials(c.dir, options.shaderContext, c.report);

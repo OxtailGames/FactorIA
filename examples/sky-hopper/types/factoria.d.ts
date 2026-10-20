@@ -426,9 +426,17 @@ declare module "factoria" {
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
-     * Once, before the first update (props already applied). The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded; onStart runs on the next step.
+     * Once, the first time the entity is active in the hierarchy (props already applied), before its first update and before the frame is drawn. The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded, active or not; an entity spawned inactive gets onStart when something sets active = true.
      */
     onStart?(): void;
+    /**
+     * Every time the entity becomes active in the hierarchy (it or an ancestor got active = true) while the Script is enabled; the first time it runs right after onStart. Runs before the frame is drawn, so a panel can refresh its texts here and they are right in the first drawn frame.
+     */
+    onEnable?(): void;
+    /**
+     * Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn.
+     */
+    onDisable?(): void;
     /**
      * Every frame; dt in seconds scaled by time.scale.
      */
@@ -1229,7 +1237,7 @@ declare module "factoria" {
      */
     readonly id: string;
     /**
-     * The store's title.
+     * The title in the current language: the catalog's titleKey translated (else title) on the fake backend; a real store answers its own, localized by its console.
      */
     readonly title: string;
     /**
@@ -1293,9 +1301,9 @@ declare module "factoria" {
      */
     progress(id: string, fraction: number): Promise<{ id: string; progress: number; unlocked: boolean }>;
     /**
-     * The state of every achievement of the catalog.
+     * The state of every achievement of the catalog, with its name and description in the current language (the catalog's nameKey / descriptionKey translated, else name / description; a store that answers its own texts wins).
      */
-    list(): Promise<{ id: string; unlocked: boolean; progress: number }[]>;
+    list(): Promise<{ id: string; name: string; description: string; unlocked: boolean; progress: number }[]>;
     /**
      * Development only: locks every achievement again (the fake backend; real stores usually refuse).
      */

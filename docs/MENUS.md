@@ -58,6 +58,17 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **Panels over panels.** `MenuStack.show(id)` hides the panel on top and shows panel `id`; its `autoFocus` widget takes
   the focus (a focused widget that becomes inactive loses it). `back()` closes the top panel and gives the focus back to
   the widget that had it. Pad B, Escape (`ui_cancel`) and any button tagged `back` call it.
+- **A panel that refreshes itself each time it is shown.** Write the refresh in `onEnable()`: it runs every time the
+  panel becomes active (the first time right after `onStart`) and before that frame is drawn, so the panel never shows
+  the texts of its prefab for a frame. `onDisable()` runs every time it is hidden. A panel spawned inactive already has
+  its `.behaviour` (`world.find("level_end").behaviour`), so the code that shows it can pass data first.
+  ```js
+  export default class LevelEnd extends Behaviour {
+    onStart() { this.title = this.world.find("level_end_title"); }   // look up once
+    onEnable() { this.title.get("Text").text = `Time: ${session.time}`; } // every show
+    onDisable() { game.paused = false; }                             // every hide
+  }
+  ```
 - **Resume without a jump.** The A or Space press that clicks "Resume" is also `jump`. `pause_menu.js` unpauses in its
   next `onUpdate`, not in the click handler: that frame's gameplay was already skipped, so the press never reaches the
   player.
