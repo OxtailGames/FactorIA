@@ -85,4 +85,10 @@ if(FA_BUILD_TESTS)
     add_test(NAME fixture_menus_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
     add_test(NAME fixture_menus_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
     set_tests_properties(fixture_menus_test PROPERTIES LABELS "gpu" TIMEOUT 300)
+    # The finished project of docs/MAKE_BY_HAND.md. Tutorial and fixture are one thing: when one changes, change the other
+    # (the `cli` test "docs/MAKE_BY_HAND.md: every file it gives is the tested fixture's" fails when they differ).
+    set(fx ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/gem-grab)
+    add_test(NAME fixture_gem_grab_validate COMMAND factoria validate ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    add_test(NAME fixture_gem_grab_test COMMAND factoria test ${fx} WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(fixture_gem_grab_test PROPERTIES LABELS "gpu" TIMEOUT 300)
 endif()
