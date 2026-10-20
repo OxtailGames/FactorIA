@@ -182,50 +182,8 @@ Result<stdfs::path> find_mobile_artifact(const Store& store, const Game& g, cons
 
 // ---- the tool --------------------------------------------------------------------------------------------------
 
-// `value` names the tool's executable, or the folder that holds it. "" when there is none.
-std::string resolve_tool_path(const Store& store, const std::string& value, const ExportEnvLookup& env) {
-    const stdfs::path p(tooling_detail::expand_home(value, env));
-    if (is_file(p)) return generic(p);
-    if (is_dir(p))
-        for (const std::string& name : store.exeNames)
-            for (const std::string& file : host_platform() == "windows" ? std::vector<std::string>{name + ".exe", name + ".cmd", name + ".bat", name} : std::vector<std::string>{name})
-                if (is_file(p / file)) return generic(p / file);
-    return {};
-}
-
-struct ToolFound {
-    std::string path, from;
-};
-
-Result<ToolFound> find_tool(const Store& store, const PublishOptions& o) {
-    const ExportEnvLookup& env = o.env;
-    const std::string configPath = o.toolConfigPath.empty() ? machine_export_config_path(env) : o.toolConfigPath;
-    const std::string where = "To set it up: download it from " + store.download + ", then put it on PATH, set " + store.envVar +
-                              " to the executable (or its folder), or write {\"publish\": {\"" + store.configKey + "\": \"<path>\"}} in " + configPath + ".";
-    if (const std::string value = env(store.envVar); !value.empty()) {
-        if (std::string found = resolve_tool_path(store, value, env); !found.empty()) return ToolFound{found, store.envVar};
-        return err("publish." + store.name + ": " + store.envVar + " is '" + value + "', which is not " + store.tool + " (it must be the executable or the folder that holds it)",
-                   "Fix or unset " + std::string(store.envVar) + ". " + where);
-    }
-    std::error_code ec;
-    if (stdfs::exists(stdfs::path(configPath), ec)) {
-        auto text = tooling_detail::read_file(stdfs::path(configPath));
-        auto parsed = text ? parse_json(*text, configPath) : Result<Json>(Error{"Cannot read " + configPath + ".", "Check that the file is readable."});
-        if (!parsed.ok()) return err("publish." + store.name + ": " + parsed.error().message, "Fix the JSON of " + configPath + " (or delete it).");
-        if (parsed->is_object())
-            if (auto pub = parsed->find("publish"); pub != parsed->end() && pub->is_object())
-                if (auto v = pub->find(store.configKey); v != pub->end() && v->is_string() && !v->get<std::string>().empty()) {
-                    if (std::string found = resolve_tool_path(store, v->get<std::string>(), env); !found.empty()) return ToolFound{found, "export.json"};
-                    return err("publish." + store.name + ": " + configPath + "#/publish/" + store.configKey + " is '" + v->get<std::string>() + "', which is not " + store.tool +
-                                   " (it must be the executable or the folder that holds it)",
-                               "Fix or remove that entry. " + where);
-                }
-    }
-    for (const std::string& name : store.exeNames)
-        if (std::string found = which(name); !found.empty()) return ToolFound{generic(stdfs::path(found)), "PATH"};
-    return err("publish." + store.name + ": " + store.tool + " was not found on this computer (not on PATH, " + store.envVar + " is not set, and " + configPath +
-                   " has no publish." + store.configKey + ")",
-               where + " Nothing is downloaded for you.");
+Result<MachineToolFound> find_tool(const Store& store, const PublishOptions& o) {
+    return find_machine_tool({"publish." + store.name, store.tool, store.envVar, store.configKey, store.exeNames, store.download}, o.env, o.toolConfigPath);
 }
 
 // ---- running -----------------------------------------------------------------------------------------------
@@ -414,7 +372,7 @@ static Result<PublishReport> run_store(const Store* store, Context& c, PublishRe
         if (!options.dryRun) return tool.error();
         // A dry run still returns the plan: the missing uploader is a warning and its name stands in for the path.
         c.warnings.push_back("Missing, its name is used in this dry run: " + tool.error().message + " " + tool.error().hint);
-        tool = ToolFound{store->tool, "missing"};
+        tool = MachineToolFound{store->tool, "missing"};
     }
     c.tool = tool->path;
     report.tool = tool->path;

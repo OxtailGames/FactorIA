@@ -153,6 +153,18 @@ std::vector<std::uint8_t> encode_png_rgb(const Image& img) {
     return out;
 }
 
+std::vector<std::uint8_t> encode_jpeg(const Image& img, int quality) {
+    std::vector<std::uint8_t> out;
+    if (img.empty()) return out;
+    auto write = [](void* ctx, void* data, int size) {
+        auto* v = static_cast<std::vector<std::uint8_t>*>(ctx);
+        const auto* p = static_cast<const std::uint8_t*>(data);
+        v->insert(v->end(), p, p + size);
+    };
+    stbi_write_jpg_to_func(write, &out, img.width, img.height, 4, img.rgba.data(), std::clamp(quality, 1, 100));  // alpha ignored
+    return out;
+}
+
 Result<void> save_png(const Image& img, std::string_view path) {
     if (img.empty()) return make_error("Cannot save an empty image to '" + std::string(path) + "'");
     std::vector<std::uint8_t> png = encode_png(img);
