@@ -135,6 +135,7 @@ Untextured 2D primitive for prototypes, UI panels and debug visuals.
 | `sides` | int | `6` | polygon only: number of sides (3 = triangle, 6 = hexagon, 8 = octagon). Range 3.0..64.0. |
 | `points` | int | `5` | star only: number of tips (5 = the classic star). Range 3.0..64.0. |
 | `innerRadius` | float | `0.5` | star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, near 1 = a fat spiky polygon, near 0 = thin needles. Range 0.0..1.0. |
+| `lit` | bool | `false` | World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D). |
 
 ### Text
 
@@ -1354,11 +1355,12 @@ Script the next answer(s) the fake platform backend gives to a method: an error,
 
 Change how the fake platform backend behaves: signed in or out, and how many frames it holds its answers.
 
-`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` holds each answer for n engine frames (0, the default, answers at once), so a test can look at the "waiting" state of a screen and game.step() until the answer arrives. Give either or both. Fails when the game runs a real store backend. Example: platform.set_fake {"delayFrames":2}
+`signedIn: false` makes every method but player.signIn answer notSignedIn (and sends a `player` event); `delayFrames: n` holds each answer for n engine frames (0, the default, answers at once), so a test can look at the "waiting" state of a screen and game.step() until the answer arrives. Give any of them. `backend: "none"` makes the fake behave as the none backend (platform.has false for every service, every call rejects `unavailable`, signIn answers signed out) until platform.reset. Fails when the game runs a real store backend. Example: platform.set_fake {"delayFrames":2}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `signedIn` | boolean | no | false: the player is not signed in. |
+| `backend` | string ["fake","none"] | no | "none": behave as the none backend until platform.reset. |
 | `delayFrames` | integer | no | Frames each answer is held (0 = at once). |
 
 ### `platform.state`
@@ -1478,12 +1480,12 @@ Returns [{name, description, dimension}]. Example: {}.
 
 Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
 
-Tests run inside this engine instance and change the world; reload the scene afterwards (scene.reload). Example: project.test {"filter":"player"}
+Tests run inside this engine instance and change the world; reload the scene afterwards (scene.reload). `files` runs only those test files: project-relative paths, folders or globs such as tests/ui*.test.js (a path that is not a *.test.js file is an error that says what to pass). Example: project.test {"filter":"player","files":["tests/saves.test.js"]}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `filter` | string | no | Only run test cases whose name contains this. |
-| `files` | array | no | Test files (default: tests/*.test.js). |
+| `files` | array | no | Test files, folders or globs, project-relative (default: every tests/**/*.test.js). |
 
 ### `project.validate`
 
@@ -1833,9 +1835,9 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 
 ### `ui.state`
 
-List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton) and which has focus.
+List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.
 
-Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}
+Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space "screen") follow the widgets as {id, kind: "Text", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}
 
 
 ## Scripting API (TypeScript declarations)
@@ -2979,6 +2981,10 @@ declare module "factoria" {
      */
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world" }): { width: number; height: number };
     /**
+     * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step. Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     */
+    rectOf(entityOrId: Entity | string): Rect | null;
+    /**
      * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer. Setting a number outside 0.5 to 3 throws; clamp a saved value first. The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
      */
     textScale: number;
@@ -4044,6 +4050,10 @@ declare module "factoria" {
      * star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, near 1 = a fat spiky polygon, near 0 = thin needles.
      */
     innerRadius: number;
+    /**
+     * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     */
+    lit: boolean;
   }
   /**
    * Draws a string with a TrueType font (or the built-in font). Works in world and screen space.
@@ -5665,7 +5675,7 @@ declare module "factoria" {
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
-    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number };
+    Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
     Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
@@ -5731,6 +5741,10 @@ declare module "factoria:test" {
     toContain(item: unknown): void;
     toHaveLength(n: number): void;
     toMatch(pattern: string | RegExp): void;
+    /**
+     * Every field of `subset` is in the received object with an equal value, recursively; the object may have more fields. Arrays must have the same length and each element matches its subset.
+     */
+    toMatchObject(subset: object): void;
     toBeInstanceOf(cls: Function): void;
     toThrow(expected?: string | RegExp | Function): void;
     /**
@@ -5878,9 +5892,9 @@ declare module "factoria:test" {
      */
     reset(): void;
     /**
-     * signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
+     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
      */
-    set(options: { signedIn?: boolean; delayFrames?: number }): void;
+    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none" }): void;
     /**
      * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
      */
@@ -5943,19 +5957,22 @@ declare module "factoria:test" {
      */
     gamepad(index?: number): TestGamepad;
     mouseMove(screenPos: Vec2Like): void;
-    click(screenPos: Vec2Like, button?: "left" | "right" | "middle"): void;
+    /**
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     */
+    click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**
      * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file.
      */
     loadJson(scene: Json): void;
     /**
-     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart).
+     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */
-    touch(screenPos: Vec2Like, frames?: number): void;
+    touch(target: Vec2Like | Entity | string, frames?: number): void;
     /**
-     * Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed("left") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse.
+     * Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed("left") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse. Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */
-    touchStart(screenPos: Vec2Like, id?: number): void;
+    touchStart(target: Vec2Like | Entity | string, id?: number): void;
     /**
      * Moves a finger; the first finger drags the mouse with it.
      */

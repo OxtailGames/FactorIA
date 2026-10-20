@@ -39,6 +39,14 @@ std::string tab_value(std::string v) {  // a VDF string: quotes would end it
 
 std::string env_of(const Context& c, const char* name) { return c.options.env ? c.options.env(name) : std::string(); }
 
+// A dry run lists what is missing (the app id, an account, a secret...) as a warning and plans on with a placeholder, so it still
+// returns the steps; a real run stops with the error. Use: `if (auto e = dry_missing(c, err(...))) return *e;`.
+std::optional<Error> dry_missing(Context& c, Error e) {
+    if (!c.options.dryRun) return e;
+    c.warnings.push_back("Missing, a placeholder is used in this dry run: " + e.message + (e.hint.empty() ? std::string() : ". " + e.hint));
+    return std::nullopt;
+}
+
 std::string pointer_hint(const std::string& what, const std::string& example) {
     return "Add " + what + " to factoria.json, e.g. " + example + " (docs/EXPORTING.md, \"Uploading to stores\").";
 }
@@ -48,14 +56,17 @@ std::string pointer_hint(const std::string& what, const std::string& example) {
 constexpr unsigned kSteamTestApp = 480;  // Valve's Spacewar
 
 // The app id: the `appId` argument, else the number in steam_appid.txt, the one place the project keeps it (docs/PLATFORM.md).
-Result<std::string> steam_app_id(const Context& c) {
+Result<std::string> steam_app_id(Context& c) {
     std::string text = c.options.appId, from = "the appId argument";
     if (text.empty()) {
         const stdfs::path file = c.projectDir / "steam_appid.txt";
-        if (!is_file(file))
-            return err("steam: the game has no Steam app id: there is no steam_appid.txt in " + generic(c.projectDir) + " and no appId argument",
+        if (!is_file(file)) {
+            if (auto e = dry_missing(c, err("steam: the game has no Steam app id: there is no steam_appid.txt in " + generic(c.projectDir) + " and no appId argument",
                        "Your app id is the number in the Steamworks partner site (App Admin). Write it to steam_appid.txt with "
-                       "platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>} (the file is for development and never shipped), or pass \"appId\".");
+                       "platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>} (the file is for development and never shipped), or pass \"appId\".")))
+                return *e;
+            return std::string("MISSING_APP_ID");
+        }
         text = std::string(trim(tooling_detail::read_file(file).value_or("")));
         from = "steam_appid.txt";
     }
@@ -76,11 +87,14 @@ Result<std::vector<Job>> plan_steam(Context& c) {
     const SteamPublishSettings& s = c.settings.steam;
     auto appId = steam_app_id(c);
     if (!appId.ok()) return appId.error();
-    const std::string account = !c.options.account.empty() ? c.options.account : s.account;
-    if (account.empty())
-        return err("steam: no Steam account to upload with (factoria.json#/publish/steam/account is not set and there is no account argument)",
+    std::string account = !c.options.account.empty() ? c.options.account : s.account;
+    if (account.empty()) {
+        if (auto e = dry_missing(c, err("steam: no Steam account to upload with (factoria.json#/publish/steam/account is not set and there is no account argument)",
                    pointer_hint("the name of your Steam build account", "\"publish\": {\"steam\": {\"account\": \"mystudio_build\"}}") +
-                       " Its password is never stored: run `steamcmd +login <account>` once to enter it (and the Steam Guard code); steamcmd keeps the login.");
+                       " Its password is never stored: run `steamcmd +login <account>` once to enter it (and the Steam Guard code); steamcmd keeps the login.")))
+            return *e;
+        account = "MISSING_ACCOUNT";
+    }
     const std::string branch = !c.options.branch.empty() ? c.options.branch : s.branch;
     if (to_lower(branch) == "default")
         return err("steam: 'default' cannot be set live from an upload",
@@ -146,11 +160,14 @@ bool butler_login_exists(const Context& c) {
 }
 
 Result<std::vector<Job>> plan_itch(Context& c) {
-    const ItchPublishSettings& s = c.settings.itch;
-    if (s.game.empty())
-        return err("itch: factoria.json#/publish/itch/game is not set",
+    ItchPublishSettings s = c.settings.itch;
+    if (s.game.empty()) {
+        if (auto e = dry_missing(c, err("itch: factoria.json#/publish/itch/game is not set",
                    pointer_hint("your itch.io page", "\"publish\": {\"itch\": {\"game\": \"mystudio/space-dodge\"}}") +
-                       " That is the user and the page name of your game's address (mystudio.itch.io/space-dodge), in lower case. Create the page on itch.io first.");
+                       " That is the user and the page name of your game's address (mystudio.itch.io/space-dodge), in lower case. Create the page on itch.io first.")))
+            return *e;
+        s.game = "MISSING_USER/MISSING_GAME";
+    }
     std::vector<std::string> secrets;
     if (const std::string key = env_of(c, "BUTLER_API_KEY"); !key.empty()) secrets.push_back(key);
     else if (!butler_login_exists(c))
@@ -179,21 +196,29 @@ Result<std::vector<Job>> plan_itch(Context& c) {
 bool epic_configured(const PublishSettings& s, const std::string& platform) { return s.epic.artifacts.count(platform) > 0; }
 
 Result<std::vector<Job>> plan_epic(Context& c) {
-    const EpicPublishSettings& s = c.settings.epic;
+    EpicPublishSettings s = c.settings.epic;
     std::vector<std::string> missing;
     if (s.organizationId.empty()) missing.push_back("organizationId");
     if (s.productId.empty()) missing.push_back("productId");
     if (s.clientId.empty()) missing.push_back("clientId");
-    if (!missing.empty())
-        return err("epic: factoria.json#/publish/epic has no " + join(missing, ", "),
+    if (!missing.empty()) {
+        if (auto e = dry_missing(c, err("epic: factoria.json#/publish/epic has no " + join(missing, ", "),
                    pointer_hint("the ids of the Epic Games Dev Portal", "\"publish\": {\"epic\": {\"organizationId\": \"o-...\", \"productId\": \"...\", \"clientId\": \"...\", "
                                 "\"artifacts\": {\"windows\": \"<artifact id>\"}}}") +
-                       " The client is the Build Patch Tool credential of Product Settings; its secret goes in " + kEpicSecretVar + ".");
-    const std::string secret = env_of(c, kEpicSecretVar);
-    if (secret.empty())
-        return err(std::string("epic: the client secret is not set: ") + kEpicSecretVar + " is empty",
+                       " The client is the Build Patch Tool credential of Product Settings; its secret goes in " + kEpicSecretVar + ".")))
+            return *e;
+        if (s.organizationId.empty()) s.organizationId = "MISSING_ORGANIZATION_ID";
+        if (s.productId.empty()) s.productId = "MISSING_PRODUCT_ID";
+        if (s.clientId.empty()) s.clientId = "MISSING_CLIENT_ID";
+    }
+    std::string secret = env_of(c, kEpicSecretVar);
+    if (secret.empty()) {
+        if (auto e = dry_missing(c, err(std::string("epic: the client secret is not set: ") + kEpicSecretVar + " is empty",
                    std::string("Set the environment variable ") + kEpicSecretVar + " to the client secret of your Build Patch Tool credential (Dev Portal > Product Settings > General). "
-                   "It is passed to the tool by name (-ClientSecretEnvVar), so it never appears on a command line or in a log.");
+                   "It is passed to the tool by name (-ClientSecretEnvVar), so it never appears on a command line or in a log.")))
+            return *e;
+        secret = "MISSING_CLIENT_SECRET";
+    }
     static const std::regex versionRe("^[A-Za-z0-9.+_-]{1,100}$");
     if (!std::regex_match(c.version, versionRe))
         return err("epic: the version '" + c.version + "' of factoria.json cannot be an Epic BuildVersion",
@@ -241,11 +266,14 @@ Result<std::vector<Job>> plan_epic(Context& c) {
 // ---- GOG --------------------------------------------------------------------------------------------------
 
 Result<std::vector<Job>> plan_gog(Context& c) {
-    const GogPublishSettings& s = c.settings.gog;
-    if (s.productId.empty())
-        return err("gog: factoria.json#/publish/gog/productId is not set",
+    GogPublishSettings s = c.settings.gog;
+    if (s.productId.empty()) {
+        if (auto e = dry_missing(c, err("gog: factoria.json#/publish/gog/productId is not set",
                    pointer_hint("the product id of your game", "\"publish\": {\"gog\": {\"productId\": \"1234567890\"}}") +
-                       " It is in the GOG Developer Portal (your game > Product details).");
+                       " It is in the GOG Developer Portal (your game > Product details).")))
+            return *e;
+        s.productId = "MISSING_PRODUCT_ID";
+    }
     if (to_lower(c.options.branch) == "master")
         return err("gog: Pipeline Builder cannot publish to the Master branch",
                    "Upload to a private branch (\"branch\": \"<name>\"), or none, and publish the build from the GOG Developer Portal (Builds & Branches).");
@@ -308,34 +336,46 @@ std::string env_first(const Context& c, const char* a, const char* b) {
 }
 
 Result<std::vector<Job>> plan_appstore(Context& c) {
-    const AppStorePublishSettings& s = c.settings.appstore;
-    if (s.appleId.empty())
-        return err("appstore: factoria.json#/publish/appstore/appleId is not set",
+    AppStorePublishSettings s = c.settings.appstore;
+    if (s.appleId.empty()) {
+        if (auto e = dry_missing(c, err("appstore: factoria.json#/publish/appstore/appleId is not set",
                    pointer_hint("the Apple ID of your app", "\"publish\": {\"appstore\": {\"appleId\": \"6448277777\"}}") +
                        " It is the number under App Store Connect > your app > App Information > General Information > Apple ID. Create the app there first (My Apps > +) "
-                       "with the bundle id " + (c.bundleId.empty() ? std::string("of your game") : c.bundleId) + ".");
-    if (c.bundleId.empty())
-        return err("appstore: factoria.json#/id is not set", "Add \"id\": \"com.mystudio.mygame\" (the bundle id of the app in App Store Connect) to factoria.json.");
+                       "with the bundle id " + (c.bundleId.empty() ? std::string("of your game") : c.bundleId) + ".")))
+            return *e;
+        s.appleId = "MISSING_APPLE_ID";
+    }
+    if (c.bundleId.empty()) {
+        if (auto e = dry_missing(c, err("appstore: factoria.json#/id is not set", "Add \"id\": \"com.mystudio.mygame\" (the bundle id of the app in App Store Connect) to factoria.json.")))
+            return *e;
+        c.bundleId = "MISSING.BUNDLE.ID";
+    }
     static const std::regex versionRe("^[0-9]+(\\.[0-9]+){0,2}$");
     if (!std::regex_match(c.version, versionRe))
         return err("appstore: the version '" + c.version + "' of factoria.json cannot be an iOS version (CFBundleShortVersionString)",
                    "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in factoria.json and export the game for iOS again.");
 
-    const std::string keyPath = env_first(c, kAppStoreKeyVar, "FACTORIA_NOTARY_API_KEY");
-    const std::string keyId = env_first(c, kAppStoreKeyIdVar, "FACTORIA_NOTARY_API_KEY_ID");
-    const std::string issuer = env_first(c, kAppStoreIssuerVar, "FACTORIA_NOTARY_API_ISSUER");
+    std::string keyPath = env_first(c, kAppStoreKeyVar, "FACTORIA_NOTARY_API_KEY");
+    std::string keyId = env_first(c, kAppStoreKeyIdVar, "FACTORIA_NOTARY_API_KEY_ID");
+    std::string issuer = env_first(c, kAppStoreIssuerVar, "FACTORIA_NOTARY_API_ISSUER");
     std::vector<std::string> missing;
     if (keyPath.empty()) missing.push_back(std::string(kAppStoreKeyVar) + " (the path of the .p8 file)");
     if (keyId.empty()) missing.push_back(std::string(kAppStoreKeyIdVar) + " (the Key ID)");
     if (issuer.empty()) missing.push_back(std::string(kAppStoreIssuerVar) + " (the Issuer ID)");
-    if (!missing.empty())
-        return err("appstore: the App Store Connect API key is not set: " + join(missing, ", "),
+    const bool keyMissing = !missing.empty();
+    if (keyMissing) {
+        if (auto e = dry_missing(c, err("appstore: the App Store Connect API key is not set: " + join(missing, ", "),
                    "Create a key in App Store Connect > Users and Access > Integrations > App Store Connect API (Team Keys, role App Manager), download the AuthKey_<KeyID>.p8 "
-                   "(Apple lets you download it once) and set these variables. The Issuer ID is on the same page. The key is a file outside the project; nothing of it is written to the project or shown.");
+                   "(Apple lets you download it once) and set these variables. The Issuer ID is on the same page. The key is a file outside the project; nothing of it is written to the project or shown.")))
+            return *e;
+        if (keyPath.empty()) keyPath = "MISSING_KEY_PATH/AuthKey_MISSING.p8";
+        if (keyId.empty()) keyId = "MISSING";
+        if (issuer.empty()) issuer = "MISSING_ISSUER_ID";
+    }
     const stdfs::path key(tooling_detail::expand_home(keyPath, c.options.env));
-    if (!is_file(key))
+    if (!keyMissing && !is_file(key))
         return err("appstore: " + std::string(kAppStoreKeyVar) + " is '" + keyPath + "', which is not a file", "Set it to the path of the AuthKey_" + keyId + ".p8 you downloaded from App Store Connect.");
-    if (key.filename().string() != "AuthKey_" + keyId + ".p8")
+    if (!keyMissing && key.filename().string() != "AuthKey_" + keyId + ".p8")
         return err("appstore: the key file is named '" + key.filename().string() + "', but altool finds a key by the name AuthKey_" + keyId + ".p8",
                    "Keep the name Apple gave the file (AuthKey_<KeyID>.p8) or rename it to AuthKey_" + keyId + ".p8; " + kAppStoreKeyIdVar + " is its Key ID.");
 
@@ -362,8 +402,11 @@ const char* const kPlayKeyVar = "FACTORIA_GOOGLEPLAY_JSON_KEY";
 
 Result<std::vector<Job>> plan_googleplay(Context& c) {
     const GooglePlayPublishSettings& s = c.settings.googleplay;
-    if (c.bundleId.empty())
-        return err("googleplay: factoria.json#/id is not set", "Add \"id\": \"com.mystudio.mygame\" (the package name of the app in the Play Console) to factoria.json.");
+    if (c.bundleId.empty()) {
+        if (auto e = dry_missing(c, err("googleplay: factoria.json#/id is not set", "Add \"id\": \"com.mystudio.mygame\" (the package name of the app in the Play Console) to factoria.json.")))
+            return *e;
+        c.bundleId = "MISSING.PACKAGE.NAME";
+    }
     const std::string track = !c.options.track.empty() ? c.options.track : s.track;
     static const std::regex trackRe("^[A-Za-z0-9_.-]{1,64}$");
     if (!std::regex_match(track, trackRe))
@@ -387,15 +430,19 @@ Result<std::vector<Job>> plan_googleplay(Context& c) {
         c.warnings.push_back("export.android.signing has no keystore in factoria.json, so FactorIA cannot tell how " + file + " was signed: Google Play rejects a bundle signed with the debug key.");
     }
 
-    const std::string keyValue = env_first(c, kPlayKeyVar, "SUPPLY_JSON_KEY");
-    if (keyValue.empty())
-        return err(std::string("googleplay: the service account key is not set: ") + kPlayKeyVar + " is empty",
+    std::string keyValue = env_first(c, kPlayKeyVar, "SUPPLY_JSON_KEY");
+    const bool keyMissing = keyValue.empty();
+    if (keyMissing) {
+        if (auto e = dry_missing(c, err(std::string("googleplay: the service account key is not set: ") + kPlayKeyVar + " is empty",
                    std::string("Create a service account in Google Cloud, give it access in the Play Console (Users and permissions > Invite new users, with permission to release to the track), "
-                               "create a JSON key for it, and set ") + kPlayKeyVar + " to the path of that file (outside the project; it is a secret and is never written or shown).");
+                               "create a JSON key for it, and set ") + kPlayKeyVar + " to the path of that file (outside the project; it is a secret and is never written or shown).")))
+            return *e;
+        keyValue = "MISSING_KEY.json";
+    }
     const stdfs::path key(tooling_detail::expand_home(keyValue, c.options.env));
-    if (!is_file(key))
+    if (!keyMissing && !is_file(key))
         return err(std::string("googleplay: ") + kPlayKeyVar + " is '" + keyValue + "', which is not a file", "Set it to the path of the service account's JSON key.");
-    auto keyJson = parse_json(tooling_detail::read_file(key).value_or(""), generic(key));
+    auto keyJson = keyMissing ? Result<Json>(Json::object({{"type", "service_account"}})) : parse_json(tooling_detail::read_file(key).value_or(""), generic(key));
     if (!keyJson.ok() || !keyJson->is_object() || keyJson->value("type", std::string()) != "service_account")
         return err("googleplay: " + generic(key) + " is not a service account key (its \"type\" must be \"service_account\")",
                    "Google Cloud console > IAM > Service accounts > your account > Keys > Add key > JSON. A client secret or an OAuth file does not work.");

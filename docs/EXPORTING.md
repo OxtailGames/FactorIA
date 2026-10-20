@@ -104,6 +104,19 @@ repository. Those are the files no game reads, on every platform and with or wit
 `fa/tooling/export.h`. Only the TOP-LEVEL `README.md` is left out: a `README.md`, `CREDITS.md` or `LICENSE` deeper in the project, or a data
 file of any kind, ships, because a game may load it.
 
+**Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
+left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder
+instead. To leave out more, list project-relative globs in `export.exclude` of `factoria.json`:
+
+```json
+{ "export": { "exclude": ["store/**", "levels/*.tmx", "notes"] } }
+```
+
+`*` matches inside one folder, `**` crosses folders, `?` is one character; a glob that names a folder leaves out everything in
+it. The globs apply to every export (the game folder, `game.pak`, web, Android, iOS) and are added to the list above. Paths are
+project-relative with forward slashes and may not leave the project. `factoria validate` checks them: a glob that matches no
+file is a warning (probably a typo), one that matches the main scene is an error. Your project is never modified.
+
 Audio import settings (`assets.json`, [ASSETS.md](ASSETS.md)) act at export time: a WAV with `convert: "qoa"` ships as
 `<path>.qoa` (the engine plays that twin when the original is missing; the converted file is cached in
 `.factoria/export-cache/<platform>/audio/`, so only changed sounds are encoded again), and the shipped `assets.json`
@@ -386,6 +399,7 @@ darken) when it shrinks the image, and is bilinear when it enlarges it.
 | iOS | `buildNumber` | the project's `version` | `CFBundleVersion` (`version` stays `CFBundleShortVersionString`): up to three whole numbers separated by dots. App Store Connect wants it to grow with every upload. |
 | iOS | `usesNonExemptEncryption` | `false` | `ITSAppUsesNonExemptEncryption` in `Info.plist`. `true` only when the game uses encryption beyond what iOS provides (HTTPS and other system encryption are exempt). |
 | iOS | `privacy` | the engine's entries only | What the game adds to `PrivacyInfo.xcprivacy`: `tracking`, `trackingDomains`, `accessedApis` (`[{"category": "DiskSpace", "reasons": ["E174.1"]}]`), `collectedData` (`[{"type": "PurchaseHistory", "linked": true, "purposes": ["AppFunctionality"]}]`). The categories, reason codes, data types and purposes are in [MOBILE.md](MOBILE.md#store-privacy-forms). Edited in `factoria.json` only (the editor's window leaves it as it is). |
+| All | `export.exclude` (directly in `export`) | `[]` | Project-relative globs no export ships, see [What is shipped](#what-is-shipped-and-what-is-not). |
 | Desktop | `export.scriptBytecode` (directly in `export`, not per platform) | `true` | A `--release` export of Linux, Windows or macOS compiles the scripts to bytecode inside `game.pak`; `false` packs them as plain source. See [Scripts as bytecode](#scripts-as-bytecode). |
 
 `windows` only has `icon`. Wrong types or values are errors that name the JSON pointer and the fix
@@ -1046,7 +1060,7 @@ Arguments (all optional; every command has `dryRun`):
 | `platforms` | `["windows","macos","linux"]` (`win`, `mac`, `osx` also work). Default: every platform that has an export folder and is set up for this store in `factoria.json`; the others are skipped with a warning. Naming one that is not ready is an error. |
 | `out` | Parent folder of the exports, inside the project (default `build/export`, the `out` of `project.export`). |
 | `folders` | `{"windows": "dist/win"}`: upload another folder (inside the project) for a platform. Wins over `out`. |
-| `dryRun` | `true`: write the build files and return the exact command lines and what would be uploaded where. Nothing is started or sent. |
+| `dryRun` | `true`: write the build files and return the exact command lines and what would be uploaded where. Nothing is started or sent. A missing uploader, secret, account or id (the Steam app id, the Epic ids...) is a warning, not an error: the plan is returned with the missing value shown as a placeholder (`MISSING_...`, and the tool's bare name), so you see the steps before you set anything up. |
 | `account`, `appId`, `branch` | `publish.steam` only: the Steam account (default `publish.steam.account`), the app id (default the number in `steam_appid.txt`) and the beta branch to set live (default `publish.steam.branch`). |
 | `branch` | `publish.gog` only: the GOG branch to put the build on (Pipeline Builder `--branch`). |
 | `artifact` | `publish.appstore` and `publish.googleplay` only: the `.ipa` / `.aab` to upload, inside the project. They take no `platforms` or `folders`. |
@@ -1334,6 +1348,17 @@ date). GitHub reads workflows only from the repository root: for a game in a sub
 move the file to `<repository>/.github/workflows/` (the result warns when the game is inside a larger git repository). The
 result is `{path, written, dryRun, version, repo, platforms[], workflow, warnings[], nextSteps[]}`, `workflow` being the
 YAML. The workflow runs the same `factoria` commands you run by hand: when a CI export fails, run the failing step locally.
+
+**Smoke-testing the exported game.** `factoria_player --frames N` draws N frames of the game and exits: `0` when it ran, `1`
+when a script raised an error by then (the errors are logged), and a non-zero code from the operating system when it crashed.
+`2` means a bad option. It works on the player inside an export, so a CI step can start the game it just built:
+
+```bash
+build/export/my-game-linux/my-game --frames 120          # xvfb-run -a ... on a machine without a display
+```
+
+The game opens a window like a normal run, so on a Linux runner start it with `xvfb-run -a` (the `check` job already installs
+what it needs). `factoria run --headless --frames N` does the same check without a window or the export.
 
 ## Tips
 

@@ -43,6 +43,9 @@ void QuadList::flatten(std::vector<Vertex2D>& out, std::vector<QuadBatch>& batch
     for (const QuadItem& it : items) {
         std::uint32_t firstQuad = std::uint32_t(out.size() / 4);
         out.insert(out.end(), raw.begin() + it.firstVert, raw.begin() + it.firstVert + std::size_t(it.quadCount) * 4);
+        if (it.lit)  // shapes: textured / circle / ring quads of a lit item are shaded too (shader mode + 16)
+            for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i)
+                if (out[i].mode < float(kModeLit)) out[i].mode += 16.0f;
         if (it.blend == BlendMode::Multiply)  // shader variant: output mix(1, rgb, a) for the multiply blend
             for (std::size_t i = std::size_t(firstQuad) * 4; i < out.size(); ++i) out[i].mode += 8.0f;
         // Textures packed into one atlas share its GPU image, so their quads batch together.

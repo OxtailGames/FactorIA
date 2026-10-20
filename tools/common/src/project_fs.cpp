@@ -17,6 +17,8 @@ using tooling_detail::arg_int;
 using tooling_detail::arg_string;
 
 namespace {
+using tooling_detail::glob_match;
+
 
 constexpr std::uintmax_t kMaxReadBytes = 1 << 20;     // 1 MiB per fs.read
 constexpr std::uintmax_t kMaxWriteBytes = 8u << 20;   // 8 MiB per fs.write
@@ -83,28 +85,6 @@ std::string lines_slice(const std::string& text, long from, long to, bool number
     }
     *totalOut = n;
     return out;
-}
-
-// Simple glob: '*' (not '/'), '**' (anything), '?'.
-bool glob_match(std::string_view pat, std::string_view s) {
-    if (pat.empty()) return s.empty();
-    if (pat.substr(0, 2) == "**") {
-        std::string_view rest = pat.substr(2);
-        if (!rest.empty() && rest[0] == '/') rest.remove_prefix(1);
-        for (size_t i = 0; i <= s.size(); ++i)
-            if (glob_match(rest, s.substr(i))) return true;
-        return false;
-    }
-    if (pat[0] == '*') {
-        for (size_t i = 0; i <= s.size(); ++i) {
-            if (glob_match(pat.substr(1), s.substr(i))) return true;
-            if (i < s.size() && s[i] == '/') break;
-        }
-        return false;
-    }
-    if (s.empty()) return false;
-    if (pat[0] == '?' ? s[0] != '/' : pat[0] == s[0]) return glob_match(pat.substr(1), s.substr(1));
-    return false;
 }
 
 Json str_prop(const char* desc) { return Json::object({{"type", "string"}, {"description", desc}}); }

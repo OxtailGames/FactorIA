@@ -61,6 +61,8 @@ Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, 
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
 that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
+The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)).
+
 `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
@@ -143,8 +145,10 @@ Same seed + same input = same state and pixels.
 ### `factoria screenshot [project] [--frames N] [--out shot.png] [--json]`
 Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.factoria/screenshots/shot.png`).
 
-### `factoria test [project] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
-Runs `tests/**/*.test.js` on a headless engine; prints one line per test, failure messages with expected/actual and
+### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
+Runs `tests/**/*.test.js` on a headless engine (or only the files, folders or globs named after the project, relative to
+it: `factoria test tests/saves.test.js`, `factoria test my-game "tests/ui*.test.js"`; a path that is not a `*.test.js`
+file is an error); prints one line per test, failure messages with expected/actual and
 the totals. Exit 1 if a test fails or a test file does not load. Tests simulate every frame but only draw when a
 screenshot is taken (`--render-all` draws every frame; much slower with software rendering), `storage.*` is in memory,
 and the same commands as `factoria call` (including `fs.*`) are available to scripts via `fa.call(name, args)`.

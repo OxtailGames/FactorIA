@@ -11,6 +11,38 @@
 
 namespace fa::tooling_detail {
 
+// Simple glob: '*' (not '/'), '**' (anything), '?'.
+bool glob_match(std::string_view pat, std::string_view s) {
+    if (pat.empty()) return s.empty();
+    if (pat.substr(0, 2) == "**") {
+        std::string_view rest = pat.substr(2);
+        if (!rest.empty() && rest[0] == '/') rest.remove_prefix(1);
+        for (size_t i = 0; i <= s.size(); ++i)
+            if (glob_match(rest, s.substr(i))) return true;
+        return false;
+    }
+    if (pat[0] == '*') {
+        for (size_t i = 0; i <= s.size(); ++i) {
+            if (glob_match(pat.substr(1), s.substr(i))) return true;
+            if (i < s.size() && s[i] == '/') break;
+        }
+        return false;
+    }
+    if (s.empty()) return false;
+    if (pat[0] == '?' ? s[0] != '/' : pat[0] == s[0]) return glob_match(pat.substr(1), s.substr(1));
+    return false;
+}
+
+bool export_excluded(const std::vector<std::string>& globs, std::string_view rel) {
+    for (const std::string& g : globs) {
+        for (std::size_t end = rel.find('/'); ; end = rel.find('/', end + 1)) {
+            if (glob_match(g, rel.substr(0, end))) return true;
+            if (end == std::string_view::npos) break;
+        }
+    }
+    return false;
+}
+
 std::string today_utc() {
     std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     std::tm tm{};

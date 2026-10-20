@@ -1,7 +1,7 @@
 // @ts-check
 // The lantern bearer: run with move_left / move_right, jump with jump. Dying (spikes, enemies, falling) is level.js's
 // die(); this script only forwards to it, so every death goes through one function.
-import { Behaviour, input, audio, physics, vec2 } from "factoria";
+import { Behaviour, input, audio } from "factoria";
 
 export default class Player extends Behaviour {
   /** Horizontal speed in pixels per second. */
@@ -17,19 +17,11 @@ export default class Player extends Behaviour {
     this.facing = 1;
   }
 
-  /** Horizontal speed of the moving platform under the feet (0 on anything else). */
-  groundVelocity() {
-    const p = this.entity.position;
-    const hit = physics.raycast(vec2(p.x, p.y - 20), vec2(p.x, p.y - 32), { ignore: this.entity });
-    const body = hit?.entity.get("RigidBody2D");
-    return body && body.type === "kinematic" ? body.velocity.x : 0;
-  }
-
   onUpdate() {
     const dir = input.axis("move_left", "move_right");
     const grounded = this.entity.isGrounded();
-    // Kinematic platforms do not drag a body with no friction: the player adds their speed to its own.
-    this.body.velocity.x = dir * this.speed + (grounded ? this.groundVelocity() : 0);
+    // On a moving platform the velocity is relative to it: the engine carries the player.
+    this.body.velocity.x = dir * this.speed;
     if (dir !== 0 && Math.sign(dir) !== this.facing) {
       this.facing = Math.sign(dir);
       if (this.lantern) this.lantern.position.x = this.facing * this.lanternOffset;

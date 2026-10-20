@@ -140,7 +140,9 @@ struct Fixture {
         REQUIRE(r.ok());
         return std::move(r.value());
     }
-    Error fails(const PublishOptions& o) const {
+    // A real run (not a dry run) stops at what is missing; a dry run only warns about it (see "publish dry run: a missing ...").
+    Error fails(PublishOptions o) const {
+        o.dryRun = false;
         auto r = publish_project(o);
         REQUIRE_FALSE(r.ok());
         return r.error();
@@ -1228,4 +1230,39 @@ TEST_CASE("publish commands: they are registered with the other tooling commands
     CommandRegistry reg;
     register_tooling_commands(reg, f.dir);
     for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog", "publish.appstore", "publish.googleplay"}) CHECK_MESSAGE(reg.has(name), name);
+}
+
+TEST_CASE("publish dry run: a missing uploader, secret or app id is a warning and the plan is still returned") {
+    // Steam: no steamcmd, no steam_appid.txt, no account.
+    {
+        Fixture f(R"({"publish": {"steam": {"depots": {"windows": 5}}}})");
+        stdfs::remove(f.dir + "/steam_appid.txt");
+        f.vars.erase("FACTORIA_STEAMCMD");
+        PublishOptions o = f.options("steam");
+        o.dryRun = true;
+        o.platforms = {"windows"};
+        const PublishReport r = f.ok(o);
+        REQUIRE(r.steps.size() == 1);
+        CHECK(r.steps[0].command[0] == "steamcmd");
+        const std::string warnings = r.to_json()["warnings"].dump();
+        CHECK(has(warnings, "steamcmd was not found"));
+        CHECK(has(warnings, "no Steam app id"));
+        CHECK(has(warnings, "no Steam account"));
+        o.dryRun = false;  // a real run still stops at the first missing thing
+        CHECK(has(f.fails(o).message, "steamcmd was not found"));
+    }
+    // Epic: no ids and no secret.
+    {
+        Fixture f(R"({"publish": {"epic": {"artifacts": {"windows": "art"}}}})");
+        PublishOptions o = f.options("epic");
+        o.dryRun = true;
+        o.platforms = {"windows"};
+        const PublishReport r = f.ok(o);
+        REQUIRE(r.steps.size() == 1);
+        const std::string warnings = r.to_json()["warnings"].dump();
+        CHECK(has(warnings, "has no organizationId, productId, clientId"));
+        CHECK(has(warnings, "client secret is not set"));
+        o.dryRun = false;
+        CHECK(has(f.fails(o).message, "has no organizationId"));
+    }
 }

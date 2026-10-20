@@ -212,6 +212,8 @@ public:
     void set_backend(std::unique_ptr<PlatformBackend> backend, std::string why = {});
     PlatformBackend& backend() const;
     const std::string& backend_why() const { return why_; }
+    // Re-reads the backend's name and services (the fake changes them with set_none and reset).
+    void refresh_backend();
     FakeBackend* fake() const;  // the backend when it is the fake, else nullptr
     bool has_service(const std::string& service) const;
 

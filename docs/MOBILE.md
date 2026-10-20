@@ -599,9 +599,13 @@ with `"jump": ["Space", "GamepadA"]`, `"move_left": ["A", "GamepadLeftStickLeft"
   not make `input.lastDevice` `"gamepad"`, so button prompts stay on touch. A mouse click does not press the controls.
   The stick is fixed where it is drawn (no floating stick that appears under the thumb).
 
-Test it headless like any touch: `game.touchStart([x, y])`, `game.touchMove`, `game.touchEnd` (or the command
+Test it headless like any touch: `game.touchStart("jump")`, `game.touchMove`, `game.touchEnd` (or the command
 `game.input {"touch": ...}`) on the control's rectangle, then check the action (`input.vector("move_left", "move_right",
-"move_down", "move_up")`).
+"move_down", "move_up")`). `game.touch`, `game.touchStart` and `game.click` take a widget id or an Entity in place of a
+position and use the centre of its laid-out rectangle, safe area included; `ui.rectOf(id)` (or the `rect` of `ui.state`)
+gives the rectangle itself. Controls anchored to the safe area move with it, so never tap fixed coordinates under a
+notch. The rectangles follow `game.setSafeArea` / `screen.set_safe_area` one step later: take a `game.step(1)` after
+changing the safe area and before reading a rectangle or touching a control.
 
 ## Phone features
 

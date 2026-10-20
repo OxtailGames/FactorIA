@@ -536,6 +536,7 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
     const Json& exp = *it;
     std::vector<std::string> known(std::begin(kPlatformNames), std::end(kPlatformNames));
     known.push_back("scriptBytecode");
+    known.push_back("exclude");
     r.unknown_keys(exp, "/export", known);
     if (auto b = exp.find("scriptBytecode"); b != exp.end() && !b->is_null()) {
         if (!b->is_boolean())
@@ -544,6 +545,23 @@ ExportSettingsParse parse_export_settings(const Json& pj) {
                     "(the default, true, compiles them to bytecode).");
         else
             s.scriptBytecode = b->get<bool>();
+    }
+    if (auto ex = exp.find("exclude"); ex != exp.end() && !ex->is_null()) {
+        const std::string hint = "Write a list of project-relative globs, e.g. \"exclude\": [\"store/**\", \"levels/*.tmx\"].";
+        if (!ex->is_array()) {
+            r.error("/export/exclude", "expected an array of glob strings, got " + describe_json_value(*ex), hint);
+        } else {
+            for (std::size_t i = 0; i < ex->size(); ++i) {
+                const std::string ptr = "/export/exclude/" + std::to_string(i);
+                if (!(*ex)[i].is_string()) {
+                    r.error(ptr, "expected a glob string, got " + describe_json_value((*ex)[i]), hint);
+                    continue;
+                }
+                std::string g = (*ex)[i].get<std::string>();
+                if (g.empty()) r.error(ptr, "the glob is empty", hint);
+                else if (r.check_path(ptr, g, false)) s.exclude.push_back(g);
+            }
+        }
     }
     if (const Json* o = r.object_member(exp, "/export", "windows", "{\"icon\": \"assets/icon.png\"}")) r.windows(*o, "/export/windows", s.windows);
     if (const Json* o = r.object_member(exp, "/export", "macos", "{\"category\": \"public.app-category.games\"}")) r.macos(*o, "/export/macos", s.macos);

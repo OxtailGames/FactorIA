@@ -69,6 +69,10 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
     const auto targets = [&](const char* platform) { return std::find(platforms.begin(), platforms.end(), platform) != platforms.end(); };
     const bool mobile = targets("android") || targets("ios");
 
+    Json manifest = Json::object();
+    if (auto text = tooling_detail::read_file(stdfs::path(projectDir) / assets::kManifestFile))
+        if (auto m = parse_json(*text, assets::kManifestFile); m.ok() && m->is_object()) manifest = std::move(*m);
+
     std::uint64_t total = 0;
     for (const std::string& rel : export_detail::list_game_files(projectDir, feedbackFile)) {
         std::error_code ec;
@@ -85,6 +89,9 @@ void check_shipped_assets(const std::string& projectDir, std::vector<ValidationI
         }
         int width = 0, height = 0;
         if (kind != assets::AssetKind::Texture || !image_size(stdfs::path(projectDir) / rel, width, height)) continue;
+        if (mobile && !export_detail::texture_block_compressed(manifest, rel, width, height))
+            warnings.push_back({rel, "", std::format("{}x{} px: ", width, height) + export_detail::not_block_sized_message({rel}),
+                                "factoria.json lists a mobile platform, where textures are GPU-compressed on export."});
         const int side = std::max(width, height);
         if (side > kMaxTextureSide)
             warnings.push_back({rel, "", std::format("This texture is {}x{} px: many mobile GPUs cannot sample a texture over {} px on a side.", width, height, kMaxTextureSide),
