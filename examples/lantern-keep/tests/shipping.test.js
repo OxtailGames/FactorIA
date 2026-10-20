@@ -1,13 +1,14 @@
 import { test, expect, game } from "factoria:test";
-import { fa, assets, time, input, screen } from "factoria";
+import { fa, assets, time, input, screen, ui } from "factoria";
 import { loadLevel } from "./helpers/autoplay.js";
 
 // The on-screen gamepad (landscape phone) and the project settings the exports rely on.
-// Design size 1280x720. Control rectangles (x, y from the top-left, +Y down) from prefabs/ui/touch_controls.prefab.json:
-const LEFT = [100, 620];
-const RIGHT = [244, 620];
-const JUMP = [1170, 610];
-const PAUSE = [1224, 96];
+// The controls are touched by id (the centre of their laid-out rectangle, safe area included), see
+// prefabs/ui/touch_controls.prefab.json.
+const LEFT = "touch_left";
+const RIGHT = "touch_right";
+const JUMP = "touch_jump";
+const PAUSE = "touch_pause";
 
 const project = () => JSON.parse(fa.call("fs.read", { path: "factoria.json" }).content);
 
@@ -66,7 +67,11 @@ test("the touch controls stay inside the safe area of a notched phone, and still
   const player = start();
   game.setSafeArea("phone-landscape");
   game.step(2);
-  const widgets = Object.fromEntries(fa.call("ui.state", {}).widgets.map((w) => [w.id, w.rect]));
+  const rect = (id) => {
+    const r = ui.rectOf(id);
+    return [r.x, r.y, r.w, r.h];
+  };
+  const widgets = Object.fromEntries(["touch_left", "touch_right", "touch_jump", "touch_pause"].map((id) => [id, rect(id)]));
   const safe = screen.safeArea;
   expect(safe.x).toBeGreaterThan(40);
   expect(widgets.touch_left[0]).toBeGreaterThanOrEqual(safe.x);
@@ -76,9 +81,8 @@ test("the touch controls stay inside the safe area of a notched phone, and still
   // the HUD texts are anchored to the safe area too
   for (const id of ["hud_level", "hud_timer", "hud_embers"]) expect(game.find(id).get("Text").safeArea).toBe(true);
   // a finger in the middle of the moved right button still runs the player
-  const [x, y, w, h] = widgets.touch_right;
   const x0 = player.position.x;
-  game.touchStart([x + w / 2, y + h / 2], 1);
+  game.touchStart(RIGHT, 1);
   game.step(20);
   game.touchEnd(1);
   expect(player.position.x).toBeGreaterThan(x0 + 60);

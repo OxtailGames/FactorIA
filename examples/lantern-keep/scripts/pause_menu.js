@@ -2,11 +2,10 @@
 // Put this behaviour on one entity of every level: the "pause" action (Escape, P, gamepad Start) pauses the game and
 // opens the pause menu. game.paused freezes physics, animations and the other scripts; this one keeps running
 // (runWhilePaused) to drive the menu and its options panel.
-import { Behaviour, ui, input, game, world, i18n } from "factoria";
+import { Behaviour, ui, input, game, world } from "factoria";
 import { openMenu } from "./flow.js";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
-import { fitWidgets } from "./ui/text_fit.js";
 
 export default class PauseMenu extends Behaviour {
   runWhilePaused = true;
@@ -20,10 +19,6 @@ export default class PauseMenu extends Behaviour {
       panel.id = id; // MenuStack shows panels by id
       panel.active = false;
     }
-    // The pause panel is built here: fit its buttons to the text size now, after a language change and when it opens
-    // (the text size may have changed in Options). The options panel fits itself.
-    this.fitPause = () => fitWidgets(world.find("pause_panel"));
-    i18n.on("change", this.fitPause);
     ui.on("click", "resume", () => this.resume());
     ui.on("click", "pause_options", () => this.menus.show("options"));
     ui.on("click", "to_main_menu", () => {
@@ -49,7 +44,6 @@ export default class PauseMenu extends Behaviour {
 
   pause() {
     game.paused = true;
-    this.fitPause();
     this.menus.show("pause_panel");
   }
 

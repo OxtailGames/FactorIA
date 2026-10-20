@@ -760,6 +760,51 @@ Found on the way:
 - `editor_autotest` can time out (300 s) when `ctest` runs while other builds load the machine; alone it passes in
   about 40 s.
 
+## M24.7-M24.14. Found by the reference game, last eight packages — DONE (PRs #103-#110)
+
+Closes LK/FB-0003, LK/FB-0006, LK/FB-0007, LK/FB-0008, LK/FB-0010, LK/FB-0011, LK/FB-0012, LK/FB-0015, LK/FB-0016,
+LK/FB-0018, LK/FB-0019, LK/FB-0020, LK/FB-0021, LK/FB-0024, LK/FB-0025, LK/FB-0026, LK/FB-0028, LK/FB-0031, LK/FB-0035,
+LK/FB-0040, LK/FB-0041 and LK/FB-0044. Each entry has a `Fixed in <commit>` note; Lantern Keep dropped the workarounds in
+the `m24/bookkeeping-2` PR.
+
+- M24.7 Test helpers (PR #105, `da5f957`): `game.platform.set({ backend: "none" })` makes the fake store behave as the
+  none backend until `reset()`, and `platform.set_fake` refuses unknown options with a did-you-mean.
+  `expect(x).toMatchObject(subset)`; a `not a function` TypeError shows its source line with a caret. `factoria test
+  [project] <file|folder|glob>...` and MCP `project.test` `files` run only those test files. `game.click` / `touch` /
+  `touchStart` take a widget id or an Entity; `ui.state` lists screen-space `Text`, and `ui.rectOf(entityOrId)` gives the
+  laid-out rectangle in scripts. Docs say a `world.emit` from a test reaches listeners at the next `game.step`.
+- M24.8 Widgets that fit their labels (PR #109, `7506b4b`): opt-in `autoSize` on `Button`, `Toggle` and `Slider` (at least the
+  design `size`, grown to the label at the current text scale and language; the design size is remembered). Multi-line
+  button labels are centred per line, `Button.maxWidth` wraps and a label that still does not fit is clipped.
+  `ScrollList.fill` takes the height a column leaves; a `fit` Panel larger than the screen warns once (and in `factoria
+  validate`). Headless runs scale text measures by `ui.textScale`.
+- M24.9 Export and publish checks (PR #104, `343a7b8`): `export.exclude` globs leave files out of every export, checked
+  by `factoria validate`; `publish.<store> {dryRun: true}` plans with a warning and a `MISSING_*` placeholder for each
+  missing tool, secret or id; `factoria_player --frames N` exits 0, or 1 after a script error; validate warns about
+  textures that are not multiples of 4 for mobile; new projects ignore `build/`.
+- M24.10 ASCII levels keep prefab references (PR #106, `7c29612`): in file mode `scene.import_ascii` writes legend
+  objects and the base scene's prefab entries as prefab references (an entity `edits` touches is written expanded), so a
+  prefab edit reaches every level without a re-import; `legendFrom` shares a legend between maps.
+- M24.11 2D lit shapes and moving platforms (PR #103, `3768d21`): `Shape2D.lit` (every shape type, flat); a dynamic body
+  resting on a kinematic `RigidBody2D` is carried by it, its `velocity` relative to the platform, as in 3D.
+- M24.12 Entity activation (PR #107, `f4071e7`): `onEnable()` / `onDisable()` on every show and hide, the first time
+  after `onStart`; they and `onStart` of a script-activated entity run before the frame is drawn
+  (`ScriptSystem::settle_activation()` after `late_update`, at most 8 rounds); an inactive entity with a `Script` has its
+  behaviour at once.
+- M24.13 Right-to-left layouts (PR #110, `2320973`): `Text.align` `start` / `end` follow the language's direction (`left` /
+  `right` stay explicit, as M14 decided); `Panel.direction` `ltr` (default) / `rtl` / `auto` mirrors rows, grids and the
+  panel's `start` / `end`; `i18n.direction` in scripts; `World::rtl()` follows the language. The menus fixture has an
+  Arabic table and a mirrored options panel, with a golden.
+- M24.14 Translated store catalog (PR #108, `2e0fa55`): achievements `nameKey` / `descriptionKey` and products `titleKey`
+  / `descriptionKey`; `achievements.list()` and the fake `purchases.products()` return the current language's text;
+  validate reports a key the default table lacks.
+- `glob_match` exists once, in `fa/core/strings.h` (it had a copy in the runtime and one in the tooling).
+
+Found on the way:
+- The 2D carry made Lantern Keep's own platform code count the platform's speed twice: a game that added the platform's
+  velocity itself must drop that code.
+- M24.9 changed the publish `dryRun` texts without regenerating COMPONENTS.md; M24.12 and M24.14 regenerated it.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

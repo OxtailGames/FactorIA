@@ -24,7 +24,8 @@
             "layout": "column",
             "spacing": 12,
             "padding": [32, 24, 32, 32],
-            "fit": true
+            "fit": true,
+            "direction": "auto"
           }
         },
         "children": [
@@ -146,7 +147,8 @@
                     "text": "Next",
                     "key": "levelEnd.next",
                     "layer": 302,
-                    "autoFocus": true
+                    "autoFocus": true,
+                    "autoSize": true
                   }
                 }
               },
@@ -157,7 +159,8 @@
                     "text": "Retry",
                     "key": "levelEnd.retry",
                     "layer": 302,
-                    "autoFocus": true
+                    "autoFocus": true,
+                    "autoSize": true
                   }
                 }
               },
@@ -167,7 +170,8 @@
                   "Button": {
                     "text": "Menu",
                     "key": "levelEnd.menu",
-                    "layer": 302
+                    "layer": 302,
+                    "autoSize": true
                   }
                 }
               }

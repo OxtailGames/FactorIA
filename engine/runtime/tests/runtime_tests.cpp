@@ -1240,12 +1240,3 @@ TEST_CASE("engine: Animator advances in the fixed step, sends clip events to scr
     CHECK(num("world.find('hero').get('Animator').time") == t0);  // frozen with time.scale 0
     e.shutdown();
 }
-
-TEST_CASE("glob_match: * and ? stay in a folder, ** crosses folders") {
-    CHECK(fa::glob_match("tests/*.test.js", "tests/a.test.js"));
-    CHECK_FALSE(fa::glob_match("tests/*.test.js", "tests/ui/a.test.js"));
-    CHECK(fa::glob_match("tests/**/*.test.js", "tests/ui/deep/a.test.js"));
-    CHECK(fa::glob_match("tests/**/*.test.js", "tests/a.test.js"));
-    CHECK(fa::glob_match("**/a?.test.js", "tests/ui/ab.test.js"));
-    CHECK_FALSE(fa::glob_match("tests/a?.test.js", "tests/a.test.js"));
-}

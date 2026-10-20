@@ -8,7 +8,6 @@ import { LEVELS } from "../levels.js";
 import { boardOf, TOTAL_BOARD } from "../store_stats.js";
 import { formatTime } from "../time_format.js";
 import { explain, trySignIn } from "./store_ui.js";
-import { fitWidgets, fitList } from "./text_fit.js";
 
 /** The boards in the order Board cycles through them: each level, then the total. */
 const BOARDS = [...LEVELS.map((l) => ({ id: boardOf(l.id), nameKey: l.nameKey })), { id: TOTAL_BOARD, nameKey: "leaderboards.total" }];
@@ -35,12 +34,11 @@ export default class Leaderboards extends Behaviour {
       this.load(false);
     });
     ui.on("click", "lb_refresh", () => this.load(true));
-    this.opened(); // the first time the panel is shown its script starts now; later the main menu calls opened()
     i18n.on("change", () => this.render());
   }
 
-  /** The main menu calls this each time it shows the panel again (a hidden panel's scripts do not run): ask the store again. */
-  opened() {
+  /** Every time the panel is shown: ask the store again. */
+  onEnable() {
     this.load(false);
   }
 
@@ -53,12 +51,6 @@ export default class Leaderboards extends Behaviour {
     const line = this.world.find(id);
     line.get("Text").text = message;
     line.active = message !== "";
-  }
-
-  /** Buttons as big as their text needs, the list as tall as the screen leaves after the texts above it. */
-  fit() {
-    fitWidgets(this.entity);
-    fitList(this.entity, this.list);
   }
 
   async load(signIn) {
@@ -93,12 +85,11 @@ export default class Leaderboards extends Behaviour {
       const line = i18n.t("leaderboards.entry", { rank: e.rank, name: e.name, time: formatTime(e.score / 1000) });
       this.rows.push(
         this.world.spawn(
-          { components: { Text: { text: e.isPlayer ? `${line}  <` : line, fontSize: 24, color: e.isPlayer ? GOLD : [1, 1, 1, 1], space: "screen", maxWidth: 700, layer: 302 } } },
+          { components: { Text: { text: e.isPlayer ? `${line}  <` : line, fontSize: 24, color: e.isPlayer ? GOLD : [1, 1, 1, 1], space: "screen", maxWidth: 700, align: "start", layer: 302 } } },
           { parent: this.list },
         ),
       );
     }
     this.list.active = this.rows.length > 0; // an empty list would only take room
-    this.fit();
   }
 }

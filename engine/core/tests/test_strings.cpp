@@ -44,3 +44,14 @@ TEST_CASE("strings: base64") {
     auto rt = base64_decode(base64_encode(bin.data(), bin.size()));
     CHECK(rt == bin);
 }
+
+TEST_CASE("glob_match: * and ? stay in a folder, ** crosses folders") {
+    CHECK(glob_match("tests/*.test.js", "tests/a.test.js"));
+    CHECK_FALSE(glob_match("tests/*.test.js", "tests/ui/a.test.js"));
+    CHECK(glob_match("tests/**/*.test.js", "tests/ui/deep/a.test.js"));
+    CHECK(glob_match("tests/**/*.test.js", "tests/a.test.js"));
+    CHECK(glob_match("**/a?.test.js", "tests/ui/ab.test.js"));
+    CHECK_FALSE(glob_match("tests/a?.test.js", "tests/a.test.js"));
+    CHECK(glob_match("store/**", "store/a/b.png"));
+    CHECK_FALSE(glob_match("store/*", "store/a/b.png"));
+}

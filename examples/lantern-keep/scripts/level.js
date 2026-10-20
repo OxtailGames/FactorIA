@@ -123,7 +123,10 @@ export default class Level extends Behaviour {
     const pause = this.world.find("pause_menu")?.behaviour;
     if (pause) pause.enabled = false; // the end panel is not a pause: Escape does nothing now
     game.paused = true;
-    this.endPanel.behaviour.open(result, info);
+    const panel = this.endPanel.behaviour; // a panel spawned inactive already has its behaviour
+    panel.result = result;
+    panel.info = info;
+    this.endPanel.active = true; // its onEnable fills the texts before the frame is drawn
     return true;
   }
 }

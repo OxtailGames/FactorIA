@@ -73,10 +73,12 @@
       "suggestion": "Carry dynamic 2D bodies that rest on a kinematic body (as 3D does), or expose the ground body (entity.groundBody / isGrounded() returning it) so a script can add its velocity without a raycast. Add a 2D moving-platform recipe to the AI guide.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md.",
+        "Fixed in 3768d21 (M24.11): a dynamic RigidBody2D standing on a moving kinematic one is carried by it, also when its script sets velocity.x every frame (that velocity is relative to the platform). Lantern Keep's player no longer adds the platform's speed itself."
+      ],
+      "engineIssue": "#103"
     },
     {
       "id": "FB-0004",
@@ -154,10 +156,12 @@
       "suggestion": "Add `lit` to Shape2D (same rule as Sprite.lit).",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.11 (2D: lit shapes and moving platforms) in feedback/ROADMAP.md.",
+        "Fixed in 3768d21 (M24.11): `Shape2D.lit` shades world-space shapes by Light2D and the ambient light, like `Sprite.lit`."
+      ],
+      "engineIssue": "#103"
     },
     {
       "id": "FB-0007",
@@ -178,10 +182,12 @@
       "suggestion": "Add `legendFrom: \"levels/legend.json\"` (a shared legend merged under the map's own) and do not warn about unused entries that come from it, or add `warnUnused: false`.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md.",
+        "Fixed in 7c29612 (M24.10): a map can take a shared legend with `legendFrom`; its unused entries are not warned about. Lantern Keep's six maps share levels/legend.json."
+      ],
+      "engineIssue": "#106"
     },
     {
       "id": "FB-0008",
@@ -203,11 +209,13 @@
       "suggestion": "Add onEnable()/onDisable() hooks (called when the entity becomes active or inactive, also for the first time), and state in docs scripting when onStart runs for inactive-then-activated entities.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: FB-0030 merged here (the same gap, met again by the achievements and leaderboards panels).",
-        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md.",
+        "Fixed in f4071e7 (M24.12): `onEnable()` / `onDisable()` run every time the entity or an ancestor is shown or hidden, before the frame is drawn. Lantern Keep's panels refresh themselves in onEnable."
+      ],
+      "engineIssue": "#107"
     },
     {
       "id": "FB-0009",
@@ -253,10 +261,12 @@
       ],
       "suggestion": "Document in the menus recipe how a panel script gets set up and refreshed when shown (or add an onEnable callback that also runs for panels shown by MenuStack), and say entity.behaviour is null for a never-activated entity.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.12 (Entity activation) in feedback/ROADMAP.md.",
+        "Fixed in f4071e7 (M24.12): an inactive entity with a Script already has its `.behaviour`; onStart and onEnable run before the first frame it is drawn in. level_end.js has no open() any more and the refresh exports are gone."
+      ],
+      "engineIssue": "#107"
     },
     {
       "id": "FB-0011",
@@ -279,11 +289,13 @@
       ],
       "suggestion": "Center each line of a multi-line Button label, add maxWidth/wrap to Button like Text has, and document newline support in Button.text.",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: None: the labels stay left-aligned in Arabic too (readable, but the ragged edge is on the wrong side). Listed in the README as a limit.",
-        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md.",
+        "Fixed in 7506b4b (M24.8): a multi-line Button label centres each line, `Button.maxWidth` wraps it and a label that still does not fit is clipped to the button."
+      ],
+      "engineIssue": "#109"
     },
     {
       "id": "FB-0012",
@@ -300,10 +312,12 @@
       "workaround": "Ran 'factoria test . --filter <words of the test name>' per test while developing.",
       "suggestion": "Accept test file paths or globs after the project (or a --file option), and when the argument is an existing file say 'give the project folder; use --filter to pick tests'.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "Fixed in da5f957 (M24.7): `factoria test <project> tests/x.test.js` (several files, a folder or a glob) and MCP project.test `files`; a path that is not a test file is an error saying what to pass."
+      ],
+      "engineIssue": "#105"
     },
     {
       "id": "FB-0013",
@@ -376,11 +390,13 @@
       ],
       "suggestion": "Keep the entity as {id, prefab, overrides} in the written scene, or say in docs/ai-guide 9.8 that the base scene is expanded at import time.",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: FB-0034 merged here (the same cause, met again for the legend prefabs).",
-        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.10 (ASCII levels keep prefab references) in feedback/ROADMAP.md.",
+        "Fixed in 7c29612 (M24.10): in file mode `scene.import_ascii` writes legend prefabs and the base scene's prefab entities as prefab references, so editing a prefab changes every level without importing the maps again."
+      ],
+      "engineIssue": "#106"
     },
     {
       "id": "FB-0016",
@@ -401,10 +417,12 @@
       ],
       "suggestion": "export.exclude: a list of project-relative globs (\"store/**\", \"screenshots/**\", \"levels/**\") that neither the folder export nor game.pak nor the web/mobile exports ship, checked by factoria validate; and mention the dot-folder rule next to it in docs/EXPORTING.md.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "Fixed in 343a7b8 (M24.9): `export.exclude` in factoria.json (project-relative globs) leaves folders out of every export; Lantern Keep excludes levels/, screenshots/ and store/."
+      ],
+      "engineIssue": "#104"
     },
     {
       "id": "FB-0017",
@@ -444,10 +462,12 @@
       "workaround": "Pointed FACTORIA_STEAMCMD, FACTORIA_BUTLER, FACTORIA_BUILDPATCHTOOL and FACTORIA_GOG_PIPELINE_BUILDER at C:/Windows/System32/whoami.exe, set FACTORIA_EPIC_CLIENT_SECRET=fake and passed appId 9000000: the dry runs then showed the plans (uploads, command lines, vdf files) for the fake ids. Nothing was downloaded or sent.",
       "suggestion": "With dryRun, report a missing tool (and missing secret/app id) as a warning and still return the plan, or document the fake-tool trick in the 'Testing without a store' section.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "Fixed in 343a7b8 (M24.9): `publish.<store> {dryRun: true}` returns the plan with a warning for each missing uploader, secret or app id; SHIPPING.md uses it with no fake tools."
+      ],
+      "engineIssue": "#104"
     },
     {
       "id": "FB-0019",
@@ -464,10 +484,12 @@
       "workaround": "Start-Process, sleep, check the process is alive and responding, read %APPDATA%/<id>/log.txt, Stop-Process.",
       "suggestion": "factoria_player --frames N (render N frames, then exit 0; non-zero when a script error or a crash happened), so `factoria export` can offer a --smoke-test.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "Fixed in 343a7b8 (M24.9): `factoria_player --frames N` (and the exported game) draws N frames and exits 0, or 1 after a script error; EXPORTING.md, \"CI for your game\"."
+      ],
+      "engineIssue": "#104"
     },
     {
       "id": "FB-0020",
@@ -487,10 +509,12 @@
       ],
       "suggestion": "Run the same check in factoria validate when platforms contains android or ios.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "Fixed in 343a7b8 (M24.9): `factoria validate` warns about textures whose sides are not multiples of 4 when platforms has android or ios."
+      ],
+      "engineIssue": "#104"
     },
     {
       "id": "FB-0021",
@@ -511,10 +535,12 @@
       ],
       "suggestion": "game.touchWidget(id, frames?) for tests, and one sentence in MOBILE.md pointing at ui.state rects and the one-step rule.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "Fixed in da5f957 (M24.7): `game.click`, `game.touch` and `game.touchStart` take a widget id or an Entity (centre of its laid-out rectangle, safe area included); MOBILE.md documents when the rectangles move. shipping.test.js taps the controls by id."
+      ],
+      "engineIssue": "#105"
     },
     {
       "id": "FB-0022",
@@ -578,10 +604,12 @@
       "suggestion": "Let a catalog entry say name as a locale key or add a nameKey/descriptionKey, and have platform.achievements.list() and platform.purchases.products() return the translated text for the current language (or document that the catalog is for stores only).",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.14 (Translated store catalog) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.14 (Translated store catalog) in feedback/ROADMAP.md.",
+        "Fixed in 2e0fa55 (M24.14): catalog entries take `nameKey`, `descriptionKey` and `titleKey`, and achievements.list() / purchases.products() return the text in the current language; PLATFORM.md says which stores read them. Lantern Keep's catalog names its locale keys and the achievements panel shows the texts the list returns."
+      ],
+      "engineIssue": "#108"
     },
     {
       "id": "FB-0025",
@@ -604,10 +632,12 @@
       "suggestion": "game.platform.set({ backend: \"none\" }) that makes the fake behave as the none backend (has false, calls reject unavailable, signIn answers signed out) until reset().",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "Fixed in da5f957 (M24.7): `game.platform.set({ backend: \"none\" })` makes the fake behave as the none backend until reset(); unknown options are refused with a \"did you mean\". The store tests use it."
+      ],
+      "engineIssue": "#105"
     },
     {
       "id": "FB-0026",
@@ -628,11 +658,13 @@
       "suggestion": "Ship ES2022 Array.prototype.at, add toMatchObject (the docs of factoria:test list the matchers), return real arrays for color fields, and name the missing method in the TypeError.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: confirmed open; work package M24.1 (component colours as arrays) and M24.7 (toMatchObject, naming the missing method; Array.prototype.at already works) in feedback/ROADMAP.md.",
-        "Colours part fixed in 1341def (M24.1): component colours are array-like (index, length, spread), so Array.from(color) is not needed; Array.prototype.at works. tests/store_screens.test.js indexes colours and uses .at(-1) now. Still open: expect().toMatchObject and naming the missing method (M24.7)."
-      ]
+        "Colours part fixed in 1341def (M24.1): component colours are array-like (index, length, spread), so Array.from(color) is not needed; Array.prototype.at works. tests/store_screens.test.js indexes colours and uses .at(-1) now. Still open: expect().toMatchObject and naming the missing method (M24.7).",
+        "Fixed in da5f957 (M24.7): `expect(x).toMatchObject(subset)`, and a \"not a function\" error shows the source line with a caret under the call, so the missing method is named. Three tests use toMatchObject."
+      ],
+      "engineIssue": "#105"
     },
     {
       "id": "FB-0027",
@@ -680,10 +712,12 @@
       "suggestion": "Say it in the scripting and testing docs next to world.emit, or deliver world.emit synchronously when called from a test.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "Fixed in da5f957 (M24.7): SCRIPTING.md and AI_GUIDE say that a world.emit from a test reaches listeners at the next game.step while platform answers are ready at once; the store tests' settle() now points at the docs."
+      ],
+      "engineIssue": "#105"
     },
     {
       "id": "FB-0029",
@@ -759,11 +793,13 @@
       "suggestion": "An opt-in autoSize flag on Button/Toggle/Slider: at least the design size, growing to the label at the current textScale and language; optionally wrap for Button labels.",
       "effort": "medium",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: scripts/ui/text_fit.js fitWidgets(root) (sizes by measureText and by the number of lines) is called from each screen's refresh function; tests/helpers/screens.js checks every screen in every language.",
-        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md.",
+        "Fixed in 7506b4b (M24.8): `autoSize` on Button, Toggle and Slider keeps the design size and grows the widget to its label at the current text size and language. Lantern Keep's scripts/ui/text_fit.js is gone: every Button, Toggle and Slider has autoSize."
+      ],
+      "engineIssue": "#109"
     },
     {
       "id": "FB-0032",
@@ -860,11 +896,13 @@
       "suggestion": "Include Text entities (kind Text, rect, text) in ui.state, or give entity.bounds() a screen-space answer.",
       "effort": "small",
       "occurrences": 2,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
         "2026-10-19: tests/helpers/screens.js sums the measured children of every row and column panel and compares with the panel's rectangle.",
-        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.7 (Test helpers) in feedback/ROADMAP.md.",
+        "Fixed in da5f957 (M24.7): `ui.rectOf(entityOrId)` gives the laid-out rectangle of a widget or screen-space Text, and ui.state lists screen-space Text entities with their rect."
+      ],
+      "engineIssue": "#105"
     },
     {
       "id": "FB-0036",
@@ -988,10 +1026,12 @@
       "suggestion": "Text.align and Panel.align/justify values 'start' and 'end' that follow the current language's direction, and Panel.direction 'auto' for rows; an i18n.direction ('ltr' or 'rtl') in scripts.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.13 (Right-to-left layouts) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.13 (Right-to-left layouts) in feedback/ROADMAP.md.",
+        "Fixed in 2320973 (M24.13): `Text.align` takes start / end (follow the language's direction), `Panel.direction` ltr / rtl / auto mirrors rows and grids, and scripts read `i18n.direction`; LOCALIZATION.md section 6 has a HUD-corner recipe for anchors and pivots. Lantern Keep's row panels use direction auto and the HUD align start / end."
+      ],
+      "engineIssue": "#110"
     },
     {
       "id": "FB-0041",
@@ -1013,10 +1053,12 @@
       "suggestion": "ScrollList.fill (take the free height of the parent column, up to the screen) and a validate/runtime warning when a Panel with fit ends up taller than the screen.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.8 (Widgets that fit their labels) in feedback/ROADMAP.md.",
+        "Fixed in 7506b4b (M24.8): `ScrollList.fill` takes the height the other children of a fitted column leave, up to the screen; a fit Panel larger than the screen logs one warning naming it, and factoria validate reports it. The achievements and leaderboards lists use fill."
+      ],
+      "engineIssue": "#109"
     },
     {
       "id": "FB-0042",
@@ -1090,10 +1132,12 @@
       "suggestion": "Add build/ to the generated project .gitignore, or write exports under .factoria/.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package M24.9 (Export and publish checks) in feedback/ROADMAP.md.",
+        "Fixed in 343a7b8 (M24.9): the .gitignore of new projects lists build/."
+      ],
+      "engineIssue": "#104"
     },
     {
       "id": "FB-0045",
@@ -1120,6 +1164,55 @@
         "Fixed in 43e03b9 (M24.5): LOCALIZATION.md calls i18n.state a command (fa.call('i18n.state')), and the Text.font doc (and COMPONENTS.md) lists Hebrew and Arabic in the built-in font, as TEXT.md does. Lantern Keep needs no change: tests/languages.test.js already uses the command."
       ],
       "engineIssue": "#100"
+    },
+    {
+      "id": "FB-0046",
+      "date": "2026-10-20",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-m24",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "minor",
+      "title": "Scripts cannot get a widget's autoSize size before the next layout, and a panel cannot switch from column to row when it does not fit",
+      "missing": "autoSize grows a Button at the next layout, so a script that chooses a layout from the widgets' sizes (the shop panel turns its column into a row when the column is taller than the screen) must repeat the engine's own measure (label width + 40, height + 16). options.js also sizes its rows with that '+ 16'. If the engine changes its padding, the game's layout is off.",
+      "workaround": "shop.js buttonSize() and contentHeight() measure labels with ui.measureText and add the autoSize margins by hand; options.js computes its row height the same way.",
+      "workaroundFiles": [
+        "scripts/ui/shop.js",
+        "scripts/ui/options.js"
+      ],
+      "suggestion": "A ui.layout() (or ui.rectOf after a synchronous relayout) that applies autoSize and fit now, and/or a Panel option that wraps a column into a row (or a row into a column) when it would leave the screen.",
+      "effort": "medium",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-10-20: found while dropping text_fit.js for autoSize (M24.8)."
+      ]
+    },
+    {
+      "id": "FB-0047",
+      "date": "2026-10-20",
+      "reporter": {
+        "kind": "ai",
+        "agent": "lantern-keep-m24",
+        "model": "claude-sonnet-5-5"
+      },
+      "category": "ui",
+      "severity": "nice-to-have",
+      "title": "No way to give sibling buttons one common size (the widest label)",
+      "missing": "autoSize grows each Button to its own label, so a grid of level buttons ends up with six different widths. A menu usually wants all of them as wide as the widest one.",
+      "workaround": "level_select.js measures the six labels with ui.measureText and writes the largest size as every button's design size.",
+      "workaroundFiles": [
+        "scripts/ui/level_select.js"
+      ],
+      "suggestion": "A Panel option (for example uniformSize: true) that gives every autoSize child the size of the largest one.",
+      "effort": "small",
+      "occurrences": 1,
+      "status": "open",
+      "notes": [
+        "2026-10-20: found while dropping text_fit.js for autoSize (M24.8)."
+      ]
     }
   ]
 }

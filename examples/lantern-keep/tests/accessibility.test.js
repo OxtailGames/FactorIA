@@ -172,8 +172,7 @@ test("level_completed says assisted: true only when an assist option is on", () 
   expect(run({}).assisted).toBe(false);
   expect(run({ assist: { speed: 0.8 } }).assisted).toBe(true);
   const invincible = run({ assist: { invincible: true } });
-  expect(invincible.assisted).toBe(true);
-  expect(invincible.deaths).toBe(0);
+  expect(invincible).toMatchObject({ assisted: true, deaths: 0 });
   // assist turned on in the middle of a level counts, and turning it off again does not undo it
   startWith({}, "scenes/levels/1-1.scene.json");
   const seen = listen("level_completed");
@@ -276,9 +275,9 @@ for (const language of LANGUAGES) {
       expectFits(at("main menu"));
       // options: every tab, then credits
       await press("options_button");
-      // the tabs are a row, and the pad walks along it with Right even where wide widgets sit right below it (big text)
+      // the tabs are a row, and the pad walks along it with Right (Left in Arabic, where the row is mirrored) even where wide widgets sit right below it (big text)
       for (const [i, tab] of ["video", "audio", "controls", "language", "access"].entries()) {
-        if (i > 0) pad().tap("DpadRight");
+        if (i > 0) pad().tap(i18n.direction === "rtl" ? "DpadLeft" : "DpadRight"); // the row runs right to left in Arabic
         expect([tab, ui.focused.id]).toEqual([tab, `tab_${tab}`]);
         await pressFocused();
         expect([tab, game.find(`${tab}_section`).active]).toEqual([tab, true]);
@@ -334,7 +333,7 @@ for (const language of LANGUAGES) {
         game.step(3);
         // HUD: the name and the embers share the first row; the timer is on it too (centred) only when they do not touch
         const text = (id) => game.find(id).get("Text");
-        const width = (id, s = text(id).text) => ui.measureText(s, { fontSize: text(id).fontSize }).width;
+        const width = (id, s) => (s === undefined ? ui.rectOf(id).w : ui.measureText(s, { fontSize: text(id).fontSize }).width);
         const half = width("hud_timer", i18n.t("hud.time", { time: "0:00.00" })) / 2;
         expect(24 + width("hud_level") + 24 + 24 + width("hud_embers") + 24).toBeLessThanOrEqual(1280);
         expect(half * 2).toBeLessThanOrEqual(1280 - 48);

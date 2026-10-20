@@ -21,7 +21,8 @@ function fresh() {
   game.step(3);
 }
 
-/** Delivers the events sent so far (they reach listeners at the next frame), then waits for every request they started. */
+/** Delivers the events sent so far (a `world.emit` from a test reaches listeners at the next `game.step`; see
+ * `factoria docs read scripting`), then waits for every request they started. */
 async function settle() {
   game.step(1);
   await game.find("store_stats").behaviour.idle();
@@ -187,8 +188,7 @@ test("not signed in, or a failing store: nothing throws, nothing is marked as se
 
 test("without the store services (the none backend) the listener does nothing and does not fail", async () => {
   fresh();
-  const has = platform.has;
-  platform.has = () => false;
+  game.platform.set({ backend: "none" });
   try {
     world.emit("player_jumped", { level: "1-1" });
     world.emit("player_died", { level: "1-1", cause: "fall" });
@@ -197,6 +197,6 @@ test("without the store services (the none backend) the listener does nothing an
     expect(game.platform.calls().length).toBe(before);
     game.step(3);
   } finally {
-    platform.has = has;
+    game.platform.reset();
   }
 });
