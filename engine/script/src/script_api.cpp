@@ -354,7 +354,7 @@ Json ScriptSystem::Impl::api_manifest() const {
     out["modules"] = mods;
     out["components"] = TypeRegistry::global().describe_all();
     out["plugins"] = plugins_json();  // plugins.<name>.<function>(...args)
-    out["lifecycle"] = Json::array({"onStart()", "onUpdate(dt)", "onFixedUpdate(dt)", "onLateUpdate(dt)", "onDestroy()",
+    out["lifecycle"] = Json::array({"onStart()", "onEnable()", "onDisable()", "onUpdate(dt)", "onFixedUpdate(dt)", "onLateUpdate(dt)", "onDestroy()",
                                     "onCollisionEnter(other, info)", "onCollisionExit(other)", "onTriggerEnter(other)",
                                     "onTriggerExit(other)", "onEvent(name, data, source)"});
     out["notes"] = Json::array({"Component views are live: body.velocity.x = 3 writes into the engine.",
