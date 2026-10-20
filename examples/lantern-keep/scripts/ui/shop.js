@@ -9,17 +9,8 @@ import { explain } from "./store_ui.js";
 
 const BUTTONS = { lantern_colours: "shop_buy_colours", supporter: "shop_buy_supporter" };
 
-/** The size a Button takes: its design size, or what its label needs (what `autoSize` makes it, but now, not next frame). */
-function buttonSize(entity, design) {
-  const button = entity.get("Button");
-  const m = ui.measureText(button.text, { fontSize: button.fontSize, maxWidth: button.maxWidth });
-  return [Math.max(design[0], Math.ceil(m.width + 40)), Math.max(design[1], Math.ceil(m.height + 16))];
-}
-
 export default class Shop extends Behaviour {
   onStart() {
-    this.design = new Map(); // design size of each Button, read before autoSize grows it
-    for (const id of [...Object.values(BUTTONS), "shop_colour", "shop_restore", "shop_back"]) this.design.set(id, [...this.world.find(id).get("Button").size]);
     this.busy = false; // a request is waiting for the store: the buttons do nothing meanwhile
     this.prices = {}; // product id -> the store's price text
     this.noStore = !platform.has("purchases");
@@ -74,39 +65,22 @@ export default class Shop extends Behaviour {
   }
 
   /**
-   * One column while it fits the screen; at a big text size the title and the note stand beside the buttons and the status
-   * (the note is the longest text of the game's screens, and it must stay readable, not scroll).
+   * shop_cols is a column that falls back to a row (its `fallbackLayout`) when the column would not fit the screen. In the
+   * row the title and the note stand beside the buttons and the status (the note is the longest text of the game's
+   * screens, and it must stay readable, not scroll), so the two texts are narrowed to what the buttons leave.
    */
   layout() {
     const cols = this.world.find("shop_cols").get("Panel");
     const note = this.world.find("shop_note").get("Text");
     const status = this.world.find("shop_status").get("Text");
-    cols.layout = "column";
     note.maxWidth = status.maxWidth = 740;
-    if (this.contentHeight(this.entity) + 24 > 720) {
-      cols.layout = "row";
+    ui.layout(); // the button sizes and the choice of column or row are current now
+    if (cols.usingFallback) {
       const buttons = Object.values(BUTTONS).concat(["shop_colour", "shop_restore", "shop_back"]);
-      const right = Math.max(...buttons.map((id) => buttonSize(this.world.find(id), this.design.get(id))[0])); // the buttons set the right column's width
+      const right = Math.max(...buttons.map((id) => this.world.find(id).get("Button").size[0])); // the buttons set the right column's width
       status.maxWidth = right;
       note.maxWidth = Math.max(360, Math.min(740, 1280 - 2 * 24 - 2 * 24 - 14 - right)); // the note takes what the buttons leave
     }
-  }
-
-  /** The height an entity takes in a column: a Text measured at the player's text size, a Button by its size, a panel by its children. */
-  contentHeight(entity) {
-    if (entity.has("Text")) {
-      const t = entity.get("Text");
-      return t.text ? ui.measureText(t.text, { fontSize: t.fontSize, maxWidth: t.maxWidth || 0 }).height : 0;
-    }
-    if (entity.has("Panel") && entity.get("Panel").layout !== "none") {
-      const p = entity.get("Panel");
-      const heights = entity.children.filter((c) => c.active).map((c) => this.contentHeight(c));
-      if (!heights.length) return 0;
-      const inner = p.layout === "row" ? Math.max(...heights) : heights.reduce((a, b) => a + b, 0) + p.spacing * (heights.length - 1);
-      const [, top, , bottom] = p.padding; // left, top, right, bottom
-      return inner + top + bottom;
-    }
-    return entity.has("Button") ? buttonSize(entity, this.design.get(entity.id) ?? [0, 0])[1] : 0;
   }
 
   nextColour() {

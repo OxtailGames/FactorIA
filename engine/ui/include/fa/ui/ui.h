@@ -43,8 +43,10 @@ public:
     void update(World& world, Input& input, Vec2 designSize, float dt, const VisualMeasure& measure);
 
     // Lays out Panel (layout != none) and ScrollList children only. update() calls it first; the runtime calls it again
-    // right before drawing so changes a script made during the frame are drawn in place.
-    void layout(World& world, Vec2 designSize, const VisualMeasure& measure);
+    // right before drawing so changes a script made during the frame are drawn in place. `warn` false (ui.layout() from a
+    // script, which is still changing the menu) skips the "fit panel larger than the screen" warning: the frame's own
+    // layout logs it if the final menu is still too big.
+    void layout(World& world, Vec2 designSize, const VisualMeasure& measure, bool warn = true);
 
     Entity focused() const { return focus_; }
     // Gives focus to `e` (kNullEntity clears it) and emits ui.focus. Returns false, and changes nothing, when `e` cannot

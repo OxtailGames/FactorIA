@@ -933,11 +933,16 @@ TEST_CASE("ui layout: a fit panel larger than the screen logs one warning naming
     p.layout = UiLayout::Column;
     p.fit = true;
     for (int i = 0; i < 12; ++i) t.button(("b" + std::to_string(i)).c_str(), {0, 0}, {100, 30}, col);  // 12 x 30 > 180
+    const auto warnings = [] {
+        int n = 0;
+        for (const LogEntry& e : recent_logs(200, LogLevel::Warn))
+            if (e.message.find("huge_menu") != std::string::npos) ++n;
+        return n;
+    };
+    t.ui.layout(t.w, t.design, {}, false);  // ui.layout() from a script: it is still changing the menu
+    CHECK(warnings() == 0);
     for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
-    int warnings = 0;
-    for (const LogEntry& e : recent_logs(200, LogLevel::Warn))
-        if (e.message.find("huge_menu") != std::string::npos) ++warnings;
-    CHECK(warnings == 1);
+    CHECK(warnings() == 1);
 }
 
 // ------------------------------------------------------------------------------- right-to-left layouts --
@@ -999,4 +1004,151 @@ TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in
     const Rect ar = *ui_screen_rect(t.w, label, t.design);
     CHECK(ar.x + ar.w == doctest::Approx(290));  // the box ends at the right edge of the padded box
     CHECK(ar.w == doctest::Approx(en.w));
+}
+
+TEST_CASE("ui Panel.uniformSize: autoSize widgets inside share the largest size and shrink back with it") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity root = t.add<Panel>("root", {0, 0}, {800, 400});
+    Entity rowA = t.add<Panel>("rowA", {0, 0}, {400, 60}, root);
+    Entity rowB = t.add<Panel>("rowB", {0, 100}, {400, 60}, root);
+    t.w.get<Panel>(rowA)->layout = t.w.get<Panel>(rowB)->layout = UiLayout::Row;
+    Entity a = t.button("a", {0, 0}, {40, 30}, rowA);
+    Entity b = t.button("b", {0, 0}, {40, 30}, rowA);
+    Entity c = t.button("c", {0, 0}, {40, 30}, rowB);
+    Entity plain = t.button("plain", {0, 0}, {50, 20}, rowB);
+    for (Entity e : {a, b, c}) t.w.get<Button>(e)->autoSize = true;
+    t.w.get<Button>(a)->text = "Hi";
+    t.w.get<Button>(b)->text = "A much longer label";
+    t.w.get<Button>(c)->text = "Mid label";
+    t.w.get<Button>(plain)->text = "A much longer label, not autoSize";
+    const auto sz = [&](Entity e) { return t.w.get<Button>(e)->size; };
+
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // uniformSize false: each button has its own size
+    CHECK(sz(a).x < sz(b).x);
+    CHECK(sz(c).x < sz(b).x);
+
+    t.w.get<Panel>(root)->uniformSize = true;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const Vec2 big = sz(b);
+    CHECK(big.x > 40);
+    for (Entity e : {a, c}) CHECK(sz(e).x == doctest::Approx(big.x));
+    for (Entity e : {a, c}) CHECK(sz(e).y == doctest::Approx(big.y));
+    CHECK(sz(plain).x == doctest::Approx(50));
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // stable on the next frame
+    CHECK(sz(a).x == doctest::Approx(big.x));
+
+    t.w.get<Button>(b)->text = "Ok";  // the longest is now "Mid label": all shrink to it
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(sz(b).x < big.x);
+    CHECK(sz(a).x == doctest::Approx(sz(c).x));
+    CHECK(sz(b).x == doctest::Approx(sz(c).x));
+    CHECK(sz(plain).x == doctest::Approx(50));
+}
+
+// ----------------------------------------------------------------------------------------------- fallbackLayout --
+namespace {
+
+Entity fit_panel(Ui& t, const char* id, UiLayout layout, UiLayout fallback, Entity parent = kNullEntity) {
+    Entity e = t.add<Panel>(id, {0, 0}, {10, 10}, parent);
+    Panel& p = *t.w.get<Panel>(e);
+    p.layout = layout;
+    p.fallbackLayout = fallback;
+    p.fit = true;
+    p.padding = {0, 0, 0, 0};
+    p.spacing = 10;
+    p.align = UiAlign::Start;
+    return e;
+}
+
+Entity auto_button(Ui& t, const char* id, Vec2 design, Entity parent) {
+    Entity e = t.button(id, {0, 0}, design, parent);
+    t.w.get<Button>(e)->autoSize = true;
+    t.w.get<Button>(e)->text = "Hola";  // 4 characters at 24 px
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("ui fallbackLayout: a fit column taller than the screen becomes a row, and a column again when the text shrinks") {
+    Ui t;  // 320 x 180
+    Entity col = fit_panel(t, "col", UiLayout::Column, UiLayout::Row);
+    Entity a = auto_button(t, "a", {100, 50}, col), b = auto_button(t, "b", {100, 50}, col);
+    const Panel& p = *t.w.get<Panel>(col);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // 50 + 10 + 50
+    CHECK_FALSE(p.usingFallback);
+    CHECK(t.rect(b).y == doctest::Approx(60));
+    CHECK(t.rect(b).x == doctest::Approx(t.rect(a).x));
+    t.w.get<Button>(a)->text = "Hola\nHola";
+    t.w.get<Button>(b)->text = "Hola\nHola";
+    t.ui.layout(t.w, t.design, measure_at(2.0f));  // each button is 131 tall: a column of two is 272
+    CHECK(p.usingFallback);
+    CHECK(t.rect(b).y == doctest::Approx(t.rect(a).y));
+    CHECK(t.rect(b).x > t.rect(a).x);
+    CHECK(p.size.y < 180);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK_FALSE(p.usingFallback);
+    CHECK(t.rect(b).y > t.rect(a).y);
+}
+
+TEST_CASE("ui fallbackLayout: level-select shape, rows stack first and then the worlds stand side by side") {
+    Ui t;
+    t.design = {400, 300};
+    Entity root = fit_panel(t, "root", UiLayout::Column, UiLayout::None);
+    Entity worlds = fit_panel(t, "worlds", UiLayout::Column, UiLayout::Row, root);
+    Entity rows[2], btns[2][3];
+    for (int w = 0; w < 2; ++w) {
+        Entity world = fit_panel(t, w ? "world2" : "world1", UiLayout::Column, UiLayout::None, worlds);
+        Entity title = t.button(w ? "title2" : "title1", {0, 0}, {150, 30}, world);
+        (void)title;
+        rows[w] = fit_panel(t, w ? "row2" : "row1", UiLayout::Row, UiLayout::Column, world);
+        for (int i = 0; i < 3; ++i) btns[w][i] = auto_button(t, ("b" + std::to_string(w) + std::to_string(i)).c_str(), {100, 40}, rows[w]);
+    }
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // rows 320 x 45: everything fits
+    CHECK_FALSE(t.w.get<Panel>(rows[0])->usingFallback);
+    CHECK_FALSE(t.w.get<Panel>(worlds)->usingFallback);
+    CHECK(t.rect(btns[0][1]).y == doctest::Approx(t.rect(btns[0][0]).y));
+    CHECK(t.rect(btns[1][0]).y > t.rect(btns[0][0]).y);
+    t.ui.layout(t.w, t.design, measure_at(2.0f));  // buttons 148 x 74: a row is 464 wide, a stacked column is 282 tall
+    for (int w = 0; w < 2; ++w) {
+        CHECK(t.w.get<Panel>(rows[w])->usingFallback);
+        CHECK(t.rect(btns[w][1]).y > t.rect(btns[w][0]).y);
+        CHECK(t.rect(btns[w][1]).x == doctest::Approx(t.rect(btns[w][0]).x));
+    }
+    CHECK(t.w.get<Panel>(worlds)->usingFallback);  // two stacked worlds would be 574 tall
+    CHECK(t.rect(btns[1][0]).y == doctest::Approx(t.rect(btns[0][0]).y));
+    CHECK(t.rect(btns[1][0]).x > t.rect(btns[0][0]).x);
+    CHECK_FALSE(t.w.get<Panel>(root)->usingFallback);
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // and back
+    CHECK_FALSE(t.w.get<Panel>(rows[0])->usingFallback);
+    CHECK_FALSE(t.w.get<Panel>(worlds)->usingFallback);
+}
+
+TEST_CASE("ui layout: autoSize sizes are current right after UiSystem::layout, with no update") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity b = t.button("b", {10, 10}, {240, 56});
+    Button& btn = *t.w.get<Button>(b);
+    btn.autoSize = true;
+    btn.text = "Ok";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(240));
+    btn.text = "Volver al menu principal";
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(btn.size.x == doctest::Approx(std::ceil(24 * 0.6f * 24 + 32)));
+    CHECK(t.rect(b).w == doctest::Approx(btn.size.x));
+}
+
+TEST_CASE("ui fallbackLayout: a fill ScrollList in a column that became a row is not resized") {
+    Ui t;  // 320 x 180
+    Entity col = fit_panel(t, "col", UiLayout::Column, UiLayout::Row);
+    Entity a = auto_button(t, "a", {100, 50}, col);
+    t.w.get<Button>(a)->text = "Hola\nHola";
+    Entity list = t.add<ScrollList>("list", {0, 0}, {100, 100}, col);
+    t.w.get<ScrollList>(list)->fill = true;
+    t.ui.layout(t.w, t.design, measure_at(2.0f));  // the button is ~131 tall: the list gets its 64 px minimum, 205 in all
+    CHECK(t.w.get<Panel>(col)->usingFallback);
+    CHECK(t.rect(list).y == doctest::Approx(t.rect(a).y));
+    CHECK(t.rect(list).x > t.rect(a).x);
+    CHECK(t.w.get<ScrollList>(list)->size.y == doctest::Approx(64));  // left as the column pass set it, not re-filled
 }

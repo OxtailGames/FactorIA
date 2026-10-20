@@ -45,7 +45,8 @@ export default class Options extends Behaviour {
   /** Sizes the panel for the player's text size: wider widgets, sections as tall as the tallest one, one panel that fits. */
   layout() {
     const scale = ui.textScale;
-    const row = Math.max(44, Math.ceil(ui.measureText("Ag", { fontSize: 22 }).height + 16)); // a button row at this text size (autoSize adds 16 px)
+    ui.layout(); // the autoSize widgets have their size for this text size and language now
+    const row = world.find("tab_video").get("Button").size[1]; // a tab and a row are both 44 px with a 22 px label, so a tab is the height of a row
     const note = Math.ceil(16 * scale * 1.3) * 2; // the video note, wrapped to two lines
     // At a big text size the gaps shrink so that the taller rows still leave the panel inside the screen.
     const gap = scale > 1.25 ? 6 : 12;
