@@ -2,6 +2,7 @@
 // reference (docs/COMPONENTS.md, `factoria api`, MCP) shows it. These tests keep the file complete and honest.
 #include <doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <map>
 #include <regex>
@@ -44,7 +45,8 @@ std::set<std::string> component_names() {
 }
 
 // The commands the factoria binary registers for a project (plugin commands such as steam.* are not loaded here).
-std::set<std::string> command_names() {
+template <class Fn>
+void with_command_registry(Fn fn) {
     testing::TempDir tmp;
     const stdfs::path savedRoot = fs::project_root();
     REQUIRE(create_project(tmp.str(), "2d-empty", {}).ok());
@@ -66,10 +68,16 @@ std::set<std::string> command_names() {
     const std::string dir = tmp.str();
     ao.projectDir = [dir]() { return dir; };
     ai::register_ai_commands(engine.commands(), ao);
-    std::set<std::string> out;
-    for (const CommandInfo* c : engine.commands().list()) out.insert(c->name);
+    fn(engine);
     engine.shutdown();
     fs::set_project_root(savedRoot);
+}
+
+std::set<std::string> command_names() {
+    std::set<std::string> out;
+    with_command_registry([&](Engine& e) {
+        for (const CommandInfo* c : e.commands().list()) out.insert(c->name);
+    });
     return out;
 }
 
@@ -136,4 +144,30 @@ TEST_CASE("api_since: nothing is unreleased once CHANGELOG.md has no Unreleased 
                                 "\"## <version>\". Replace every \"unreleased\" in "
                                     << kFile << " with that version and regenerate docs/COMPONENTS.md (factoria api --md --out docs/COMPONENTS.md) and the typings of the examples (factoria api --dts --project examples/<name>). Still unreleased:\n"
                                     << left);
+}
+
+// docs/COMPONENTS.md and docs/reference/ are generated (docs.write_reference); the committed copies must be current.
+TEST_CASE("api_reference: the committed docs/reference/ and docs/COMPONENTS.md match the generator") {
+    std::vector<ApiReferencePage> pages;
+    with_command_registry([&](Engine& e) { pages = export_api_reference(e.commands(), e.scripts()); });
+    REQUIRE_FALSE(pages.empty());
+    std::string differ;
+    for (const ApiReferencePage& p : pages) {
+        std::string have = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / p.path);
+        have.erase(std::remove(have.begin(), have.end(), '\r'), have.end());
+        if (have != p.text) differ += "    docs/" + p.path + (have.empty() ? " (missing)" : "") + "\n";
+    }
+    // A committed page the generator no longer produces is stale too.
+    std::set<std::string> expected;
+    for (const ApiReferencePage& p : pages) expected.insert("docs/" + p.path);
+    const stdfs::path refDir = stdfs::path(FA_REPO_ROOT) / "docs" / "reference";
+    if (stdfs::exists(refDir))
+        for (const auto& e : stdfs::recursive_directory_iterator(refDir))
+            if (e.is_regular_file()) {
+                const std::string rel = "docs/" + stdfs::relative(e.path(), stdfs::path(FA_REPO_ROOT) / "docs").generic_string();
+                if (!expected.count(rel)) differ += "    " + rel + " (no longer generated: delete it)\n";
+            }
+    CHECK_MESSAGE(differ.empty(), "These files do not match the engine's registries:\n"
+                                      << differ << "Regenerate both the reference pages and COMPONENTS.md with (from the repository root, outside any "
+                                         "game project, with the factoria you just built):\n    factoria call docs.write_reference '{\"out\":\"docs\"}'");
 }

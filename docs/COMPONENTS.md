@@ -1079,6 +1079,18 @@ Case-insensitive; every word counts, headings weigh more. Returns best sections 
 | `query` | string | yes | Keywords. |
 | `limit` | integer | no | Max results. Default 8. |
 
+### `docs.write_reference` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.
+
+Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `out` | string | yes | Docs folder to write into (relative to the working directory), usually "docs". |
+
 ## engine
 
 ### `engine.info`
