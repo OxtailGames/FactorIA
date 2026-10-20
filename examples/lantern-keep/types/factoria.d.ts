@@ -2027,19 +2027,23 @@ declare module "factoria" {
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * 9-slice borders in texture pixels [left, top, right, bottom], measured inside `region` (or the whole texture). With a border set the four corners are drawn at their texture size (1 texture pixel = 1 world unit), the edges stretch along one axis and the centre along both, so one small frame gives a panel, bar or platform of any `size`. [0, 0, 0, 0] (default) stretches the whole region. Borders that do not fit in `size` shrink together. Works with atlas-packed textures, flipX / flipY and a lit sprite. Screen-space UI panels use the same slicing through Panel.texture and Panel.slice.
+     * @since unreleased
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * World space only. true: the sprite is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights); false (default): drawn exactly as the texture says, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * @since unreleased
      */
     lit: boolean;
     /**
      * Lit sprites only. Tangent-space normal map: RGB = (x, y, z) mapped from 0..1 to -1..1, +x to the right and +y UP the picture (OpenGL / Unity convention), laid out exactly like `texture` and `region` (same size). It turns with the sprite's rotation and flips. Empty (default) = a flat sprite lit only by distance. Ignored unless `lit` is true. (asset path: texture)
+     * @since unreleased
      */
     normalMap: string;
   }
@@ -2047,28 +2051,34 @@ declare module "factoria" {
    * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn. Deterministic: it depends only on the camera position.
    * 
    * Category: 2D
+   * @since unreleased
    */
   export interface ParallaxComponent {
     /**
      * [x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world object).
+     * @since unreleased
      */
     get factor(): Vec2;
     set factor(value: Vec2Like);
     /**
      * Sprite only. Tile the sprite endlessly left and right (at `repeatSize.x` spacing, or its own width) so a background strip never runs out. The copies are drawn only where the camera sees them.
+     * @since unreleased
      */
     repeatX: boolean;
     /**
      * Sprite only. Same as repeatX, up and down.
+     * @since unreleased
      */
     repeatY: boolean;
     /**
      * Distance between repeated copies in world units [x, y]. 0 = the sprite's own width / height. Use a smaller value to overlap soft edges, a larger one for gaps.
+     * @since unreleased
      */
     get repeatSize(): Vec2;
     set repeatSize(value: Vec2Like);
     /**
      * Runtime: the shift [x, y] currently applied to the drawing (written by the renderer every frame). Read-only.
+     * @since unreleased
      */
     readonly offset: Vec2;
   }
@@ -2076,39 +2086,48 @@ declare module "factoria" {
    * A light for lit 2D visuals: sprites and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. At most 16 lights shade a frame (the same on every graphics backend): directional lights first, then the point lights nearest to the camera. The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
+   * @since unreleased
    */
   export interface Light2DComponent {
     /**
      * point: a lamp at the entity's position that fades out at `radius`. directional: sun / moon, the same everywhere, coming from the opposite of `direction`.
+     * @since unreleased
      */
     type: "point" | "directional";
     /**
      * Light colour. Accepts [r,g,b,a], "#rrggbb" or a name (alpha is ignored).
+     * @since unreleased
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Strength: multiplies color. 1 = full colour at the lamp; above 1 over-brightens.
+     * @since unreleased
      */
     intensity: number;
     /**
      * Point lights: distance in world units at which the light has faded to nothing.
+     * @since unreleased
      */
     radius: number;
     /**
      * Point lights: fade curve exponent. 1 = linear, 2 (default) = smooth, higher = a tight bright core.
+     * @since unreleased
      */
     falloff: number;
     /**
      * Point lights: height above the drawing plane in world units. Only matters for normal-mapped sprites: a low lamp grazes the surface and shows relief, a high one lights it flatly.
+     * @since unreleased
      */
     height: number;
     /**
      * Directional lights: degrees the light travels towards (0 = right, 90 = up, 270 = down).
+     * @since unreleased
      */
     direction: number;
     /**
      * Directional lights: angle above the drawing plane in degrees (90 = straight at the picture, 0 = along it).
+     * @since unreleased
      */
     elevation: number;
   }
@@ -2207,6 +2226,7 @@ declare module "factoria" {
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * @since unreleased
      */
     safeArea: boolean;
     /**
@@ -2223,6 +2243,7 @@ declare module "factoria" {
     innerRadius: number;
     /**
      * World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight (its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false (default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).
+     * @since unreleased
      */
     lit: boolean;
   }
@@ -2238,6 +2259,7 @@ declare module "factoria" {
     text: string;
     /**
      * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = this Text is not translated. With a key, the runtime writes the string of that key in the current language (locales/<language>.json, falling back to the base language and then to localization.defaultLanguage) into `text` when a scene or prefab loads, every frame and when the language changes, so `text` is overwritten at run time. A key that no string table has keeps the text written here and logs one warning.
+     * @since unreleased
      */
     key: string;
     /**
@@ -2281,6 +2303,7 @@ declare module "factoria" {
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * @since unreleased
      */
     safeArea: boolean;
   }
@@ -2330,10 +2353,12 @@ declare module "factoria" {
     layer: number;
     /**
      * true: the tiles are shaded by the Light2D entities and SceneSettings.ambientLight, like Sprite.lit. Default false.
+     * @since unreleased
      */
     lit: boolean;
     /**
      * Lit tilemaps only. Normal map image laid out exactly like the tileset (same size, same tile positions); flipped and rotated tiles turn their normals with them. Empty = flat tiles. (asset path: texture)
+     * @since unreleased
      */
     normalMap: string;
   }
@@ -2441,6 +2466,7 @@ declare module "factoria" {
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false.
+     * @since unreleased
      */
     safeArea: boolean;
   }
@@ -2460,10 +2486,12 @@ declare module "factoria" {
     texture: string;
     /**
      * Tangent-space normal map (glTF convention: +Y up, the usual blue-ish image) that adds small-scale relief without more triangles. Empty = none (or the glTF material's normalTexture). Replaces the glTF one when set. (asset path: texture)
+     * @since unreleased
      */
     normalMap: string;
     /**
      * How strong the normal map is: 0 = flat, 1 = as authored.
+     * @since unreleased
      */
     normalScale: number;
     /**
@@ -2503,10 +2531,12 @@ declare module "factoria" {
     set uvScale(value: Vec2Like);
     /**
      * Project-relative path of a custom material, a *.material.json file (e.g. "materials/water.material.json"), or "" (default) for the standard PBR material. The material file names a GLSL snippet whose surface() changes what the standard material computed (albedo, alpha, normal, emission...) and whose optional vertex() moves the vertices, and declares its params, textures, lighting (pbr or unlit) and alphaMode (opaque, clip or blend). The `material.info` command lists a material's params and textures; `shader.compile` compiles it and reports errors with file:line. The material's alphaMode wins over color.a < 1; `unlit` true forces unlit lighting. A material that does not compile draws magenta and logs why. Guide with worked examples: docs/SHADERS.md (`factoria docs read shaders`). (asset path: material)
+     * @since unreleased
      */
     material: string;
     /**
      * Per-entity overrides of the material's params and textures, as an object keyed by the name declared in the material file: numbers for float params, arrays for vectors and colors ([r, g, b, a]), project-relative paths for textures. Example: {"glow": [1, 0.2, 0, 1], "mask": "textures/leaf.png"}. Unnamed params keep the material's defaults. An entity without overrides batches with the others that share the material. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
      */
     materialParams: any;
   }
@@ -2546,58 +2576,72 @@ declare module "factoria" {
    * Plays the skeletal animation clips of a skinned glTF model (the model of the MeshRenderer on the same entity, or `model`): one clip at a time with cross-fades, clip events, and an optional small state machine (`params`, `states`, `transitions`). It runs in the fixed step, so headless runs and replays match. Scripts: entity.animator.play("Run", 0.2), .set("speed", 3), .stop(); events reach world.on(name, ...).
    * 
    * Category: 3D
+   * @since unreleased
    */
   export interface AnimatorComponent {
     /**
      * Project-relative .gltf/.glb path with the skin and the clips. Empty = the `mesh` of the MeshRenderer on the same entity (usual case: leave it empty).
+     * @since unreleased
      */
     model: string;
     /**
      * Name of the glTF animation playing now (see entity.animator.clips). Assigning it at run time switches clips with a cross-fade of `fade` seconds. Empty = bind pose (the model as exported).
+     * @since unreleased
      */
     clip: string;
     /**
      * Playback speed multiplier: 1 = authored speed, 2 = twice as fast, 0 = frozen.
+     * @since unreleased
      */
     speed: number;
     /**
      * true = start over when the clip ends. false = stop on the last pose and send the `anim.finished` event.
+     * @since unreleased
      */
     loop: boolean;
     /**
      * Set false to pause, true to play.
+     * @since unreleased
      */
     playing: boolean;
     /**
      * Cross-fade seconds used when `clip` is changed by assignment (play() takes its own).
+     * @since unreleased
      */
     fade: number;
     /**
      * State machine parameters and their start values, an object such as {"speed": 0, "grounded": true}. Numbers and booleans. Scripts change them with animator.set(name, value); transitions read them. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
      */
     params: any;
     /**
      * State machine states, an object name -> {clip, loop (default true), speed (default 1), onEnter}. `onEnter` is the name of a game event sent when the state starts (world.on). Example: {"idle": {"clip": "Idle"}, "run": {"clip": "Run", "onEnter": "started_running"}}. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
      */
     states: any;
     /**
      * State machine transitions, an array checked in order every step; the first that matches fires. Each: {from (a state, or "*"/omitted = any), to, when, fade (seconds, default 0.2), onFinish}. `when` is conditions joined by "&&": `speed > 0.1`, `grounded`, `!grounded`, `hp <= 0` (operators > >= < <= == !=). A parameter set with animator.trigger(name) is true for one step. onFinish: true fires when the current non-looping clip ended (alone or together with `when`). Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
      */
     transitions: any;
     /**
      * Clip events, an array of {clip, time, name}: when the clip's time passes `time` (seconds) the game event `name` is sent once per loop, with data {id, clip, time}; listen with world.on(name, fn). Example: [{"clip": "Walk", "time": 0.3, "name": "footstep"}]. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
      */
     events: any;
     /**
      * State machine: the state the animator is in (the start state when set in the scene; empty = the first state of `states`). Updated as transitions fire.
+     * @since unreleased
      */
     state: string;
     /**
      * Runtime state: seconds into the current clip. Assigning it seeks (no events fire).
+     * @since unreleased
      */
     time: number;
     /**
      * Runtime state: current value of every state machine parameter. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
      */
     values: any;
   }
@@ -2698,90 +2742,111 @@ declare module "factoria" {
    * A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). Both this entity and `connected` need a RigidBody2D (or a Collider2D, which makes a static body); leave `connected` empty to pin to the world. Lengths and anchors are world units (pixels), angles degrees; created when the entity is, destroyed with either body or when the component is removed. Changing type, connected, anchors, axis or collideConnected rebuilds the joint; limits, motor, spring and length apply live, so scripts can toggle a motor. Positive angle, motor speed and translation move THIS entity counter-clockwise / along +axis relative to `connected` (the axis is in the connected body's frame, the world's when empty). Reaction force, angle and translation are read-only runtime fields.
    * 
    * Category: Physics
+   * @since unreleased
    */
   export interface Joint2DComponent {
     /**
      * revolute: the bodies share the anchor point and may turn around it. distance: the anchors stay `length` apart (a spring when enableSpring). prismatic: the anchor slides along `axis` and the bodies cannot turn relative to each other. weld: the bodies stay rigidly together (soft with springHertz > 0).
+     * @since unreleased
      */
     type: "revolute" | "distance" | "prismatic" | "weld";
     /**
      * Id of the other entity (it needs a body). Empty / null = the joint is fixed to the world and connectedAnchor is a world position.
+     * @since unreleased
      */
     get connected(): Entity | null;
     set connected(value: EntityLike);
     /**
      * Joint point [x, y] in THIS entity's local space (scaled by Transform.scale), world units from its origin.
+     * @since unreleased
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Joint point [x, y] in the connected entity's local space; a world position when `connected` is empty. For a hinge both anchors name the same spot in the world when the joint is created.
+     * @since unreleased
      */
     get connectedAnchor(): Vec2;
     set connectedAnchor(value: Vec2Like);
     /**
      * Prismatic only: slide direction [x, y] in this entity's local space; normalised. [1, 0] slides along local x.
+     * @since unreleased
      */
     get axis(): Vec2;
     set axis(value: Vec2Like);
     /**
      * true: the two joined bodies still collide with each other (default false).
+     * @since unreleased
      */
     collideConnected: boolean;
     /**
      * Distance only: rest length in world units. 0 = the distance between the anchors when the joint is created.
+     * @since unreleased
      */
     length: number;
     /**
      * Limit the motion: revolute angle, prismatic translation, or distance length (needs enableSpring to stretch).
+     * @since unreleased
      */
     enableLimit: boolean;
     /**
      * Lower limit: revolute degrees (between -178 and 178, 0 = the pose at creation), prismatic translation in world units (0 = anchors coincide), distance minimum length in world units.
+     * @since unreleased
      */
     lowerLimit: number;
     /**
      * Upper limit, same units as lowerLimit.
+     * @since unreleased
      */
     upperLimit: number;
     /**
      * Drive the joint at motorSpeed with at most maxMotorTorque. Revolute and prismatic; a distance joint motor works only with enableSpring.
+     * @since unreleased
      */
     enableMotor: boolean;
     /**
      * Target speed: revolute degrees per second (positive = counter-clockwise), prismatic / distance world units per second.
+     * @since unreleased
      */
     motorSpeed: number;
     /**
      * Strongest push the motor may apply: a torque for a revolute joint, a force for prismatic and distance joints (the same units as physics.applyForce). 0 = the motor does nothing.
+     * @since unreleased
      */
     maxMotorTorque: number;
     /**
      * Revolute, prismatic, distance: make the free motion springy, pulling towards the rest pose (angle 0, translation 0, `length`).
+     * @since unreleased
      */
     enableSpring: boolean;
     /**
      * Spring stiffness in cycles per second (about 1 = a slow bounce, 5 = stiff). Weld joints: 0 = rigid, above 0 = a soft weld (no enableSpring needed).
+     * @since unreleased
      */
     springHertz: number;
     /**
      * Spring damping: 0 = bounces on, 1 = settles without overshoot.
+     * @since unreleased
      */
     dampingRatio: number;
     /**
      * Runtime: the force [x, y] the joint applied last step to hold the bodies (same units as physics.applyForce). Compare it with a limit to break a rope. Read-only.
+     * @since unreleased
      */
     readonly reactionForce: Vec2;
     /**
      * Runtime: the torque the joint applied last step. Read-only.
+     * @since unreleased
      */
     readonly reactionTorque: number;
     /**
      * Runtime: revolute and weld: the current joint angle in degrees (0 = the pose at creation). Read-only.
+     * @since unreleased
      */
     readonly angle: number;
     /**
      * Runtime: prismatic: the current slide position; distance: the current length, in world units. Read-only.
+     * @since unreleased
      */
     readonly translation: number;
   }
@@ -2855,10 +2920,12 @@ declare module "factoria" {
     radius: number;
     /**
      * capsule: full height in meters from tip to tip along the entity's local Y (so the straight part is height - 2 * radius; never less than 2 * radius).
+     * @since unreleased
      */
     height: number;
     /**
      * convex / mesh shapes: a built-in primitive name ("cube", "sphere", "plane", "cylinder", "capsule", "cone", "quad", the same sizes as MeshRenderer) or a project-relative path to a .gltf/.glb model (every mesh node of the file, with its node transform). Use the same value as the MeshRenderer so the collider matches what is drawn.
+     * @since unreleased
      */
     mesh: string;
     /**
@@ -2891,66 +2958,81 @@ declare module "factoria" {
    * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body and never falls asleep. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
    * 
    * Category: Physics
+   * @since unreleased
    */
   export interface Joint3DComponent {
     /**
      * hinge: rotation about `axis` only. ball: free rotation about the anchor point. fixed: no relative movement at all.
+     * @since unreleased
      */
     type: "hinge" | "ball" | "fixed";
     /**
      * The other body's entity id. Empty = the world (the anchor point stays where it is). The entity needs a RigidBody3D (any type) or a Collider3D.
+     * @since unreleased
      */
     get connected(): Entity | null;
     set connected(value: EntityLike);
     /**
      * Joint point [x, y, z] in THIS entity's local space (scaled and rotated with it): the pendulum's pivot, the door's hinge edge.
+     * @since unreleased
      */
     get anchor(): Vec3;
     set anchor(value: Vec3Like);
     /**
      * Joint point in the connected entity's local space, or a world position when `connected` is empty. Ignored while autoAnchor is true.
+     * @since unreleased
      */
     get connectedAnchor(): Vec3;
     set connectedAnchor(value: Vec3Like);
     /**
      * true (default): connectedAnchor is computed from `anchor` when the joint is created, so the bodies stay joined exactly where they are. false: use connectedAnchor as given (the bodies are pulled together).
+     * @since unreleased
      */
     autoAnchor: boolean;
     /**
      * hinge: the rotation axis [x, y, z] in THIS entity's local space (normalized).
+     * @since unreleased
      */
     get axis(): Vec3;
     set axis(value: Vec3Like);
     /**
      * hinge: keep the angle between lowerLimit and upperLimit.
+     * @since unreleased
      */
     useLimits: boolean;
     /**
      * hinge: lowest angle in degrees, relative to the pose the joint was created in (0 there).
+     * @since unreleased
      */
     lowerLimit: number;
     /**
      * hinge: highest angle in degrees (same reference).
+     * @since unreleased
      */
     upperLimit: number;
     /**
      * hinge: drive the joint at motorSpeed (a wheel, an opening door).
+     * @since unreleased
      */
     useMotor: boolean;
     /**
      * hinge motor: target speed in degrees/second of this body relative to the connected one, about the axis.
+     * @since unreleased
      */
     motorSpeed: number;
     /**
      * hinge motor: the most torque in newton-meters the motor may apply; a heavy or loaded body needs more.
+     * @since unreleased
      */
     maxMotorTorque: number;
     /**
      * false (default): the two joined bodies do not collide with each other. true: they do.
+     * @since unreleased
      */
     collideConnected: boolean;
     /**
      * Runtime: the current hinge angle in degrees, relative to the creation pose. Read-only.
+     * @since unreleased
      */
     readonly angle: number;
   }
@@ -2958,52 +3040,64 @@ declare module "factoria" {
    * A walking character: a kinematic capsule that moves and slides. Move it with physics.moveCharacter(entity, [dx, dy, dz]) (Unity-style: you add gravity and jumping to the move yourself, using isGrounded) or set `velocity`. It slides along walls and ceilings, climbs steps up to stepOffset, will not climb slopes steeper than slopeLimit (it slides down them), stays on the ground going down ramps, and pushes dynamic bodies it walks into. Other bodies treat it as a kinematic capsule. The entity origin is the capsule centre (plus `center`). Do not add RigidBody3D or Collider3D to the same entity.
    * 
    * Category: Physics
+   * @since unreleased
    */
   export interface CharacterController3DComponent {
     /**
      * Capsule radius in meters (scaled by Transform.scale).
+     * @since unreleased
      */
     radius: number;
     /**
      * Capsule height in meters from tip to tip (never less than 2 * radius).
+     * @since unreleased
      */
     height: number;
     /**
      * Capsule centre [x, y, z] from the entity origin, in meters.
+     * @since unreleased
      */
     get center(): Vec3;
     set center(value: Vec3Like);
     /**
      * Highest step in meters the character walks up (and the distance it snaps down to stay on the ground).
+     * @since unreleased
      */
     stepOffset: number;
     /**
      * Steepest slope in degrees the character can walk up; steeper surfaces count as walls.
+     * @since unreleased
      */
     slopeLimit: number;
     /**
      * Gap in meters kept between the capsule and the surfaces it touches; avoids jitter and tunnelling.
+     * @since unreleased
      */
     skin: number;
     /**
      * Collision category of the character, 0..31.
+     * @since unreleased
      */
     layer: number;
     /**
      * Bitmask of layers the character collides with. -1 = all layers.
+     * @since unreleased
      */
     mask: number;
     /**
      * Velocity in meters/second [x, y, z]: when not zero the character moves by velocity * dt every physics step (no gravity is added). Use it or moveCharacter, not both for the same motion.
+     * @since unreleased
      */
     get velocity(): Vec3;
     set velocity(value: Vec3Like);
     /**
      * Runtime: true when the last move ended standing on walkable ground (slope up to slopeLimit). Read-only.
+     * @since unreleased
      */
     readonly isGrounded: boolean;
     /**
      * Runtime: the normal of the ground under the character after the last move (up when airborne). Read-only.
+     * @since unreleased
      */
     readonly groundNormal: Vec3;
   }
@@ -3061,88 +3155,108 @@ declare module "factoria" {
    * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
    * 
    * Category: UI
+   * @since 0.1.6
    */
   export interface PanelComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.1.6
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.1.6
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.1.6
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since 0.1.6
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.1.6
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
+     * @since 0.1.6
      */
     layout: "none" | "row" | "column" | "grid";
     /**
      * Gap in design pixels between children (a grid uses it on both axes).
+     * @since 0.1.6
      */
     spacing: number;
     /**
      * Space [left, top, right, bottom] between the panel's edge and its children.
+     * @since 0.1.6
      */
     get padding(): Vec3 & { w: number };
     set padding(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Grid only: number of columns.
+     * @since 0.1.6
      */
     columns: number;
     /**
      * Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom (a panel with `direction` rtl, or auto in a right-to-left language, swaps left and right: start = right).
+     * @since 0.1.6
      */
     align: "start" | "center" | "end";
     /**
      * Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom (with a right-to-left `direction`, start = the right edge). A grid is placed as one block on both axes.
+     * @since 0.1.6
      */
     justify: "start" | "center" | "end";
     /**
      * Horizontal reading direction of the layout. ltr (default) = a row runs left to right and start means left. rtl = the first child of a row is at the right, a grid fills its columns from the right and align / justify `start` means the right edge. auto = ltr in a left-to-right language and rtl in Arabic, Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.
+     * @since unreleased
      */
     direction: "ltr" | "auto" | "rtl";
     /**
      * true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position.
+     * @since 0.1.6
      */
     fit: boolean;
     /**
      * true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children of the panels and lists inside it; active ones only) takes the size of the largest of them, width and height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a grid of level buttons as wide as the widest label.
+     * @since unreleased
      */
     uniformSize: boolean;
     /**
      * Layout used instead of `layout` when the panel laid out with `layout` would not fit the screen (none = never switch). The panel leaves the screen when its content size + padding, or the size of the outermost fit Panel around it, is wider than the screen and `layout` is row or grid, or taller and `layout` is column or grid. The deepest panels switch first, so a menu changes one level at a time until it fits; the choice is made again every frame, so it follows the text size and the language and goes back to `layout` when the texts shrink. Example: a column of two blocks with fallbackLayout "row" stands them side by side at a big text size; a row of buttons with fallbackLayout "column" stacks them. Scripts that must adapt read `usingFallback`.
+     * @since unreleased
      */
     fallbackLayout: "none" | "row" | "column" | "grid";
     /**
      * Runtime: true while the panel is laid out with `fallbackLayout` instead of `layout`. Read-only.
+     * @since unreleased
      */
     readonly usingFallback: boolean;
   }
@@ -3150,99 +3264,121 @@ declare module "factoria" {
    * Clickable button with a text label. Activated by the mouse / a touch, or by ui_submit (Enter, Space, gamepad A) while it has focus; the event is ui.click {id}. Focus rules and the other widgets: see Panel.
    * 
    * Category: UI
+   * @since 0.1.6
    */
   export interface ButtonComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.1.6
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.1.6
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.1.6
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since 0.1.6
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.1.6
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since 0.1.6
      */
     font: string;
     /**
      * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * @since unreleased
      */
     key: string;
     /**
      * Label glyph height in design pixels.
+     * @since 0.1.6
      */
     fontSize: number;
     /**
      * Label colour.
+     * @since 0.1.6
      */
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
      * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     * @since 0.1.6
      */
     get accentColor(): Color;
     set accentColor(value: ColorLike);
     /**
      * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     * @since 0.1.6
      */
     interactable: boolean;
     /**
      * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
+     * @since 0.1.6
      */
     autoFocus: boolean;
     /**
      * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     * @since 0.1.6
      */
     readonly focused: boolean;
     /**
      * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     * @since 0.1.6
      */
     readonly hovered: boolean;
     /**
      * Runtime: the pointer is held down on this widget. Read-only.
+     * @since 0.1.6
      */
     readonly pressed: boolean;
     /**
      * Label, centred on the button. `
      * ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button.
+     * @since 0.1.6
      */
     text: string;
     /**
      * > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = the label wraps only at `
      * `. With autoSize the button is at most maxWidth plus its margins wide and grows taller instead.
+     * @since unreleased
      */
     maxWidth: number;
     /**
      * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     * @since unreleased
      */
     autoSize: boolean;
   }
@@ -3250,97 +3386,119 @@ declare module "factoria" {
    * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
    * 
    * Category: UI
+   * @since 0.1.6
    */
   export interface ToggleComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.1.6
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.1.6
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.1.6
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since 0.1.6
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.1.6
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since 0.1.6
      */
     font: string;
     /**
      * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * @since unreleased
      */
     key: string;
     /**
      * Label glyph height in design pixels.
+     * @since 0.1.6
      */
     fontSize: number;
     /**
      * Label colour.
+     * @since 0.1.6
      */
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
      * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     * @since 0.1.6
      */
     get accentColor(): Color;
     set accentColor(value: ColorLike);
     /**
      * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     * @since 0.1.6
      */
     interactable: boolean;
     /**
      * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
+     * @since 0.1.6
      */
     autoFocus: boolean;
     /**
      * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     * @since 0.1.6
      */
     readonly focused: boolean;
     /**
      * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     * @since 0.1.6
      */
     readonly hovered: boolean;
     /**
      * Runtime: the pointer is held down on this widget. Read-only.
+     * @since 0.1.6
      */
     readonly pressed: boolean;
     /**
      * Text to the right of the box.
+     * @since 0.1.6
      */
     label: string;
     /**
      * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     * @since unreleased
      */
     autoSize: boolean;
     /**
      * true = checked. Scripts may write it; no event is sent for a write.
+     * @since 0.1.6
      */
     value: boolean;
   }
@@ -3348,113 +3506,139 @@ declare module "factoria" {
    * Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15%. Left / right (ui_left / ui_right, d-pad, stick) change the value while focused; dragging the track with the mouse sets it. Event: ui.change {id, value: number}.
    * 
    * Category: UI
+   * @since 0.1.6
    */
   export interface SliderComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.1.6
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.1.6
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.1.6
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since 0.1.6
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.1.6
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since 0.1.6
      */
     font: string;
     /**
      * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * @since unreleased
      */
     key: string;
     /**
      * Label glyph height in design pixels.
+     * @since 0.1.6
      */
     fontSize: number;
     /**
      * Label colour.
+     * @since 0.1.6
      */
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
      * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     * @since 0.1.6
      */
     get accentColor(): Color;
     set accentColor(value: ColorLike);
     /**
      * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     * @since 0.1.6
      */
     interactable: boolean;
     /**
      * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
+     * @since 0.1.6
      */
     autoFocus: boolean;
     /**
      * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     * @since 0.1.6
      */
     readonly focused: boolean;
     /**
      * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     * @since 0.1.6
      */
     readonly hovered: boolean;
     /**
      * Runtime: the pointer is held down on this widget. Read-only.
+     * @since 0.1.6
      */
     readonly pressed: boolean;
     /**
      * Text at the left; empty gives the track the extra room.
+     * @since 0.1.6
      */
     label: string;
     /**
      * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     * @since unreleased
      */
     autoSize: boolean;
     /**
      * Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write.
+     * @since 0.1.6
      */
     value: number;
     /**
      * Smallest value.
+     * @since 0.1.6
      */
     min: number;
     /**
      * Largest value.
+     * @since 0.1.6
      */
     max: number;
     /**
      * Keyboard / gamepad increment, and the grid the value is snapped to (also when dragging). 0 = continuous: keys move (max - min) / 20 per press and dragging is not snapped.
+     * @since 0.1.6
      */
     step: number;
     /**
      * Draw the value at the right: "60%" when min is 0 and max is 1, else the number with up to 2 decimals.
+     * @since 0.1.6
      */
     showValue: boolean;
   }
@@ -3462,101 +3646,124 @@ declare module "factoria" {
    * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
    * 
    * Category: UI
+   * @since 0.1.6
    */
   export interface TextFieldComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.1.6
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.1.6
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.1.6
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since 0.1.6
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.1.6
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font (same values as Text.font). (asset path: font)
+     * @since 0.1.6
      */
     font: string;
     /**
      * Localization key, e.g. "menu.play" (docs/LOCALIZATION.md). Empty (default) = not translated. With a key, the runtime writes the translation into the widget's own text: Button.text, Toggle.label, Slider.label, or TextField.placeholder (never TextField.text, which is what the player typed). It does so when a scene or prefab loads, every frame and when the language changes, so that field is overwritten at run time while `key` is set. A key that no string table has keeps the text written in the field and logs one warning.
+     * @since unreleased
      */
     key: string;
     /**
      * Label glyph height in design pixels.
+     * @since 0.1.6
      */
     fontSize: number;
     /**
      * Label colour.
+     * @since 0.1.6
      */
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
      * Colour of the focus ring, the slider fill and knob, the toggle check mark and the text caret.
+     * @since 0.1.6
      */
     get accentColor(): Color;
     set accentColor(value: ColorLike);
     /**
      * false: the widget is drawn at half alpha and is never hovered, focused or clicked, so it sends no ui events. A focused widget that becomes non-interactable loses focus.
+     * @since 0.1.6
      */
     interactable: boolean;
     /**
      * Focus rule: nothing takes keyboard / gamepad focus by itself, except that when NOTHING is focused the first widget with autoFocus = true (reading order: top, then left) takes it. Mark the first item of each menu; HUD buttons then stay out of gamepad play (Space / A must never click a HUD button). When the focused widget disappears (inactive, destroyed, not interactable) autoFocus applies again. When every visible autoFocus widget has interactable = false (a greyed-out buy button), the first interactable widget in reading order takes the focus instead, so the gamepad is never left with nothing focused.
+     * @since 0.1.6
      */
     autoFocus: boolean;
     /**
      * Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only.
+     * @since 0.1.6
      */
     readonly focused: boolean;
     /**
      * Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only.
+     * @since 0.1.6
      */
     readonly hovered: boolean;
     /**
      * Runtime: the pointer is held down on this widget. Read-only.
+     * @since 0.1.6
      */
     readonly pressed: boolean;
     /**
      * The text, UTF-8. Scripts may write it; no event is sent for a write.
+     * @since 0.1.6
      */
     text: string;
     /**
      * Hint drawn at half alpha while `text` is empty.
+     * @since 0.1.6
      */
     placeholder: string;
     /**
      * Longest text, in characters (code points). 0 = unlimited.
+     * @since 0.1.6
      */
     maxLength: number;
     /**
      * Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only.
+     * @since 0.1.6
      */
     readonly caret: boolean;
   }
@@ -3564,64 +3771,78 @@ declare module "factoria" {
    * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer), and focusing a widget inside scrolls just enough to show it.
    * 
    * Category: UI
+   * @since 0.1.6
    */
   export interface ScrollListComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since 0.1.6
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since 0.1.6
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since 0.1.6
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since 0.1.6
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since 0.1.6
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since 0.1.6
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since 0.1.6
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Gap in design pixels between children.
+     * @since 0.1.6
      */
     spacing: number;
     /**
      * Space [left, top, right, bottom] between the list's edge and its children.
+     * @since 0.1.6
      */
     get padding(): Vec3 & { w: number };
     set padding(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame.
+     * @since 0.1.6
      */
     scroll: number;
     /**
      * Pixels scrolled per mouse-wheel notch.
+     * @since 0.1.6
      */
     scrollSpeed: number;
     /**
      * true: when the parent is a Panel with layout column, `size.y` is set every frame to the height the other children leave. In a Panel with `fit` that is the screen height (minus the safe-area insets) minus the panel's padding, the gaps and the other children, so the panel ends exactly as tall as the screen at most (never below 64 px; if the other children do not leave that, the panel is taller than the screen and warns). In a Panel without fit it is the panel's own inner height minus the others. Several fill lists share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours.
+     * @since unreleased
      */
     fill: boolean;
   }
@@ -3629,68 +3850,83 @@ declare module "factoria" {
    * On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. A finger that lands on it moves a stick of the TOUCH PAD, a virtual gamepad the action bindings read like a real one, so actions bound to GamepadLeftStickLeft/Right/Up/Down (or the right stick) work with no change to the game; the default ui_* actions include the left stick, so it also walks menus. Full tilt is the edge of the disc (half the shorter side); the pad deadzone (input.deadzone) applies like on a real stick. That finger is the stick's until it lifts, even outside the disc: it is not in input.touches, the Touch binding or the mouse. Several fingers work at once (a stick and buttons). Defaults: 200 x 200, inside the safe area, shown only while the player uses touch (touchOnly).
    * 
    * Category: UI
+   * @since unreleased
    */
   export interface TouchStickComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since unreleased
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since unreleased
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since unreleased
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since unreleased
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since unreleased
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since unreleased
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * Which stick of the touch pad it moves.
+     * @since unreleased
      */
     stick: "left" | "right";
     /**
      * Colour of the knob, a disc 45% as wide as the stick.
+     * @since unreleased
      */
     get knobColor(): Color;
     set knobColor(value: ColorLike);
     /**
      * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * @since unreleased
      */
     touchOnly: boolean;
     /**
      * Runtime: the finger's offset from the centre over the radius [x, y], length <= 1, +Y up; [0, 0] when no finger holds it. Before the deadzone; read actions (input.vector) for the value the game should use. Read-only.
+     * @since unreleased
      */
     readonly value: Vec2;
     /**
      * Runtime: a finger holds the stick. Read-only.
+     * @since unreleased
      */
     readonly pressed: boolean;
     /**
      * Runtime: drawn this frame (see touchOnly). Read-only.
+     * @since unreleased
      */
     readonly shown: boolean;
   }
@@ -3698,76 +3934,93 @@ declare module "factoria" {
    * On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an optional label. While a finger holds it, `button` of the TOUCH PAD is down, a virtual gamepad the action bindings read like a real one: a TouchButton with button "A" fires every action bound to GamepadA, with no change to the game. The finger is the button's until it lifts, even if it slides off, and it is not in input.touches, the Touch binding or the mouse. Several fingers work at once. Defaults: 96 x 96, inside the safe area, shown only while the player uses touch (touchOnly). It is not focusable and sends no ui events.
    * 
    * Category: UI
+   * @since unreleased
    */
   export interface TouchButtonComponent {
     /**
      * Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider 320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel with fit = true recomputes it every frame.
+     * @since unreleased
      */
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
      * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. Layout does not care about the pivot of its children.
+     * @since unreleased
      */
     get pivot(): Vec2;
     set pivot(value: Vec2Like);
     /**
      * Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] top-right, [0.5, 0.5] centre. Anchor [0.5, 0.5] with position [0, 0] centres the widget on any aspect ratio. The anchor of the widget itself is used, not its parent's: children of a Panel normally keep anchor [0, 0] and are placed by the Panel's layout.
+     * @since unreleased
      */
     get anchor(): Vec2;
     set anchor(value: Vec2Like);
     /**
      * Screen space only. true: the anchor names a point of the SAFE area, the screen minus the notch, rounded corners and system bars of a phone (screen.safeArea in scripts), instead of the whole screen: anchor [0, 0] is the top-left corner of the safe area, [1, 1] its bottom-right. Keeps HUD and buttons out of the notch. On a screen without cutouts (desktop, most tablets) it changes nothing. Default false (true on TouchStick and TouchButton).
+     * @since unreleased
      */
     safeArea: boolean;
     /**
      * Draw order of the background; higher is on top. Defaults to 200, above HUD Text (layer 100). The label draws at layer + 1 and the focus ring at layer + 2. Pointer hit-testing follows the same order: the highest layer, then the latest entity, under the pointer is the hovered widget.
+     * @since unreleased
      */
     layer: number;
     /**
      * Background colour, multiplied with `texture` when there is one. Hovered widgets are brightened, pressed ones darkened, non-interactable ones drawn at half alpha. Accepts [r,g,b,a], "#rrggbb" or a name.
+     * @since unreleased
      */
     get color(): Color;
     set color(value: ColorLike);
     /**
      * Optional background image (project path), drawn as a 9-slice (see `slice`) with nearest-neighbour sampling, so pixel art stays crisp. Empty draws a solid rectangle of `color`. (asset path: texture)
+     * @since unreleased
      */
     texture: string;
     /**
      * 9-slice borders in TEXTURE pixels [left, top, right, bottom]. The four corners are drawn unscaled (1 texture pixel = 1 design pixel), the edges stretch along one axis and the centre along both, so one small image gives panels of any size. [0, 0, 0, 0] (default) stretches the whole image. When the widget is smaller than left + right (or top + bottom) the borders shrink proportionally.
+     * @since unreleased
      */
     get slice(): Vec3 & { w: number };
     set slice(value: readonly number[] | { x: number; y: number; z: number; w: number });
     /**
      * The pad button it holds down: actions bound to "Gamepad" + this name (GamepadA, GamepadDpadUp...) fire. Bind the game's actions to pad buttons in factoria.json input.actions to use them.
+     * @since unreleased
      */
     button: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb";
     /**
      * Label centred on the button, e.g. "A" or "Jump". Empty (default) draws none.
+     * @since unreleased
      */
     text: string;
     /**
      * Font of the label: project path of a .ttf, empty = the built-in font. (asset path: font)
+     * @since unreleased
      */
     font: string;
     /**
      * Label glyph height in design pixels.
+     * @since unreleased
      */
     fontSize: number;
     /**
      * Label colour.
+     * @since unreleased
      */
     get textColor(): Color;
     set textColor(value: ColorLike);
     /**
      * true (default): drawn and listed as visible only while the last input came from a finger (input.lastDevice "touch"; a phone or tablet starts that way), so it hides when the player picks up a gamepad or a keyboard and comes back on the next touch. A finger landing on it always works. false: always drawn (desktop previews, screenshots, tests).
+     * @since unreleased
      */
     touchOnly: boolean;
     /**
      * Runtime: a finger holds the button. Read-only.
+     * @since unreleased
      */
     readonly pressed: boolean;
     /**
      * Runtime: drawn this frame (see touchOnly). Read-only.
+     * @since unreleased
      */
     readonly shown: boolean;
   }

@@ -933,7 +933,7 @@ std::vector<std::string> ScriptSystem::check_hooks(std::string_view modulePath) 
 }
 
 Json ScriptSystem::api_manifest() const { return impl_->api_manifest(); }
-std::string ScriptSystem::typescript_declarations() const { return impl_->typescript_declarations(); }
+std::string ScriptSystem::typescript_declarations(const SinceFn& since) const { return impl_->typescript_declarations(since); }
 
 double ScriptSystem::time_scale() const { return impl_->timeScale; }
 
