@@ -37,4 +37,16 @@ private:
 // with one FontCoverage.
 Result<std::vector<std::uint32_t>> missing_glyphs(std::string_view utf8, const std::vector<std::string>& fontChain);
 
+// One line of text drawn on the CPU as an 8-bit coverage bitmap (0 = nothing, 255 = full ink), cropped to the ink.
+// No GPU or renderer needed (assets.draw_icon draws store icons with it).
+struct TextBitmap {
+    int width = 0, height = 0;
+    std::vector<std::uint8_t> coverage;  // width * height, row 0 = top
+};
+
+// Draws `utf8` on one line at `pixelSize` px per em with `font` ("" = DejaVu Sans, "builtin:pixel", or a project .ttf),
+// then the built-in DejaVu Sans for characters the font lacks. Plain left-to-right advance: no kerning, shaping or line
+// breaks (a '\n' is dropped). Text with no ink (empty, spaces) gives an empty bitmap. An unreadable font is an error.
+Result<TextBitmap> rasterize_text(std::string_view utf8, const std::string& font, float pixelSize);
+
 }  // namespace fa

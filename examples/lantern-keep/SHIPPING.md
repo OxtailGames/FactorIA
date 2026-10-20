@@ -36,7 +36,7 @@ store's partner site before a real upload:
 | `publish.appstore.appleId` | `1000000002` | the Apple ID of the app in App Store Connect |
 | `publish.googleplay` | `internal`, `draft`, changelogs `store/whats-new-*.txt` | fine as is for a first upload |
 
-Other files this package added: `assets/icon.png`, `assets/icon_fg.png` (made by `tools/make_icon.py`, Pillow, no AI;
+Other files this package added: `assets/icon.png`, `assets/icon_fg.png` (drawn by `assets.draw_icon` from `tools/icon.json`: `factoria call assets.draw_icon @tools/icon.json`, no AI;
 provenance recorded in `assets.json`), `prefabs/ui/touch_controls.prefab.json` (on-screen gamepad), `store/` (texts),
 `store/screenshots/` (screenshots, git-ignored), `tools/make_screenshots.py`, `tests/shipping.test.js`.
 
