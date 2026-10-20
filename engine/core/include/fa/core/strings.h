@@ -16,6 +16,8 @@ std::string_view trim(std::string_view s);
 std::vector<std::string> split(std::string_view s, char sep, bool skipEmpty = true);
 std::string join(std::span<const std::string> parts, std::string_view sep);
 std::string replace_all(std::string s, std::string_view from, std::string_view to);
+// Glob over forward-slash paths: `*` and `?` stay inside a folder name, `**` crosses folders ("**/" also matches none).
+bool glob_match(std::string_view pattern, std::string_view path);
 
 std::size_t edit_distance(std::string_view a, std::string_view b);  // case-insensitive Levenshtein
 // Closest candidate within a reasonable distance, or "" if none is close.

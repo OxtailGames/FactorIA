@@ -28,6 +28,27 @@ bool ends_with(std::string_view s, std::string_view suffix) {
     return s.size() >= suffix.size() && s.substr(s.size() - suffix.size()) == suffix;
 }
 
+static bool glob_from(std::string_view p, std::size_t pi, std::string_view s, std::size_t si) {
+    while (pi < p.size()) {
+        if (p[pi] == '*') {
+            const bool deep = pi + 1 < p.size() && p[pi + 1] == '*';
+            std::size_t next = pi + (deep ? 2 : 1);
+            if (deep && next < p.size() && p[next] == '/') ++next;  // "**/" also matches no folder at all
+            for (std::size_t k = si;; ++k) {
+                if (glob_from(p, next, s, k)) return true;
+                if (k >= s.size() || (!deep && s[k] == '/')) return false;
+            }
+        }
+        if (si >= s.size()) return false;
+        if (p[pi] == '?' ? s[si] == '/' : p[pi] != s[si]) return false;
+        ++pi;
+        ++si;
+    }
+    return si == s.size();
+}
+
+bool glob_match(std::string_view pattern, std::string_view path) { return glob_from(pattern, 0, path, 0); }
+
 std::string_view trim(std::string_view s) {
     auto isSpace = [](char c) { return std::isspace(static_cast<unsigned char>(c)) != 0; };
     while (!s.empty() && isSpace(s.front())) s.remove_prefix(1);

@@ -17,8 +17,6 @@ using tooling_detail::arg_int;
 using tooling_detail::arg_string;
 
 namespace {
-using tooling_detail::glob_match;
-
 
 constexpr std::uintmax_t kMaxReadBytes = 1 << 20;     // 1 MiB per fs.read
 constexpr std::uintmax_t kMaxWriteBytes = 8u << 20;   // 8 MiB per fs.write
