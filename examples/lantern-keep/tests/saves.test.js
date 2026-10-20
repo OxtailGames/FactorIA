@@ -65,8 +65,7 @@ test("autosave: finishing a level writes the slot, and the level select shows th
   teleportOnto(game.find("player"), "exit");
   game.step(2);
   const saved = JSON.parse(storage.get("slot1"));
-  expect(saved.version).toBe(2);
-  expect(saved.counter).toBe(1);
+  expect(saved).toMatchObject({ version: 2, counter: 1 });
   expect(Object.keys(saved.levels)).toEqual(["1-1"]);
   expect(saved.levels["1-1"].embers).toEqual([true, false, false]);
   expect(storage.get("lastSlot")).toBe(1);

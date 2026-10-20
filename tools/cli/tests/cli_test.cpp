@@ -383,11 +383,11 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
         return keys;
     };
     for (const char* language : {"en", "es"}) {
-        const std::string path = std::string("locales/") + language + ".json";
-        REQUIRE_MESSAGE(docTables.count(path) == 1, "docs/MENUS.md prints no " << path);
-        const fa::Json fixture = fa::Json::parse(read(repo / "tools/cli/tests/fixtures/menus" / path), nullptr, false);
-        CHECK(flat_keys(docTables[path]) == flat_keys(fixture));
-        CHECK(flat_keys(docTables[path]) == flat_keys(docTables["locales/en.json"]));
+        const std::string tablePath = std::string("locales/") + language + ".json";
+        REQUIRE_MESSAGE(docTables.count(tablePath) == 1, "docs/MENUS.md prints no " << tablePath);
+        const fa::Json fixture = fa::Json::parse(read(repo / "tools/cli/tests/fixtures/menus" / tablePath), nullptr, false);
+        CHECK(flat_keys(docTables[tablePath]) == flat_keys(fixture));
+        CHECK(flat_keys(docTables[tablePath]) == flat_keys(docTables["locales/en.json"]));
     }
 }
 

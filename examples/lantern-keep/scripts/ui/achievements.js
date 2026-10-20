@@ -5,7 +5,6 @@
 // ui_up/ui_down scroll the list.
 import { Behaviour, ui, platform, input, i18n } from "factoria";
 import { explain, trySignIn } from "./store_ui.js";
-import { fitWidgets, fitList } from "./text_fit.js";
 
 const GOLD = [1, 0.85, 0.4, 1];
 const GREY = [0.75, 0.8, 0.9, 1];
@@ -21,12 +20,11 @@ export default class Achievements extends Behaviour {
 
   onStart() {
     ui.on("click", "ach_refresh", () => this.load(true));
-    this.opened(); // the first time the panel is shown its script starts now; later the main menu calls opened()
-    i18n.on("change", () => this.render()); // the lines are built here, not translated by the engine
+    i18n.on("change", () => this.load(false)); // the names come from the store call, in the language of the moment: ask again
   }
 
-  /** The main menu calls this each time it shows the panel again (a hidden panel's scripts do not run): ask the store again. */
-  opened() {
+  /** Every time the panel is shown: ask the store again. */
+  onEnable() {
     this.load(false);
   }
 
@@ -60,7 +58,6 @@ export default class Achievements extends Behaviour {
     const status = this.world.find("ach_status");
     status.get("Text").text = message;
     status.active = message !== "";
-    this.fit();
   }
 
   render() {
@@ -82,17 +79,10 @@ export default class Achievements extends Behaviour {
           : i18n.t("achievements.locked");
       this.rows.push(
         this.world.spawn(
-          { components: { Text: { text: `${name}  -  ${state}\n${description}`, fontSize: 20, color: a.unlocked ? GOLD : GREY, space: "screen", maxWidth: 700, layer: 302 } } },
+          { components: { Text: { text: `${name}  -  ${state}\n${description}`, fontSize: 20, color: a.unlocked ? GOLD : GREY, space: "screen", maxWidth: 700, align: "start", layer: 302 } } },
           { parent: this.list },
         ),
       );
     }
-    this.fit();
-  }
-
-  /** Buttons as big as their text needs, the list as tall as the screen leaves after the texts above it. */
-  fit() {
-    fitWidgets(this.entity);
-    fitList(this.entity, this.list);
   }
 }

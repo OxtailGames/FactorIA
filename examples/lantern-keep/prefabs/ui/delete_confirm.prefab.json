@@ -47,7 +47,8 @@
             "text": "Keep it",
             "layer": 302,
             "key": "slots.keep",
-            "autoFocus": true
+            "autoFocus": true,
+            "autoSize": true
           }
         },
         "tags": ["back"]
@@ -58,7 +59,8 @@
           "Button": {
             "text": "Delete",
             "layer": 302,
-            "key": "slots.delete"
+            "key": "slots.delete",
+            "autoSize": true
           }
         }
       }

@@ -14,7 +14,4 @@ namespace fa {
 // missing file or a glob without matches is an Error that says what to pass, with a "did you mean" for a near miss.
 Result<std::vector<std::string>> resolve_test_files(const std::vector<std::string>& args);
 
-// Glob match of a project-relative path: `*` and `?` do not cross '/', `**` does.
-bool glob_match(const std::string& pattern, const std::string& path);
-
 }  // namespace fa

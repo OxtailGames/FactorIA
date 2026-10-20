@@ -38,7 +38,8 @@
             "layout": "row",
             "spacing": 12,
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "direction": "auto"
           }
         },
         "children": [
@@ -49,7 +50,8 @@
                 "text": "New game",
                 "layer": 302,
                 "size": [560, 64],
-                "autoFocus": true
+                "autoFocus": true,
+                "autoSize": true
               }
             }
           },
@@ -60,7 +62,8 @@
                 "text": "Delete",
                 "layer": 302,
                 "key": "slots.delete",
-                "size": [140, 64]
+                "size": [140, 64],
+                "autoSize": true
               }
             }
           }
@@ -75,7 +78,8 @@
             "layout": "row",
             "spacing": 12,
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "direction": "auto"
           }
         },
         "children": [
@@ -85,7 +89,8 @@
               "Button": {
                 "text": "New game",
                 "layer": 302,
-                "size": [560, 64]
+                "size": [560, 64],
+                "autoSize": true
               }
             }
           },
@@ -96,7 +101,8 @@
                 "text": "Delete",
                 "layer": 302,
                 "key": "slots.delete",
-                "size": [140, 64]
+                "size": [140, 64],
+                "autoSize": true
               }
             }
           }
@@ -111,7 +117,8 @@
             "layout": "row",
             "spacing": 12,
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "direction": "auto"
           }
         },
         "children": [
@@ -121,7 +128,8 @@
               "Button": {
                 "text": "New game",
                 "layer": 302,
-                "size": [560, 64]
+                "size": [560, 64],
+                "autoSize": true
               }
             }
           },
@@ -132,7 +140,8 @@
                 "text": "Delete",
                 "layer": 302,
                 "key": "slots.delete",
-                "size": [140, 64]
+                "size": [140, 64],
+                "autoSize": true
               }
             }
           }
@@ -146,7 +155,8 @@
             "fontSize": 20,
             "space": "screen",
             "layer": 301,
-            "maxWidth": 1100
+            "maxWidth": 1100,
+            "align": "start"
           }
         }
       },
@@ -156,7 +166,8 @@
           "Button": {
             "text": "Back",
             "layer": 302,
-            "key": "menu.back"
+            "key": "menu.back",
+            "autoSize": true
           }
         },
         "tags": ["back"]

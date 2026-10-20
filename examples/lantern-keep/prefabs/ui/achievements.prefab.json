@@ -51,7 +51,8 @@
             "space": "screen",
             "layer": 301,
             "color": [0.75, 0.8, 0.9, 1],
-            "maxWidth": 740
+            "maxWidth": 740,
+            "align": "start"
           }
         }
       },
@@ -60,6 +61,7 @@
         "components": {
           "ScrollList": {
             "size": [752, 440],
+            "fill": true,
             "layer": 301,
             "color": [0, 0, 0, 0.25],
             "spacing": 6,
@@ -76,7 +78,8 @@
             "layout": "row",
             "spacing": 16,
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "direction": "auto"
           }
         },
         "children": [
@@ -86,7 +89,8 @@
               "Button": {
                 "text": "Refresh",
                 "layer": 302,
-                "key": "platform.refresh"
+                "key": "platform.refresh",
+                "autoSize": true
               }
             }
           },
@@ -97,7 +101,8 @@
                 "text": "Back",
                 "layer": 302,
                 "key": "menu.back",
-                "autoFocus": true
+                "autoFocus": true,
+                "autoSize": true
               }
             },
             "tags": ["back"]

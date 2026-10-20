@@ -11,25 +11,6 @@ namespace fa {
 
 namespace {
 
-bool match_from(const std::string& p, std::size_t pi, const std::string& s, std::size_t si) {
-    while (pi < p.size()) {
-        if (p[pi] == '*') {
-            const bool deep = pi + 1 < p.size() && p[pi + 1] == '*';
-            std::size_t next = pi + (deep ? 2 : 1);
-            if (deep && next < p.size() && p[next] == '/') ++next;  // "**/" also matches no folder at all
-            for (std::size_t k = si;; ++k) {
-                if (match_from(p, next, s, k)) return true;
-                if (k >= s.size() || (!deep && s[k] == '/')) return false;
-            }
-        }
-        if (si >= s.size()) return false;
-        if (p[pi] == '?' ? s[si] == '/' : p[pi] != s[si]) return false;
-        ++pi;
-        ++si;
-    }
-    return si == s.size();
-}
-
 std::vector<std::string> all_test_files() {
     std::vector<std::string> out;
     for (const std::string& f : fs::list("tests", true, ".js"))
@@ -39,8 +20,6 @@ std::vector<std::string> all_test_files() {
 }
 
 }  // namespace
-
-bool glob_match(const std::string& pattern, const std::string& path) { return match_from(pattern, 0, path, 0); }
 
 Result<std::vector<std::string>> resolve_test_files(const std::vector<std::string>& args) {
     const std::vector<std::string> known = all_test_files();

@@ -36,7 +36,8 @@
             "color": [0, 0, 0, 0],
             "layout": "row",
             "padding": [0, 0, 0, 0],
-            "fit": true
+            "fit": true,
+            "direction": "auto"
           }
         },
         "children": [
@@ -49,7 +50,8 @@
                 "size": [160, 48],
                 "layer": 302,
                 "autoFocus": true,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -61,7 +63,8 @@
                 "key": "options.tab.audio",
                 "size": [160, 48],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -73,7 +76,8 @@
                 "key": "options.tab.controls",
                 "size": [160, 48],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -85,7 +89,8 @@
                 "key": "options.tab.language",
                 "size": [160, 48],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -97,7 +102,8 @@
                 "key": "options.tab.accessibility",
                 "size": [160, 48],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           }
@@ -122,7 +128,8 @@
                 "label": "Full screen",
                 "key": "options.fullscreen",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -133,7 +140,8 @@
                 "text": "Window size",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -144,7 +152,8 @@
                 "label": "VSync",
                 "key": "options.vsync",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -155,7 +164,8 @@
                 "text": "Frame cap",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -193,7 +203,8 @@
                 "label": "Master",
                 "key": "options.volume.master",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -204,7 +215,8 @@
                 "label": "Music",
                 "key": "options.volume.music",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -215,7 +227,8 @@
                 "label": "Effects",
                 "key": "options.volume.effects",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -226,7 +239,8 @@
                 "label": "Interface",
                 "key": "options.volume.interface",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           }
@@ -264,7 +278,8 @@
                 "key": "options.resetControls",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           }
@@ -288,7 +303,8 @@
               "Button": {
                 "text": "Language: English",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           }
@@ -313,7 +329,8 @@
                 "text": "Text size: 100%",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -324,7 +341,8 @@
                 "text": "Game speed: 100%",
                 "size": [560, 44],
                 "layer": 302,
-                "fontSize": 22
+                "fontSize": 22,
+                "autoSize": true
               }
             }
           },
@@ -335,7 +353,8 @@
                 "label": "Invincible",
                 "key": "options.accessibility.invincible",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -346,7 +365,8 @@
                 "label": "Screen shake",
                 "key": "options.accessibility.shake",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -357,7 +377,8 @@
                 "label": "Reduced effects",
                 "key": "options.accessibility.reducedEffects",
                 "size": [560, 44],
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           }
@@ -370,7 +391,8 @@
           "Button": {
             "text": "Back",
             "key": "menu.back",
-            "layer": 302
+            "layer": 302,
+            "autoSize": true
           }
         }
       }
