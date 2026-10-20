@@ -683,13 +683,14 @@ void Physics2D::apply_carry(World& world) {
     }
 }
 
-void Physics2D::find_carriers(World&) {
+void Physics2D::find_carriers() {
+    std::vector<b2ContactData> cd;
     for (auto& [key, b] : bodies_) {
         b.carrier = Entity{};
         if (!b.enabled || !b.hasRigid || b.type != BodyType::Dynamic || !b2Body_IsValid(b.body)) continue;
         const int cap = b2Body_GetContactCapacity(b.body);
         if (cap <= 0) continue;
-        std::vector<b2ContactData> cd(static_cast<std::size_t>(cap));
+        cd.resize(static_cast<std::size_t>(cap));
         const int n = b2Body_GetContactData(b.body, cd.data(), cap);
         for (int i = 0; i < n && b.carrier.is_null(); ++i) {
             const b2ContactData& c = cd[std::size_t(i)];
@@ -938,7 +939,7 @@ void Physics2D::step(World& world, float dt) {
         writeback(world, e, it->second, world.get<RigidBody2D>(e));
     }
     read_joints(world);
-    find_carriers(world);
+    find_carriers();
 
     // ---- 4. events
     collect_events(world);
