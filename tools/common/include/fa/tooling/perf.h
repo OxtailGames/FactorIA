@@ -38,7 +38,6 @@ struct PerfTolerance {
 };
 // Defaults overridden by the keys of `j` (the "tolerance" object of a budget file); problems (unknown key, bad value) go to `problems`.
 PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* problems = nullptr);
-Json perf_tolerance_json(const PerfTolerance& t);
 
 struct PerfCheckRow {
     std::string metric;  // "cpuMsAvg", "cpuMsP95", "peakMemoryMB", "drawCalls", "entities"
@@ -56,9 +55,6 @@ PerfVerdict perf_compare(const PerfSample& measured, const PerfSample& baseline,
 // "<os>-<compiler>-<renderer>", e.g. linux-gcc-llvmpipe, windows-msvc-d3d11-warp, macos-clang-metal. FACTORIA_PERF_RUNNER
 // overrides it (a machine of your own, or the test of the check itself). `graphics` is PerfSample::graphics.
 std::string perf_runner_id(const std::string& graphics);
-// True when the CI environment variable is set (GitHub Actions and most CI systems do).
-bool perf_in_ci();
-
 void register_perf_commands(CommandRegistry& registry, const std::string& projectDir);
 
 }  // namespace fa

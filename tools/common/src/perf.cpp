@@ -24,11 +24,6 @@ double num(const Json& j, const char* key) {
 
 double round3(double v) { return std::round(v * 1000.0) / 1000.0; }
 
-std::string lower(std::string s) {
-    for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------ samples and tolerances
@@ -72,12 +67,6 @@ PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* 
         if (!known && problems) problems->push_back("Unknown tolerance '" + it.key() + "'. " + did_you_mean(it.key(), names));
     }
     return t;
-}
-
-Json perf_tolerance_json(const PerfTolerance& t) {
-    return Json::object({{"cpuAvg", t.cpuAvg}, {"cpuP95", t.cpuP95}, {"memory", t.memory}, {"drawCalls", t.drawCalls},
-                         {"entities", t.entities}, {"cpuSlackMs", t.cpuSlackMs}, {"memorySlackMB", t.memorySlackMB},
-                         {"countSlack", t.countSlack}});
 }
 
 PerfVerdict perf_compare(const PerfSample& m, const PerfSample& b, const PerfTolerance& tol, bool strictTime) {
@@ -130,7 +119,7 @@ std::string perf_runner_id(const std::string& graphics) {
 #else
     const char* compiler = "gcc";
 #endif
-    const std::string g = lower(graphics);
+    const std::string g = to_lower(graphics);
     std::string gpu;
     if (g.empty() || g == "none") {
         gpu = "nogpu";
@@ -152,7 +141,7 @@ std::string perf_runner_id(const std::string& graphics) {
     return std::string(os) + "-" + compiler + "-" + gpu;
 }
 
-bool perf_in_ci() {
+static bool perf_in_ci() {
     const char* ci = std::getenv("CI");
     return ci && *ci && std::string(ci) != "0" && std::string(ci) != "false";
 }
