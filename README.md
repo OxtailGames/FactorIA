@@ -124,7 +124,8 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/AI_GUIDE.md](docs/AI_GUIDE.md): how to build a game with FactorIA (for AI agents).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design, modules, conventions, commands and reflection.
 - [docs/SCRIPTING.md](docs/SCRIPTING.md): JavaScript scripting: behaviours, tools and tests.
-- [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field (generated).
+- [docs/reference/README.md](docs/reference/README.md): browsable API reference, one page per component and command category (generated).
+- [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field in one file (generated).
 - [docs/SHADERS.md](docs/SHADERS.md): custom shaders per material: the material file, the GLSL snippet contract, five worked examples.
 - [docs/EXTENDING.md](docs/EXTENDING.md): creating tools, commands, components and systems.
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
@@ -139,6 +140,7 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md): tutorial: make a small game by hand (scene, script, test, export) to see what the AI does for you.
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): publishing guide with one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io, web).
 - [docs/LOCALIZATION.md](docs/LOCALIZATION.md): several languages: string tables, `key` fields, the `i18n` script API.
+- [docs/AI_COSTS.md](docs/AI_COSTS.md): what making a game with AI costs (measured on a real game), what drives it, how to cap and check it.
 - [docs/FINISHING.md](docs/FINISHING.md): finish your game: menus, options, saves, languages, accessibility, store services, credits, tests, and a checklist.
 
 If you are going to modify the engine, read [CLAUDE.md](CLAUDE.md) and

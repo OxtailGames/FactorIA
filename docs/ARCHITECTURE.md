@@ -88,7 +88,8 @@ Versions: `tools/common/api_since.json` says which release added each component,
 command, and the generated reference prints it. A new component, field or command needs an `"unreleased"` entry there
 (not in the registration call); the test `api_since` in `tools/common/tests` lists the exact lines to add. A release
 renames `## Unreleased` in CHANGELOG.md to the version, and the same test then tells you to replace every
-`"unreleased"` with it and regenerate `docs/COMPONENTS.md` (`factoria api --md --out docs/COMPONENTS.md`, plus
+`"unreleased"` with it and regenerate `docs/COMPONENTS.md` and the browsable pages in `docs/reference/` (`factoria call
+docs.write_reference '{"out":"docs"}'` from the repository root, checked by the test `api_reference`; plus
 `factoria api --dts --project examples/<name>` for the committed typings).
 
 ### Commands (the tool system)

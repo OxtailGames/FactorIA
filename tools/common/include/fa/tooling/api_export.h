@@ -5,6 +5,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/command.h"
 #include "fa/core/json.h"
@@ -27,8 +28,21 @@ std::string export_components_markdown();
 Json export_commands_json(const CommandRegistry& registry);  // registry.describe()
 std::string export_commands_markdown(const CommandRegistry& registry);
 
+// The browsable reference: docs/COMPONENTS.md plus docs/reference/ (index, one page per component and command category).
+// Paths are relative to the docs folder, forward slashes, sorted; the text is LF-only and platform independent.
+// `docs.write_reference` writes them; the test api_reference keeps the committed copies current.
+struct ApiReferencePage {
+    std::string path;
+    std::string text;
+};
+// `factoria api --md`: components, commands and the scripting API (TypeScript declarations) in one text.
+std::string export_api_markdown(const CommandRegistry& registry, const ScriptSystem& scripts);
+std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& registry, const ScriptSystem& scripts);
+
 // Registers "docs.components" and "docs.commands" (format: markdown | json). They live in the docs
 // area so they never collide with the runtime's own api.* commands.
 void register_api_export_commands(CommandRegistry& registry);
+// Registers "docs.write_reference" (needs the script system for the typings); register_project_commands calls it.
+void register_api_reference_command(CommandRegistry& registry, const ScriptSystem& scripts);
 
 }  // namespace fa
