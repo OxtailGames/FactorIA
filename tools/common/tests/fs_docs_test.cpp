@@ -203,7 +203,7 @@ TEST_CASE("docs: list, read and search the bundled documentation") {
     REQUIRE_FALSE(hits.empty());
     CHECK_FALSE(hits[0].snippet.empty());
     CHECK(hits[0].line > 0);
-    auto hits2 = search_docs("onTriggerEnter", 40);  // many guides mention it; the default 8 hits are not all the reference
+    auto hits2 = search_docs("onTriggerEnter");
     REQUIRE_FALSE(hits2.empty());
     // Ranking depends on doc content; only require the reference doc to be among the hits.
     bool scriptingHit = false;
