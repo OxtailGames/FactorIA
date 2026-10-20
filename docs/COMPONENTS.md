@@ -1505,7 +1505,7 @@ Runs `xcrun altool --upload-package <ipa> --type ios --apple-id <id> --bundle-id
 |---|---|---|---|
 | `artifact` | string | no | The .ipa to upload, relative to the project. Default: build/export/<game-slug>.ipa, else the newest .ipa in build/export. Xcode writes it (Product > Archive, Distribute App > App Store Connect > Export); `factoria export --platform ios` only writes the Xcode project. |
 | `out` | string | no | Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export. |
-| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result. Default false. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 
 ### `publish.epic` (modifies state)
 
@@ -1518,7 +1518,7 @@ Runs BuildPatchTool -mode=UploadBinary once per platform with -BuildRoot the exp
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
 | `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
-| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result. Default false. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 
 ### `publish.gog` (modifies state)
 
@@ -1531,7 +1531,7 @@ Writes gog-<platform>.json (the Pipeline Builder project: the export folder as t
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
 | `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
-| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result. Default false. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `branch` | string | no | GOG branch to put the build on (Pipeline Builder --branch). Default: none, the build is only uploaded. 'master' is refused: Pipeline Builder cannot publish to it. |
 
 ### `publish.googleplay` (modifies state)
@@ -1544,7 +1544,7 @@ Runs `fastlane supply --aab <aab> --track <track> --release_status <draft|comple
 |---|---|---|---|
 | `artifact` | string | no | The .aab to upload, relative to the project. Default: build/export/<game-slug>-android/<game-slug>.aab, which `factoria export --platform android --format aab --release` writes. |
 | `out` | string | no | Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export. |
-| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result. Default false. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `track` | string | no | Release track: internal, alpha, beta, production or the name of a closed testing track. Default: publish.googleplay.track, else internal. |
 | `releaseStatus` | string ["draft","completed"] | no | draft: the release waits in the Play Console until you roll it out; completed: it rolls out at once. Default: publish.googleplay.releaseStatus, else draft. A new app that was never published accepts only draft. |
 
@@ -1559,7 +1559,7 @@ Runs `butler push <export folder> <user>/<game>:<channel> --userversion <version
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
 | `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
-| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result. Default false. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 
 ### `publish.steam` (modifies state)
 
@@ -1572,7 +1572,7 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 | `platforms` | array | no | Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning. |
 | `out` | string | no | Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>. |
 | `folders` | object | no | Upload another folder for a platform, relative to the project: {"windows": "dist/win"}. Takes precedence over `out`. |
-| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result. Default false. |
+| `dryRun` | boolean | no | Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result. Default false. |
 | `account` | string | no | Steam account that uploads (the builder account, with the 'Edit App Metadata' permission). Default: publish.steam.account of factoria.json. Its password is never stored: steamcmd keeps the login. |
 | `appId` | integer | no | Steam app id. Default: the number in steam_appid.txt of the project (not 480, Valve's test app). |
 | `branch` | string | no | Beta branch to set the build live on after the upload. Default: publish.steam.branch, else none. 'default' is refused: Steam sets that one by hand. |
@@ -2272,9 +2272,17 @@ declare module "factoria" {
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
-     * Once, before the first update (props already applied). The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded; onStart runs on the next step.
+     * Once, the first time the entity is active in the hierarchy (props already applied), before its first update and before the frame is drawn. The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded, active or not; an entity spawned inactive gets onStart when something sets active = true.
      */
     onStart?(): void;
+    /**
+     * Every time the entity becomes active in the hierarchy (it or an ancestor got active = true) while the Script is enabled; the first time it runs right after onStart. Runs before the frame is drawn, so a panel can refresh its texts here and they are right in the first drawn frame.
+     */
+    onEnable?(): void;
+    /**
+     * Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn.
+     */
+    onDisable?(): void;
     /**
      * Every frame; dt in seconds scaled by time.scale.
      */

@@ -54,6 +54,7 @@ struct Behaviour {
     JsVal instance;
     std::string className;
     bool started = false;
+    bool enabledState = false;  // onEnable has run and onDisable has not since
     bool loadFailed = false;
     bool faulted = false;  // timed out; skipped until reloaded
     bool dead = false;
@@ -192,6 +193,8 @@ struct ScriptSystem::Impl {
     // Constructs the behaviour (props applied) but does NOT run onStart; sync()/start_behaviour() do that.
     void create_behaviour(Entity e, const std::string& path, const Json& props);
     void start_behaviour(Behaviour& b);
+    bool is_active(const Behaviour& b);
+    bool update_activation(Behaviour& b);
     // Constructs behaviours for Script components of these entities that have none yet (spawn, scene load).
     void construct_for(const std::vector<Entity>& entities);
     void construct_all();
