@@ -174,6 +174,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 
 ### [project](commands/project.md)
 
+- [`perf.baseline`](commands/project.md#perfbaseline-modifies-state): Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json). _Not released yet._
+- [`perf.check`](commands/project.md#perfcheck): Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner. _Not released yet._
+- [`perf.measure`](commands/project.md#perfmeasure): Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities. _Not released yet._
 - [`project.create`](commands/project.md#projectcreate-modifies-state): Create a new game project from a template.
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.

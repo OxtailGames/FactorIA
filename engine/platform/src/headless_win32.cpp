@@ -8,6 +8,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <string>
@@ -39,7 +40,11 @@ bool HeadlessGpu::init(std::string* error) {
     D3D_FEATURE_LEVEL got{};
     const char* kind = "hardware";
     HRESULT hr = E_FAIL;
-    for (int attempt = 0; attempt < 4; ++attempt) {
+    // FACTORIA_D3D11_WARP=1 skips the graphics card: a developer machine then renders like a CI runner without a GPU
+    // (the performance baselines of windows-msvc-d3d11-warp, docs/PERFORMANCE.md).
+    const char* warpOnly = std::getenv("FACTORIA_D3D11_WARP");
+    const int firstAttempt = (warpOnly && *warpOnly && std::string(warpOnly) != "0") ? 2 : 0;
+    for (int attempt = firstAttempt; attempt < 4; ++attempt) {
         D3D_DRIVER_TYPE type = (attempt < 2) ? D3D_DRIVER_TYPE_HARDWARE : D3D_DRIVER_TYPE_WARP;
         UINT f = (attempt % 2 == 0) ? flags : (flags & ~UINT(D3D11_CREATE_DEVICE_DEBUG));
         kind = (type == D3D_DRIVER_TYPE_HARDWARE) ? "hardware" : "WARP software";
