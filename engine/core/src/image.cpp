@@ -17,6 +17,7 @@
 
 #include "fa/core/asset_manifest.h"
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 
 namespace fa {
 
@@ -341,6 +342,62 @@ ImageDiff diff_images(const Image& a, const Image& b, float tolerance) {
     }
     d.meanError = sum / double(pixels * 4);
     return d;
+}
+
+namespace {
+
+float srgb_to_linear(float v) { return v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f); }
+float linear_to_srgb(float v) {
+    v = saturate(v);
+    return v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+}
+
+// Machado, Oliveira, Fernandes 2009, "A Physiologically-based Model for Simulation of Color Vision Deficiency", severity
+// 1.0 (the cone is missing), rows of the 3x3 matrix applied to linear RGB. The shader (colorfilter.glsl) uses the same numbers.
+constexpr float kProtanopia[9] = {0.152286f, 1.052583f, -0.204868f, 0.114503f, 0.786281f, 0.099216f, -0.003882f, -0.048116f, 1.051998f};
+constexpr float kDeuteranopia[9] = {0.367322f, 0.860646f, -0.227968f, 0.280085f, 0.672501f, 0.047413f, -0.011820f, 0.042940f, 0.968881f};
+constexpr float kTritanopia[9] = {1.255528f, -0.076749f, -0.178779f, -0.078411f, 0.930809f, 0.147602f, 0.004733f, 0.691367f, 0.303900f};
+
+}  // namespace
+
+Result<ColorSimulation> parse_color_simulation(std::string_view name) {
+    static const std::pair<const char*, ColorSimulation> kModes[] = {{"none", ColorSimulation::None},
+                                                                      {"greyscale", ColorSimulation::Greyscale},
+                                                                      {"protanopia", ColorSimulation::Protanopia},
+                                                                      {"deuteranopia", ColorSimulation::Deuteranopia},
+                                                                      {"tritanopia", ColorSimulation::Tritanopia}};
+    std::vector<std::string> names;
+    for (const auto& [n, m] : kModes) {
+        if (name == n) return m;
+        names.push_back(n);
+    }
+    return make_error("Unknown colour simulation '" + std::string(name) + "'.",
+                      did_you_mean(name, names));
+}
+
+Color simulate_color_vision(Color c, ColorSimulation mode) {
+    if (mode == ColorSimulation::None) return c;
+    const float r = srgb_to_linear(saturate(c.r)), g = srgb_to_linear(saturate(c.g)), b = srgb_to_linear(saturate(c.b));
+    float o[3];
+    if (mode == ColorSimulation::Greyscale) {
+        o[0] = o[1] = o[2] = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    } else {
+        const float* m = mode == ColorSimulation::Protanopia ? kProtanopia : mode == ColorSimulation::Deuteranopia ? kDeuteranopia : kTritanopia;
+        for (int i = 0; i < 3; ++i) o[i] = m[i * 3] * r + m[i * 3 + 1] * g + m[i * 3 + 2] * b;
+    }
+    return Color{linear_to_srgb(o[0]), linear_to_srgb(o[1]), linear_to_srgb(o[2]), c.a};
+}
+
+void simulate_color_vision(Image& img, ColorSimulation mode) {
+    if (mode == ColorSimulation::None) return;
+    for (std::size_t i = 0; i + 3 < img.rgba.size(); i += 4) {
+        std::uint8_t* p = &img.rgba[i];
+        const Color o = simulate_color_vision(Color::rgba8(p[0], p[1], p[2], p[3]), mode);
+        auto q = [](float v) { return std::uint8_t(saturate(v) * 255.0f + 0.5f); };
+        p[0] = q(o.r);
+        p[1] = q(o.g);
+        p[2] = q(o.b);
+    }
 }
 
 }  // namespace fa
