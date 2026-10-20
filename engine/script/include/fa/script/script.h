@@ -123,6 +123,16 @@ public:
         if (error) *error = "this host cannot render at a scale other than 1";
         return false;
     }
+    // Same, then converts the saved picture to what a colour-blind viewer sees (`simulate`: greyscale, protanopia,
+    // deuteranopia, tritanopia; "" or "none" = unchanged; see simulate_color_vision in fa/core/image.h). The player's
+    // view is not changed, only the file. Hosts without a renderer keep the default, which refuses a simulation.
+    virtual bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) {
+        if (!simulate.empty() && simulate != "none") {
+            if (error) *error = "this host cannot simulate colour vision (no renderer)";
+            return false;
+        }
+        return screenshot_scaled(path, scale, error);
+    }
     // The player's "text size" option (`ui.textScale`, the `ui.set_text_scale` command): screen-space Text and UI labels
     // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
     // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:

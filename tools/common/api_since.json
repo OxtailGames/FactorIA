@@ -55,6 +55,7 @@
     "Camera.bloomThreshold": "0.1.0",
     "Camera.clear": "0.1.0",
     "Camera.clearColor": "0.1.0",
+    "Camera.colorFilter": "unreleased",
     "Camera.depth": "0.1.0",
     "Camera.farPlane": "0.1.0",
     "Camera.fov": "0.1.0",

@@ -266,3 +266,62 @@ TEST_CASE("texture_size: the file, else the packed rectangle, else the header of
     std::error_code ec;
     stdfs::remove_all(dir, ec);
 }
+
+// ---- colour vision simulation (Machado 2009, severity 1.0, linear light) ----------------------------------------------
+
+namespace {
+bool near_color(Color a, float r, float g, float b, float tol = 1.5f / 255.0f) {
+    return std::fabs(a.r - r) <= tol && std::fabs(a.g - g) <= tol && std::fabs(a.b - b) <= tol;
+}
+}  // namespace
+
+TEST_CASE("color simulation: names parse and a typo teaches") {
+    CHECK(parse_color_simulation("deuteranopia").value() == ColorSimulation::Deuteranopia);
+    CHECK(parse_color_simulation("none").value() == ColorSimulation::None);
+    auto bad = parse_color_simulation("deuteranopa");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().hint.find("deuteranopia") != std::string::npos);
+}
+
+TEST_CASE("color simulation: white and greys are unchanged by the dichromacy matrices, alpha is kept") {
+    for (ColorSimulation m : {ColorSimulation::Protanopia, ColorSimulation::Deuteranopia, ColorSimulation::Tritanopia}) {
+        CHECK(near_color(simulate_color_vision(Color{1, 1, 1, 1}, m), 1, 1, 1));
+        CHECK(near_color(simulate_color_vision(Color{0.5f, 0.5f, 0.5f, 1}, m), 0.5f, 0.5f, 0.5f));
+        CHECK(near_color(simulate_color_vision(Color{0, 0, 0, 1}, m), 0, 0, 0));
+    }
+    CHECK(simulate_color_vision(Color{1, 0, 0, 0.25f}, ColorSimulation::Protanopia).a == doctest::Approx(0.25f));
+}
+
+TEST_CASE("color simulation: pure red, green and blue through each matrix (known values)") {
+    // Each column of the Machado 2009 matrix is what a pure primary becomes (linear), shown here sRGB encoded.
+    CHECK(near_color(simulate_color_vision(Color{1, 0, 0, 1}, ColorSimulation::Protanopia), 0.4266f, 0.3727f, 0.0f));
+    CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Protanopia), 1.0f, 0.8994f, 0.0f));
+    CHECK(near_color(simulate_color_vision(Color{0, 0, 1, 1}, ColorSimulation::Protanopia), 0.0f, 0.3479f, 1.0f));
+    CHECK(near_color(simulate_color_vision(Color{1, 0, 0, 1}, ColorSimulation::Deuteranopia), 0.6401f, 0.5658f, 0.0f));
+    CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Deuteranopia), 0.9361f, 0.8392f, 0.2292f));
+    CHECK(near_color(simulate_color_vision(Color{0, 0, 1, 1}, ColorSimulation::Deuteranopia), 0.0f, 0.2412f, 0.9862f));
+    CHECK(near_color(simulate_color_vision(Color{1, 0, 0, 1}, ColorSimulation::Tritanopia), 1.0f, 0.0f, 0.0584f));
+    CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Tritanopia), 0.0f, 0.9689f, 0.8496f));
+    CHECK(near_color(simulate_color_vision(Color{0, 0, 1, 1}, ColorSimulation::Tritanopia), 0.0f, 0.4204f, 0.5873f));
+}
+
+TEST_CASE("color simulation: greyscale uses Rec. 709 luminance in linear light") {
+    CHECK(near_color(simulate_color_vision(Color{1, 1, 1, 1}, ColorSimulation::Greyscale), 1, 1, 1));
+    CHECK(near_color(simulate_color_vision(Color{0.5f, 0.5f, 0.5f, 1}, ColorSimulation::Greyscale), 0.5f, 0.5f, 0.5f));
+    CHECK(near_color(simulate_color_vision(Color{1, 0, 0, 1}, ColorSimulation::Greyscale), 0.4984f, 0.4984f, 0.4984f));
+    CHECK(near_color(simulate_color_vision(Color{0, 1, 0, 1}, ColorSimulation::Greyscale), 0.8625f, 0.8625f, 0.8625f));
+    CHECK(near_color(simulate_color_vision(Color{0, 0, 1, 1}, ColorSimulation::Greyscale), 0.2979f, 0.2979f, 0.2979f));
+}
+
+TEST_CASE("color simulation: an image is converted in place and None leaves it alone") {
+    Image img;
+    img.width = 2;
+    img.height = 1;
+    img.rgba = {255, 0, 0, 255, 0, 255, 0, 255};
+    Image copy = img;
+    simulate_color_vision(copy, ColorSimulation::None);
+    CHECK(copy.rgba == img.rgba);
+    simulate_color_vision(copy, ColorSimulation::Deuteranopia);
+    CHECK(copy.rgba != img.rgba);
+    CHECK(copy.rgba[3] == 255);
+}

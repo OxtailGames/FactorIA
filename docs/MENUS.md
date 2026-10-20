@@ -1,7 +1,7 @@
 # Game menus: main menu, options, credits, loading screen, pause
 
 New projects start with a camera and nothing else. When a game needs menus, the files below give it the usual set in a
-few steps: a main menu, options (video, audio per bus, controls, language), credits that list the software inside
+few steps: a main menu, options (video, a colour filter for colour-blind players, audio per bus, controls, language), credits that list the software inside
 the runtime, a loading screen and a pause menu. Everything works with only a keyboard, only a mouse or only a gamepad,
 and the player's settings are saved between runs.
 
@@ -132,7 +132,9 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   Speech only helps while someone can hear it: the manual check below says how to listen on each system. The OS screen
   reader setting is not read by the engine yet; offer the option in your own menu.
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
-  `options.js`, and keep it in `settings.js` (`DEFAULTS` and `apply`).
+  `options.js`, and keep it in `settings.js` (`DEFAULTS` and `apply`). The colour filter of the Video tab is such an
+  option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
+  again in every scene; rename the id in `settings.js` if your camera has another.
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
   translate it (a missing key shows the default language's text and is listed by `factoria call i18n.state`). Put the
   language's own name in `"$name"`: it is what the Language button shows.
@@ -176,12 +178,15 @@ the system has a voice for that language (otherwise the default voice reads it, 
 
 ```js scripts/settings.js
 // @ts-check
-// The player's settings (volumes, video, controls, language), kept in storage under "settings" and applied once per run.
+// The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n } from "factoria";
+import { storage, audio, window, input, session, i18n, world } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
+
+/** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
+export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
 const DEFAULTS = {
   volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
@@ -189,6 +194,7 @@ const DEFAULTS = {
   resolution: null, // [width, height] of the window, or null: the factoria.json size
   vsync: null, // null: keep factoria.json display.vsync
   frameCap: 0, // 0 = no cap
+  colorFilter: "none", // one of COLOR_FILTERS
   bindings: {}, // action -> binding names, only for actions the player rebound
   language: null, // null: the language the game started in (the player's system language, else the default one)
   readAloud: false, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
@@ -204,9 +210,16 @@ export function save(s) {
   storage.set("settings", s);
 }
 
-/** Puts `s` into effect: bus volumes, language, rebound controls and, when the game has a real window, the video settings. */
+/** Camera.colorFilter of the scene's camera (the entity with the id "camera"): every scene has its own camera, so each scene sets it again. */
+export function applyColorFilter(s = load()) {
+  const camera = world.find("camera");
+  if (camera) camera.get("Camera").colorFilter = s.colorFilter;
+}
+
+/** Puts `s` into effect: bus volumes, colour filter, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
+  applyColorFilter(s);
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
@@ -237,7 +250,7 @@ export function apply(s = load()) {
 
 /** apply() the first time it is called in a run: session values outlive scene loads (and each test starts afresh). */
 export function applyOnce() {
-  if (session.settingsApplied) return;
+  if (session.settingsApplied) return applyColorFilter(); // a new scene has a new camera
   session.settingsApplied = true;
   apply();
 }
@@ -610,6 +623,7 @@ export default class StoreEvents extends Behaviour {
           { "id": "resolution", "components": { "Button": { "autoSize": true, "text": "Window size", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "vsync", "components": { "Toggle": { "autoSize": true, "label": "VSync", "key": "options.vsync", "size": [560, 44], "layer": 302 } } },
           { "id": "frame_cap", "components": { "Button": { "autoSize": true, "text": "Frame cap", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
+          { "id": "color_filter", "components": { "Button": { "autoSize": true, "text": "Color filter", "size": [560, 44], "layer": 302, "fontSize": 22 } } },
           { "id": "video_note", "components": { "Text": { "text": "Video settings apply when the game runs in its own window.", "key": "options.videoNote",
             "fontSize": 18, "color": [0.75, 0.8, 0.9, 1], "space": "screen", "align": "start", "maxWidth": 560, "layer": 302 } } }
         ] },
@@ -643,7 +657,8 @@ export default class StoreEvents extends Behaviour {
 
 ```js scripts/ui/options.js
 // @ts-check
-// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video,
+// The options panel (prefabs/ui/options.prefab.json), opened by the main menu and by the pause menu. Tabs: Video (with the
+// colour filter, an accessibility option that works without a window),
 // Audio (one slider per bus), Controls (rebinding) and Language (cycles through the game's languages). Every change is
 // applied at once and saved (scripts/settings.js), so the next run starts with it. The texts are string-table keys
 // (locales/*.json): the widgets with a `key` are translated by the engine, the ones this script writes use i18n.t().
@@ -712,6 +727,13 @@ export default class Options extends Behaviour {
       const next = FRAME_CAPS[(FRAME_CAPS.indexOf(window.frameCap) + 1) % FRAME_CAPS.length];
       this.video("frame cap", () => { window.frameCap = next; s.frameCap = next; });
     });
+    ui.on("click", "color_filter", () => {
+      const all = settings.COLOR_FILTERS;
+      s.colorFilter = all[(all.indexOf(s.colorFilter) + 1) % all.length];
+      settings.applyColorFilter(s); // Camera.colorFilter: the whole frame, this panel included
+      settings.save(s);
+      this.refreshVideo();
+    });
   }
 
   /** Runs a window change (which also updates this.s); saves it when it worked, shows why when it did not. */
@@ -735,6 +757,7 @@ export default class Options extends Behaviour {
     world.find("frame_cap").get("Button").text = window.frameCap
       ? i18n.t("options.frameCap", { fps: window.frameCap })
       : i18n.t("options.frameCapOff");
+    world.find("color_filter").get("Button").text = i18n.t("options.colorFilter", { filter: i18n.t(`options.filter.${this.s.colorFilter}`) });
   }
 
   // ------------------------------------------------------------------------------------------------------------ audio
@@ -985,6 +1008,8 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "windowSizeFullscreen": "Window size: full screen",
     "frameCap": "Frame cap: {fps} fps",
     "frameCapOff": "Frame cap: off",
+    "colorFilter": "Color filter: {filter}",
+    "filter": { "none": "off", "greyscale": "greyscale", "highContrast": "high contrast", "protanopia": "protanopia (red)", "deuteranopia": "deuteranopia (green)", "tritanopia": "tritanopia (blue)" },
     "videoNote": "Video settings apply when the game runs in its own window.",
     "volume": { "master": "Master", "music": "Music", "effects": "Effects", "interface": "Interface" },
     "action": { "move_left": "Move left", "move_right": "Move right", "jump": "Jump", "pause": "Pause" },
@@ -1048,6 +1073,8 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "windowSizeFullscreen": "Tamaño de ventana: pantalla completa",
     "frameCap": "Límite de fotogramas: {fps} fps",
     "frameCapOff": "Límite de fotogramas: sin límite",
+    "colorFilter": "Filtro de color: {filter}",
+    "filter": { "none": "desactivado", "greyscale": "escala de grises", "highContrast": "alto contraste", "protanopia": "protanopia (rojo)", "deuteranopia": "deuteranopia (verde)", "tritanopia": "tritanopia (azul)" },
     "videoNote": "Los ajustes de vídeo se aplican cuando el juego se ejecuta en su propia ventana.",
     "volume": { "master": "General", "music": "Música", "effects": "Efectos", "interface": "Interfaz" },
     "action": { "move_left": "Mover a la izquierda", "move_right": "Mover a la derecha", "jump": "Saltar", "pause": "Pausa" },
