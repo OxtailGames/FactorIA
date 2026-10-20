@@ -1,5 +1,5 @@
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 #include "engine_impl.h"
@@ -562,9 +562,8 @@ bool Engine::screenshot_scaled(std::string_view path, double scale, std::string*
         Impl& I; bool on;
         ~ScaleGuard() { if (on) { I.renderer->set_render_scale(1.0f); I.renderStale = true; } }
     } guard{I, scale != 1.0};
-    const bool wasStale = I.renderStale;
     if (guard.on) I.renderer->set_render_scale(float(scale));  // new images: the picture must be drawn again
-    if (wasStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
+    if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
     // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
     // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
     else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0)) I.draw(0.0);
