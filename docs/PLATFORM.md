@@ -47,16 +47,41 @@ error with a "did you mean", not a silent failure inside a store SDK. Every sect
 |---|---|
 | `id` | What scripts pass to `platform.*`: `A-Z a-z 0-9 _ . -`, 1 to 64 characters, unique in its section. |
 | `ids` | The id each store uses for the same thing: `{"steam": "ACH_WIN_ONE_GAME"}`. The key is the backend's name; without an entry the store id is `id`. |
-| achievements | `name` (required), `description`, `hidden` (default false). |
+| achievements | `name` (required unless `nameKey`), `nameKey`, `description`, `descriptionKey`, `hidden` (default false). |
 | stats | `type`: `"int"` (default) or `"float"`. An int stat takes whole numbers. |
 | leaderboards | `name` (required), `order`: `"descending"` (higher is better, default) or `"ascending"` (lower is better: times). |
-| products | `type`: `"consumable"`, `"nonConsumable"` or `"subscription"` (required), `title` (required), `description`, `price` (a number, `currency` default `"USD"`). Only the fake store uses `price`: real stores give their own, localized. |
+| products | `type`: `"consumable"`, `"nonConsumable"` or `"subscription"` (required), `title` (required unless `titleKey`), `titleKey`, `description`, `descriptionKey`, `price` (a number, `currency` default `"USD"`). Only the fake store uses `price`: real stores give their own, localized. |
 | `backend` | Which backend plugin to use: `"auto"` (default), a plugin's name, or one per platform: `{"windows": "steam", "macos": "steam", "linux": "steam", "ios": "apple", "android": "googleplay"}`. See section 5. |
 
 `factoria validate` reports every problem of the section (`factoria.json#/platform/products/1/type: "consumable " is
 not a product type; use one of "consumable", "nonConsumable", "subscription" (did you mean "consumable"?)`), and a
 `backend` that names a plugin the project does not declare. At run time a section with errors counts as empty (each
 call then says its id is not declared) and the engine logs why.
+
+### Translated texts
+
+A game with `locales/*.json` (docs/LOCALIZATION.md) keeps its texts in one place: `nameKey`, `descriptionKey` and
+`titleKey` name a key of the string tables instead of writing the text in the catalog.
+
+```json
+{ "id": "first_win", "nameKey": "achievements.first_win.name", "descriptionKey": "achievements.first_win.description" },
+{ "id": "gems_100", "type": "consumable", "titleKey": "shop.product.gems_100", "price": 0.99 }
+```
+
+- `platform.achievements.list()` returns `name` and `description`, and `platform.purchases.products()` (fake store)
+  `title` and `description`, in the current language (`i18n.set_language` changes the next answer). A key that no table
+  has falls back to the plain `name` / `title` / `description` if the entry has one, else shows the key.
+- The plain text may stay next to the key: it is what the store console and `factoria validate` see when a language
+  has no table.
+- `factoria validate` reports a key the default language's table lacks, at its JSON pointer
+  (`factoria.json#/platform/achievements/0/nameKey`), with the closest key as "did you mean".
+- Real stores: the catalog does **not** translate what the player sees in the store's own screens. Steam, the App Store
+  (Game Center, StoreKit) and Google Play each keep the localized names, descriptions and prices of achievements and
+  products in their console (Steamworks, App Store Connect, Play Console): translate them there. The catalog's texts are
+  used by the fake store (`products()`), and by `achievements.list()` on every backend whose store answers without
+  texts (Steam, Game Center, Play Games), so the game's own achievements screen can show them in the game's language.
+  `purchases.products()` on a real store returns that store's title, description and price, localized by the store for
+  the player's country, not by the game's language setting.
 
 ## 2. The script API
 
@@ -71,7 +96,7 @@ call then says its id is not declared) and the engine logs why.
 | `platform.on(event, fn)` | Returns a function that removes the listener. Events: below. |
 | `platform.achievements.unlock(id)` | `{ id, unlocked: true, newly }` (`newly` is false when it was unlocked already). |
 | `platform.achievements.progress(id, fraction)` | `{ id, progress, unlocked }`. `fraction` is 0 to 1; 1 unlocks. |
-| `platform.achievements.list()` | `[{ id, unlocked, progress }]`, the whole catalog. |
+| `platform.achievements.list()` | `[{ id, name, description, unlocked, progress }]`, the whole catalog; `name` and `description` are in the current language (see "Translated texts"). |
 | `platform.achievements.reset()` | Development: clears every achievement. |
 | `platform.stats.get(id)` | The number. |
 | `platform.stats.set(id, value)` | The new value. An int stat needs a whole number. |

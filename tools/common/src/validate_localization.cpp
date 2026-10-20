@@ -281,7 +281,8 @@ void compare_with_default(Reporter& out, const TableFile& def, const TableFile& 
 
 // ---- the whole check ------------------------------------------------------------------------------------------------------
 
-void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const std::vector<SceneText>& texts, std::vector<TableFile>& tables,
+void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const std::vector<SceneText>& texts,
+                           const std::vector<PlatformCatalog::TextKeyRef>& catalogKeys, std::vector<TableFile>& tables,
                            const TableFile*& def) {
     for (const std::string& language : s.languages) tables.push_back(read_table(language));
     for (const TableFile& t : tables) {
@@ -298,6 +299,14 @@ void check_tables_and_keys(Reporter& out, const LocalizationSettings& s, const s
     if (!def || !def->table) return;
     std::vector<std::string> known;
     for (const auto& [key, entry] : def->table->entries) known.push_back(key);
+    for (const PlatformCatalog::TextKeyRef& k : catalogKeys) {
+        if (def->table->entries.count(k.key)) continue;
+        const std::string close = closest_match(k.key, known);
+        out.error(kProjectFileName, k.pointer,
+                  "The catalog names the key " + quote(k.key) + ", which " + def->file + " does not have: the store text would fall back to the plain text, or to the key itself.",
+                  close.empty() ? "Add the key to " + def->file + " (and to the other languages' tables), or fix the spelling."
+                                : "Did you mean " + quote(close) + "? Otherwise add the key to " + def->file + ".");
+    }
     std::set<std::string> reported;
     for (const SceneText& t : texts) {
         if (t.key.empty()) continue;
@@ -442,7 +451,7 @@ void collect_scene_texts(const std::string& file, const std::string& entityPoint
 }
 
 void check_localization_content(const std::string& projectDir, const LocalizationSettings& settings, const std::vector<SceneText>& texts,
-                                ValidationReport& report) {
+                                const std::vector<PlatformCatalog::TextKeyRef>& catalogKeys, ValidationReport& report) {
     tooling_detail::ProjectRootScope scope(projectDir);
     Reporter out(report, settings);
     Coverage coverage;
@@ -457,6 +466,9 @@ void check_localization_content(const std::string& projectDir, const Localizatio
                          ": nothing is translated, every text shows what the scene says.",
                      "Add \"localization\": {\"defaultLanguage\": \"en\", \"languages\": [\"en\", \"es\"]} with a locales/<language>.json per "
                      "language (docs/LOCALIZATION.md).");
+        for (const PlatformCatalog::TextKeyRef& k : catalogKeys)
+            out.warn(kProjectFileName, k.pointer, "The catalog names the key " + quote(k.key) + ", but factoria.json has no \"localization\" section, so it is never translated.",
+                     "Add the section (docs/LOCALIZATION.md) or write the text itself instead of the key.");
         // Component fonts that cannot be read are reported once; the glyph check skips chains with them.
         check_fonts(out, coverage, projectDir, settings, texts);
         check_literal_texts(out, coverage, settings, texts);
@@ -467,7 +479,7 @@ void check_localization_content(const std::string& projectDir, const Localizatio
     std::vector<TableFile> tables;
     tables.reserve(settings.languages.size());
     const TableFile* def = nullptr;
-    check_tables_and_keys(out, settings, texts, tables, def);
+    check_tables_and_keys(out, settings, texts, catalogKeys, tables, def);
     check_fonts(out, coverage, projectDir, settings, texts);
     check_glyphs(out, coverage, settings, texts, tables);
     check_literal_texts(out, coverage, settings, texts);

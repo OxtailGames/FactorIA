@@ -3068,7 +3068,7 @@ declare module "factoria" {
      */
     readonly id: string;
     /**
-     * The store's title.
+     * The title in the current language: the catalog's titleKey translated (else title) on the fake backend; a real store answers its own, localized by its console.
      */
     readonly title: string;
     /**
@@ -3132,9 +3132,9 @@ declare module "factoria" {
      */
     progress(id: string, fraction: number): Promise<{ id: string; progress: number; unlocked: boolean }>;
     /**
-     * The state of every achievement of the catalog.
+     * The state of every achievement of the catalog, with its name and description in the current language (the catalog's nameKey / descriptionKey translated, else name / description; a store that answers its own texts wins).
      */
-    list(): Promise<{ id: string; unlocked: boolean; progress: number }[]>;
+    list(): Promise<{ id: string; name: string; description: string; unlocked: boolean; progress: number }[]>;
     /**
      * Development only: locks every achievement again (the fake backend; real stores usually refuse).
      */
