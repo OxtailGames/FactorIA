@@ -72,6 +72,7 @@ void Engine::Impl::apply_project_settings() {
     }
     // The platform catalog. A section with errors counts as empty (every platform call then says the id is not declared):
     // the first error is logged here, `factoria validate` lists them all.
+    platform.set_translator([this](const std::string& key) { return i18n.translate(key); });
     auto catalog = load_platform_catalog(project.raw.is_object() && project.raw.contains(kPlatformKey) ? project.raw[kPlatformKey] : Json());
     if (catalog.ok()) {
         platform.set_catalog(std::move(catalog.value()));

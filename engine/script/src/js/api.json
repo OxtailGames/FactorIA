@@ -1748,7 +1748,7 @@
       },
       {
        "sig": "readonly title: string",
-       "doc": "The store's title."
+       "doc": "The title in the current language: the catalog's titleKey translated (else title) on the fake backend; a real store answers its own, localized by its console."
       },
       {
        "sig": "readonly description: string",
@@ -1813,8 +1813,8 @@
        "doc": "Reports progress from 0 to 1 toward an achievement; 1 unlocks it. Progress never goes down."
       },
       {
-       "sig": "list(): Promise<{ id: string; unlocked: boolean; progress: number }[]>",
-       "doc": "The state of every achievement of the catalog."
+       "sig": "list(): Promise<{ id: string; name: string; description: string; unlocked: boolean; progress: number }[]>",
+       "doc": "The state of every achievement of the catalog, with its name and description in the current language (the catalog's nameKey / descriptionKey translated, else name / description; a store that answers its own texts wins)."
       },
       {
        "sig": "reset(): Promise<void>",

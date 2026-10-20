@@ -412,9 +412,9 @@ TEST_CASE("steam services: achievements unlock, report progress, list and reset"
     // The list covers the whole catalog; an achievement Steam does not have shows locked, with a warning that teaches.
     Json list = settle(s.engine, "platform.achievements.list()");
     REQUIRE(list["ok"] == true);
-    CHECK(canon(list["value"]) == canon(Json::parse(R"([{"id":"first_win","unlocked":true,"progress":1},)"
-                                                    R"({"id":"hundred_wins","unlocked":true,"progress":1},)"
-                                                    R"({"id":"ghost","unlocked":false,"progress":0}])")));
+    CHECK(canon(list["value"]) == canon(Json::parse(R"([{"id":"first_win","name":"First win","description":"","unlocked":true,"progress":1},)"
+                                                    R"({"id":"hundred_wins","name":"100 wins","description":"","unlocked":true,"progress":1},)"
+                                                    R"({"id":"ghost","name":"Ghost","description":"","unlocked":false,"progress":0}])")));
     const std::string logs = s.logs();
     CHECK(has(logs, "Steam has no achievement \"ACH_NOT_THERE\" for app 480"));
     CHECK(has(logs, "Set ids.steam of \"ghost\""));

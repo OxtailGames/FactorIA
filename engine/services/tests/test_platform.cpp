@@ -558,7 +558,7 @@ TEST_CASE("fake: sign in and the default answers of achievements, stats and lead
     CHECK(g.ok("achievements.progress", Json::parse(R"({"id": "veteran", "progress": 1})"))["unlocked"] == true);
     Json list = g.ok("achievements.list");
     REQUIRE(list.size() == 2);
-    CHECK(list[0] == Json::parse(R"({"id": "first_win", "unlocked": true, "progress": 1.0})"));
+    CHECK(list[0] == Json::parse(R"({"id": "first_win", "unlocked": true, "progress": 1.0, "name": "First win", "description": "Win one match."})"));
     CHECK(list[1]["unlocked"] == true);
     CHECK(g.ok("achievements.reset") == Json::object());
     CHECK(g.ok("achievements.list")[0]["unlocked"] == false);
@@ -847,4 +847,49 @@ TEST_CASE("fake: the log keeps the latest 500 calls") {
     CHECK(s["calls"].size() == 500);
     CHECK(s["callsDropped"] == 20);
     CHECK(s["calls"][0]["seq"] == 21);
+}
+
+// ------------------------------------------------------------------------------------------ translated texts ----
+TEST_CASE("platform: achievements and products list their text in the current language from one catalog") {
+    const char* text = R"({
+      "achievements": [ { "id": "first_win", "nameKey": "ach.first_win.name", "descriptionKey": "ach.first_win.desc" },
+                        { "id": "veteran", "name": "Veteran", "nameKey": "ach.missing" } ],
+      "products": [ { "id": "gems_100", "type": "consumable", "titleKey": "shop.gems_100", "price": 0.99 } ]
+    })";
+    Game g(text);
+    std::string language = "en";
+    const std::map<std::string, std::map<std::string, std::string>> tables = {
+        {"en", {{"ach.first_win.name", "First win"}, {"ach.first_win.desc", "Win one match."}, {"shop.gems_100", "100 gems"}}},
+        {"es", {{"ach.first_win.name", "Primera victoria"}, {"ach.first_win.desc", "Gana una partida."}, {"shop.gems_100", "100 gemas"}}}};
+    g.ps.set_translator([&](const std::string& key) -> std::optional<std::string> {
+        const auto& t = tables.at(language);
+        auto it = t.find(key);
+        if (it == t.end()) return std::nullopt;
+        return it->second;
+    });
+    Json en = g.ok("achievements.list");
+    CHECK(en[0]["name"] == "First win");
+    CHECK(en[0]["description"] == "Win one match.");
+    CHECK(en[1]["name"] == "Veteran");  // the key is unknown: the plain text
+    CHECK(g.ok("purchases.products")[0]["title"] == "100 gems");
+    language = "es";
+    Json es = g.ok("achievements.list");
+    CHECK(es[0]["name"] == "Primera victoria");
+    CHECK(es[0]["description"] == "Gana una partida.");
+    CHECK(g.ok("purchases.products")[0]["title"] == "100 gemas");
+}
+
+TEST_CASE("platform catalog: a text can be a locale key instead; errors name the field") {
+    auto ok = parse_platform_catalog(Json::parse(R"({"achievements": [{"id": "a", "nameKey": "x.name"}],
+                                                      "products": [{"id": "p", "type": "consumable", "titleKey": "x.title"}]})"));
+    CHECK(ok.ok());
+    REQUIRE(ok.catalog.textKeyRefs.size() == 2);
+    CHECK(ok.catalog.textKeyRefs[0].pointer == "/platform/achievements/0/nameKey");
+    CHECK(ok.catalog.textKeyRefs[1].key == "x.title");
+    auto none = parse_platform_catalog(Json::parse(R"({"achievements": [{"id": "a"}]})"));
+    REQUIRE(none.issues.size() == 1);
+    CHECK(none.issues[0].pointer == "/platform/achievements/0/name");
+    auto bad = parse_platform_catalog(Json::parse(R"({"achievements": [{"id": "a", "nameKey": 3}]})"));
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.issues[0].pointer == "/platform/achievements/0/nameKey");
 }
