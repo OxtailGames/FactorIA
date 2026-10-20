@@ -805,6 +805,25 @@ Found on the way:
   velocity itself must drop that code.
 - M24.9 changed the publish `dryRun` texts without regenerating COMPONENTS.md; M24.12 and M24.14 regenerated it.
 
+## M24.15-M24.16. Found by the reference game, layout follow-ups — DONE (PRs #112, #113)
+
+Closes LK/FB-0046 and LK/FB-0047. Each entry has a `Fixed in <commit>` note; Lantern Keep dropped its workarounds in
+those two PRs (shop.js and options.js in #112, level_select.js in #113).
+
+- M24.15 Layout now, and panels that wrap (PR #112, `62f24f9`): `ui.layout()` applies autoSize, fit sizes, the
+  ScrollList fill, positions and the fallback choice at once, so a script reads `Button.size`, `Panel.size` and
+  `ui.rectOf` after a text change with no `game.step` (a script's layout does not log the fit warning; the frame's own
+  does). `Panel.fallbackLayout` (none / row / column / grid) is used instead of `layout` when the panel's content, or
+  the outermost `fit` panel around it, would not fit the screen; the deepest panels switch first, every frame.
+  `Panel.usingFallback` (read-only) says which layout is used, and `ScrollList.fill` follows it. Lantern Keep's shop
+  column falls back to a row, options.js reads a tab's height after `ui.layout()`, and the level select's rows and
+  worlds switch by `fallbackLayout`.
+- M24.16 Siblings of one size (PR #113, `7b57f09`): `Panel.uniformSize` gives every `autoSize` Button, Toggle and Slider
+  in the panel's active subtree the size of the largest one, width and height separately, on every layout, right after
+  the autoSize step. The autoSize memo records that size as the applied one, so the buttons shrink back when the longest
+  label gets shorter; widgets without `autoSize` keep their size and do not count. Lantern Keep's `select_worlds` has
+  `uniformSize`, and level_select.js drops its label measure and its common-size writing.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
