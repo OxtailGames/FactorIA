@@ -354,6 +354,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
       }})");
     registry.add(info, [projectDir](const Json& args) { return import_asset(projectDir, args); });
     register_slice_sheet_command(registry, projectDir);
+    register_draw_icon_command(registry, projectDir);
 }
 
 }  // namespace fa

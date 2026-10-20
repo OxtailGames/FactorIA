@@ -4,6 +4,7 @@
 //                      png/jpg/tga/bmp, wav/ogg/mp3, ttf/otf and glTF are copied; Aseprite and PSD become a PNG (an
 //                      Aseprite file a sprite sheet with its clips); OBJ becomes a glTF; FBX is converted to glb by
 //                      FBX2glTF or Blender.
+//   assets.draw_icon   draws the game icon and the Android adaptive-icon foreground from shapes and text.
 //   assets.slice_sheet makes an image playable by SpriteAnimator: checks a uniform grid, or finds the frames of a
 //                      sheet with transparent gutters and repacks them into a uniform grid.
 #pragma once
