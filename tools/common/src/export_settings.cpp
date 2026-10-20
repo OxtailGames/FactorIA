@@ -957,27 +957,56 @@ std::string machine_export_config_path(const ExportEnvLookup& env) {
     return ".factoria/export.json";
 }
 
-std::string find_ffmpeg(const ExportEnvLookup& env, const std::string& configPathIn) {
-    namespace stdfs = std::filesystem;
+Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env, const std::string& configPathIn) {
+    const std::string configPath = configPathIn.empty() ? machine_export_config_path(env) : configPathIn;
+    const std::string where = "To set it up: download it from " + tool.download + ", then put it on PATH, set " + tool.envVar +
+                              " to the executable (or its folder), or write {\"publish\": {\"" + tool.configKey + "\": \"<path>\"}} in " + configPath + ".";
+    const auto generic = [](const stdfs::path& p) { return p.generic_string(); };
+    // `value` names the executable, or the folder that holds it. "" when there is none.
     const auto resolve = [&](const std::string& value) -> std::string {
         const stdfs::path p(tooling_detail::expand_home(value, env));
         std::error_code ec;
-        if (stdfs::is_regular_file(p, ec)) return p.generic_string();
-        for (const char* name : {"ffmpeg.exe", "ffmpeg"})
-            if (stdfs::is_regular_file(p / name, ec)) return (p / name).generic_string();
+        if (stdfs::is_regular_file(fs::os_path(p), ec)) return generic(p);
+        if (stdfs::is_directory(fs::os_path(p), ec))
+            for (const std::string& name : tool.exeNames) {
+#ifdef _WIN32
+                const std::vector<std::string> files = {name + ".exe", name + ".cmd", name + ".bat", name};
+#else
+                const std::vector<std::string> files = {name};
+#endif
+                for (const std::string& file : files)
+                    if (stdfs::is_regular_file(fs::os_path(p / file), ec)) return generic(p / file);
+            }
         return {};
     };
-    if (const std::string v = env("FACTORIA_FFMPEG"); !v.empty())
-        if (std::string f = resolve(v); !f.empty()) return f;
-    const std::string configPath = configPathIn.empty() ? machine_export_config_path(env) : configPathIn;
+    if (const std::string value = env(tool.envVar); !value.empty()) {
+        if (std::string found = resolve(value); !found.empty()) return MachineToolFound{found, tool.envVar};
+        return make_error(tool.label + ": " + tool.envVar + " is '" + value + "', which is not " + tool.tool + " (it must be the executable or the folder that holds it)",
+                          "Fix or unset " + tool.envVar + ". " + where);
+    }
     std::error_code ec;
-    if (stdfs::exists(stdfs::path(configPath), ec))
-        if (auto text = tooling_detail::read_file(stdfs::path(configPath)))
-            if (auto parsed = parse_json(*text, configPath); parsed.ok() && parsed->is_object())
-                if (auto pub = parsed->find("publish"); pub != parsed->end() && pub->is_object())
-                    if (auto v = pub->find("ffmpeg"); v != pub->end() && v->is_string())
-                        if (std::string f = resolve(v->get<std::string>()); !f.empty()) return f;
-    return which("ffmpeg");
+    if (stdfs::exists(stdfs::path(configPath), ec)) {
+        auto text = tooling_detail::read_file(stdfs::path(configPath));
+        auto parsed = text ? parse_json(*text, configPath) : Result<Json>(Error{"Cannot read " + configPath + ".", "Check that the file is readable."});
+        if (!parsed.ok()) return make_error(tool.label + ": " + parsed.error().message, "Fix the JSON of " + configPath + " (or delete it).");
+        if (parsed->is_object())
+            if (auto pub = parsed->find("publish"); pub != parsed->end() && pub->is_object())
+                if (auto v = pub->find(tool.configKey); v != pub->end() && v->is_string() && !v->get<std::string>().empty()) {
+                    if (std::string found = resolve(v->get<std::string>()); !found.empty()) return MachineToolFound{found, "export.json"};
+                    return make_error(tool.label + ": " + configPath + "#/publish/" + tool.configKey + " is '" + v->get<std::string>() + "', which is not " + tool.tool +
+                                          " (it must be the executable or the folder that holds it)",
+                                      "Fix or remove that entry. " + where);
+                }
+    }
+    for (const std::string& name : tool.exeNames)
+        if (std::string found = which(name); !found.empty()) return MachineToolFound{generic(stdfs::path(found)), "PATH"};
+    return make_error(tool.label + ": " + tool.tool + " was not found on this computer (not on PATH, " + tool.envVar + " is not set, and " + configPath +
+                          " has no publish." + tool.configKey + ")",
+                      where + " Nothing is downloaded for you.");
+}
+
+Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env, const std::string& configPath) {
+    return find_machine_tool({"ffmpeg", "ffmpeg", "FACTORIA_FFMPEG", "ffmpeg", {"ffmpeg"}, "https://ffmpeg.org/download.html"}, env, configPath);
 }
 
 namespace {

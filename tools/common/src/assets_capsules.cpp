@@ -18,22 +18,9 @@ namespace {
 using StoreAsset = fa::StoreAsset;
 using LogoMode = fa::StoreLogo;
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
-    fail("invalid_argument", std::format("assets.draw_capsules {}: {}", pointer.empty() ? "arguments" : pointer, what), hint);
-}
-
-void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
-    for (auto it = obj.begin(); it != obj.end(); ++it)
-        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
-            bad(pointer + "/" + it.key(), "unknown key '" + it.key() + "'.", did_you_mean(it.key(), allowed));
-}
-
-Color colour(const Json& v, const std::string& pointer) {
-    Color c;
-    std::string err;
-    if (!json_to(v, c, &err)) bad(pointer, err, "Colours are \"#rrggbb\", \"#rrggbbaa\" or a name like \"white\".");
-    return c;
-}
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error("assets.draw_capsules", pointer, what, hint); }
+void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) { check_arg_keys("assets.draw_capsules", obj, pointer, allowed); }
+Color colour(const Json& v, const std::string& pointer) { return colour_arg("assets.draw_capsules", v, pointer); }
 
 // `over` composited onto `dst` with its top-left corner at (x, y); both straight (not premultiplied) RGBA8.
 void composite(Image& dst, const Image& over, int x0, int y0) {
@@ -195,7 +182,6 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
     Json written = Json::array(), skipped = Json::array(), warnings = Json::array();
     for (const std::string& storeId : stores) {
         std::set<std::string> done;  // sizes already drawn for this store: several assets share a size and a rule
-        Json served = Json::object();
         std::vector<std::pair<std::string, Json>> entries;
         for (const StoreAsset& as : *find_store_assets(storeId)) {
             int w = as.width, h = as.height;

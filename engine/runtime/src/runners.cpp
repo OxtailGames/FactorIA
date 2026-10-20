@@ -348,6 +348,10 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     AviWriter avi;
     std::string aviPath;  // where the AVI is written: the output itself, or a temporary one that ffmpeg converts
     bool videoFailed = false;
+    const auto video_fail = [&](const std::string& why) {  // the report says why; the video stops, the run goes on
+        replayProblems.push_back("video: " + why);
+        videoFailed = true;
+    };
     if (wantVideo) {
         if (videoExt != ".avi" && videoExt != ".mp4") {
             report["error"] = "--record-video writes .avi or .mp4 files, but '" + options.videoOutPath + "' ends in '" + videoExt +
@@ -392,23 +396,13 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             Image frameImg;
             std::string verr;
             if (!engine.capture_scaled(frameImg, options.renderScale, &verr)) {
-                replayProblems.push_back("video at frame " + std::to_string(f) + ": " + verr);
-                videoFailed = true;
+                video_fail("frame " + std::to_string(f) + ": " + verr);
             } else {
-                if (avi.frame_count() == 0) {
-                    auto b = avi.begin(aviPath, frameImg.width, frameImg.height, 1.0 / engine.fixed_dt());
-                    if (!b.ok()) {
-                        replayProblems.push_back("video: " + b.error().to_string());
-                        videoFailed = true;
-                    }
-                }
-                if (!videoFailed) {
-                    auto a = avi.add_frame(encode_jpeg(frameImg, 85));
-                    if (!a.ok()) {
-                        replayProblems.push_back("video: " + a.error().to_string());
-                        videoFailed = true;
-                    }
-                }
+                if (avi.frame_count() == 0)
+                    if (auto b = avi.begin(aviPath, frameImg.width, frameImg.height, 1.0 / engine.fixed_dt()); !b.ok()) video_fail(b.error().to_string());
+                if (!videoFailed)
+                    if (auto a = avi.add_frame(encode_jpeg(frameImg, 85)); !a.ok())
+                        video_fail(a.error().to_string() + " The video stops here (" + std::to_string(avi.frame_count()) + " frames); the run goes on.");
             }
         }
         if (std::binary_search(shots.begin(), shots.end(), f)) {
@@ -440,8 +434,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         auto w = videoFrames == 0 ? Result<void>(make_error("the run drew no frame (--frames 0?)", "Run at least one frame."))
                                   : avi.finish(audible ? pcm.data() : nullptr, audible ? pcm.size() / 2 : 0, pcmRate);
         if (!w.ok()) {
-            replayProblems.push_back("video: " + w.error().to_string());
-            videoFailed = true;
+            video_fail(w.error().to_string());
         } else if (videoExt == ".mp4") {
             ProcessOptions po;
             po.argv = {options.ffmpegPath, "-y", "-loglevel", "error", "-i", aviPath, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
@@ -452,14 +445,11 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             auto pr = run_process(po);
             std::error_code ec;
             std::filesystem::remove(fs::os_path(aviPath), ec);
-            if (!pr.ok()) {
-                replayProblems.push_back("video: cannot start ffmpeg (" + options.ffmpegPath + "): " + pr.error().to_string());
-                videoFailed = true;
-            } else if (pr->exitCode != 0) {
-                replayProblems.push_back("video: ffmpeg failed (exit " + std::to_string(pr->exitCode) + "): " + pr->stderrText.substr(0, 600) +
-                                         " Record an .avi instead if this keeps failing.");
-                videoFailed = true;
-            }
+            if (!pr.ok())
+                video_fail("cannot start ffmpeg (" + options.ffmpegPath + "): " + pr.error().to_string());
+            else if (pr->exitCode != 0)
+                video_fail("ffmpeg failed (exit " + std::to_string(pr->exitCode) + "): " + pr->stderrText.substr(0, 600) +
+                           " Record an .avi instead if this keeps failing.");
         }
         if (!videoFailed) {
             report["videoPath"] = fs::is_absolute(options.videoOutPath) ? options.videoOutPath : fs::resolve(options.videoOutPath).generic_string();

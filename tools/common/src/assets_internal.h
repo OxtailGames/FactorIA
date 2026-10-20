@@ -90,6 +90,12 @@ void check_sprite_textures(const std::string& projectDir, const std::set<std::st
 
 [[noreturn]] void fail(const char* code, const std::string& message, const std::string& hint = {});
 
+// Argument errors of the drawing commands (assets_draw_icon.cpp): "<command> <JSON pointer>: <what>" with a hint; unknown
+// keys get a "did you mean"; colours are "#rrggbb", "#rrggbbaa", a name or [r, g, b].
+[[noreturn]] void arg_error(const char* command, const std::string& pointer, const std::string& what, const std::string& hint);
+void check_arg_keys(const char* command, const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed);
+Color colour_arg(const char* command, const Json& v, const std::string& pointer);
+
 // The absolute path of the project-relative `rel` (sandboxed: it cannot leave the project), or a CommandError.
 stdfs::path project_file(const std::string& projectDir, const std::string& rel);
 

@@ -182,10 +182,25 @@ struct MachineExportConfig {
 // (%USERPROFILE%\.factoria\export.json on Windows); else ".factoria/export.json".
 std::string machine_export_config_path(const ExportEnvLookup& env = system_export_env());
 
-// The ffmpeg executable that turns a recorded .avi into an .mp4 (`factoria run --record-video x.mp4`): the environment
-// variable FACTORIA_FFMPEG (the executable or its folder), else "publish": {"ffmpeg": "<path>"} of the machine settings
-// (`configPath` "" = machine_export_config_path()), else PATH. "" when none is found. Same order as the store tools.
-std::string find_ffmpeg(const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
+// An external tool found the same way everywhere (store uploaders, ffmpeg): the environment variable `envVar` (the
+// executable or the folder that holds it), else the "publish" object of the machine settings (`configKey`), else PATH.
+struct MachineTool {
+    std::string label;                  // starts every message: "publish.steam", "ffmpeg"
+    std::string tool;                   // the name in messages: "steamcmd"
+    std::string envVar;                 // FACTORIA_STEAMCMD
+    std::string configKey;              // "steamcmd" in {"publish": {...}} of export.json
+    std::vector<std::string> exeNames;  // looked up on PATH and inside a folder (".exe" etc. added on Windows)
+    std::string download;               // where to get it, for the error
+};
+struct MachineToolFound {
+    std::string path;
+    std::string from;                   // the variable name, "export.json" or "PATH"
+};
+// A variable or a config entry that points at nothing is an error that says so (no fall-through to PATH); so is a tool
+// found nowhere: the message names the download page, the variable and the key. `configPath` "" = machine_export_config_path(env).
+Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
+// The ffmpeg that turns a recorded .avi into an .mp4 (`factoria run --record-video x.mp4`): FACTORIA_FFMPEG, "ffmpeg" in "publish".
+Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
 
 // A missing file is not an error (defaults come back). Unreadable JSON, a wrong "format" or a value of the wrong
 // type is, naming the file and the key. `path` "" = machine_export_config_path().

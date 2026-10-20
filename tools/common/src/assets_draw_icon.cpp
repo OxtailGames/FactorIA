@@ -15,6 +15,23 @@
 
 namespace fa::assets_detail {
 
+void arg_error(const char* command, const std::string& pointer, const std::string& what, const std::string& hint) {
+    fail("invalid_argument", std::format("{} {}: {}", command, pointer.empty() ? "arguments" : pointer, what), hint);
+}
+
+void check_arg_keys(const char* command, const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
+    for (auto it = obj.begin(); it != obj.end(); ++it)
+        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
+            arg_error(command, pointer + "/" + it.key(), "unknown key '" + it.key() + "'.", did_you_mean(it.key(), allowed));
+}
+
+Color colour_arg(const char* command, const Json& v, const std::string& pointer) {
+    Color c;
+    std::string err;
+    if (!json_to(v, c, &err)) arg_error(command, pointer, err, "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
+    return c;
+}
+
 namespace {
 
 constexpr int kIconSize = 1024;
@@ -43,16 +60,9 @@ struct Spec {
     std::vector<Layer> layers;
 };
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
-    fail("invalid_argument", std::format("assets.draw_icon {}: {}", pointer.empty() ? "arguments" : pointer, what), hint);
-}
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error("assets.draw_icon", pointer, what, hint); }
 
-void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) {
-    for (auto it = obj.begin(); it != obj.end(); ++it) {
-        if (std::find(allowed.begin(), allowed.end(), it.key()) == allowed.end())
-            bad(pointer + "/" + it.key(), "unknown key '" + it.key() + "'.", did_you_mean(it.key(), allowed));
-    }
-}
+void check_keys(const Json& obj, const std::string& pointer, const std::vector<std::string>& allowed) { check_arg_keys("assets.draw_icon", obj, pointer, allowed); }
 
 double number(const Json& obj, const std::string& pointer, const char* key, bool required, double def = 0) {
     auto it = obj.find(key);
@@ -64,12 +74,7 @@ double number(const Json& obj, const std::string& pointer, const char* key, bool
     return it->get<double>();
 }
 
-Color colour(const Json& v, const std::string& pointer) {
-    Color c;
-    std::string err;
-    if (!json_to(v, c, &err)) bad(pointer, err, "Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
-    return c;
-}
+Color colour(const Json& v, const std::string& pointer) { return colour_arg("assets.draw_icon", v, pointer); }
 
 bool optional_colour(const Json& obj, const std::string& pointer, const char* key, Color& out) {
     auto it = obj.find(key);

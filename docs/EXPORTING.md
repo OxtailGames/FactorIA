@@ -1490,7 +1490,10 @@ factoria run --headless --input replays/trailer.json --frames 900 --render-scale
 ```
 
 - `.avi` needs nothing else: Motion-JPEG video and 16-bit PCM audio. Every player and editor reads it; it is large (about
-  10 MB a second at 1080p, so do not commit it; ffmpeg makes the small .mp4).
+  10 MB a second at 1080p, so do not commit it; ffmpeg makes the small .mp4). **Limit:** an AVI file cannot pass about
+  2 GB, which is roughly 3 minutes of 1080p at 60 fps (twice that at 720p). When the video reaches it, recording stops at that
+  frame, the run goes on, and the report lists the reason in `problems` (exit code 2). Record a shorter replay
+  (`--frames`) or use a smaller `--render-scale`.
 - `.mp4` (H.264 + AAC, what Steam, Google Play and the App Store accept for previews) is made by
   [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
   `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, then

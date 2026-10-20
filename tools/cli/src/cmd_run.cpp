@@ -114,7 +114,12 @@ Command make_run_command() {
         if (a.has("record-audio")) ho.audioOutPath = absolute_path(a.str("record-audio"));
         if (a.has("record-video")) {
             ho.videoOutPath = absolute_path(a.str("record-video"));
-            ho.ffmpegPath = find_ffmpeg();
+            if (fs::extension(ho.videoOutPath) == ".mp4") {  // only an .mp4 needs ffmpeg; a variable that points at nothing is an error
+                auto ffmpeg = find_ffmpeg();
+                if (!ffmpeg.ok())
+                    throw UsageError(ffmpeg.error().message, ffmpeg.error().hint + " Or record an .avi, which needs nothing: --record-video out.avi.");
+                ho.ffmpegPath = ffmpeg->path;
+            }
         }
         ho.failOnScriptError = !a.has("allow-script-errors");
 
