@@ -2,17 +2,17 @@
 
 Status: the four jam-sized example games reported 73 entries, all verified fixed-in-engine. Lantern Keep, the M21
 reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
-and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 35 of them (2026-10-20) and
-found two more; the 9 still open are ranked below. M1-M11 and M13-M15 are done; M12 (platform services) has its API and
-the Steam, Apple and Google Play backends; M16 (mobile store-ready), M17 (web export) and M18 (animation and production
-3D) are done; M21 has its reference game; M24.1-M24.14 are done; M19, M20, M22, M23 and M24.15-M24.16 are not started
-(M10-M23 come from an external evaluation of v0.1.4, re-triaged 2026-10-16: what it still takes to ship a game to the
-stores). What only certificates, real devices or a device farm can close is under M8 and M9, "Left open". What finished
-milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this file keeps what they left open and the decisions to
-respect.
+and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
+(M24.1-M24.16, 2026-10-20), two of them found on the way; the 7 still open are ranked below, all in M20-M23. M1-M11 and
+M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile
+store-ready), M17 (web export) and M18 (animation and production 3D) are done; M21 has its reference game; M24 is done
+(M24.1-M24.16); M19, M20, M22 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
+2026-10-16: what it still takes to ship a game to the stores). What only certificates, real devices or a device farm can
+close is under M8 and M9, "Left open". What finished milestones built is in [ROADMAP_DONE.md](ROADMAP_DONE.md); this
+file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-9 entries from 5 project(s), 9 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+7 entries from 5 project(s), 7 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
 ## 1. No Microsoft Store packaging (MSIX) or publish command
 
@@ -47,18 +47,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Wrote tools/make_icon.py, a deterministic Pillow script that draws the lantern and the Android foreground layer, and recorded both files with assets.set_provenance (origin original, ai false). Needs Python and Pillow on the machine.
 
-## 4. Scripts cannot get a widget's autoSize size before the next layout, and a panel cannot switch from column to row when it does not fit
-
-- **Category:** ui
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0046
-- **Suggestion:** A ui.layout() (or ui.rectOf after a synchronous relayout) that applies autoSize and fit now, and/or a Panel option that wraps a column into a row (or a row into a column) when it would leave the screen.
-- **Workarounds seen:**
-  - shop.js buttonSize() and contentHeight() measure labels with ui.measureText and add the autoSize margins by hand; options.js computes its row height the same way.
-
-## 5. What each export needs offline is spread over several docs
+## 4. What each export needs offline is spread over several docs
 
 - **Category:** docs
 - **Severity:** minor (score 2)
@@ -69,7 +58,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.
 
-## 6. Long ASCII level maps are hard to author and edit by hand
+## 5. Long ASCII level maps are hard to author and edit by hand
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -80,7 +69,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.
 
-## 7. No colour-blind or greyscale preview or filter
+## 6. No colour-blind or greyscale preview or filter
 
 - **Category:** rendering-2d
 - **Severity:** nice-to-have (score 1)
@@ -91,18 +80,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Hazards and pickups differ by shape and outline (spikes = triangles, enemies = rounded boxes with eyes, ember = diamond, checkpoint = ring, exit = star in a lamp). The greyscale check was made outside the engine with Python Pillow on a screenshot (screenshots/a11y-hazards-colour-and-grey.png). No colour-blind filter option was built.
 
-## 8. No way to give sibling buttons one common size (the widest label)
-
-- **Category:** ui
-- **Severity:** nice-to-have (score 1)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0047
-- **Suggestion:** A Panel option (for example uniformSize: true) that gives every autoSize child the size of the largest one.
-- **Workarounds seen:**
-  - level_select.js measures the six labels with ui.measureText and writes the largest size as every button's design size.
-
-## 9. No way to read the operating system accessibility settings or to speak UI text
+## 7. No way to read the operating system accessibility settings or to speak UI text
 
 - **Category:** platform
 - **Severity:** nice-to-have (score 1)
@@ -151,6 +129,11 @@ Re-triage 2026-10-20, after M24.7-M24.14 (merges `da5f957`, `7506b4b`, `343a7b8`
 `2e0fa55`): 22 more Lantern Keep entries are fixed, each with a `Fixed in <commit>` note, and the game dropped their
 workarounds in the `m24/bookkeeping-2` PR (`scripts/ui/text_fit.js` is gone). Dropping it showed two new gaps,
 LK/FB-0046 and LK/FB-0047 (M24.15, M24.16). 9 Lantern Keep entries are open.
+
+Re-triage 2026-10-20, after M24.15-M24.16 (merges `62f24f9`, `7b57f09`): LK/FB-0046 and LK/FB-0047 are fixed, each with
+a `Fixed in <commit>` note, and Lantern Keep dropped its workarounds in those PRs. 7 Lantern Keep entries are open:
+LK/FB-0009 in M20; LK/FB-0014, LK/FB-0017, LK/FB-0022 and LK/FB-0023 in M21; LK/FB-0037 and LK/FB-0038 in M22;
+LK/FB-0023 also in M23, for MSIX.
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK).
@@ -204,6 +187,8 @@ Kept here because later work has to respect them (the full story is in ROADMAP_D
   `start` / `end` and `Panel.direction` (default `ltr`) follow the language; a `size` a script or file writes is the new
   design size. In file mode `scene.import_ascii` writes prefab references. The catalog's translated texts are for the
   game's own screens and the fake store; Steam, the App Store and Google Play keep theirs in their own consoles.
+  M24.15-M24.16 (2026-10-20): the fallback layout (`fallbackLayout`) is chosen again every frame, and the deepest panels
+  switch first; `uniformSize` counts only `autoSize` widgets; a script's `ui.layout()` does not log the fit warning.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -648,15 +633,15 @@ Closes E-08 and S-09, plus the Mac App Store and Microsoft Store rows of the rep
 Acceptance criteria: a sandboxed macOS export passes `codesign --verify --strict` with the App Sandbox entitlement and
 runs; an MSIX of an exported game installs with `Add-AppxPackage`.
 
-## M24. Found by the reference game (S-M each, medium; 37 Lantern Keep entries, 2 still open)
+## M24. Found by the reference game (S-M each, medium; 37 Lantern Keep entries, all fixed) — DONE (PRs #95-#113)
 
 What Lantern Keep found that no other milestone covers, triaged 2026-10-19. None is a blocker or major: each package
 removes a workaround a game's AI had to write. When one merges, mark its entries `fixed-in-engine` and let Lantern Keep
 drop the workaround (its `workaroundFiles` say where).
 
-**M24.1-M24.14 are done** (PRs #95, #96, #98, #99, #100, #101, #103-#110 and the `m24/bookkeeping` and
-`m24/bookkeeping-2` PRs; what they built is in [ROADMAP_DONE.md](ROADMAP_DONE.md), M24.1-M24.6 and M24.7-M24.14). Left
-open from them:
+**M24.1-M24.16 are done** (PRs #95, #96, #98, #99, #100, #101, #103-#110, #112, #113 and the `m24/bookkeeping` and
+`m24/bookkeeping-2` PRs; what they built is in [ROADMAP_DONE.md](ROADMAP_DONE.md), M24.1-M24.6, M24.7-M24.14 and
+M24.15-M24.16). Left open from them:
 - M24.3: the released Windows binary was never checked (`factoria docs read menus > f` and `factoria call docs.read`
   with no `\r`); do it once with the next release.
 - M24.6: the web (IndexedDB) and mobile save paths run the same code but were not run with a damaged file; the save
@@ -669,25 +654,7 @@ open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: M24.15-M24.16 below, or M21's guides (see "Left in M21").
-
-### M24.15 Layout now, and panels that wrap (M) — LK/FB-0046
-
-- Scripts can apply the layout at once (`ui.layout()`, or `ui.rectOf` after a synchronous relayout), so a script that
-  picks a layout from the widgets' sizes reads what `autoSize` and `fit` make them instead of repeating the engine's
-  margins (Lantern Keep's shop.js and options.js add the "+ 40 / + 16" by hand).
-- A `Panel` option that turns a column into a row (or wraps a row) when it would leave the screen, so the shop needs no
-  script for its two layouts.
-
-Acceptance: a `fa_test_ui` case where `autoSize` sizes are read right after a text change with no step; a column that
-becomes a row at text scale 2; Lantern Keep's shop drops `buttonSize` and `contentHeight`.
-
-### M24.16 Siblings of one size (S) — LK/FB-0047
-
-A `Panel` option (for example `uniformSize`) gives every `autoSize` child the size of the largest one, so a grid of
-level buttons is even without measuring the labels in a script.
-
-Acceptance: a `fa_test_ui` case with three labels of different lengths; Lantern Keep's level select drops its measure.
+Next: M21's guides (see "Left in M21").
 
 ## Out of scope: Roblox
 
