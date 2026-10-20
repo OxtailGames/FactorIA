@@ -48,6 +48,10 @@ std::vector<std::uint8_t> encode_png(const Image& img);
 // first (fit_image). For images that must not carry transparency, such as the App Store icon of an iOS app.
 std::vector<std::uint8_t> encode_png_rgb(const Image& img);
 
+// Baseline JPEG (quality 1..100) of the RGB of `img`; alpha is ignored. Empty for an empty image. Deterministic: the
+// same pixels give the same bytes (the AVI video of a replay uses it, avi.h).
+std::vector<std::uint8_t> encode_jpeg(const Image& img, int quality = 90);
+
 // Resamples `src` to width x height (both > 0; an empty result for an empty `src` or a size below 1). Colours are
 // weighted by alpha (premultiplied), so the transparent pixels around a shape do not darken or tint its edge. Shrinking
 // averages every source pixel under a destination pixel by the area it covers (no aliasing); enlarging is bilinear.
