@@ -1363,6 +1363,143 @@ removes the player's signature), does not build an MSIX package and does not upl
 The tests of these commands run against a fake uploader (`tools/common/test_tools/fake_store_tool.cpp`) that records its arguments:
 point the environment variable of a tool at any program to see exactly how it is called. `dryRun` needs no account.
 
+## Store page material
+
+Every store wants images at its own sizes and, for the page, a gameplay video. FactorIA makes both without an image
+tool: screenshots at the stores' sizes, capsules cut from one piece of key art, and a video recorded from an input replay.
+
+### Screenshots
+
+Screenshots are the real game drawn natively larger, not enlarged. A game designed at 1280x720 gives Steam's, Epic's and
+Microsoft's 1920x1080 with `--render-scale 1.5` (same HUD, camera and visible area, sharp text):
+
+```
+factoria run --headless --input replays/tour.json --frames 600 --screenshot-at 120,300,540 \
+  --render-scale 1.5 --screenshot-pattern store/shot_{frame}.png
+```
+
+From a script or an AI, `game.screenshot {path, scale: 1.5}` does the same. Pick the frames with `--screenshot-at` after
+looking at a few; Steam wants at least five screenshots of the game only (no logo, text or awards on them), Google Play and
+the App Store take theirs from the table below (`assets.draw_capsules` cuts those from a screenshot too).
+
+### Capsules and covers: `assets.draw_capsules`
+
+`assets.draw_capsules` cuts one key art (a screenshot, or any image in the project) to every image of the stores you name
+and writes `store/capsules/<store>/<name>_<w>x<h>.png`. The art is cover-cropped around `focus` (a point `[x, y]` as
+fractions of the art, default the middle); the `logo` is an image (`{"image": "assets/logo.png"}`, a PNG with a
+transparent background) or the title drawn with the same rasterizer as [`assets.draw_icon`](ASSETS.md#the-game-icon-without-a-provider-assetsdraw_icon)
+(`{"text": "Lantern Keep", "font": "assets/fonts/Title.ttf", "fill": "#fff4d0"}`). The logo goes where the asset's rule puts
+it: centred on capsules and covers, in the upper part for Microsoft (the bottom third is overlaid), none on heroes, page
+backgrounds and screenshots (Steam's library hero must have no text), and alone on a transparent canvas for the logo-only
+assets (Steam's library logo, Epic's logo). Assets with the same size in one store are one file.
+
+```
+factoria screenshot --frames 120 --render-scale 1.5 --out store/keyart.png
+factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.45],"logo":{"text":"My Game"},"stores":["steam","itch"]}'
+```
+
+`orientation: "portrait"` turns the phone and tablet screenshot sizes of Google Play and the App Store (landscape by default).
+Look at the PNGs: change `focus` or the logo and call again (files are replaced). Use 1920x1080 key art or bigger; the
+biggest image (Steam's 3840x1240 hero) is enlarged from it.
+
+### Sizes (as of 2026-10)
+
+These are the sizes in the code (`tools/common/src/store_assets.cpp`), checked against each store's documentation in
+October 2026. Stores change them: check the store's page before uploading, and tell us in `ENGINE_FEEDBACK.json` when one moved.
+"Logo" says whether `assets.draw_capsules` puts the logo on it; where the store has no rule the placement is our choice.
+
+**Steam** ([standard assets](https://partner.steamgames.com/doc/store/assets/standard), [library assets](https://partner.steamgames.com/doc/store/assets/libraryassets))
+
+| Image | Size | Logo |
+|---|---|---|
+| Header capsule | 920x430 | yes |
+| Small capsule | 462x174 | yes (fills it) |
+| Main capsule | 1232x706 | yes |
+| Vertical capsule | 748x896 | yes |
+| Page background | 1438x810 | no (ambient) |
+| Library capsule | 600x900 | yes, low |
+| Library header | 920x430 | yes |
+| Library hero | 3840x1240 | no text at all; keep the subject inside the centred 860x380 |
+| Library logo | 1280x720 (or 1280 wide / 720 tall) | alone, transparent PNG |
+| Screenshots | 1920x1080 minimum, 16:9, at least 5 | no |
+
+**Epic Games Store** ([Storefront Media Guide](https://dev.epicgames.com/docs/epic-games-store/sales-and-marketing/marketing/storefront-media-guide))
+
+| Image | Size | Logo |
+|---|---|---|
+| Product logo | 960x540 | alone |
+| Offer image, landscape | 2560x1440 | yes |
+| Offer image, portrait | 1200x1600 | yes |
+| Social preview | 1200x1200 | yes |
+| Screenshots / media carousel images | 1920x1080 | no |
+
+**GOG** ([essentials checklist](https://docs.gog.com/basic-game-assets/)): GOG publishes the sizes of its store images only in
+the templates of the developer portal. The key art (at least 1920x1080, layered .psd with the logo for GOG's team) is
+documented; the vertical cover 342x482 and the background 1600x670 come from GOG's support article and are **not verified**:
+check them against the templates.
+
+| Image | Size | Logo |
+|---|---|---|
+| Key art | 1920x1080 or more | no |
+| Vertical cover | 342x482 (unverified) | yes, low |
+| Background | 1600x670 (unverified) | no |
+
+**Microsoft Store** ([screenshots and images](https://learn.microsoft.com/windows/apps/publish/publish-your-app/msix/screenshots-and-images))
+
+| Image | Size | Logo |
+|---|---|---|
+| Poster art 2:3 | 720x1080 | yes, in the upper two thirds |
+| Box art 1:1 | 1080x1080 | yes, in the upper two thirds |
+| App tile icon | 300x300 | yes |
+| Super hero art 16:9 | 1920x1080 | no (no text allowed) |
+| Screenshots, trailer thumbnail | 1920x1080 (screenshots: 1366x768 or more) | no |
+
+**Google Play** ([graphic assets](https://support.google.com/googleplay/android-developer/answer/9866151))
+
+| Image | Size | Logo |
+|---|---|---|
+| Feature graphic | 1024x500, no alpha | yes |
+| App icon | 512x512 (the real icon: `assets.draw_icon`) | yes |
+| Phone / tablet screenshots | 320 to 3840 px a side, long side at most twice the short one; 1920x1080 (or 1080x1920) also qualifies for large-screen recommendations | no |
+
+**App Store** ([screenshot specifications](https://developer.apple.com/help/app-store-connect/reference/screenshot-specifications/)), no alpha, landscape here (`orientation: "portrait"` swaps):
+
+| Image | Size | Logo |
+|---|---|---|
+| iPhone 6.9" | 2868x1320 | no |
+| iPhone 6.5" | 2778x1284 (required when there are no 6.9" ones) | no |
+| iPhone 6.3" | 2622x1206 (at least one iPhone size is required) | no |
+| iPad 13" | 2752x2064 (required if the app runs on iPad) | no |
+
+**itch.io**: the cover image upload form asks for 630x500 (minimum 315x250); itch.io's docs do not print the size, so it
+is **not verified** against documentation. The logo is centred.
+
+| Image | Size | Logo |
+|---|---|---|
+| Cover image | 630x500 | yes |
+
+### Gameplay video from a replay
+
+`factoria run --headless --input replay.json --frames N --record-video out.avi` plays the replay and writes a video of it:
+every frame is drawn at `--render-scale` (1.5 on 1280x720 = 1920x1080) at the project's `fixedHz` frames per second, and the
+audio mix of the run is its sound track (none when the run is silent). The same replay and seed always give the same file.
+Record a replay with the editor (play session recorder) or write it by hand ([CLI.md](CLI.md), AI_GUIDE 11.2).
+
+```
+factoria run --headless --input replays/trailer.json --frames 900 --render-scale 1.5 --record-video store/trailer.avi
+```
+
+- `.avi` needs nothing else: Motion-JPEG video and 16-bit PCM audio. Every player and editor reads it; it is large (about
+  10 MB a second at 1080p, so do not commit it; ffmpeg makes the small .mp4).
+- `.mp4` (H.264 + AAC, what Steam, Google Play and the App Store accept for previews) is made by
+  [ffmpeg](https://ffmpeg.org/download.html), found like the store tools of [Finding the tools](#finding-the-tools):
+  `FACTORIA_FFMPEG` (the executable or its folder), `"publish": {"ffmpeg": "<path>"}` in `~/.factoria/export.json`, then
+  `PATH`. FactorIA records the AVI and ffmpeg converts it (even sizes, `yuv420p`, `+faststart`). Without ffmpeg the request fails
+  before the replay runs, with this advice: install ffmpeg, or record `.avi` and convert it yourself:
+  `ffmpeg -i trailer.avi -c:v libx264 -pix_fmt yuv420p -c:a aac trailer.mp4`.
+- Stores want the video at their own sizes and rates (Microsoft: 1920x1080 MP4, under 2 GB, 60 s or less recommended);
+  pick `--frames` and `--render-scale` for it. A video needs a GPU like screenshots do (headless EGL with Mesa works).
+
 ## CI for your game
 
 `project.new_ci_workflow` writes `.github/workflows/factoria.yml` into the game's folder: a GitHub Actions workflow that

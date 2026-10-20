@@ -674,7 +674,7 @@ void Audio::start_recording() {
     impl_->recRate = impl_->deviceRate;
 }
 
-bool Audio::stop_recording(std::string_view wavPath, std::string* error) {
+bool Audio::stop_recording(std::string_view wavPath, std::string* error, std::vector<std::int16_t>* pcmOut, int* rateOut) {
     std::vector<float> rec;
     int rate;
     {
@@ -688,6 +688,15 @@ bool Audio::stop_recording(std::string_view wavPath, std::string* error) {
         impl_->rec.clear();
         rate = impl_->recRate;
     }
+    if (pcmOut) {  // the mix as 16-bit stereo for a video file
+        pcmOut->resize(rec.size());
+        for (std::size_t i = 0; i < rec.size(); ++i) {
+            const float s = rec[i] > 1.0f ? 1.0f : (rec[i] < -1.0f ? -1.0f : rec[i]);
+            (*pcmOut)[i] = std::int16_t(std::lround(s * 32767.0f));
+        }
+        if (rateOut) *rateOut = rate;
+    }
+    if (wavPath.empty()) return true;
     const std::uint32_t dataBytes = std::uint32_t(rec.size() * 2);
     std::vector<std::uint8_t> out;
     out.reserve(44 + dataBytes);

@@ -202,7 +202,16 @@ Steam/Apple/Google services that change some answers).
   `phone-landscape-1920x1080-*` and `phone-landscape-2208x1242-*` with the touch controls and a notch (`screen.set_safe_area`
   profile `phone-landscape`, the buttons' touch positions moved in by its 89 px insets). They are not the screenshots of a real
   phone: redo them on a device before launch.
-- Not made: Steam capsules/hero/logo, Google Play feature graphic, itch.io cover, a trailer, a 512x512 Play icon, the
+- Capsules (Steam, Epic, itch.io, Microsoft, Google Play) at each store's sizes, cut from one native 1920x1080 key art
+  (`store/keyart.png`, committed; the HUD is hidden for it: `factoria call --batch @tools/keyart_batch.json` from the project
+  folder) with the title drawn as the logo: `factoria call assets.draw_capsules @tools/capsules.json` writes
+  `store/capsules/<store>/lantern-keep_<w>x<h>.png` (about 5 MB, git-ignored: run it again to get them; sizes in
+  `docs/EXPORTING.md` "Store page material").
+- Trailer: `replays/trailer.json` plays level 1-1 to its exit (the autoplay bot's jumps, 1400 frames, 23 s) and
+  `factoria run . --headless --scene scenes/levels/1-1.scene.json --input replays/trailer.json --frames 1400 --render-scale 1.5
+  --record-video store/trailer.mp4` records it at 1920x1080, 60 fps, with sound (`.mp4` needs ffmpeg, `.avi` does not; the video
+  is git-ignored).
+- Not made: the GOG and App Store capsules, a 512x512 Play icon, the
   Spanish-language screenshots (the images are English, the game's default; `i18n.setLanguage("es")` before a run gives
   Spanish ones).
 
