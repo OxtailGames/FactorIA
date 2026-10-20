@@ -445,7 +445,15 @@ void gather_2d(World& world, Frame& f) {
         float eff = ppu * scale;
         // Layout in LOCAL units (the entity scale is applied by the matrix), so the raster size uses eff. Screen-space Text
         // follows the player's text size option; world-space Text is part of the world and does not.
-        TextLayout lay = f.fonts->layout(t, screen ? t.fontSize * f.textScale : t.fontSize, eff);
+        // align start / end are the edges of the current language's direction; the font layer only knows left / right.
+        Text resolved;
+        const Text* drawn = &t;
+        if (t.align == Align::Start || t.align == Align::End) {
+            resolved = t;
+            resolved.align = (t.align == Align::Start) != world.rtl() ? Align::Left : Align::Right;
+            drawn = &resolved;
+        }
+        TextLayout lay = f.fonts->layout(*drawn, screen ? t.fontSize * f.textScale : t.fontSize, eff);
         if (lay.quads.empty()) return;
         if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.

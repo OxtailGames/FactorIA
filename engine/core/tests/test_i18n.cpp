@@ -67,6 +67,8 @@ TEST_CASE("i18n: language tags are normalized") {
     CHECK(base_language("zh-Hans-CN") == "zh-Hans");
     CHECK(base_language("zh-Hans") == "zh");
     CHECK(base_language("zh").empty());
+    for (const char* rtl : {"ar", "ar-EG", "he", "fa", "ur-PK", "ckb", "pa-Arab"}) CHECK(is_rtl_language(rtl));
+    for (const char* ltr : {"en", "es", "ja", "zh-Hans", "sr-Latn", "", "arn"}) CHECK_FALSE(is_rtl_language(ltr));
 }
 
 TEST_CASE("i18n: the system languages are matched to the project's") {
