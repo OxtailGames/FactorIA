@@ -112,6 +112,7 @@ struct ProjectExportSettings {
     std::string icon;  // the icon of every platform that has no icon of its own; "" = none
     bool scriptBytecode = true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
                                  // inside the game pack (false: plain source in the pack). No other export reads it
+    std::vector<std::string> exclude;  // export.exclude: project-relative globs ('*', '**', '?') no export ships
     WindowsExportSettings windows;
     MacosExportSettings macos;
     LinuxExportSettings linux;

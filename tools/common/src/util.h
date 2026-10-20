@@ -17,6 +17,10 @@
 
 namespace fa::tooling_detail {
 
+// Simple glob over forward-slash paths: '*' (not '/'), '**' (anything), '?'.
+bool glob_match(std::string_view pat, std::string_view s);
+// export.exclude: true when `rel` (project-relative, forward slashes) or one of its folders matches one of the globs.
+bool export_excluded(const std::vector<std::string>& globs, std::string_view rel);
 std::string today_utc();  // YYYY-MM-DD
 std::optional<std::string> read_file(const std::filesystem::path& p);
 bool write_file(const std::filesystem::path& p, std::string_view data, std::string* err = nullptr);  // creates dirs

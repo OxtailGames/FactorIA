@@ -410,7 +410,12 @@ static Result<PublishReport> run_store(const Store* store, Context& c, PublishRe
     std::error_code ec;
     // ---- the tool, then the store's own checks and build files ----
     auto tool = find_tool(*store, c.options);  // c.options.env is never empty (set above)
-    if (!tool.ok()) return tool.error();
+    if (!tool.ok()) {
+        if (!options.dryRun) return tool.error();
+        // A dry run still returns the plan: the missing uploader is a warning and its name stands in for the path.
+        c.warnings.push_back("Missing, its name is used in this dry run: " + tool.error().message + " " + tool.error().hint);
+        tool = ToolFound{store->tool, "missing"};
+    }
     c.tool = tool->path;
     report.tool = tool->path;
     report.toolFrom = tool->from;
@@ -514,11 +519,11 @@ CommandInfo store_command(const std::string& store) {
     std::string props = mobile ? R"({
         "artifact":{"type":"string","description":"@ARTIFACT@"},
         "out":{"type":"string","description":"Folder that holds the build, relative to the project (the `out` of project.export). Default: build/export."},
-        "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result."})" : R"({
+        "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command line, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})" : R"({
         "platforms":{"type":"array","items":{"type":"string"},"description":"Which exports to upload: windows, macos, linux (aliases win, mac, osx also work). Default: every one that has an export folder and is set up for this store in factoria.json; the ones without are skipped with a warning."},
         "out":{"type":"string","description":"Parent folder of the exports, relative to the project (the `out` of project.export). Default: build/export, where the exports are <game-slug>-<platform>."},
         "folders":{"type":"object","description":"Upload another folder for a platform, relative to the project: {\"windows\": \"dist/win\"}. Takes precedence over `out`."},
-        "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. Secrets are never in the result."})";
+        "dryRun":{"type":"boolean","default":false,"description":"Write the build files into .factoria/publish/<store>/ and return the exact command lines, what would be uploaded where and the warnings; start nothing and send nothing. A missing uploader, secret or id is a warning and the plan is still returned. Secrets are never in the result."})";
     if (store == "steam")
         props += R"(,
         "account":{"type":"string","description":"Steam account that uploads (the builder account, with the 'Edit App Metadata' permission). Default: publish.steam.account of factoria.json. Its password is never stored: steamcmd keeps the login."},
