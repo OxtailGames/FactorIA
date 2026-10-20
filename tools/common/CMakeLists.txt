@@ -14,6 +14,8 @@ target_link_libraries(fa_tooling PUBLIC fa_runtime PRIVATE fa_warnings fa_ext_ba
 file(GLOB_RECURSE FA_EMBED_DOCS CONFIGURE_DEPENDS ${FA_ROOT}/docs/*.md)
 # Translations (docs/i18n/<lang>/) are for humans browsing the repo; AIs get the English reference docs.
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
+# The browsable reference (docs/reference/) is generated from the data AIs get via docs.components/docs.commands.
+list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/reference/")
 # Design documents (docs/design/) are for engine developers, not game makers.
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/design/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
