@@ -426,9 +426,17 @@ declare module "factoria" {
      */
     on(name: string, fn: (data: any, source: Entity | null) => void): () => void;
     /**
-     * Once, before the first update (props already applied). The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded; onStart runs on the next step.
+     * Once, the first time the entity is active in the hierarchy (props already applied), before its first update and before the frame is drawn. The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded, active or not; an entity spawned inactive gets onStart when something sets active = true.
      */
     onStart?(): void;
+    /**
+     * Every time the entity becomes active in the hierarchy (it or an ancestor got active = true) while the Script is enabled; the first time it runs right after onStart. Runs before the frame is drawn, so a panel can refresh its texts here and they are right in the first drawn frame.
+     */
+    onEnable?(): void;
+    /**
+     * Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn.
+     */
+    onDisable?(): void;
     /**
      * Every frame; dt in seconds scaled by time.scale.
      */
