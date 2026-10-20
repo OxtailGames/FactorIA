@@ -1474,4 +1474,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read localization` (MCP `docs_read {"name":"localization"}`): string tables, `key` fields,
   plurals and placeholders, the `i18n` script API, `i18n.state` / `i18n.set_language` / `i18n.export` / `i18n.import`,
   fonts per language, what `factoria validate` checks, and how the start language is chosen.
+- `factoria docs read finishing` (MCP `docs_read {"name":"finishing"}`): the ordered path from a playable prototype to a
+  game ready for a store: menus, options that persist, versioned saves with migration and a damaged-save screen,
+  localization and right-to-left checked at 200 % text, accessibility, store services, credits, tests and a checklist.
 - The project's `AGENTS.md`: short rules for this game.

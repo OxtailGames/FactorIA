@@ -341,7 +341,8 @@
       "status": "fixed-in-engine",
       "notes": [
         "2026-10-19 triage: confirmed open; work package M24.6 (Save file safety; the save recipe is M21's 'finish your game' guide) in feedback/ROADMAP.md.",
-        "Fixed in d891e92 (M24.6): storage saves through a temporary file and rename; a storage.json that does not parse is kept as storage.corrupt.json (with a warning) and never overwritten, storage.corrupt is true and storage starts empty. In tests, game.setStorageText(text) sets the text the next load reads (SCRIPTING.md, storage). The save recipe with versions is M21's. Lantern Keep keeps its per-slot parse (a slot can be valid JSON of the wrong shape or from a newer game), and tests/saves.test.js starts from a damaged storage.json with game.setStorageText."
+        "Fixed in d891e92 (M24.6): storage saves through a temporary file and rename; a storage.json that does not parse is kept as storage.corrupt.json (with a warning) and never overwritten, storage.corrupt is true and storage starts empty. In tests, game.setStorageText(text) sets the text the next load reads (SCRIPTING.md, storage). The save recipe with versions is M21's. Lantern Keep keeps its per-slot parse (a slot can be valid JSON of the wrong shape or from a newer game), and tests/saves.test.js starts from a damaged storage.json with game.setStorageText.",
+        "2026-10-20: the save recipe (version field, one migration step per old version, three slots, damaged-save screen, cloud copy, web and mobile save paths) is section 3 of docs/FINISHING.md (M21), written from scripts/saves.js. Nothing is left open."
       ],
       "engineIssue": "#99"
     },
