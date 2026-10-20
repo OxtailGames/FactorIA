@@ -81,6 +81,9 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - **Custom shaders:** `MeshRenderer.material` names a `materials/*.material.json` (a GLSL `surface()` snippet that changes
   what the standard material computed, optional `vertex()`, typed params). Write the two files, call `shader.compile`
   (MCP `shader_compile`) until `ok`, then look at a screenshot. Full guide with five worked examples: `factoria docs read shaders`.
+- **Menus and finishing the game:** a main menu, options, pause, saves, languages and accessibility are not in an empty project.
+  When the game needs them, `factoria docs read menus` has the files to copy and `factoria docs read finishing` the ordered
+  path to a game ready for a store, with a checklist.
 - **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
   App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
