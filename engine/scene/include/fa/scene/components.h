@@ -262,6 +262,7 @@ struct Panel : UiBox {
     UiAlign justify = UiAlign::Start;         // main axis
     UiDirection direction = UiDirection::Ltr; // horizontal reading direction of the layout
     bool fit = false;                         // size = content + padding, every frame
+    bool uniformSize = false;                 // autoSize buttons / toggles / sliders inside share the largest size
 };
 
 struct Button : UiControl {

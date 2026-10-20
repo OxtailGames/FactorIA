@@ -149,7 +149,7 @@ storage.set("textScale", ui.textScale);
   button. A column `Panel` with `fit` grows with its children; put a `ScrollList` with `"fill": true` in it and the list
   takes the height the other children leave, so the column never ends below the screen. A `fit` Panel that is larger
   than the screen logs one warning naming it, and `factoria validate` reports it for the design size. Check the result
-  with `game.screenshot` at `ui.textScale = 3`. Widgets without `autoSize` keep their rectangles and a wrapped Text keeps
+  with `game.screenshot` at `ui.textScale = 3`. Put `"uniformSize": true` on the Panel that holds them and all its `autoSize` widgets take the size of the largest one. Widgets without `autoSize` keep their rectangles and a wrapped Text keeps
   its `maxWidth`: text at 3× may not fit a small button.
 - Fonts are rasterized at the scaled size, so scaled text stays sharp.
 

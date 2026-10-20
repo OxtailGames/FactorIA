@@ -1000,3 +1000,43 @@ TEST_CASE("ui layout: a wrapped Text sits at the start side of a column, left in
     CHECK(ar.x + ar.w == doctest::Approx(290));  // the box ends at the right edge of the padded box
     CHECK(ar.w == doctest::Approx(en.w));
 }
+
+TEST_CASE("ui Panel.uniformSize: autoSize widgets inside share the largest size and shrink back with it") {
+    Ui t;
+    t.design = {1280, 720};
+    Entity root = t.add<Panel>("root", {0, 0}, {800, 400});
+    Entity rowA = t.add<Panel>("rowA", {0, 0}, {400, 60}, root);
+    Entity rowB = t.add<Panel>("rowB", {0, 100}, {400, 60}, root);
+    t.w.get<Panel>(rowA)->layout = t.w.get<Panel>(rowB)->layout = UiLayout::Row;
+    Entity a = t.button("a", {0, 0}, {40, 30}, rowA);
+    Entity b = t.button("b", {0, 0}, {40, 30}, rowA);
+    Entity c = t.button("c", {0, 0}, {40, 30}, rowB);
+    Entity plain = t.button("plain", {0, 0}, {50, 20}, rowB);
+    for (Entity e : {a, b, c}) t.w.get<Button>(e)->autoSize = true;
+    t.w.get<Button>(a)->text = "Hi";
+    t.w.get<Button>(b)->text = "A much longer label";
+    t.w.get<Button>(c)->text = "Mid label";
+    t.w.get<Button>(plain)->text = "A much longer label, not autoSize";
+    const auto sz = [&](Entity e) { return t.w.get<Button>(e)->size; };
+
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // uniformSize false: each button has its own size
+    CHECK(sz(a).x < sz(b).x);
+    CHECK(sz(c).x < sz(b).x);
+
+    t.w.get<Panel>(root)->uniformSize = true;
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    const Vec2 big = sz(b);
+    CHECK(big.x > 40);
+    for (Entity e : {a, c}) CHECK(sz(e).x == doctest::Approx(big.x));
+    for (Entity e : {a, c}) CHECK(sz(e).y == doctest::Approx(big.y));
+    CHECK(sz(plain).x == doctest::Approx(50));
+    t.ui.layout(t.w, t.design, measure_at(1.0f));  // stable on the next frame
+    CHECK(sz(a).x == doctest::Approx(big.x));
+
+    t.w.get<Button>(b)->text = "Ok";  // the longest is now "Mid label": all shrink to it
+    t.ui.layout(t.w, t.design, measure_at(1.0f));
+    CHECK(sz(b).x < big.x);
+    CHECK(sz(a).x == doctest::Approx(sz(c).x));
+    CHECK(sz(b).x == doctest::Approx(sz(c).x));
+    CHECK(sz(plain).x == doctest::Approx(50));
+}
