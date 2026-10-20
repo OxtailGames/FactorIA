@@ -65,6 +65,18 @@ Image resize_image(const Image& src, int width, int height);
 // result is opaque. An empty `src` returns just the background; size < 1 returns an empty image.
 Image fit_image(const Image& src, int size, float scale, Color background);
 
+// What a colour-blind (or colourless) viewer sees, for checking that a hazard reads without its colour. The pixels are
+// treated as sRGB (what a screenshot holds), decoded to linear light, multiplied by the Machado, Oliveira and Fernandes
+// 2009 matrix of severity 1.0 (complete loss of the cone; the paper works in linear RGB) and encoded to sRGB again.
+// Greyscale is the Rec. 709 luminance in linear light. Alpha is kept.
+enum class ColorSimulation { None, Greyscale, Protanopia, Deuteranopia, Tritanopia };
+// "none", "greyscale", "protanopia", "deuteranopia" or "tritanopia"; an error with a hint otherwise.
+Result<ColorSimulation> parse_color_simulation(std::string_view name);
+// One colour (r, g, b in 0..1, sRGB encoded) as the viewer sees it.
+Color simulate_color_vision(Color c, ColorSimulation mode);
+// Every pixel of `img` (in place).
+void simulate_color_vision(Image& img, ColorSimulation mode);
+
 struct ImageDiff {
     bool sameSize = false;
     double meanError = 0.0;      // average absolute channel difference, 0..1

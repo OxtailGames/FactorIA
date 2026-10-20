@@ -42,6 +42,8 @@ struct Transform {
 
 // --------------------------------------------------------------- camera ---
 enum class Projection : std::int32_t { Orthographic, Perspective };
+// Last post-process of the frame, see Camera::colorFilter.
+enum class ColorFilter : std::int32_t { None, Greyscale, HighContrast, Protanopia, Deuteranopia, Tritanopia };
 struct Camera {
     Projection projection = Projection::Orthographic;
     float fov = 60.0f;          // perspective: vertical field of view (degrees)
@@ -59,6 +61,8 @@ struct Camera {
     float bloomIntensity = 1.2f;   // strength of the added glow (0..10)
     float bloomRadius = 20.0f;     // glow size in design pixels (1..128)
     bool bloomScreenSpace = true;  // false: screen-space items (HUD) are drawn after the bloom, so they stay crisp
+    // Accessibility filter over the whole finished frame (HUD included), after the bloom; a flat enum like the bloom fields.
+    ColorFilter colorFilter = ColorFilter::None;
 };
 
 // ------------------------------------------------------------------- 2D ---
