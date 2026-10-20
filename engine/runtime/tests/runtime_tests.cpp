@@ -510,6 +510,50 @@ TEST_CASE("engine: scene load errors are surfaced, init still succeeds") {
     CHECK(err.find("factoria.json") != std::string::npos);
 }
 
+TEST_CASE("engine: screenshot scale draws the same frame natively larger") {
+    TempProject p("engine_shot_scale");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    // A HUD block in the top-left corner (screen space: design pixels, top-left origin).
+    auto r = c.call("scene.spawn", Json::parse(R"({"name":"Hud","components":{"Shape2D":{"space":"screen","anchor":[0,0],
+        "pivot":[0,1],"size":[60,30],"color":"#ff0000"},"Transform":{"position":[20,10,0]}}})"));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    e.step(1);
+    auto red_box = [&](double scale, int& w, int& h) {
+        std::string shot = (p.dir / ("hud_" + std::to_string(scale) + ".png")).generic_string();
+        auto sr = c.call("game.screenshot", Json{{"path", shot}, {"scale", scale}});
+        REQUIRE_MESSAGE(sr.ok, sr.error.dump());
+        auto img = load_image(shot);
+        REQUIRE(img.ok());
+        w = img->width;
+        h = img->height;
+        int x0 = 1 << 30, y0 = 1 << 30, x1 = -1, y1 = -1;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                Color px = img->pixel(x, y);
+                if (px.r > 0.9f && px.g < 0.2f && px.b < 0.2f) { x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y); }
+            }
+        REQUIRE(x1 >= 0);
+        return std::array<double, 4>{double(x0) / w, double(y0) / h, double(x1 + 1) / w, double(y1 + 1) / h};
+    };
+    int w1, h1, w2, h2;
+    auto a = red_box(1.0, w1, h1);
+    auto b = red_box(1.5, w2, h2);
+    CHECK(w1 == 320);
+    CHECK(h1 == 180);
+    CHECK(w2 == 480);
+    CHECK(h2 == 270);
+    for (int i = 0; i < 4; ++i) CHECK(b[i] == doctest::Approx(a[i]).epsilon(0.0).scale(1.0).epsilon(0.01));
+    // The game itself is unchanged afterwards and bad scales teach.
+    CHECK(c.call("game.screenshot", Json{{"scale", 1.5}}).result["width"] == 480);
+    CHECK(e.renderer()->target_width() == 320);
+    r = c.call("game.screenshot", Json{{"scale", 9}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("scale") != std::string::npos);
+}
+
 TEST_CASE("engine: graphics=false runs pure logic and reports screenshot unavailability") {
     TempProject p("engine_nogfx");
     EngineConfig c = headless_cfg(p);

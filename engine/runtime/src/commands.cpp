@@ -1,3 +1,4 @@
+#include <cmath>
 // Built-in commands: the AI/tool surface of a running game.
 #include <algorithm>
 #include <filesystem>
@@ -529,20 +530,27 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add({"game.screenshot", "Capture the game view as a PNG and show it.",
            "Draws the game view as it is now (design resolution), saves it and returns the path; clients display the "
            "image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. "
-           "Default path .factoria/screenshots/frame_<n>.png. Example: game.screenshot {\"path\":\"shots/start.png\"}",
+           "Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image "
+           "scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, "
+           "so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. Example: game.screenshot {\"path\":\"shots/start.png\",\"scale\":1.5}",
            parse_schema(R"({"type":"object","properties":{
-               "path":{"type":"string","description":"Output PNG (project-relative or absolute)."}}})"),
+               "path":{"type":"string","description":"Output PNG (project-relative or absolute)."},
+               "scale":{"type":"number","default":1,"minimum":0.25,"maximum":4,"description":"Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080."}}})"),
            true, "game"},
           [&engine, &I](const Json& a) {
               std::string path = a.value("path", ".factoria/screenshots/frame_" + std::to_string(I.frame) + ".png");
               std::string err;
-              if (!engine.screenshot(path, &err))
+              const double scale = a.value("scale", 1.0);
+              if (!(scale >= 0.25 && scale <= 4.0))
+                  throw CommandError("invalid_argument", "scale " + std::to_string(scale) + " is out of range.",
+                                     "scale must be between 0.25 and 4: the image is design size * scale. Example: 1.5 on a 1280x720 game gives 1920x1080.");
+              if (!engine.screenshot_scaled(path, scale, &err))
                   throw CommandError("unavailable", err, "Screenshots need graphics (headless needs Mesa/EGL).");
               std::string abs = abs_path(path);
               Json j = Json::object();
               j["path"] = abs;
-              j["width"] = I.renderer->target_width();
-              j["height"] = I.renderer->target_height();
+              j["width"] = int(std::lround(I.renderer->target_width() * scale));
+              j["height"] = int(std::lround(I.renderer->target_height() * scale));
               j["frame"] = I.frame;
               j["$image"] = Json::object({{"path", abs}, {"mimeType", "image/png"}});
               return j;
