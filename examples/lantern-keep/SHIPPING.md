@@ -90,6 +90,8 @@ checks the globs (one that matches nothing is a warning).
 
 ## 4. Per store
 
+The generic per-store checklists are in the engine guide `factoria docs read publishing` (docs/PUBLISHING.md); this section is what applies to Lantern Keep.
+
 Common to all of them: the **AI content disclosure** is "none": `factoria call assets.disclosure` says no asset is
 recorded as AI-made (every file has a provenance record: the tileset and jump sound come from the template, the rest were
 drawn or synthesized by scripts, CC0), so the export writes no `AI_CONTENT_DISCLOSURE.md` and the store's AI question is
