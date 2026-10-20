@@ -8,6 +8,7 @@
 #include "common.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/tooling/api_export.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/tooling.h"
 #include "fa/tooling/validate.h"
@@ -131,7 +132,7 @@ Command make_validate_command() {
         }
         if (ctx.args.has("fix-types")) {
             if (!session) return report_failure(ctx, "Cannot regenerate typings: " + engineProblem);
-            std::string text = session->engine().scripts().typescript_declarations();
+            std::string text = export_typescript(session->engine().scripts());
             std::string path = (fsys::path(dir) / "types" / "factoria.d.ts").string();
             std::error_code ec;
             fsys::create_directories(fsys::path(path).parent_path(), ec);

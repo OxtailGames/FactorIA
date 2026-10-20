@@ -217,6 +217,12 @@ Lists commands by category (`*` = modifies state). With an exact name it prints 
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with
 `--project` and no `--out` it writes `<project>/types/factoria.d.ts`. `--schema` prints a JSON Schema.
 
+The reference says which version added things: a component or command newer than 0.1.0 has a `Since 0.1.x.` line
+under its heading, a field newer than its component ends with `(since 0.1.x)`, `--json` has a `since` key on every
+component, field and command, and `--dts` has `@since` in the JSDoc. `Not released yet (on main after 0.1.6)` marks
+what is only on the main branch, so a factoria download does not have it. Nothing is printed for what 0.1.0 had; if
+your `factoria --version` is older than a mark, that item is missing in your install.
+
 ## MCP
 
 ### `factoria mcp [--project DIR] [--scene S] [--no-graphics] [--no-hot-reload]`
