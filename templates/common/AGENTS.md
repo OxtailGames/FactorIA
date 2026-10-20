@@ -81,6 +81,8 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - **Custom shaders:** `MeshRenderer.material` names a `materials/*.material.json` (a GLSL `surface()` snippet that changes
   what the standard material computed, optional `vertex()`, typed params). Write the two files, call `shader.compile`
   (MCP `shader_compile`) until `ok`, then look at a screenshot. Full guide with five worked examples: `factoria docs read shaders`.
+- **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
+  App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
   ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep

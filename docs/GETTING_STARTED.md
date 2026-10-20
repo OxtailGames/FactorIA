@@ -434,3 +434,4 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` and `docs/ENGINE_FEEDBACK.md`: connecting AI and recording what the engine is missing.
 - `docs/BUILDING.md`: requirements and builds per platform.
 - `docs/EXPORTING.md` and `docs/MOBILE.md`: exporting games and building them for mobile.
+- `docs/PUBLISHING.md`: what to do, per store, to publish the game (engine steps and steps by hand).
