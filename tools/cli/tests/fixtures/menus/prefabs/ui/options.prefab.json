@@ -157,6 +157,18 @@
             }
           },
           {
+            "id": "color_filter",
+            "components": {
+              "Button": {
+                "autoSize": true,
+                "text": "Color filter",
+                "size": [560, 44],
+                "layer": 302,
+                "fontSize": 22
+              }
+            }
+          },
+          {
             "id": "video_note",
             "components": {
               "Text": {

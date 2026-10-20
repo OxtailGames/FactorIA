@@ -9,6 +9,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/sokol_logging.h"
 #include "bloom.h"
+#include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
 #include "render_internal.h"
@@ -91,6 +92,12 @@ struct Renderer::Impl {
     sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
     sg_view resolveColorAtt{};  // MSAA only: the resolved image as a color attachment (bloom composites into it)
     Bloom bloom;                // Camera.bloom post-process (intermediate targets are created on first use)
+    // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
+    // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
+    // while `filterActive` (the last frame was filtered).
+    sg_image filterImg{};
+    sg_view filterAtt{}, filterTex{};
+    bool filterActive = false;
     sg_image shadowColor{}, shadowDepth{};
     sg_view shadowColorAtt{}, shadowDepthAtt{}, shadowTexView{};
     static constexpr int kShadowSize = 2048;
@@ -105,6 +112,9 @@ struct Renderer::Impl {
 
     void create_targets(int w, int h);
     void destroy_targets();
+    int apply_color_filter(int mode);
+    sg_image final_image() const { return filterActive ? filterImg : (gpu.sample_count() > 1 ? resolveImg : colorImg); }
+    sg_view final_view() const { return filterActive ? filterTex : texView; }
     void create_shadow_targets();
     CameraInfo build_camera(World& world);
     void render(World& world, float dt);
@@ -210,6 +220,13 @@ void Renderer::Impl::create_targets(int w, int h) {
 
 void Renderer::Impl::destroy_targets() {
     bloom.release();
+    filterActive = false;
+    for (sg_view* v : {&filterAtt, &filterTex}) {
+        if (v->id) sg_destroy_view(*v);
+        *v = {};
+    }
+    if (filterImg.id) sg_destroy_image(filterImg);
+    filterImg = {};
     for (sg_view* v : {&colorAtt, &resolveAtt, &resolveColorAtt, &depthAtt, &texView}) {
         if (v->id) sg_destroy_view(*v);
         *v = {};
@@ -218,6 +235,63 @@ void Renderer::Impl::destroy_targets() {
         if (i->id) sg_destroy_image(*i);
         *i = {};
     }
+}
+
+// Draws the finished game target through colorfilter.glsl into filterImg. Returns the draw calls issued (0 when the
+// filter was skipped: the shader or the image could not be created, which is logged once).
+int Renderer::Impl::apply_color_filter(int mode) {
+    if (!gpu.colorfilter_ready()) return 0;
+    if (!filterImg.id) {
+        sg_image_desc d{};
+        d.usage.color_attachment = true;
+        d.width = physW;
+        d.height = physH;
+        d.pixel_format = SG_PIXELFORMAT_RGBA8;
+        d.sample_count = 1;
+        d.label = "game-filtered";
+        filterImg = make_image(d);
+        sg_view_desc av{};
+        av.color_attachment.image = filterImg;
+        av.label = "game-filtered-att";
+        filterAtt = sg_make_view(&av);
+        sg_view_desc tv{};
+        tv.texture.image = filterImg;
+        tv.label = "game-filtered-tex";
+        filterTex = sg_make_view(&tv);
+        if (sg_query_image_state(filterImg) != SG_RESOURCESTATE_VALID || sg_query_view_state(filterAtt) != SG_RESOURCESTATE_VALID ||
+            sg_query_view_state(filterTex) != SG_RESOURCESTATE_VALID) {
+            FA_ERROR("render", "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter", physW, physH);
+            for (sg_view* v : {&filterAtt, &filterTex}) {
+                if (v->id) sg_destroy_view(*v);
+                *v = {};
+            }
+            sg_destroy_image(filterImg);
+            filterImg = {};
+            return 0;
+        }
+    }
+    sg_pass p{};
+    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
+    p.action.colors[0].store_action = SG_STOREACTION_STORE;
+    p.attachments.colors[0] = filterAtt;
+    p.label = "color-filter";
+    sg_begin_pass(&p);
+    sg_apply_pipeline(gpu.colorfilter_pipeline());
+    sg_bindings b{};
+    b.vertex_buffers[0] = gpu.fullscreen_triangle();
+    b.views[VIEW_colorfilter_tex] = texView;
+    b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    colorfilter_colorfilter_vs_params_t vu{};
+    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
+    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
+    colorfilter_colorfilter_params_t fu{};
+    fu.p[0] = float(mode);
+    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
+    sg_draw(0, 3, 1);
+    sg_end_pass();
+    filterActive = true;
+    return 1;
 }
 
 void Renderer::Impl::create_shadow_targets() {
@@ -277,6 +351,7 @@ CameraInfo Renderer::Impl::build_camera(World& world) {
     ci.right = x; ci.up = y; ci.forward = -z;
     ci.clearColor = cam.clearColor;
     ci.clear = cam.clear;
+    ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
     ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
     if (cam.projection == Projection::Perspective) {
         ci.perspective = true;
@@ -408,9 +483,9 @@ DebugDraw& Renderer::debug() {
 RenderStats Renderer::stats() const { return impl_ ? impl_->stats : RenderStats{}; }
 std::uint32_t Renderer::game_target_image_id() const {
     if (!impl_) return 0;
-    return (impl_->gpu.sample_count() > 1 ? impl_->resolveImg : impl_->colorImg).id;
+    return impl_->final_image().id;
 }
-std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->texView.id : 0; }
+std::uint32_t Renderer::game_target_view_id() const { return impl_ ? impl_->final_view().id : 0; }
 
 void Renderer::reload_asset(std::string_view path) {
     if (impl_ && impl_->assets) impl_->assets->reload(std::string(path));
@@ -1069,6 +1144,10 @@ void Renderer::Impl::render(World& world, float dt) {
         sg_end_pass();
     }
 
+    // ---- last post-process: Camera.colorFilter (costs nothing with "none") ----
+    filterActive = false;
+    if (fr.cam.colorFilter != 0) stats.drawCalls += apply_color_filter(fr.cam.colorFilter);
+
     debug.clear();
     auto t1 = std::chrono::steady_clock::now();
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -1099,7 +1178,7 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     sg_apply_pipeline(im.gpu.blit_pipeline(sc.color_format, sc.depth_format, sc.sample_count > 0 ? sc.sample_count : 1));
     sg_bindings b{};
     b.vertex_buffers[0] = im.gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = im.texView;
+    b.views[VIEW_blit_tex] = im.final_view();
     bool integer = mode == ScaleMode::PixelPerfect || std::fabs(vp.scale - std::round(vp.scale)) < 1e-3f;
     b.samplers[SMP_blit_smp] = im.gpu.sampler(integer ? SamplerKind::Nearest : SamplerKind::Linear);
     sg_apply_bindings(&b);
@@ -1127,7 +1206,7 @@ bool Renderer::capture(Image& out, std::string* error) {
         sg_commit();
         im.gpu.note_commit();
     }
-    sg_image img = im.gpu.sample_count() > 1 ? im.resolveImg : im.colorImg;
+    sg_image img = im.final_image();
     std::vector<std::uint8_t> px;
     if (!readback_rgba8(img, im.physW, im.physH, px, error)) return false;
     out.width = im.physW;

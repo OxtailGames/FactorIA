@@ -106,3 +106,40 @@ test("pause -> options -> the pause key goes back one panel at a time", () => {
   game.step(1);
   expect(running.paused).toBe(false);
 });
+
+// ---- colour filter (Camera.colorFilter) -----------------------------------------------------------------------------
+const cameraFilter = () => game.find("camera").get("Camera").colorFilter;
+
+test("options: the colour filter button cycles Camera.colorFilter and saves the choice", () => {
+  mainMenu();
+  expect(cameraFilter()).toBe("none");
+  pad.tap("DpadDown");
+  pad.tap("A"); // options, on the Video tab
+  for (let i = 0; i < 6 && focused() !== "color_filter"; i++) pad.tap("DpadDown"); // the window rows are greyed out without a window
+  expect(focused()).toBe("color_filter");
+  expect(game.find("color_filter").get("Button").text).toBe("Color filter: off");
+  pad.tap("A");
+  expect(cameraFilter()).toBe("greyscale");
+  expect(game.find("color_filter").get("Button").text).toBe("Color filter: greyscale");
+  expect(storage.get("settings").colorFilter).toBe("greyscale");
+  pad.tap("A");
+  pad.tap("A");
+  pad.tap("A");
+  expect(cameraFilter()).toBe("deuteranopia");
+  pad.tap("A");
+  pad.tap("A"); // tritanopia, then it wraps around to none
+  expect(cameraFilter()).toBe("none");
+  expect(storage.get("settings").colorFilter).toBe("none");
+});
+
+test("a saved colour filter is on in every scene, also after a scene load", () => {
+  load("scenes/menu.scene.json", { colorFilter: "protanopia" });
+  game.step(2);
+  expect(cameraFilter()).toBe("protanopia");
+  load("scenes/level.scene.json", { colorFilter: "tritanopia" });
+  game.step(2);
+  expect(cameraFilter()).toBe("tritanopia");
+  scene.load("scenes/menu.scene.json"); // a new scene has a new camera: the filter is set again
+  game.step(2);
+  expect(cameraFilter()).toBe("tritanopia");
+});
