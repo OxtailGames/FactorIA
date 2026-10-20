@@ -97,11 +97,9 @@ VisualMeasure Engine::Impl::measure() const {
     } else {
         // No renderer: the approximation, at the player's text size for screen-space text (as the renderer would), so
         // autoSize widgets and fit panels grow with ui.textScale in headless runs and tests too.
-        const Engine* engine = self;
-        m.textSize = [engine](const Text& t) {
+        m.textSize = [engine = self](const Text& t) {
             const float k = t.space == RenderSpace::Screen ? engine->text_scale() : 1.0f;
-            const Vec2 s = approx_text_size(t.text, t.fontSize * k, t.maxWidth);
-            return s;
+            return approx_text_size(t.text, t.fontSize * k, t.maxWidth);
         };
     }
     return m;
