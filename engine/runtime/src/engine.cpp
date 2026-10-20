@@ -539,7 +539,7 @@ std::string Engine::set_language(std::string_view language) {
 
 ScriptSystem& Engine::scripts() { return impl_->scripts; }
 
-bool Engine::screenshot_scaled(std::string_view path, double scale, std::string* error) {
+bool Engine::capture_scaled(Image& img, double scale, std::string* error) {
     Impl& I = *impl_;
     auto fail = [&](const std::string& m) {
         if (error) *error = m;
@@ -558,20 +558,45 @@ bool Engine::screenshot_scaled(std::string_view path, double scale, std::string*
         return fail("Screenshot scale " + std::to_string(scale) + " would make an image wider than 8192 px (the game is " +
                     std::to_string(I.renderer->target_width()) + "x" + std::to_string(I.renderer->target_height()) +
                     "). Use a smaller scale.");
-    struct ScaleGuard {  // back to scale 1 afterwards; the next picture is drawn again
+    struct ScaleGuard {  // back to the held scale (1 unless hold_render_scale) afterwards; the next picture is drawn again
         Impl& I; bool on;
-        ~ScaleGuard() { if (on) { I.renderer->set_render_scale(1.0f); I.renderStale = true; } }
-    } guard{I, scale != 1.0};
+        ~ScaleGuard() { if (on) { I.renderer->set_render_scale(float(I.heldScale)); I.renderStale = true; } }
+    } guard{I, scale != I.heldScale};
     if (guard.on) I.renderer->set_render_scale(float(scale));  // new images: the picture must be drawn again
     if (I.renderStale) I.draw(I.lastRenderDt);  // OnDemand: draw the state of the current frame
     // Also show changes made since the last draw without stepping (a test or script_eval opening a panel right after an
     // earlier screenshot). A game window presents its own frames: there only the initial state is drawn here.
     else if (!I.inFrame && (guard.on || !I.windowed || I.cfg.editorMode || I.frame == 0)) I.draw(0.0);
-    Image img;
     std::string cerr;
     if (!I.renderer->capture(img, &cerr)) return fail("Screenshot capture failed: " + cerr);
+    return true;
+}
+
+bool Engine::hold_render_scale(double scale, std::string* error) {
+    Impl& I = *impl_;
+    Image probe;
+    if (!I.renderer) return capture_scaled(probe, scale, error);  // the same message as a screenshot
+    if (scale == I.heldScale) return true;
+    // Validate with the screenshot rules (range, 8192 px), without drawing.
+    constexpr double kMaxSide = 8192;
+    if (!(scale >= Renderer::kMinRenderScale && scale <= Renderer::kMaxRenderScale) ||
+        scale * std::max(I.renderer->target_width(), I.renderer->target_height()) > kMaxSide) {
+        return capture_scaled(probe, scale, error);  // fails with the explanation
+    }
+    I.heldScale = scale;
+    I.renderer->set_render_scale(float(scale));
+    I.renderStale = true;
+    return true;
+}
+
+bool Engine::screenshot_scaled(std::string_view path, double scale, std::string* error) {
+    Image img;
+    if (!capture_scaled(img, scale, error)) return false;
     auto r = save_png(img, path);
-    if (!r.ok()) return fail(r.error().to_string());
+    if (!r.ok()) {
+        if (error) *error = r.error().to_string();
+        return false;
+    }
     return true;
 }
 
