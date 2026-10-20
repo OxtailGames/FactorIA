@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <sstream>
 
 #include "fa_script_js.h"
 #include "fa/core/fs.h"
@@ -19,6 +20,20 @@ std::string_view embedded_script(std::string_view name) {
     for (const auto& f : script_js::files())
         if (f.path == name) return f.data;
     return {};
+}
+
+std::string source_caret(const std::string& file, int line, int column) {
+    if (file.empty() || line <= 0 || file[0] == '<') return {};
+    auto text = fs::read_text(file);
+    if (!text) return {};
+    std::istringstream in(*text);
+    std::string src;
+    for (int i = 0; i < line; ++i)
+        if (!std::getline(in, src)) return {};
+    if (!src.empty() && src.back() == '\r') src.pop_back();
+    std::string pad;
+    for (int i = 0; i + 1 < column && i < static_cast<int>(src.size()); ++i) pad += src[i] == '\t' ? '\t' : ' ';
+    return "\n  " + src + "\n  " + pad + "^";
 }
 
 std::string ScriptError::to_string() const {
@@ -246,7 +261,7 @@ std::string hint_for(const std::string& msg) {
     auto has = [&](const char* s) { return msg.find(s) != std::string::npos; };
     if (has("was destroyed")) return "Check entity.alive before using an entity that may have been destroyed.";
     if (has("took too long")) return "Avoid long or infinite loops inside callbacks; spread the work over several frames.";
-    if (has("is not a function"))
+    if (has("not a function"))
         return "Check the method name against `factoria api` / types/factoria.d.ts, and that the object is not null "
                "(entity.get(name) returns null when the component is missing).";
     if (has("cannot read property") || has("null") || has("undefined"))
@@ -297,6 +312,7 @@ void ScriptSystem::Impl::record_error(ScriptError e, const std::string& where) {
     std::string hint = hint_for(e.message);
     std::string text = e.to_string();
     if (!where.empty() && where != e.file) text += " [in " + where + "]";
+    if (e.message.find("not a function") != std::string::npos) text += source_caret(e.file, e.line, e.column);
     if (!hint.empty()) text += "\n  hint: " + hint;
     if (!e.stack.empty()) text += "\n" + e.stack;
     log(LogLevel::Error, "script", text);

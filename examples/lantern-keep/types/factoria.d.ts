@@ -1144,6 +1144,10 @@ declare module "factoria" {
      */
     measureText(text: string, opts?: { fontSize?: number; font?: string; maxWidth?: number; space?: "screen" | "world" }): { width: number; height: number };
     /**
+     * Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step. Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf("options.panel"); expect(r.x + r.w).toBeLessThan(1280);
+     */
+    rectOf(entityOrId: Entity | string): Rect | null;
+    /**
      * The player's text size option, 0.5 to 3 (default 1): the font size of every screen-space Text (space "screen") and of the labels of Button, Toggle, Slider and TextField is multiplied by it, and ui.measureText (space "screen") agrees. World-space Text, and its entity.bounds(), are not scaled. Widgets keep their rectangles and wrapped text keeps its maxWidth, so leave room for the biggest size you offer. Setting a number outside 0.5 to 3 throws; clamp a saved value first. The engine does not save it: keep it in `storage` and set it at start. Resets to 1 for every test file. Same as the ui.set_text_scale command.
      */
     textScale: number;
@@ -3900,6 +3904,10 @@ declare module "factoria:test" {
     toContain(item: unknown): void;
     toHaveLength(n: number): void;
     toMatch(pattern: string | RegExp): void;
+    /**
+     * Every field of `subset` is in the received object with an equal value, recursively; the object may have more fields. Arrays must have the same length and each element matches its subset.
+     */
+    toMatchObject(subset: object): void;
     toBeInstanceOf(cls: Function): void;
     toThrow(expected?: string | RegExp | Function): void;
     /**
@@ -4047,9 +4055,9 @@ declare module "factoria:test" {
      */
     reset(): void;
     /**
-     * signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
+     * An unknown option throws with a "did you mean". backend "none" makes the fake behave as the none backend, the case of an exported game without a store plugin (platform.has false for every service, every call rejects "unavailable", signIn answers signed out) until platform.reset(). signedIn false rejects every call but signIn() with "notSignedIn"; delayFrames n holds each answer for n frames (0 = answered at once), so a test can check a "waiting" state and game.step(n) to get the answer.
      */
-    set(options: { signedIn?: boolean; delayFrames?: number }): void;
+    set(options: { signedIn?: boolean; delayFrames?: number; backend?: "fake" | "none" }): void;
     /**
      * What the platform holds: { backend, services, player, catalog, pending, fake: { achievements, stats, leaderboards, cloud, owned, unfinished, presence, scripted, calls... } }.
      */
@@ -4112,19 +4120,22 @@ declare module "factoria:test" {
      */
     gamepad(index?: number): TestGamepad;
     mouseMove(screenPos: Vec2Like): void;
-    click(screenPos: Vec2Like, button?: "left" | "right" | "middle"): void;
+    /**
+     * Presses and releases a mouse button at the position (two steps). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
+     */
+    click(target: Vec2Like | Entity | string, button?: "left" | "right" | "middle"): void;
     /**
      * Loads a scene given as JSON ({ format: "factoria.scene/1", entities: [...] }) instead of a file.
      */
     loadJson(scene: Json): void;
     /**
-     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart).
+     * A finger down at screenPos for `frames` frames (input.touches[0].pressed on the first), then released. Like a finger on a device it also moves the mouse there and holds the left mouse button (see touchStart). Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */
-    touch(screenPos: Vec2Like, frames?: number): void;
+    touch(target: Vec2Like | Entity | string, frames?: number): void;
     /**
-     * Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed("left") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse.
+     * Finger down (stays down until touchEnd). The first finger also drives the mouse as on a device: the mouse moves to screenPos and the left button goes down (input.mouse.pressed("left") on the first frame), so a script that reads both the mouse and touches sees both. Other fingers do not touch the mouse. Pass a widget id or an Entity instead of a position to use the centre of its laid-out rectangle (safe area included; ui.rectOf).
      */
-    touchStart(screenPos: Vec2Like, id?: number): void;
+    touchStart(target: Vec2Like | Entity | string, id?: number): void;
     /**
      * Moves a finger; the first finger drags the mouse with it.
      */

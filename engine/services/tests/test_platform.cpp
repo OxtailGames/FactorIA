@@ -848,3 +848,20 @@ TEST_CASE("fake: the log keeps the latest 500 calls") {
     CHECK(s["callsDropped"] == 20);
     CHECK(s["calls"][0]["seq"] == 21);
 }
+
+TEST_CASE("fake: set_none() behaves as the none backend until reset()") {
+    Game g;
+    CHECK(g.ps.has_service("purchases"));
+    g.fake().set_none(true);
+    g.ps.refresh_backend();
+    CHECK_FALSE(g.ps.has_service("purchases"));
+    CHECK(g.ps.info()["backend"] == "none");
+    PlatformError e = g.fails("achievements.unlock", Json::parse(R"({"id": "first_win"})"));
+    CHECK(e.code == "unavailable");
+    CHECK(g.ok("player.signIn")["signedIn"] == false);
+    g.fake().reset();
+    g.ps.refresh_backend();
+    CHECK(g.ps.has_service("purchases"));
+    CHECK(g.ps.info()["backend"] == "fake");
+    CHECK(g.ok("achievements.unlock", Json::parse(R"({"id": "first_win"})"))["unlocked"] == true);
+}

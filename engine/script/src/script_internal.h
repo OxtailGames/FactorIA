@@ -235,5 +235,7 @@ struct ScriptSystem::Impl {
 
 // Embedded prelude sources.
 std::string_view embedded_script(std::string_view name);
+// "\n  <source line>\n  <spaces>^" for a project file position, or "" when the file or line cannot be read.
+std::string source_caret(const std::string& file, int line, int column);
 
 }  // namespace fa

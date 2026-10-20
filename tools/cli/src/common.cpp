@@ -13,6 +13,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
+#include "fa/runtime/test_files.h"
 #include "fa/tooling/tooling.h"
 
 namespace fa::cli {
@@ -209,13 +210,11 @@ std::unique_ptr<Session> Session::open(const std::string& projectDirIn, const Se
 // Commands shared by `call`, `mcp` and `ai run`
 // ---------------------------------------------------------------------------
 
-TestReport run_project_tests(Engine& engine, const std::string& nameFilter) {
-    std::vector<std::string> files;
-    for (const auto& f : fs::list("tests", true, ".js"))
-        if (ends_with(f, ".test.js")) files.push_back(f);
-    std::sort(files.begin(), files.end());
-    if (files.empty()) return {};
-    return engine.scripts().run_tests(files, nameFilter);
+TestReport run_project_tests(Engine& engine, const std::string& nameFilter, const std::vector<std::string>& testFiles) {
+    auto files = resolve_test_files(testFiles);
+    if (!files.ok()) throw CliError(files.error().message, files.error().hint);
+    if (files->empty()) return {};
+    return engine.scripts().run_tests(*files, nameFilter);
 }
 
 void register_cli_commands(CommandRegistry& registry, const std::string& projectDir, Engine* engine) {

@@ -1468,3 +1468,21 @@ TEST_CASE("typescript declarations: gamepad input and the gamepad test API") {
         CHECK(dts.find(needle) != std::string::npos);
     }
 }
+
+TEST_CASE("tests: toMatchObject, and a TypeError 'not a function' shows the source line with a caret") {
+    TestHost h("matchobj");
+    h.file("tests/m.test.js",
+           "import { test, expect } from 'factoria:test';\n"
+           "test('subset', () => { expect({ a: 1, b: { c: 2, d: 3 }, l: [{ n: 1, x: 0 }] }).toMatchObject({ b: { c: 2 }, l: [{ n: 1 }] }); });\n"
+           "test('not a subset', () => { expect({ a: 1 }).toMatchObject({ a: 2 }); });\n"
+           "test('missing call', () => {\n  const o = {};\n  o.missing(3);\n});\n");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/m.test.js"});
+    REQUIRE(rep.cases.size() == 3);
+    CHECK(rep.cases[0].passed);
+    CHECK(!rep.cases[1].passed);
+    CHECK(rep.cases[1].message.find("toMatchObject") != std::string::npos);
+    CHECK(!rep.cases[2].passed);
+    CHECK(rep.cases[2].message.find("o.missing(3);\n") != std::string::npos);  // the source line
+    CHECK(rep.cases[2].message.find("^") != std::string::npos);                 // and the caret under it
+}

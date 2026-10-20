@@ -317,6 +317,12 @@ NATIVE(logSeq) {
     return JS_NewFloat64(ctx, static_cast<double>(fa::log_last_seq()));
 }
 
+NATIVE(sourceCaret) {
+    (void)thisv;
+    return JS_NewString(ctx, source_caret(arg_str(ctx, argc, argv, 0), static_cast<int>(arg_num(ctx, argc, argv, 1, 0)),
+                                          static_cast<int>(arg_num(ctx, argc, argv, 2, 0))).c_str());
+}
+
 NATIVE(nowMs) {
     auto t = std::chrono::steady_clock::now().time_since_epoch();
     return JS_NewFloat64(ctx, std::chrono::duration<double, std::milli>(t).count());
@@ -776,6 +782,21 @@ NATIVE(textureSize) {  // (path) -> [w, h]; assets.textureSize
     SETUP;
     Vec2 s = texture_pixel_size(I, arg_str(ctx, argc, argv, 0));
     return array_of(ctx, {s.x, s.y});
+}
+
+NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left origin | null
+    SETUP;
+    ENTITY(e, 0);
+    VisualMeasure measure;
+    measure.textSize = [I](const Text& t) {
+        return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "ui.rectOf() of a Text", t.space);
+    };
+    const std::optional<Rect> box = ui_screen_rect(W, e, I->host->design_size(), measure);
+    if (!box) return JS_NULL;
+    JSValue a = JS_NewArray(ctx);
+    const float v[4] = {box->x, box->y, box->w, box->h};
+    for (uint32_t i = 0; i < 4; ++i) JS_SetPropertyUint32(ctx, a, i, float_to_js(ctx, v[i]));
+    return a;
 }
 
 NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
@@ -2133,7 +2154,7 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
+    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(types, 0), R(timeInfo, 0),
     R(setTimeScale, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
     R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
     R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
@@ -2149,7 +2170,7 @@ const Reg kRegs[] = {
     R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testVibrations, 0),
     R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 6), R(audioStop, 1),
     R(audioStopAll, 0), R(audioMusic, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1), R(raycast2d, 7),
-    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
+    R(raycast3d, 10), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(measureText, 5), R(textScale, 0), R(setTextScale, 1), R(uiState, 0), R(uiFocus, 1), R(textureSize, 1), R(bounds, 1), R(screenRect, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4),
     R(cameraMain, 0), R(worldToScreen, 3), R(screenToWorld, 3), R(debugDraw, 8), R(quit, 0), R(project, 0),
     R(screenSize, 0), R(notices, 0), R(platform, 0), R(storageGet, 1), R(storageSet, 2), R(storageRemove, 1), R(storageKeys, 0),
     R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nHas, 1), R(i18nSet, 1), R(testLoad, 1), R(testLoadJson, 1), R(testTouch, 4), R(testStep, 1), R(testScreenshot, 1),

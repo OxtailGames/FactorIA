@@ -27,6 +27,10 @@ namespace fa {
 // define itself.
 Json ui_with_default_actions(const Json& actions);
 
+// Where `e` is on the screen, in design pixels (x, y = top-left, +Y down, the safe area included): a widget's rectangle, else
+// the box around its screen-space Text / Sprite / Shape2D (text sized through `measure`). nullopt for any other entity.
+std::optional<Rect> ui_screen_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {});
+
 class UiSystem {
 public:
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
@@ -49,7 +53,8 @@ public:
     // The ui.state command: {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed,
     // interactable, visible, value?, text?}]} in reading order (top, then left). `visible` is false when a ScrollList
     // clips the widget away entirely, or for a TouchStick / TouchButton that is not shown.
-    Json state(const World& world, Vec2 designSize) const;
+    // Screen-space Text entities follow the widgets, as {id, kind: "Text", rect, text, ...}; `measure` sizes their rect.
+    Json state(const World& world, Vec2 designSize, const VisualMeasure& measure = {}) const;
 
     // Scene load: no focus, no hover, no press.
     void reset();
