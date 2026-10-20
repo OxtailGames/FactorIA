@@ -114,7 +114,7 @@ private:
     void destroy_joint(std::uint64_t key);
     void push_state(World& world, Entity e, Body& b, RigidBody2D* rb);
     void apply_carry(World& world);   // riders follow their platform (before the step)
-    void find_carriers(World& world);  // which kinematic body each dynamic body rests on (after the step)
+    void find_carriers();              // which kinematic body each dynamic body rests on (after the step)
     void writeback(World& world, Entity e, Body& b, RigidBody2D* rb);
     void collect_events(World& world);
     Entity entity_of(b2ShapeId s, bool* trigger = nullptr) const;
