@@ -4194,9 +4194,9 @@ declare module "factoria:test" {
     readonly world: WorldAPI;
     readonly time: TimeAPI;
     /**
-     * Saves a PNG of the game (needs graphics).
+     * Saves a PNG of the game (needs graphics). options.scale (0.25 to 4, default 1) renders the same frame at that multiple of the design size, sharp, not upscaled: a 1280x720 game at scale 1.5 gives a 1920x1080 PNG with the same HUD and visible area (store screenshots).
      */
-    screenshot(path: string): void;
+    screenshot(path: string, options?: { scale?: number }): void;
     /**
      * JSON dump of the game state.
      */

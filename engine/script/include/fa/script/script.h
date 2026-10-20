@@ -115,6 +115,13 @@ public:
         return "not supported by this host (load_scene_json_now is not implemented)";
     }
     virtual bool screenshot(std::string_view path, std::string* error) = 0;
+    // Same at `scale` times the design size (render scale: the same frame drawn sharper, 1.5 on 1280x720 = 1920x1080 PNG).
+    // Hosts without a renderer keep the default, which only accepts scale 1.
+    virtual bool screenshot_scaled(std::string_view path, double scale, std::string* error) {
+        if (scale == 1.0) return screenshot(path, error);
+        if (error) *error = "this host cannot render at a scale other than 1";
+        return false;
+    }
     // The player's "text size" option (`ui.textScale`, the `ui.set_text_scale` command): screen-space Text and UI labels
     // are drawn and measured at their font size times this (Renderer::set_text_scale, 0.5 .. 3, 1 = normal). The default
     // implementation only remembers it, for hosts without a renderer; Engine hands it to the renderer too. It is not saved:
