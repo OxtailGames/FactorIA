@@ -832,7 +832,12 @@ void register_builtin_components(TypeRegistry& r) {
                         "Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.")
             .field("fit", &Panel::fit,
                    "true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); "
-                   "the pivot then decides which point of the fitted box stays on the position.");
+                   "the pivot then decides which point of the fitted box stays on the position.")
+            .field("uniformSize", &Panel::uniformSize,
+                   "true: every Button, Toggle and Slider with autoSize anywhere inside this panel (children, and the children "
+                   "of the panels and lists inside it; active ones only) takes the size of the largest of them, width and "
+                   "height separately, every layout. Widgets without autoSize keep their size and do not count. Use it for a "
+                   "grid of level buttons as wide as the widest label.");
     }
     {
         auto button = r.add<Button>("Button",

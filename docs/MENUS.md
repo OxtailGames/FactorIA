@@ -46,6 +46,12 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   line. A column that holds a `ScrollList` (a list of saves, achievements) gives it `"fill": true`: the list takes the
   height the other children leave and the column stays inside the screen. A `fit` panel that is still bigger than the
   screen logs a warning, and `factoria validate` reports it for the design size.
+- **Siblings of one size.** `"uniformSize": true` on a `Panel` makes every `autoSize` button, toggle and slider inside it
+  (also in the panels and lists it holds) as big as the largest of them, width and height separately, and it follows
+  the labels: when the longest one gets shorter they all shrink. Widgets without `autoSize` keep their size. A grid of
+  level buttons as wide as the widest label:
+  `{ "id": "levels", "components": { "Panel": { "layout": "grid", "columns": 3, "fit": true, "uniformSize": true } } }`
+  with children `{ "components": { "Button": { "autoSize": true, "text": "Level 1" } } }`, `"Level 10"`, `"Level 100"`.
 
 - **Focus and navigation.** Direction presses (`ui_up/down/left/right`) move the focus to the nearest interactable widget
   in the pressed direction that is lined up with the focused one: its rectangle overlaps the focused rectangle across

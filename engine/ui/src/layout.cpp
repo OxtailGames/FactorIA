@@ -192,6 +192,39 @@ void autosize_kind(World& w, Memo& memo, const VisualMeasure& m) {
     }
 }
 
+UiControl* sized_control(World& w, Entity e) {
+    if (Button* b = w.get<Button>(e)) return b;
+    if (Toggle* t = w.get<Toggle>(e)) return t;
+    return w.get<Slider>(e);
+}
+
+// Panel.uniformSize: every autoSize Button / Toggle / Slider below `root` takes the largest width and height among them.
+// `applied` is the size the UI wrote, so the next frame still finds the design size.
+template <class Memo>
+void uniform_size(World& w, Entity root, Memo& memo) {
+    std::vector<Entity> sized;
+    std::vector<Entity> todo{root};
+    Vec2 big{0, 0};
+    while (!todo.empty()) {
+        const Entity e = todo.back();
+        todo.pop_back();
+        for (Entity c : w.children(e)) {
+            if (!w.info(c).active) continue;
+            todo.push_back(c);
+            if (!memo.count(c.bits())) continue;  // not an autoSize widget (autosize_kind keeps a memo for each)
+            const UiControl* u = sized_control(w, c);
+            if (!u) continue;
+            sized.push_back(c);
+            big = {std::max(big.x, u->size.x), std::max(big.y, u->size.y)};
+        }
+    }
+    for (Entity c : sized) {
+        UiControl* u = sized_control(w, c);
+        u->size = big;
+        memo[c.bits()].applied = big;
+    }
+}
+
 // ScrollList.fill: the height the parent column leaves, see the field's doc.
 void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
     ScrollList* s = w.get<ScrollList>(e);
@@ -281,6 +314,8 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
     autosize_kind<Slider>(w, autoSizes_, m);
     for (auto it = autoSizes_.begin(); it != autoSizes_.end();)
         it = w.alive(Entity::from_bits(it->first)) ? std::next(it) : autoSizes_.erase(it);
+    for (Entity e : w.entities_with(&World::type_of<Panel>()))
+        if (w.alive(e) && w.active_in_hierarchy(e) && w.get<Panel>(e)->uniformSize) uniform_size(w, e, autoSizes_);
     for (const TypeInfo* type : {&World::type_of<Panel>(), &World::type_of<ScrollList>()})
         for (Entity e : w.entities_with(type))
             if (w.alive(e) && w.active_in_hierarchy(e)) containers.push_back({depth_of(w, e), e});
