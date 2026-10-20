@@ -396,7 +396,8 @@ Estimated from reported token usage (input, output, cache read/write):
 (prompts up to 100K tokens; estimates only, your invoice is authoritative).
 For other models add `"pricing"` to the provider to get estimates; otherwise
 cost shows as $0 and only token limits apply. CLI agents report their own cost
-when they provide it. Set `limits.maxCostUsd` to cap a run.
+when they provide it. Set `limits.maxCostUsd` to cap a run (API providers only; a CLI agent runs its own loop).
+What a whole game cost, what drives it and how to see it: [AI_COSTS.md](AI_COSTS.md) (`factoria docs read ai-costs`).
 
 ## Privacy and key safety
 
