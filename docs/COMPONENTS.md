@@ -774,6 +774,27 @@ Write the AI-generated content disclosure for store forms (Steam) from the prove
 
 Returns Markdown that answers the AI-generated content questions of Steam's content survey and similar forms: what was pre-generated with AI by category (art, sound effects, music, voice, 3D models) with counts, providers and models; that nothing is generated while the game runs; the terms recorded for each provider; and the art, sound and model files that still have no provenance record (fix those with assets.set_provenance first). `factoria export` writes the same text as AI_CONTENT_DISCLOSURE.md. Example: {}
 
+### `assets.draw_capsules` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Make the store page images (capsules, heroes, covers, screenshots) at each store's sizes from one piece of key art and a logo.
+
+Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/EXPORTING.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
+The `logo` is placed by the rule of each asset: capsules and covers get it centred (Microsoft: in the upper part, the bottom third is overlaid; Steam library capsule: low), heroes, page backgrounds and screenshots get none (Steam's library hero must have no text), and the logo-only assets (Steam library logo 1280x720, Epic logo 960x540) are a transparent PNG with just the logo. `logo` is {"image": "assets/logo.png"} (transparent PNG) or {"text": "My Game", font, fill, outline} (title drawn like assets.draw_icon draws text; fill default white, outline default a dark one, false = none). Without a logo the art is cut without one and the logo-only assets are skipped.
+`orientation` (landscape, default; or portrait) turns the phone and tablet screenshot sizes of Google Play and the App Store. Capsules are not the store screenshots: take those at the stores' sizes with `--render-scale` (a 1280x720 game at 1.5 gives 1920x1080).
+Example: {"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `keyArt` | string | yes | The art to cut the capsules from: a project image path, 1920x1080 or bigger is best (a screenshot taken with --render-scale). |
+| `focus` | array | no | The point of the art that must stay in view when it is cropped, as fractions [x, y]. Default [0.5, 0.5]. |
+| `logo` | object | no | The logo: give image or text. |
+| `stores` | array | no | Which stores. Default all. |
+| `name` | string | no | File name prefix. Default: the project name. |
+| `orientation` | string ["landscape","portrait"] | no | Phone and tablet screenshot sizes of Google Play and the App Store. Default landscape. |
+| `overwrite` | boolean | no | Replace files that already exist. Default true. |
+
 ### `assets.draw_icon` (modifies state)
 
 Not released yet (on main after 0.1.6).
@@ -1078,6 +1099,18 @@ Case-insensitive; every word counts, headings weigh more. Returns best sections 
 |---|---|---|---|
 | `query` | string | yes | Keywords. |
 | `limit` | integer | no | Max results. Default 8. |
+
+### `docs.write_reference` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.
+
+Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `out` | string | yes | Docs folder to write into (relative to the working directory), usually "docs". |
 
 ## engine
 

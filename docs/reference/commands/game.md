@@ -1,0 +1,82 @@
+[Back to the index](../README.md)
+
+# Commands: game
+
+## `game.input` (modifies state)
+
+Inject input: press/release actions or keys, or set an action state, mouse position/buttons, gamepad buttons/sticks, touches.
+
+Names may be input actions from factoria.json, key names (Space, A, Left...) or MouseLeft/MouseRight/MouseMiddle. Forms: {"action":"jump","down":true}, {"key":"Space","down":false}, {"press":["jump"],"release":["fire"]}, {"mouse":{"position":[640,360]}}, {"gamepad":{"index":0,"buttons":{"A":true},"axes":{"LeftX":-1}}}, {"touch":{"id":1,"position":[200,300],"down":true}}. gamepad: index 0..3 (default 0), connected (bool), buttons {A, B, X, Y, Start, Back, Guide, DpadLeft/Right/Up/Down, LeftShoulder, RightShoulder, LeftThumb, RightThumb: bool}, axes {LeftX, LeftY, RightX, RightY: -1..1 with +Y up; LeftTrigger, RightTrigger: 0..1}; the state stays until set again (axes back to 0 to release the stick). touch: id (default 1), position in design pixels, down (default true: a new id begins, a known id moves; false lifts); the first finger also drives the mouse like a device. gamepad and touch also take an array for several pads/fingers. {"back":true} presses the system Back button of Android: the input.onBack handlers of the game run at the next frame, and when none consumes it the game asks to quit (game.state shows quitRequested). The input is applied now and seen by the next frame (game.step). Example: game.input {"press":["jump"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | no | Action name (with `down`). |
+| `key` | string | no | Key or mouse button name (with `down`). |
+| `down` | boolean | no | New state for action/key. Default true. |
+| `press` | array | no |  |
+| `release` | array | no |  |
+| `mouse` | object | no | {position:[x,y] in design pixels, left/right/middle: bool}. |
+| `gamepad` | any | no | {index?: 0..3, connected?: bool, buttons?: {A: true, DpadLeft: false...}, axes?: {LeftX: -1, RightTrigger: 0.5...}}, or an array of those for several pads. |
+| `touch` | any | no | {id?: number (default 1), position?: [x,y] design pixels, down?: bool (default true)}, or an array of those for several fingers. |
+| `back` | boolean | no | true: press the system Back button (Android). |
+
+## `game.logs`
+
+Read recent log lines (engine, scripts, assets...).
+
+Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {"minLevel":"warn","max":50}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `minLevel` | string ["trace","debug","info","warn","error"] | no |  Default "info". |
+| `after` | integer | no | Only entries with seq greater than this. Default 0. |
+| `max` | integer | no |  Default 100. |
+
+## `game.pause` (modifies state)
+
+Pause the simulation (frame() stops simulating; game.step still works).
+
+Example: game.pause {}
+
+## `game.resume` (modifies state)
+
+Resume the simulation after game.pause.
+
+Example: game.resume {}
+
+## `game.screenshot`
+
+Capture the game view as a PNG and show it.
+
+Draws the game view as it is now (design resolution), saves it and returns the path; clients display the image. Scripts only run when frames are stepped: step the game first so the picture shows what you expect. Default path .factoria/screenshots/frame_<n>.png. `scale` (0.25 to 4, default 1) draws the same frame into an image scale times larger, sharp and not upscaled, for store screenshots: HUD, camera and visible area stay the same, so a 1280x720 game at scale 1.5 gives a 1920x1080 PNG. Example: game.screenshot {"path":"shots/start.png","scale":1.5}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | no | Output PNG (project-relative or absolute). |
+| `scale` | number | no | Render scale: image size = design size * scale, drawn natively (sharp), same HUD and visible area. 1.5 on 1280x720 = 1920x1080. Default 1. |
+
+## `game.state`
+
+Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
+
+Filters: entities (ids), components (names to include), includeDefaults, maxEntities (default 200). Example: game.state {"entities":["player"],"components":["Transform","RigidBody2D"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `entities` | array | no | Only these entity ids. |
+| `components` | array | no | Only these components per entity. |
+| `includeDefaults` | boolean | no |  Default false. |
+| `maxEntities` | integer | no |  Default 200. |
+
+## `game.step` (modifies state)
+
+Advance the simulation by N fixed frames (deterministic) and return a state summary.
+
+Each frame is exactly 1/fixedHz seconds. `press` holds actions/keys down and `release` lets go; they are applied BEFORE the first frame and stay in effect (a press without release stays held). To tap a button use game.step {"frames":1,"press":["jump"]} then game.step {"frames":1,"release":["jump"]}. Works while paused. Example: game.step {"frames":60,"press":["move_right"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `frames` | integer | no | Number of frames. Default 1. |
+| `press` | array | no | Actions/keys to press first. |
+| `release` | array | no | Actions/keys to release first. |
+
