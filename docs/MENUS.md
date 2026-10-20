@@ -122,6 +122,15 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
   remembers the transactions it already granted so the player is not paid twice. A cancelled purchase and a store error
   (`e.code`, `e.hint`) show a message and grant nothing. "Restore purchases" returns the non-consumables. The tests are
   `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
+- **Read menus aloud.** `ui.speak(text)` says a line with the operating system's text to speech (Windows SAPI, macOS and
+  iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's `speechSynthesis`), in
+  `i18n.language`; `ui.stopSpeaking()` stops it and `ui.speechAvailable` says whether the system can speak at all. The
+  kit's Options > Audio has a "Read menus aloud" toggle (`settings.readAloud`, off by default: players who use a screen
+  reader do not want two voices) and `scripts/ui/read_aloud.js` speaks the focused widget's text, in the language the
+  player chose. Headless runs and tests speak nothing and record the lines: `game.spoken()` in `factoria:test` returns
+  `[{ text, language, interrupt }]` (fixture `tests/speech.test.js` moves the focus through the menu and checks them).
+  Speech only helps while someone can hear it: the manual check below says how to listen on each system. The OS screen
+  reader setting is not read by the engine yet; offer the option in your own menu.
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
   `options.js`, and keep it in `settings.js` (`DEFAULTS` and `apply`). The colour filter of the Video tab is such an
   option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
@@ -143,6 +152,25 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **Phones: playing without a pad.** The menus already work by touch. For the game itself, add a `TouchStick` and a few
   `TouchButton`s to the game scene: they press the same gamepad bindings a real pad does, show only while the player
   uses touch and sit in the safe area (docs/MOBILE.md, "On-screen gamepad").
+
+## Manual check: hear the speech
+
+Tests cannot hear anything, so once per system run the game (`factoria run <project>` or the exported game), open
+Options > Audio, turn "Read menus aloud" on (you hear "Read menus aloud"), go back and move the focus with the arrows or
+the pad: each widget is said. Change the language in Options > Language and move again: the voice should follow it when
+the system has a voice for that language (otherwise the default voice reads it, possibly with the wrong accent).
+
+- **Windows.** Needs nothing: SAPI 5 voices are part of Windows (Settings > Time & language > Speech lists them; add a
+  language's voice there). The voice is chosen by the language's locale.
+- **macOS.** Nothing to install; extra voices are in System Settings > Accessibility > Spoken Content > System voice.
+- **Linux.** Install speech-dispatcher and a speech engine (`sudo apt install speech-dispatcher espeak-ng`; the game
+  loads `libspeechd.so.2` when it first speaks) and start the dispatcher (`spd-say hello` must be audible). Without
+  them `ui.speechAvailable` is false and the first `ui.speak` logs one warning.
+- **Android.** Needs a speech engine (Google Speech Services is on most phones; Settings > System > Languages & input >
+  Text-to-speech output). The first line spoken right after the game starts is kept until the engine is ready.
+- **iOS.** Nothing to install; check with the device's volume up and the ringer switch in both positions.
+- **Web.** Open the exported page in a browser and click or press a key in it once (browsers refuse to speak before the
+  player has touched the page). The voices are the browser's.
 
 ## The files
 
@@ -169,6 +197,7 @@ const DEFAULTS = {
   colorFilter: "none", // one of COLOR_FILTERS
   bindings: {}, // action -> binding names, only for actions the player rebound
   language: null, // null: the language the game started in (the player's system language, else the default one)
+  readAloud: false, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
 };
 
 /** The saved settings merged over the defaults (a fresh object each call). */
@@ -337,6 +366,7 @@ export class MenuStack {
 import { Behaviour, ui, game, scene, session, platform } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
+import { readMenusAloud } from "./ui/read_aloud.js";
 
 export default class MainMenu extends Behaviour {
   /** Scene the Play button starts, through the loading screen. */
@@ -344,6 +374,7 @@ export default class MainMenu extends Behaviour {
 
   onStart() {
     applyOnce();
+    readMenusAloud();
     this.menus = new MenuStack("main_menu");
     // The Shop button is for games with in-app purchases: it appears when this run has a store (docs/PLATFORM.md).
     if (platform.has("purchases")) this.world.find("shop_button").active = true;
@@ -359,6 +390,46 @@ export default class MainMenu extends Behaviour {
     ui.on("click", (e) => e.entity.hasTag("back") && this.menus.back());
     ui.on("cancel", () => this.menus.back());
   }
+}
+```
+
+### `scripts/ui/read_aloud.js`
+
+Reads the focused widget aloud when the player turned on "Read menus aloud" (Options > Audio). It is the recipe for
+text to speech in a menu: the engine sends `ui.focus` whenever the focus moves, and `ui.speak` says a line with the
+system's voice for the game's current language. `main_menu.js` and `pause_menu.js` call `readMenusAloud()` once. The
+option is hidden where `ui.speechAvailable` is false (Linux without speech-dispatcher, Android without a speech engine).
+
+```js scripts/ui/read_aloud.js
+// @ts-check
+// "Read menus aloud": when the player turned the option on (Options > Audio), the widget that takes focus is said with
+// the system's text to speech, in the game's language. The behaviours of the menus call readMenusAloud() once.
+import { ui, i18n } from "factoria";
+import * as settings from "../settings.js";
+
+/** What to say for a focused widget (its text, already localized by the engine, plus its state), or "" for none. */
+export function describe(entity) {
+  if (entity.has("Button")) return entity.get("Button").text;
+  if (entity.has("Toggle")) {
+    const toggle = entity.get("Toggle");
+    return `${toggle.label}, ${i18n.t(toggle.value ? "options.on" : "options.off")}`;
+  }
+  if (entity.has("Slider")) {
+    const slider = entity.get("Slider");
+    const percent = Math.round(((slider.value - slider.min) / (slider.max - slider.min)) * 100);
+    return `${slider.label}, ${i18n.t("options.percent", { value: percent })}`;
+  }
+  if (entity.has("TextField")) return entity.get("TextField").placeholder;
+  return "";
+}
+
+/** Says the focused widget while the option is on; interrupts, so moving quickly never queues old lines. */
+export function readMenusAloud() {
+  ui.on("focus", (e) => {
+    if (!settings.load().readAloud) return;
+    const text = describe(e.entity);
+    if (text) ui.speak(text);
+  });
 }
 ```
 
@@ -562,7 +633,8 @@ export default class StoreEvents extends Behaviour {
           { "id": "master_volume", "components": { "Slider": { "autoSize": true, "label": "Master", "key": "options.volume.master", "size": [560, 44], "layer": 302 } } },
           { "id": "music_volume", "components": { "Slider": { "autoSize": true, "label": "Music", "key": "options.volume.music", "size": [560, 44], "layer": 302 } } },
           { "id": "sfx_volume", "components": { "Slider": { "autoSize": true, "label": "Effects", "key": "options.volume.effects", "size": [560, 44], "layer": 302 } } },
-          { "id": "ui_volume", "components": { "Slider": { "autoSize": true, "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } }
+          { "id": "ui_volume", "components": { "Slider": { "autoSize": true, "label": "Interface", "key": "options.volume.interface", "size": [560, 44], "layer": 302 } } },
+          { "id": "read_aloud", "components": { "Toggle": { "autoSize": true, "label": "Read menus aloud", "key": "options.readAloud", "size": [560, 44], "layer": 302 } } }
         ] },
       { "id": "controls_section",
         "components": { "Panel": { "size": [712, 340], "layer": 301, "color": [0, 0, 0, 0.25], "layout": "column", "spacing": 12 } },
@@ -698,6 +770,16 @@ export default class Options extends Behaviour {
         settings.save(this.s);
       });
     }
+    // Only where the system can speak (Linux without speech-dispatcher, Android without a speech engine: hidden).
+    const readAloud = world.find("read_aloud");
+    readAloud.active = ui.speechAvailable;
+    readAloud.get("Toggle").value = this.s.readAloud;
+    ui.on("change", "read_aloud", (e) => {
+      this.s.readAloud = e.value;
+      settings.save(this.s);
+      if (e.value) ui.speak(readAloud.get("Toggle").label); // so the player hears that it works
+      else ui.stopSpeaking();
+    });
   }
 
   // --------------------------------------------------------------------------------------------------------- controls
@@ -843,12 +925,14 @@ export default class Loading extends Behaviour {
 import { Behaviour, ui, input, game, scene, world } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
+import { readMenusAloud } from "./ui/read_aloud.js";
 
 export default class PauseMenu extends Behaviour {
   runWhilePaused = true;
 
   onStart() {
     applyOnce();
+    readMenusAloud();
     this.menus = new MenuStack(null);
     // Spawned, not written into the level: any level works with this one entity, even one scene.import_ascii rebuilds.
     for (const [id, prefab] of [["pause_panel", "pause"], ["options", "options"]]) {
@@ -932,7 +1016,11 @@ the argument of `i18n.t(key, args)`; a nested object is a dotted key (`options.t
     "binding": "{action}: {button}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
-    "language": "Language: {language}"
+    "language": "Language: {language}",
+    "readAloud": "Read menus aloud",
+    "on": "on",
+    "off": "off",
+    "percent": "{value} percent"
   },
   "credits": {
     "madeWith": "Made with FactorIA",
@@ -993,7 +1081,11 @@ third language by editing the values only (keep the keys and the `{placeholders}
     "binding": "{action}: {button}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
-    "language": "Idioma: {language}"
+    "language": "Idioma: {language}",
+    "readAloud": "Leer los menús en voz alta",
+    "on": "activado",
+    "off": "desactivado",
+    "percent": "{value} por ciento"
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",

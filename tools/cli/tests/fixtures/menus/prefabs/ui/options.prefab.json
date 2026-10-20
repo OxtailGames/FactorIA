@@ -244,6 +244,18 @@
                 "layer": 302
               }
             }
+          },
+          {
+            "id": "read_aloud",
+            "components": {
+              "Toggle": {
+                "autoSize": true,
+                "label": "Read menus aloud",
+                "key": "options.readAloud",
+                "size": [560, 44],
+                "layer": 302
+              }
+            }
           }
         ]
       },

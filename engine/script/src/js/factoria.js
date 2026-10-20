@@ -1246,6 +1246,19 @@
     },
     // Runs the UI layout now (autoSize sizes, fit sizes, positions, fallbackLayout), exactly what each frame does.
     layout() { N.uiLayout(); },
+    // Says `text` aloud with the system's text to speech, in the current language (i18n.language). `interrupt` (default true) stops
+    // what is being said first; false waits for it. A no-op (one warning per run) where the system has no speech. Headless runs
+    // and tests say nothing and record the line: game.spoken().
+    speak(text, o = {}) {
+      if (typeof text !== "string") throw new Error(`ui.speak(text, { interrupt }) expects the text as a string, e.g. ui.speak(i18n.t("menu.play")), but got ${inspect(text)}`);
+      if (o === null || typeof o !== "object") throw new Error(`ui.speak(text, { interrupt }): the second argument is an options object such as { interrupt: false }, but got ${inspect(o)}`);
+      if (o.interrupt !== undefined && typeof o.interrupt !== "boolean") throw new Error(`ui.speak(text, { interrupt }): interrupt must be true (stop what is being said first, the default) or false (queue), but got ${inspect(o.interrupt)}`);
+      N.speak(text, o.interrupt ?? true);
+    },
+    // Stops what is being said and drops what was queued.
+    stopSpeaking() { N.stopSpeaking(); },
+    // True when the system can speak (headless runs and tests: always true, they record). Hide a "read menus aloud" option when false.
+    get speechAvailable() { return N.speechAvailable(); },
     // Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears it). Throws, saying why, when
     // the entity cannot take focus.
     focus(target) { N.uiFocus(target === null || target === undefined ? null : entityHandle(target, "ui.focus(target)")); },
@@ -1831,6 +1844,10 @@
     // bus, loop, music, source, ok }], oldest first. Assert with expect(game.audioLog()).toContainPlayed(path).
     audioLog() { return N.audioLog(false); },
     clearAudioLog() { N.audioLog(true); },
+    // What ui.speak was asked to say since the test started (cleared before each test): [{ text, language, interrupt }], oldest
+    // first. Headless runs speak nothing, they only record. Assert with expect(game.spoken().map((l) => l.text)).toEqual([...]).
+    spoken() { return N.spokenLog(false); },
+    clearSpoken() { N.spokenLog(true); },
     // The fake store, for tests (docs/PLATFORM.md, "Testing"): script its answers, send it events, look at what it holds.
     // They run the platform.* commands, so MCP clients and tests share one implementation.
     platform: {
@@ -1870,6 +1887,7 @@
       testCurrentName = t.name;
       N.resetInput();
       N.audioLog(true);
+      N.spokenLog(true);
       N.setTimeScale(1); pausedScale = null;
       const start = N.nowMs();
       const seq0 = N.logSeq();
