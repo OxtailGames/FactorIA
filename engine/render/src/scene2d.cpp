@@ -437,12 +437,12 @@ void gather_2d(World& world, Frame& f) {
         if (screen && !screen_clip(world, e, f, clip)) return;
         float scale = matrix_scale_x(m);
         float ppu;
-        if (screen) ppu = 1.0f;
+        if (screen) ppu = f.renderScale;
         else if (f.cam.perspective) {
             float dist = std::max(0.1f, length(m.translation() - f.cam.position));
             ppu = (float(f.targetH) * 0.5f) / (std::tan(radians(f.cam.fov) * 0.5f) * dist);
         } else ppu = f.cam.pixelsPerUnit;
-        float eff = ppu * scale;
+        float eff = ppu * scale * (screen ? 1.0f : f.renderScale);
         // Layout in LOCAL units (the entity scale is applied by the matrix), so the raster size uses eff. Screen-space Text
         // follows the player's text size option; world-space Text is part of the world and does not.
         // align start / end are the edges of the current language's direction; the font layer only knows left / right.
@@ -538,7 +538,7 @@ void gather_debug(DebugDrawData& dd, Frame& f) {
         tx.fontSize = t.size;
         tx.color = t.c;
         tx.pivot = {0, 1};
-        TextLayout lay = f.fonts->layout(tx, t.size, 1.0f);  // a developer overlay: the text scale does not apply
+        TextLayout lay = f.fonts->layout(tx, t.size, f.renderScale);  // a developer overlay: the text scale does not apply
         f.debugScreen.begin_item(0, 0, f.fonts->atlas(), SamplerKind::Linear);
         QuadEmitter em{f.debugScreen, Mat4::translate({std::round(t.pos.x), std::round(t.pos.y), 0}), true,
                        pack_color(t.c), kModeGlyph, 0};
