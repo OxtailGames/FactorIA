@@ -44,7 +44,8 @@
                 "text": "Resume",
                 "key": "pause.resume",
                 "layer": 302,
-                "autoFocus": true
+                "autoFocus": true,
+                "autoSize": true
               }
             }
           },
@@ -54,7 +55,8 @@
               "Button": {
                 "text": "Options",
                 "key": "menu.options",
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           },
@@ -64,7 +66,8 @@
               "Button": {
                 "text": "Main menu",
                 "key": "pause.mainMenu",
-                "layer": 302
+                "layer": 302,
+                "autoSize": true
               }
             }
           }

@@ -38,7 +38,7 @@ store's partner site before a real upload:
 
 Other files this package added: `assets/icon.png`, `assets/icon_fg.png` (made by `tools/make_icon.py`, Pillow, no AI;
 provenance recorded in `assets.json`), `prefabs/ui/touch_controls.prefab.json` (on-screen gamepad), `store/` (texts),
-`.store/screenshots/` (screenshots), `tools/make_screenshots.py`, `tests/shipping.test.js`.
+`store/screenshots/` (screenshots, git-ignored), `tools/make_screenshots.py`, `tests/shipping.test.js`.
 
 `factoria.json` has a `platform` section owned by the store-services package; this package did not touch it.
 
@@ -69,7 +69,7 @@ release player is smaller, so sizes below are an upper bound.
 | Export | Command | Time | Size | Result |
 |---|---|---|---|---|
 | Windows folder | `factoria export --platform windows --out .factoria/exports` | 1.2 s | 25.6 MB, 80 files (`lantern-keep.exe` 24.5 MB, `game/` 1.1 MB, notices 58 KB) | OK. `lantern-keep.exe --version` prints `factoria_player 0.1.6`; started with `--scene scenes/levels/2-1.scene.json`, still alive and responding after 6 s, `log.txt`: scene loaded (51 entities), `player: 60 frames rendered`, no warning or error. |
-| Windows release | `factoria export --platform windows --release --out .factoria/exports-release` | 1.1 s | 25.6 MB, **4 files**: `lantern-keep.exe`, `game.pak` 1.0 MB, `FACTORIA_NOTICES.txt`, `.factoria-export` | OK, same smoke test as above (the pak is read, scripts are bytecode). |
+| Windows release | `factoria export --platform windows --release --out .factoria/exports-release` | 1.1 s | 25.4 MB, **4 files**: `lantern-keep.exe`, `game.pak` 0.66 MB (1.0 MB before `export.exclude`), `FACTORIA_NOTICES.txt`, `.factoria-export` | OK. Smoke test: `lantern-keep.exe --frames 120` draws 120 frames, prints `player: 60 frames rendered` and exits 0 (1 when a script failed), so CI can run it without timing logic (the pak is read, scripts are bytecode). |
 | Web | `factoria export --platform web --out .factoria/exports-web` | 0.05 s | none | **Failed before writing anything**: `error: export: no web player found: factoria_player.js and factoria_player.wasm are not in .../build/orch/tools/cli/web, <FactorIA home>/players/<version>/web (factoria setup players --platforms web), .../build/web-release/player (a web build of the engine source)`. Fix: `factoria setup players --platforms web` (a download) or an Emscripten build. Not done (no downloads allowed). So **the web build was never run**; the zip that itch.io takes (`lantern-keep-web.zip`) would hold `index.html`, `factoria_player.js/.wasm` and `game.pak` (about 1 MB plus the wasm). |
 | Android Gradle project | `factoria export --platform android --format gradle --out .factoria/exports-android` | 4.4 s | 109 files | OK. Manifest checked: `sensorLandscape`, `applicationId com.factoria.examples.lanternkeep`, `versionCode 10000`, `versionName 1.0.0`, min 26 / target 36, icons in `mipmap-*` (adaptive icon included), only the `VIBRATE` permission, `hasCode false`. Mode `source`. |
 | Android APK / AAB | `factoria call project.export '{"platform":"android","format":"apk","dryRun":true}'` | instant | n/a | The plan passes: JDK 21 (Android Studio), SDK 36 found. **A real build was not started**: it would need (a) the Gradle 8.14.3 distribution, not cached on this machine (the wrapper downloads it), (b) in `source` mode the NDK r27 and CMake 3.31.6, neither installed (`<sdk>/ndk` and `<sdk>/cmake` do not exist) and a compile of the whole engine, or in `prebuilt` mode the players of `factoria setup players` (48 MB, missing). So Android stops after generating the project; **no APK or AAB exists and none was installed on a device or emulator.** |
@@ -81,10 +81,11 @@ The game logs one thing worth knowing: with an English default, a Spanish Window
 es (default en; ...)`). That is intended (`localization`); a store tester will see the language of their OS.
 
 **What the export does not ship** (docs): `tests/`, `tools/`, `types/`, `ENGINE_FEEDBACK.json`, `AGENTS.md`, `CLAUDE.md`,
-the top-level README and every dot-folder (so `.store/` and `.factoria/` stay out). **What it does ship that it need not**:
-`levels/` (80 KB of map sources), `screenshots/` (320 KB of P1's screenshots) and `store/` (a few KB of texts). The export has
-no exclude list (ENGINE_FEEDBACK), which is why the 2 MB of store screenshots live in the dot-folder `.store/`: in `store/`
-they tripled `game.pak`.
+the top-level README and every dot-folder (so `.factoria/` stays out). `factoria.json` `export.exclude` also leaves out what
+the running game never reads: `levels/**` (the ASCII map sources and the shared legend; the game loads the scenes they
+build, in `scenes/levels/`), `screenshots/**` (design screenshots) and `store/**` (store texts and the store screenshots).
+`tests/shipping.test.js` still reads `store/` from the project folder, which is where the tests run. `factoria validate`
+checks the globs (one that matches nothing is a warning).
 
 ## 4. Per store
 
@@ -100,9 +101,11 @@ Steam/Apple/Google services that change some answers).
 - **Set up**: Windows, macOS and Linux targets, icon, version, `publish.steam` (fake account, depots 9000001..3, no branch),
   store texts in `store/store.<lang>.json` for en, es, de and ar (Steam short description limit 300, ours are under 80), screenshots
   `steam-1920x1080-*.png` (six).
-- **Engine does**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. Tried the dry run with a fake uploader and a
-  fake app id: plan for `windows -> Steam app 9000000, depot 9000001, 89 files, 27.7 MB`, command
-  `steamcmd +login FAKE_steam_build_account +run_app_build .../app_build_9000000.vdf +quit`.
+- **Engine does**: `publish.steam` writes the `.vdf` files and runs `steamcmd`. The dry run
+  (`factoria call publish.steam '{"dryRun":true,"out":"<exports folder>"}'`) works with no `steamcmd` and no
+  `steam_appid.txt`: it returns the plan (`windows -> Steam app MISSING_APP_ID, depot 9000001`, command
+  `steamcmd +login FAKE_steam_build_account +run_app_build .../app_build_MISSING_APP_ID.vdf +quit`, the two `.vdf` files)
+  and a warning for each missing piece.
 - **By hand**: Steamworks account and the 100 USD app fee, the app, depots and package, the store page (capsules: header
   460x215, small 231x87, main 616x353, vertical 374x448, hero 3840x1240, logo; **none made here**, the icon is only a start),
   trailer, the content survey, the age rating questionnaire, tags (`store.*.json` has suggestions), pricing, release review.
@@ -113,7 +116,7 @@ Steam/Apple/Google services that change some answers).
 ### itch.io
 - **Set up**: `publish.itch.game` (fake `fake-studio/lantern-keep`), channels `windows`/`mac`/`linux`, the web zip.
 - **Engine does**: `publish.itch` -> `butler push <export folder> fake-studio/lantern-keep:windows --userversion 1.0.0
-  --ignore .factoria-export --ignore AI_CONTENT_DISCLOSURE.md` (dry run checked with a fake butler). The web export
+  --ignore .factoria-export --ignore AI_CONTENT_DISCLOSURE.md` (the dry run needs no butler: it warns and returns the plan). The web export
   produces `lantern-keep-web.zip` for an HTML5 page; `butler push build/export/lantern-keep-web.zip <user>/<game>:html5`.
 - **By hand**: account, the page (the long description is `store.en.json` `longDescription`), screenshots, cover image
   (630x500 recommended: **not made**), butler login, choosing "played in the browser" and the viewport (1280x720) for the web
@@ -123,15 +126,15 @@ Steam/Apple/Google services that change some answers).
 
 ### Epic Games Store
 - **Set up**: `publish.epic` with fake organization/product/client/artifact ids.
-- **Engine does**: `BuildPatchTool ... -mode=UploadBinary` dry run checked with a fake tool and secret (needs
-  `FACTORIA_EPIC_CLIENT_SECRET`). `-AppLaunch=lantern-keep.exe`.
+- **Engine does**: `BuildPatchTool ... -mode=UploadBinary` the dry run needs no tool and no secret (it
+  warns about the missing `FACTORIA_EPIC_CLIENT_SECRET` and returns the plan). `-AppLaunch=lantern-keep.exe`.
 - **By hand**: Epic Games Dev Portal account (and Epic's approval to publish: it is curated), product, artifacts, the Build
   Patch Tool client and secret, store page, ratings, review. The Epic Online Services are not used (no achievements).
 - **Could not check**: a real upload.
 
 ### GOG
 - **Set up**: `publish.gog` (product `1000000001`, languages `en-US`, `es-ES`, `de-DE`, `ar`).
-- **Engine does**: writes `gog-windows.json` and `ignore.txt` and runs Pipeline Builder (dry run checked with a fake tool).
+- **Engine does**: writes `gog-windows.json` and `ignore.txt` and runs Pipeline Builder (the dry run needs no tool: it warns and returns the plan).
 - **By hand**: GOG accepts games by invitation after a review of the game and a Developer Portal product; builds must
   be published from the portal; GOG wants a game without DRM (this one has none), an offline installer (the engine does not
   make one: GOG builds it from the files) and screenshots/art in their sizes (not made).
@@ -182,14 +185,14 @@ Steam/Apple/Google services that change some answers).
   on the target browsers, audio only after a click, localStorage saves, the touch controls in a mobile browser.
 - **By hand**: hosting (any static host; `.wasm` as `application/wasm`), a domain, a privacy note.
 
-## 5. Store page material (`store/`, `.store/`)
+## 5. Store page material (`store/`)
 
 - No store-text layout exists in the engine (the docs have none; only `publish.googleplay.changelogs` reads plain text
   files). The layout used here is plain: `store/store.<lang>.json` (en, es, de, ar) with `name`, `subtitle` (30 characters
   for the App Store), `shortDescription` (80, Google Play), `longDescription`, `features`, `keywords` (joined with commas
   under 100 characters for App Store keywords), `tags` (Steam), `category`, `ageNotes`; `store/whats-new-<lang>.txt`
   (release notes, under 500 characters). `tests/shipping.test.js` checks the lengths.
-- Screenshots (`.store/screenshots/`, not committed: `python tools/make_screenshots.py <factoria>` makes them with
+- Screenshots (`store/screenshots/`, git-ignored and left out of exports by `export.exclude`: `python tools/make_screenshots.py <factoria>` makes them with
   headless runs, no GPU or window):
   six `steam-1920x1080-*.png` (menu, Courtyard, a level with a gap, the Cellars, the lantern lighting the bricks, the level end
   panel) and two scenes for phones as `phone-landscape-1920x1080-*` and `phone-landscape-2208x1242-*` with the touch

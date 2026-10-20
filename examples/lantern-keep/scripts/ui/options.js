@@ -8,7 +8,6 @@ import { Behaviour, ui, input, game, window, audio, world, i18n } from "factoria
 import * as settings from "../settings.js";
 import * as assist from "../assist.js";
 import { MenuStack } from "./menu_stack.js";
-import { fitWidgets } from "./text_fit.js";
 
 const TABS = ["video", "audio", "controls", "language", "access"];
 /** Frame caps the "Frame cap" button cycles through (0 = off). */
@@ -46,10 +45,15 @@ export default class Options extends Behaviour {
   /** Sizes the panel for the player's text size: wider widgets, sections as tall as the tallest one, one panel that fits. */
   layout() {
     const scale = ui.textScale;
-    fitWidgets(this.entity);
-    const row = Math.max(44, Math.ceil(22 * scale * 1.3)); // a button row at this text size
+    const row = Math.max(44, Math.ceil(ui.measureText("Ag", { fontSize: 22 }).height + 16)); // a button row at this text size (autoSize adds 16 px)
     const note = Math.ceil(16 * scale * 1.3) * 2; // the video note, wrapped to two lines
-    const height = Math.max(5 * row + 4 * 12, 4 * row + 4 * 12 + note) + 32;
+    // At a big text size the gaps shrink so that the taller rows still leave the panel inside the screen.
+    const gap = scale > 1.25 ? 6 : 12;
+    const height = Math.max(5 * row + 4 * gap, 4 * row + 4 * gap + note) + 32;
+    const panel = this.entity.get("Panel");
+    panel.spacing = scale > 1.25 ? 8 : 16;
+    panel.padding = scale > 1.25 ? [12, 12, 12, 12] : [24, 24, 24, 24];
+    for (const tab of TABS) world.find(`${tab}_section`).get("Panel").spacing = gap;
     const width = Math.min(1240, Math.round(760 + (scale - 1) * 480));
     for (const tab of TABS) world.find(`${tab}_section`).get("Panel").size = [width - 48, height];
     this.entity.get("Panel").size = [width, 0]; // fit: the height follows the content
@@ -130,7 +134,7 @@ export default class Options extends Behaviour {
   setupControls() {
     const list = world.find("bindings");
     for (const action of this.actions) {
-      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, layer: 302 } } }, { parent: list });
+      const button = world.spawn({ id: `bind_${action}`, components: { Button: { text: action, size: [560, 44], fontSize: 22, autoSize: true, layer: 302 } } }, { parent: list });
       ui.on("click", button, () => {
         if (this.waiting) return; // a press while waiting is the new binding (onUpdate), not a click
         this.waiting = { action, button, since: world.frame };

@@ -1,5 +1,5 @@
 .factoria/
 node_modules/
 .DS_Store
-.store/
+store/screenshots/
 build/

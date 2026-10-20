@@ -55,7 +55,7 @@
           "anchor": [0.5, 0.5],
           "color": [0, 0, 0, 0],
           "layout": "column",
-          "spacing": 12,
+          "spacing": 8,
           "fit": true
         },
         "Script": {
@@ -80,7 +80,8 @@
             "Button": {
               "text": "Play",
               "key": "menu.play",
-              "autoFocus": true
+              "autoFocus": true,
+              "autoSize": true
             }
           }
         },
@@ -90,7 +91,8 @@
           "components": {
             "Button": {
               "text": "Continue",
-              "key": "menu.continue"
+              "key": "menu.continue",
+              "autoSize": true
             }
           }
         },
@@ -99,7 +101,8 @@
           "components": {
             "Button": {
               "text": "Options",
-              "key": "menu.options"
+              "key": "menu.options",
+              "autoSize": true
             }
           }
         },
@@ -108,7 +111,8 @@
           "components": {
             "Button": {
               "text": "Credits",
-              "key": "menu.credits"
+              "key": "menu.credits",
+              "autoSize": true
             }
           }
         },
@@ -120,7 +124,8 @@
               "layout": "row",
               "spacing": 12,
               "padding": [0, 0, 0, 0],
-              "fit": true
+              "fit": true,
+              "direction": "auto"
             }
           },
           "children": [
@@ -129,7 +134,8 @@
               "components": {
                 "Button": {
                   "text": "Achievements",
-                  "key": "menu.achievements"
+                  "key": "menu.achievements",
+                  "autoSize": true
                 }
               }
             },
@@ -138,7 +144,8 @@
               "components": {
                 "Button": {
                   "text": "Leaderboards",
-                  "key": "menu.leaderboards"
+                  "key": "menu.leaderboards",
+                  "autoSize": true
                 }
               }
             },
@@ -147,7 +154,8 @@
               "components": {
                 "Button": {
                   "text": "Shop",
-                  "key": "menu.shop"
+                  "key": "menu.shop",
+                  "autoSize": true
                 }
               }
             }
@@ -158,7 +166,8 @@
           "components": {
             "Button": {
               "text": "Quit",
-              "key": "menu.quit"
+              "key": "menu.quit",
+              "autoSize": true
             }
           }
         }
@@ -236,7 +245,8 @@
               "text": "Back",
               "key": "menu.back",
               "layer": 302,
-              "autoFocus": true
+              "autoFocus": true,
+              "autoSize": true
             }
           }
         }

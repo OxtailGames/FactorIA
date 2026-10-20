@@ -6,12 +6,20 @@
 import { Behaviour, ui, platform, i18n } from "factoria";
 import { PRODUCTS, owns, grant, available, chosen, choose } from "../cosmetics.js";
 import { explain } from "./store_ui.js";
-import { fitWidgets, contentHeight } from "./text_fit.js";
 
 const BUTTONS = { lantern_colours: "shop_buy_colours", supporter: "shop_buy_supporter" };
 
+/** The size a Button takes: its design size, or what its label needs (what `autoSize` makes it, but now, not next frame). */
+function buttonSize(entity, design) {
+  const button = entity.get("Button");
+  const m = ui.measureText(button.text, { fontSize: button.fontSize, maxWidth: button.maxWidth });
+  return [Math.max(design[0], Math.ceil(m.width + 40)), Math.max(design[1], Math.ceil(m.height + 16))];
+}
+
 export default class Shop extends Behaviour {
   onStart() {
+    this.design = new Map(); // design size of each Button, read before autoSize grows it
+    for (const id of [...Object.values(BUTTONS), "shop_colour", "shop_restore", "shop_back"]) this.design.set(id, [...this.world.find(id).get("Button").size]);
     this.busy = false; // a request is waiting for the store: the buttons do nothing meanwhile
     this.prices = {}; // product id -> the store's price text
     this.noStore = !platform.has("purchases");
@@ -40,9 +48,9 @@ export default class Shop extends Behaviour {
     this.say(this.noStore ? () => explain("purchases", "shop.what") : null);
   }
 
-  /** The main menu calls this each time it shows the panel again (a hidden panel's scripts do not run): the text size may have changed. */
-  opened() {
-    if (this.prices) this.refresh(); // (not started yet: onStart does it)
+  /** Every time the panel is shown: the text size may have changed. */
+  onEnable() {
+    this.refresh();
   }
 
   /** Shows a status line. `fn` returns the text, so it can be written again when the language changes. */
@@ -75,15 +83,30 @@ export default class Shop extends Behaviour {
     const status = this.world.find("shop_status").get("Text");
     cols.layout = "column";
     note.maxWidth = status.maxWidth = 740;
-    fitWidgets(this.entity); // the buttons as big as their text needs at this text size and language
-    if (contentHeight(this.entity) + 24 > 720) {
+    if (this.contentHeight(this.entity) + 24 > 720) {
       cols.layout = "row";
       const buttons = Object.values(BUTTONS).concat(["shop_colour", "shop_restore", "shop_back"]);
-      const right = Math.max(...buttons.map((id) => this.world.find(id).get("Button").size.x)); // the buttons set the right column's width
+      const right = Math.max(...buttons.map((id) => buttonSize(this.world.find(id), this.design.get(id))[0])); // the buttons set the right column's width
       status.maxWidth = right;
       note.maxWidth = Math.max(360, Math.min(740, 1280 - 2 * 24 - 2 * 24 - 14 - right)); // the note takes what the buttons leave
-      fitWidgets(this.entity);
     }
+  }
+
+  /** The height an entity takes in a column: a Text measured at the player's text size, a Button by its size, a panel by its children. */
+  contentHeight(entity) {
+    if (entity.has("Text")) {
+      const t = entity.get("Text");
+      return t.text ? ui.measureText(t.text, { fontSize: t.fontSize, maxWidth: t.maxWidth || 0 }).height : 0;
+    }
+    if (entity.has("Panel") && entity.get("Panel").layout !== "none") {
+      const p = entity.get("Panel");
+      const heights = entity.children.filter((c) => c.active).map((c) => this.contentHeight(c));
+      if (!heights.length) return 0;
+      const inner = p.layout === "row" ? Math.max(...heights) : heights.reduce((a, b) => a + b, 0) + p.spacing * (heights.length - 1);
+      const [, top, , bottom] = p.padding; // left, top, right, bottom
+      return inner + top + bottom;
+    }
+    return entity.has("Button") ? buttonSize(entity, this.design.get(entity.id) ?? [0, 0])[1] : 0;
   }
 
   nextColour() {

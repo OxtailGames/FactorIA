@@ -527,6 +527,24 @@ TEST_CASE("text: Align is explicit: Left stays at the left edge for right-to-lef
     CHECK(std::abs((center.x0 + center.x1) / 2 - 160) < 8);
 }
 
+TEST_CASE("text: Align start / end are the left / right edge in English and the right / left edge in Arabic") {
+    Gfx& g = with_fonts();
+    REQUIRE(g.ok);
+    TextOptions restore{g.renderer};
+    auto box = [&](Align a, bool rtl) {
+        World w; add_black_camera(w);
+        w.set_rtl(rtl);
+        put_text(w, kArabicWord, {-100, 40, 0}, 24, kAr, a, 200);  // a 200 px wide box from pixel x = 60
+        return ink(g.render(w));
+    };
+    for (bool rtl : {false, true}) {
+        const Ink start = box(Align::Start, rtl), end = box(Align::End, rtl);
+        REQUIRE((start.any() && end.any()));
+        CHECK((rtl ? start.x1 > 260 - 8 : start.x0 < 60 + 8));
+        CHECK((rtl ? end.x0 < 60 + 8 : end.x1 > 260 - 8));
+    }
+}
+
 // ---- the coverage check (no GPU) ------------------------------------------------------------------------------------------------
 
 TEST_CASE("fonts: missing_glyphs lists what no font of the chain can draw") {
