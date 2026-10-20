@@ -176,6 +176,30 @@ TEST_CASE("ui.state lists the widgets in reading order with their rectangles and
     e.shutdown();
 }
 
+TEST_CASE("ui.layout() sizes autoSize widgets right away, with no game.step") {
+    TempProject p("layout");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    e.step(2);
+    const char* code = R"JS(
+      const b = world.find("play");
+      b.get("Button").autoSize = true;
+      b.get("Button").text = "A rather long label for this button, longer than two hundred pixels";
+      const before = b.get("Button").size[0];
+      ui.layout();
+      const after = b.get("Button").size[0];
+      ({ before, after, rect: ui.rectOf(b).w });
+    )JS";
+    auto r = e.commands().call("script.eval", Json{{"code", code}});
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& v = r.result["value"];
+    CHECK(v["before"].get<double>() == doctest::Approx(200));
+    CHECK(v["after"].get<double>() > 300);
+    CHECK(v["rect"].get<double>() == doctest::Approx(v["after"].get<double>()));
+    e.shutdown();
+}
+
 TEST_CASE("ui.set_text_scale is the text size option: ui.textScale and ui.state see it, a bad value teaches") {
     TempProject p("textscale");
     Engine e;

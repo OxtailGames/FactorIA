@@ -40,20 +40,14 @@ function refreshSelect() {
 
 /**
  * The six buttons are as wide as the widest label needs (the same for all: autoSize only grows a button to its own label,
- * so the common size is written as their design size). Three of them side by side while that fits the screen; at a big
- * text size or with long names the worlds stand side by side instead and each world's levels are a column.
+ * so the common size is written as their design size). The panels switch between rows and columns by themselves
+ * (`fallbackLayout` in the prefab): a world's three levels are a row while that fits the screen, then a column, and the
+ * worlds then stand side by side.
  */
 function layoutSelect() {
-  const sets = (id, layout) => (world.find(id).get("Panel").layout = layout);
-  for (const id of ["select_row_1", "select_row_2"]) sets(id, "row");
-  sets("select_worlds", "column");
   const buttons = LEVELS.map((l) => world.find(`lvl_${l.id}`).get("Button"));
   const labels = buttons.map((b) => ui.measureText(b.text, { fontSize: b.fontSize }));
   const width = Math.max(design[0], ...labels.map((m) => Math.ceil(m.width + 40))); // 20 px of margin on each side
   const height = Math.max(design[1], ...labels.map((m) => Math.ceil(m.height + 16)));
   for (const b of buttons) b.size = [width, height];
-  if (3 * width + 2 * 12 + 2 * 24 > 1240) {
-    for (const id of ["select_row_1", "select_row_2"]) sets(id, "column");
-    sets("select_worlds", "row");
-  }
 }

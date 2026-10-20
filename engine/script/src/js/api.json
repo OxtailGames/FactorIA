@@ -1662,7 +1662,11 @@
       },
       {
        "sig": "rectOf(entityOrId: Entity | string): Rect | null",
-       "doc": "Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step. Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf(\"options.panel\"); expect(r.x + r.w).toBeLessThan(1280);"
+       "doc": "Where a UI widget or a screen-space Text is drawn, as { x, y, w, h } in design pixels: (x, y) is the TOP-LEFT corner and y grows downwards (like screen.safeArea, unlike entity.bounds()). It includes the safe area and what a Panel or ScrollList laid out, so read it after game.step or ui.layout(). Takes an Entity or an id/name; null for an entity that is neither (a world-space sprite). Same numbers as the rect of `ui.state`. Example: const r = ui.rectOf(\"options.panel\"); expect(r.x + r.w).toBeLessThan(1280);"
+      },
+      {
+       "sig": "layout(): void",
+       "doc": "Runs the UI layout now, exactly what every frame does: autoSize sizes, fit sizes, ScrollList fill, positions and the Panel fallbackLayout choice. After changing a label or a font size, call it and read Button.size, Panel.size or ui.rectOf right away, with no game.step. Throws when the run has no UI system. Example: button.get(\"Button\").text = \"A longer label\"; ui.layout(); const w = ui.rectOf(button).w;"
       },
       {
        "sig": "textScale: number",
