@@ -58,7 +58,7 @@ screenshots, and an input replay of their session (`factoria run --headless --in
   `input.actions`, not raw keys. Add an action there before using it.
 - Prefer built-in `Shape2D` / primitive meshes (`"mesh": "cube"`) until real art is needed, so
   the game runs with no binary assets.
-- Game logic belongs in `scripts/` classes extending `Behaviour` (`onStart`, `onUpdate(dt)`,
+- Game logic belongs in `scripts/` classes extending `Behaviour` (`onStart`, `onEnable`/`onDisable`, `onUpdate(dt)`,
   `onFixedUpdate`, `onCollisionEnter`, `onTriggerEnter`...). Tunable numbers are class fields
   that scenes can override via `"Script": {"path": ..., "props": {...}}`.
 - Determinism: use `rng` from `"factoria"` (never `Math.random`) and `time.dt` / the `dt`

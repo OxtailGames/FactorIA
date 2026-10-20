@@ -349,7 +349,8 @@ A behaviour is an ES module whose default export extends `Behaviour`. All method
 
 | Method | When it runs |
 |---|---|
-| `onStart()` | Once, before the first update. `props` are already applied. |
+| `onStart()` | Once, the first time the entity is active, before its first update. `props` are already applied. |
+| `onEnable()`, `onDisable()` | Every time the entity (or an ancestor) becomes active / inactive, before the frame is drawn. The first `onEnable` follows `onStart`. A panel refreshes its texts in `onEnable`. |
 | `onUpdate(dt)` | Every frame. `dt` is in seconds, scaled by `time.scale`. While `time.scale` is 0 (`game.paused`) only behaviours with the class field `runWhilePaused = true` get it, with the real `dt` (pause menus). |
 | `onFixedUpdate(dt)` | Every fixed step, before physics. Use it for movement that physics must see. |
 | `onLateUpdate(dt)` | After all updates. Use it for cameras that follow targets. |
@@ -360,7 +361,7 @@ A behaviour is an ES module whose default export extends `Behaviour`. All method
 
 Timing you can rely on:
 
-- The behaviour object exists as soon as its entity does: right after `world.spawn`, `spawnPrefab`, a scene load or `game.load`. So `world.spawn(...).behaviour` and `game.find("id").behaviour` are usable at once. `onStart()` runs at the start of the next step.
+- The behaviour object exists as soon as its entity does: right after `world.spawn`, `spawnPrefab`, a scene load or `game.load`. So `world.spawn(...).behaviour` and `game.find("id").behaviour` are usable at once. `onStart()` runs at the start of the next step. This holds for inactive entities too (`behaviour` of a panel spawned with `active: false` is its instance); their hooks run when they are first activated.
 - Physics bodies are created by the first physics step. In the first `onFixedUpdate` after a spawn or a load, `physics.raycast` finds nothing and `isTouching` is false. Skip the first two fixed steps before you probe (section 9.14).
 - `Script.props` keys that are not fields of the class are reported once (in the log and by `factoria validate`), with a "did you mean" hint. Declare every tunable as a class field.
 - Hooks are called by their exact names (`onStart`, `onUpdate`, ...). A method named `start()`, `update()` or `onupdate()` is never called; it is reported once (in the log and by `factoria validate`) with a "did you mean".

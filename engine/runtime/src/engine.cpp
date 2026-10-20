@@ -301,6 +301,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     audio.update(world, float(dt));
     if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
     scripts.late_update(float(dt));
+    scripts.settle_activation();  // panels shown or hidden this frame: onStart / onEnable / onDisable before drawing
     apply_localization();  // keys of entities scripts spawned or edited this frame
     render(dt);
     end_of_frame(dt);

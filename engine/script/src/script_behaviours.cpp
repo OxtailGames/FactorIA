@@ -36,6 +36,12 @@ void Impl::compact() {
 
 void Impl::destroy_behaviour(Behaviour& b, bool callOnDestroy) {
     if (b.dead) return;
+    if (callOnDestroy && b.enabledState && !JS_IsUndefined(b.instance.get()) && host->world().alive(b.entity)) {
+        b.enabledState = false;
+        std::string id = host->world().id_of(b.entity);
+        JSValue r0 = call_method(b.path + "#onDisable", id, b.instance.get(), "onDisable", {});
+        JS_FreeValue(ctx, r0);
+    }
     if (callOnDestroy && b.started && !JS_IsUndefined(b.instance.get()) && host->world().alive(b.entity)) {
         std::string id = host->world().id_of(b.entity);
         JSValue r = call_method(b.path + "#onDestroy", id, b.instance.get(), "onDestroy", {});
@@ -156,13 +162,39 @@ void Impl::start_behaviour(Behaviour& b) {
     JS_FreeValue(ctx, r);
 }
 
+bool Impl::is_active(const Behaviour& b) {
+    World& W = host->world();
+    if (b.dead || b.loadFailed || JS_IsUndefined(b.instance.get()) || !W.alive(b.entity)) return false;
+    const Script* s = W.get<Script>(b.entity);
+    return s && s->enabled && W.active_in_hierarchy(b.entity);
+}
+
+// Brings one behaviour up to date with its entity's activation: onStart on the first activation, then onEnable /
+// onDisable whenever the active state changed since the last call. Returns true if a hook ran.
+bool Impl::update_activation(Behaviour& b) {
+    bool ran = false;
+    bool now = is_active(b);
+    if (now && !b.started) {
+        start_behaviour(b);  // onStart first, so onEnable can rely on what onStart set up
+        ran = true;
+        now = is_active(b) && !b.dead;  // onStart may have deactivated the entity
+    }
+    if (b.dead || now == b.enabledState) return ran;
+    b.enabledState = now;
+    std::string id = host->world().alive(b.entity) ? host->world().id_of(b.entity) : std::string();
+    const char* method = now ? "onEnable" : "onDisable";
+    JSValue r = call_method(b.path + "#" + method, id, b.instance.get(), method, {});
+    JS_FreeValue(ctx, r);
+    return true;
+}
+
 void Impl::construct_for(const std::vector<Entity>& entities) {
     if (!ctx || !initialized) return;
     World& W = host->world();
     for (Entity e : entities) {
         if (!W.alive(e) || byEntity.count(e.bits()) || W.pending_destroy(e)) continue;
         const Script* s = W.get<Script>(e);
-        if (!s || !s->enabled || s->path.empty() || !W.active_in_hierarchy(e)) continue;
+        if (!s || s->path.empty()) continue;  // inactive entities get their instance too (entity.behaviour)
         std::string path = s->path;
         Json props = s->props;
         create_behaviour(e, path, props);
@@ -239,7 +271,7 @@ void Impl::sync() {
     };
     std::vector<Pending> todo;
     W.each<Script>([&](Entity e, Script& s) {
-        if (!s.enabled || s.path.empty() || !W.active_in_hierarchy(e)) return;
+        if (s.path.empty()) return;
         if (byEntity.count(e.bits())) return;
         todo.push_back({e, s.path, s.props});
     });
@@ -247,12 +279,16 @@ void Impl::sync() {
         if (!W.alive(p.e) || byEntity.count(p.e.bits())) continue;
         create_behaviour(p.e, p.path, p.props);
     }
-    // onStart for everything constructed since the last sync (scene load, spawn), in creation order.
-    for (size_t i = 0; i < behaviours.size(); ++i) {
-        Behaviour& b = *behaviours[i];
-        if (b.dead || b.started || b.loadFailed || JS_IsUndefined(b.instance.get())) continue;
-        if (!W.alive(b.entity)) continue;
-        start_behaviour(b);
+    // onStart / onEnable / onDisable for everything whose activation changed, in creation order. A hook may activate
+    // or create other entities, so repeat (bounded) until nothing changes.
+    for (int pass = 0; pass < 8; ++pass) {
+        bool ran = false;
+        for (size_t i = 0; i < behaviours.size(); ++i) {
+            Behaviour& b = *behaviours[i];
+            if (b.dead || b.loadFailed || JS_IsUndefined(b.instance.get()) || !W.alive(b.entity)) continue;
+            if (update_activation(b)) ran = true;
+        }
+        if (!ran) break;
     }
     compact();
     inSync = false;
@@ -267,7 +303,8 @@ void Impl::run_callbacks(const char* method, float dt, bool pausedOnly) {
         if (!W.alive(b.entity)) continue;
         const Script* s = W.get<Script>(b.entity);
         if (!s || !s->enabled || !W.active_in_hierarchy(b.entity)) continue;
-        if (!b.started) start_behaviour(b);  // spawned earlier this frame: onStart before its first callback
+        update_activation(b);  // spawned or shown earlier this frame: onStart / onEnable before its first callback
+        if (b.dead || !b.enabledState) continue;
         JSValue en = JS_GetPropertyStr(ctx, b.instance.get(), "enabled");
         bool enabled = JS_IsUndefined(en) || JS_ToBool(ctx, en) > 0;
         JS_FreeValue(ctx, en);
@@ -298,7 +335,8 @@ void Impl::dispatch(const char* method, Entity self, std::initializer_list<JSVal
         World& W = host->world();
         const Script* s = W.get<Script>(self);
         if (s && s->enabled && W.active_in_hierarchy(self)) {
-            if (!b->started) start_behaviour(*b);
+            update_activation(*b);
+            if (b->dead) { for (JSValue a : args) JS_FreeValue(ctx, a); return; }
             JSValue r = call_method(b->path + "#" + method, W.id_of(self), b->instance.get(), method, args);
             JS_FreeValue(ctx, r);
         }
