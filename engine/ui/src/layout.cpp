@@ -9,6 +9,7 @@ namespace fa {
 
 namespace {
 
+using ui_detail::control_of;
 using ui_detail::depth_of;
 using ui_detail::screen_rect;
 
@@ -192,17 +193,11 @@ void autosize_kind(World& w, Memo& memo, const VisualMeasure& m) {
     }
 }
 
-UiControl* sized_control(World& w, Entity e) {
-    if (Button* b = w.get<Button>(e)) return b;
-    if (Toggle* t = w.get<Toggle>(e)) return t;
-    return w.get<Slider>(e);
-}
-
 // Panel.uniformSize: every autoSize Button / Toggle / Slider below `root` takes the largest width and height among them.
 // `applied` is the size the UI wrote, so the next frame still finds the design size.
 template <class Memo>
 void uniform_size(World& w, Entity root, Memo& memo) {
-    std::vector<Entity> sized;
+    std::vector<std::pair<Entity, UiControl*>> sized;
     std::vector<Entity> todo{root};
     Vec2 big{0, 0};
     while (!todo.empty()) {
@@ -212,14 +207,13 @@ void uniform_size(World& w, Entity root, Memo& memo) {
             if (!w.info(c).active) continue;
             todo.push_back(c);
             if (!memo.count(c.bits())) continue;  // not an autoSize widget (autosize_kind keeps a memo for each)
-            const UiControl* u = sized_control(w, c);
+            UiControl* u = control_of(w, c);
             if (!u) continue;
-            sized.push_back(c);
+            sized.push_back({c, u});
             big = {std::max(big.x, u->size.x), std::max(big.y, u->size.y)};
         }
     }
-    for (Entity c : sized) {
-        UiControl* u = sized_control(w, c);
+    for (auto [c, u] : sized) {
         u->size = big;
         memo[c.bits()].applied = big;
     }
