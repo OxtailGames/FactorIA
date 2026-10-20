@@ -5,6 +5,12 @@
     <!-- input.vibrate(): Android Vibrator. A normal permission, granted at install, no prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 {{USES_PERMISSIONS}}
+    <!-- ui.speak(): Android 11+ hides other apps from us unless we ask; this lets TextToSpeech see the installed speech engines. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
     <!-- hasCode is true only when a native plugin brings Java / Kotlin code or .aar / .jar files (docs/MOBILE.md); the engine itself is native. -->
     <application
         android:label="@string/app_name"{{APP_ICON_ATTRS}}

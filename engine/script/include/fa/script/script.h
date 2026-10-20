@@ -32,6 +32,7 @@
 #include "fa/core/command.h"
 #include "fa/core/json.h"
 #include "fa/core/log.h"
+#include "fa/platform/speech.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -139,8 +140,13 @@ public:
     float text_scale() const { return textScale_; }
     virtual void set_text_scale(float scale) { textScale_ = scale; }
 
+    // Text to speech (`ui.speak`, the `ui.speak` command). Records every line; a game with its own window also gets the
+    // system's speech (set_backend_factory), headless runs and tests only record (`game.spoken()`).
+    Speech& speech() { return speech_; }
+
 private:
     float textScale_ = 1.0f;
+    Speech speech_;
 };
 
 // Where `storage.*` keeps its data. Persistent: <user dir>/storage.json (default). Memory: never touches disk

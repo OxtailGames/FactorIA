@@ -28,7 +28,11 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: press a key or button (Esc cancels)",
     "resetControls": "Reset to defaults",
-    "language": "Language: {language}"
+    "language": "Language: {language}",
+    "readAloud": "Read menus aloud",
+    "on": "on",
+    "off": "off",
+    "percent": "{value} percent"
   },
   "credits": {
     "madeWith": "Made with FactorIA",

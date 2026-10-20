@@ -360,7 +360,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     I.projectMtime = fs::modified_time(kProjectFileName);
     I.paused = config.editorMode;
     I.windowed = gfx != nullptr && !config.headless;
-    if (I.windowed && !config.editorMode) I.appWindow = std::make_unique<AppWindowControl>();
+    if (I.windowed && !config.editorMode) {
+        I.appWindow = std::make_unique<AppWindowControl>();
+        speech().set_backend_factory(make_system_speech_backend);  // headless runs, tests and the editor only record
+    }
 
     // World + input.
     I.world.rng().reseed(config.seed);
