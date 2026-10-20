@@ -136,6 +136,8 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.
 - [docs/BUILDING.md](docs/BUILDING.md): platform requirements, presets, CI, tests and troubleshooting.
 - [docs/MOBILE.md](docs/MOBILE.md) and [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android and exporting games.
+- [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md): tutorial for a person: your first game with an AI in the editor, step by step.
+- [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md): tutorial: make a small game by hand (scene, script, test, export) to see what the AI does for you.
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): publishing guide with one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io, web).
 - [docs/LOCALIZATION.md](docs/LOCALIZATION.md): several languages: string tables, `key` fields, the `i18n` script API.
 - [docs/AI_COSTS.md](docs/AI_COSTS.md): what making a game with AI costs (measured on a real game), what drives it, how to cap and check it.
