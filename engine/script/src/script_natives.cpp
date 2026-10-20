@@ -792,7 +792,7 @@ NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     measure.textSize = [I](const Text& t) {
         return measure_text_size(I, t.text, t.fontSize, t.font, t.maxWidth, "ui.layout()", t.space);
     };
-    U->layout(W, I->host->design_size(), measure);
+    U->layout(W, I->host->design_size(), measure, false);  // the script is still changing the menu: the frame's layout warns
     return JS_UNDEFINED;
 }
 

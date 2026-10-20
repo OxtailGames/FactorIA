@@ -281,7 +281,7 @@ std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, co
     return ui_detail::screen_rect(w, e, designSize, measure);
 }
 
-void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
+void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) {
     // Containers deepest first: a nested container is sized and fills itself before the container around it places it
     // (moving a container moves its whole subtree, so what it already placed stays in place).
     std::vector<std::pair<int, Entity>> containers;
@@ -314,22 +314,21 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
                 layout_panel(w, e, *p, design, m);
             }
         }
-        std::vector<Entity> candidates;
-        int deepest = -1;
+        std::vector<Entity> candidates;  // the deepest panels that leave the screen (containers are sorted deepest first)
         for (const auto& [depth, e] : containers) {
+            if (!candidates.empty() && depth < depth_of(w, candidates.front())) break;
             const Panel* p = w.get<Panel>(e);
-            if (!p || p->fallbackLayout == UiLayout::None || p->fallbackLayout == p->layout || p->usingFallback ||
-                p->layout == UiLayout::None || !leaves_screen(w, e, *p, design, m))
-                continue;
-            if (depth > deepest) candidates.clear();
-            if (depth >= deepest) candidates.push_back(e), deepest = depth;
+            if (p && p->fallbackLayout != UiLayout::None && p->fallbackLayout != p->layout && !p->usingFallback &&
+                p->layout != UiLayout::None && leaves_screen(w, e, *p, design, m))
+                candidates.push_back(e);
         }
         if (candidates.empty()) break;
         for (Entity e : candidates) w.get<Panel>(e)->usingFallback = true;
     }
+    scrollToFocus_ = false;
     for (const auto& [depth, e] : containers) {  // only the final layout can be too big
         const Panel* p = w.get<Panel>(e);
-        if (!p || !p->fit || used_layout(*p) == UiLayout::None) continue;
+        if (!warn || !p || !p->fit || used_layout(*p) == UiLayout::None) continue;
         if (p->size.x > design.x + 0.5f || p->size.y > design.y + 0.5f) {
             if (warnedFit_.insert(e.bits()).second)
                 FA_WARN("ui",
@@ -340,7 +339,6 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m) {
             warnedFit_.erase(e.bits());
         }
     }
-    scrollToFocus_ = false;
 }
 
 }  // namespace fa
