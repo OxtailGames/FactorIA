@@ -79,7 +79,9 @@ struct Renderer::Impl {
     bool initialized = false;
     bool inFrame = false;
     bool anyFrameRendered = false;
-    int targetW = 0, targetH = 0;
+    int targetW = 0, targetH = 0;  // logical (design) size: what layouts, cameras and Text are measured in
+    float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
+    int physW = 0, physH = 0;      // size of the GPU images
     Gpu gpu;
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
@@ -159,10 +161,12 @@ void Renderer::Impl::create_targets(int w, int h) {
     destroy_targets();
     targetW = std::max(1, w);
     targetH = std::max(1, h);
+    physW = std::max(1, int(std::lround(double(targetW) * renderScale)));
+    physH = std::max(1, int(std::lround(double(targetH) * renderScale)));
     int samples = gpu.sample_count();
     sg_image_desc cd{};
     cd.usage.color_attachment = true;
-    cd.width = targetW; cd.height = targetH;
+    cd.width = physW; cd.height = physH;
     cd.pixel_format = SG_PIXELFORMAT_RGBA8;
     cd.sample_count = samples;
     cd.label = "game-color";
@@ -175,7 +179,7 @@ void Renderer::Impl::create_targets(int w, int h) {
         sg_image_desc rd{};
         rd.usage.resolve_attachment = true;
         rd.usage.color_attachment = true;  // Camera.bloom adds its glow to the resolved image
-        rd.width = targetW; rd.height = targetH;
+        rd.width = physW; rd.height = physH;
         rd.pixel_format = SG_PIXELFORMAT_RGBA8;
         rd.sample_count = 1;
         rd.label = "game-resolve";
@@ -194,7 +198,7 @@ void Renderer::Impl::create_targets(int w, int h) {
     texView = sg_make_view(&tv);
     sg_image_desc dd{};
     dd.usage.depth_stencil_attachment = true;
-    dd.width = targetW; dd.height = targetH;
+    dd.width = physW; dd.height = physH;
     dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
     dd.sample_count = samples;
     dd.label = "game-depth";
@@ -376,6 +380,14 @@ void Renderer::set_target_size(int width, int height) {
     if (width == impl_->targetW && height == impl_->targetH) return;
     impl_->create_targets(width, height);
 }
+void Renderer::set_render_scale(float scale) {
+    if (!initialized()) return;
+    if (!(scale >= kMinRenderScale)) scale = 1.0f;
+    scale = std::min(scale, kMaxRenderScale);
+    if (scale == impl_->renderScale) return;
+    impl_->renderScale = scale;
+    impl_->create_targets(impl_->targetW, impl_->targetH);
+}
 int Renderer::target_width() const { return impl_ ? impl_->targetW : 0; }
 int Renderer::target_height() const { return impl_ ? impl_->targetH : 0; }
 
@@ -536,6 +548,7 @@ void Renderer::Impl::render(World& world, float dt) {
     fr.assets = assets.get();
     fr.fonts = fonts.get();
     fr.textScale = textScale;
+    fr.renderScale = renderScale;
 
     flush_particle_bursts(world);
     update_animators(world, fr, false);
@@ -955,8 +968,9 @@ void Renderer::Impl::render(World& world, float dt) {
             if (c == scissor) return;
             scissor = c;
             Rect r = c.w > 0 ? c : Rect{0, 0, float(targetW), float(targetH)};
-            const int x0 = std::clamp(int(std::lround(r.x)), 0, targetW), y0 = std::clamp(int(std::lround(r.y)), 0, targetH);
-            const int x1 = std::clamp(int(std::lround(r.x + r.w)), x0, targetW), y1 = std::clamp(int(std::lround(r.y + r.h)), y0, targetH);
+            const float k = renderScale;
+            const int x0 = std::clamp(int(std::lround(r.x * k)), 0, physW), y0 = std::clamp(int(std::lround(r.y * k)), 0, physH);
+            const int x1 = std::clamp(int(std::lround((r.x + r.w) * k)), x0, physW), y1 = std::clamp(int(std::lround((r.y + r.h) * k)), y0, physH);
             sg_apply_scissor_rect(x0, y0, x1 - x0, y1 - y0, true);
         };
         // fragment uniforms of the 2D lights: the same for every lit batch except the normal map's uv transform
@@ -1034,7 +1048,7 @@ void Renderer::Impl::render(World& world, float dt) {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
             dst = BloomTarget{msaa ? resolveColorAtt : colorAtt, sg_view{}, 1};
         }
-        stats.drawCalls += bloom.apply(gpu, fr.cam.bloom, targetW, targetH, texView, dst);
+        stats.drawCalls += bloom.apply(gpu, fr.cam.bloom, physW, physH, texView, dst);
     }
 
     // ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
@@ -1115,9 +1129,9 @@ bool Renderer::capture(Image& out, std::string* error) {
     }
     sg_image img = im.gpu.sample_count() > 1 ? im.resolveImg : im.colorImg;
     std::vector<std::uint8_t> px;
-    if (!readback_rgba8(img, im.targetW, im.targetH, px, error)) return false;
-    out.width = im.targetW;
-    out.height = im.targetH;
+    if (!readback_rgba8(img, im.physW, im.physH, px, error)) return false;
+    out.width = im.physW;
+    out.height = im.physH;
     out.rgba = std::move(px);
     return true;
 }

@@ -94,7 +94,7 @@ TextLayout line(const Ctx& c, const std::string& s, const std::string& font, flo
     t.maxWidth = maxWidth;
     t.align = align;
     // Same layout as screen-space Text at scale 1, including the player's text size option.
-    return c.f.fonts->layout(t, size * c.f.textScale, 1.0f);
+    return c.f.fonts->layout(t, size * c.f.textScale, c.f.renderScale);
 }
 
 void text(const Ctx& c, const TextLayout& lay, float x, float y, Color col, int layer, const Rect& clip) {
