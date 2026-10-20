@@ -2,6 +2,51 @@
 
 # Commands: project
 
+## `perf.baseline` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).
+
+Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any "tolerance" already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal), and again when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in CI it fails past the tolerance) checks it. File: {format:"factoria.perf/1", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, drawCalls:0.1, entities:0.1, cpuSlackMs:1, memorySlackMB:8, countSlack:2}, runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the file's tolerances. Returns {file, runner, sample, created}. Example: {"frames":300,"input":"replays/play.json"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
+| `frames` | integer | no | Frames per run; stored in the file (default: the file's value, else 300). |
+| `scene` | string | no | Start scene; stored in the file. |
+| `input` | string | no | Project-relative input replay; stored in the file. |
+| `repeats` | integer | no | Runs to take the median of. Default 3. |
+| `tolerance` | object | no | Tolerances to store in the file: cpuAvg, cpuP95, memory, drawCalls, entities (ratios), cpuSlackMs, memorySlackMB, countSlack. |
+
+## `perf.check`
+
+Not released yet (on main after 0.1.6).
+
+Measure the game and fail when it costs more than its performance budget (perf.json) allows on this runner.
+
+Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, draw calls and entities past their limit FAIL always. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status "warn"), because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status "no_baseline" and returns `baselineEntry`: the exact JSON to add under "runners" (or run perf.baseline here). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {"file":"perf.json"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `file` | string | no | Budget file, project-relative (or absolute). Default "perf.json". |
+| `strictTime` | boolean | no | Make a time over its limit fail even outside CI (default: only in CI). |
+
+## `perf.measure`
+
+Not released yet (on main after 0.1.6).
+
+Run the game headless for N frames and report its cost: CPU time per frame, peak memory, draw calls, entities.
+
+Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics "none" otherwise: draw calls are 0), and returns {runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory of the process), drawCalls and entities (max over the run), graphics}}. `runner` is the id of this machine's kind (os-compiler-renderer, e.g. linux-gcc-llvmpipe) that budget files key their baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time (`factoria call --no-graphics perf.measure`). Example: {"frames":300}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `frames` | integer | no | How many frames to run (fixed step). Default 300. |
+| `scene` | string | no | Start scene (default: the project's mainScene). |
+| `input` | string | no | Project-relative input replay JSON applied during the run. |
+| `repeats` | integer | no | Run this many times; time metrics are the median, memory/draw calls/entities the max. Default 1. |
+
 ## `project.create` (modifies state)
 
 Create a new game project from a template.

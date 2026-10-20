@@ -1,0 +1,27 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "runners": {
+    "windows-msvc-d3d11-warp": {
+      "frames": 300,
+      "cpuMsAvg": 7.304,
+      "cpuMsP95": 8.829,
+      "cpuMsMax": 29.668,
+      "peakMemoryMB": 61.7,
+      "drawCalls": 6,
+      "entities": 17,
+      "graphics": "D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)"
+    },
+    "linux-gcc-llvmpipe": {
+      "frames": 300,
+      "cpuMsAvg": 5.155,
+      "cpuMsP95": 6.385,
+      "cpuMsMax": 223.504,
+      "peakMemoryMB": 179.7,
+      "drawCalls": 6,
+      "entities": 17,
+      "graphics": "EGL surfaceless / llvmpipe (LLVM 20.1.2, 256 bits) (GL 4.3 core, 4.5 (Core Profile) Mesa 25.2.8-0ubuntu0.24.04.4)"
+    }
+  }
+}
+
