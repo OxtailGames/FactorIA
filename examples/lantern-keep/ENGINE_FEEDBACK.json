@@ -1185,10 +1185,12 @@
       "suggestion": "A ui.layout() (or ui.rectOf after a synchronous relayout) that applies autoSize and fit now, and/or a Panel option that wraps a column into a row (or a row into a column) when it would leave the screen.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-20: found while dropping text_fit.js for autoSize (M24.8)."
-      ]
+        "2026-10-20: found while dropping text_fit.js for autoSize (M24.8).",
+        "Fixed in 62f24f9 (M24.15): `ui.layout()` applies autoSize, fit sizes and the layout choice from a script at once, so `Button.size`, `Panel.size` and `ui.rectOf` are current after a text change. `Panel.fallbackLayout` (row, column or grid) is used instead of `layout` when the panel would not fit the screen; `Panel.usingFallback` says which is in use. Lantern Keep's shop.js and options.js dropped their hand-made autoSize margins."
+      ],
+      "engineIssue": "#112"
     },
     {
       "id": "FB-0047",
@@ -1209,10 +1211,12 @@
       "suggestion": "A Panel option (for example uniformSize: true) that gives every autoSize child the size of the largest one.",
       "effort": "small",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-20: found while dropping text_fit.js for autoSize (M24.8)."
-      ]
+        "2026-10-20: found while dropping text_fit.js for autoSize (M24.8).",
+        "Fixed in 7b57f09 (M24.16): `Panel.uniformSize` gives every autoSize Button, Toggle and Slider inside the panel the size of the largest one, width and height separately, on every layout; widgets without autoSize keep their size. Lantern Keep's level select sets it on select_worlds and drops its label measure."
+      ],
+      "engineIssue": "#113"
     }
   ]
 }
