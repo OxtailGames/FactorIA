@@ -146,6 +146,12 @@ Command make_run_command() {
             return code == 0 ? 0 : 1;
         }
         ctx.out << (code == 0 ? "OK" : "FAILED") << ": ran " << report["frames"].dump() << " frames headless (exit code " << code << ")\n";
+        if (report.contains("perf") && report["perf"].is_object()) {
+            const Json& pf = report["perf"];
+            ctx.out << "perf: cpu/frame avg " << pf.value("cpuMsAvg", 0.0) << " ms, p95 " << pf.value("cpuMsP95", 0.0) << " ms, max "
+                    << pf.value("cpuMsMax", 0.0) << " ms; peak memory " << pf.value("peakMemoryMB", 0.0) << " MB; draw calls "
+                    << pf.value("drawCalls", 0) << "; entities " << pf.value("entities", 0) << " (graphics: " << pf.value("graphics", std::string()) << ")\n";
+        }
         for (const auto& s : report["screenshots"])
             ctx.out << "screenshot: " << (s.is_string() ? s.get<std::string>() : s.dump()) << "\n";
         if (!ho.stateOutPath.empty()) ctx.out << "state: " << ho.stateOutPath << "\n";

@@ -1,0 +1,17 @@
+{
+  "format": "factoria.perf/1",
+  "frames": 300,
+  "runners": {
+    "windows-msvc-d3d11-warp": {
+      "frames": 300,
+      "cpuMsAvg": 4.149,
+      "cpuMsP95": 6.622,
+      "cpuMsMax": 34.309,
+      "peakMemoryMB": 76.8,
+      "drawCalls": 2,
+      "entities": 45,
+      "graphics": "D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)"
+    }
+  }
+}
+

@@ -203,7 +203,9 @@ int run_windowed(const EngineConfig& config);
 // "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).
 //
 // Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],
-// statePath?, audioPath?, videoPath?, videoFrames?, videoAudio?, error?, exitCode}.
+// statePath?, audioPath?, videoPath?, videoFrames?, videoAudio?, error?, exitCode,
+// perf: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time per frame), cpuClock ("process" or "wall"), peakMemoryMB,
+// drawCalls and entities (max over the run), graphics (the GPU in use or "none")}}.
 struct HeadlessRunOptions {
     int frames = 60;
     std::string inputReplayPath;          // optional
