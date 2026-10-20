@@ -555,7 +555,9 @@ Triaged 2026-10-19 (see the top of this section): most entries became M24; the o
 below.
 
 Done in M21: the publishing guides per store, `docs/PUBLISHING.md` (PR #118), and the "finish your game" guide,
-`docs/FINISHING.md` with Lantern Keep's save recipe (PR #119). Left in M21: versioned docs, tutorials and the API
+`docs/FINISHING.md` with Lantern Keep's save recipe (PR #119). Versioned docs are done too: the generated reference
+(docs/COMPONENTS.md, `factoria api`, MCP) says which version added each component, field and command, from
+tools/common/api_since.json (the hand-written guides carry no marks). Left in M21: tutorials and the API
 reference, the AI cost guide, store page material (capsules at each store's sizes, video from a replay). Lantern
 Keep's entries that these items close (LK/FB-0014, LK/FB-0017 and LK/FB-0022 are done, in PRs #115-#117; LK/FB-0023
 is left for M23):
