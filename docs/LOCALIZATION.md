@@ -135,9 +135,32 @@ const off = i18n.on("change", ({ language, previous }) => { /* write your own te
   read when some text needs it, and the list follows `i18n.setLanguage` at once, for the text already on screen too.
   `factoria validate` fails when a table string has a character no font of its chain has (section 7).
 - **Right-to-left text.** Arabic and Hebrew are ordered with the Unicode bidirectional algorithm and joined by the
-  shaper, with nothing to configure. `align` does not follow the text direction (`"left"` is always the left edge):
-  give an Arabic or Hebrew label `align: "right"` and a pivot or anchor on the right. A menu laid out for English
-  does not mirror itself; check it with `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
+  shaper, with nothing to configure. The layout around the text is yours, and it follows the language when you ask:
+  - `i18n.direction` is `"rtl"` or `"ltr"` for the current language (Arabic, Hebrew, Persian, Urdu and the other
+    right-to-left languages are `"rtl"`; a game without localization is `"ltr"`).
+  - `Text.align` takes `"start"` and `"end"` next to `"left"`, `"center"` and `"right"`: start is the left edge in a
+    left-to-right language and the right edge in a right-to-left one, end the other. `"left"` and `"right"` stay
+    explicit (`"left"` is always the left edge), so a game written before keeps its look. Use `start` for a label or
+    a wrapped paragraph that must sit against the side where its language begins.
+  - `Panel.direction` is `"ltr"` (default), `"rtl"` or `"auto"` (`rtl` in a right-to-left language). In an `rtl`
+    panel a row runs right to left (the first child is at the right edge), a grid fills its columns from the right,
+    and the panel's `align` and `justify` values `start` and `end` mean the right and the left edge. A column keeps its
+    order from top to bottom. One scene therefore serves both directions: `"direction": "auto"` on the panels,
+    `"align": "start"` on the columns and the wrapped Texts.
+  - Not mirrored by themselves: anchors and pivots, and the inside of a Toggle (box on the left) and a Slider. For a
+    HUD corner, read the direction once and pick the corner:
+
+    ```js
+    const rtl = i18n.direction === "rtl";
+    const name = world.find("player_name").get("Text");
+    name.anchor = [rtl ? 1 : 0, 0];   // the corner where the reading starts
+    name.pivot = [rtl ? 1 : 0, 1];
+    name.align = "start";
+    ```
+
+  The menus fixture (`tools/cli/tests/fixtures/menus`, [MENUS.md](MENUS.md)) is mirrored this way: its options panel has
+  `direction: "auto"` and `align: "start"`, and `locales/ar.json` is its Arabic table. Check a layout with
+  `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
 - **Text size.** `ui.textScale` (0.5 to 3) makes every text bigger for players who ask: translations are longer than
   English, so give buttons, toggles and sliders `"autoSize": true`: they stay at their design size and grow to their
   label at the current language and text size (docs/TEXT.md, "Text size").

@@ -119,7 +119,11 @@ void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure
         }
     }
     const Rect inner = inner_box(*ui_rect(w, e, design), p.padding);
-    const std::vector<Vec2> slots = place(p.layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
+    std::vector<Vec2> slots = place(p.layout, ch, inner, p.spacing, p.columns, p.align, p.justify);
+    // Right to left: the left-to-right layout flipped about the middle of the box, so the first child, `start` and a grid's
+    // first column all end up on the right.
+    if (p.direction == UiDirection::Rtl || (p.direction == UiDirection::Auto && w.rtl()))
+        for (std::size_t i = 0; i < ch.size(); ++i) slots[i].x = 2.0f * inner.x + inner.w - slots[i].x - ch[i].r.w;
     for (std::size_t i = 0; i < ch.size(); ++i) move_to(w, ch[i], slots[i]);
 }
 

@@ -149,6 +149,12 @@ public:
     const EdgeInsets& safe_insets() const { return safeInsets_; }
     void set_safe_insets(const EdgeInsets& insets) { safeInsets_ = insets; }
 
+    // True when the game's current language is written right to left. The runtime sets it with the language (localization
+    // pass); Text align start / end and Panel direction auto read it; a test sets it to try a right-to-left language. Survives
+    // clear() and scene loads, like the safe insets.
+    bool rtl() const { return rtl_; }
+    void set_rtl(bool rtl) { rtl_ = rtl; }
+
     std::uint64_t frame() const { return frame_; }
     double time() const { return time_; }  // simulated seconds since scene start
     void advance_clock(double dt) { time_ += dt; ++frame_; }
@@ -177,6 +183,7 @@ private:
     WorldEvents events_;
     Rng rng_;
     EdgeInsets safeInsets_;
+    bool rtl_ = false;
     std::uint64_t frame_ = 0;
     double time_ = 0.0;
     std::string scenePath_;

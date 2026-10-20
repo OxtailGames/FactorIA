@@ -148,7 +148,7 @@ Draws a string with a TrueType font (or the built-in font). Works in world and s
 | `font` | asset (font) | `""` | Project-relative path of a .ttf font. Empty uses the built-in font, DejaVu Sans (Latin, Greek, Cyrillic, Hebrew, Arabic); "builtin:pixel" is Press Start 2P. Characters the font has no glyph for draw as nothing and log one warning per font: Chinese, Japanese and Korean need a .ttf that covers them (e.g. Noto Sans SC, JP or KR). Keep this empty and list the extra fonts in factoria.json (localization.fallbackFonts, localization.languageFonts) to cover every Text of the game (docs/TEXT.md). |
 | `fontSize` | float | `24.0` | Glyph height in world units (pixels in 2D). Range 1.0..4096.0. |
 | `color` | color | `[1.0,1.0,1.0,1.0]` | Text color. |
-| `align` | enum: left \\| center \\| right | `"left"` | Horizontal alignment of lines inside the text box. |
+| `align` | enum: left \\| center \\| right \\| start \\| end | `"left"` | Horizontal alignment of lines inside the text box. left / right are always the left / right edge, even for right-to-left text. start / end follow the current language: start = left and end = right in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left languages (i18n.direction); use them for text that must read from its start side. |
 | `pivot` | vec2 | `[0.0,1.0]` | Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right. |
 | `maxWidth` | float | `0.0` | If > 0, lines wrap at this width in world units. 0 = no wrapping. Range 0.0..100000.0. |
 | `layer` | int | `100` | Draw order. Higher layers draw on top. Text defaults above sprites. |
@@ -442,8 +442,9 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `spacing` | float | `8.0` | Gap in design pixels between children (a grid uses it on both axes). Range 0.0..10000.0. |
 | `padding` | vec4 | `[16.0,16.0,16.0,16.0]` | Space [left, top, right, bottom] between the panel's edge and its children. |
 | `columns` | int | `2` | Grid only: number of columns. Range 1.0..64.0. |
-| `align` | enum: start \\| center \\| end | `"center"` | Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom. |
-| `justify` | enum: start \\| center \\| end | `"start"` | Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom. A grid is placed as one block on both axes. |
+| `align` | enum: start \\| center \\| end | `"center"` | Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom (a panel with `direction` rtl, or auto in a right-to-left language, swaps left and right: start = right). |
+| `justify` | enum: start \\| center \\| end | `"start"` | Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom (with a right-to-left `direction`, start = the right edge). A grid is placed as one block on both axes. |
+| `direction` | enum: ltr \\| auto \\| rtl | `"ltr"` | Horizontal reading direction of the layout. ltr (default) = a row runs left to right and start means left. rtl = the first child of a row is at the right, a grid fills its columns from the right and align / justify `start` means the right edge. auto = ltr in a left-to-right language and rtl in Arabic, Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself. |
 | `fit` | bool | `false` | true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position. |
 
 ### Button
@@ -3343,6 +3344,10 @@ declare module "factoria" {
      */
     readonly defaultLanguage: string;
     /**
+     * The writing direction of the current language: "rtl" for Arabic, Hebrew, Persian, Urdu and the other right-to-left languages, else "ltr" (also when the game has no localization). Text align "start"/"end" and Panel direction "auto" follow it by themselves; read it to mirror what they do not reach, such as an anchor or a pivot (docs/LOCALIZATION.md, section 6).
+     */
+    readonly direction: "ltr" | "rtl";
+    /**
      * The player's system languages, best first (BCP 47 tags such as "es-MX"). Empty in headless runs and tests: the start language does not depend on the machine there.
      */
     readonly systemLanguages: string[];
@@ -4088,9 +4093,9 @@ declare module "factoria" {
     get color(): Color;
     set color(value: ColorLike);
     /**
-     * Horizontal alignment of lines inside the text box.
+     * Horizontal alignment of lines inside the text box. left / right are always the left / right edge, even for right-to-left text. start / end follow the current language: start = left and end = right in a left-to-right language, start = right and end = left in Arabic, Hebrew and the other right-to-left languages (i18n.direction); use them for text that must read from its start side.
      */
-    align: "left" | "center" | "right";
+    align: "left" | "center" | "right" | "start" | "end";
     /**
      * Anchor of the text box: [0, 1] top-left (default), [0.5, 0.5] center, [1, 0] bottom-right.
      */
@@ -4952,13 +4957,17 @@ declare module "factoria" {
      */
     columns: number;
     /**
-     * Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom.
+     * Cross-axis alignment: horizontal in a column, vertical in a row, both axes inside a grid cell. start = left / top, end = right / bottom (a panel with `direction` rtl, or auto in a right-to-left language, swaps left and right: start = right).
      */
     align: "start" | "center" | "end";
     /**
-     * Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom. A grid is placed as one block on both axes.
+     * Main-axis placement of the whole run of children inside the padded box: start = packed at the left / top, center, end = packed at the right / bottom (with a right-to-left `direction`, start = the right edge). A grid is placed as one block on both axes.
      */
     justify: "start" | "center" | "end";
+    /**
+     * Horizontal reading direction of the layout. ltr (default) = a row runs left to right and start means left. rtl = the first child of a row is at the right, a grid fills its columns from the right and align / justify `start` means the right edge. auto = ltr in a left-to-right language and rtl in Arabic, Hebrew and the other right-to-left languages (i18n.direction): one menu that mirrors itself.
+     */
+    direction: "ltr" | "auto" | "rtl";
     /**
      * true: `size` is recomputed every frame as the content size + padding (needs layout row, column or grid); the pivot then decides which point of the fitted box stays on the position.
      */
@@ -5703,7 +5712,7 @@ declare module "factoria" {
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; playing?: boolean; time?: number; frame?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean };
-    Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
+    Text: { text?: string; key?: string; font?: string; fontSize?: number; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     Tilemap: { tileset?: string; tileSize?: Vec2Like; columns?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any };
@@ -5718,7 +5727,7 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like };
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
-    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; fit?: boolean };
+    Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; autoSize?: boolean; value?: boolean };
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; autoSize?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
