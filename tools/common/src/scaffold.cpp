@@ -178,7 +178,7 @@ Result<ScaffoldResult> create_project(const std::string& targetDir, const std::s
     files["AGENTS.md"] = guide;
     files["CLAUDE.md"] = guide;
     files["ENGINE_FEEDBACK.json"] = dump_json(create_empty_feedback(v.name, v.version));
-    files[".gitignore"] = ".factoria/\nnode_modules/\n.DS_Store\n";
+    files[".gitignore"] = ".factoria/\nbuild/\nnode_modules/\n.DS_Store\n";
     files[".mcp.json"] = dump_json(claude_code_mcp_config());
     files["types/factoria.d.ts"] = kDtsPlaceholder;
     if (!files.count("jsconfig.json"))
