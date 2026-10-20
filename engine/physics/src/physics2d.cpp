@@ -499,7 +499,7 @@ void Physics2D::writeback(World& world, Entity e, Body& b, RigidBody2D* rb) {
     }
     if (rb) {
         b2Vec2 v = b2Body_GetLinearVelocity(b.body);
-        rb->velocity = {v.x * ppm, v.y * ppm};
+        rb->velocity = {(v.x - b.carryVel.x) * ppm, (v.y - b.carryVel.y) * ppm};  // relative to the platform carrying it
         rb->angularVelocity = degrees(b2Body_GetAngularVelocity(b.body));
         b.lastVel = rb->velocity;
         b.lastAngVel = rb->angularVelocity;
@@ -657,6 +657,53 @@ void Physics2D::sync(World& world) {
         }
     }
     sync_joints(world);  // after the bodies: a joint needs both of its bodies to exist
+    apply_carry(world);
+}
+
+// A dynamic body resting on a kinematic one (found by find_carriers after the last step) is carried by it, as in 3D:
+// its velocity is its own (RigidBody2D.velocity, what a
+// script sets) PLUS the platform's, so friction sees no relative motion and `velocity.x = 0` means "stand still on it".
+void Physics2D::apply_carry(World& world) {
+    const float inv = 1.0f / settings_.pixelsPerMeter;
+    for (auto& [key, b] : bodies_) {
+        if (!b.enabled || !b.hasRigid || b.type != BodyType::Dynamic) continue;
+        b2Vec2 cv{0, 0};
+        auto ci = b.carrier.is_null() ? bodies_.end() : bodies_.find(b.carrier.bits());
+        if (ci != bodies_.end() && ci->second.enabled && ci->second.type == BodyType::Kinematic) {
+            cv = b2Body_GetLinearVelocity(ci->second.body);
+        } else {
+            b.carrier = Entity{};
+        }
+        if (cv.x == 0.0f && cv.y == 0.0f && b.carryVel.x == 0.0f && b.carryVel.y == 0.0f) continue;
+        RigidBody2D* rb = world.get<RigidBody2D>(b.e);
+        if (!rb) continue;
+        b2Body_SetLinearVelocity(b.body, {rb->velocity.x * inv + cv.x, rb->velocity.y * inv + cv.y});
+        if (cv.x != 0.0f || cv.y != 0.0f) b2Body_SetAwake(b.body, true);
+        b.carryVel = cv;
+    }
+}
+
+void Physics2D::find_carriers() {
+    std::vector<b2ContactData> cd;
+    for (auto& [key, b] : bodies_) {
+        b.carrier = Entity{};
+        if (!b.enabled || !b.hasRigid || b.type != BodyType::Dynamic || !b2Body_IsValid(b.body)) continue;
+        const int cap = b2Body_GetContactCapacity(b.body);
+        if (cap <= 0) continue;
+        cd.resize(static_cast<std::size_t>(cap));
+        const int n = b2Body_GetContactData(b.body, cd.data(), cap);
+        for (int i = 0; i < n && b.carrier.is_null(); ++i) {
+            const b2ContactData& c = cd[std::size_t(i)];
+            if (c.manifold.pointCount <= 0) continue;
+            const bool weAreA = B2_ID_EQUALS(b2Shape_GetBody(c.shapeIdA), b.body);
+            const b2ShapeId other = weAreA ? c.shapeIdB : c.shapeIdA;
+            if (b2Body_GetType(b2Shape_GetBody(other)) != b2_kinematicBody || b2Shape_IsSensor(other)) continue;
+            const b2Vec2 up = weAreA ? b2Vec2{-c.manifold.normal.x, -c.manifold.normal.y} : c.manifold.normal;  // platform -> us
+            float sep = c.manifold.points[0].separation;
+            if (c.manifold.pointCount > 1) sep = std::min(sep, c.manifold.points[1].separation);
+            if (up.y > 0.7f && sep <= 0.02f) b.carrier = entity_of(other);
+        }
+    }
 }
 
 // ---------------------------------------------------------------- joints ----
@@ -892,6 +939,7 @@ void Physics2D::step(World& world, float dt) {
         writeback(world, e, it->second, world.get<RigidBody2D>(e));
     }
     read_joints(world);
+    find_carriers();
 
     // ---- 4. events
     collect_events(world);

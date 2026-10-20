@@ -77,6 +77,12 @@ std::string sh_quote(const std::string& s);
 // the hidden files and folders, build/, tests/, tools/, types/... project.validate weighs them.
 std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile);
 
+// (export_textures.cpp) The warning for textures that cannot be GPU-compressed (sides not multiples of 4), shared by the
+// export and `factoria validate`. texture_block_compressed: false when a texture of this size, with the import settings of
+// `manifest` (assets.json), would ship uncompressed for that reason (not in an atlas, compression not "none").
+std::string not_block_sized_message(const std::vector<std::string>& paths);
+bool texture_block_compressed(const Json& manifest, const std::string& path, int width, int height);
+
 // Copies the project files `files` (project-relative) into `dest`, keeping their paths. A file in p.staged is copied from
 // there instead.
 Result<void> copy_game(const Project& p, const std::vector<std::string>& files, const stdfs::path& dest);

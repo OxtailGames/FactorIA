@@ -1,6 +1,6 @@
 // factoria_player: the minimal runtime shipped inside exported games.
 //
-//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--version] [--help]
+//   Desktop : factoria_player [projectDir | game.pak] [--scene S] [--fullscreen] [--frames N] [--version] [--help]
 //             Without an argument the game is, in this order: the folder "<exe dir>/game" (or
 //             "<exe dir>/../Resources/game" inside a macOS .app) when it contains factoria.json; else the pack
 //             "<exe dir>/game.pak" (or "<exe dir>/../Resources/game.pak"), the one archive a `factoria export
@@ -223,11 +223,12 @@ int startup_error(const std::string& text) {
 }
 
 void print_usage() {
-    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--version] [--help]\n"
+    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N] [--version] [--help]\n"
               "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
               "              ./game.pak next to it, else the current directory)\n"
               "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
               "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)\n"
+              "  --frames N  draw N frames, then exit: 0, or 1 when a script failed (a crash exits non-zero too); for CI smoke tests\n"
               "  --version   print the engine version (the one `factoria version` prints) and exit");
 }
 
@@ -239,6 +240,7 @@ int main(int argc, char** argv) {
 #endif
     std::string projectArg, scene;
     bool fullscreen = false;
+    int frames = 0;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") {
@@ -255,6 +257,15 @@ int main(int argc, char** argv) {
                 return 2;
             }
             scene = argv[++i];
+        } else if (a == "--frames" || a.rfind("--frames=", 0) == 0) {
+            const std::string value = a == "--frames" ? (i + 1 < argc ? argv[++i] : "") : a.substr(9);
+            char* end = nullptr;
+            const long n = std::strtol(value.c_str(), &end, 10);
+            if (value.empty() || *end != 0 || n < 1 || n > 1000000) {
+                std::fprintf(stderr, "error: --frames needs a whole number of frames of at least 1, e.g. --frames 60\n");
+                return 2;
+            }
+            frames = int(n);
         } else if (a.rfind("--scene=", 0) == 0) {
             scene = a.substr(8);
         } else if (!a.empty() && a[0] == '-') {
@@ -315,6 +326,7 @@ int main(int argc, char** argv) {
     cfg.projectDir = projectDir.string();
     cfg.scene = scene;
     cfg.hotReload = false;
+    cfg.maxFrames = frames;
     cfg.pluginDir = pluginDir.generic_string();
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     if (auto proj = fa::load_project(cfg.projectDir); proj.ok()) {
