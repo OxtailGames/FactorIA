@@ -46,27 +46,31 @@ workers built it, one package each, on 2026-10-19. What the numbers are:
   game maker working in an installed project spends a bit less than this.
 - A "step" is one request to the model (one assistant message in the transcript).
 
-| Package | Steps | Minutes | Average context per step | Cache read | Cache write | Output | Cost at API rates |
+| Package | Steps | Minutes | Average context per step | Cache read | Cache write | Output (est.) | Cost at API rates |
 |---|---|---|---|---|---|---|---|
-| P1 core game, English and Spanish, menu kit | 105 | 34 | 244k | 25.2M | 398k | 1.3k | $6.04 |
-| P2 save slots, level select | 37 | 12 | 96k | 3.4M | 129k | 0.5k | $1.01 |
-| P3 achievements, stats, leaderboards, shop | 65 | 22 | 133k | 8.4M | 199k | 0.6k | $2.19 |
-| P4 accessibility and assist options | 79 | 22 | 131k | 10.1M | 191k | 1.0k | $2.51 |
-| P5 shipping setup | 83 | 16 | 135k | 11.0M | 205k | 0.9k | $2.72 |
-| P6 German and Arabic, final pass | 97 | 23 | 165k | 15.8M | 267k | 0.8k | $3.83 |
-| **Total** | **466** | | | **73.9M** | **1.39M** | **5.2k** | **$18.30** |
+| P1 core game, English and Spanish, menu kit | 105 | 34 | 244k | 25.2M | 398k | 55k | $6.58 |
+| P2 save slots, level select | 37 | 12 | 96k | 3.4M | 129k | 25k | $1.25 |
+| P3 achievements, stats, leaderboards, shop | 65 | 22 | 133k | 8.4M | 199k | 37k | $2.55 |
+| P4 accessibility and assist options | 79 | 22 | 131k | 10.1M | 191k | 32k | $2.82 |
+| P5 shipping setup | 83 | 16 | 135k | 11.0M | 205k | 27k | $2.98 |
+| P6 German and Arabic, final pass | 97 | 23 | 165k | 15.8M | 267k | 46k | $4.28 |
+| **Total** | **466** | | | **73.9M** | **1.39M** | **222k** | **$20.47** |
 
 P2 to P5 ran at the same time, so the wall-clock time of the whole game was about 90 minutes.
 
 What the table says:
 
-- **A whole finished game cost about $18 at API rates, in 466 steps.** Roughly 81% of that is cache reads ($14.77), 19%
-  cache writes ($3.47); output is under 1% ($0.05) and fresh input is nothing. The AI mostly *reads*.
-- **A step costs about $0.03 to $0.06**, and a package $1 to $6 (30 to 105 steps). The first package, which makes
+- **A whole finished game cost about $20 at API rates, in 466 steps.** About 72% of that is cache reads ($14.77), 17%
+  cache writes ($3.47) and 11% output (about $2.22); fresh input is nothing. The AI mostly *reads*.
+- **Output is an estimate, and the totals are a floor.** Claude Code's transcripts do not record the final output
+  count of a step (they keep the count from the start of the stream, a few tokens) and do not store thinking at all,
+  although thinking is billed as output. So output is estimated from what the model wrote (tool calls and text) at 3.75
+  characters per token (3.5 to 4 moves the total by about $0.1) and thinking is not counted. The real figure is higher.
+- **A step costs about $0.03 to $0.06 (est.)**, and a package $1 to $6 (30 to 105 steps). The first package, which makes
   the game from nothing, costs the most because its context grows to a quarter of a million tokens.
 - **The prompt limit of the price table is exceeded.** The engine's prices are for prompts up to 100K tokens; P1 averaged 244k
   per step and P6 165k. If your provider charges more above 100K, the real API price of these runs is higher than the
-  figures here. Treat them as a floor for API billing and as a size comparison for plans.
+  figures here. Together with the uncounted thinking, treat them as a floor for API billing and as a size comparison for plans.
 - Per kind of task (from these six packages, and from simple arithmetic on them, not a promise): a **new feature that
   touches one system** (saves, a shop, accessibility options) is 40 to 80 steps and $1 to $3; **a whole new game core**
   is about 100 steps and $6; a **small fix** that needs a look, one edit and one test run is a handful of steps, a few cents
@@ -80,8 +84,11 @@ could not be told apart from the rest with confidence, so there is no second dat
 `~/.claude/projects/<project folder>/`, and subagent runs under `<session>/subagents/agent-*.jsonl`. Each assistant line
 has `message.usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`) and
 `message.model`. Find the file whose first user message names the package, count each distinct `message.id` once (a message
-can be written several times while it streams), sum the four fields, and price them with `builtin_pricing` in
-`tools/ai/src/types.cpp` (`input x in + output x out + cache read x read + cache write x write`, per million tokens).
+can be written several times while it streams), sum the three input fields (`input_tokens` and the two cache fields), and price them with `builtin_pricing` in
+`tools/ai/src/types.cpp` (`input x in + output x out + cache read x read + cache write x write`, per million tokens). `output_tokens` there is not
+the final count, so estimate output instead: add the characters of every `text` block and of every `tool_use` `input`
+(as JSON) and `thinking` block in those lines (each line counted once, by `uuid`), and divide by 3.75. Thinking blocks
+are empty in these files, so thinking is missing from the result.
 
 ## 3. What drives the cost
 
@@ -167,7 +174,7 @@ Run it after a session, or ask the AI to run it and report. For API providers ou
 
 ## Short version
 
-- A finished game of Lantern Keep's size was about 470 steps and $18 at API rates, with Sonnet workers; most of it is
+- A finished game of Lantern Keep's size was about 470 steps and $20 at API rates (a floor), with Sonnet workers; most of it is
   re-reading context.
 - Keep chats short, one task per tab; let the orchestrator delegate; screenshots only where needed.
 - Set `limits.maxCostUsd` and `maxTurns` for API runs, and watch Session and Week for subscription runs.
