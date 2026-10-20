@@ -99,6 +99,13 @@ The language is not saved between runs. A game that lets the player choose keeps
 - Saving a scene of a running game in another language would save the translations: edit and save scenes in the
   default language.
 
+### Store catalog texts
+
+The achievements and products of `factoria.json` `"platform"` (docs/PLATFORM.md) take their texts from the same tables:
+`nameKey`, `descriptionKey` (achievements) and `titleKey`, `descriptionKey` (products) name a key instead of writing the
+text, and `platform.achievements.list()` and `platform.purchases.products()` answer in the current language. The stores'
+own screens are translated in each store's console (see PLATFORM.md, "Translated texts").
+
 ## 5. Scripts: the `i18n` object
 
 ```js
@@ -139,7 +146,8 @@ const off = i18n.on("change", ({ language, previous }) => { /* write your own te
   give an Arabic or Hebrew label `align: "right"` and a pivot or anchor on the right. A menu laid out for English
   does not mirror itself; check it with `game.screenshot` after `FA_LANGUAGE=ar factoria run`.
 - **Text size.** `ui.textScale` (0.5 to 3) makes every text bigger for players who ask: translations are longer than
-  English, so lay buttons out with room for it.
+  English, so give buttons, toggles and sliders `"autoSize": true`: they stay at their design size and grow to their
+  label at the current language and text size (docs/TEXT.md, "Text size").
 
 ## 7. Checks: `factoria validate`
 
@@ -156,6 +164,7 @@ a key that is one letter off. Errors fail the validation; warnings do not.
 | `{placeholders}` that differ from the default language's text, a key that is plain text in one table and plural in the other | warning |
 | A plural entry without a form the language uses (`few` and `many` in Russian: the line says which counts show `other` instead), or with a form no count picks (`zero` in Japanese) | warning |
 | A `key` of a Text or widget that the default table lacks (the game would show the scene's text and log a warning) | error |
+| A `nameKey`, `descriptionKey` or `titleKey` of the platform catalog that the default table lacks (file `factoria.json`, pointer, closest key) | error |
 | A `key` of a plural entry or of a text with `{placeholders}`: a component has no count or arguments | warning |
 | `factoria.json` without a section but with `key` fields in scenes, or a `locales/` folder | warning |
 | A character that no font of the chain has a glyph for | error |
