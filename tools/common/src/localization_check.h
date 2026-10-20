@@ -7,6 +7,7 @@
 
 #include "fa/core/json.h"
 #include "fa/runtime/project.h"
+#include "fa/services/platform.h"
 #include "fa/tooling/validate.h"
 
 namespace fa::localization_detail {
@@ -31,9 +32,11 @@ void collect_scene_texts(const std::string& file, const std::string& entityPoint
 //  - without a section: a warning when scenes use `key` or locales/ exists, and the glyph check of every text against its own font;
 //  - with one: every table (parse errors, missing and stale keys, placeholders, plural forms), every `key` of the scenes against
 //    the default table, and the glyph check of tables and literal texts against the font chains of their language.
+// `catalogKeys`: the locale keys factoria.json's "platform" catalog names (nameKey, descriptionKey, titleKey); each must be in the
+// default table.
 // `settings` must come from a section without issues. `projectDir` is the project folder; the checks read the VFS, which this
 // call points at it for its duration.
 void check_localization_content(const std::string& projectDir, const LocalizationSettings& settings, const std::vector<SceneText>& texts,
-                                ValidationReport& report);
+                                const std::vector<PlatformCatalog::TextKeyRef>& catalogKeys, ValidationReport& report);
 
 }  // namespace fa::localization_detail

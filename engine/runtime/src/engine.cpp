@@ -72,6 +72,7 @@ void Engine::Impl::apply_project_settings() {
     }
     // The platform catalog. A section with errors counts as empty (every platform call then says the id is not declared):
     // the first error is logged here, `factoria validate` lists them all.
+    platform.set_translator([this](const std::string& key) { return i18n.translate(key); });
     auto catalog = load_platform_catalog(project.raw.is_object() && project.raw.contains(kPlatformKey) ? project.raw[kPlatformKey] : Json());
     if (catalog.ok()) {
         platform.set_catalog(std::move(catalog.value()));
@@ -94,6 +95,13 @@ VisualMeasure Engine::Impl::measure() const {
     if (renderer && renderer->initialized()) {
         const Renderer* r = renderer.get();
         m.textSize = [r](const Text& t) { return r->measure_text(t.text, t.fontSize, t.font, t.maxWidth, t.space); };
+    } else {
+        // No renderer: the approximation, at the player's text size for screen-space text (as the renderer would), so
+        // autoSize widgets and fit panels grow with ui.textScale in headless runs and tests too.
+        m.textSize = [engine = self](const Text& t) {
+            const float k = t.space == RenderSpace::Screen ? engine->text_scale() : 1.0f;
+            return approx_text_size(t.text, t.fontSize * k, t.maxWidth);
+        };
     }
     return m;
 }

@@ -216,3 +216,40 @@ TEST_CASE("on-screen gamepad: discs, the knob follows the stick value, a hidden 
     CHECK(pressed.b < Color::hex(0x4040e0).b - 0.1f);             // held: darker than its colour
     CHECK(near(img.pixel(240, 40), clear, 0.03f));                // not shown: not drawn
 }
+
+TEST_CASE("Button: every line of a multi-line label is centred, and a label wider than the button is clipped to it") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam"));
+    Button& two = widget<Button>(w, "two", 10, 10, 300, 90);
+    two.text = "Hi\nA much longer second line";
+    two.color = Color{0, 0, 0, 1};
+    Button& narrow = widget<Button>(w, "narrow", 10, 110, 40, 30);
+    narrow.text = "A label far wider than its button";
+    narrow.color = Color{0, 0, 0, 1};
+    const Image img = g.render(w);
+    auto extent = [&](int x0, int x1, int y0, int y1, int& lo, int& hi) {  // the columns with bright (text) pixels in a box
+        lo = 1 << 20;
+        hi = -1;
+        for (int y = y0; y < y1; ++y)
+            for (int x = x0; x < x1; ++x)
+                if (img.pixel(x, y).g > 0.5f) {
+                    lo = std::min(lo, x);
+                    hi = std::max(hi, x);
+                }
+    };
+    int lo1, hi1, lo2, hi2;
+    extent(12, 308, 12, 55, lo1, hi1);  // the first line ("Hi") is in the upper half of the label block
+    extent(12, 308, 55, 98, lo2, hi2);  // the second line below it
+    REQUIRE(hi1 >= lo1);
+    REQUIRE(hi2 >= lo2);
+    CHECK(hi2 - lo2 > 2 * (hi1 - lo1));                          // the second line is much longer
+    CHECK(std::fabs(0.5f * float(lo1 + hi1) - 160.0f) <= 3.0f);  // both lines are centred on the button, not left-aligned
+    CHECK(std::fabs(0.5f * float(lo2 + hi2) - 160.0f) <= 3.0f);
+    int lo3, hi3;
+    extent(51, 320, 110, 140, lo3, hi3);  // right of the narrow button: nothing is drawn
+    CHECK(hi3 < lo3);
+    extent(10, 50, 110, 140, lo3, hi3);
+    CHECK(hi3 >= lo3);  // inside it the label is there
+}
