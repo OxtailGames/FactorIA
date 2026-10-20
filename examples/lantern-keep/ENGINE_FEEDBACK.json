@@ -360,16 +360,17 @@
       "missing": "The export wants one square icon (assets/icon.png 1024x1024, plus an optional adaptive-icon foreground), but the only engine route to a picture is assets.generate_image, which needs a paid provider in ~/.factoria/ai.json (there is none on this machine; the `fake` provider only makes placeholders). Nothing in the engine draws a simple icon from shapes/text, and a project tool written in JS has no way to write a PNG (no image or file-writing API in scripts).",
       "workaround": "Wrote tools/make_icon.py, a deterministic Pillow script that draws the lantern and the Android foreground layer, and recorded both files with assets.set_provenance (origin original, ai false). Needs Python and Pillow on the machine.",
       "workaroundFiles": [
-        "tools/make_icon.py",
         "assets/icon.png",
         "assets/icon_fg.png"
       ],
       "suggestion": "A command like assets.draw_icon {shape/text/colors} (or `factoria new` templates shipping a neutral icon.png that factoria.json already points to) so a game made without a provider still has a real icon, and a PNG writer in the script API (image.save) for project tools.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M21 (store page material: assets.draw_icon) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package of M21 (store page material: assets.draw_icon) in feedback/ROADMAP.md.",
+        "Fixed in 0e49b93 (M21): `assets.draw_icon @tools/icon.json` (docs/ASSETS.md) draws the 1024x1024 icon and the 432x432 Android foreground from shapes, gradients and text, on the CPU, with no provider and no Python; they go where the export looks, recorded as original. Lantern Keep's tools/make_icon.py is gone."
+      ],
+      "engineIssue": "#116"
     },
     {
       "id": "FB-0015",
@@ -413,7 +414,6 @@
       "missing": "Every folder of the project ships except a fixed list (tests, tools, types, dot-folders). A game that keeps store page material (screenshots, store texts), level sources (levels/*.json) or design screenshots in the project gets them in every export: 2.2 MB of store screenshots tripled game.pak (1.0 MB to 3.2 MB), and on the web that is download time before the first frame. There is no `export.exclude` in factoria.json.",
       "workaround": "Moved the store screenshots into a dot-folder, .store/screenshots (dot-folders are never exported), which is an obscure trick; levels/, screenshots/ and store/ (texts, small) still ship.",
       "workaroundFiles": [
-        "tools/make_screenshots.py",
         "store/store.en.json"
       ],
       "suggestion": "export.exclude: a list of project-relative globs (\"store/**\", \"screenshots/**\", \"levels/**\") that neither the folder export nor game.pak nor the web/mobile exports ship, checked by factoria validate; and mention the dot-folder rule next to it in docs/EXPORTING.md.",
@@ -438,15 +438,14 @@
       "title": "No render scale for store screenshots",
       "missing": "Steam wants 1920x1080 screenshots and the stores want phone sizes (2208x1242, 2400x1080...). `factoria run --headless --width/--height` and the engine render at the DESIGN size only: --width 1920 --height 1080 changes the design size, so the HUD bar (written for 1280 wide), the camera and how much of the level is visible all change, and the picture is not what a player sees. There is no option to render the 1280x720 design into a larger output.",
       "workaround": "Rendered at 1280x720 and enlarged with Pillow (Lanczos, exact 1.5x for 1920x1080). The result is soft, not native; recorded in SHIPPING.md.",
-      "workaroundFiles": [
-        "tools/make_screenshots.py"
-      ],
       "suggestion": "A `--render-scale 1.5` (or --output-size 1920x1080) for factoria run --headless and game.screenshot {scale}, drawing the same design at a larger resolution like a fullscreen window does.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M21 (store page material: render scale) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package of M21 (store page material: render scale) in feedback/ROADMAP.md.",
+        "Fixed in 97f693c (M21): `game.screenshot {scale}` (0.25 to 4) and `factoria run --render-scale S` draw the same frame at a larger native size, sharp, with the same HUD and visible area; Lantern Keep's store screenshots are made that way (SHIPPING.md), and tools/make_screenshots.py is gone."
+      ],
+      "engineIssue": "#117"
     },
     {
       "id": "FB-0018",
@@ -531,8 +530,7 @@
       "missing": "With a notch (game.setSafeArea or a phone) TouchButtons anchored to the safe area move by the insets, so a test or a screenshot script that taps fixed coordinates silently misses (the finger landed on the neighbouring button). ui.state has the rect of every widget, but docs/MOBILE.md 'Touch input' only says to touch 'the control's rectangle'. Also game.setSafeArea / screen.set_safe_area needs one step before the buttons take their new place, which is easy to miss.",
       "workaround": "Tests read the rects from fa.call(\"ui.state\").widgets and tap their centre; the screenshot script steps two frames after set_safe_area.",
       "workaroundFiles": [
-        "tests/shipping.test.js",
-        "tools/make_screenshots.py"
+        "tests/shipping.test.js"
       ],
       "suggestion": "game.touchWidget(id, frames?) for tests, and one sentence in MOBILE.md pointing at ui.state rects and the one-step rule.",
       "occurrences": 1,
@@ -558,10 +556,12 @@
       "workaround": "Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.",
       "suggestion": "One table in docs/EXPORTING.md: platform x what it needs x whether a source build, the download or neither can do it offline.",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M21 (publishing guides: what each export needs offline) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package of M21 (publishing guides: what each export needs offline) in feedback/ROADMAP.md.",
+        "Fixed in 02b1555 (M21): docs/EXPORTING.md has a 'What each export needs' table, one row per export: what it needs, and for a Windows, Linux and macOS host whether a source build can make it offline, after a setup download, or not at all."
+      ],
+      "engineIssue": "#115"
     },
     {
       "id": "FB-0023",
@@ -580,7 +580,8 @@
       "occurrences": 1,
       "status": "open",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M23 (Microsoft Store: MSIX) and M21 (Microsoft Store guide) in feedback/ROADMAP.md."
+        "2026-10-19 triage: confirmed open; work package of M23 (Microsoft Store: MSIX) and M21 (Microsoft Store guide) in feedback/ROADMAP.md.",
+        "2026-10-20: docs/EXPORTING.md has a 'Microsoft Store' section (`02b1555`, M21) saying what the engine covers (the Windows folder export) and the steps to take by hand. The entry stays open for M23's export.windows.msix."
       ]
     },
     {

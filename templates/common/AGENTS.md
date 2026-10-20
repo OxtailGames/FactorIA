@@ -84,6 +84,8 @@ screenshots, and an input replay of their session (`factoria run --headless --in
 - **Menus and finishing the game:** a main menu, options, pause, saves, languages and accessibility are not in an empty project.
   When the game needs them, `factoria docs read menus` has the files to copy and `factoria docs read finishing` the ordered
   path to a game ready for a store, with a checklist.
+- **Publishing:** `factoria docs read publishing` is the checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play,
+  App Store, itch.io, web): what the engine does and what the user must still do by hand. Tell the user the by-hand list.
 - **One-way platforms:** `Collider2D.oneWay: true` (not Tilemap solid tiles).
 - **Tile levels:** `scene.import_ascii` (MCP `scene_import_ascii`, CLI `factoria call scene.import_ascii @levels/level1.json`) turns
   ASCII `rows` plus a `legend` into a Tilemap and its coins, enemies and spawn points (prefabs placed at the cell centres). Keep
