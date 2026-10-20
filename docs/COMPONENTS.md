@@ -470,7 +470,9 @@ Clickable button with a text label. Activated by the mouse / a touch, or by ui_s
 | `focused` | bool | `false` | Runtime: true while the widget has keyboard / gamepad focus. Written by the UI every frame; move focus with ui.focus(entity). Read-only. Runtime-only (not saved). |
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
-| `text` | string | `"Button"` | Label, centred on the button. |
+| `text` | string | `"Button"` | Label, centred on the button. ` ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button. |
+| `maxWidth` | float | `0.0` | > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = the label wraps only at ` `. With autoSize the button is at most maxWidth plus its margins wide and grows taller instead. Range 0.0..100000.0. |
+| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). |
 
 ### Toggle
 
@@ -497,6 +499,7 @@ Check box with a label: a square box at the left (a filled inner square in accen
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
 | `label` | string | `"Toggle"` | Text to the right of the box. |
+| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). |
 | `value` | bool | `false` | true = checked. Scripts may write it; no event is sent for a write. |
 
 ### Slider
@@ -524,6 +527,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 | `hovered` | bool | `false` | Runtime: the pointer (mouse or first touch) is over this widget, the top-most visible interactable one. Read-only. Runtime-only (not saved). |
 | `pressed` | bool | `false` | Runtime: the pointer is held down on this widget. Read-only. Runtime-only (not saved). |
 | `label` | string | `""` | Text at the left; empty gives the track the extra room. |
+| `autoSize` | bool | `false` | true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped). |
 | `value` | float | `0.5` | Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write. |
 | `min` | float | `0.0` | Smallest value. |
 | `max` | float | `1.0` | Largest value. |
@@ -577,6 +581,7 @@ Scrolling container: its children are stacked in a column (aligned left, packed 
 | `padding` | vec4 | `[8.0,8.0,8.0,8.0]` | Space [left, top, right, bottom] between the list's edge and its children. |
 | `scroll` | float | `0.0` | Runtime: pixels scrolled from the top. Scripts may write it; it is clamped to [0, content height - inner height] every frame. Runtime-only (not saved). |
 | `scrollSpeed` | float | `40.0` | Pixels scrolled per mouse-wheel notch. Range 0.0..10000.0. |
+| `fill` | bool | `false` | true: when the parent is a Panel with layout column, `size.y` is set every frame to the height the other children leave. In a Panel with `fit` that is the screen height (minus the safe-area insets) minus the panel's padding, the gaps and the other children, so the panel ends exactly as tall as the screen at most (never below 64 px; if the other children do not leave that, the panel is taller than the screen and warns). In a Panel without fit it is the panel's own inner height minus the others. Several fill lists share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours. |
 
 ### TouchStick
 
@@ -5054,9 +5059,19 @@ declare module "factoria" {
      */
     readonly pressed: boolean;
     /**
-     * Label, centred on the button.
+     * Label, centred on the button. `
+     * ` starts a new line; every line is centred. Text longer than the button is clipped to it: use `maxWidth` to wrap it or `autoSize` to grow the button.
      */
     text: string;
+    /**
+     * > 0 wraps the label at this width in design pixels (like Text.maxWidth); 0 = the label wraps only at `
+     * `. With autoSize the button is at most maxWidth plus its margins wide and grows taller instead.
+     */
+    maxWidth: number;
+    /**
+     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     */
+    autoSize: boolean;
   }
   /**
    * Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. Flips on click or ui_submit; the event is ui.change {id, value: bool}.
@@ -5147,6 +5162,10 @@ declare module "factoria" {
      * Text to the right of the box.
      */
     label: string;
+    /**
+     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     */
+    autoSize: boolean;
     /**
      * true = checked. Scripts may write it; no event is sent for a write.
      */
@@ -5241,6 +5260,10 @@ declare module "factoria" {
      * Text at the left; empty gives the track the extra room.
      */
     label: string;
+    /**
+     * true: the widget is at least its design `size` and grows to fit its label at the current text size (ui.textScale) and language, re-laid out when either changes (needs no script). Width and height are set every frame, so writing `size` while this is on sets the NEW design size; turn it off to keep a size. A Button label wraps at Button.maxWidth; a Toggle or Slider label does not wrap. false (default): the widget keeps its size and a big label sticks out of it (Button labels are clipped).
+     */
+    autoSize: boolean;
     /**
      * Current value, always within [min, max] and snapped to `step` by the UI. Scripts may write it; no event is sent for a write.
      */
@@ -5424,6 +5447,10 @@ declare module "factoria" {
      * Pixels scrolled per mouse-wheel notch.
      */
     scrollSpeed: number;
+    /**
+     * true: when the parent is a Panel with layout column, `size.y` is set every frame to the height the other children leave. In a Panel with `fit` that is the screen height (minus the safe-area insets) minus the panel's padding, the gaps and the other children, so the panel ends exactly as tall as the screen at most (never below 64 px; if the other children do not leave that, the panel is taller than the screen and warns). In a Panel without fit it is the panel's own inner height minus the others. Several fill lists share the room equally. Ignored when the parent is not a column Panel. `size.x` is yours.
+     */
+    fill: boolean;
   }
   /**
    * On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. A finger that lands on it moves a stick of the TOUCH PAD, a virtual gamepad the action bindings read like a real one, so actions bound to GamepadLeftStickLeft/Right/Up/Down (or the right stick) work with no change to the game; the default ui_* actions include the left stick, so it also walks menus. Full tilt is the edge of the disc (half the shorter side); the pad deadzone (input.deadzone) applies like on a real stick. That finger is the stick's until it lifts, even outside the disc: it is not in input.touches, the Touch binding or the mouse. Several fingers work at once (a stick and buttons). Defaults: 200 x 200, inside the safe area, shown only while the player uses touch (touchOnly).
@@ -5701,11 +5728,11 @@ declare module "factoria" {
     AudioSource: { clip?: string; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number };
     AudioListener: { volume?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; fit?: boolean };
-    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string };
-    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; value?: boolean };
-    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
+    Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean };
+    Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; autoSize?: boolean; value?: boolean };
+    Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; autoSize?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean };
     TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; font?: string; key?: string; fontSize?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
-    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number };
+    ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; font?: string; fontSize?: number; textColor?: ColorLike; touchOnly?: boolean };
     Script: { path?: string; props?: any; enabled?: boolean };

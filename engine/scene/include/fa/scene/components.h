@@ -262,12 +262,15 @@ struct Panel : UiBox {
 
 struct Button : UiControl {
     std::string text = "Button";
+    float maxWidth = 0.0f;                    // > 0 wraps the label at this width (design pixels); 0 = no wrap
+    bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     Button() { size = {240, 56}; }
 };
 
 struct Toggle : UiControl {
     std::string label = "Toggle";
     bool value = false;
+    bool autoSize = false;                    // grow to fit the label (at least `size`), at the current ui.textScale
     Toggle() { size = {240, 40}; }
 };
 
@@ -278,6 +281,7 @@ struct Slider : UiControl {
     float max = 1.0f;
     float step = 0.1f;                        // keyboard / gamepad increment and snapping; 0 = continuous
     bool showValue = true;
+    bool autoSize = false;                    // grow to fit the label and value text (at least `size`), at the current ui.textScale
     Slider() { size = {320, 40}; }
 };
 
@@ -295,6 +299,7 @@ struct ScrollList : UiBox {
     Vec4 padding{8, 8, 8, 8};
     float scroll = 0.0f;                      // runtime: pixels scrolled from the top
     float scrollSpeed = 40.0f;                // pixels per mouse-wheel notch
+    bool fill = false;                        // inside a column Panel: take the height the other children leave
     ScrollList() { size = {320, 240}; }
 };
 

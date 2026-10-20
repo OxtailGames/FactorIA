@@ -44,6 +44,7 @@
             "id": "tab_video",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Video",
                 "key": "options.tab.video",
                 "size": [160, 48],
@@ -56,6 +57,7 @@
             "id": "tab_audio",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Audio",
                 "key": "options.tab.audio",
                 "size": [160, 48],
@@ -67,6 +69,7 @@
             "id": "tab_controls",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Controls",
                 "key": "options.tab.controls",
                 "size": [160, 48],
@@ -78,6 +81,7 @@
             "id": "tab_language",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Language",
                 "key": "options.tab.language",
                 "size": [160, 48],
@@ -103,6 +107,7 @@
             "id": "fullscreen",
             "components": {
               "Toggle": {
+                "autoSize": true,
                 "label": "Full screen",
                 "key": "options.fullscreen",
                 "size": [560, 44],
@@ -114,6 +119,7 @@
             "id": "resolution",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Window size",
                 "size": [560, 44],
                 "layer": 302,
@@ -125,6 +131,7 @@
             "id": "vsync",
             "components": {
               "Toggle": {
+                "autoSize": true,
                 "label": "VSync",
                 "key": "options.vsync",
                 "size": [560, 44],
@@ -136,6 +143,7 @@
             "id": "frame_cap",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Frame cap",
                 "size": [560, 44],
                 "layer": 302,
@@ -174,6 +182,7 @@
             "id": "master_volume",
             "components": {
               "Slider": {
+                "autoSize": true,
                 "label": "Master",
                 "key": "options.volume.master",
                 "size": [560, 44],
@@ -185,6 +194,7 @@
             "id": "music_volume",
             "components": {
               "Slider": {
+                "autoSize": true,
                 "label": "Music",
                 "key": "options.volume.music",
                 "size": [560, 44],
@@ -196,6 +206,7 @@
             "id": "sfx_volume",
             "components": {
               "Slider": {
+                "autoSize": true,
                 "label": "Effects",
                 "key": "options.volume.effects",
                 "size": [560, 44],
@@ -207,6 +218,7 @@
             "id": "ui_volume",
             "components": {
               "Slider": {
+                "autoSize": true,
                 "label": "Interface",
                 "key": "options.volume.interface",
                 "size": [560, 44],
@@ -244,6 +256,7 @@
             "id": "reset_controls",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Reset to defaults",
                 "key": "options.resetControls",
                 "size": [560, 44],
@@ -270,6 +283,7 @@
             "id": "language",
             "components": {
               "Button": {
+                "autoSize": true,
                 "text": "Language: English",
                 "size": [560, 44],
                 "layer": 302
@@ -283,6 +297,7 @@
         "tags": ["back"],
         "components": {
           "Button": {
+            "autoSize": true,
             "text": "Back",
             "key": "menu.back",
             "layer": 302

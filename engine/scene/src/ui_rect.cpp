@@ -1,6 +1,8 @@
 #include "fa/scene/ui_rect.h"
 
 #include <algorithm>
+#include <cmath>
+#include <format>
 
 namespace fa {
 
@@ -100,6 +102,14 @@ std::pair<float, float> ui_slider_track(const Slider& s, const Rect& r) {
     const float labelW = s.label.empty() ? 0.0f : innerW * 0.35f;
     const float zone0 = inner0 + labelW, zoneW = innerW * (s.label.empty() ? 0.85f : 0.5f);
     return {zone0 + 8.0f, std::max(zone0 + 8.0f, zone0 + zoneW - 8.0f)};
+}
+
+std::string ui_slider_value_text(const Slider& s, float value) {
+    if (s.min == 0.0f && s.max == 1.0f) return std::format("{}%", int(std::lround(value * 100.0f)));
+    std::string t = std::format("{:.2f}", value);
+    while (t.back() == '0') t.pop_back();
+    if (t.back() == '.') t.pop_back();
+    return t;
 }
 
 }  // namespace fa
