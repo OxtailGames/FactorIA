@@ -73,6 +73,7 @@ void register_project_commands(Engine& engine, const std::string& projectDir) {
         register_api_export_commands(registry);
         register_setup_commands(registry);
     }
+    register_api_reference_command(registry, engine.scripts());
     {
         CommandInfo info;
         info.name = "project.templates";

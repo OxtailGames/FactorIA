@@ -387,8 +387,7 @@ Command make_api_command() {
                 j["scripting"] = s.engine().scripts().api_manifest();
                 text = dump_json(j);
             } else {
-                text = export_components_markdown() + "\n" + export_commands_markdown(s.registry()) +
-                       "\n## Scripting API (TypeScript declarations)\n\n```ts\n" + export_typescript(s.engine().scripts()) + "\n```\n";
+                text = export_api_markdown(s.registry(), s.engine().scripts());
             }
         }
         if (out.empty()) {

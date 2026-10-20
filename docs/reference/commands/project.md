@@ -1,0 +1,95 @@
+[Back to the index](../README.md)
+
+# Commands: project
+
+## `project.create` (modifies state)
+
+Create a new game project from a template.
+
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `dir` | string | yes | Target folder (created; must be empty or new). |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
+| `name` | string | no | Display name (default: folder name). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+
+## `project.export` (modifies state)
+
+Since 0.1.2.
+
+Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).
+
+Validates the project (factoria.json, name, mainScene, reverse-DNS id, the icon and export settings) and writes a fresh <out>/<game-slug>-<platform>/ folder (deleted and recreated on every call, but only when it is empty or an export wrote it: every export leaves a .factoria-export file at its top, and any other existing folder of that name is an error that says how to proceed, never deleted; the project itself is not modified). linux/windows/macos: the game plus the factoria_player runtime found next to the running factoria binary, so exporting for another OS than this machine's fails with a hint. android: a complete Gradle project that is then BUILT with its own Gradle wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build downloads Gradle and the Android Gradle plugin, so it takes minutes and needs network): `format` "apk" (default) or "aab" (Google Play bundle) leaves <slug>[-debug].apk/.aab next to the project and reports it as `artifact`; "gradle" only writes the project and builds nothing. `release` builds the release variant (signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the executable (no game/ folder, no loose scripts: they become bytecode unless export.scriptBytecode is false) and reports it as `pack` with the packed paths in `packed`. ios: the game plus an Xcode/CMake project and build_ios.sh. Android and iOS have a mode, reported as `mode`: "prebuilt" (the engine is the ready-made player in the mobile/ folder next to the factoria binary of the FactorIA download: no engine source, and for Android no NDK or CMake) or "source" (the engine is compiled from a source checkout, chosen by $FACTORIA_ENGINE_DIR or when factoria runs from a development build); with no players and no checkout the error says what to do. A failed Gradle build is an error that quotes what went wrong and where the log is (<out>/<slug>-android/build.log); the Gradle project stays on disk. linux with `format` "appimage" also builds the whole game as one <out>/<slug>-linux/<slug>-x86_64.AppImage (reported as `artifact`; needs Linux x86_64 or WSL and the tools of `setup.install` component appimage; the folder export stays). web: <slug>-web/ holds index.html (the loading page), factoria_player.js and factoria_player.wasm (the Emscripten player, found with `player`, else next to the factoria binary in web/, else installed by `setup.install` component players with platforms ["web"], else a web build of the engine source) and game.pak (the whole game, scripts as bytecode, always, whatever `release` says), and <out>/<slug>-web.zip next to the folder holds the same with index.html at its root: upload it to itch.io as an HTML5 game (`artifact`, format "zip"; `mode` says where the player came from: explicit, package, installed or build). A browser needs the folder served over http, not opened as a file (nextSteps has the command). macOS: sign and notarize the exported app with `sign.macos`. Every export also writes FACTORIA_NOTICES.txt, the licenses of the engine code inside the game, where it ships with it (`notices`). Returns {outputDir, mode (android/ios/web), format and artifact (android, web), pack (web too), notices, files[], nextSteps[], warnings[]}; nextSteps lists what to do next (e.g. the adb install command). dryRun: true runs every check and writes nothing (no Gradle either): it returns {platform, outputDir (the folder an export would replace), mode, format, artifact (the file a build would write) and toolchain (android: the JDK and SDK found and where from), player (desktop), warnings[]} or the error the export would give (e.g. no JDK installed). Details: docs_read {"name":"exporting"}. Examples: {"platform":"windows","release":true}, {"platform":"android","format":"aab","release":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `platform` | string | no | linux, windows, macos, android, ios or web (aliases win, mac, osx, html5 also work). web: a folder with index.html, the web player and game.pak, plus <slug>-web.zip next to it for itch.io. Default: the machine running factoria. |
+| `out` | string | no | Parent folder of the export, relative to the project folder and inside it. Default: build/export. |
+| `format` | string ["apk","aab","gradle","appimage"] | no | Android: apk (an installable app, the default unless export.android.format says otherwise), aab (the Google Play bundle) or gradle (only the Gradle project, nothing is built and no JDK or SDK is needed); apk and aab run Gradle and need a JDK 17+ and the Android SDK. Linux: appimage also builds <slug>-x86_64.AppImage, the whole game as one file (needs Linux x86_64 or WSL, and `setup.install` component appimage once). Other platforms ignore it. |
+| `release` | boolean | no | Android: build the release APK/AAB (signed with export.android.signing and the keystore passwords from FACTORIA_ANDROID_KEYSTORE_PASSWORD / FACTORIA_ANDROID_KEY_PASSWORD or ~/.factoria/export.json; without a keystore it is an error, see allowDebugKey). Desktop (linux, windows, macos): the game ships as ONE archive, game.pak, instead of the game/ folder, with the scripts compiled to bytecode unless export.scriptBytecode is false in factoria.json. iOS: only changes the build commands of the iOS script. Default false. |
+| `allowDebugKey` | boolean | no | Android release build without a keystore (no export.android.signing in factoria.json): sign with the debug key instead of failing. Fine for trying the build on your own device; Google Play rejects such an app, so never upload it. Create a real keystore for the store (keytool -genkeypair, or the editor's Platform settings > Android). Default false. |
+| `dryRun` | boolean | no | Only check whether the export can run (project, player or mobile mode, output folder): returns the plan or the error, writes nothing. Default false. |
+
+## `project.info`
+
+Show the project settings, input actions, current scene, scenes and scripts.
+
+Returns the parsed factoria.json plus {currentScene, scenes[], scripts[], prefabs[], sceneErrors}. Example: project.info {}
+
+## `project.new_ci_workflow` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Write a GitHub Actions workflow that validates, tests and exports the game on every push.
+
+Writes .github/workflows/factoria.yml into the game's folder. On every push to main or master and every pull request it installs FactorIA on an Ubuntu 24.04 runner (the release package of the SAME version as this factoria, checked against the SHA-256 GitHub lists; a build from source has no release of its own, so it follows the newest one and warns), installs the OpenGL/X11/Xvfb libraries, runs `factoria validate` and `factoria test` under xvfb-run, downloads the other players (`factoria setup players`), exports the game for Linux and Windows, and on a macOS runner for macOS, and uploads the exports as workflow artifacts (tar.gz; the Windows one is a zip). It never overwrites a file that differs unless `overwrite` is true (an identical file is left alone). Project templates do not carry the file: call this when the game goes on GitHub. A game in a subfolder of the repository: GitHub reads workflows only from the repository root, so write it with `workingDirectory` set to that folder and move the file to <repo>/.github/workflows/. Returns {path, written, dryRun, version, repo, platforms[], workflow (the YAML), warnings[], nextSteps[]}. Details: docs_read {"name":"exporting"}, "CI for your game". Examples: {}, {"platforms":["linux","windows"],"dryRun":true}, {"workingDirectory":"games/my-game","overwrite":true}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `platforms` | array | no | Which exports the workflow makes: linux, windows, macos (aliases win, mac, osx also work). Default: all three. |
+| `path` | string | no | The workflow file, relative to the project: .github/workflows/<name>.yml. Default: .github/workflows/factoria.yml. |
+| `workingDirectory` | string | no | The game's folder relative to the repository root when factoria.json is not at the root of the repository. Default ".". |
+| `version` | string | no | The FactorIA release the workflow downloads: "latest" or a version such as 0.1.6. Default: the version of this factoria (a build from source: latest, with a warning). |
+| `overwrite` | boolean | no | Replace the file when it exists and differs. Without it that is an error. Default false. |
+| `dryRun` | boolean | no | Return the workflow and what would happen; write nothing. Default false. |
+
+## `project.new_plugin` (modifies state)
+
+Since 0.1.6.
+
+Create a native plugin (C/C++) for this game and declare it in factoria.json.
+
+Writes a plugin folder (default plugins/<name>, or `path`: project-relative, absolute, or with ${VARIABLE} parts for a private folder outside the repository) holding src/plugin.c, include/fa_plugin.h (the whole C API), CMakeLists.txt, README.md and android/ (the Gradle module of its Android build), and adds "plugins": {"<name>": {"path", "platforms"}} to factoria.json (`platforms` defaults to this computer's). The plugin adds the script function plugins.<name>.add(a, b) and the command <name>.info: build it with CMake (nextSteps), then `factoria run` loads it. `template` (default "basic") picks another starting point: a platform backend for a store (the folders of platforms/plugins/ in the engine; docs/PLATFORM.md, "Writing a backend"). The name: lower-case letters, digits and underscores, not an engine area (scene, game, ...). Fails when factoria.json already declares the plugin or the folder is not empty. Returns {folder, files[], plugin, nextSteps[]}. Details: docs_read {"name":"extending"} (section G). Example: {"name": "example"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | The plugin's name: scripts call plugins.<name>.<function>() and its commands are <name>.<verb>. |
+| `template` | string | no | What to start from: "basic" (an example command and function) or a store backend template shipped with the engine (the folders of platforms/plugins/: they answer the game's platform.* calls, docs/PLATFORM.md). An unknown name lists the available ones. Default "basic". |
+| `path` | string | no | Its folder (default plugins/<name>): project-relative, absolute, or with ${VARIABLE} parts. |
+| `platforms` | array | no | The platforms it will be built for (default: this computer's). |
+
+## `project.templates`
+
+List the project templates `project.create` can start from.
+
+Returns [{name, description, dimension}]. Example: {}.
+
+## `project.test` (modifies state)
+
+Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
+
+Tests run inside this engine instance and change the world; reload the scene afterwards (scene.reload). `files` runs only those test files: project-relative paths, folders or globs such as tests/ui*.test.js (a path that is not a *.test.js file is an error that says what to pass). Example: project.test {"filter":"player","files":["tests/saves.test.js"]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `filter` | string | no | Only run test cases whose name contains this. |
+| `files` | array | no | Test files, folders or globs, project-relative (default: every tests/**/*.test.js). |
+
+## `project.validate`
+
+Check the whole project for errors: project file, scenes, assets, input bindings, scripts, feedback file.
+
+Run after every batch of edits. Returns {ok, errors[], warnings[]}; each issue has file, JSON pointer, message and a fix hint. Checks every *.scene.json and *.prefab.json of the project, wherever it is kept (scenes/, prefabs/, levels/...; folders starting with '.', node_modules and a top-level build/ are skipped, like scene.format). Loads every scene, and every prefab on its own, into a temporary world, so it does not disturb a running game; anything the loader refuses is an error with the JSON pointer, e.g. an unknown field or a value outside a field's range ("Field 'sides': value 200 is outside the allowed range 3..64"; the offending field keeps its default, nothing is clamped). Warns once per scene or prefab file that is not in the canonical layout (fix: scene.format), and reports a .json that a script imports and that is not valid JSON once, as that file with line and column. Example: {} Warns about Script.props keys that do not exist on the behaviour, and about behaviour methods that look like misspelled lifecycle hooks (update() or onupdate() instead of onUpdate()).
+

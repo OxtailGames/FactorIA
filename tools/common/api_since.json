@@ -471,6 +471,7 @@
     "docs.list": "0.1.0",
     "docs.read": "0.1.0",
     "docs.search": "0.1.0",
+    "docs.write_reference": "unreleased",
     "engine.info": "0.1.0",
     "feedback.list": "0.1.0",
     "feedback.report": "0.1.0",

@@ -1,6 +1,8 @@
 #include "fa/tooling/api_export.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <map>
 #include <sstream>
 
 #include "fa/core/reflect.h"
@@ -37,6 +39,61 @@ std::string since_line(const std::string& since) {
     if (since.empty() || since == "0.1.0") return {};
     return api_since_label(since) + ".";
 }
+// One component: heading, version mark, doc and the fields table. heading is "###" in the single file reference.
+void write_component(std::ostream& o, const Json& t, const char* heading) {
+    const std::string compSince = t.value("since", "");
+    o << heading << " " << t.value("name", "") << "\n\n";
+    if (!since_line(compSince).empty()) o << since_line(compSince) << "\n\n";
+    o << t.value("doc", "") << "\n\n";
+    if (t["fields"].empty()) { o << "_No fields._\n\n"; return; }
+    o << "| Field | Type | Default | Description |\n|---|---|---|---|\n";
+    for (const auto& f : t["fields"]) {
+        std::string type = f.value("kind", "");
+        if (f.contains("enum")) {
+            type = "enum: ";
+            bool first = true;
+            for (const auto& e : f["enum"]) { type += (first ? "" : " \\| ") + e.get<std::string>(); first = false; }
+        }
+        if (f.contains("assetType")) type += " (" + f["assetType"].get<std::string>() + ")";
+        std::string desc = f.value("doc", "");
+        if (f.contains("min")) desc += " Range " + short_json(f["min"]) + ".." + short_json(f["max"]) + ".";
+        if (f.value("readOnly", false)) desc += " Read-only.";
+        if (f.value("runtimeOnly", false)) desc += " Runtime-only (not saved).";
+        const std::string fieldSince = f.value("since", "");
+        if (!fieldSince.empty() && fieldSince != compSince && fieldSince != "0.1.0")
+            desc += fieldSince == "unreleased" ? " (not released yet, on main after " FA_ENGINE_VERSION ")" : " (since " + fieldSince + ")";
+        o << "| `" << f.value("name", "") << "` | " << md_escape(type) << " | "
+          << (f.contains("default") ? "`" + md_escape(short_json(f["default"])) + "`" : "") << " | " << md_escape(desc) << " |\n";
+    }
+    o << "\n";
+}
+
+// One command: heading, version mark, summary, description and the arguments table.
+void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
+    o << heading << " `" << c->name << "`" << (c->readOnly ? "" : " (modifies state)") << "\n\n";
+    const std::string since = since_line(api_since("commands", c->name));
+    if (!since.empty()) o << since << "\n\n";
+    o << c->summary << "\n\n";
+    if (!c->description.empty()) o << c->description << "\n\n";
+    const Json& props = c->inputSchema.contains("properties") ? c->inputSchema["properties"] : Json::object();
+    if (props.is_object() && !props.empty()) {
+        std::vector<std::string> required;
+        if (c->inputSchema.contains("required"))
+            for (const auto& r : c->inputSchema["required"]) required.push_back(r.get<std::string>());
+        o << "| Argument | Type | Required | Description |\n|---|---|---|---|\n";
+        for (auto it = props.begin(); it != props.end(); ++it) {
+            const Json& p = it.value();
+            std::string type = p.contains("type") && p["type"].is_string() ? p["type"].get<std::string>() : "any";
+            if (p.contains("enum")) type += " " + short_json(p["enum"]);
+            bool req = std::find(required.begin(), required.end(), it.key()) != required.end();
+            std::string desc = p.value("description", "");
+            if (p.contains("default")) desc += " Default " + short_json(p["default"]) + ".";
+            o << "| `" << it.key() << "` | " << md_escape(type) << " | " << (req ? "yes" : "no") << " | " << md_escape(desc) << " |\n";
+        }
+        o << "\n";
+    }
+}
+
 }  // namespace
 
 std::string api_since(std::string_view section, std::string_view key) {
@@ -89,31 +146,7 @@ std::string export_components_markdown() {
     for (const auto& t : all) {
         std::string cat = t.value("category", "");
         if (cat != lastCategory) { o << "## " << cat << "\n\n"; lastCategory = cat; }
-        const std::string compSince = t.value("since", "");
-        o << "### " << t.value("name", "") << "\n\n";
-        if (!since_line(compSince).empty()) o << since_line(compSince) << "\n\n";
-        o << t.value("doc", "") << "\n\n";
-        if (t["fields"].empty()) { o << "_No fields._\n\n"; continue; }
-        o << "| Field | Type | Default | Description |\n|---|---|---|---|\n";
-        for (const auto& f : t["fields"]) {
-            std::string type = f.value("kind", "");
-            if (f.contains("enum")) {
-                type = "enum: ";
-                bool first = true;
-                for (const auto& e : f["enum"]) { type += (first ? "" : " \\| ") + e.get<std::string>(); first = false; }
-            }
-            if (f.contains("assetType")) type += " (" + f["assetType"].get<std::string>() + ")";
-            std::string desc = f.value("doc", "");
-            if (f.contains("min")) desc += " Range " + short_json(f["min"]) + ".." + short_json(f["max"]) + ".";
-            if (f.value("readOnly", false)) desc += " Read-only.";
-            if (f.value("runtimeOnly", false)) desc += " Runtime-only (not saved).";
-            const std::string fieldSince = f.value("since", "");
-            if (!fieldSince.empty() && fieldSince != compSince && fieldSince != "0.1.0")
-                desc += fieldSince == "unreleased" ? " (not released yet, on main after " FA_ENGINE_VERSION ")" : " (since " + fieldSince + ")";
-            o << "| `" << f.value("name", "") << "` | " << md_escape(type) << " | "
-              << (f.contains("default") ? "`" + md_escape(short_json(f["default"])) + "`" : "") << " | " << md_escape(desc) << " |\n";
-        }
-        o << "\n";
+        write_component(o, t, "###");
     }
     return o.str();
 }
@@ -138,30 +171,113 @@ std::string export_commands_markdown(const CommandRegistry& registry) {
             lastCategory = c->category;
             o << "## " << (lastCategory.empty() ? "general" : lastCategory) << "\n\n";
         }
-        o << "### `" << c->name << "`" << (c->readOnly ? "" : " (modifies state)") << "\n\n";
-        const std::string since = since_line(api_since("commands", c->name));
-        if (!since.empty()) o << since << "\n\n";
-        o << c->summary << "\n\n";
-        if (!c->description.empty()) o << c->description << "\n\n";
-        const Json& props = c->inputSchema.contains("properties") ? c->inputSchema["properties"] : Json::object();
-        if (props.is_object() && !props.empty()) {
-            std::vector<std::string> required;
-            if (c->inputSchema.contains("required"))
-                for (const auto& r : c->inputSchema["required"]) required.push_back(r.get<std::string>());
-            o << "| Argument | Type | Required | Description |\n|---|---|---|---|\n";
-            for (auto it = props.begin(); it != props.end(); ++it) {
-                const Json& p = it.value();
-                std::string type = p.contains("type") && p["type"].is_string() ? p["type"].get<std::string>() : "any";
-                if (p.contains("enum")) type += " " + short_json(p["enum"]);
-                bool req = std::find(required.begin(), required.end(), it.key()) != required.end();
-                std::string desc = p.value("description", "");
-                if (p.contains("default")) desc += " Default " + short_json(p["default"]) + ".";
-                o << "| `" << it.key() << "` | " << md_escape(type) << " | " << (req ? "yes" : "no") << " | " << md_escape(desc) << " |\n";
-            }
-            o << "\n";
-        }
+        write_command(o, c, "###");
     }
     return o.str();
+}
+
+namespace {
+// File name of a category page: lowercase ASCII, "general" for an empty category.
+std::string category_file(const std::string& category) {
+    std::string out;
+    for (char c : category) {
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (ok) out += c;
+        else if (!out.empty() && out.back() != '-') out += '-';
+    }
+    while (!out.empty() && out.back() == '-') out.pop_back();
+    return out.empty() ? "general" : out;
+}
+
+// GitHub's anchor for a heading: lowercase, letters digits '_' '-' kept, spaces become '-', the rest dropped.
+std::string heading_anchor(const std::string& heading) {
+    std::string out;
+    for (char c : heading) {
+        if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') out += c;
+        else if (c == ' ') out += '-';
+    }
+    return out;
+}
+
+// First sentence of a doc string, on one line, for the index.
+std::string first_sentence(const std::string& doc) {
+    std::string line = doc.substr(0, doc.find('\n'));
+    size_t dot = line.find(". ");
+    if (dot != std::string::npos) line.resize(dot + 1);
+    return md_escape(line);
+}
+
+std::string index_mark(const std::string& since) {
+    if (since.empty() || since == "0.1.0") return {};
+    return since == "unreleased" ? " _Not released yet._" : " _" + api_since_label(since) + "._";
+}
+}  // namespace
+
+std::string export_api_markdown(const CommandRegistry& registry, const ScriptSystem& scripts) {
+    return export_components_markdown() + "\n" + export_commands_markdown(registry) +
+           "\n## Scripting API (TypeScript declarations)\n\n```ts\n" + export_typescript(scripts) + "\n```\n";
+}
+
+std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& registry, const ScriptSystem& scripts) {
+    std::vector<ApiReferencePage> pages;
+    pages.push_back({"COMPONENTS.md", export_api_markdown(registry, scripts)});
+
+    // Both kinds grouped by category (sorted), items sorted by name inside a category.
+    std::map<std::string, std::vector<Json>> comps;
+    for (const Json& t : export_components_json()) comps[t.value("category", "")].push_back(t);
+    for (auto& [cat, v] : comps)
+        std::sort(v.begin(), v.end(), [](const Json& a, const Json& b) { return a.value("name", "") < b.value("name", ""); });
+    std::map<std::string, std::vector<const CommandInfo*>> cmds;
+    for (const CommandInfo* c : registry.list()) cmds[c->category].push_back(c);
+
+    std::ostringstream idx;
+    idx << "# API reference\n\n"
+        << "Every component and every command of FactorIA, one page per category. The pages are generated from the engine itself "
+           "(`factoria call docs.write_reference '{\"out\":\"docs\"}'`), so they are exact for this version; a test fails when they "
+           "fall behind. The same data is available offline with `factoria api --md`, `factoria commands` and, over MCP, "
+           "`docs_components` and `docs_commands`. Use your browser's find (Ctrl+F) on this page to locate anything.\n\n"
+        << "Version marks: an entry added after 0.1.0 ends with \"(Since 0.1.x)\", and \"(Not released yet ...)\" means it is only "
+           "on the main branch, in no download. Nothing is shown for what existed in 0.1.0. If your factoria is older than a mark, "
+           "that item is missing there (`factoria --version`).\n\n"
+        << "## Components\n\n";
+    std::vector<ApiReferencePage> catPages;
+    for (const auto& [cat, v] : comps) {
+        const std::string file = "components/" + category_file(cat) + ".md";
+        std::ostringstream page;
+        page << "[Back to the index](../README.md)\n\n# Components: " << (cat.empty() ? "general" : cat) << "\n\n";
+        idx << "### [" << (cat.empty() ? "general" : cat) << "](" << file << ")\n\n";
+        for (const Json& t : v) {
+            const std::string name = t.value("name", "");
+            write_component(page, t, "##");
+            idx << "- [" << name << "](" << file << "#" << heading_anchor(name) << "): " << first_sentence(t.value("doc", ""))
+                << index_mark(t.value("since", "")) << "\n";
+        }
+        idx << "\n";
+        catPages.push_back({"reference/" + file, page.str()});
+    }
+    idx << "## Commands\n\n"
+        << "Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots become underscores) and a script "
+           "function (`fa.call(name, args)`). Commands of plugins (for example `steam.*`) and the project's own `tools/*.js` are not "
+           "listed: they depend on the project.\n\n";
+    for (const auto& [cat, v] : cmds) {
+        const std::string file = "commands/" + category_file(cat) + ".md";
+        std::ostringstream page;
+        page << "[Back to the index](../README.md)\n\n# Commands: " << (cat.empty() ? "general" : cat) << "\n\n";
+        idx << "### [" << (cat.empty() ? "general" : cat) << "](" << file << ")\n\n";
+        for (const CommandInfo* c : v) {
+            write_command(page, c, "##");
+            const std::string heading = "`" + c->name + "`" + (c->readOnly ? "" : " (modifies state)");
+            idx << "- [`" << c->name << "`](" << file << "#" << heading_anchor(heading) << "): " << md_escape(c->summary)
+                << index_mark(api_since("commands", c->name)) << "\n";
+        }
+        idx << "\n";
+        catPages.push_back({"reference/" + file, page.str()});
+    }
+    pages.push_back({"reference/README.md", idx.str()});
+    for (ApiReferencePage& p : catPages) pages.push_back(std::move(p));
+    return pages;
 }
 
 void register_api_export_commands(CommandRegistry& registry) {
@@ -194,6 +310,37 @@ void register_api_export_commands(CommandRegistry& registry) {
             if (tooling_detail::arg_string(args, "format", false, "markdown") == "json")
                 return Json::object({{"commands", export_commands_json(registry)}});
             return Json::object({{"markdown", export_commands_markdown(registry)}});
+        });
+    }
+}
+
+void register_api_reference_command(CommandRegistry& registry, const ScriptSystem& scripts) {
+    {
+        CommandInfo info;
+        info.name = "docs.write_reference";
+        info.category = "docs";
+        info.readOnly = false;
+        info.summary = "Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md.";
+        info.description =
+            "Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), "
+            "components/<category>.md and commands/<category>.md, all generated from the registries of this session. Run it outside "
+            "a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares "
+            "the committed files with this output. The files are identical on every platform. Example: {\"out\":\"docs\"} from the "
+            "repository root.";
+        info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"out"})},
+            {"properties", Json::object({{"out", Json::object({{"type", "string"},
+                {"description", "Docs folder to write into (relative to the working directory), usually \"docs\"."}})}})}});
+        registry.add(info, [&registry, &scripts](const Json& args) {
+            const std::filesystem::path out = std::filesystem::absolute(tooling_detail::arg_string(args, "out", true));
+            Json written = Json::array();
+            for (const ApiReferencePage& p : export_api_reference(registry, scripts)) {
+                std::string err;
+                if (!tooling_detail::write_file(out / p.path, p.text, &err))
+                    throw CommandError("write_failed", "Cannot write " + p.path + " under " + out.generic_string() + ": " + err,
+                                       "Check that the folder exists and is writable.");
+                written.push_back(p.path);
+            }
+            return Json::object({{"out", out.generic_string()}, {"written", written}});
         });
     }
 }
