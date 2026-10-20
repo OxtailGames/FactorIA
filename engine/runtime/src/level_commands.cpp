@@ -157,6 +157,7 @@ struct LegendEntry {
     Vec2 offset{0, 0};
     std::string idBase;  // prefix of generated ids
     int uses = 0;        // cells in rows using this entry
+    bool shared = false; // comes from `legendFrom` only (its unused entries are not warned about)
 };
 
 void parse_tile(LegendEntry& e, const Json& v, const std::string& what) {
@@ -696,7 +697,7 @@ Json apply_import(World& W, bool flushNow, const Request& q, const Grid& grid, s
     }
 
     for (const LegendEntry& e : legend)
-        if (e.uses == 0) diag.warn("legend['" + e.glyph + "'] is not used in rows.");
+        if (e.uses == 0 && !e.shared) diag.warn("legend['" + e.glyph + "'] is not used in rows.");
 
     Json out = Json::object();
     out["tilemap"] = q.mapId;
@@ -743,6 +744,78 @@ void apply_edits(World& scratch, const Json& edits) {
         }
 }
 
+// ---- prefab references in the written file
+// The scratch World holds every entity expanded, so save_scene writes the prefabs' contents into each level. The file is
+// better as it was authored: legend objects as {"id", "prefab", "tags", "components": {overrides + position}} and the base
+// scene's prefab entries as they were, so editing a prefab changes every level without importing again. Only entities
+// that no `edits` entry touches are turned back into references (an edit changes the expanded entity, which a reference
+// cannot express); the rest stay expanded. Entries without an id also stay expanded (nothing identifies them).
+struct PrefabRef {
+    Json ref;
+    bool fromLegend = false;  // the position comes from the written (expanded) entity
+};
+
+void collect_base_refs(const Json& entities, const std::string& skipId, std::map<std::string, PrefabRef>& out) {
+    if (!entities.is_array()) return;
+    for (const Json& ent : entities) {
+        if (!ent.is_object()) continue;
+        if (ent.contains("prefab") && ent.contains("id") && ent["id"].is_string() && ent["id"].get<std::string>() != skipId) {
+            out[ent["id"].get<std::string>()] = PrefabRef{ent, false};
+            continue;  // its children belong to the reference
+        }
+        if (ent.contains("children")) collect_base_refs(ent["children"], skipId, out);
+    }
+}
+
+bool subtree_edited(const Json& ent, const Json& edits) {
+    if (ent.contains("id") && ent["id"].is_string() && edits.contains(ent["id"].get<std::string>())) return true;
+    if (ent.contains("children") && ent["children"].is_array())
+        for (const Json& c : ent["children"])
+            if (c.is_object() && subtree_edited(c, edits)) return true;
+    return false;
+}
+
+void rewrite_prefab_refs(Json& entities, const std::map<std::string, PrefabRef>& refs, const Json& edits) {
+    if (!entities.is_array()) return;
+    for (Json& ent : entities) {
+        if (!ent.is_object()) continue;
+        if (ent.contains("id") && ent["id"].is_string()) {
+            auto it = refs.find(ent["id"].get<std::string>());
+            if (it != refs.end() && !subtree_edited(ent, edits)) {
+                Json ref = it->second.ref;
+                if (it->second.fromLegend && ent.contains("components") && ent["components"].contains("Transform") &&
+                    ent["components"]["Transform"].contains("position"))
+                    ref["components"]["Transform"]["position"] = ent["components"]["Transform"]["position"];
+                ent = std::move(ref);
+                continue;
+            }
+        }
+        if (ent.contains("children")) rewrite_prefab_refs(ent["children"], refs, edits);
+    }
+}
+
+std::map<std::string, PrefabRef> prefab_refs(const Request& q, const std::string& source, bool sourceExists,
+                                             const std::vector<Cell>& cells) {
+    std::map<std::string, PrefabRef> refs;
+    if (sourceExists)
+        if (auto raw = load_json_file(source); raw.ok() && raw.value().is_object() && raw.value().contains("entities"))
+            collect_base_refs(raw.value()["entities"], q.mapId, refs);
+    for (const Cell& cell : cells) {
+        if (!cell.has_object()) continue;
+        const LegendEntry& le = *cell.entry;
+        Json tags = Json::array();
+        if (auto pf = load_json_file(le.prefab); pf.ok() && pf.value().contains("entity") && pf.value()["entity"].contains("tags") &&
+                                                  pf.value()["entity"]["tags"].is_array())
+            tags = pf.value()["entity"]["tags"];
+        const std::string tag = kTagPrefix + q.mapId;
+        if (std::find(tags.begin(), tags.end(), Json(tag)) == tags.end()) tags.push_back(tag);
+        Json ref = Json::object({{"id", cell.id}, {"prefab", le.prefab}, {"tags", tags}});
+        ref["components"] = le.overrides;
+        refs[cell.id] = PrefabRef{ref, true};
+    }
+    return refs;
+}
+
 // File mode (`path`): the scene FILE is loaded into a scratch World, the map is imported into it and the result is
 // written back with the canonical writer (the same layout as scene.save). Nothing of the running engine is involved:
 // not its World, scenes, physics, audio or scripts; a scratch World is plain data. The reads go through the VFS (prefab
@@ -785,6 +858,8 @@ Json import_into_scene_file(const Request& q, const Grid& grid, std::vector<Lege
     apply_edits(scratch, q.edits);  // after the import, so they can also reach what it placed; before the write, so a wrong one writes nothing
 
     Json scene = save_scene(scratch);
+    if (scene.contains("entities"))
+        rewrite_prefab_refs(scene["entities"], prefab_refs(q, source, !startedEmpty, cells), q.edits);
     out["path"] = q.path;
     out["from"] = startedEmpty ? Json(nullptr) : Json(source);
     out["entityCount"] = scratch.entity_count();
@@ -821,11 +896,43 @@ Json import_into_scene_file(const Request& q, const Grid& grid, std::vector<Lege
     return out;
 }
 
+// `legendFrom` (a project-relative JSON file holding a legend, or {"legend": {...}}) merged UNDER the map's own `legend`.
+Json merged_legend(const Json& a) {
+    Json own = a.contains("legend") ? a["legend"] : Json::object();
+    if (!a.contains("legendFrom")) return own;
+    const Json& lf = a["legendFrom"];
+    if (!lf.is_string() || lf.get<std::string>().empty())
+        bad_arg("'legendFrom' must be a project-relative JSON file path, got " + describe_json_value(lf),
+                "Example: \"legendFrom\": \"levels/legend.json\" (a file with the legend object: {\"#\": 0, \"o\": {...}}).");
+    auto norm = fs::normalize_checked(lf.get<std::string>());
+    if (!norm.ok()) bad_arg("'legendFrom': " + norm.error().message, norm.error().hint);
+    const std::string& file = norm.value();
+    if (!fs::exists(file)) {
+        std::vector<std::string> jsons = fs::list("", true, ".json");
+        bad_arg("'legendFrom' file '" + file + "' does not exist. " + did_you_mean(file, jsons),
+                "It is a JSON file with the shared legend, e.g. levels/legend.json: {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}.");
+    }
+    auto shared = load_json_file(file);
+    if (!shared.ok()) bad_arg("'legendFrom': " + shared.error().message, shared.error().hint);
+    Json base = shared.value();
+    if (base.is_object() && base.contains("legend") && base["legend"].is_object()) base = base["legend"];
+    if (!base.is_object())
+        bad_arg("'legendFrom' file '" + file + "' must hold a legend object, got " + describe_json_value(base),
+                "Example: {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}.");
+    if (!own.is_object()) return own;  // parse_legend reports it
+    for (auto it = own.begin(); it != own.end(); ++it) base[it.key()] = it.value();
+    return base;
+}
+
 Json import_ascii(Engine::Impl& I, const Json& a) {
     // ---- 1. Everything that can be checked from the arguments alone.
     const Grid grid = parse_rows(a);
-    if (!a.contains("legend")) bad_arg("Missing 'legend'", "Example: \"legend\": {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}.");
-    std::vector<LegendEntry> legend = parse_legend(a["legend"]);
+    if (!a.contains("legend") && !a.contains("legendFrom"))
+        bad_arg("Missing 'legend'", "Example: \"legend\": {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}, "
+                                    "or \"legendFrom\": \"levels/legend.json\" for a legend shared by several maps.");
+    std::vector<LegendEntry> legend = parse_legend(merged_legend(a));
+    if (a.contains("legendFrom"))
+        for (LegendEntry& e : legend) e.shared = !(a.contains("legend") && a["legend"].is_object() && a["legend"].contains(e.glyph));
     std::vector<Cell> cells = resolve_cells(grid, legend);
     const Request q = parse_request(I, a);
 
@@ -866,11 +973,17 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "ids are `id` from the legend (unique objects such as \"player\") or generated in row-major order as <prefab name>_<n> "
          "(coin_1, coin_2...); every object is tagged \"tilemap:<entity>\". With `replace` (default true) the objects of earlier "
          "imports into the same tilemap are destroyed first, so re-importing an edited map does not duplicate them. "
+         "`legendFrom` names a JSON file with a legend shared by several maps (e.g. \"levels/legend.json\"); it is merged under "
+         "`legend` (the map's own entry wins for a glyph) and its unused entries are not warned about. "
          "TWO WAYS TO USE IT. (1) With `path` it edits that scene FILE and nothing else: the file (or `from`, a base scene to "
          "start from; a missing `path` without `from` starts as an empty scene) is loaded into a scratch world, the map is "
          "imported into it and the result is written to `path` in the canonical layout of scene.save. The running world, "
          "audio, physics and scripts are not touched, so it is safe to call from a tool or a one-shot `factoria call` and the "
-         "file can be rebuilt as often as needed. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` "
+         "file can be rebuilt as often as needed. The file keeps PREFAB REFERENCES instead of expanding prefabs: each legend "
+         "object is written as {\"id\", \"prefab\", \"tags\", \"components\": {the legend overrides + Transform.position}} and the "
+         "prefab entries of the base scene stay as they are, so editing a prefab file changes every level without importing "
+         "again and level files stay small (a scene loaded into the world still expands them). An entity that `edits` "
+         "touches, or a base prefab entry without an `id`, is written expanded. `dryRun` writes nothing and returns the scene JSON in `scene`. `edits` "
          "(file mode only) patches components of that scene's entities right after the map is imported and before the write, "
          "e.g. the camera and sky colour of a base scene: {\"<entity id>\": {\"<Component>\": {field: value}}}, each entry "
          "exactly scene.set_component (a missing component is added, only the given fields change, and a value outside a field's "
@@ -892,11 +1005,13 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "\"tilemap\":{\"tileset\":\"assets/tiles.png\",\"tileSize\":[32,32],\"solidTiles\":[0]},"
          "\"anchor\":\"bottom-left\",\"position\":[0,0],\"path\":\"scenes/level1.scene.json\","
          "\"from\":\"levels/base.scene.json\"}",
-         parse_schema(R"json({"type":"object","required":["rows","legend"],"properties":{
+         parse_schema(R"json({"type":"object","required":["rows"],"properties":{
                "rows":{"type":"array","minItems":1,"items":{"type":"string"},
                        "description":"The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length."},
                "legend":{"type":"object",
                          "description":"Glyph -> tile index (integer, -1 = empty) or {tile?: int, rotate?: 0|90|180|270 (clockwise), flipX?: bool, flipY?: bool, prefab?: 'prefabs/x.prefab.json', id?: 'player', overrides?: {Component: {fields}}, offset?: [dx, dy]}. '.' and ' ' mean empty unless defined here."},
+               "legendFrom":{"type":"string",
+                             "description":"Project-relative JSON file with a SHARED legend (e.g. levels/legend.json: {\"#\": 0, \"o\": {\"prefab\": \"prefabs/coin.prefab.json\"}}), merged UNDER `legend`: the map's own entries win for the same glyph. Entries only the shared file defines are not warned about when unused. `legend` may then be omitted."},
                "tilemap":{"type":"object",
                           "description":"Tilemap field values (tileset, tileSize, columns, solidTiles, color, layer) applied to the new or existing tilemap. The grid itself comes from rows/legend."},
                "entity":{"type":"string","default":"tilemap","description":"Id of the tilemap entity: created if missing, updated if it exists."},

@@ -130,80 +130,7 @@
     },
     {
       "id": "touch_controls",
-      "name": "Touch controls",
-      "children": [
-        {
-          "id": "touch_left",
-          "components": {
-            "Transform": {
-              "position": [40.0, -40.0, 0.0]
-            },
-            "TouchButton": {
-              "size": [120.0, 120.0],
-              "pivot": [0.0, 0.0],
-              "anchor": [0.0, 1.0],
-              "layer": 120,
-              "color": [1.0, 1.0, 1.0, 0.3],
-              "button": "DpadLeft",
-              "text": "<",
-              "fontSize": 44.0
-            }
-          }
-        },
-        {
-          "id": "touch_right",
-          "components": {
-            "Transform": {
-              "position": [184.0, -40.0, 0.0]
-            },
-            "TouchButton": {
-              "size": [120.0, 120.0],
-              "pivot": [0.0, 0.0],
-              "anchor": [0.0, 1.0],
-              "layer": 120,
-              "color": [1.0, 1.0, 1.0, 0.3],
-              "button": "DpadRight",
-              "text": ">",
-              "fontSize": 44.0
-            }
-          }
-        },
-        {
-          "id": "touch_jump",
-          "components": {
-            "Transform": {
-              "position": [-40.0, -40.0, 0.0]
-            },
-            "TouchButton": {
-              "size": [140.0, 140.0],
-              "pivot": [1.0, 0.0],
-              "anchor": [1.0, 1.0],
-              "layer": 120,
-              "color": [1.0, 1.0, 1.0, 0.3],
-              "text": "^",
-              "fontSize": 56.0
-            }
-          }
-        },
-        {
-          "id": "touch_pause",
-          "components": {
-            "Transform": {
-              "position": [-24.0, 64.0, 0.0]
-            },
-            "TouchButton": {
-              "size": [64.0, 64.0],
-              "pivot": [1.0, 1.0],
-              "anchor": [1.0, 0.0],
-              "layer": 120,
-              "color": [1.0, 1.0, 1.0, 0.3],
-              "button": "Start",
-              "text": "II",
-              "fontSize": 28.0
-            }
-          }
-        }
-      ]
+      "prefab": "prefabs/ui/touch_controls.prefab.json"
     },
     {
       "id": "hud",
@@ -289,899 +216,246 @@
     },
     {
       "id": "player",
-      "name": "Player",
+      "prefab": "prefabs/player.prefab.json",
       "tags": ["player", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [112.0, 344.0, 0.0]
-        },
-        "Shape2D": {
-          "size": [32.0, 48.0],
-          "color": [0.28, 0.5, 0.62, 1.0],
-          "layer": 5
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [32.0, 48.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/player.js",
-          "props": {
-            "speed": 300,
-            "jumpSpeed": 620
-          }
         }
-      },
-      "children": [
-        {
-          "id": "e20",
-          "name": "Lantern",
-          "components": {
-            "Transform": {
-              "position": [16.0, 0.0, 0.0]
-            },
-            "Light2D": {
-              "color": [1.0, 0.78, 0.42, 1.0],
-              "intensity": 1.25,
-              "radius": 320.0,
-              "falloff": 1.6,
-              "height": 60.0
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [14.0, 14.0],
-              "color": [1.0, 0.85, 0.4, 1.0],
-              "layer": 6
-            }
-          },
-          "children": [
-            {
-              "id": "e21",
-              "name": "Glow",
-              "components": {
-                "Shape2D": {
-                  "shape": "circle",
-                  "size": [38.0, 38.0],
-                  "color": [1.0, 0.7, 0.25, 0.22],
-                  "layer": 6,
-                  "blend": "additive"
-                }
-              }
-            }
-          ]
-        }
-      ]
+      }
     },
     {
       "id": "ember_1",
-      "name": "Ember",
+      "prefab": "prefabs/ember.prefab.json",
       "tags": ["ember", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1136.0, 272.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "diamond",
-          "size": [22.0, 28.0],
-          "color": [1.0, 0.5, 0.1, 1.0],
-          "layer": 4
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "isTrigger": true
-        },
         "Script": {
-          "path": "scripts/ember.js",
           "props": {
             "index": 0
           }
-        }
-      },
-      "children": [
-        {
-          "id": "e23",
-          "name": "Core",
-          "components": {
-            "Shape2D": {
-              "shape": "diamond",
-              "size": [9.0, 13.0],
-              "color": [1.0, 0.92, 0.5, 1.0],
-              "layer": 4
-            }
-          }
         },
-        {
-          "id": "e24",
-          "name": "Glow",
-          "components": {
-            "Shape2D": {
-              "shape": "circle",
-              "size": [46.0, 46.0],
-              "color": [1.0, 0.55, 0.15, 0.22],
-              "layer": 4,
-              "blend": "additive"
-            }
-          }
-        },
-        {
-          "id": "e25",
-          "name": "Edge",
-          "components": {
-            "Shape2D": {
-              "shape": "diamond",
-              "size": [22.0, 28.0],
-              "color": [0.2, 0.08, 0.02, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 5
-            }
-          }
+        "Transform": {
+          "position": [1136.0, 272.0, 0.0]
         }
-      ]
+      }
     },
     {
       "id": "ember_3",
-      "name": "Ember",
+      "prefab": "prefabs/ember.prefab.json",
       "tags": ["ember", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [5104.0, 272.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "diamond",
-          "size": [22.0, 28.0],
-          "color": [1.0, 0.5, 0.1, 1.0],
-          "layer": 4
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "isTrigger": true
-        },
         "Script": {
-          "path": "scripts/ember.js",
           "props": {
             "index": 2
           }
-        }
-      },
-      "children": [
-        {
-          "id": "e27",
-          "name": "Core",
-          "components": {
-            "Shape2D": {
-              "shape": "diamond",
-              "size": [9.0, 13.0],
-              "color": [1.0, 0.92, 0.5, 1.0],
-              "layer": 4
-            }
-          }
         },
-        {
-          "id": "e28",
-          "name": "Glow",
-          "components": {
-            "Shape2D": {
-              "shape": "circle",
-              "size": [46.0, 46.0],
-              "color": [1.0, 0.55, 0.15, 0.22],
-              "layer": 4,
-              "blend": "additive"
-            }
-          }
-        },
-        {
-          "id": "e29",
-          "name": "Edge",
-          "components": {
-            "Shape2D": {
-              "shape": "diamond",
-              "size": [22.0, 28.0],
-              "color": [0.2, 0.08, 0.02, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 5
-            }
-          }
+        "Transform": {
+          "position": [5104.0, 272.0, 0.0]
         }
-      ]
+      }
     },
     {
       "id": "ember_2",
-      "name": "Ember",
+      "prefab": "prefabs/ember.prefab.json",
       "tags": ["ember", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [2256.0, 240.0, 0.0]
-        },
-        "Shape2D": {
-          "shape": "diamond",
-          "size": [22.0, 28.0],
-          "color": [1.0, 0.5, 0.1, 1.0],
-          "layer": 4
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "shape": "circle",
-          "isTrigger": true
-        },
         "Script": {
-          "path": "scripts/ember.js",
           "props": {
             "index": 1
           }
-        }
-      },
-      "children": [
-        {
-          "id": "e31",
-          "name": "Core",
-          "components": {
-            "Shape2D": {
-              "shape": "diamond",
-              "size": [9.0, 13.0],
-              "color": [1.0, 0.92, 0.5, 1.0],
-              "layer": 4
-            }
-          }
         },
-        {
-          "id": "e32",
-          "name": "Glow",
-          "components": {
-            "Shape2D": {
-              "shape": "circle",
-              "size": [46.0, 46.0],
-              "color": [1.0, 0.55, 0.15, 0.22],
-              "layer": 4,
-              "blend": "additive"
-            }
-          }
-        },
-        {
-          "id": "e33",
-          "name": "Edge",
-          "components": {
-            "Shape2D": {
-              "shape": "diamond",
-              "size": [22.0, 28.0],
-              "color": [0.2, 0.08, 0.02, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 5
-            }
-          }
+        "Transform": {
+          "position": [2256.0, 240.0, 0.0]
         }
-      ]
+      }
     },
     {
       "id": "one_way_platform_1",
-      "name": "One-way platform",
+      "prefab": "prefabs/one_way_platform.prefab.json",
       "tags": ["platform", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [2256.0, 218.0, 0.0]
-        },
         "Sprite": {
-          "size": [96.0, 12.0],
-          "color": [0.85, 0.68, 0.38, 1.0],
-          "layer": 1,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [96.0, 12.0],
-          "oneWay": true
+        "Transform": {
+          "position": [2256.0, 218.0, 0.0]
         }
       }
     },
     {
       "id": "checkpoint_1",
-      "name": "Checkpoint",
+      "prefab": "prefabs/checkpoint.prefab.json",
       "tags": ["checkpoint", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [976.0, 152.0, 0.0]
-        },
-        "Shape2D": {
-          "size": [6.0, 48.0],
-          "color": [0.36, 0.3, 0.3, 1.0],
-          "layer": 2
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [40.0, 56.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/checkpoint.js"
         }
-      },
-      "children": [
-        {
-          "id": "e36",
-          "name": "Flame",
-          "components": {
-            "Transform": {
-              "position": [0.0, 30.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [22.0, 22.0],
-              "color": [0.85, 0.85, 0.9, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 4
-            }
-          }
-        },
-        {
-          "id": "e37",
-          "name": "Rim",
-          "components": {
-            "Transform": {
-              "position": [0.0, 30.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [28.0, 28.0],
-              "color": [0.05, 0.05, 0.08, 1.0],
-              "filled": false,
-              "layer": 3
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "id": "spikes_1",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1104.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [1104.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_2",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1136.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [1136.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_3",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [1168.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [1168.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "checkpoint_2",
-      "name": "Checkpoint",
+      "prefab": "prefabs/checkpoint.prefab.json",
       "tags": ["checkpoint", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [1584.0, 152.0, 0.0]
-        },
-        "Shape2D": {
-          "size": [6.0, 48.0],
-          "color": [0.36, 0.3, 0.3, 1.0],
-          "layer": 2
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [40.0, 56.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/checkpoint.js"
         }
-      },
-      "children": [
-        {
-          "id": "e42",
-          "name": "Flame",
-          "components": {
-            "Transform": {
-              "position": [0.0, 30.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [22.0, 22.0],
-              "color": [0.85, 0.85, 0.9, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 4
-            }
-          }
-        },
-        {
-          "id": "e43",
-          "name": "Rim",
-          "components": {
-            "Transform": {
-              "position": [0.0, 30.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [28.0, 28.0],
-              "color": [0.05, 0.05, 0.08, 1.0],
-              "filled": false,
-              "layer": 3
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "id": "enemy_1",
-      "name": "Gloom",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [2800.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [40.0, 30.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [38.0, 28.0],
-          "friction": 0.0
-        },
-        "Script": {
-          "path": "scripts/enemy.js",
-          "props": {
-            "speed": 70,
-            "dir": -1
-          }
+        "Transform": {
+          "position": [2800.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_4",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [3920.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [3920.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_5",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [3952.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [3952.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "checkpoint_3",
-      "name": "Checkpoint",
+      "prefab": "prefabs/checkpoint.prefab.json",
       "tags": ["checkpoint", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [4368.0, 152.0, 0.0]
-        },
-        "Shape2D": {
-          "size": [6.0, 48.0],
-          "color": [0.36, 0.3, 0.3, 1.0],
-          "layer": 2
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [40.0, 56.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/checkpoint.js"
         }
-      },
-      "children": [
-        {
-          "id": "e48",
-          "name": "Flame",
-          "components": {
-            "Transform": {
-              "position": [0.0, 30.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [22.0, 22.0],
-              "color": [0.85, 0.85, 0.9, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 4
-            }
-          }
-        },
-        {
-          "id": "e49",
-          "name": "Rim",
-          "components": {
-            "Transform": {
-              "position": [0.0, 30.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [28.0, 28.0],
-              "color": [0.05, 0.05, 0.08, 1.0],
-              "filled": false,
-              "layer": 3
-            }
-          }
-        }
-      ]
+      }
     },
     {
       "id": "enemy_2",
-      "name": "Gloom",
+      "prefab": "prefabs/enemy.prefab.json",
       "tags": ["enemy", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [5648.0, 144.0, 0.0]
-        },
-        "Sprite": {
-          "texture": "assets/enemy.png",
-          "size": [40.0, 30.0],
-          "layer": 3,
-          "pixelArt": false,
-          "lit": true
-        },
-        "RigidBody2D": {
-          "fixedRotation": true
-        },
-        "Collider2D": {
-          "size": [38.0, 28.0],
-          "friction": 0.0
-        },
         "Script": {
-          "path": "scripts/enemy.js",
           "props": {
-            "speed": 70,
             "dir": 1
           }
+        },
+        "Sprite": {
+          "lit": true
+        },
+        "Transform": {
+          "position": [5648.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_6",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [6352.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [6352.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_7",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [6384.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [6384.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "spikes_8",
-      "name": "Spikes",
+      "prefab": "prefabs/spikes.prefab.json",
       "tags": ["hazard", "tilemap:map"],
       "components": {
-        "Transform": {
-          "position": [6416.0, 144.0, 0.0]
-        },
         "Sprite": {
-          "texture": "assets/spikes.png",
-          "size": [32.0, 32.0],
-          "layer": 3,
-          "pixelArt": false,
           "lit": true
         },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [24.0, 18.0],
-          "offset": [0.0, -6.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/hazard.js",
-          "props": {
-            "cause": "spikes"
-          }
+        "Transform": {
+          "position": [6416.0, 144.0, 0.0]
         }
       }
     },
     {
       "id": "exit",
-      "name": "Exit",
+      "prefab": "prefabs/exit.prefab.json",
       "tags": ["exit", "tilemap:map"],
       "components": {
         "Transform": {
           "position": [7696.0, 168.0, 0.0]
-        },
-        "Shape2D": {
-          "size": [14.0, 80.0],
-          "color": [0.3, 0.24, 0.2, 1.0],
-          "layer": 2
-        },
-        "RigidBody2D": {
-          "type": "static"
-        },
-        "Collider2D": {
-          "size": [64.0, 320.0],
-          "offset": [0.0, 120.0],
-          "isTrigger": true
-        },
-        "Script": {
-          "path": "scripts/exit.js"
         }
-      },
-      "children": [
-        {
-          "id": "e55",
-          "name": "Lamp",
-          "components": {
-            "Transform": {
-              "position": [0.0, 44.0, 0.0]
-            },
-            "Shape2D": {
-              "size": [44.0, 40.0],
-              "color": [1.0, 0.82, 0.3, 1.0],
-              "layer": 3
-            }
-          }
-        },
-        {
-          "id": "e56",
-          "name": "Flame",
-          "components": {
-            "Transform": {
-              "position": [0.0, 44.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "star",
-              "size": [30.0, 30.0],
-              "color": [1.0, 1.0, 0.85, 1.0],
-              "layer": 4,
-              "points": 8
-            }
-          }
-        },
-        {
-          "id": "e57",
-          "name": "Glow",
-          "components": {
-            "Transform": {
-              "position": [0.0, 44.0, 0.0]
-            },
-            "Shape2D": {
-              "shape": "circle",
-              "size": [150.0, 150.0],
-              "color": [1.0, 0.75, 0.25, 0.3],
-              "layer": 3,
-              "blend": "additive"
-            }
-          }
-        },
-        {
-          "id": "e58",
-          "name": "Beam",
-          "components": {
-            "Transform": {
-              "position": [0.0, 170.0, 0.0]
-            },
-            "Shape2D": {
-              "size": [22.0, 300.0],
-              "color": [1.0, 0.85, 0.4, 0.16],
-              "layer": 2,
-              "blend": "additive"
-            }
-          }
-        },
-        {
-          "id": "e59",
-          "name": "LampEdge",
-          "components": {
-            "Transform": {
-              "position": [0.0, 44.0, 0.0]
-            },
-            "Shape2D": {
-              "size": [44.0, 40.0],
-              "color": [0.1, 0.06, 0.02, 1.0],
-              "filled": false,
-              "thickness": 3.0,
-              "layer": 5
-            }
-          }
-        }
-      ]
+      }
     }
   ]
 }
