@@ -36,7 +36,7 @@
   "category": "ألعاب > منصات",
   "ageNotes": "لا عنف سوى أعداء كرتونيين يعيدونك إلى نقطة الحفظ؛ لا دردشة نصية؛ المشتريات للمظاهر التجميلية فقط.",
   "screenshots": [
-    ".store/screenshots/steam-1920x1080-*.png",
-    ".store/screenshots/phone-landscape-*.png"
+    "store/screenshots/steam-1920x1080-*.png",
+    "store/screenshots/phone-landscape-*.png"
   ]
 }

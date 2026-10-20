@@ -1,7 +1,7 @@
 // @ts-check
 // The level end panel (prefabs/ui/level_end.prefab.json): time, best time, embers and deaths, then Next / Retry / Menu.
 // level.js spawns it inactive and fills `result` (the level_completed payload) and `info` (what progress.record answered)
-// before it shows it. The game is paused while it is open, hence runWhilePaused. The pad drives it: Next has the focus.
+// before it shows it; onEnable then writes the panel. The game is paused while it is open, hence runWhilePaused. The pad drives it: Next has the focus.
 import { Behaviour, ui, i18n, world } from "factoria";
 import { next, EMBERS_PER_LEVEL } from "../levels.js";
 import { startLevel, openMenu } from "../flow.js";
@@ -15,14 +15,12 @@ export default class LevelEnd extends Behaviour {
   /** What progress.record returned: { firstCompletion, newBest, bestTime, previousBest }. */
   info = null;
 
-  /** Called by level.js when the exit is touched: fills the panel at once (onStart only runs a frame later) and shows it. */
-  open(result, info) {
-    this.result = result;
-    this.info = info;
+  /** Every time level.js shows the panel (before the frame is drawn): lays it out and writes the result. */
+  onEnable() {
+    if (!this.result) return;
     this.arrange();
-    world.find("end_next").active = next(result.level) !== null; // the last level has nothing after it
+    world.find("end_next").active = next(this.result.level) !== null; // the last level has nothing after it
     this.refresh();
-    this.entity.active = true;
   }
 
   onStart() {

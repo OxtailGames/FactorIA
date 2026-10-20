@@ -121,8 +121,7 @@ test("achievements: not signed in, a network error and no store each say so; Ref
   await open("achievements_button", "achievements"); // coming back asks again
   expect(rows("ach_list").length).toBe(8);
 
-  const has = platform.has;
-  platform.has = () => false; // the `none` backend: an exported game without a store plugin
+  game.platform.set({ backend: "none" }); // an exported game without a store plugin
   try {
     pad().tap("B");
     await open("achievements_button", "achievements");
@@ -133,7 +132,7 @@ test("achievements: not signed in, a network error and no store each say so; Ref
     pad().tap("B");
     expect(game.find("main_menu").active).toBe(true); // nothing is stuck
   } finally {
-    platform.has = has;
+    game.platform.reset();
   }
 });
 
@@ -194,8 +193,7 @@ test("the leaderboards screen with no times, signed out, a network error, no sto
   expect(button("lb_range")).toBe("Ver: Mejores");
   expect(text("lb_own")).toBe("Tu mejor tiempo: 0:41.20 (puesto 2)");
 
-  const has = platform.has;
-  platform.has = () => false;
+  game.platform.set({ backend: "none" });
   try {
     await press("lb_refresh");
     expect(text("lb_status")).toContain("no está conectada");
@@ -203,7 +201,7 @@ test("the leaderboards screen with no times, signed out, a network error, no sto
     pad().tap("B");
     expect(game.find("main_menu").active).toBe(true);
   } finally {
-    platform.has = has;
+    game.platform.reset();
   }
 });
 
@@ -357,10 +355,9 @@ test("without a store the shop explains it, keeps what the player already owns a
   fresh();
   await open("shop_button", "shop");
   await press("shop_buy_supporter");
-  const has = platform.has;
   try {
     pad().tap("B");
-    platform.has = () => false;
+    game.platform.set({ backend: "none" });
     game.load("scenes/menu.scene.json"); // a new run of the game, now without a store
     game.step(2);
     await open("shop_button", "shop");
@@ -376,15 +373,14 @@ test("without a store the shop explains it, keeps what the player already owns a
     pad().tap("B");
     expect(game.find("main_menu").active).toBe(true);
   } finally {
-    platform.has = has;
+    game.platform.reset();
   }
 });
 
 test("without a store the buy buttons are greyed out and the pad still has a focus on the shop", async () => {
   fresh();
-  const has = platform.has;
   try {
-    platform.has = () => false;
+    game.platform.set({ backend: "none" });
     game.load("scenes/menu.scene.json"); // a new run of the game, now without a store
     game.step(2);
     await open("shop_button", "shop");
@@ -401,7 +397,7 @@ test("without a store the buy buttons are greyed out and the pad still has a foc
     pad().tap("A");
     expect(game.find("main_menu").active).toBe(true);
   } finally {
-    platform.has = has;
+    game.platform.reset();
   }
 });
 

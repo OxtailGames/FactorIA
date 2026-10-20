@@ -5,8 +5,7 @@ import { Behaviour, ui, game, session, i18n } from "factoria";
 import { applyOnce } from "./settings.js";
 import { MenuStack } from "./ui/menu_stack.js";
 import * as saves from "./saves.js";
-import { openSlots } from "./ui/slots.js";
-import { refreshSelect } from "./ui/level_select.js";
+import { syncSlots } from "./ui/slots.js";
 import { fitWidgets } from "./ui/text_fit.js";
 
 export default class MainMenu extends Behaviour {
@@ -36,13 +35,12 @@ export default class MainMenu extends Behaviour {
 
   showSlots() {
     this.menus.show("slots");
-    openSlots();
+    syncSlots();
   }
 
   /** Shows the level select over the slot screen (`viaSlots`) or over the main menu, so Back returns where it came from. */
   openSelect(viaSlots) {
     if (viaSlots) this.menus.show("slots");
     this.menus.show("level_select");
-    refreshSelect();
   }
 }

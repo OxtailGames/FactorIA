@@ -20,6 +20,7 @@
   "icon": "assets/icon.png",
   "export": {
     "scriptBytecode": true,
+    "exclude": ["levels/**", "screenshots/**", "store/**"],
     "macos": { "category": "public.app-category.games", "minimumSystemVersion": "11.0", "copyright": "Copyright 2026 Oxtail Games" },
     "linux": { "categories": ["Game", "ArcadeGame"] },
     "android": {

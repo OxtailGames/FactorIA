@@ -1,15 +1,14 @@
 """Store screenshots, from headless runs (no window, no GPU needed): python tools/make_screenshots.py [path to factoria]
 
 The engine draws at the design size (1280x720) and has no render-scale option, so the store sizes are the 1280x720
-renders enlarged with Lanczos (exactly 1.5x for 1920x1080). Writes .store/screenshots/*.png (a dot-folder, because a folder of the project ships inside
-every export and the export has no exclude list, see ENGINE_FEEDBACK.json).
+renders enlarged with Lanczos (exactly 1.5x for 1920x1080). Writes store/screenshots/*.png (git-ignored; `export.exclude` in factoria.json keeps store/ out of every export).
 """
 import json, os, subprocess, sys
 from PIL import Image
 
 FACTORIA = sys.argv[1] if len(sys.argv) > 1 else "factoria"
 TMP = ".factoria/tmp"
-OUT = ".store/screenshots"
+OUT = "store/screenshots"
 # centres of the buttons with the phone-landscape safe area: the buttons move in by its 89 px side insets
 RIGHT, JUMP = [244 + 89, 620], [1170 - 89, 610]
 os.makedirs(TMP, exist_ok=True)
