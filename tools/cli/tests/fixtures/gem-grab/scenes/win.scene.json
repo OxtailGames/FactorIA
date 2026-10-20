@@ -1,0 +1,33 @@
+{
+  "format": "factoria.scene/1",
+  "entities": [
+    {
+      "id": "camera",
+      "name": "Main Camera",
+      "components": {
+        "Camera": {
+          "projection": "orthographic",
+          "clearColor": [0.08, 0.09, 0.14, 1],
+          "primary": true
+        }
+      }
+    },
+    {
+      "id": "win_text",
+      "name": "Win text",
+      "components": {
+        "Text": {
+          "text": "You win!\nPress Space to play again",
+          "fontSize": 48,
+          "align": "center",
+          "pivot": [0.5, 0.5],
+          "space": "screen",
+          "anchor": [0.5, 0.5]
+        },
+        "Script": {
+          "path": "scripts/win.js"
+        }
+      }
+    }
+  ]
+}
