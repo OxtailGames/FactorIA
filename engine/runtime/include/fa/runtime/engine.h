@@ -135,6 +135,11 @@ public:
     // Render scale (0.25 .. 4, output at most 8192 px per side): draws the same design-size frame into an image `scale`
     // times larger, like a fullscreen window does (layout, camera and visible area unchanged, text and shapes sharp).
     bool screenshot_scaled(std::string_view path, double scale, std::string* error) override;
+    // The same picture as screenshot_scaled, as pixels (row 0 = top).
+    bool capture_scaled(Image& out, double scale, std::string* error);
+    // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
+    // capture would recreate the targets). Same limits as screenshot_scaled; false + message when out of range.
+    bool hold_render_scale(double scale, std::string* error);
     // JSON dump of the world for AIs: entities, components, physics, logs, errors.
     Json state(const Json& query = Json::object());
 
@@ -198,7 +203,7 @@ int run_windowed(const EngineConfig& config);
 // "press"/"release" accept action names (virtual action override) and key names ("Space", "A", "MouseLeft"...).
 //
 // Report JSON: {frames, scriptErrors: [string], sceneErrors: [string], logErrors: n, screenshots: [absolute paths],
-// statePath?, audioPath?, error?, exitCode}.
+// statePath?, audioPath?, videoPath?, videoFrames?, videoAudio?, error?, exitCode}.
 struct HeadlessRunOptions {
     int frames = 60;
     std::string inputReplayPath;          // optional
@@ -207,6 +212,11 @@ struct HeadlessRunOptions {
     double renderScale = 1.0;             // screenshots are design size * this (0.25 .. 4), drawn natively: 1.5 on 1280x720 = 1920x1080
     std::string stateOutPath;             // optional JSON state dump at the end
     std::string audioOutPath;             // optional WAV recording
+    // Video of the run: every frame is drawn (at renderScale) and written to a .avi (Motion-JPEG, plus the PCM audio of
+    // the run when it is not silent) at the project's fixedHz frames per second. A .mp4 (H.264 + AAC) is made by
+    // ffmpeg from that, so it needs `ffmpegPath` (the CLI looks it up); without it a .mp4 request fails before the run.
+    std::string videoOutPath;
+    std::string ffmpegPath;
     bool failOnScriptError = true;
 };
 int run_headless(const EngineConfig& config, const HeadlessRunOptions& options, Json* report = nullptr);

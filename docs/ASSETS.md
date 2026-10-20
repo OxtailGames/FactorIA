@@ -167,6 +167,26 @@ with a JSON pointer and a suggestion.
 Run it with `factoria call assets.draw_icon @tools/icon.json` (keep the JSON in the project) and look at the PNGs.
 `examples/lantern-keep/tools/icon.json` draws a lantern this way.
 
+### Store page images without a provider: assets.draw_capsules
+
+`assets.draw_capsules` makes the images of the store pages (capsules, heroes, covers) from one piece of key art, at the size
+each store asks for (the table is in [EXPORTING.md](EXPORTING.md#store-page-material), as of 2026-10). `keyArt` is an image
+in the project, usually a screenshot taken natively large (`game.screenshot {scale: 1.5}`, or `factoria run --render-scale 1.5`).
+It is cover-cropped around `focus` (`[x, y]`, fractions of the art; default the middle) and written to
+`store/capsules/<store>/<name>_<w>x<h>.png` (`name` defaults to the project name; files are replaced; `overwrite: false`
+keeps them). `stores` picks from `steam`, `epic`, `gog`, `microsoft`, `googleplay`, `appstore`, `itch` (default all).
+
+The `logo` is `{"image": "assets/logo.png"}` (a PNG with a transparent background) or `{"text": "My Game", "font", "fill",
+"outline"}`, the title drawn with the text rasterizer of `assets.draw_icon` (white with a dark outline by default;
+`"outline": false` for none). Each asset has a rule for it: capsules and covers get it centred, Microsoft's posters and box art
+in the upper part, heroes, page backgrounds and screenshots none, and Steam's library logo and Epic's logo are a transparent
+PNG with only the logo (skipped when no logo is given). `orientation: "portrait"` turns the phone and tablet screenshot sizes
+of Google Play and the App Store. The result lists every `written` file with its size.
+
+```
+factoria call assets.draw_capsules '{"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}'
+```
+
 ## Provenance and store disclosure
 
 Every generated asset gets a `provenance` record in assets.json:
