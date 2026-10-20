@@ -3,7 +3,7 @@
 Status: the four jam-sized example games reported 73 entries, all verified fixed-in-engine. Lantern Keep, the M21
 reference game, reported 45 (none a blocker or major), triaged 2026-10-19: one was already fixed, two were duplicates,
 and the 42 open ones became work packages, most of them M24, the rest in M20-M23. M24 fixed 37 of its entries
-(M24.1-M24.16, 2026-10-20), two of them found on the way; the 7 still open are ranked below, all in M20-M23. M1-M11 and
+(M24.1-M24.16, 2026-10-20), two of them found on the way; the 4 still open are ranked below, all in M20-M23. M1-M11 and
 M13-M15 are done; M12 (platform services) has its API and the Steam, Apple and Google Play backends; M16 (mobile
 store-ready), M17 (web export) and M18 (animation and production 3D) are done; M21 has its reference game; M24 is done
 (M24.1-M24.16); M19, M20, M22 and M23 are not started (M10-M23 come from an external evaluation of v0.1.4, re-triaged
@@ -12,7 +12,7 @@ close is under M8 and M9, "Left open". What finished milestones built is in [ROA
 file keeps what they left open and the decisions to respect.
 Regenerate the ranked list with `factoria feedback collect examples/sky-hopper examples/neon-swarm examples/gem-roller examples/block-push examples/lantern-keep --out feedback/ROADMAP.md` (it rewrites the whole file: then put this status and the milestones section back).
 
-7 entries from 5 project(s), 7 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
+4 entries from 5 project(s), 4 distinct gap(s). Ranked by total occurrences x severity weight (blocker 8, major 4, minor 2, nice-to-have 1).
 
 ## 1. No Microsoft Store packaging (MSIX) or publish command
 
@@ -25,40 +25,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - None: SHIPPING.md lists the hand steps (makeappx/MSIX Packaging Tool, Partner Center, the submission form). Not tried here: no Windows SDK tools were installed.
 
-## 2. No render scale for store screenshots
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0017
-- **Suggestion:** A `--render-scale 1.5` (or --output-size 1920x1080) for factoria run --headless and game.screenshot {scale}, drawing the same design at a larger resolution like a fullscreen window does.
-- **Workarounds seen:**
-  - Rendered at 1280x720 and enlarged with Pillow (Lanczos, exact 1.5x for 1920x1080). The result is soft, not native; recorded in SHIPPING.md.
-
-## 3. No way to make a game icon without an asset provider
-
-- **Category:** tooling
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0014
-- **Suggestion:** A command like assets.draw_icon {shape/text/colors} (or `factoria new` templates shipping a neutral icon.png that factoria.json already points to) so a game made without a provider still has a real icon, and a PNG writer in the script API (image.save) for project tools.
-- **Workarounds seen:**
-  - Wrote tools/make_icon.py, a deterministic Pillow script that draws the lantern and the Android foreground layer, and recorded both files with assets.set_provenance (origin original, ai false). Needs Python and Pillow on the machine.
-
-## 4. What each export needs offline is spread over several docs
-
-- **Category:** docs
-- **Severity:** minor (score 2)
-- **Total occurrences:** 1
-- **Projects affected:** Lantern Keep
-- **Entries:** Lantern Keep/FB-0022
-- **Suggestion:** One table in docs/EXPORTING.md: platform x what it needs x whether a source build, the download or neither can do it offline.
-- **Workarounds seen:**
-  - Exported windows, windows --release, android --format gradle (no tools needed) and ios (project only); recorded the exact errors of linux, macos and web in SHIPPING.md.
-
-## 5. Long ASCII level maps are hard to author and edit by hand
+## 2. Long ASCII level maps are hard to author and edit by hand
 
 - **Category:** tooling
 - **Severity:** nice-to-have (score 1)
@@ -69,7 +36,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Drew the maps with a throwaway script outside the project (a cursor that appends 'motifs' such as spikes, a pit with a checkpoint, a staircase, then writes the rows); the committed source of truth is still the ASCII in levels/<id>.json.
 
-## 6. No colour-blind or greyscale preview or filter
+## 3. No colour-blind or greyscale preview or filter
 
 - **Category:** rendering-2d
 - **Severity:** nice-to-have (score 1)
@@ -80,7 +47,7 @@ Regenerate the ranked list with `factoria feedback collect examples/sky-hopper e
 - **Workarounds seen:**
   - Hazards and pickups differ by shape and outline (spikes = triangles, enemies = rounded boxes with eyes, ember = diamond, checkpoint = ring, exit = star in a lamp). The greyscale check was made outside the engine with Python Pillow on a screenshot (screenshots/a11y-hazards-colour-and-grey.png). No colour-blind filter option was built.
 
-## 7. No way to read the operating system accessibility settings or to speak UI text
+## 4. No way to read the operating system accessibility settings or to speak UI text
 
 - **Category:** platform
 - **Severity:** nice-to-have (score 1)
@@ -134,6 +101,11 @@ Re-triage 2026-10-20, after M24.15-M24.16 (merges `62f24f9`, `7b57f09`): LK/FB-0
 a `Fixed in <commit>` note, and Lantern Keep dropped its workarounds in those PRs. 7 Lantern Keep entries are open:
 LK/FB-0009 in M20; LK/FB-0014, LK/FB-0017, LK/FB-0022 and LK/FB-0023 in M21; LK/FB-0037 and LK/FB-0038 in M22;
 LK/FB-0023 also in M23, for MSIX.
+
+Re-triage 2026-10-20, after M21's #115-#117 (merges `02b1555`, `0e49b93`, `97f693c`): LK/FB-0014, LK/FB-0017 and
+LK/FB-0022 are fixed, each with a `Fixed in <commit>` note, and Lantern Keep dropped its workarounds
+(tools/make_icon.py, tools/make_screenshots.py) in those PRs. 4 Lantern Keep entries are open: LK/FB-0009 in M20;
+LK/FB-0037 and LK/FB-0038 in M22; LK/FB-0023 in M23, for MSIX (its Microsoft Store docs are in, from #115).
 
 Sizes: S = under a day for an AI agent, M = 1-3 days, L = a week or more. Ids are `<game>/FB-n`
 (sky-hopper = SH, neon-swarm = NS, gem-roller = GR, block-push = BP, lantern-keep = LK).
@@ -584,19 +556,20 @@ below.
 
 Left in M21: the publishing guides per store from `SHIPPING.md`, the "finish your game" guide from the game, versioned
 docs, tutorials and the API reference, the AI cost guide, store page material (capsules at each store's sizes, video
-from a replay). Lantern Keep's entries that these items close:
-- Publishing guides: one table in docs/EXPORTING.md of platform x what its export needs (players download, NDK, CMake,
-  Gradle, Xcode) x whether this machine can do it offline from a source build, from a download, or not at all
-  (LK/FB-0022); the Microsoft Store guide says what the engine covers today (nothing beyond the Windows folder export)
-  and the steps by hand until M23's MSIX (LK/FB-0023).
+from a replay). Lantern Keep's entries that these items close (LK/FB-0014, LK/FB-0017 and LK/FB-0022 are done, in PRs
+#115-#117; LK/FB-0023 is left for M23):
+- Publishing guides, done in PR #115: one table in docs/EXPORTING.md of platform x what its export needs (players
+  download, NDK, CMake, Gradle, Xcode) x whether this machine can do it offline from a source build, from a download, or
+  not at all (LK/FB-0022); the Microsoft Store section says what the engine covers today (nothing beyond the Windows
+  folder export) and the steps by hand; the MSIX export itself is left for M23 (LK/FB-0023).
 - "Finish your game" guide: the save-file recipe of Lantern Keep (a version field, migration, three slots, a damaged
   save screen), on top of M24.6's engine part (LK/FB-0013).
-- Store page material: render the design resolution into a bigger picture, `factoria run --headless --render-scale 1.5`
-  (or `--output-size 1920x1080`) and `game.screenshot {scale}`, so store screenshots at 1920x1080 or phone sizes are
-  native, not enlarged (LK/FB-0017); a game made without an image provider gets a real icon: `assets.draw_icon` (shapes,
-  text, colours into a 1024x1024 PNG plus the Android adaptive foreground), so no Python or paid provider is needed
-  (LK/FB-0014). Acceptance: a test renders a 1280x720 scene at scale 1.5 and the PNG is 1920x1080 with the HUD in the
-  same place relative to the screen; `assets.draw_icon` writes both icons and the export uses them.
+- Store page material, done in PRs #116 and #117: `factoria run --headless --render-scale 1.5` and
+  `game.screenshot {scale}` make store screenshots at 1920x1080 or phone sizes native, not enlarged (LK/FB-0017);
+  `assets.draw_icon` draws a real icon (shapes, text, colours into a 1024x1024 PNG plus the Android adaptive foreground),
+  so no Python or paid provider is needed (LK/FB-0014). Acceptance: a test renders a 1280x720 scene at scale 1.5 and the
+  PNG is 1920x1080 with the HUD in the same place relative to the screen; `assets.draw_icon` writes both icons and the
+  export uses them.
 
 ## M22. Production quality and legal (M, high)
 

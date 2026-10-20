@@ -179,6 +179,13 @@ code of its own:
   works before the store's upload tool is installed and lists what is missing. The exported game takes `--frames 120` to
   run a few frames and exit, as a quick check in CI. `factoria validate` warns about pictures phones cannot compress, and
   new projects keep `build/` out of git.
+- The export guide (`factoria docs read exporting`) has one table of what each export needs (downloads, Android tools,
+  Xcode) and whether your computer can make it at all, offline or after a download. A new Microsoft Store section says
+  what FactorIA covers and what you still do by hand.
+- A game icon without an image service: `assets.draw_icon` draws your icon and the Android icon from shapes, colours and
+  text, so you need no paid picture provider and no Python.
+- Store screenshots at full size: `game.screenshot` takes a `scale` (so does `factoria run --render-scale`), so a
+  1280x720 game makes sharp 1920x1080 pictures instead of enlarged ones. The HUD and the visible area stay the same.
 - `i18n.import` for a new language keeps the shape of your main language file, and `factoria docs read` prints clean
   text on Windows.
 

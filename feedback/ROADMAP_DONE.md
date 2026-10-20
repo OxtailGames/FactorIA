@@ -824,6 +824,22 @@ those two PRs (shop.js and options.js in #112, level_select.js in #113).
   label gets shorter; widgets without `autoSize` keep their size and do not count. Lantern Keep's `select_worlds` has
   `uniformSize`, and level_select.js drops its label measure and its common-size writing.
 
+## M21 (part). Store page material and the export table — DONE (PRs #115, #116, #117)
+
+Closes LK/FB-0014, LK/FB-0017 and LK/FB-0022; LK/FB-0023 stays open for M23's MSIX export. Each entry has a `Fixed in <commit>`
+note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py, tools/make_screenshots.py).
+
+- Export table (PR #115, `02b1555`): docs/EXPORTING.md has "What each export needs", one row per export: the download or
+  tool it needs, and for a Windows, Linux and macOS host whether a source build can make it offline, after a setup
+  download, or not at all. Its "Microsoft Store" section says what the engine covers (the Windows folder export) and the
+  steps to take by hand.
+- Game icon without a provider (PR #116, `0e49b93`): `assets.draw_icon @tools/icon.json` draws the 1024x1024 icon and the
+  432x432 Android foreground from shapes, gradients and text, on the CPU, so it needs no provider and no Python and gives
+  the same bytes on every machine (docs/ASSETS.md). The files are recorded as original, and the export uses them.
+- Render scale (PR #117, `97f693c`): `game.screenshot {scale}` (0.25 to 4) and `factoria run --render-scale S` (also
+  `factoria screenshot --render-scale`) draw the same frame at a larger native size, sharp, with the same HUD and visible
+  area. Lantern Keep's store screenshots are made that way instead of being enlarged with Pillow.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.
