@@ -224,6 +224,12 @@ component, field and command, and `--dts` has `@since` in the JSDoc. `Not releas
 what is only on the main branch, so a factoria download does not have it. Nothing is printed for what 0.1.0 had; if
 your `factoria --version` is older than a mark, that item is missing in your install.
 
+The repository keeps the same reference as browsable Markdown: `docs/reference/` (an index plus one page per component
+and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text). The command
+`factoria call docs.write_reference '{"out":"docs"}'` regenerates both from the repository root, outside any game project;
+the test `api_reference` fails when the committed files differ. The pages are not embedded in the binary: AIs get the
+same data through `docs.components`, `docs.commands` and `factoria api`.
+
 ## MCP
 
 ### `factoria mcp [--project DIR] [--scene S] [--no-graphics] [--no-hot-reload]`

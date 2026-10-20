@@ -124,7 +124,8 @@ platforms/   packaging for Android (Gradle) and iOS
 - [docs/AI_GUIDE.md](docs/AI_GUIDE.md): how to build a game with FactorIA (for AI agents).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design, modules, conventions, commands and reflection.
 - [docs/SCRIPTING.md](docs/SCRIPTING.md): JavaScript scripting: behaviours, tools and tests.
-- [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field (generated).
+- [docs/reference/README.md](docs/reference/README.md): browsable API reference, one page per component and command category (generated).
+- [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field in one file (generated).
 - [docs/SHADERS.md](docs/SHADERS.md): custom shaders per material: the material file, the GLSL snippet contract, five worked examples.
 - [docs/EXTENDING.md](docs/EXTENDING.md): creating tools, commands, components and systems.
 - [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
