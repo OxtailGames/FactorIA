@@ -663,7 +663,15 @@
       },
       {
        "sig": "onStart?(): void",
-       "doc": "Once, before the first update (props already applied). The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded; onStart runs on the next step."
+       "doc": "Once, the first time the entity is active in the hierarchy (props already applied), before its first update and before the frame is drawn. The instance exists (entity.behaviour) from the moment the entity is spawned or its scene is loaded, active or not; an entity spawned inactive gets onStart when something sets active = true."
+      },
+      {
+       "sig": "onEnable?(): void",
+       "doc": "Every time the entity becomes active in the hierarchy (it or an ancestor got active = true) while the Script is enabled; the first time it runs right after onStart. Runs before the frame is drawn, so a panel can refresh its texts here and they are right in the first drawn frame."
+      },
+      {
+       "sig": "onDisable?(): void",
+       "doc": "Every time the entity stops being active (it or an ancestor got active = false, or the Script was disabled), and before onDestroy of an entity that was active. Runs before the frame is drawn."
       },
       {
        "sig": "onUpdate?(dt: number): void",
@@ -1752,7 +1760,7 @@
       },
       {
        "sig": "readonly title: string",
-       "doc": "The store's title."
+       "doc": "The title in the current language: the catalog's titleKey translated (else title) on the fake backend; a real store answers its own, localized by its console."
       },
       {
        "sig": "readonly description: string",
@@ -1817,8 +1825,8 @@
        "doc": "Reports progress from 0 to 1 toward an achievement; 1 unlocks it. Progress never goes down."
       },
       {
-       "sig": "list(): Promise<{ id: string; unlocked: boolean; progress: number }[]>",
-       "doc": "The state of every achievement of the catalog."
+       "sig": "list(): Promise<{ id: string; name: string; description: string; unlocked: boolean; progress: number }[]>",
+       "doc": "The state of every achievement of the catalog, with its name and description in the current language (the catalog's nameKey / descriptionKey translated, else name / description; a store that answers its own texts wins)."
       },
       {
        "sig": "reset(): Promise<void>",
