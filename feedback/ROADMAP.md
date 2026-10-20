@@ -554,9 +554,9 @@ downloads or tools this machine lacks (web, Linux, macOS players; Android NDK; M
 Triaged 2026-10-19 (see the top of this section): most entries became M24; the ones that belong to M21's own items are
 below.
 
-Left in M21: the publishing guides per store from `SHIPPING.md`, the "finish your game" guide from the game, versioned
-docs, tutorials and the API reference, the AI cost guide, store page material (capsules at each store's sizes, video
-from a replay). Lantern Keep's entries that these items close (LK/FB-0014, LK/FB-0017 and LK/FB-0022 are done, in PRs
+Done in M21: the publishing guides per store, `docs/PUBLISHING.md` (PR #118), and the "finish your game" guide,
+`docs/FINISHING.md` with Lantern Keep's save recipe (PR #119). Left in M21: versioned docs, tutorials and the API
+reference, the AI cost guide, store page material (capsules at each store's sizes, video from a replay). Lantern Keep's entries that these items close (LK/FB-0014, LK/FB-0017 and LK/FB-0022 are done, in PRs
 #115-#117; LK/FB-0023 is left for M23):
 - Publishing guides, done in PR #115: one table in docs/EXPORTING.md of platform x what its export needs (players
   download, NDK, CMake, Gradle, Xcode) x whether this machine can do it offline from a source build, from a download, or
@@ -627,7 +627,8 @@ M24.15-M24.16). Left open from them:
 - Lantern Keep: at 200 % text in German the main menu's title overlaps the logo (the game's layout, not the engine).
 - `editor_autotest` can time out when `ctest` runs while other builds load the machine (alone it passes in about 40 s).
 
-Next: M21's guides (see "Left in M21").
+Next: what is left in M21 (see "Left in M21"): store page material first, then versioned docs, tutorials and the API
+reference, and the AI cost guide.
 
 ## Out of scope: Roblox
 

@@ -824,7 +824,7 @@ those two PRs (shop.js and options.js in #112, level_select.js in #113).
   label gets shorter; widgets without `autoSize` keep their size and do not count. Lantern Keep's `select_worlds` has
   `uniformSize`, and level_select.js drops its label measure and its common-size writing.
 
-## M21 (part). Store page material and the export table — DONE (PRs #115, #116, #117)
+## M21 (part). The export table, store page material and the guides — DONE (PRs #115-#119)
 
 Closes LK/FB-0014, LK/FB-0017 and LK/FB-0022; LK/FB-0023 stays open for M23's MSIX export. Each entry has a `Fixed in <commit>`
 note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py, tools/make_screenshots.py).
@@ -839,6 +839,12 @@ note; Lantern Keep dropped its workarounds in #116 and #117 (tools/make_icon.py,
 - Render scale (PR #117, `97f693c`): `game.screenshot {scale}` (0.25 to 4) and `factoria run --render-scale S` (also
   `factoria screenshot --render-scale`) draw the same frame at a larger native size, sharp, with the same HUD and visible
   area. Lantern Keep's store screenshots are made that way instead of being enlarged with Pillow.
+- Publishing guide (PR #118): docs/PUBLISHING.md, a "which store first" table and one checklist per store (Steam, Epic,
+  GOG, Microsoft Store, Google Play, App Store, itch.io, own website): what FactorIA does, linked to its EXPORTING.md
+  section, and what the developer still does by hand; store facts as of 2026-10.
+- "Finish your game" guide (PR #119): docs/FINISHING.md, from a playable prototype to a game ready for a store in eight
+  recipes with Lantern Keep's code (menus, options, saves with versions and migration, languages, accessibility, the
+  platform services, credits and crash reports, tests) and a checklist. Its saves section is the M21 part of LK/FB-0013.
 
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
