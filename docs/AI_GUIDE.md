@@ -1477,4 +1477,7 @@ The same format works with `factoria call --input` and `factoria session --input
 - `factoria docs read finishing` (MCP `docs_read {"name":"finishing"}`): the ordered path from a playable prototype to a
   game ready for a store: menus, options that persist, versioned saves with migration and a damaged-save screen,
   localization and right-to-left checked at 200 % text, accessibility, store services, credits, tests and a checklist.
+- `factoria docs read ai-costs` (MCP `docs_read {"name":"ai-costs"}`): what a whole game cost in tokens and money
+  (measured), what drives the cost, the `limits` that cap it and where to see what was spent. Tell the user when a
+  task is going to be long or dear.
 - The project's `AGENTS.md`: short rules for this game.
