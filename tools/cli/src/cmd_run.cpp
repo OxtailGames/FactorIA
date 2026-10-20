@@ -60,6 +60,7 @@ Command make_run_command() {
                {"frames", "N", "Headless: number of frames to simulate (default 60)."},
                {"input", "FILE", "Headless: input replay JSON. A relative path is looked up in the current directory, then in the project."},
                {"screenshot-at", "F1,F2", "Headless: frame numbers to capture as PNG."},
+               {"render-scale", "S", "Headless: screenshots are design size * S (0.25 to 4, default 1) drawn natively and sharp: HUD and visible area unchanged, 1.5 on 1280x720 = 1920x1080 for store screenshots."},
                {"screenshot-pattern", "PATTERN", "PNG path with {frame}, relative to the current directory (default <project>/.factoria/screenshots/frame_{frame}.png)."},
                {"state-out", "FILE", "Headless: write the final world state JSON here (relative to the current directory)."},
                {"record-audio", "FILE", "Headless: write the mixed audio to a WAV file (relative to the current directory)."},
@@ -84,7 +85,7 @@ Command make_run_command() {
         cfg.height = a.integer("height", 0);
         cfg.seed = a.uinteger("seed", 1);
         if (!a.has("headless")) {
-            for (const char* f : {"frames", "input", "screenshot-at", "screenshot-pattern", "state-out", "record-audio", "render-all", "persist-storage"})
+            for (const char* f : {"frames", "input", "screenshot-at", "render-scale", "screenshot-pattern", "state-out", "record-audio", "render-all", "persist-storage"})
                 if (a.has(f)) throw UsageError(std::string("--") + f + " only works with --headless.", "Add --headless.");
             cfg.headless = false;
             return run_windowed(cfg);
@@ -106,6 +107,7 @@ Command make_run_command() {
             throw UsageError("--screenshot-pattern must contain {frame} when capturing several frames.",
                              "Example: --screenshot-pattern out/shot_{frame}.png");
         ho.screenshotPattern = pattern;
+        ho.renderScale = a.number("render-scale", 1.0);
         if (a.has("state-out")) ho.stateOutPath = absolute_path(a.str("state-out"));
         if (a.has("record-audio")) ho.audioOutPath = absolute_path(a.str("record-audio"));
         ho.failOnScriptError = !a.has("allow-script-errors");
@@ -161,6 +163,7 @@ Command make_screenshot_command() {
                {"out", "FILE", "PNG path (default <project>/.factoria/screenshots/shot.png)."},
                {"width", "W", "Override the resolution width."},
                {"height", "H", "Override the resolution height."},
+               {"render-scale", "S", "Image size = design size * S (0.25 to 4, default 1), drawn natively and sharp: HUD and visible area unchanged, 1.5 on 1280x720 = 1920x1080."},
                {"seed", "N", "World RNG seed (default 1)."},
                {"json", "", "Print {path, frames} as JSON."}};
     c.examples = {"factoria screenshot", "factoria screenshot games/my-game --frames 120 --out /tmp/level.png --json"};
@@ -181,7 +184,7 @@ Command make_screenshot_command() {
         std::error_code ec;
         fsys::create_directories(fsys::path(out).parent_path(), ec);
         std::string err;
-        if (!session->engine().screenshot(out, &err)) return report_failure(ctx, "Screenshot failed: " + err);
+        if (!session->engine().screenshot_scaled(out, a.number("render-scale", 1.0), &err)) return report_failure(ctx, "Screenshot failed: " + err);
         if (a.has("json"))
             print_json(ctx.out, Json::object({{"path", out}, {"frames", frames}, {"ok", true}}));
         else

@@ -125,6 +125,13 @@ public:
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).
     void set_target_size(int width, int height);
+    // Render scale: the game target's GPU images are target size * scale (1.5 on 1280x720 = 1920x1080) while layouts,
+    // cameras, the HUD and the visible area stay in design units, so the frame is the same, drawn sharper (like a
+    // fullscreen window). capture() returns the scaled image. Clamped to kMinRenderScale..kMaxRenderScale (NaN = 1).
+    // Recreates the targets: draw again before capturing.
+    static constexpr float kMinRenderScale = 0.25f;
+    static constexpr float kMaxRenderScale = 4.0f;
+    void set_render_scale(float scale);
     int target_width() const;
     int target_height() const;
 

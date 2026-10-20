@@ -38,8 +38,8 @@ store's partner site before a real upload:
 
 Other files this package added: `assets/icon.png`, `assets/icon_fg.png` (drawn by `assets.draw_icon` from
 `tools/icon.json`: `factoria call assets.draw_icon @tools/icon.json`, no AI; provenance recorded in `assets.json`),
-`prefabs/ui/touch_controls.prefab.json` (on-screen gamepad), `store/` (texts),
-`store/screenshots/` (screenshots, git-ignored), `tools/make_screenshots.py`, `tests/shipping.test.js`.
+`prefabs/ui/touch_controls.prefab.json` (on-screen gamepad), `store/` (texts), `store/screenshots/` (screenshots,
+git-ignored), `tests/shipping.test.js`.
 
 `factoria.json` has a `platform` section owned by the store-services package; this package did not touch it.
 
@@ -195,15 +195,15 @@ Steam/Apple/Google services that change some answers).
   for the App Store), `shortDescription` (80, Google Play), `longDescription`, `features`, `keywords` (joined with commas
   under 100 characters for App Store keywords), `tags` (Steam), `category`, `ageNotes`; `store/whats-new-<lang>.txt`
   (release notes, under 500 characters). `tests/shipping.test.js` checks the lengths.
-- Screenshots (`store/screenshots/`, git-ignored and left out of exports by `export.exclude`: `python tools/make_screenshots.py <factoria>` makes them with
-  headless runs, no GPU or window):
-  six `steam-1920x1080-*.png` (menu, Courtyard, a level with a gap, the Cellars, the lantern lighting the bricks, the level end
-  panel) and two scenes for phones as `phone-landscape-1920x1080-*` and `phone-landscape-2208x1242-*` with the touch
-  controls and a notch (`phone-landscape` safe area).
-- **The engine renders only at the design size** (1280x720): `--width/--height` change the design, so a 1920x1080 run
-  shows 1.5x more of the level and a stretched HUD. The store sizes are therefore the 1280x720 renders **enlarged with
-  Lanczos** (exactly 1.5x for 1920x1080): fine for a first listing, soft next to native art. They are not the screenshots
-  of a real phone. Redo them on a device before launch (ENGINE_FEEDBACK FB-0017).
+- Screenshots (`store/screenshots/`, git-ignored and left out of exports by `export.exclude`): made natively with the render scale
+  of `game.screenshot`, headless, no window: `factoria call --batch '[{"command":"scene.load",...},{"command":"game.step",...},
+  {"command":"game.screenshot","args":{"path":"store/screenshots/x.png","scale":1.5}}]'`. The scale draws the same 1280x720 frame
+  (HUD, camera, visible area) into a bigger image, sharp, not enlarged. Scale 1.5 gives 1920x1080 and 1.725 gives 2208x1242.
+  Six `steam-1920x1080-*.png` (menu, Courtyard, a level with a gap, the Cellars, the lantern lighting the bricks, the level end
+  panel, shown with `script.eval` `world.find('level').behaviour.complete()`) and two scenes for phones as
+  `phone-landscape-1920x1080-*` and `phone-landscape-2208x1242-*` with the touch controls and a notch (`screen.set_safe_area`
+  profile `phone-landscape`, the buttons' touch positions moved in by its 89 px insets). They are not the screenshots of a real
+  phone: redo them on a device before launch.
 - Not made: Steam capsules/hero/logo, Google Play feature graphic, itch.io cover, a trailer, a 512x512 Play icon, the
   Spanish-language screenshots (the images are English, the game's default; `i18n.setLanguage("es")` before a run gives
   Spanish ones).
@@ -240,6 +240,6 @@ Steam/Apple/Google services that change some answers).
 3. Make the Android keystore, set the passwords in the environment, add `export.android.signing`, build the `.aab`, upload
    the first one by hand.
 4. Test on a real phone (touch, safe area, rotation, Back button), a Steam Deck/pad, and a clean Windows machine.
-5. Redo the screenshots natively, make the store art, write the privacy policy page, fill in every store form and rating.
+5. Check the screenshots on a real device, make the store art, write the privacy policy page, fill in every store form and rating.
 6. Raise `version` (and `export.ios.buildNumber`, `export.android.versionCode`) for every upload: every store takes a
    number once.

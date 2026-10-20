@@ -126,6 +126,7 @@ Windowed by default (hot reload on). With `--headless` it runs deterministically
 | `--frames N` | Frames to simulate (default 60) |
 | `--input replay.json` | Input replay (current directory first, then the project; see Paths): `{"frames": {"0": {"press": ["jump"]}, "30": {"release": ["jump"]}}}`; entries also take `keys`, `mouse`, `gamepad` and `touch` (see `docs/AI_GUIDE.md` 11.2) |
 | `--screenshot-at 10,60` | Frames to capture as PNG |
+| `--render-scale S` | Screenshot size = design size * S (0.25 to 4, default 1), drawn natively and sharp, not upscaled: the HUD, camera and visible area are the same as at 1. 1.5 on a 1280x720 game gives 1920x1080 for store pages. (`--width/--height` change the design instead.) |
 | `--screenshot-pattern P` | PNG path containing `{frame}`, relative to the current directory (default `<project>/.factoria/screenshots/frame_{frame}.png`) |
 | `--state-out f.json` | Final world state dump (relative to the current directory) |
 | `--record-audio f.wav` | Record the audio mix (relative to the current directory) |
@@ -142,8 +143,9 @@ factoria run --headless --frames 120 --screenshot-at 10,60 --json
 Report (JSON): `{ok, exitCode, frames, screenshots:[paths], scriptErrors:[...], sceneErrors:[...], stateOut?, audioOut?}`.
 Same seed + same input = same state and pixels.
 
-### `factoria screenshot [project] [--frames N] [--out shot.png] [--json]`
-Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.factoria/screenshots/shot.png`).
+### `factoria screenshot [project] [--frames N] [--out shot.png] [--render-scale S] [--json]`
+Runs `N` frames (default 30) headless and saves a PNG (default `<project>/.factoria/screenshots/shot.png`). `--render-scale S` (0.25 to 4) makes it design size * S, drawn natively
+(1.5 on 1280x720 = 1920x1080, same HUD and visible area).
 
 ### `factoria test [project] [FILE|GLOB...] [--filter TEXT] [--render-all] [--persist-storage] [--json]`
 Runs `tests/**/*.test.js` on a headless engine (or only the files, folders or globs named after the project, relative to
