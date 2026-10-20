@@ -103,6 +103,16 @@ export default class Options extends Behaviour {
         settings.save(this.s);
       });
     }
+    // Only where the system can speak (Linux without speech-dispatcher, Android without a speech engine: hidden).
+    const readAloud = world.find("read_aloud");
+    readAloud.active = ui.speechAvailable;
+    readAloud.get("Toggle").value = this.s.readAloud;
+    ui.on("change", "read_aloud", (e) => {
+      this.s.readAloud = e.value;
+      settings.save(this.s);
+      if (e.value) ui.speak(readAloud.get("Toggle").label); // so the player hears that it works
+      else ui.stopSpeaking();
+    });
   }
 
   // --------------------------------------------------------------------------------------------------------- controls

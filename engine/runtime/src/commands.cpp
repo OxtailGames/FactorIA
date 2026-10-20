@@ -621,6 +621,32 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"textScale", engine.text_scale()}});
           });
 
+    I.commands.add({"ui.speak", "Say a line aloud with the system's text to speech (or record it, headless).",
+           "The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) "
+           "with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. "
+           "Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android "
+           "without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and "
+           "record the line (game.spoken() in tests). Example: ui.speak {\"text\":\"Play\"}",
+           parse_schema(R"({"type":"object","required":["text"],"properties":{
+               "text":{"type":"string","description":"What to say, already localized."},
+               "interrupt":{"type":"boolean","description":"Stop what is being said first (default true); false queues the line."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {
+              const I18n* L = engine.i18n();
+              const std::string language = L && L->enabled() ? L->language() : std::string();
+              const bool said = engine.speech().speak(a.at("text").get<std::string>(), language, a.value("interrupt", true));
+              return Json::object({{"spoken", said}, {"language", language}});
+          });
+
+    I.commands.add({"ui.stop_speaking", "Stop what is being said by ui.speak and drop the queued lines.",
+           "The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. "
+           "Example: ui.stop_speaking {}",
+           parse_schema(R"({"type":"object","properties":{}})"), false, "ui"},
+          [&engine](const Json&) {
+              engine.speech().stop();
+              return Json::object();
+          });
+
     I.commands.add({"screen.set_safe_area", "Pretend the device has a notch, rounded corners or system bars (a notched phone, headless).",
            "The safe area is the part of the screen a notch, rounded corners and the system bars of a phone leave free; items with "
            "`safeArea: true` are anchored to it and screen.safeArea in scripts reports it. A real phone reports it by itself; a "

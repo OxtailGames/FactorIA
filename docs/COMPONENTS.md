@@ -1998,6 +1998,19 @@ The player's "text size" setting (accessibility), the same as `ui.textScale = va
 |---|---|---|---|
 | `scale` | number | yes | Text size multiplier: 1 = normal, 1.5 = 50% bigger, 0.5 = half. |
 
+### `ui.speak` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Say a line aloud with the system's text to speech (or record it, headless).
+
+The same as `ui.speak(text, { interrupt })` in a script: the line is said in the game's current language (i18n.language) with the system voice for it. `interrupt` (default true) stops what is being said first; false queues the line. Output only: it never changes the simulation. A system without speech (Linux without speech-dispatcher, Android without a speech engine) says nothing and `spoken` is false. Headless runs, tests and the editor say nothing and record the line (game.spoken() in tests). Example: ui.speak {"text":"Play"}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | What to say, already localized. |
+| `interrupt` | boolean | no | Stop what is being said first (default true); false queues the line. |
+
 ### `ui.state`
 
 Since 0.1.6.
@@ -2005,6 +2018,14 @@ Since 0.1.6.
 List the UI widgets on screen (Panel, Button, Toggle, Slider, TextField, ScrollList, TouchStick, TouchButton, and screen-space Text) and which has focus.
 
 Returns {focused, hovered, widgets: [{id, kind, rect: [x, y, w, h], focused, hovered, pressed, interactable, visible, value?, text?}]} in reading order (top to bottom, then left to right). Only widgets that are active in the hierarchy are listed. rect is in design pixels, top-left origin, +Y down: click a widget with game.input {"mouse": {"position": [x, y], "left": true}} or move the focus with the ui_up / ui_down / ui_left / ui_right and ui_submit actions (game.input {"press": ["ui_down"]}). `visible` is false when a ScrollList clips the widget away entirely, and for an on-screen gamepad control that is hidden (touchOnly while the player is not using touch). `value` is a Toggle's boolean, a Slider's number or a TouchStick's [x, y]; `pressed` of a TouchStick or TouchButton is a finger holding it (drive one with game.input {"touch": ...}); `text` is a Button's or TouchButton's text, a Toggle's or Slider's label or a TextField's contents. Screen-space Text entities (space "screen") follow the widgets as {id, kind: "Text", rect, text} (they are never focused or pressed; use it to check where HUD text is). `textScale` is the text size option (ui.set_text_scale). Example: ui.state {}
+
+### `ui.stop_speaking` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Stop what is being said by ui.speak and drop the queued lines.
+
+The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. Example: ui.stop_speaking {}
 
 
 ## Scripting API (TypeScript declarations)
@@ -3179,6 +3200,18 @@ declare module "factoria" {
      * Gives keyboard / gamepad focus to a Button, Toggle, Slider or TextField (null clears the focus) and sends ui.focus. Nothing takes focus by itself except a widget with autoFocus when none is focused, so call this when a menu opens. Throws, saying why and what to do, when the entity cannot take focus (not a focusable widget, inactive, interactable false).
      */
     focus(target: Entity | string | null): void;
+    /**
+     * Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t("menu.play")). Example: ui.on("focus", (e) => ui.speak(e.entity.get("Button").text)). Same as the ui.speak command.
+     */
+    speak(text: string, opts?: { interrupt?: boolean }): void;
+    /**
+     * Stops what is being said and drops the queued lines. Does nothing when nothing is being said or the system has no speech. Same as the ui.stop_speaking command.
+     */
+    stopSpeaking(): void;
+    /**
+     * True when the system can speak. False on a Linux without speech-dispatcher (libspeechd.so.2) or an Android without a speech engine: hide your "read menus aloud" option then. Headless runs and tests report true because they record what would be said (game.spoken()).
+     */
+    readonly speechAvailable: boolean;
     /**
      * The widget that has keyboard / gamepad focus, or null.
      */
@@ -6246,6 +6279,24 @@ declare module "factoria:test" {
   }
 
   /**
+   * One entry of game.spoken(): a ui.speak call (or ui.speak command) that was recorded instead of spoken.
+   */
+  export interface SpokenLine {
+    /**
+     * The text, as given.
+     */
+    readonly text: string;
+    /**
+     * The game language (i18n.language) when it was asked; "" when the game has no localization.
+     */
+    readonly language: string;
+    /**
+     * True when the call interrupted what was being said (the default), false when it queued.
+     */
+    readonly interrupt: boolean;
+  }
+
+  /**
    * One entry of game.audioLog(): a play request from audio.play/audio.music, an AudioSource component or scene music.
    */
   export interface AudioPlay {
@@ -6474,6 +6525,14 @@ declare module "factoria:test" {
      * Empties the audio log (e.g. after setup, before the action under test).
      */
     clearAudioLog(): void;
+    /**
+     * What ui.speak was asked to say since the current test started (cleared before each test), oldest first: { text, language, interrupt }. Headless runs and tests speak nothing, they only record. Example: expect(game.spoken().map((l) => l.text)).toEqual(["Play", "Options"]).
+     */
+    spoken(): SpokenLine[];
+    /**
+     * Empties the list of spoken lines (e.g. after setup, before the action under test).
+     */
+    clearSpoken(): void;
     /**
      * The fake store: game.platform.respond(...), emit(...), set(...), state(), calls().
      */

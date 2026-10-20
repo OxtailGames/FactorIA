@@ -26,7 +26,11 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: pulsa una tecla o botón (Esc cancela)",
     "resetControls": "Restablecer valores",
-    "language": "Idioma: {language}"
+    "language": "Idioma: {language}",
+    "readAloud": "Leer los menús en voz alta",
+    "on": "activado",
+    "off": "desactivado",
+    "percent": "{value} por ciento"
   },
   "credits": {
     "madeWith": "Hecho con FactorIA",

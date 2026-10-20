@@ -26,7 +26,11 @@
     "binding": "{action}: {button}",
     "pressKey": "{action}: اضغط مفتاحًا أو زرًا (Esc للإلغاء)",
     "resetControls": "استعادة الإعدادات الافتراضية",
-    "language": "اللغة: {language}"
+    "language": "اللغة: {language}",
+    "readAloud": "قراءة القوائم بصوت عالٍ",
+    "on": "مفعّل",
+    "off": "معطّل",
+    "percent": "{value} بالمئة"
   },
   "credits": {
     "madeWith": "صُنعت باستخدام FactorIA",
