@@ -27,6 +27,9 @@ namespace fa {
 std::string normalize_language_tag(std::string_view raw);
 // True when `tag` is written the canonical way (what normalize_language_tag returns): "pt-BR", not "pt-br" or "pt_BR".
 bool is_language_tag(std::string_view tag);
+// True for a language written right to left (Arabic, Hebrew, Persian, Urdu, Pashto, Sindhi, Uyghur, Yiddish, Dhivehi, Kurdish
+// Sorani), by its base language or its script (a "-Arab" or "-Hebr" tag).
+bool is_rtl_language(std::string_view tag);
 // "pt-BR" -> "pt" ("zh-Hans-CN" -> "zh-Hans" -> "zh"); "" for a tag without a region or script.
 std::string base_language(std::string_view tag);
 // The language of the project that suits the user's languages (system order, best first), or "" when none does:
@@ -95,6 +98,8 @@ public:
     const std::vector<std::string>& languages() const { return languages_; }
     const std::string& default_language() const { return default_; }
     const std::string& language() const { return current_; }
+    // The current language is written right to left (is_rtl_language); false when localization is off.
+    bool rtl() const { return enabled() && is_rtl_language(current_); }
 
     // `requested` as one of the game's languages: the same tag in any case or spelling ("pt_br"), else the best match
     // ("es-MX" -> "es", "zh-CN" -> "zh-Hans"). The error says what is available, with "did you mean".
