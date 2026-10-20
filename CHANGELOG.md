@@ -146,6 +146,12 @@ code of its own:
   size or in a longer language. A button label with several lines is centred line by line, `maxWidth` wraps it, and a
   label that still does not fit is cut at the button's edge. `ScrollList.fill` lets a list take the height the rest of a
   column leaves, and a fitted panel bigger than the screen logs a warning naming it.
+- Scripts can apply the layout right away: `ui.layout()` sizes and places the widgets at once, so a script that changes
+  a text can read the real sizes (`Button.size`, `Panel.size`, `ui.rectOf`) straight after, without waiting for the next
+  frame.
+- Panels that do not fit: `fallbackLayout` (row, column or grid) is used instead of `layout` when the panel would leave
+  the screen, for example a column that becomes a row at a big text size. `uniformSize` makes the `autoSize` buttons,
+  toggles and sliders in a panel all as wide as the widest one and as tall as the tallest one.
 - Right-to-left languages: a `Text` with `align: "start"` or `"end"` follows the language's direction, and a panel with
   `direction: "auto"` lays out its rows right to left in Arabic or Hebrew. Scripts read `i18n.direction`.
 - Panels: a script hook `onEnable()` runs every time an entity is shown and `onDisable()` every time it is hidden, before
