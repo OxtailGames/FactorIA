@@ -493,3 +493,36 @@ TEST_CASE("parallax: a repeating strip never runs out and the result is determin
     }
     expect_golden(ic, "2d_parallax");
 }
+
+TEST_CASE("lit shapes: shaded by Light2D and the ambient light, unlit shapes keep their colour (golden)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    camera_at(w);
+    w.settings().ambientLight = Color{0.15f, 0.15f, 0.2f, 1};
+    const ShapeType kinds[5] = {ShapeType::Rectangle, ShapeType::Circle, ShapeType::Triangle, ShapeType::Star, ShapeType::Line};
+    for (int row = 0; row < 2; ++row)  // top row lit, bottom row unlit
+        for (int i = 0; i < 5; ++i) {
+            Entity e = make(w, "shape", {-112.0f + 56.0f * float(i), row == 0 ? 36.0f : -36.0f, 0});
+            auto& sh = w.add<Shape2D>(e);
+            sh.shape = kinds[i];
+            sh.size = kinds[i] == ShapeType::Line ? Vec2{40, 40} : Vec2{44, 44};
+            sh.color = Color{0.9f, 0.6f, 0.3f, 1};
+            sh.filled = i != 1 || row == 1;  // the lit circle is an outline ring
+            sh.thickness = 6;
+            sh.lit = row == 0;
+        }
+    Entity lamp = make(w, "lamp", {-60, 36, 0});
+    auto& l = w.add<Light2D>(lamp);
+    l.radius = 200;
+    l.intensity = 1.0f;
+    Image img = g.render(w);
+    // Lit rectangle near the lamp: darker than its colour, brighter than the ambient light alone; the one below is not
+    // lit: exactly its colour.
+    CHECK(img.pixel(48, 54).r > 0.35f);
+    CHECK(img.pixel(48, 54).r < 0.85f);
+    CHECK(near(img.pixel(48, 126), Color{0.9f, 0.6f, 0.3f, 1}));
+    // The lit star on the far side is out of the lamp's reach: only the ambient light (0.15, 0.15, 0.2).
+    CHECK(near(img.pixel(272, 54), Color{0.9f * 0.15f, 0.6f * 0.15f, 0.3f * 0.2f, 1}, 0.03f));
+    expect_golden(img, "2d_lit_shapes");
+}

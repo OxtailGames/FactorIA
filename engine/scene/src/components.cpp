@@ -316,7 +316,12 @@ void register_builtin_components(TypeRegistry& r) {
         .field("points", &Shape2D::points, "star only: number of tips (5 = the classic star).").range(3, 64)
         .field("innerRadius", &Shape2D::innerRadius,
                "star only: radius of the notches between the tips as a fraction of the outer radius. 0.5 = classic star, "
-               "near 1 = a fat spiky polygon, near 0 = thin needles.").range(0, 1);
+               "near 1 = a fat spiky polygon, near 0 = thin needles.").range(0, 1)
+        .field("lit", &Shape2D::lit,
+               "World space only. true: the shape is shaded by the Light2D entities of the scene plus SceneSettings.ambientLight "
+               "(its colour is multiplied by ambient + the sum of the lights), like Sprite.lit, so a dark level can use shapes "
+               "for platforms and hazards; every shape type, outlines and lines included, is flat (no normal map). false "
+               "(default): drawn exactly in `color`, whatever lights exist. At most 16 lights shade a frame (see Light2D).");
 
     r.add<Text>("Text",
                 "Draws a string with a TrueType font (or the built-in font). Works in world and screen space.",
