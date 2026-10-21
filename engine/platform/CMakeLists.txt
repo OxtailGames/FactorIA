@@ -40,7 +40,7 @@ if(FA_PLATFORM STREQUAL "linux")
         target_compile_definitions(fa_platform PRIVATE FA_NO_AUDIO_DEVICE=1)
     endif()
 elseif(FA_PLATFORM STREQUAL "windows")
-    target_link_libraries(fa_platform PUBLIC d3d11 dxgi dxguid ole32 user32 gdi32 shell32 kernel32)
+    target_link_libraries(fa_platform PUBLIC d3d11 dxgi dxguid ole32 advapi32 user32 gdi32 shell32 kernel32)
 elseif(FA_PLATFORM STREQUAL "macos")
     target_link_libraries(fa_platform PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation" "-framework GameController")

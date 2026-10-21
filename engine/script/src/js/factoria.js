@@ -1108,6 +1108,11 @@
     get screenSize() { const s = N.screenSize(); return new Vec2(s[0], s[1]); },
     notices() { return N.notices(); },
     get platform() { return N.platform(); },
+    // The operating system's accessibility settings (read when the game starts and again when the window regains focus).
+    get accessibility() {
+      const a = N.accessibility();
+      return Object.freeze({ textScale: a[0], reduceMotion: a[1], highContrast: a[2], screenReader: a[3] });
+    },
   };
 
   // The screen in design pixels, origin top-left, +Y down. The safe area is what a notch, rounded corners and the system bars
@@ -1796,6 +1801,21 @@
     // Presses the system Back button (Android). The input.onBack handlers run at the next step(); when none consumes it the
     // game asks to quit (game.quitRequested in game.state()).
     pressBack() { N.testBack(); },
+    // Pretends the player's system has these accessibility settings: game.accessibility follows. Keys left out keep their
+    // default (textScale 1, the others false). textScale is clamped to 0.5 - 4. Reset to the defaults before every test.
+    setAccessibility(settings) {
+      if (!isObj(settings)) throw new Error(`game.setAccessibility(settings) expects { textScale?, reduceMotion?, highContrast?, screenReader? }, e.g. game.setAccessibility({ textScale: 1.5 }), but got ${inspect(settings)}`);
+      const keys = ["textScale", "reduceMotion", "highContrast", "screenReader"];
+      for (const k of Object.keys(settings)) {
+        if (keys.includes(k)) continue;
+        const sug = closest(k, keys);
+        throw new Error(`game.setAccessibility: unknown setting '${k}'${sug ? `; did you mean '${sug}'?` : ""} Use ${keys.join(", ")}.`);
+      }
+      const scale = settings.textScale ?? 1;
+      if (typeof scale !== "number" || !Number.isFinite(scale) || scale <= 0) throw new Error(`game.setAccessibility: textScale must be a number above 0 (1 = 100 %), but got ${inspect(scale)}`);
+      for (const k of keys.slice(1)) if (settings[k] !== undefined && typeof settings[k] !== "boolean") throw new Error(`game.setAccessibility: ${k} must be true or false, but got ${inspect(settings[k])}`);
+      N.testAccessibility(scale, !!settings.reduceMotion, !!settings.highContrast, !!settings.screenReader);
+    },
     // Pretends to be a phone with a notch, rounded corners or system bars: screen.safeArea, screen.insets and the items with
     // safeArea follow. Takes insets in design pixels ({ left, top, right, bottom }, 0 for those left out) or a profile name:
     // "none", "phone-portrait", "phone-landscape". Reset to none before every test.
@@ -1888,6 +1908,7 @@
       N.resetInput();
       N.audioLog(true);
       N.spokenLog(true);
+      N.testAccessibility();
       N.setTimeScale(1); pausedScale = null;
       const start = N.nowMs();
       const seq0 = N.logSeq();
