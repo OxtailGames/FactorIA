@@ -107,6 +107,24 @@ const char* kInspectMatFile = R"({
   }
 })";
 
+// Section M2: a tilted cube under a perspective camera (3D gizmos), and a screen-space (HUD) rectangle under a 2D camera.
+const char* kGizmo3dScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 0, 6] }, "Camera": { "projection": "perspective", "fov": 60, "primary": true } } },
+    { "id": "sun", "components": { "Transform": { "position": [0, 5, 0], "rotation": [-50, 30, 0] }, "Light": { "intensity": 0.8 } } },
+    { "id": "gem", "components": { "Transform": { "rotation": [10, 20, 0] }, "MeshRenderer": { "mesh": "cube", "color": [0.9, 0.5, 0.2, 1] } } }
+  ]
+})";
+const char* kGizmoHudScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 0, 0] }, "Camera": { "clearColor": [0.35, 0.55, 0.85, 1], "primary": true } } },
+    { "id": "hud", "name": "Score",
+      "components": { "Transform": { "position": [300, 200, 0] }, "Shape2D": { "size": [160, 48], "color": [0.95, 0.35, 0.3, 1], "space": "screen" } } }
+  ]
+})";
+
 // The entity `id` in a saved scene's entities (children searched too), or nullptr.
 const Json* find_saved_entity(const Json& list, const std::string& id) {
     if (!list.is_array()) return nullptr;
@@ -236,6 +254,7 @@ void Editor::at_build_tools_script() {
     step(2, [this, project_file] {
         stop();
         select_id("");
+        gizmoMode_ = GizmoMode::Select;  // the sections before M click and compare pictures: no handles over the selection
         write_file(project_file(scenePath_), kFixtureScene);
         reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
         write_file(project_file("assets/blip.wav"), silence_wav());
@@ -1496,6 +1515,454 @@ void Editor::at_build_tools_script() {
             reload_scene_from_disk();
         });
         step(2, [this, project_file] {  // back to the 2D fixture the next sections expect
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+    }
+
+    // ------------------------------------------------------------------- M. Transform gizmos: move, rotate, scale in the viewport
+    // The acceptance of the gizmos: select the player, press W / E / R, drag handles with the injected mouse. Every drag is one
+    // undo step and a scene.set_component on Transform; Ctrl snaps; a child of a rotated, scaled parent follows the mouse in
+    // world space; Esc puts the start value back with no undo step; Q hides the handles; none while Playing, but Paused edits the
+    // running game; Save writes the values into the scene file.
+    {
+        struct Gz {
+            Vec2 grab{}, cur{};
+            Vec3 pos{}, rot{}, scl{};
+            size_t undo = 0;
+            double restUntil = 0;
+        };
+        auto g = std::make_shared<Gz>();
+        auto tf = [this](const char* id) {
+            Entity e = world().find_by_id(id);
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? *t : Transform{};
+        };
+        // Panel pixels per design pixel (= world unit with the fixture's camera).
+        auto sc = [this] { return vpImageSize_.x / float(engine_->renderer()->target_width()); };
+        auto sc_y = [this] { return vpImageSize_.y / float(engine_->renderer()->target_height()); };  // the image size is floored: not quite the same
+        auto panel_of_player = [this] {
+            const Vec2 d = engine_->renderer()->world_to_screen(world().world_position(world().find_by_id("player")));
+            return Vec2{vpImageMin_.x + d.x / float(engine_->renderer()->target_width()) * vpImageSize_.x,
+                        vpImageMin_.y + d.y / float(engine_->renderer()->target_height()) * vpImageSize_.y};
+        };
+        auto press = [this, &step](int keyCode) {
+            step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, keyCode); });
+            step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_UP, keyCode); });
+        };
+        auto ctrl = [this, &step](bool down) {
+            step(2, [this, down] {
+#if defined(__APPLE__)
+                // Dear ImGui swaps Cmd and Ctrl on macOS (io.KeyCtrl is Cmd): the key a Mac user holds to snap is Cmd.
+                atMods_ = down ? SAPP_MODIFIER_SUPER : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_SUPER);
+#else
+                atMods_ = down ? SAPP_MODIFIER_CTRL : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_CONTROL);
+#endif
+            });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        // Grab a handle (at the point the layout says it can be grabbed), move the mouse to `target()` in one go, let go.
+        auto grab = [this, &step, &wait_until, g](const std::string& handle) {
+            step(2, [this, g, handle] {
+                g->grab = g->cur = at_widget("gizmo:" + handle);
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, g->grab);
+            });
+            step(2, [this, g] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, g->grab); });
+            wait_until([this] { return gizmoDrag_.active; });
+        };
+        auto move_to = [this, &step, &wait_until, g](std::function<Vec2()> target) {
+            step(2, [this, g, target] {
+                g->cur = target();
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, g->cur);
+            });
+            wait_until([this] { return gizmoDrag_.wrote; });
+            step(3, [] {});
+        };
+        auto release = [this, &step, &wait_until, g] {
+            step(2, [this, g] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, g->cur); });
+            wait_until([this] { return !gizmoDrag_.active; });
+            step(3, [] {});
+        };
+        auto drag_by = [&grab, &move_to, &release, g](const std::string& handle, float dx, float dy) {
+            grab(handle);
+            move_to([g, dx, dy] { return Vec2{g->grab.x + dx, g->grab.y + dy}; });
+            release();
+        };
+        // A ring drag: from where the ring was grabbed (45 degrees up-right of the entity) to `degrees` of screen angle.
+        auto ring_to = [&move_to, g, panel_of_player](float degrees) {
+            move_to([g, panel_of_player, degrees] {
+                const Vec2 c = panel_of_player();
+                const float r = std::hypot(g->grab.x - c.x, g->grab.y - c.y);
+                return Vec2{c.x + r * std::cos(degrees * kDegToRad), c.y + r * std::sin(degrees * kDegToRad)};
+            });
+        };
+        auto remember = [this, g, tf] {
+            const Transform t = tf("player");
+            g->pos = t.position;
+            g->rot = t.rotation;
+            g->scl = t.scale;
+            g->undo = undo_depth();
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            select_id("player");
+            gizmoMode_ = GizmoMode::Select;
+            showHierarchy_ = showInspector_ = true;
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            select_id("player");
+            focus_window("###Viewport");
+        });
+        // The mouse over the viewport (keys reach it while hovered or focused).
+        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        step(4, [this] { at_check(!at_visible("gizmo:move:x"), "Select mode shows no gizmo"); });
+        click("toolbar:gizmo:move");
+        step(4, [this] {
+            at_check(gizmoMode_ == GizmoMode::Move, "the toolbar's Move button switches to the move gizmo");
+            at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:y") && at_visible("gizmo:move:plane"),
+                     "Move shows an arrow per axis and the free-move square on the selected entity");
+            at_check(!at_visible("gizmo:move:z"), "...with no Z arrow under a 2D camera");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        });
+        press(SAPP_KEYCODE_Q);
+        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Select && !at_visible("gizmo:move:x"), "Q switches to Select: the gizmo disappears"); });
+        press(SAPP_KEYCODE_W);
+        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Move && at_visible("gizmo:move:x"), "W switches to Move: the gizmo is back"); });
+        snap("editor_gizmo_move.png");
+
+        // Move: the X arrow. The world moved by what the mouse covered (px / panel scale) and y did not.
+        step(2, remember);
+        drag_by("move:x", 60, 25);
+        step(2, [this, g, tf, sc] {
+            const Transform t = tf("player");
+            at_check(std::fabs(t.position.x - (g->pos.x + 60.0f / sc())) < 0.05f, "dragging the X arrow moves position.x by the world distance the mouse covered");
+            at_check(t.position.y == g->pos.y && t.position.z == g->pos.z, "...and position.y / z did not change (the drag followed the axis)");
+            at_check(undo_depth() == g->undo + 1, "the whole drag is ONE undo step");
+            at_check(dirty_, "...and marks the scene dirty");
+            undo();
+            at_check(tf("player").position.x == g->pos.x, "Undo puts the position back");
+        });
+        // Move: the free square (the XY plane in 2D; y is down on screen, up in the world).
+        step(2, remember);
+        drag_by("move:plane", 30, 20);
+        step(2, [this, g, tf, sc, sc_y] {
+            const Transform t = tf("player");
+            at_check(std::fabs(t.position.x - (g->pos.x + 30.0f / sc())) < 0.05f && std::fabs(t.position.y - (g->pos.y - 20.0f / sc_y())) < 0.05f,
+                     "dragging the centre square moves the entity in both axes under the mouse");
+            at_check(undo_depth() == g->undo + 1, "...as one undo step");
+            undo();
+        });
+
+        // Rotate: a ring around Z. From 45 degrees on the ring to 0: a clockwise 45 on screen is -45 about Z (y is up).
+        press(SAPP_KEYCODE_E);
+        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Rotate && at_visible("gizmo:rotate:z") && !at_visible("gizmo:rotate:x"), "E shows one rotation ring in 2D"); });
+        snap("editor_gizmo_rotate.png");
+        step(2, remember);
+        grab("rotate:z");
+        ring_to(0.0f);
+        release();
+        step(2, [this, g, tf] {
+            const Transform t = tf("player");
+            at_check(std::fabs(t.rotation.z + 45.0f) < 2.0f, "dragging the ring turns rotation.z with the mouse's angle around the entity (" + std::to_string(t.rotation.z) + ")");
+            at_check(t.rotation.x == 0 && t.rotation.y == 0 && t.position.x == g->pos.x && t.scale.x == g->scl.x, "...and nothing else changes");
+            at_check(undo_depth() == g->undo + 1, "...as one undo step");
+            undo();
+        });
+        // Past 180 degrees the ring keeps turning: -45 to 135 on screen is +180 about the mouse, and the next half turn goes on.
+        step(2, remember);
+        grab("rotate:z");
+        ring_to(-45.0f - 120.0f);
+        ring_to(-45.0f - 240.0f);
+        release();
+        step(2, [this, tf] {
+            const float z = tf("player").rotation.z;
+            at_check(std::fabs(z - 240.0f) < 3.0f, "a drag that goes more than half a turn keeps turning (rotation.z " + std::to_string(z) + ", wanted 240)");
+            undo();
+        });
+
+        // Scale: the X handle's box grows the entity along its own X only.
+        press(SAPP_KEYCODE_R);
+        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Scale && at_visible("gizmo:scale:x") && at_visible("gizmo:scale:all"), "R shows scale handles and the uniform box"); });
+        snap("editor_gizmo_scale.png");
+        step(2, remember);
+        drag_by("scale:x", 40, 0);
+        step(2, [this, g, tf] {
+            const Transform t = tf("player");
+            at_check(std::fabs(t.scale.x - 1.5f) < 0.02f && t.scale.y == g->scl.y && t.scale.z == g->scl.z, "dragging the X handle scales x only (1 -> " + std::to_string(t.scale.x) + ")");
+            at_check(undo_depth() == g->undo + 1, "...as one undo step");
+            undo();
+        });
+        // A drag back through the pivot never reaches 0 or flips the sign.
+        step(2, remember);
+        drag_by("scale:x", -400, 0);
+        step(2, [this, tf] {
+            const Transform t = tf("player");
+            at_check(t.scale.x > 0.0f && t.scale.x < 0.05f, "dragging a scale handle past the pivot holds a small positive value (" + std::to_string(t.scale.x) + ")");
+            undo();
+        });
+
+        // Ctrl snaps the value: whole units (2D) for move, 15 degrees for rotate, 0.1 for scale. (Keys are ignored while Ctrl is held.)
+        press(SAPP_KEYCODE_W);
+        ctrl(true);
+        drag_by("move:x", 33.3f, 0);
+        step(2, [this, tf] {
+            const float x = tf("player").position.x;
+            at_check(std::fabs(x - std::round(x)) < 1e-3f, "Ctrl while dragging an arrow snaps the position to whole units (" + std::to_string(x) + ")");
+            undo();
+        });
+        ctrl(false);
+        press(SAPP_KEYCODE_E);
+        ctrl(true);
+        grab("rotate:z");
+        ring_to(-45.0f + 100.0f);
+        release();
+        step(2, [this, tf] {
+            const float z = tf("player").rotation.z;
+            at_check(std::fabs(z) > 1.0f && std::fabs(z / 15.0f - std::round(z / 15.0f)) < 1e-3f, "Ctrl while dragging a ring snaps the rotation to 15 degrees (" + std::to_string(z) + ")");
+            undo();
+        });
+        ctrl(false);
+        press(SAPP_KEYCODE_R);
+        ctrl(true);
+        drag_by("scale:x", 37, 0);
+        step(2, [this, tf] {
+            const float s = tf("player").scale.x;
+            at_check(s > 1.0f && std::fabs(s * 10.0f - std::round(s * 10.0f)) < 1e-2f, "Ctrl while dragging a scale handle snaps it to 0.1 (" + std::to_string(s) + ")");
+            undo();
+        });
+        ctrl(false);
+        press(SAPP_KEYCODE_W);
+
+        // A child of a rotated and scaled parent ends where the mouse put it in world space (the value written is local).
+        step(2, [this, g] {
+            run_console_line(R"(scene.set_component {"id":"platform_1","component":"Transform","fields":{"rotation":[0,0,30],"scale":[1.5,1,1]}})");
+            run_console_line(R"(scene.set_parent {"id":"coin_1","parent":"platform_1"})");
+            select_id("coin_1");
+            g->undo = undo_depth();
+            g->pos = world().world_position(world().find_by_id("coin_1"));
+        });
+        step(4, [this] { at_check(!world().parent(world().find_by_id("coin_1")).is_null() && at_visible("gizmo:move:x"), "the child has the gizmo too"); });
+        drag_by("move:x", 50, 0);
+        step(2, [this, g, sc] {
+            const Vec3 now = world().world_position(world().find_by_id("coin_1"));
+            at_check(std::fabs(now.x - (g->pos.x + 50.0f / sc())) < 0.1f && std::fabs(now.y - g->pos.y) < 0.1f,
+                     "a child of a rotated, scaled parent moves by the mouse's world distance (the local value written differs from it)");
+            at_check(undo_depth() == g->undo + 1, "...as one undo step");
+            select_id("player");
+        });
+
+        // Esc in the middle of a drag: the start value is back and no undo step is left behind. The mouse rests longer than the
+        // 0.8 s that merges edits into one undo step before it moves on: still one step, which Esc takes back.
+        step(4, remember);
+        grab("move:x");
+        move_to([g] { return Vec2{g->grab.x + 45, g->grab.y}; });
+        step(1, [this, g] { g->restUntil = time_ + 1.0; });
+        wait_until([this, g] { return time_ > g->restUntil; });
+        step(2, [this, g] { gizmoDrag_.wrote = false; });
+        move_to([g] { return Vec2{g->grab.x + 70, g->grab.y}; });
+        step(2, [this, g, tf] {
+            at_check(tf("player").position.x != g->pos.x, "mid-drag the entity has moved");
+            at_check(undo_depth() == g->undo + 1, "a drag that rests mid-way is still one undo step");
+            inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE);
+        });
+        step(4, [this, g, tf] {
+            inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE);
+            at_check(tf("player").position.x == g->pos.x, "Esc while dragging puts the start value back");
+            at_check(undo_depth() == g->undo && !gizmoDrag_.active, "...and leaves no undo step, ending the drag");
+        });
+        release();
+        step(2, [this, g, tf] { at_check(tf("player").position.x == g->pos.x, "letting go after Esc changes nothing"); });
+
+        // Playing: the input goes to the game, so no handles. Paused: they edit the running game, with no undo step, lost on Stop.
+        step(2, [this, remember] {
+            remember();
+            play();
+        });
+        wait_until([this] { return play_ == PlayState::Playing && !at_visible("gizmo:move:x"); });
+        step(3, [this] {
+            at_check(!at_visible("gizmo:move:x"), "no gizmo while the game plays");
+            pause();
+        });
+        step(6, [this] { at_check(play_ == PlayState::Paused && at_visible("gizmo:move:x"), "paused: the gizmo is back"); });
+        drag_by("move:x", 40, 0);
+        step(2, [this, g, tf, sc] {
+            at_check(std::fabs(tf("player").position.x - (g->pos.x + 40.0f / sc())) < 0.05f, "a drag while paused edits the running game");
+            at_check(undo_depth() == g->undo, "...with no undo step (Stop discards it)");
+            stop();
+        });
+        step(6, [this, g, tf] { at_check(tf("player").position.x == g->pos.x, "Stop takes the edit made while paused back"); });
+
+        // Save: the scene file holds what the gizmo wrote.
+        step(2, remember);
+        drag_by("move:x", 80, 0);
+        step(2, [this, tf, project_file] {
+            at_check(save_scene_now(), "Save works after gizmo edits");
+            auto loaded = load_json_file(project_file(scenePath_));
+            const Json* saved = loaded ? find_saved_entity((*loaded)["entities"], "player") : nullptr;
+            const Json pos = saved ? (*saved)["components"]["Transform"]["position"] : Json();
+            at_check(pos.is_array() && pos.size() >= 1 && std::fabs(pos[0].get<float>() - tf("player").position.x) < 1e-3f,
+                     "the scene file holds the position the gizmo set");
+            at_check(!dirty_, "...and the scene is clean after saving");
+        });
+        step(2, [this, project_file] {  // back to the fixture the next sections expect
+            gizmoMode_ = GizmoMode::Move;
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+
+        // ---- M2. The same gizmos with a perspective camera (3D) and on a screen-space (HUD) entity.
+        auto piv = std::make_shared<Vec2>();
+        auto shape_of = [this](GizmoHandle h) -> const GizmoShape* {
+            for (const GizmoShape& s : gizmoShapes_)
+                if (s.handle == h) return &s;
+            return nullptr;
+        };
+        // A point on a ring where the hit test gives THIS ring (rings of a 3D gizmo cross each other).
+        auto ring_point = [this, shape_of](GizmoHandle h) {
+            const GizmoShape* s = shape_of(h);
+            if (s)
+                for (size_t i = 0; i < s->ring.size(); ++i) {
+                    const Vec2 v = s->ring[(i + 8) % s->ring.size()];
+                    if (gizmo_hit(gizmoShapes_, v, 7.0f) == h) return v;
+                }
+            at_check(false, "a point of the " + gizmo_handle_name(h) + " ring that only it can be grabbed by");
+            return Vec2{-100, -100};
+        };
+        auto grab_pt = [this, &step, &wait_until, g, piv, shape_of](GizmoHandle h, std::function<Vec2()> where) {
+            step(2, [this, g, piv, shape_of, h, where] {
+                g->grab = g->cur = where();
+                if (const GizmoShape* s = shape_of(h)) *piv = s->centre;
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, g->grab);
+            });
+            step(2, [this, g] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, g->grab); });
+            wait_until([this] { return gizmoDrag_.active; });
+        };
+        auto over_viewport = [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); };
+        auto start_scene = [this, project_file](const char* json, const char* id, int mode) {
+            write_file(project_file(scenePath_), json);
+            reload_scene_from_disk();
+            select_id(id);
+            gizmoMode_ = GizmoMode(mode);
+            focus_window("###Viewport");
+        };
+        // Rotation matrices before and after: `after` is `before` turned about its own local axis `axis` (by some angle).
+        auto turned_about_local = [](Vec3 before, Vec3 after, int axis) {
+            const Mat4 rel = Mat4::rotate_euler_deg(before).transposed() * Mat4::rotate_euler_deg(after);
+            const bool fixed = std::fabs(rel.at(axis, axis) - 1.0f) < 1e-3f;
+            const int other = (axis + 1) % 3;
+            return fixed && rel.at(other, other) < 0.9998f;
+        };
+        auto vec3_str = [](Vec3 v) { return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")"; };
+
+        step(2, [start_scene] { start_scene(kGizmo3dScene, "gem", int(GizmoMode::Move)); });
+        step(6, over_viewport);
+        step(4, [this] { at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:y"), "3D: the move gizmo shows on the cube"); });
+        snap("editor_gizmo_move_3d.png");
+        step(2, [this, g, tf] {
+            const Transform t = tf("gem");
+            g->pos = t.position;
+            g->rot = t.rotation;
+            g->scl = t.scale;
+            g->undo = undo_depth();
+        });
+        drag_by("move:x", 40, 15);
+        step(2, [this, g, tf, vec3_str] {
+            const Transform t = tf("gem");
+            at_check(t.position.x > g->pos.x + 0.05f && t.position.y == g->pos.y && t.position.z == g->pos.z,
+                     "3D: dragging the X arrow grows position.x and leaves y and z alone " + vec3_str(t.position));
+            at_check(undo_depth() == g->undo + 1, "...as one undo step");
+            undo();
+        });
+
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_E); });
+        step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_E); });
+        step(3, [this] { at_check(at_visible("gizmo:rotate:x") && at_visible("gizmo:rotate:y") && at_visible("gizmo:rotate:z"), "3D: the rotate gizmo has three rings"); });
+        snap("editor_gizmo_rotate_3d.png");
+        for (int axis = 0; axis < 2; ++axis) {  // the local x ring, then the local y ring
+            const GizmoHandle h{GizmoKind::RotateAxis, axis};
+            step(2, [this, g, tf] {
+                const Transform t = tf("gem");
+                g->rot = t.rotation;
+                g->scl = t.scale;
+                g->undo = undo_depth();
+            });
+            grab_pt(h, [ring_point, h] { return ring_point(h); });
+            move_to([g, piv] {  // 40 degrees around the projected pivot
+                const float a = 40.0f * kDegToRad, dx = g->grab.x - piv->x, dy = g->grab.y - piv->y;
+                return Vec2{piv->x + dx * std::cos(a) - dy * std::sin(a), piv->y + dx * std::sin(a) + dy * std::cos(a)};
+            });
+            release();
+            step(2, [this, g, tf, axis, turned_about_local, vec3_str] {
+                const Transform t = tf("gem");
+                at_check(turned_about_local(g->rot, t.rotation, axis),
+                         std::string("3D: dragging the local ") + (axis == 0 ? "x" : "y") + " ring turns the cube about that local axis, as the euler round trip says " + vec3_str(g->rot) + " -> " + vec3_str(t.rotation));
+                at_check(t.scale.x == g->scl.x && undo_depth() == g->undo + 1, "...one undo step, scale untouched");
+                undo();
+            });
+        }
+
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_R); });
+        step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_R); });
+        step(3, [this] { at_check(at_visible("gizmo:scale:x") && at_visible("gizmo:scale:y"), "3D: the scale gizmo shows"); });
+        step(2, [this, g, tf] {
+            g->scl = tf("gem").scale;
+            g->undo = undo_depth();
+        });
+        grab_pt(GizmoHandle{GizmoKind::ScaleAxis, 1}, [this] { return at_widget("gizmo:scale:y"); });
+        move_to([g, piv] {  // 30 px further out along the handle
+            const float dx = g->grab.x - piv->x, dy = g->grab.y - piv->y, l = std::max(1.0f, std::hypot(dx, dy));
+            return Vec2{g->grab.x + dx / l * 30.0f, g->grab.y + dy / l * 30.0f};
+        });
+        release();
+        step(2, [this, g, tf, vec3_str] {
+            const Transform t = tf("gem");
+            at_check(t.scale.y > g->scl.y * 1.1f && t.scale.x == g->scl.x && t.scale.z == g->scl.z,
+                     "3D: dragging the local Y scale handle changes scale.y only " + vec3_str(t.scale));
+            undo();
+        });
+
+        // HUD: a screen-space shape. Its Transform is in design pixels, y down: the gizmo's Y arrow points down the screen.
+        step(2, [start_scene] { start_scene(kGizmoHudScene, "hud", int(GizmoMode::Move)); });
+        step(6, over_viewport);
+        step(4, [this, shape_of] {
+            at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:plane"), "HUD: a screen-space entity gets the move gizmo");
+            const GizmoShape* y = shape_of(GizmoHandle{GizmoKind::MoveAxis, 1});
+            at_check(y && y->dir.y > 0.9f, "HUD: the Y arrow points down the screen (design y grows downwards)");
+        });
+        snap("editor_gizmo_hud.png");
+        step(2, [this, g, tf] {
+            g->pos = tf("hud").position;
+            g->undo = undo_depth();
+        });
+        drag_by("move:plane", 30, 20);
+        step(2, [this, g, tf, sc, sc_y] {
+            const Transform t = tf("hud");
+            at_check(std::fabs(t.position.x - (g->pos.x + 30.0f / sc())) < 0.1f && std::fabs(t.position.y - (g->pos.y + 20.0f / sc_y())) < 0.1f,
+                     "HUD: the centre square moves it by the design pixels the mouse covered (right and DOWN are positive)");
+            at_check(undo_depth() == g->undo + 1, "...as one undo step");
+            g->pos = t.position;
+            g->undo = undo_depth();
+        });
+        drag_by("move:y", 12, 30);
+        step(2, [this, g, tf, sc_y] {
+            const Transform t = tf("hud");
+            at_check(std::fabs(t.position.y - (g->pos.y + 30.0f / sc_y())) < 0.1f && t.position.x == g->pos.x,
+                     "HUD: the Y arrow moves it down by the design pixels covered, x unchanged");
+            undo();
+            undo();
+        });
+        step(2, [this, project_file] {  // back to the fixture the next sections expect
+            gizmoMode_ = GizmoMode::Move;
             write_file(project_file(scenePath_), kFixtureScene);
             reload_scene_from_disk();
             select_id("");
