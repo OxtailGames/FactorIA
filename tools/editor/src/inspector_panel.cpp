@@ -317,6 +317,21 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             at_track(track, !disabled);
             tooltip(tip);
             if (commit) { out = b.text; b.dirty = false; changed = true; }
+            if (asset && ImGui::BeginDragDropTarget()) {
+                // A file from the Project panel: only one of this field's asset type is taken; it is written as picking it does.
+                const ImGuiPayload* live = ImGui::GetDragDropPayload();
+                if (live && live->IsDataType(kAssetPayload) && live->Data) {
+                    const std::string dropped(static_cast<const char*>(live->Data));
+                    if (!asset_file_matches(f.assetType, dropped)) {
+                        ImGui::SetTooltip("This field takes %s files", f.assetType.c_str());
+                    } else if (ImGui::AcceptDragDropPayload(kAssetPayload)) {
+                        out = dropped;
+                        changed = true;
+                        b.dirty = false;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
             if (asset) {
                 ImGui::SameLine(0, ImGui::GetStyle().ItemInnerSpacing.x);
                 if (ImGui::BeginCombo("##pick", "", ImGuiComboFlags_NoPreview)) {
