@@ -52,6 +52,7 @@
 #include "inspector_model.h"
 #include "platform_settings.h"
 #include "play_recorder.h"
+#include "project_browser_model.h"
 #include "setup_job.h"
 
 struct sapp_event;
@@ -224,6 +225,11 @@ public:
     void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
     void draw_feedback_panel();
     void draw_audio_panel();
+    // Project panel (project_browser_panel.cpp): the project's files; drag them onto Inspector asset fields and the Viewport.
+    void draw_project_panel();
+    void draw_project_tile(const BrowserFile& f, ImVec2 size);
+    void viewport_accept_drop(Renderer& r, Vec2 design);  // a prefab dropped on the Viewport: scene.spawn at the point under the mouse
+    void project_files_changed();                          // the editor wrote or deleted a file: the Project panel rescans
     // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call
     // (scene.set_component, scene.set_parent, scene.spawn, scene.destroy...) through edit_command(), the Console's path:
     // an undo snapshot first (one per `key` within 0.8 s, and one per drag), then the call. A refused call leaves no undo
@@ -384,7 +390,8 @@ public:
 
     // panel visibility
     bool showViewport_ = true;
-    bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false;
+    bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false, showProject_ = true;
+    ProjectBrowser projBrowser_;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
     // Engine update (fa/editor/update.h): checked once when the editor opens. While a newer release is offered the

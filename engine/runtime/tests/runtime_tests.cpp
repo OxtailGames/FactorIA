@@ -82,6 +82,19 @@ double entity_y(const Json& state, const std::string& id) {
 }  // namespace
 
 // ---------------------------------------------------------------- project --
+TEST_CASE("asset_type_of: one classifier for every asset file") {
+    CHECK(asset_type_of("assets/Hero.PNG") == "texture");
+    CHECK(asset_type_of("a/b.qoa") == "audio");
+    CHECK(asset_type_of("f.otf") == "font");
+    CHECK(asset_type_of("m.glb") == "mesh");
+    CHECK(asset_type_of("s.js") == "script");
+    CHECK(asset_type_of("scenes/main.scene.json") == "scene");
+    CHECK(asset_type_of("p/enemy.prefab.json") == "prefab");
+    CHECK(asset_type_of("m/water.material.json") == "material");
+    CHECK(asset_type_of("data.json") == "other");
+    CHECK(asset_type_of("dir.png/readme") == "other");
+}
+
 TEST_CASE("project: defaults, scale modes, round trip") {
     TempProject p("proj_defaults", R"({"name":"Min"})", nullptr);
     auto r = load_project(p.path());

@@ -7,6 +7,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
+#include "fa/runtime/project.h"
 #include "fa/runtime/test_files.h"
 #include "fa/scene/serialize.h"
 #include "fa/services/platform_commands.h"
@@ -961,7 +962,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
           [&engine, &I](const Json&) { return I.scripts.api_manifest(); });
 
     // ------------------------------------------------------------------- assets
-    I.commands.add({"assets.list", "List project asset files with type and size.",
+    I.commands.add({"assets.list", "List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).",
            "Example: assets.list {\"folder\":\"assets\",\"extension\":\".png\"}",
            parse_schema(R"({"type":"object","properties":{
                "folder":{"type":"string","default":"assets","description":"Project-relative folder."},
@@ -972,15 +973,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               auto files = fs::list(folder, true, a.value("extension", std::string()));
               Json list = Json::array();
               for (const std::string& f : files) {
-                  std::string ext = fs::extension(f);
-                  const char* type = "other";
-                  if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") type = "texture";
-                  else if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".qoa") type = "audio";
-                  else if (ext == ".ttf" || ext == ".otf") type = "font";
-                  else if (ext == ".obj" || ext == ".gltf" || ext == ".glb") type = "mesh";
-                  else if (ext == ".js") type = "script";
-                  else if (ends_with(f, ".scene.json")) type = "scene";
-                  else if (ends_with(f, ".prefab.json")) type = "prefab";
+                  const std::string type = asset_type_of(f);
                   const auto sz = fs::file_size(f);
                   list.push_back(Json::object({{"path", f}, {"type", type}, {"size", sz < 0 ? std::uint64_t(0) : std::uint64_t(sz)}}));
               }

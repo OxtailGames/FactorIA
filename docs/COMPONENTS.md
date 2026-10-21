@@ -991,7 +991,7 @@ Files land in assets/ (models in assets/models/, sounds in assets/audio/, fonts 
 
 ### `assets.list`
 
-List project asset files with type and size.
+List project asset files with type and size. Types: texture, audio, font, mesh, script, scene, prefab, material, other (by file name).
 
 Example: assets.list {"folder":"assets","extension":".png"}
 

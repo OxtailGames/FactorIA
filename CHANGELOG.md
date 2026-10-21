@@ -18,6 +18,11 @@ Edit by hand in the editor
   takes those edits back.
 - A `MeshRenderer` shows its material's settings with the right widgets (sliders, vectors, colour pickers) and a Reset
   button for each, and a material that does not compile shows its error right under the material field.
+- The new Project panel (a tab next to Console, also in the View menu) lists the project's files with thumbnails, a folder
+  tree, a type filter and a search box. Drag a picture, sound, font, mesh, script or material onto an Inspector field of that
+  type to set it, drag a prefab onto the game view to spawn it where you drop it, double-click a scene to open it, and
+  right-click a file to show it in the file manager, copy its path or delete it. `assets.list` now also reports `material`
+  for `.material.json` files.
 - New command `scene.set_parent` moves an entity under another one (or to the top level), for the AI too.
 - Move, rotate and scale in the game view: select something and drag the arrows (W), the rings (E) or the handles (R) that
   appear on it; Q goes back to just selecting. The four buttons next to Undo do the same. Hold Ctrl to snap, press Esc in

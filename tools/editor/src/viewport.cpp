@@ -176,6 +176,7 @@ void Editor::draw_viewport() {
     vpImageSize_ = sz;
     const bool hovered = ImGui::IsItemHovered();
     vpHovered_ = hovered;
+    { const ImVec2 m = ImGui::GetIO().MousePos; viewport_accept_drop(*r, Vec2{(m.x - imgMin.x) / sz.x * tw, (m.y - imgMin.y) / sz.y * th}); }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImGuiIO& io = ImGui::GetIO();
 

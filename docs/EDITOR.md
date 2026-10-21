@@ -31,9 +31,9 @@ Linux AppImage (a read-only mount: download the newer one). Details:
 ## Layout
 
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Hierarchy** over **Inspector** on the left,
-the **Viewport** in the middle, **AI Assistant** on the right, and Console / Engine Feedback / Audio / Profiler as tabs under
-the view. You can also edit by hand with the Hierarchy and the Inspector, and by dragging gizmos in the Viewport (below). Still
-missing: an asset browser: describe it to the AI. Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
+the **Viewport** in the middle, **AI Assistant** on the right, and Console / Project / Engine Feedback / Audio / Profiler as tabs
+under the view. You can also edit by hand with the Hierarchy and the Inspector, by dragging gizmos in the Viewport (below) and by
+dragging files from the Project panel ([Project panel](#project-panel)). Use Undo to take back what it or you did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
 
 | Panel | What it does |
 |---|---|
@@ -42,6 +42,7 @@ missing: an asset browser: describe it to the AI. Use Undo to take back what it 
 | Inspector | The selected entity's components, one widget per field, Add Component. |
 | Viewport | The game as the engine renders it (post-effects such as `Camera.bloom` and `Camera.colorFilter` included). Click an entity to select it: the selection outline shows what you point at; the gizmos move, rotate and scale it ([Gizmos](#gizmos)). Its title shows the mode, game size and zoom (`EDIT  1280x720  50%`); Play focuses it, so keys reach the game without a click (unless you are typing in another panel). |
 | AI Assistant | The built-in agent: describe what to build or change (see AI_PROVIDERS.md for the providers). |
+| Project | The project's files: folder tree, filter, search, thumbnails; drag files onto the Inspector and the Viewport ([Project panel](#project-panel)). |
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
 | Audio | (View > Audio) the live `audio.log`. |
@@ -318,10 +319,32 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 - **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path and a `profile` section: where the time went over the session (per engine system, per script behaviour class, GPU, memory; PERFORMANCE.md).
   The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
 
+## Project panel
+
+View > Project (a tab next to Console; the View menu reopens it). A folder tree on the left (**Project** is every file; hidden
+folders, `build`, `node_modules`, `dist` and `export` are left out) and the files on the right: a thumbnail for pictures, a
+badge (`WAV`, `JS`, `SCN`, `PFB`, `MAT`...) for the rest. Hover a file for its path, type and size.
+
+- **Type filter** (all, texture, audio, font, mesh, script, scene, prefab, material; the same types as `assets.list` and the
+  Inspector's file lists, one classifier: `asset_type_of`) and **search** (case-insensitive part of the path; a search looks
+  through the whole project, not only the chosen folder). **Sort** by name, type or size.
+- The listing is cached: the panel does not read the disk every frame. It reads again on **Refresh**, when the panel gains focus
+  (or the window does) and after the editor itself writes or deletes a file (a command such as `fs.*`, `assets.*`,
+  `prefab.save`, `scene.save`, or Save).
+- **Drag a file** (the payload `FA_ASSET` is its project-relative path). Onto an Inspector file field: only a file of the field's
+  type is taken (a picture on `Sprite.texture`; a sound there is refused) and it is written like picking it from the list.
+  Onto the Viewport: a `.prefab.json` is spawned with `scene.spawn {prefab, position}` and the new entity is selected (one Undo
+  step). The position is the world point under the mouse: in 2D on the z = 0 plane; in 3D where the mouse ray meets the
+  ground plane (y = 0), and 10 units in front of the camera when it misses it (the ray points up or the ground is farther than
+  1000 units). Other types do nothing on the Viewport (the tooltip says only prefabs).
+- **Double-click** a `.scene.json` to open it (with the same "Unsaved changes" question as File > Open Scene).
+- **Right-click** a file: **Show in Finder** (Explorer, file manager), **Copy path**, **Delete...** (asks first, then `fs.delete`;
+  it is not an Undo step, the file is gone from disk).
+
 ## Testing the editor
 
 - `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed and the Profiler view (`tools/editor/src/editor_tools.*`), picking geometry
-  (`pick.cpp`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
+  (`pick.cpp`), the Project panel's tree, filter and sort (`project_browser_model.*`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
   (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
   progress lines and cancelling), the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
   Revert, validation, icons, the Android toolchain, the keystore command and creation) and the Set Up This Computer window's
@@ -335,7 +358,7 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   (it exports the game for the machine it runs on and checks the report) and the Platform settings window (tabs, edits,
   Save / Revert, closing with unsaved changes, the Create keystore window) and the Set Up This Computer window (it lists
   the five components, the Export rows show the right Set up button, a setup that cannot download shows its report, "I accept" of
-  the Android license waits for its checkbox) and a custom material (needs sokol-shdc, `SOKOL_SHDC`; without it that part records a SKIP, or fails with `FA_REQUIRE_SHDC=1` as on CI):
+  the Android license waits for its checkbox) and the Project panel (filter, search, a prefab dropped on the Viewport and Ctrl+Z, a picture dropped on a texture field, Delete) and a custom material (needs sokol-shdc, `SOKOL_SHDC`; without it that part records a SKIP, or fails with `FA_REQUIRE_SHDC=1` as on CI):
   a `materialParams` edit from the Console changes the viewport and Undo brings the picture back, a snippet rewritten on disk
   changes it without a reload (in edit mode and while playing), and a broken snippet keeps the last picture and logs one
   error with `file:line` that `game.logs` returns. The autotest keeps this computer's settings in
