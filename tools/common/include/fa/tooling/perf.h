@@ -52,8 +52,10 @@ struct PerfVerdict {
 // `strictTime`: a time over budget fails (CI); otherwise it only warns. Memory, draw calls and entities always fail.
 PerfVerdict perf_compare(const PerfSample& measured, const PerfSample& baseline, const PerfTolerance& tol, bool strictTime);
 
-// "<os>-<compiler>-<renderer>", e.g. linux-gcc-llvmpipe, windows-msvc-d3d11-warp, macos-clang-metal. FACTORIA_PERF_RUNNER
-// overrides it (a machine of your own, or the test of the check itself). `graphics` is PerfSample::graphics.
+// "<os>-<compiler>-<renderer>[-debug]", e.g. linux-gcc-llvmpipe, windows-msvc-d3d11-warp, macos-clang-metal-paravirtual
+// (GitHub's macOS VMs; a Mac's own GPU is macos-clang-metal). A Debug build (no NDEBUG) adds "-debug": it costs more memory
+// and time, so it never shares a baseline with a release build. FACTORIA_PERF_RUNNER overrides it (a machine of your own,
+// or the test of the check itself). `graphics` is PerfSample::graphics.
 std::string perf_runner_id(const std::string& graphics);
 void register_perf_commands(CommandRegistry& registry, const std::string& projectDir);
 

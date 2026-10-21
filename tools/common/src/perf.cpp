@@ -129,7 +129,9 @@ std::string perf_runner_id(const std::string& graphics) {
     } else if (g.find("warp") != std::string::npos || g.find("basic render driver") != std::string::npos) {
         gpu = "d3d11-warp";  // the Basic Render Driver is WARP as the adapter of a machine with no graphics card (CI)
     } else if (g.find("metal") != std::string::npos) {
-        gpu = "metal";
+        // GitHub's macOS runners are virtual machines: their Metal device is the Apple Paravirtual device, which costs about
+        // 6 MB (20%) less peak memory than a Mac's own GPU on the same build. Like WARP, it is a kind of its own.
+        gpu = g.find("paravirtual") != std::string::npos ? "metal-paravirtual" : "metal";
     } else if (g.rfind("d3d11", 0) == 0) {
         gpu = "d3d11";
     } else {
@@ -139,7 +141,14 @@ std::string perf_runner_id(const std::string& graphics) {
         }
         if (gpu.empty()) gpu = "gpu";
     }
-    return std::string(os) + "-" + compiler + "-" + gpu;
+#if defined(NDEBUG)
+    const char* build = "";
+#else
+    // A Debug build maps more and bigger code and runs slower: about 9 MB more peak memory than the release build on the
+    // same Mac, past the tolerance, so its numbers never meet a release build's baseline (CI builds release).
+    const char* build = "-debug";
+#endif
+    return std::string(os) + "-" + compiler + "-" + gpu + build;
 }
 
 static bool perf_in_ci() {
@@ -269,7 +278,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     m.description =
         "Runs the project in a second headless engine inside this process, drawing every frame with the GPU renderer when there is one (graphics \"none\" otherwise: draw calls are 0), and returns "
         "{runner, sample: {frames, cpuMsAvg, cpuMsP95, cpuMsMax (CPU time of the engine per frame: process CPU, not wall clock, so a busy machine moves it less), peakMemoryMB (peak resident memory "
-        "of the process), drawCalls and entities (max over the run), graphics}}. `runner` is the id of this machine's kind (os-compiler-renderer, e.g. linux-gcc-llvmpipe) that budget files key their "
+        "of the process), drawCalls and entities (max over the run), graphics}}. `runner` is the id of this machine's and build's kind (os-compiler-renderer, plus -debug for a Debug build, e.g. linux-gcc-llvmpipe) that budget files key their "
         "baselines by. `input` is an input replay (like `factoria run --input`) to reach the heavy part of the game. Peak memory is the whole process's, so measure with the same host every time "
         "(`factoria call --no-graphics perf.measure`). Example: {\"frames\":300}.";
     m.inputSchema = Json::parse(R"({"type":"object","properties":{
@@ -326,7 +335,7 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
     b.summary = "Measure the game and write or refresh THIS runner's entry in its performance budget file (perf.json).";
     b.description =
         "Measures like perf.measure (3 runs, median) and stores the result under runners.<runner> of the budget file, keeping the other runners' entries, the run settings and any \"tolerance\" "
-        "already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal), and again "
+        "already there. Run it once per kind of machine you want checked (the runner id is os-compiler-renderer, e.g. windows-msvc-d3d11-warp, linux-gcc-llvmpipe, macos-clang-metal-paravirtual; a Debug build adds -debug), and again "
         "when the game got heavier ON PURPOSE. A game sets its own budget the same way: `factoria call perf.baseline` writes <project>/perf.json, commit it, and `factoria call perf.check` (in "
         "CI it fails past the tolerance) checks it. File: {format:\"factoria.perf/1\", frames, scene?, input?, tolerance?: {cpuAvg:1.0 (ratio over the baseline), cpuP95:1.5, memory:0.1, "
         "drawCalls:0.1, entities:0.1, cpuSlackMs:1, memorySlackMB:8, countSlack:2}, runners: {<id>: sample}}. A limit is max(baseline*(1+ratio), baseline+slack). `tolerance` here sets the "
