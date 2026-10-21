@@ -120,6 +120,14 @@ void Editor::at_track(const std::string& name, bool enabled) {
     atWidgetShown_[name] = ImGui::IsItemVisible();  // false when a scrolling area (or a collapsed section) hides it
 }
 
+void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
+    if (!autotest_) return;
+    atWidgets_[name] = centre;
+    atWidgetFrame_[name] = uiFrame_;
+    atWidgetEnabled_[name] = enabled;
+    atWidgetShown_[name] = ImGui::IsItemVisible();
+}
+
 bool Editor::at_enabled(const std::string& name) const {
     auto it = atWidgetEnabled_.find(name);
     return at_visible(name) && it != atWidgetEnabled_.end() && it->second;

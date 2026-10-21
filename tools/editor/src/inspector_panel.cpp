@@ -125,6 +125,9 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
     ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     const bool open = ImGui::CollapsingHeader(type.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
     at_track("insp:hdr:" + type.name);
+    if (removable)  // the x of the header, for the autotest
+        at_track_at("insp:hdr:" + type.name + ":x", Vec2{ImGui::GetItemRectMax().x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
+                                                           (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f});
     tooltip(type.doc);
     if (!keep) {  // the x of the header
         std::string err;
@@ -193,15 +196,9 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
 
     // The vector widgets are one item: the autotest also needs the centre of each number.
     auto track_parts = [&](int n) {
-        if (!autotest_) return;
         const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-        for (int i = 0; i < n; ++i) {
-            const std::string name = track + "." + std::to_string(i);
-            atWidgets_[name] = Vec2{a.x + (b.x - a.x) * (float(i) + 0.5f) / float(n), (a.y + b.y) * 0.5f};
-            atWidgetFrame_[name] = uiFrame_;
-            atWidgetEnabled_[name] = !disabled;
-            atWidgetShown_[name] = ImGui::IsItemVisible();
-        }
+        for (int i = 0; i < n; ++i)
+            at_track_at(track + "." + std::to_string(i), Vec2{a.x + (b.x - a.x) * (float(i) + 0.5f) / float(n), (a.y + b.y) * 0.5f}, !disabled);
     };
     // One drag is ONE undo step: while the item is held, the edit key stays alive however still the mouse is.
     auto keep_step_alive = [&] {
@@ -444,16 +441,16 @@ void Editor::draw_material_params(Entity e, const Json& cur) {
         const float lo = p.min ? float(*p.min) : 0.0f, hi = p.max ? float(*p.max) : 0.0f;
         const float speed = p.min && p.max ? std::max(1e-4f, (hi - lo) / 200.0f) : std::max(0.01f, std::fabs(v[0]) * 0.01f);
         if (p.type == "float") {
-            changed = ImGui::DragFloat("##v", v, speed, lo, hi, "%.3f");
+            changed = ImGui::DragFloat("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
             if (changed) out = round4(v[0]);
         } else if (p.type == "vec2") {
-            changed = ImGui::DragFloat2("##v", v, speed, lo, hi, "%.3f");
+            changed = ImGui::DragFloat2("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
             if (changed) out = numbers(v, 2);
         } else if (p.type == "vec3") {
-            changed = ImGui::DragFloat3("##v", v, speed, lo, hi, "%.3f");
+            changed = ImGui::DragFloat3("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
             if (changed) out = numbers(v, 3);
         } else if (p.type == "vec4") {
-            changed = ImGui::DragFloat4("##v", v, speed, lo, hi, "%.3f");
+            changed = ImGui::DragFloat4("##v", v, speed, lo, hi, "%.3f", ImGuiSliderFlags_ClampOnInput);
             if (changed) out = numbers(v, 4);
         } else if (p.type == "color") {
             changed = ImGui::ColorEdit4("##v", v, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_Float);

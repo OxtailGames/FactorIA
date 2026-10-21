@@ -111,7 +111,8 @@ TEST_CASE("inspector: the Json box refuses invalid JSON with the parse error") {
     CHECK((*good)["a"].size() == 2);
     auto bad = parse_json_box("{\n  \"a\": [1, 2\n}");
     REQUIRE_FALSE(bad.ok());
-    CHECK(bad.error().message.find("line") != std::string::npos);
+    CHECK(bad.error().message.find("this field:3:") != std::string::npos);  // line and column
+    CHECK(bad.error().message.find("invalid JSON") != std::string::npos);
     CHECK_FALSE(bad.error().hint.empty());
     CHECK_FALSE(parse_json_box("   ").ok());
     CHECK(parse_json_box("null").ok());

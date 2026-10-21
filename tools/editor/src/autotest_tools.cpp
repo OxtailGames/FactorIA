@@ -86,6 +86,38 @@ const char* kMatSnippet = "void surface(in SurfaceInput i, inout Surface s) {\n 
 const char* kMatSnippetV2 = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n    s.emission += glow.rgb * glow.a;\n}\n";
 const char* kMatSnippetBroken = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n    s.colour = glow.rgb;\n}\n";
 
+// Section L: a cube with a material that has a ranged float, a vec3 and a color param (the Inspector types them by material.info).
+const char* kInspectScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 1.5, 4] }, "Camera": { "projection": "perspective", "fov": 60, "primary": true } } },
+    { "id": "sun", "components": { "Transform": { "position": [0, 5, 0], "rotation": [-50, 30, 0] }, "Light": { "intensity": 0.8 } } },
+    { "id": "gem", "components": { "Transform": { "scale": [1.5, 1.5, 1.5] },
+        "MeshRenderer": { "mesh": "cube", "color": [0.125, 0.125, 0.125, 1], "material": "materials/autotest_inspect.material.json" } } }
+  ]
+})";
+const char* kInspectMatFile = R"({
+  "format": "factoria.material/1",
+  "doc": "Editor autotest: params of three types for the Inspector.",
+  "shader": "shaders/autotest_glow.surface.glsl",
+  "params": {
+    "glow": { "type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Emission color; its alpha scales the strength." },
+    "pulse": { "type": "float", "default": 1.0, "min": 0.0, "max": 4.0, "doc": "Pulses per second (0 to 4)." },
+    "tint": { "type": "vec3", "default": [1.0, 1.0, 1.0], "doc": "Multiplies the base color." }
+  }
+})";
+
+// The entity `id` in a saved scene's entities (children searched too), or nullptr.
+const Json* find_saved_entity(const Json& list, const std::string& id) {
+    if (!list.is_array()) return nullptr;
+    for (const Json& e : list) {
+        if (e.value("id", std::string()) == id) return &e;
+        if (e.contains("children"))
+            if (const Json* c = find_saved_entity(e["children"], id)) return c;
+    }
+    return nullptr;
+}
+
 struct MatShots {
     Image base, green, undone, v2, broken, fixed, playing;
     bool skip = false;      // no shader compiler on this machine: the section only records that
@@ -1122,7 +1154,16 @@ void Editor::at_build_tools_script() {
             diff_check(ms->v2, ms->broken, true, "a broken snippet keeps the last good picture");
             at_check(errors_naming(ms->seq) == 1, "...and logs exactly one error with file:line (game.logs shows it to the AI)");
             at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...without falling back to the error material");
+            showOverlay_ = false;  // no selection outline in the pictures compared below
+            select_id("gem");      // the Inspector shows the build error under MeshRenderer.material
         });
+        step(30, [this, ms] {  // the Inspector reads the renderer's report twice a second
+            if (ms->skip) return;
+            at_check(at_visible("insp:material:error"), "the Inspector shows the material's build error under the material field");
+            const std::string shown = material_build_error(assetReport_, "materials/autotest_glow.material.json");
+            at_check(shown.find("autotest_glow.surface.glsl") != std::string::npos, "...naming the snippet file (" + shown.substr(0, 120) + ")");
+        });
+        snap("editor_inspector_material_error.png");
         step(2, [ms, rewrite, snippet] {
             if (!ms->skip) rewrite(snippet, kMatSnippetV2);
         });
@@ -1131,6 +1172,12 @@ void Editor::at_build_tools_script() {
         step(2, [ms, diff_check] {
             if (ms->skip) return;
             diff_check(ms->v2, ms->fixed, true, "fixing the snippet recovers the picture");
+        });
+        step(30, [this, ms] {
+            if (ms->skip) return;
+            at_check(!at_visible("insp:material:error"), "the Inspector's build error is gone once the snippet builds again");
+            select_id("");
+            showOverlay_ = true;
         });
         // While playing: the same reload, without leaving Play.
         step(2, [this, ms] {
@@ -1151,6 +1198,248 @@ void Editor::at_build_tools_script() {
         // Back to the 2D fixture the next sections expect.
         step(2, [this, project_file] {
             stop();
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+    }
+
+    // ------------------------------------------------------- L. Hand editing: the Hierarchy and the Inspector, with the mouse
+    // The acceptance of M20's hand editing: select in the tree by clicking, click a number in the Inspector, type a value, Enter;
+    // the world changed, one undo step was added, Save writes it into the scene file. Drag and drop in the tree reparents.
+    {
+        struct HandEdit {
+            size_t undo = 0;
+            Vec3 coinWorld{};
+        };
+        auto he = std::make_shared<HandEdit>();
+        auto type_text = [this, &step](const std::string& text) {
+            step(3, [this, text] {
+                for (char c : text) inject_char(unsigned(static_cast<unsigned char>(c)));
+            });
+        };
+        auto press_enter = [this, &step] {
+            step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ENTER); });
+            step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ENTER); });
+        };
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        // Drag `from` over `to` and let go: ImGui's drag and drop needs the mouse to travel with the button held.
+        auto drag = [this, &step](const std::string& from, const std::string& to) {
+            auto start = std::make_shared<Vec2>();
+            step(2, [this, from, start] {
+                *start = at_widget(from);
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, *start);
+            });
+            step(2, [this, start] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, *start); });
+            step(2, [this, start] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{start->x + 6, start->y + 14}); });
+            step(2, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(to)); });
+            step(3, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(to)); });
+            step(4, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(to)); });
+        };
+        auto scene_file = [this, project_file] {
+            auto loaded = load_json_file(project_file(scenePath_));
+            return loaded ? *loaded : Json::object();
+        };
+        auto position_of = [this](const char* id) {
+            Entity e = world().find_by_id(id);
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position : Vec3{9999, 9999, 9999};
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            showHierarchy_ = showInspector_ = true;
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            focus_window("###Viewport");
+        });
+        step(10, [this] {
+            at_check(at_visible("tree:coin_2") && at_visible("tree:player") && at_visible("tree:camera"), "the Hierarchy lists the scene's entities");
+            at_check(!at_visible("insp:Transform.position.0"), "the Inspector shows nothing with no entity selected");
+        });
+        snap("editor_hierarchy_empty.png");
+
+        // 1. Select in the tree: the Inspector shows the entity.
+        click("tree:coin_2");
+        step(4, [this] {
+            at_check(selected_id() == "coin_2", "clicking an entity in the Hierarchy selects it");
+            at_check(at_visible("insp:Transform.position.0") && at_visible("insp:Shape2D.thickness"), "the Inspector shows its components and fields");
+            at_check(!at_enabled("insp:EntityInfo.id"), "a read-only field (the entity id) is disabled");
+        });
+        snap("editor_inspector.png");
+
+        // 2. Click a number, type, Enter: the world changes with one undo step.
+        step(2, [this, he] { he->undo = undo_depth(); });
+        click("insp:Transform.position.0");
+        step(4, [this] { at_check(ImGui::GetIO().WantTextInput, "clicking a number in the Inspector opens it for typing"); });
+        type_text("300");
+        press_enter();
+        step(4, [this, he, position_of] {
+            at_check(std::fabs(position_of("coin_2").x - 300.0f) < 0.01f && std::fabs(position_of("coin_2").y + 160.0f) < 0.01f,
+                     "typing 300 and Enter sets Transform.position.x of the selected entity (y is kept)");
+            at_check(undo_depth() == he->undo + 1 && dirty(), "...as ONE undo step, and the scene is dirty");
+        });
+        click("toolbar:save");
+        step(4, [this, scene_file] {
+            at_check(!dirty(), "Save clears the dirty flag");
+            const Json scene = scene_file();
+            const Json* coin = find_saved_entity(scene["entities"], "coin_2");
+            at_check(coin && coin->contains("components") && (*coin)["components"]["Transform"]["position"][0] == 300,
+                     "the scene file has the value typed in the Inspector");
+        });
+        click("toolbar:undo");
+        step(4, [this, position_of] { at_check(std::fabs(position_of("coin_2").x - 250.0f) < 0.01f, "the Undo button takes the typed value back"); });
+
+        // 3. A value the command refuses changes nothing, and its message shows under the field.
+        step(2, [this, he] { he->undo = undo_depth(); });
+        click("insp:Shape2D.thickness");
+        type_text("-5");
+        press_enter();
+        step(4, [this, he] {
+            Entity c = world().find_by_id("coin_2");
+            at_check(world().get<Shape2D>(c)->thickness >= 0.0f, "a value outside the field's range is refused: nothing changed");
+            at_check(undo_depth() == he->undo, "...and the refused edit left no undo step");
+            auto it = inspErrors_.find("Shape2D.thickness");
+            at_check(it != inspErrors_.end() && it->second.find("thickness") != std::string::npos,
+                     "...and the Inspector keeps the command's message for the field");
+        });
+        snap("editor_inspector_error.png");
+
+        // 4. Add and remove a component.
+        click("insp:add");
+        step(3, [this] { at_check(at_visible("insp:add:Sprite"), "the Add Component list offers the components the entity lacks"); });
+        click("insp:add:Sprite");
+        step(4, [this] {
+            at_check(world().has<Sprite>(world().find_by_id("coin_2")), "choosing a component in the list adds it with its defaults");
+            at_check(at_visible("insp:hdr:Sprite"), "...and the Inspector shows its header");
+        });
+        click("insp:hdr:Sprite:x");
+        step(4, [this] { at_check(!world().has<Sprite>(world().find_by_id("coin_2")), "the x on a component's header removes it"); });
+
+        // 5. Reparent by drag and drop.
+        step(2, [this] { toasts_.clear(); });
+        step(2, [this, he, position_of] {
+            he->undo = undo_depth();
+            he->coinWorld = world().world_position(world().find_by_id("coin_3"));
+        });
+        drag("tree:coin_3", "tree:platform_1");
+        step(4, [this, he] {
+            World& w = world();
+            at_check(w.parent(w.find_by_id("coin_3")) == w.find_by_id("platform_1"), "dragging an entity onto another in the Hierarchy makes it a child");
+            at_check(undo_depth() == he->undo + 1, "...as one undo step");
+            const Vec3 now = w.world_position(w.find_by_id("coin_3"));
+            at_check(std::fabs(now.x - he->coinWorld.x) < 0.01f && std::fabs(now.y - he->coinWorld.y) < 0.01f,
+                     "...and the entity stays where it was on screen");
+        });
+        click("toolbar:save");
+        step(4, [this, scene_file] {
+            const Json scene = scene_file();
+            const Json* plat = find_saved_entity(scene["entities"], "platform_1");
+            bool nested = false;
+            if (plat && plat->contains("children"))
+                for (const Json& c : (*plat)["children"]) nested = nested || c.value("id", std::string()) == "coin_3";
+            bool topLevel = false;
+            for (const Json& e : scene["entities"]) topLevel = topLevel || e.value("id", std::string()) == "coin_3";
+            at_check(nested && !topLevel, "the scene file has the entity under its new parent");
+        });
+        snap("editor_hierarchy_children.png");
+        drag("tree:coin_3", "tree:empty");
+        step(4, [this] {
+            World& w = world();
+            at_check(w.parent(w.find_by_id("coin_3")).is_null(), "dropping an entity on the empty space of the Hierarchy moves it to the top level");
+        });
+
+        // 6. The context menu: create a child, rename, toggle active, delete.
+        right_click("tree:coin_1");
+        step(3, [this] { at_check(at_visible("tree:ctx:child") && at_visible("tree:ctx:delete"), "right-clicking an entity opens its context menu"); });
+        click("tree:ctx:child");
+        step(4, [this] {
+            World& w = world();
+            const Entity coin = w.find_by_id("coin_1");
+            at_check(w.children(coin).size() == 1, "Create empty child adds an entity under it");
+            at_check(!selected().is_null() && w.parent(selected()) == coin, "...and selects the new entity");
+        });
+        right_click("tree:coin_1");
+        step(3, [] {});
+        click("tree:ctx:rename");
+        step(4, [this] { at_check(at_visible("tree:rename:text"), "Rename opens a box for the name"); });
+        type_text("Gold");
+        press_enter();
+        step(4, [this] { at_check(world().info(world().find_by_id("coin_1")).name == "Gold", "typing a name and Enter renames the entity"); });
+        right_click("tree:coin_1");
+        step(3, [] {});
+        click("tree:ctx:active");
+        step(4, [this] { at_check(!world().info(world().find_by_id("coin_1")).active, "the Active item of the context menu deactivates the entity"); });
+        snap("editor_hierarchy.png");
+        right_click("tree:coin_3");
+        step(3, [] {});
+        click("tree:ctx:delete");
+        step(4, [this] { at_check(world().find_by_id("coin_3").is_null(), "Delete removes the entity"); });
+        click("toolbar:undo");
+        step(4, [this] { at_check(!world().find_by_id("coin_3").is_null(), "Undo brings the deleted entity back"); });
+
+        // 7. While the game plays an edit changes the running game, and Stop takes it back.
+        step(2, [this, he] {
+            he->undo = undo_depth();
+            play();
+        });
+        step(6, [this] { select_id("player"); });
+        step(6, [this] { at_check(at_visible("insp:Transform.position.0"), "the Inspector works while the game runs"); });
+        click("insp:Transform.position.0");
+        type_text("-111");
+        press_enter();
+        step(4, [this, he, position_of] {
+            at_check(std::fabs(position_of("player").x + 111.0f) < 0.5f, "an edit while playing changes the running game");
+            at_check(undo_depth() == he->undo, "...and adds no undo step (Stop discards it)");
+        });
+        snap("editor_inspector_play.png");
+        step(2, [this] { stop(); });
+        step(4, [this, position_of] { at_check(std::fabs(position_of("player").x + 300.0f) < 0.01f, "Stop takes the edit made while playing back"); });
+
+        // 8. A material: its params typed by material.info, edited with the same commands.
+        step(2, [this, project_file, he] {
+            write_file(project_file("materials/autotest_inspect.material.json"), kInspectMatFile);
+            write_file(project_file("shaders/autotest_glow.surface.glsl"), kMatSnippet);
+            write_file(project_file(scenePath_), kInspectScene);
+            reload_scene_from_disk();
+            select_id("gem");
+            he->undo = undo_depth();
+        });
+        step(30, [this] {
+            at_check(at_visible("insp:matparam:pulse") && at_visible("insp:matparam:glow") && at_visible("insp:matparam:tint"),
+                     "the Inspector lists the params of MeshRenderer.material, typed by material.info");
+            at_check(!at_enabled("insp:matreset:pulse"), "...a param with no override cannot be reset");
+        });
+        click("insp:matparam:pulse");
+        type_text("2.5");
+        press_enter();
+        step(4, [this, he] {
+            const Json params = component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"), true, false)["materialParams"];
+            at_check(params.is_object() && params.value("pulse", 0.0) == 2.5, "typing a value for a material param writes it into materialParams");
+            at_check(undo_depth() == he->undo + 1, "...as one undo step");
+            at_check(at_enabled("insp:matreset:pulse"), "...and the param can now be reset");
+        });
+        click("insp:matparam:pulse");
+        type_text("9");
+        press_enter();
+        step(4, [this] {
+            const Json params = component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"), true, false)["materialParams"];
+            at_check(params.value("pulse", 0.0) == 4.0, "a value above the param's max is held to it (max 4)");
+        });
+        snap("editor_inspector_material.png");
+        click("insp:matreset:pulse");
+        step(4, [this] {
+            const Json params = component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"), true, false)["materialParams"];
+            at_check(!params.contains("pulse"), "Reset removes the override: the material's default applies again");
+            select_id("");
+            reload_scene_from_disk();
+        });
+        step(2, [this, project_file] {  // back to the 2D fixture the next sections expect
             write_file(project_file(scenePath_), kFixtureScene);
             reload_scene_from_disk();
             select_id("");

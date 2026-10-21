@@ -542,6 +542,7 @@ public:
     std::map<std::string, bool> atWidgetEnabled_;           // false when the widget was submitted disabled (at_track's `enabled`)
     std::map<std::string, bool> atWidgetShown_;             // false when the widget was submitted but is scrolled out of its window
     void at_track(const std::string& name, bool enabled = true);
+    void at_track_at(const std::string& name, Vec2 centre, bool enabled = true);  // a point inside the last item (a part of it)
     Vec2 at_widget(const std::string& name);               // centre of a widget drawn in the last frames (fails the test otherwise)
     bool at_visible(const std::string& name) const;        // was the widget submitted in the last frame?
     bool at_enabled(const std::string& name) const;        // ... and not disabled (a button that cannot be pressed yet)?
