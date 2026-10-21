@@ -79,14 +79,7 @@ void Editor::draw_inspector_panel() {
     if (Entity p = w.parent(e)) ImGui::TextDisabled("child of %s", w.id_of(p).c_str());
     ImGui::Separator();
 
-    ImGui::BeginChild("##inspector_body", ImVec2(0, 0), ImGuiChildFlags_None);
-    for (const TypeInfo* t : w.components_of(e)) {
-        draw_inspector_component(e, *t);
-        e = selected();  // a removed component or a refused edit may not change the entity, but a command can
-        if (e.is_null()) break;
-    }
     if (!e.is_null()) {
-        ImGui::Spacing();
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::BeginCombo("##addcomp", "Add Component...")) {
             std::vector<const TypeInfo*> types = TypeRegistry::global().all();
@@ -111,6 +104,13 @@ void Editor::draw_inspector_panel() {
         }
         at_track("insp:add");
         tooltip("Add a component with its default values (scene.set_component). The x on a header removes it.");
+    }
+    ImGui::Spacing();
+    ImGui::BeginChild("##inspector_body", ImVec2(0, 0), ImGuiChildFlags_None);
+    for (const TypeInfo* t : w.components_of(e)) {
+        draw_inspector_component(e, *t);
+        e = selected();  // a removed component or a refused edit may not change the entity, but a command can
+        if (e.is_null()) break;
     }
     ImGui::EndChild();
     ImGui::End();
@@ -151,6 +151,10 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted(f.name.c_str());
+                if (inspScrollTo_ == key) {  // the autotest asks for a field low in a long component
+                    ImGui::SetScrollHereY(0.0f);
+                    inspScrollTo_.clear();
+                }
                 tooltip(field_tip(f, disabled));
                 ImGui::TableSetColumnIndex(1);
                 if (type.name == "MeshRenderer" && f.name == "materialParams") {

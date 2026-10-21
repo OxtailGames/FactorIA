@@ -998,10 +998,10 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGui::DockBuilderSetNodeSize(dockId, size);
     ImGuiID center = dockId;
     // The AI builds the game: the game view and the AI chat fill the window, logs and feedback sit under the view.
-    ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.38f, nullptr, &center);
+    ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.32f, nullptr, &center);
     // Hand editing: the entity tree over the inspector, in a column left of the view.
-    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.22f, nullptr, &center);
-    ImGuiID inspector = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.62f, nullptr, &left);
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.30f, nullptr, &center);
+    ImGuiID inspector = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.70f, nullptr, &left);
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("Inspector", inspector);
