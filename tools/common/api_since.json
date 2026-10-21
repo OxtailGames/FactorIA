@@ -517,6 +517,7 @@
     "perf.baseline": "unreleased",
     "perf.check": "unreleased",
     "perf.measure": "unreleased",
+    "perf.profile": "unreleased",
     "physics.raycast": "0.1.0",
     "physics.shape_cast": "0.1.0",
     "platform.add_backend": "unreleased",

@@ -1,10 +1,11 @@
-// The Audio panel's feed (audio.log).
+// The Audio panel's feed (audio.log) and the Profiler panel's numbers.
 //
 // Everything here is plain logic over a CommandRegistry: no ImGui, no Editor, no window. audio_panel.cpp only draws it, and tests
 // call it directly against a headless Engine. The editor never reimplements what the command does; it runs it and keeps the
 // plays it returns.
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -12,6 +13,7 @@
 
 #include "fa/core/command.h"
 #include "fa/core/json.h"
+#include "fa/core/profiler.h"
 
 namespace fa::editor {
 
@@ -41,5 +43,31 @@ void clear_audio_log(AudioLogState& state);
 // Forgets everything including the position (a new project has a new log that starts at seq 1).
 void reset_audio_log(AudioLogState& state);
 bool audio_play_visible(const AudioPlay& play, const AudioLogState& state);
+
+// What the Profiler panel shows (View > Profiler): the engine's per-frame profile (fa/core/profiler.h) smoothed over a few
+// frames so the table does not flicker, a history of frame times for the graph, GPU and memory. Pure data: the panel draws it.
+struct ProfilerView {
+    static constexpr std::size_t kHistory = 240;  // frames in the graph
+    static constexpr double kSmooth = 0.1;        // weight of the newest frame in the shown averages
+    struct Row {
+        std::string className, path;
+        double ms = 0, calls = 0;  // smoothed per frame
+    };
+    std::vector<float> frameMs;                      // oldest first, at most kHistory
+    double smoothFrameMs = 0;
+    std::array<double, kProfSystemCount> systemMs{};  // smoothed
+    std::vector<Row> rows;                           // sorted by ms, slowest first
+    std::uint64_t frames = 0;                        // frames added since reset
+    bool gpuSupported = false;
+    std::string gpuReason = "no GPU time yet";
+    double gpuMs = 0;                                // smoothed; valid when haveGpu
+    bool haveGpu = false;
+    ProfMemory memory;
+    bool haveMemory = false;
+
+    void reset() { *this = ProfilerView{}; }
+    void add_frame(const ProfFrame& f);
+    void add_gpu_ms(double ms);
+};
 
 }  // namespace fa::editor

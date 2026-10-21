@@ -31,7 +31,7 @@ Linux AppImage (a read-only mount: download the newer one). Details:
 ## Layout
 
 The AI builds the game, so the window (maximized on Windows) is the game view and the AI chat: **Viewport** on the left, **AI Assistant** on the
-right, and Console / Engine Feedback / Audio as tabs under the view. There is no panel for editing by hand (no entity tree,
+right, and Console / Engine Feedback / Audio / Profiler as tabs under the view. There is no panel for editing by hand (no entity tree,
 property editor or asset browser, and nothing moves by dragging): describe the change to the AI, and use Undo to take back
 what it did. View > Reset layout restores this layout (`~/.factoria/editor_layout2.ini` keeps yours).
 
@@ -43,6 +43,7 @@ what it did. View > Reset layout restores this layout (`~/.factoria/editor_layou
 | Console | The log, and a command line: `name {json}` runs a command, `> code` runs JavaScript, `help` lists commands. |
 | Engine Feedback | The project's `ENGINE_FEEDBACK.json`: what the AI found missing in the engine. |
 | Audio | (View > Audio) the live `audio.log`. |
+| Profiler | (View > Profiler) where the time of a frame goes while the game plays. |
 
 Play snapshots the scene and runs the game; Stop restores the snapshot, so edits made while playing are temporary. For that
 reason the AI works in edit mode only: while the game runs (Play or Pause) its Run button is disabled ("game running: Stop it
@@ -231,6 +232,14 @@ clip loaded. While the game runs it asks only for plays newer than the last one 
 and **Clear** keep it readable; a clip that failed to load (`ok: false`) is highlighted in red, because a wrong path is silent in the
 game itself.
 
+## View > Profiler
+While the game plays (Play), the Profiler panel shows a graph of the last frames, the milliseconds each engine system takes
+(physics, scriptsUpdate, render...), a table of script behaviour classes sorted by milliseconds per frame (with the script
+path and calls per frame), the GPU time, and memory (process, JavaScript heap, textures, audio, entities). Numbers are smoothed
+over a few frames. The GPU shows `n/a` with the reason where the graphics backend has no timer queries (PERFORMANCE.md,
+"Finding what is slow"). The profiler only runs while the panel is open or a play session records, so a closed panel costs
+nothing. Edit mode shows nothing: nothing runs.
+
 ## Play sessions
 
 Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switch on.
@@ -247,12 +256,12 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
 - **Tell the AI**: after Stop, if the session has marks or errors, the AI Assistant panel shows a line with an **Attach** button. The
   **Attach last play session** button next to **Attach image...** does the same at any time: it adds a short summary (performance, errors, your
   notes) to the message and the mark screenshots as pictures.
-- **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path.
+- **For AIs and tools**: `play.sessions` lists the recent sessions, `play.report` returns one (the latest by default) with the replay path and a `profile` section: where the time went over the session (per engine system, per script behaviour class, GPU, memory; PERFORMANCE.md).
   The report says how to replay it: `factoria run --headless --frames <n> --input .factoria/sessions/<name>/input.json`.
 
 ## Testing the editor
 
-- `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed (`tools/editor/src/editor_tools.*`), picking geometry
+- `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed and the Profiler view (`tools/editor/src/editor_tools.*`), picking geometry
   (`pick.cpp`), the reflected fields the AI edits, what Save writes, the window title, and the Export window's logic
   (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
   progress lines and cancelling), the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
