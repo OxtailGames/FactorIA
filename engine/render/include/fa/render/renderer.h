@@ -215,6 +215,15 @@ public:
     std::string shader_dialect() const;
     void clear_asset_cache();
     Json asset_report() const;  // loaded assets + failures (missing files with hints)
+    std::uint64_t texture_bytes() const;  // GPU memory of the loaded textures
+
+    // GPU time of drawing the world. While the profiler is on (fa/core/profiler.h; docs/PERFORMANCE.md) every drawn frame is
+    // timed with a timer query where the backend has them (D3D11, desktop OpenGL); the answers arrive a few frames late and
+    // are never waited for. take_gpu_ms() appends the milliseconds of the frames whose answer is ready. When
+    // gpu_timing_supported() is false `reason` says why (Metal, GLES3 and WebGL2 have no timer queries here).
+    // Measurement only: not part of the simulation.
+    bool gpu_timing_supported(std::string* reason = nullptr) const;
+    void take_gpu_ms(std::vector<double>& out);
 
     struct Impl;
 

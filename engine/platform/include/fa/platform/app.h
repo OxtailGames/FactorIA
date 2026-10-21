@@ -81,6 +81,10 @@ struct AppDesc {
 int run_app(const AppDesc& desc);
 
 // Valid inside run_app callbacks.
+// True while this process owns a graphics device (a window, the editor, a headless GPU, an engine with graphics). Only one
+// can exist per process: starting a second one aborts inside sokol, so code that would start one asks first.
+bool gfx_device_active();
+
 GfxEnvironment app_gfx_environment();
 GfxSwapchain app_gfx_swapchain();
 int app_framebuffer_width();

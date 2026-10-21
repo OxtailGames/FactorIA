@@ -788,6 +788,13 @@ void Assets::reload(const std::string& pathIn) {
         if (path == key || path == mat->snippet || path == key + "." + dialect + ".shader") build_material(*mat);
 }
 
+std::size_t Assets::texture_bytes() const {
+    std::size_t total = 0;
+    for (const auto& [k, t] : textures_)
+        if (!t->placeholder && !t->atlas) total += t->bytes;
+    return total;
+}
+
 Json Assets::report() const {
     Json j = Json::object();
     Json tex = Json::array();
