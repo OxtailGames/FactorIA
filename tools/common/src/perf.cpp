@@ -125,8 +125,8 @@ std::string perf_runner_id(const std::string& graphics) {
         gpu = "nogpu";
     } else if (g.find("llvmpipe") != std::string::npos) {
         gpu = "llvmpipe";
-    } else if (g.find("warp") != std::string::npos) {
-        gpu = "d3d11-warp";
+    } else if (g.find("warp") != std::string::npos || g.find("basic render driver") != std::string::npos) {
+        gpu = "d3d11-warp";  // the Basic Render Driver is WARP as the adapter of a machine with no graphics card (CI)
     } else if (g.find("metal") != std::string::npos) {
         gpu = "metal";
     } else if (g.rfind("d3d11", 0) == 0) {
@@ -333,11 +333,12 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "Measures with the settings of the budget file (frames, scene, input) and compares with runners.<this runner> of the file (see perf.baseline for the format and the tolerances). Memory, "
         "draw calls and entities past their limit FAIL always. A time (cpuMsAvg, cpuMsP95) past its limit FAILS when the CI environment variable is set; elsewhere it only WARNS (status \"warn\"), "
         "because a developer machine can be busy. A time over the limit is measured a second time before it counts. A runner with no entry passes with status \"no_baseline\" and returns "
-        "`baselineEntry`: the exact JSON to add under \"runners\" (or run perf.baseline here). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, "
+        "`baselineEntry`: the exact JSON to add under \"runners\" (or run perf.baseline here); with requireBaseline it fails instead (error `perf_no_baseline`, same data). Returns {runner, status: pass|warn|no_baseline, file, sample, rows: [{metric, measured, baseline, limit, "
         "exceeded}], message, baselineEntry?}; a failure is an error `perf_budget_exceeded` with the same data. Example: {} or {\"file\":\"perf.json\"}.";
     c.inputSchema = Json::parse(R"({"type":"object","properties":{
         "file":{"type":"string","default":"perf.json","description":"Budget file, project-relative (or absolute)."},
-        "strictTime":{"type":"boolean","description":"Make a time over its limit fail even outside CI (default: only in CI)."}}})");
+        "strictTime":{"type":"boolean","description":"Make a time over its limit fail even outside CI (default: only in CI)."},
+        "requireBaseline":{"type":"boolean","default":false,"description":"Fail when this runner has no entry in the file, so a CI job cannot pass without checking anything."}}})");
     registry.add(c, [projectDir](const Json& a) {
         require_project(projectDir);
         const std::string file = abs_path(projectDir, tooling_detail::arg_string(a, "file", false, kDefaultFile));
@@ -362,6 +363,9 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
             result["baselineEntry"] = Json::object({{runner, perf_sample_json(s)}});
             result["message"] = "No baseline for runner '" + runner + "' in " + file + ": nothing was checked. Commit this entry under \"runners\": " +
                                 dump_json(result["baselineEntry"]) + " (or run: factoria call perf.baseline).";
+            if (tooling_detail::arg_bool(a, "requireBaseline", false))
+                throw CommandError("perf_no_baseline", result["message"].get<std::string>(),
+                                   "Add baselineEntry under \"runners\" of " + file + ", or run factoria call perf.baseline on this runner.", result);
             return result;
         }
         const PerfSample base = perf_sample_from_json(*entry);
