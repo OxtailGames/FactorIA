@@ -142,8 +142,11 @@ TEST_CASE("fs: paths longer than Windows' MAX_PATH are read and written (os_path
 #else
     CHECK(fs::os_path(longPath) == longPath);
 #endif
+    // A short folder with files past the limit: on Windows remove_all alone stops at them and leaves the folder behind.
     std::error_code ec;
-    stdfs::remove_all(fs::os_path(p.dir / std::string(100, 'a')), ec);  // TempProject's remove_all stops at long paths on Windows
+    CHECK(fs::remove_tree(p.dir, ec) > 0);
+    CHECK_FALSE(ec);
+    CHECK_FALSE(stdfs::exists(p.dir));
 }
 
 TEST_CASE("fs: missing files get did-you-mean hints") {

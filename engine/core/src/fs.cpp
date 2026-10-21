@@ -131,7 +131,7 @@ stdfs::path make_temp_dir(std::string_view prefix) {
     stdfs::path dir = stdfs::temp_directory_path() /
                       (std::string(prefix) + "_" + std::to_string(pid) + "_" + std::to_string(counter++));
     std::error_code ec;
-    stdfs::remove_all(dir, ec);  // a leftover of an earlier process that had the same id
+    remove_tree(dir, ec);  // a leftover of an earlier process that had the same id
     stdfs::create_directories(dir, ec);
     return dir;
 }
@@ -189,6 +189,18 @@ stdfs::path resolve(std::string_view path) {
     return project_root() / n.value();
 }
 
+#ifdef _WIN32
+namespace {
+// The \\?\ form of an absolute, normalized path (\\?\UNC\ for \\server\share\...).
+stdfs::path extended_path(const stdfs::path& abs) {
+    const std::wstring& a = abs.native();
+    if (a.rfind(LR"(\\?\)", 0) == 0) return abs;
+    if (a.rfind(LR"(\\)", 0) == 0) return stdfs::path(LR"(\\?\UNC\)" + a.substr(2));
+    return stdfs::path(LR"(\\?\)" + a);
+}
+}  // namespace
+#endif
+
 stdfs::path os_path(const stdfs::path& p) {
 #ifdef _WIN32
     // CreateDirectoryW refuses 248 characters or more and the other calls MAX_PATH (260) unless long paths are enabled
@@ -199,12 +211,20 @@ stdfs::path os_path(const stdfs::path& p) {
     std::error_code ec;
     const stdfs::path abs = stdfs::absolute(p, ec).lexically_normal();
     if (ec || abs.native().size() < kLimit) return p;
-    const std::wstring& a = abs.native();
-    if (a.rfind(LR"(\\)", 0) == 0) return stdfs::path(LR"(\\?\UNC\)" + a.substr(2));  // \\server\share\...
-    return stdfs::path(LR"(\\?\)" + a);
+    return extended_path(abs);
 #else
     return p;
 #endif
+}
+
+std::uintmax_t remove_tree(const stdfs::path& dir, std::error_code& ec) {
+#ifdef _WIN32
+    std::error_code aec;
+    stdfs::path abs = stdfs::absolute(dir, aec).lexically_normal();
+    if (!aec && !abs.has_filename() && abs.has_relative_path()) abs = abs.parent_path();  // a trailing separator
+    if (!aec) return stdfs::remove_all(extended_path(abs), ec);
+#endif
+    return stdfs::remove_all(dir, ec);
 }
 
 namespace {

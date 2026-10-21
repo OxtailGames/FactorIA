@@ -24,7 +24,7 @@ struct TempDir {
     }
     ~TempDir() {
         std::error_code ec;
-        std::filesystem::remove_all(path, ec);
+        fa::fs::remove_tree(path, ec);
     }
     std::string str() const { return path.string(); }
     std::string sub(const std::string& rel) const { return (path / rel).string(); }
