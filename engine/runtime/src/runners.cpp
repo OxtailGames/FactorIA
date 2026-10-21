@@ -11,6 +11,7 @@
 #include "fa/core/log.h"
 #include "fa/core/perf.h"
 #include "fa/core/strings.h"
+#include "fa/platform/accessibility.h"
 #include "fa/runtime/play_session.h"
 
 namespace fa {
@@ -185,10 +186,12 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
             case AppEvent::Type::FocusLost: st->engine.input().release_all(); break;
             case AppEvent::Type::FocusGained:
                 st->mouseLocked = false;  // the window system unlocked the mouse with the focus: lock it again if requested
+                refresh_system_accessibility();  // the player may have changed a system setting meanwhile (game.accessibility)
                 break;
             case AppEvent::Type::Suspended: FA_INFO("player", "suspended"); break;
             case AppEvent::Type::Resumed:
                 FA_INFO("player", "resumed");
+                refresh_system_accessibility();
                 st->framesSinceResume = 0;
                 break;
             default: break;
