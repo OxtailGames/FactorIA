@@ -125,14 +125,22 @@ work, then change them. The widgets and `ui` events they use are in the AI guide
 - **Read menus aloud.** `ui.speak(text)` says a line with the operating system's text to speech (Windows SAPI, macOS and
   iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's `speechSynthesis`), in
   `i18n.language`; `ui.stopSpeaking()` stops it and `ui.speechAvailable` says whether the system can speak at all. The
-  kit's Options > Audio has a "Read menus aloud" toggle (`settings.readAloud`, off by default: players who use a screen
-  reader do not want two voices) and `scripts/ui/read_aloud.js` speaks the focused widget's text, in the language the
+  kit's Options > Audio has a "Read menus aloud" toggle (`settings.readAloud`, off until the player turns it on: the
+  first run starts it on only when the system has a screen reader, see below) and `scripts/ui/read_aloud.js` speaks the focused widget's text, in the language the
   player chose. Headless runs and tests speak nothing and record the lines: `game.spoken()` in `factoria:test` returns
   `[{ text, language, interrupt }]` (fixture `tests/speech.test.js` moves the focus through the menu and checks them).
-  Speech only helps while someone can hear it: the manual check below says how to listen on each system. The OS screen
-  reader setting is not read by the engine yet; offer the option in your own menu.
+  Speech only helps while someone can hear it: the manual check below says how to listen on each system. The option
+  starts on when the system has a screen reader running (`game.accessibility.screenReader`, next item).
+- **Start from the system's accessibility settings.** `game.accessibility` is `{ textScale, reduceMotion, highContrast,
+  screenReader }` as the player's operating system has them (`textScale` 1 = 100 %; read when the game starts and again
+  when the window regains focus; every value is `1` / `false` where the system cannot say: docs/SCRIPTING.md lists what
+  each platform reads). The engine applies none of them. `settings.js` starts its options from them for a player who
+  never chose: text size from `textScale` (`ui.textScale`), `reducedEffects` from `reduceMotion` (your screen shake, flashes
+  and particles check it), "Read menus aloud" from `screenReader`. The first `save()` stores every setting, so the
+  player's own choice wins from then on. Tests set the system with `game.setAccessibility({ textScale: 1.5 })`
+  (`tests/accessibility.test.js` checks the first-run values and that a saved choice wins).
 - **Add an option.** Add a widget to `options.prefab.json` (with a `key` for its label), read and write its value in
-  `options.js`, and keep it in `settings.js` (`DEFAULTS` and `apply`). The colour filter of the Video tab is such an
+  `options.js`, and keep it in `settings.js` (`defaults()` and `apply`). The colour filter of the Video tab is such an
   option: it sets `Camera.colorFilter` on the scene's camera (the entity with the id `camera`), so `applyOnce()` sets it
   again in every scene; rename the id in `settings.js` if your camera has another.
 - **Add a language.** Add its tag to `localization.languages`, copy `locales/en.json` to `locales/<tag>.json` and
@@ -180,7 +188,7 @@ the system has a voice for that language (otherwise the default voice reads it, 
 // @ts-check
 // The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n, world } from "factoria";
+import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -188,22 +196,32 @@ export const BUSES = ["master", "music", "sfx", "ui"];
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
-const DEFAULTS = {
-  volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-  fullscreen: null, // null: keep factoria.json display.fullscreen
-  resolution: null, // [width, height] of the window, or null: the factoria.json size
-  vsync: null, // null: keep factoria.json display.vsync
-  frameCap: 0, // 0 = no cap
-  colorFilter: "none", // one of COLOR_FILTERS
-  bindings: {}, // action -> binding names, only for actions the player rebound
-  language: null, // null: the language the game started in (the player's system language, else the default one)
-  readAloud: false, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
-};
+/**
+ * What a player who never chose gets. The accessibility ones start from the system's settings (game.accessibility): they
+ * follow the system on every run until the player saves their own choice (save() stores all the settings), which then wins.
+ */
+function defaults() {
+  const system = game.accessibility;
+  return {
+    volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
+    fullscreen: null, // null: keep factoria.json display.fullscreen
+    resolution: null, // [width, height] of the window, or null: the factoria.json size
+    vsync: null, // null: keep factoria.json display.vsync
+    frameCap: 0, // 0 = no cap
+    colorFilter: "none", // one of COLOR_FILTERS
+    bindings: {}, // action -> binding names, only for actions the player rebound
+    language: null, // null: the language the game started in (the player's system language, else the default one)
+    readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
+    textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
+    reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+  };
+}
 
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
-  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  const base = defaults();
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
 }
 
 export function save(s) {
@@ -216,10 +234,11 @@ export function applyColorFilter(s = load()) {
   if (camera) camera.get("Camera").colorFilter = s.colorFilter;
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyColorFilter(s);
+  ui.textScale = s.textScale;
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once

@@ -1,7 +1,7 @@
 // @ts-check
 // The player's settings (volumes, video, colour filter, controls, language), kept in storage under "settings" and applied once per run.
 // scripts/ui/options.js edits them; main_menu.js and pause_menu.js call applyOnce() when their scene starts.
-import { storage, audio, window, input, session, i18n, world } from "factoria";
+import { storage, audio, window, input, session, i18n, world, ui, game } from "factoria";
 
 /** Audio buses the options menu shows, in order. */
 export const BUSES = ["master", "music", "sfx", "ui"];
@@ -9,23 +9,33 @@ export const BUSES = ["master", "music", "sfx", "ui"];
 /** Values of Camera.colorFilter the options menu cycles through (accessibility: the last post-process of the frame). */
 export const COLOR_FILTERS = ["none", "greyscale", "highContrast", "protanopia", "deuteranopia", "tritanopia"];
 
-const DEFAULTS = {
-  volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
-  fullscreen: null, // null: keep factoria.json display.fullscreen
-  resolution: null, // [width, height] of the window, or null: the factoria.json size
-  vsync: null, // null: keep factoria.json display.vsync
-  frameCap: 0, // 0 = no cap
-  colorFilter: "none", // one of COLOR_FILTERS
-  bindings: {}, // action -> binding names, only for actions the player rebound
-  language: null, // null: the language the game started in (the player's system language, else the default one)
-  readAloud: false, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
-  subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
-};
+/**
+ * What a player who never chose gets. The accessibility ones start from the system's settings (game.accessibility): they
+ * follow the system on every run until the player saves their own choice (save() stores all the settings), which then wins.
+ */
+function defaults() {
+  const system = game.accessibility;
+  return {
+    volume: { master: 1, music: 0.6, sfx: 1, ui: 1 },
+    fullscreen: null, // null: keep factoria.json display.fullscreen
+    resolution: null, // [width, height] of the window, or null: the factoria.json size
+    vsync: null, // null: keep factoria.json display.vsync
+    frameCap: 0, // 0 = no cap
+    colorFilter: "none", // one of COLOR_FILTERS
+    bindings: {}, // action -> binding names, only for actions the player rebound
+    language: null, // null: the language the game started in (the player's system language, else the default one)
+    readAloud: system.screenReader, // say the focused menu widget with text to speech (scripts/ui/read_aloud.js)
+    textScale: system.textScale, // the text size, 1 = 100 % (ui.textScale)
+    reducedEffects: system.reduceMotion, // less screen shake, flashes and particles: the effects code checks it
+    subtitles: true, // show captions (the "captions" entity, a Captions component); off = that entity is inactive
+  };
+}
 
 /** The saved settings merged over the defaults (a fresh object each call). */
 export function load() {
   const saved = storage.get("settings", {});
-  return { ...DEFAULTS, ...saved, volume: { ...DEFAULTS.volume, ...saved.volume }, bindings: { ...saved.bindings } };
+  const base = defaults();
+  return { ...base, ...saved, volume: { ...base.volume, ...saved.volume }, bindings: { ...saved.bindings } };
 }
 
 export function save(s) {
@@ -50,10 +60,11 @@ export function applyScene(s = load()) {
   applySubtitles(s);
 }
 
-/** Puts `s` into effect: bus volumes, colour filter, subtitles, language, rebound controls and, when the game has a real window, the video settings. */
+/** Puts `s` into effect: bus volumes, colour filter, subtitles, text size, language, rebound controls and, when the game has a real window, the video settings. */
 export function apply(s = load()) {
   for (const bus of BUSES) audio.setVolume(bus, s.volume[bus]);
   applyScene(s);
+  ui.textScale = s.textScale;
   if (s.language && s.language !== i18n.language) {
     try {
       i18n.setLanguage(s.language); // rewrites every Text and widget with a key at once
