@@ -189,9 +189,10 @@ public:
     void focus_window(const char* name) { pendingFocus_ = name; }
     void run_console_line(const std::string& line);
     // Commands typed in the Console or called by the AI go through these two hooks (editor_app.cpp):
-    // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.import_ascii with `path`),
-    // so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads the scene when
-    // scene.import_ascii rebuilt the scene file that is open (Ctrl+Z brings back what was on screen).
+    // command_edits_scene() is false for commands that only write FILES (prefab.save, scene.format, scene.ascii_edit,
+    // scene.import_ascii with `path`), so they neither take an undo snapshot nor mark the scene dirty; after_command() reloads
+    // the scene when scene.import_ascii or scene.ascii_edit rebuilt the scene file that is open (Ctrl+Z brings back what was
+    // on screen).
     bool command_edits_scene(const std::string& name, const Json& args) const;
     void after_command(const std::string& name, const Json& args, const CommandResult& result);
     const TextureEntry* texture_for(const std::string& path);

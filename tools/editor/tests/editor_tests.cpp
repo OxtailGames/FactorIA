@@ -93,6 +93,7 @@ TEST_CASE("commands that only write files do not count as scene edits") {
     Editor ed{EditorOptions{}};
     CHECK_FALSE(ed.command_edits_scene("prefab.save", Json::object()));
     CHECK_FALSE(ed.command_edits_scene("scene.format", Json::object()));
+    CHECK_FALSE(ed.command_edits_scene("scene.ascii_edit", Json::parse(R"({"file":"levels/1.json","ops":[]})")));
     CHECK_FALSE(ed.command_edits_scene("scene.import_ascii", Json::parse(R"({"path":"scenes/x.scene.json","rows":["#"],"legend":{"#":0}})")));
     CHECK(ed.command_edits_scene("scene.import_ascii", Json::parse(R"({"rows":["#"],"legend":{"#":0}})")));  // the running world
     CHECK(ed.command_edits_scene("scene.spawn", Json::object()));

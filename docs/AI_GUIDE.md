@@ -125,6 +125,7 @@ A tool name is the command name with `.` replaced by `_`. Arguments are one JSON
 | `scene_set_component`, `scene_remove_component` | `scene.set_component`, `scene.remove_component` | Set fields with `{"id":"player","component":"Shape2D","fields":{...}}`, or remove a component by `id` and `component`. A value outside a field's range is refused with the range and the nearest allowed value, and nothing changes. A free-form field (`Script.props`) is replaced as a whole; add `"merge": true` to read `fields` as a JSON merge-patch (RFC 7386) instead: `{"id":"level","component":"Script","merge":true,"fields":{"props":{"levelIndex":3,"old":null}}}` changes `levelIndex`, deletes `old` and keeps every other prop. |
 | `scene_destroy` | `scene.destroy` | Destroy an entity and its children: `{"id":"coin_1"}`. |
 | `scene_import_ascii` | `scene.import_ascii` | Build a tile level and its objects from ASCII `rows` and a `legend` (section 9.8): `{"rows":["..o..","#####"],"legend":{"#":0,"o":{"prefab":"prefabs/coin.prefab.json"}},"tilemap":{...},"path":"scenes/level1.scene.json"}`. With `path` it edits that scene FILE and never touches the running game. |
+| `scene_ascii_edit` | `scene.ascii_edit` | Edit the ASCII map of a level args file with ops (`fill`, `replace`, `insertColumns`, `deleteColumns`, `put` with `row` or `above`) and rebuild the level (section 9.8): `{"file":"levels/1-1.json","ops":[{"op":"put","col":40,"glyph":"o","above":1}]}`. |
 | `scene_load`, `scene_save`, `scene_reload` | `scene.load`, `scene.save`, `scene.reload` | Load `{"path"}`, save the running world (optional `path`), or reload the current scene. |
 | `prefab_save` | `prefab.save` | Save an entity of the running world, with its children, as a prefab file: `{"id":"enemy_3","path":"prefabs/enemy.prefab.json"}`. It does not overwrite a file unless `"overwrite":true`. Section 6 says what the file leaves out. |
 | `scene_format` | `scene.format` | Put hand-edited scenes and prefabs in the canonical layout without loading them: `{}` formats the whole project, `{"paths":["prefabs"],"check":true}` only lists the files that are not canonical (`"strict":true` makes that an error). Section 6. |
@@ -723,6 +724,19 @@ How tiles collide (verified against the physics rules):
 - Tile indices that are not in `solidTiles` are drawn but never block.
 - Merging can leave seams between boxes of different heights. A character with friction can catch on a seam when it slides along a wall. Give characters `friction: 0` against walls, or use a circle or capsule foot.
 - Tiles cannot carry behaviour. Coins, enemies and spawn points are entities spawned by `scene.import_ascii` from the legend (above).
+
+**Editing a map without rewriting rows.** When the level lives in an args file (`levels/1-1.json`), change it with `scene.ascii_edit` (MCP `scene_ascii_edit`) instead of counting characters in a 300-column row. `ops` run in order, all-or-nothing (an error names the op, `ops[2]`, and writes nothing); columns and rows count from 0, row 0 = top:
+
+```
+factoria call scene.ascii_edit '{"file":"levels/1-1.json","ops":[
+  {"op":"put","col":40,"glyph":"o","above":1},
+  {"op":"fill","rect":[10,20,4,1],"glyph":"#"},
+  {"op":"replace","from":"o","to":".","rect":[100,0,30,23]},
+  {"op":"insertColumns","at":60,"count":5},
+  {"op":"deleteColumns","at":200,"count":3}]}'
+```
+
+`put` takes `row` (absolute) or `above` (cells above the ground of that column, 1 = standing on it; ground = the topmost tile listed in the file's `tilemap.solidTiles`, else the Tilemap of the scene the file builds). `insertColumns` without `glyph` repeats the column left of `at` with every object glyph turned into `.`. The file keeps its other keys and order, with one row per line. When the file has a `path` the level is rebuilt like `scene.import_ascii @file` (`rebuild: false` skips it) and the result lists every object with its glyph and `cell`; `dryRun` writes nothing and returns the edited `rows`.
 
 ### 9.9 3D scene with a light and fog
 

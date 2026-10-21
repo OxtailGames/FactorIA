@@ -1807,6 +1807,21 @@ Uploads the folders project.export wrote (build/export/<game-slug>-windows, -mac
 
 ## scene
 
+### `scene.ascii_edit` (modifies state)
+
+Not released yet (on main after 0.1.6).
+
+Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level.
+
+`file` is a project-relative JSON file holding scene.import_ascii arguments (at least `rows`; its legend is `legend` merged over `legendFrom`). `ops` run in order, all-or-nothing (an error names the op, e.g. ops[2], and nothing is written). Columns and rows are 0-based, row 0 = TOP, like import_ascii. Ops: {op:'fill', rect:[col,row,w,h], glyph}; {op:'replace', from, to, rect?} (whole map without rect); {op:'insertColumns', at, count, glyph?} (without glyph the new columns repeat the column left of `at` (column 0 when at = 0) with every glyph that spawns an object turned into '.', so the ground continues and nothing is duplicated); {op:'deleteColumns', at, count}; {op:'put', col, glyph, row} or {op:'put', col, glyph, above:h} = h rows above the ground of that column (1 = standing on it; ground = the topmost cell whose glyph is a tile in the file's tilemap.solidTiles, else the Tilemap of the scene the file builds). A glyph that is not '.', ' ' or in the legend is refused with suggestions. The edited `rows` are written back to `file` (one row per line, every other key and the key order kept). With `rebuild` (default true) and a `path` in the file, the level is then rebuilt exactly like `factoria call scene.import_ascii @file` and its result is merged into this one (`spawned` lists id, glyph and cell [col,row] of every object). `dryRun` writes nothing and returns the edited `rows` (and the import's dry run). Returns {file (written unless dryRun), width, height, ops (applied), changedCells (cells whose glyph changed; inserted/deleted columns count all their cells), dryRun, rows? (dryRun)} plus the import result when it ran (its `path` and `saved` name the scene file). Example: scene.ascii_edit {"file":"levels/1-1.json","ops":[{"op":"put","col":40,"glyph":"o","above":1},{"op":"insertColumns","at":60,"count":5}]}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `file` | string | yes | Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...). |
+| `ops` | array | yes | Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row \| above}. 0-based, row 0 = top. |
+| `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
+| `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Default false. |
+
 ### `scene.destroy` (modifies state)
 
 Destroy an entity and its children.

@@ -242,6 +242,9 @@ code of its own:
 - The reference (`factoria api`, `docs/COMPONENTS.md`, the MCP tool list) now says which version added each component,
   field and command, and marks with "Not released yet" what is only on the main branch, so you can tell what your
   installed FactorIA has.
+- Editing an ASCII level no longer means counting characters: `scene.ascii_edit` changes the map file of a level with
+  operations (fill a rectangle, replace a glyph, insert or delete columns, put a coin "2 tiles above the ground" of
+  column 40), rewrites only the rows and rebuilds the level, and tells you where every object ended up.
 
 ## 0.1.6
 
