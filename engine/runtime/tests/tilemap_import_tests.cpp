@@ -1274,3 +1274,136 @@ TEST_CASE("import_ascii: legendFrom merges a shared legend under the map's own, 
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_text(r), "levels/legend.json"));
 }
+
+// ------------------------------------------------------------------------------------------------ scene.ascii_edit
+namespace {
+
+// Writes levels/m.json (the base level building scenes/m.scene.json), applies `ops` with scene.ascii_edit and checks that the
+// written rows are `expected` and that the rebuilt scene is byte-for-byte what scene.import_ascii builds from the hand-written map.
+void check_edit(const char* name, const char* ops, const std::vector<std::string>& expected, Json* resultOut = nullptr) {
+    Session s(name);
+    Json file = level(R"({"path":"scenes/m.scene.json"})");
+    s.project.write("levels/m.json", file.dump(2));
+    auto r = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"ops", Json::parse(ops)}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    auto written = load_json_file((s.project.dir / "levels/m.json").generic_string());
+    REQUIRE(written.ok());
+    CHECK(written.value()["rows"] == Json(expected));
+    CHECK(written.value()["legend"] == file["legend"]);  // other keys kept
+    CHECK(r.result["width"] == expected[0].size());
+    CHECK(r.result["height"] == expected.size());
+
+    Json hand = level(R"({"path":"scenes/ref.scene.json"})");
+    hand["rows"] = Json(expected);
+    auto ref = s.import(hand);
+    REQUIRE_MESSAGE(ref.ok, error_text(ref));
+    CHECK(slurp(s.project.dir / "scenes/m.scene.json") == slurp(s.project.dir / "scenes/ref.scene.json"));
+    CHECK(r.result["spawned"] == ref.result["spawned"]);
+    if (resultOut) *resultOut = r.result;
+}
+
+}  // namespace
+
+TEST_CASE("ascii_edit fill and replace") {
+    check_edit("ae_fill", R"([{"op":"fill","rect":[0,0,3,2],"glyph":"@"}])",
+               {"@@@.......", "@@@o..o...", "..........", ".P......o.", "##########", "@@@@@@@@@@"});
+    check_edit("ae_replace", R"([{"op":"replace","from":"o","to":"."}])",
+               {"..........", "..........", "..........", ".P........", "##########", "@@@@@@@@@@"});
+    check_edit("ae_replace_rect", R"([{"op":"replace","from":"o","to":".","rect":[4,0,6,4]}])",
+               {"..........", "...o......", "..........", ".P........", "##########", "@@@@@@@@@@"});
+}
+
+TEST_CASE("ascii_edit insertColumns and deleteColumns") {
+    // Repeats the column left of `at` without objects: the ground continues.
+    check_edit("ae_ins", R"([{"op":"insertColumns","at":3,"count":2}])",
+               {"............", ".....o..o...", "............", ".P........o.", "############", "@@@@@@@@@@@@"});
+    check_edit("ae_ins0", R"([{"op":"insertColumns","at":0,"count":1}])",
+               {"...........", "....o..o...", "...........", "..P......o.", "###########", "@@@@@@@@@@@"});
+    check_edit("ae_ins_glyph", R"([{"op":"insertColumns","at":10,"count":2,"glyph":"@"}])",
+               {"..........@@", "...o..o...@@", "..........@@", ".P......o.@@", "##########@@", "@@@@@@@@@@@@"});
+    check_edit("ae_del", R"([{"op":"deleteColumns","at":1,"count":3}])",
+               {".......", "...o...", ".......", ".....o.", "#######", "@@@@@@@"});
+}
+
+TEST_CASE("ascii_edit put with row and above") {
+    Json res;
+    check_edit("ae_put",
+               R"([{"op":"put","col":5,"glyph":"o","above":1},{"op":"put","col":0,"glyph":"@","row":0},
+                   {"op":"put","col":9,"glyph":"o","above":3}])",
+               {"@.........", "...o..o..o", "..........", ".P...o..o.", "##########", "@@@@@@@@@@"}, &res);
+    CHECK(res["changedCells"] == 3);
+    CHECK(res["ops"] == 3);
+}
+
+TEST_CASE("ascii_edit dryRun, rebuild false and errors write nothing") {
+    Session s("ae_err");
+    s.project.write("levels/m.json", level(R"({"path":"scenes/m.scene.json"})").dump(2));
+    const std::string before = slurp(s.project.dir / "levels/m.json");
+    auto call = [&](const char* ops, bool dry = false) {
+        return s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"ops", Json::parse(ops)}, {"dryRun", dry}});
+    };
+    auto dry = call(R"([{"op":"replace","from":"o","to":"."}])", true);
+    REQUIRE_MESSAGE(dry.ok, error_text(dry));
+    CHECK(dry.result["rows"][1] == "..........");
+    CHECK(slurp(s.project.dir / "levels/m.json") == before);
+    CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/m.scene.json"));
+
+    auto nore = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"rebuild", false},
+                                                {"ops", Json::parse(R"([{"op":"replace","from":"o","to":"."}])")}});
+    REQUIRE_MESSAGE(nore.ok, error_text(nore));
+    CHECK_FALSE(stdfs::exists(s.project.dir / "scenes/m.scene.json"));
+    CHECK(slurp(s.project.dir / "levels/m.json") != before);
+    s.project.write("levels/m.json", before);
+
+    auto bad = call(R"([{"op":"fill","rect":[0,0,1,1],"glyph":"@"},{"op":"put","col":2,"glyph":"O","row":1}])");
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "ops[1]"));
+    CHECK(contains(error_text(bad), "'o'"));
+    CHECK(slurp(s.project.dir / "levels/m.json") == before);
+
+    bad = call(R"([{"op":"fill","rect":[8,0,5,1],"glyph":"#"}])");
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "10 columns x 6 rows"));
+    bad = call(R"([{"op":"deleteColumns","at":9,"count":2}])");
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "ops[0]"));
+    bad = call(R"([{"op":"put","col":99,"glyph":"o","row":0}])");
+    REQUIRE_FALSE(bad.ok);
+    bad = call(R"([{"op":"fil","rect":[0,0,1,1],"glyph":"#"}])");
+    REQUIRE_FALSE(bad.ok);
+    CHECK(contains(error_text(bad), "fill"));
+    CHECK(slurp(s.project.dir / "levels/m.json") == before);
+}
+
+TEST_CASE("ascii_edit above needs ground") {
+    Session s("ae_ground");
+    Json file = level(R"({"path":"scenes/m.scene.json"})");
+    s.project.write("levels/m.json", file.dump(2));
+    // Remove the ground of column 4 (rows 4 and 5 hold '#' and '@', both solid), then ask for a cell above it.
+    auto r = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"ops", Json::parse(R"([
+        {"op":"fill","rect":[4,4,1,2],"glyph":"."},{"op":"put","col":4,"glyph":"o","above":1}])")}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(error_text(r), "ops[1]"));
+    CHECK(contains(error_text(r), "no ground"));
+    CHECK(contains(error_text(r), "\"row\""));
+
+    // No solidTiles in the file and no scene to read them from: teaches to pass `row`.
+    file.erase("tilemap");
+    s.project.write("levels/n.json", file.dump(2));
+    r = s.call("scene.ascii_edit", Json{{"file", "levels/n.json"}, {"ops", Json::parse(R"([{"op":"put","col":4,"glyph":"o","above":1}])")}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(error_text(r), "solidTiles"));
+}
+
+TEST_CASE("ascii_edit reads the ground from the scene's Tilemap when the file has no solidTiles") {
+    Session s("ae_scene_ground");
+    Json file = level(R"({"path":"scenes/m.scene.json"})");
+    REQUIRE(s.import(file).ok);  // builds scenes/m.scene.json with solidTiles [0, 1]
+    file.erase("tilemap");
+    s.project.write("levels/m.json", file.dump(2));
+    auto r = s.call("scene.ascii_edit", Json{{"file", "levels/m.json"}, {"rebuild", false},
+                                              {"ops", Json::parse(R"([{"op":"put","col":5,"glyph":"o","above":2}])")}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    auto written = load_json_file((s.project.dir / "levels/m.json").generic_string());
+    CHECK(written.value()["rows"][2] == ".....o....");
+}

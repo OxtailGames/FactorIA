@@ -12,6 +12,8 @@
 // Two targets share that code (apply_import): the RUNNING world (no `path`), or, with `path`, a scratch World loaded from
 // the scene file and written back to it (import_into_scene_file), which leaves the running engine untouched.
 #include <algorithm>
+#include <array>
+#include <functional>
 #include <cctype>
 #include <cmath>
 #include <map>
@@ -957,6 +959,250 @@ Json import_ascii(Engine::Impl& I, const Json& a) {
     return out;
 }
 
+// ------------------------------------------------------------------------------------------------ scene.ascii_edit
+// Edits the `rows` of an import_ascii args file in place (see register_level_commands for the contract).
+struct AsciiEditCtx {
+    Grid grid;
+    std::vector<LegendEntry> legend;
+    Json args;
+    int changed = 0;
+    bool solidLoaded = false;
+    std::set<int> solid;
+
+    const LegendEntry* find(const std::string& g) const {
+        for (const LegendEntry& e : legend)
+            if (e.glyph == g) return &e;
+        return nullptr;
+    }
+    std::string glyph_arg(const Json& op, const char* key) const {
+        if (!op.contains(key)) bad_arg(std::string("missing '") + key + "'", std::string("Example: \"") + key + "\": \"#\".");
+        std::vector<std::string> g = op[key].is_string() ? split_glyphs(op[key].get<std::string>()) : std::vector<std::string>();
+        if (g.size() != 1)
+            bad_arg(std::string("'") + key + "' must be a string of exactly one character, got " + describe_json_value(op[key]),
+                    "One map cell is one character, e.g. \"#\" or \"o\".");
+        if (!is_default_empty(g[0]) && !find(g[0])) {
+            std::vector<std::string> known;
+            for (const LegendEntry& e : legend) known.push_back(e.glyph);
+            bad_arg("glyph " + show_glyph(g[0]) + " is neither '.' / ' ' (empty) nor in the legend. " + did_you_mean(g[0], known),
+                    "The legend defines " + (known.empty() ? std::string("nothing") : show_glyph_list(known)) +
+                        ". Add the glyph to the file's `legend` (or legendFrom file) first.");
+        }
+        return g[0];
+    }
+    int int_arg(const Json& op, const char* key, int minValue) const {
+        int v = 0;
+        if (!op.contains(key) || !as_int(op[key], v))
+            bad_arg(std::string("'") + key + "' must be an integer" +
+                        (op.contains(key) ? ", got " + describe_json_value(op[key]) : ", but it is missing"),
+                    "Columns and rows count from 0 (row 0 = top).");
+        if (v < minValue) bad_arg(std::string("'") + key + "' must be >= " + std::to_string(minValue) + ", got " + std::to_string(v));
+        return v;
+    }
+    std::string size_text() const {
+        return "the map is " + std::to_string(grid.width) + " columns x " + std::to_string(grid.height) +
+               " rows (0-based, row 0 = top)";
+    }
+    void column_in_range(int col) const {
+        if (col < 0 || std::size_t(col) >= grid.width)
+            bad_arg("column " + std::to_string(col) + " is outside the map: " + size_text(),
+                    "Use a column from 0 to " + std::to_string(grid.width - 1) + ".");
+    }
+    std::array<int, 4> rect_arg(const Json& op) const {
+        std::array<int, 4> r{};
+        if (!op.contains("rect") || !op["rect"].is_array() || op["rect"].size() != 4)
+            bad_arg("'rect' must be [col, row, w, h], got " +
+                        (op.contains("rect") ? describe_json_value(op["rect"]) : std::string("nothing")),
+                    "Example: \"rect\": [10, 3, 4, 2] = 4 columns x 2 rows starting at column 10, row 3.");
+        for (int i = 0; i < 4; ++i)
+            if (!as_int(op["rect"][i], r[i]) || r[i] < (i < 2 ? 0 : 1))
+                bad_arg("'rect' must hold integers [col >= 0, row >= 0, w >= 1, h >= 1], got " + op["rect"].dump(),
+                        "Example: [10, 3, 4, 2].");
+        if (std::size_t(r[0] + r[2]) > grid.width || std::size_t(r[1] + r[3]) > grid.height)
+            bad_arg("rect " + op["rect"].dump() + " reaches outside the map: " + size_text(),
+                    "col + w must be <= " + std::to_string(grid.width) + " and row + h <= " + std::to_string(grid.height) + ".");
+        return r;
+    }
+    void set(int col, int row, const std::string& g) {
+        std::string& c = grid.glyphs[row][col];
+        if (c != g) ++changed;
+        c = g;
+    }
+    bool is_solid(const std::string& g) const {
+        const LegendEntry* e = find(g);
+        return e && e->hasTile && e->tile >= 0 && solid.count(tile_index(e->tile));
+    }
+    // Reads the solid tile indices once: the file's tilemap.solidTiles, else the Tilemap of the scene it builds.
+    void load_solid() {
+        if (solidLoaded) return;
+        solidLoaded = true;
+        auto take = [&](const Json& tiles) {
+            for (const Json& t : tiles)
+                if (int v = 0; as_int(t, v)) solid.insert(v);
+        };
+        if (args.contains("tilemap") && args["tilemap"].is_object() && args["tilemap"].contains("solidTiles") &&
+            args["tilemap"]["solidTiles"].is_array()) {
+            take(args["tilemap"]["solidTiles"]);
+            return;
+        }
+        const std::string scene = args.value("from", args.value("path", std::string()));
+        if (scene.empty() || !fs::exists(scene)) return;
+        auto raw = load_json_file(scene);
+        if (!raw.ok() || !raw.value().is_object() || !raw.value().contains("entities")) return;
+        const std::string mapId = args.value("entity", std::string("tilemap"));
+        std::function<bool(const Json&)> walk = [&](const Json& ents) {
+            if (!ents.is_array()) return false;
+            for (const Json& e : ents) {
+                if (!e.is_object()) continue;
+                if (e.value("id", std::string()) == mapId && e.contains("components") && e["components"].contains("Tilemap") &&
+                    e["components"]["Tilemap"].contains("solidTiles") && e["components"]["Tilemap"]["solidTiles"].is_array()) {
+                    take(e["components"]["Tilemap"]["solidTiles"]);
+                    return true;
+                }
+                if (e.contains("children") && walk(e["children"])) return true;
+            }
+            return false;
+        };
+        walk(raw.value()["entities"]);
+    }
+    int ground_row(int col) {
+        load_solid();
+        if (solid.empty())
+            bad_arg("'above' needs to know which tiles are ground, but the file has no tilemap.solidTiles and the scene it builds has "
+                    "no Tilemap with solidTiles",
+                    "Pass \"row\": <n> instead, or add \"tilemap\": {\"solidTiles\": [...]} to the file.");
+        for (std::size_t r = 0; r < grid.height; ++r)
+            if (is_solid(grid.glyphs[r][col])) return int(r);
+        bad_arg("column " + std::to_string(col) + " has no ground (no solid tile in any row)",
+                "Pass \"row\": <n> to put the glyph at an exact row instead of \"above\".");
+    }
+
+    void apply(const Json& op) {
+        if (!op.is_object() || !op.contains("op") || !op["op"].is_string())
+            bad_arg("each op must be an object with an \"op\" string, got " + describe_json_value(op),
+                    "Example: {\"op\": \"fill\", \"rect\": [0, 5, 3, 1], \"glyph\": \"#\"}.");
+        const std::string name = op["op"].get<std::string>();
+        static const std::vector<std::string> kOps = {"fill", "replace", "insertColumns", "deleteColumns", "put"};
+        if (std::find(kOps.begin(), kOps.end(), name) == kOps.end())
+            bad_arg("unknown op '" + name + "'. " + did_you_mean(name, kOps), "Ops: fill, replace, insertColumns, deleteColumns, put.");
+        if (name == "fill") {
+            auto r = rect_arg(op);
+            const std::string g = glyph_arg(op, "glyph");
+            for (int y = r[1]; y < r[1] + r[3]; ++y)
+                for (int x = r[0]; x < r[0] + r[2]; ++x) set(x, y, g);
+        } else if (name == "replace") {
+            const std::string from = glyph_arg(op, "from"), to = glyph_arg(op, "to");
+            std::array<int, 4> r{0, 0, int(grid.width), int(grid.height)};
+            if (op.contains("rect")) r = rect_arg(op);
+            for (int y = r[1]; y < r[1] + r[3]; ++y)
+                for (int x = r[0]; x < r[0] + r[2]; ++x)
+                    if (grid.glyphs[y][x] == from) set(x, y, to);
+        } else if (name == "insertColumns") {
+            const int at = int_arg(op, "at", 0), count = int_arg(op, "count", 1);
+            if (std::size_t(at) > grid.width)
+                bad_arg("'at' " + std::to_string(at) + " is outside the map: " + size_text(),
+                        "Use 0.." + std::to_string(grid.width) + " (the width appends at the right edge).");
+            if (grid.width + std::size_t(count) > 65536) bad_arg("the map would be wider than 65536 columns");
+            const std::string fixed = op.contains("glyph") ? glyph_arg(op, "glyph") : std::string();
+            for (auto& row : grid.glyphs) {
+                std::string g = fixed;
+                if (!op.contains("glyph")) {
+                    g = row[at > 0 ? at - 1 : 0];
+                    const LegendEntry* e = find(g);
+                    if (e && !e->prefab.empty()) g = ".";
+                }
+                row.insert(row.begin() + at, std::size_t(count), g);
+            }
+            grid.width += count;
+            changed += count * int(grid.height);
+        } else if (name == "deleteColumns") {
+            const int at = int_arg(op, "at", 0), count = int_arg(op, "count", 1);
+            column_in_range(at);
+            if (std::size_t(at + count) > grid.width)
+                bad_arg("columns " + std::to_string(at) + ".." + std::to_string(at + count - 1) + " reach outside the map: " + size_text());
+            if (std::size_t(count) == grid.width) bad_arg("this would delete every column of the map", "A map needs at least one column.");
+            for (auto& row : grid.glyphs) row.erase(row.begin() + at, row.begin() + at + count);
+            grid.width -= count;
+            changed += count * int(grid.height);
+        } else {  // put
+            const int col = int_arg(op, "col", 0);
+            column_in_range(col);
+            const std::string g = glyph_arg(op, "glyph");
+            if (op.contains("row") == op.contains("above"))
+                bad_arg("give exactly one of 'row' (absolute, 0 = top) or 'above' (cells above the ground, 1 = standing on it)",
+                        "Example: {\"op\": \"put\", \"col\": 12, \"glyph\": \"o\", \"above\": 1}.");
+            const int row = op.contains("row") ? int_arg(op, "row", 0) : ground_row(col) - int_arg(op, "above", 1);
+            if (row < 0 || std::size_t(row) >= grid.height)
+                bad_arg("row " + std::to_string(row) + " is outside the map: " + size_text(),
+                        "Use a row from 0 to " + std::to_string(grid.height - 1) + ".");
+            set(col, row, g);
+        }
+    }
+};
+
+Json ascii_edit(Engine::Impl& I, const Json& a) {
+    if (!a.contains("file") || !a["file"].is_string())
+        bad_arg("Missing 'file'", "Example: {\"file\": \"levels/1-1.json\", \"ops\": [{\"op\": \"put\", \"col\": 12, \"glyph\": \"o\", \"above\": 1}]}.");
+    if (!a.contains("ops") || !a["ops"].is_array() || a["ops"].empty())
+        bad_arg("'ops' must be a non-empty array of operations",
+                "Example: \"ops\": [{\"op\": \"fill\", \"rect\": [0, 5, 3, 1], \"glyph\": \"#\"}]. Ops: fill, replace, insertColumns, deleteColumns, put.");
+    auto norm = fs::normalize_checked(a["file"].get<std::string>());
+    if (!norm.ok()) bad_arg("'file': " + norm.error().message, norm.error().hint);
+    const std::string file = norm.value();
+    if (!fs::exists(file)) {
+        std::vector<std::string> jsons = fs::list("", true, ".json");
+        throw CommandError("not_found", "'file' '" + file + "' does not exist. " + did_you_mean(file, jsons),
+                           "It is a JSON file with the arguments of scene.import_ascii (at least `rows`).");
+    }
+    auto loaded = load_json_file(file);
+    if (!loaded.ok()) bad_arg("'file': " + loaded.error().message, loaded.error().hint);
+    if (!loaded.value().is_object()) bad_arg("'" + file + "' must hold an object with the arguments of scene.import_ascii");
+
+    AsciiEditCtx ctx;
+    ctx.args = loaded.value();
+    ctx.grid = parse_rows(ctx.args);
+    ctx.legend = parse_legend(merged_legend(ctx.args));
+    const bool dryRun = a.value("dryRun", false), rebuild = a.value("rebuild", true);
+
+    for (std::size_t i = 0; i < a["ops"].size(); ++i) {
+        try {
+            ctx.apply(a["ops"][i]);
+        } catch (const CommandError& err) {
+            throw CommandError(err.code, "ops[" + std::to_string(i) + "]: " + err.what(),
+                               (err.hint.empty() ? std::string() : err.hint + " ") + "Nothing was written.", err.data);
+        }
+    }
+    Json rows = Json::array();
+    for (const auto& row : ctx.grid.glyphs) {
+        std::string s;
+        for (const std::string& g : row) s += g;
+        rows.push_back(s);
+    }
+    Json edited = ctx.args;
+    edited["rows"] = rows;
+
+    Json out = Json::object();
+    if (rebuild && edited.contains("path")) {
+        Json importArgs = edited;
+        if (dryRun) importArgs["dryRun"] = true;
+        out = import_ascii(I, importArgs);  // `file` is not written yet: a failing import leaves everything as it was
+    }
+    out["file"] = file;
+    out["width"] = ctx.grid.width;
+    out["height"] = ctx.grid.height;
+    out["ops"] = a["ops"].size();
+    out["changedCells"] = ctx.changed;
+    out["dryRun"] = dryRun;
+    if (dryRun) {
+        out["rows"] = rows;
+        return out;
+    }
+    const std::string text = dump_json(edited);
+    if (auto r = fs::write_bytes(file, text.data(), text.size()); !r.ok())
+        throw CommandError("failed", "Writing '" + file + "' failed: " + r.error().message, r.error().hint);
+    out["saved"] = file;
+    return out;
+}
+
 }  // namespace
 
 void register_level_commands(Engine& engine, Engine::Impl& I) {
@@ -1034,6 +1280,44 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
                          "description":"Which point of the map is placed at `position` (assumes an unrotated map). Default top-left, the Tilemap entity's own origin."}}})json"),
          false, "scene"},
         [&engine, &I](const Json& a) { return import_ascii(I, a); });
+
+    I.commands.add(
+        {"scene.ascii_edit",
+         "Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level.",
+         "`file` is a project-relative JSON file holding scene.import_ascii arguments (at least `rows`; its legend is `legend` merged "
+         "over `legendFrom`). `ops` run in order, all-or-nothing (an error names the op, e.g. ops[2], and nothing is written). "
+         "Columns and rows are 0-based, row 0 = TOP, like import_ascii. Ops: {op:'fill', rect:[col,row,w,h], glyph}; "
+         "{op:'replace', from, to, rect?} (whole map without rect); {op:'insertColumns', at, count, glyph?} (without glyph the new "
+         "columns repeat the column left of `at` (column 0 when at = 0) with every glyph that spawns an object turned into '.', so "
+         "the ground continues and nothing is duplicated); {op:'deleteColumns', at, count}; {op:'put', col, glyph, row} or "
+         "{op:'put', col, glyph, above:h} = h rows above the ground of that column (1 = standing on it; ground = the topmost cell "
+         "whose glyph is a tile in the file's tilemap.solidTiles, else the Tilemap of the scene the file builds). A glyph that is "
+         "not '.', ' ' or in the legend is refused with suggestions. The edited `rows` are written back to `file` (one row per "
+         "line, every other key and the key order kept). With `rebuild` (default true) and a `path` in the file, the level is then "
+         "rebuilt exactly like `factoria call scene.import_ascii @file` and its result is merged into this one (`spawned` lists id, "
+         "glyph and cell [col,row] of every object). `dryRun` writes nothing and returns the edited `rows` (and the import's dry run). "
+         "Returns {file, width, height, ops (applied), changedCells (cells whose glyph changed; inserted/deleted columns count all "
+         "their cells), dryRun, rows? (dryRun), saved?} plus the import result when it ran. Example: scene.ascii_edit "
+         "{\"file\":\"levels/1-1.json\",\"ops\":[{\"op\":\"put\",\"col\":40,\"glyph\":\"o\",\"above\":1},"
+         "{\"op\":\"insertColumns\",\"at\":60,\"count\":5}]}",
+         parse_schema(R"json({"type":"object","required":["file","ops"],"properties":{
+               "file":{"type":"string","description":"Project-relative JSON file with scene.import_ascii arguments (rows, legend/legendFrom, tilemap, path...)."},
+               "ops":{"type":"array","minItems":1,"description":"Operations applied in order, all-or-nothing. fill {rect:[col,row,w,h], glyph}; replace {from, to, rect?}; insertColumns {at, count, glyph?}; deleteColumns {at, count}; put {col, glyph, row | above}. 0-based, row 0 = top.",
+                      "items":{"type":"object","required":["op"],"properties":{
+                          "op":{"type":"string","enum":["fill","replace","insertColumns","deleteColumns","put"],"description":"Which operation."},
+                          "rect":{"type":"array","items":{"type":"integer"},"minItems":4,"maxItems":4,"description":"[col, row, w, h] (fill: required; replace: optional)."},
+                          "glyph":{"type":"string","description":"One map character: fill/put glyph, or insertColumns filler (default: repeat the column left of `at` without objects)."},
+                          "from":{"type":"string","description":"replace: glyph to find."},
+                          "to":{"type":"string","description":"replace: glyph to write."},
+                          "at":{"type":"integer","description":"insertColumns/deleteColumns: first column."},
+                          "count":{"type":"integer","description":"insertColumns/deleteColumns: how many columns."},
+                          "col":{"type":"integer","description":"put: column."},
+                          "row":{"type":"integer","description":"put: absolute row (0 = top)."},
+                          "above":{"type":"integer","description":"put: cells above the ground of `col` (1 = standing on it). Instead of `row`."}}}},
+               "rebuild":{"type":"boolean","default":true,"description":"Rebuild the level with scene.import_ascii on the edited file when it has a `path`."},
+               "dryRun":{"type":"boolean","default":false,"description":"Write nothing; return the edited rows (and the import's dry run)."}}})json"),
+         false, "scene"},
+        [&I](const Json& a) { return ascii_edit(I, a); });
 }
 
 }  // namespace fa
