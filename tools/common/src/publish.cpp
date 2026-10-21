@@ -191,7 +191,7 @@ Result<MachineToolFound> find_tool(const Store& store, const PublishOptions& o) 
 Result<void> write_build_files(const Job& job) {
     for (const stdfs::path& d : job.clearDirs) {
         std::error_code ec;
-        stdfs::remove_all(os_path(d), ec);
+        fs::remove_tree(d, ec);
     }
     for (const stdfs::path& d : job.dirs) {
         std::error_code ec;

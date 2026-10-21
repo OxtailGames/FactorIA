@@ -425,7 +425,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             if (stdfs::is_directory(p, ec) && !stdfs::is_symlink(p, ec)) {
                 if (!arg_bool(args, "recursive", false))
                     fail("invalid_argument", "'" + rel + "' is a folder.", "Pass recursive=true to delete it with its contents.");
-                auto n = stdfs::remove_all(p, ec);
+                auto n = fs::remove_tree(p, ec);
                 if (ec) fail("failed", "Delete failed: " + ec.message());
                 return Json::object({{"path", r}, {"deleted", n}});
             }

@@ -263,7 +263,7 @@ SetupComponent android_status(const SetupContext& ctx, bool fetchLicenses) {
         } else {
             c.licenses.push_back(repo.license);
         }
-        stdfs::remove_all(scratch, ec);
+        fs::remove_tree(scratch, ec);
     }
     return c;
 }

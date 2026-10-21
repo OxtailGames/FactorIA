@@ -263,7 +263,6 @@ TEST_CASE("export: an output folder deeper than Windows' MAX_PATH works") {
     auto again = export_project(o);
     REQUIRE_MESSAGE(again.ok(), (again.ok() ? "" : again.error().to_string()));
     CHECK(again->files == r->files);
-    stdfs::remove_all(fs::os_path(deep), ec);  // TempDir's own remove_all would stop at the long paths on Windows
 }
 
 #if defined(__APPLE__)
