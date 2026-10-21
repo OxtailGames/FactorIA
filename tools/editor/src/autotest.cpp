@@ -158,6 +158,13 @@ void Editor::inject_key(int type, int keyCode) {
     on_event(&ev);
 }
 
+void Editor::inject_char(unsigned codepoint) {
+    sapp_event ev{};
+    ev.type = SAPP_EVENTTYPE_CHAR;
+    ev.char_code = codepoint;
+    on_event(&ev);
+}
+
 void Editor::autotest_pre_frame() {
     ++atFrame_;
     if (atWaitAi_) {  // hold the script until the (scripted) AI run finished

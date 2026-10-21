@@ -997,7 +997,12 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGuiID center = dockId;
     // The AI builds the game: the game view and the AI chat fill the window, logs and feedback sit under the view.
     ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.38f, nullptr, &center);
+    // Hand editing: the entity tree over the inspector, in a column left of the view.
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.22f, nullptr, &center);
+    ImGuiID inspector = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.62f, nullptr, &left);
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
+    ImGui::DockBuilderDockWindow("Hierarchy", left);
+    ImGui::DockBuilderDockWindow("Inspector", inspector);
     ImGui::DockBuilderDockWindow("###Viewport", center);
     ImGui::DockBuilderDockWindow("AI Assistant", ai);
     ImGui::DockBuilderDockWindow("Console", bottom);
@@ -1057,7 +1062,9 @@ void Editor::build_ui() {
     ImGui::PopStyleVar(2);
     const ImGuiID dockId = ImGui::GetID("FactorIADockSpace");
     if (engine_ && (!layoutBuilt_ || resetLayout_)) {
-        if (resetLayout_ || ImGui::DockBuilderGetNode(dockId) == nullptr)
+        // A layout saved before the Hierarchy and Inspector existed has no place for them: build the default one once.
+        const bool oldLayout = !layoutBuilt_ && ImGui::FindWindowSettingsByID(ImHashStr("Hierarchy")) == nullptr;
+        if (resetLayout_ || oldLayout || ImGui::DockBuilderGetNode(dockId) == nullptr)
             build_default_layout(dockId, ImGui::GetContentRegionAvail());
         layoutBuilt_ = true;
         resetLayout_ = false;
@@ -1069,6 +1076,8 @@ void Editor::build_ui() {
 
     if (engine_) {
         if (showViewport_) draw_viewport();
+        if (showHierarchy_) draw_hierarchy_panel();
+        if (showInspector_) draw_inspector_panel();
         if (showConsole_) draw_console();
         if (showAi_) draw_ai_panel();
         if (showFeedback_) draw_feedback_panel();
@@ -1181,6 +1190,10 @@ void Editor::draw_main_menu() {
     at_track("menu:view");
     if (viewOpen) {
         ImGui::MenuItem("Viewport", nullptr, &showViewport_);
+        ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy_);
+        at_track("menu:hierarchy");
+        ImGui::MenuItem("Inspector", nullptr, &showInspector_);
+        at_track("menu:inspector");
         ImGui::MenuItem("Console", nullptr, &showConsole_);
         ImGui::MenuItem("AI Assistant", nullptr, &showAi_);
         ImGui::MenuItem("Engine Feedback", nullptr, &showFeedback_);
