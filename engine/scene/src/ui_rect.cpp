@@ -16,6 +16,7 @@ const char* ui_kind_name(UiKind k) {
         case UiKind::ScrollList: return "ScrollList";
         case UiKind::TouchStick: return "TouchStick";
         case UiKind::TouchButton: return "TouchButton";
+        case UiKind::Captions: return "Captions";
         case UiKind::None: break;
     }
     return "";
@@ -30,6 +31,7 @@ UiKind ui_kind(const World& w, Entity e) {
     if (w.has<Panel>(e)) return UiKind::Panel;
     if (w.has<TouchStick>(e)) return UiKind::TouchStick;
     if (w.has<TouchButton>(e)) return UiKind::TouchButton;
+    if (w.has<Captions>(e)) return UiKind::Captions;
     return UiKind::None;
 }
 
@@ -43,6 +45,7 @@ const UiBox* ui_box(const World& w, Entity e) {
         case UiKind::ScrollList: return w.get<ScrollList>(e);
         case UiKind::TouchStick: return w.get<TouchStick>(e);
         case UiKind::TouchButton: return w.get<TouchButton>(e);
+        case UiKind::Captions: return w.get<Captions>(e);
         case UiKind::None: break;
     }
     return nullptr;

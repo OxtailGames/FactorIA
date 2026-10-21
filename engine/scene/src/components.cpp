@@ -14,7 +14,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
     return b
         .field("size", static_cast<Vec2 T::*>(&UiBox::size),
                "Size [w, h] in design pixels. The default depends on the kind (Button 240 x 56, Toggle 240 x 40, Slider "
-               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96). A Panel "
+               "320 x 40, TextField 320 x 48, Panel and ScrollList 320 x 240, TouchStick 200 x 200, TouchButton 96 x 96, Captions 960 x 180). A Panel "
                "with fit = true recomputes it every frame.")
         .field("pivot", static_cast<Vec2 T::*>(&UiBox::pivot),
                "Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, "
@@ -989,6 +989,35 @@ void register_builtin_components(TypeRegistry& r) {
             .field("touchOnly", &TouchButton::touchOnly, kTouchOnlyDoc)
             .field("pressed", &TouchButton::pressed, "Runtime: a finger holds the button.").runtime_only().read_only()
             .field("shown", &TouchButton::shown, "Runtime: drawn this frame (see touchOnly).").runtime_only().read_only();
+    }
+    {
+        auto captions = r.add<Captions>("Captions",
+                  "The subtitles of the game (docs/TEXT.md, \"Captions\"): draws the lines that `audio.play(path, { caption })` and "
+                  "`ui.caption(text, seconds)` put on the caption list, the newest `maxLines` of them, at the bottom of this entity's "
+                  "rectangle on a background that hugs the text. Text is drawn like Text: it follows ui.textScale, the localization "
+                  "font chain and right-to-left languages. Put ONE per scene (or in a persistent HUD). Without any Captions entity "
+                  "captions are still tracked (game.captions() in tests lists them) but nothing is drawn, and the log says so once. "
+                  "An inactive Captions entity draws nothing either: that is how a \"Subtitles\" option turns them off. Defaults: "
+                  "bottom centre of the safe area, 960 x 180, over a dark background.",
+                  "UI");
+        ui_box_fields(captions)
+            .field("maxLines", &Captions::maxLines,
+                   "How many captions show at once. When more are on the list the oldest are not drawn (they stay on the list "
+                   "until their sound ends or their seconds run out).").range(1, 16)
+            .field("padding", &Captions::padding, "Space [left, top, right, bottom] between the edge of the background and the text.")
+            .asset_field("font", &Captions::font, "font", "Font of the captions: project path of a .ttf, empty = the built-in font (same values as Text.font).")
+            .field("fontSize", &Captions::fontSize, "Glyph height in design pixels, before ui.textScale.").range(1, 4096)
+            .field("textColor", &Captions::textColor, "Colour of the caption text.")
+            .field("speakerColor", &Captions::speakerColor,
+                   "Colour of the speaker's name, drawn before the line (\"Mara:\"). Captions without a speaker have no name.")
+            .enum_field("align", &Captions::align, {"left", "center", "right", "start", "end"},
+                        "Where the block of captions sits inside the rectangle's width, and how the lines align in it. Same values as "
+                        "Text.align: start / end follow the language (start = right in Arabic or Hebrew).")
+            .field("spacing", &Captions::spacing, "Gap in design pixels between two captions.").range(0, 1000)
+            .field("lines", &Captions::lines,
+                   "Runtime: what is drawn now, [{text, speaker}] oldest first, at most `maxLines`. Written by the engine every frame "
+                   "from the caption list; do not edit it.")
+            .runtime_only().read_only();
     }
 
     // -------------------------------------------------------- Scripting ---

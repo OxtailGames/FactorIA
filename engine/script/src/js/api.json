@@ -1016,6 +1016,22 @@
       {
        "sig": "bus?: \"sfx\" | \"music\" | \"ui\"",
        "doc": ""
+      },
+      {
+       "sig": "caption?: string",
+       "doc": "A subtitle for this sound, plain text. It shows on the Captions component while the sound plays and goes when the sound ends or is stopped (audio.stop, audio.stopAll). With no Captions entity it is only tracked (game.captions() in tests). Use captionKey for a text that follows the language."
+      },
+      {
+       "sig": "captionKey?: string",
+       "doc": "Localization key of the subtitle (docs/LOCALIZATION.md): the line is the translation in the current language and changes with the language while it shows. `caption`, when also given, is the fallback for a key that no string table has."
+      },
+      {
+       "sig": "speaker?: string",
+       "doc": "Name shown before the caption line in the Captions speakerColor, e.g. \"Mara\". Needs caption or captionKey."
+      },
+      {
+       "sig": "captionSeconds?: number",
+       "doc": "Show the caption for this many seconds of the game clock instead of for as long as the sound plays. Required with loop: true (a looping sound never ends), otherwise play() throws."
       }
      ]
     },
@@ -1026,7 +1042,7 @@
      "members": [
       {
        "sig": "play(path: string, opts?: PlayOptions): number",
-       "doc": "Plays a clip, returns a voice id."
+       "doc": "Plays a clip, returns a voice id. With caption / captionKey the sound also shows a subtitle on the Captions component for as long as it plays (docs/TEXT.md, \"Captions\")."
       },
       {
        "sig": "stop(voice: number): void",
@@ -1687,6 +1703,14 @@
       {
        "sig": "speak(text: string, opts?: { interrupt?: boolean }): void",
        "doc": "Says `text` aloud with the system's text to speech (Windows SAPI, macOS/iOS AVSpeechSynthesizer, Android TextToSpeech, Linux speech-dispatcher, the browser's speechSynthesis), in the current language (i18n.language): the system voice for it when there is one. `interrupt` (default true) stops what is being said first; false queues the line after the ones before it. Speech is output only and never touches the simulation. Where the system has no speech (ui.speechAvailable is false) it does nothing and logs one warning per run. Headless runs and tests say nothing and record the line for game.spoken(). Pass an already localized string: ui.speak(i18n.t(\"menu.play\")). Example: ui.on(\"focus\", (e) => ui.speak(e.entity.get(\"Button\").text)). Same as the ui.speak command."
+      },
+      {
+       "sig": "caption(text: string, seconds?: number, opts?: { key?: string; speaker?: string }): void",
+       "doc": "Shows a subtitle line on the Captions component for `seconds` (default 3) of the game clock, for dialogue or hints that have no sound file; a sound's own subtitle is audio.play(path, { caption }). With `key` (a localization key) the line is the translation and follows a language change while it shows; `text` is then the fallback and may be \"\". `speaker` is a name drawn before the line. The newest Captions.maxLines lines show, the oldest drop first. Without a Captions entity the line is only tracked and the log says so once. Same as the ui.caption command. Example: ui.caption(\"Watch out!\", 2, { speaker: \"Mara\" })."
+      },
+      {
+       "sig": "clearCaptions(): void",
+       "doc": "Removes every caption now, also the ones of sounds that still play (the sounds are not stopped). Same as the ui.clear_captions command."
       },
       {
        "sig": "stopSpeaking(): void",
@@ -2683,6 +2707,29 @@
     },
     {
      "kind": "interface",
+     "name": "CaptionEntry",
+     "doc": "One entry of game.captions(): a subtitle that is on the caption list.",
+     "members": [
+      {
+       "sig": "readonly text: string",
+       "doc": "The text shown, in the current language when it has a key."
+      },
+      {
+       "sig": "readonly speaker: string",
+       "doc": "The speaker's name, \"\" for none."
+      },
+      {
+       "sig": "readonly key: string",
+       "doc": "The localization key, \"\" for a plain-text caption."
+      },
+      {
+       "sig": "readonly source: string",
+       "doc": "\"audio:<clip path>\" for the caption of a sound, \"ui\" for ui.caption."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "SpokenLine",
      "doc": "One entry of game.spoken(): a ui.speak call (or ui.speak command) that was recorded instead of spoken.",
      "members": [
@@ -2980,6 +3027,10 @@
       {
        "sig": "clearSpoken(): void",
        "doc": "Empties the list of spoken lines (e.g. after setup, before the action under test)."
+      },
+      {
+       "sig": "captions(): CaptionEntry[]",
+       "doc": "The captions on the list now (cleared before each test), oldest first: { text, speaker, key, source }. `text` is in the current language, `key` is \"\" for plain text, `source` is \"audio:<clip path>\" or \"ui\". The Captions component draws the newest maxLines of them. Example: expect(game.captions().map((c) => c.text)).toEqual([\"Welcome\"])."
       },
       {
        "sig": "readonly platform: TestPlatform",

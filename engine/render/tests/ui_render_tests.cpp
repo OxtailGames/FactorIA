@@ -253,3 +253,43 @@ TEST_CASE("Button: every line of a multi-line label is centred, and a label wide
     extent(10, 50, 110, 140, lo3, hi3);
     CHECK(hi3 >= lo3);  // inside it the label is there
 }
+
+TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its colour, long lines wrap, empty draws nothing") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam"));
+    Entity e = make(w, "subtitles", {0, -10, 0});
+    Captions& c = w.add<Captions>(e);
+    c.size = {280, 110};  // anchor [0.5, 1] and pivot [0.5, 0] (the defaults): bottom centre, 10 px above the screen edge
+    c.safeArea = false;
+    c.fontSize = 16;
+    c.textColor = Color::hex(0xffffff);
+    c.speakerColor = Color::hex(0xffd040);
+    const Color clear = Color{0.08f, 0.08f, 0.12f, 1};
+
+    Image empty = g.render(w);
+    CHECK(near(empty.pixel(160, 150), clear, 0.01f));  // no lines: nothing is drawn, not even the background
+
+    c.lines = Json::array({Json::object({{"text", "The bridge is out."}, {"speaker", ""}}),
+                           Json::object({{"text", "Then we go around, and we go quickly before the water rises any higher."},
+                                         {"speaker", "Mara"}})});
+    Image img = g.render(w);
+    CHECK_FALSE(near(img.pixel(160, 165), clear, 0.02f));  // the background hugs the lines, at the bottom of the rectangle
+    CHECK(near(img.pixel(160, 5), clear, 0.01f));          // and not above them
+    bool speakerColoured = false, whiteText = false;
+    for (int y = 90; y < 170; ++y)
+        for (int x = 0; x < 320; ++x) {
+            const Color p = img.pixel(x, y);
+            speakerColoured = speakerColoured || (p.r > 0.8f && p.g > 0.6f && p.b < 0.4f);
+            whiteText = whiteText || (p.r > 0.9f && p.g > 0.9f && p.b > 0.9f);
+        }
+    CHECK(speakerColoured);
+    CHECK(whiteText);
+    expect_golden(img, "2d_captions");
+
+    c.align = Align::Left;
+    Image left = g.render(w);
+    CHECK_FALSE(near(left.pixel(22, 165), clear, 0.02f));  // left aligned: the block starts at the rectangle's left edge (x = 20)
+    CHECK(near(left.pixel(10, 165), clear, 0.01f));
+}

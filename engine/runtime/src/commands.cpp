@@ -646,6 +646,39 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
               return Json::object({{"spoken", said}, {"language", language}});
           });
 
+    I.commands.add({"ui.caption", "Show a subtitle line on the Captions component for a few seconds.",
+           "The same as `ui.caption(text, seconds, { key, speaker })` in a script: a line without a sound, drawn by the Captions "
+           "component (docs/TEXT.md, \"Captions\") for `seconds` of the game clock; the newest Captions.maxLines lines show. With "
+           "`key` (a localization key) the line is the translation and follows a language change. Without a Captions entity the "
+           "line is only tracked and the log says so once. Example: ui.caption {\"text\":\"Watch out!\",\"seconds\":2,\"speaker\":\"Mara\"}",
+           parse_schema(R"({"type":"object","properties":{
+               "text":{"type":"string","description":"The line (the fallback when `key` is set and no string table has it)."},
+               "key":{"type":"string","description":"Localization key of the line."},
+               "speaker":{"type":"string","description":"Name drawn before the line."},
+               "seconds":{"type":"number","exclusiveMinimum":0,"description":"How long it shows, in game-clock seconds (default 3)."}}})"),
+           false, "ui"},
+          [&engine](const Json& a) {
+              CaptionLine line;
+              line.key = a.value("key", std::string());
+              line.text = a.value("text", std::string());
+              if (line.text.empty()) line.text = line.key;
+              if (line.text.empty())
+                  throw CommandError("invalid_argument", "ui.caption: nothing to show", "pass \"text\" (the line) or \"key\" (a localization key)");
+              line.speaker = a.value("speaker", std::string());
+              line.source = "ui";
+              line.endsAt = engine.world().time() + a.value("seconds", 3.0);
+              engine.captions().add(std::move(line));
+              return Json::object({{"captions", engine.captions().size()}});
+          });
+
+    I.commands.add({"ui.clear_captions", "Remove every subtitle from the screen now.",
+           "The same as `ui.clearCaptions()` in a script. Sounds that have a caption keep playing. Example: ui.clear_captions {}",
+           parse_schema(R"({"type":"object","properties":{}})"), false, "ui"},
+          [&engine](const Json&) {
+              engine.captions().clear();
+              return Json::object();
+          });
+
     I.commands.add({"ui.stop_speaking", "Stop what is being said by ui.speak and drop the queued lines.",
            "The same as `ui.stopSpeaking()` in a script. Does nothing when nothing is being said or the system has no speech. "
            "Example: ui.stop_speaking {}",

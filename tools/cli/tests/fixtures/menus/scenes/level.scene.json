@@ -61,6 +61,18 @@
       }
     },
     {
+      "id": "captions",
+      "components": {
+        "Transform": {
+          "position": [0, -24, 0]
+        },
+        "Captions": {
+          "maxLines": 3,
+          "fontSize": 30
+        }
+      }
+    },
+    {
       "id": "pause_menu",
       "components": {
         "Script": {
