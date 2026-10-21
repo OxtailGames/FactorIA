@@ -342,10 +342,13 @@ Every Play .. Stop is recorded, so the AI can see what you saw. Nothing to switc
   `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`) and its `FACTORIA_HOME` in
   `<FA_EDITOR_AUTOTEST_OUT>/factoria_home`, never in your `~/.factoria`. **It never installs anything**: its setup context
   can neither download nor run a program, and no step presses "I accept". It checks the window title and the result after
-  every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`). A click only lands on a widget that is shown in its
-  window (a widget scrolled out of view fails the check instead of hitting what is under it), and a watchdog thread ends the
-  process with exit code 86 when the editor draws no frame for 60 seconds, so a stuck GPU or UI call can never freeze the
-  window for good.
+  every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`). A click only lands on a widget whose centre is
+  shown in its window (a widget scrolled out of view, even half, fails the check instead of hitting what is under it), and a
+  watchdog thread ends the process with exit code 86 when the editor draws no frame for 60 seconds, so a stuck GPU or UI call
+  can never freeze the window for good. While it runs the editor ignores the real mouse, keyboard and focus changes (using
+  the computer or switching apps does not disturb it), and on macOS its window stays above the others (a covered window
+  draws nothing to take a screenshot of). `FA_EDITOR_AUTOTEST_SIZE=1024x642` runs it in a smaller window, the size of the
+  macOS CI runner's display.
   A manual end-to-end check of the CMake button: `FA_EDITOR_AUTOTEST_REAL_CMAKE=1` makes the autotest run one script only: it
   presses **Install** of the CMake component and lets it download and unpack the real CMake (about 50 MB from Kitware) into
   the autotest's own `factoria_home`; ctest never sets it.

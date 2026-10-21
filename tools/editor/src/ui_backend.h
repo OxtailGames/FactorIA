@@ -27,7 +27,8 @@ void gfx_setup();
 void gfx_shutdown();
 
 // Autotest screenshots of the whole window, top-down RGBA8. GL (Linux) and Metal (macOS); false elsewhere.
-// - prepare_backbuffer_readback(): once the window exists (Metal: drawables are framebuffer-only by default).
+// - prepare_backbuffer_readback(): once the window exists (Metal: drawables are framebuffer-only by default, and macOS
+//   gives a covered window none, so it also keeps the window above the others).
 // - note_window_swapchain(): every frame, with the swapchain of the window pass (Metal reads that frame's drawable).
 // - read_backbuffer(): after sg_commit(), before the frame callback returns (GL swaps after it; the Metal drawable
 //   lives until then).

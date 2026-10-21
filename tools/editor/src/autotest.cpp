@@ -8,6 +8,7 @@
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "imgui_internal.h"
 #include "sokol_app.h"
 #include "ui_backend.h"
 
@@ -112,13 +113,23 @@ void Editor::inject_mouse(int type, Vec2 logicalPos, int button) {
     on_event(&ev);
 }
 
+// Shown: the point the autotest clicks is inside the visible part of its window. A widget half scrolled out of a small
+// window is visible (ImGui::IsItemVisible), but a click on its centre lands on whatever is below the window's edge.
+static bool centre_shown(Vec2 c) {
+    if (!ImGui::IsItemVisible()) return false;
+    const ImGuiWindow* window = ImGui::GetCurrentWindow();
+    if (window->PopupId == GImGui->LastItemData.ID) return true;  // an open BeginMenu(): the item is in the parent window
+    return window->ClipRect.Contains(ImVec2(c.x, c.y));
+}
+
 void Editor::at_track(const std::string& name, bool enabled) {
     if (!autotest_) return;
     const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
-    atWidgets_[name] = Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
+    const Vec2 centre{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f};
+    atWidgets_[name] = centre;
     atWidgetFrame_[name] = uiFrame_;
     atWidgetEnabled_[name] = enabled;
-    atWidgetShown_[name] = ImGui::IsItemVisible();  // false when a scrolling area (or a collapsed section) hides it
+    atWidgetShown_[name] = centre_shown(centre);  // false when a scrolling area (or a collapsed section) hides it
 }
 
 void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
@@ -126,7 +137,7 @@ void Editor::at_track_at(const std::string& name, Vec2 centre, bool enabled) {
     atWidgets_[name] = centre;
     atWidgetFrame_[name] = uiFrame_;
     atWidgetEnabled_[name] = enabled;
-    atWidgetShown_[name] = ImGui::IsItemVisible();
+    atWidgetShown_[name] = centre_shown(centre);
 }
 
 bool Editor::at_enabled(const std::string& name) const {

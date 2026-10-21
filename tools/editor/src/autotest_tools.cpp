@@ -1480,13 +1480,16 @@ void Editor::at_build_tools_script() {
             reload_scene_from_disk();
             select_id("gem");
             he->undo = undo_depth();
-            inspScrollTo_ = "MeshRenderer.material";
         });
         step(30, [this] {
             at_check(at_visible("insp:matparam:pulse") && at_visible("insp:matparam:glow") && at_visible("insp:matparam:tint"),
                      "the Inspector lists the params of MeshRenderer.material, typed by material.info");
             at_check(!at_enabled("insp:matreset:pulse"), "...a param with no override cannot be reset");
         });
+        // Scrolled once the material's build report is in: an error under the material field (no shader compiler on this
+        // machine) pushes the params down, out of a small window's Inspector.
+        step(2, [this] { inspScrollTo_ = "MeshRenderer.materialParams"; });
+        step(3, [] {});
         click("insp:matparam:pulse");
         type_text("2.5");
         press_enter();
