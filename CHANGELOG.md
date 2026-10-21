@@ -4,6 +4,16 @@ The editor shows these notes when it offers an update, and each release on GitHu
 
 ## Unreleased
 
+Find out what makes your game slow
+
+- A profiler: it tells you where the time of a frame goes, per part of the engine (physics, scripts, sound, drawing...) and
+  per script class, with the milliseconds each class takes per frame and how often it runs, plus the GPU time (on
+  Windows and Linux; other systems say why not) and memory use. It only measures: your game plays exactly the same.
+- In the editor, View > Profiler shows it live while you play. Every play session you record now also keeps this
+  summary in `play.report`, so the AI can see which script is the slow one.
+- `perf.profile` does the same on a headless run, with an optional input replay to reach the heavy part of the game. See
+  `factoria docs read performance`.
+
 Better looking 3D, and much bigger 3D scenes
 
 - Materials look like real materials: `metallic` and `roughness` now use physically based shading, and shiny surfaces

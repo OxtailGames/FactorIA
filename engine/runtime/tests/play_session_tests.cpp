@@ -67,6 +67,14 @@ struct Fixture {
         s.frames = 120;
         s.durationSec = 2.0;
         s.perf = compute_frame_stats({10, 12, 50});
+        if (withMark) {  // the profiler's summary of the session, as the editor records it
+            ProfileSummary prof;
+            ProfFrame pf;
+            pf.totalMs = 12;
+            pf.classes = {{"Player", "scripts/player.js", 3.5, 2}};
+            prof.add_frame(pf);
+            s.profile = prof.to_json();
+        }
         keep_worst_spike(s.spikes, PlaySpike{77, 50.0, 12, Json::object({{"drawCalls", 5}})});
         s.logs.push_back(Json::object({{"seq", 1}, {"frame", 80}, {"level", "error"}, {"category", "script"}, {"message", "boom"}}));
         s.input = Json::parse(R"({"frames":{"3":{"keys":{"Space":true}},"9":{"keys":{"Space":false}}}})");
@@ -116,6 +124,9 @@ TEST_CASE("play.sessions and play.report read the session folders") {
     CHECK(rep.result["logs"][0]["message"] == "boom");
     CHECK(rep.result["marks"][0]["note"] == "the HUD overlaps the score");
     CHECK(rep.result["inputFrames"] == 2);
+    REQUIRE(rep.result.contains("profile"));  // new key; the others are unchanged
+    CHECK(rep.result["profile"]["behaviours"][0]["class"] == "Player");
+    CHECK(rep.result["profile"]["behaviours"][0]["avgMs"].get<double>() == doctest::Approx(3.5));
     CHECK(rep.result["replay"].get<std::string>().find("input.json") != std::string::npos);
     CHECK(rep.result["replayHow"].get<std::string>().find("--input") != std::string::npos);
     REQUIRE(rep.result.contains("$image"));
@@ -124,6 +135,7 @@ TEST_CASE("play.sessions and play.report read the session folders") {
 
     auto old = c.call("play.report", Json{{"session", "20260101-100000"}});
     REQUIRE(old.ok);
+    CHECK_FALSE(old.result.contains("profile"));  // a session without one (older editor) stays as it was
     CHECK_FALSE(old.result.contains("$image"));
     auto bad = c.call("play.report", Json{{"session", "20260102-1000"}});
     REQUIRE_FALSE(bad.ok);
@@ -132,4 +144,5 @@ TEST_CASE("play.sessions and play.report read the session folders") {
     const std::string text = play_session_summary(rep.result);
     CHECK(text.find("the HUD overlaps the score") != std::string::npos);
     CHECK(text.find("boom") != std::string::npos);
+    CHECK(text.find("Player") != std::string::npos);  // the costliest behaviour class
 }

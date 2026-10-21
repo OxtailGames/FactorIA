@@ -213,6 +213,7 @@ public:
     void draw_ai_roles_popup(const ai::AiConfig& cfg, const std::vector<ai::ProviderStatus>& status);
     void draw_feedback_panel();
     void draw_audio_panel();
+    void draw_profiler_panel();
     void draw_project_dialog();
     // AI panel text: the right-click menu of the InputText just submitted on `text` (Cut/Copy/Paste/Select all), and a
     // transcript message as a selectable read-only box (ai_panel.cpp)
@@ -297,6 +298,7 @@ public:
         PlaySession session;
         PlayRecorder rec;
         std::vector<double> frameMs;
+        ProfileSummary profile;  // the profiler's numbers of the session (session.json "profile")
         std::uint64_t startFrame = 0, logSeq = 0;
         bool skipNext = true;  // the first frame after Play / Resume is not a frame time (scene restore, popup)
     } run_;
@@ -334,7 +336,7 @@ public:
 
     // panel visibility
     bool showViewport_ = true;
-    bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false;
+    bool showConsole_ = true, showAi_ = true, showFeedback_ = true, showAudio_ = false, showProfiler_ = false;
     bool showProjectDialog_ = false, showValidation_ = false, showDocs_ = false, showDemo_ = false;
     bool showQuitDialog_ = false, showReloadConfirm_ = false;
     // Engine update (fa/editor/update.h): checked once when the editor opens. While a newer release is offered the
@@ -427,6 +429,12 @@ public:
     AudioLogState audioLog_;
     double audioPolled_ = -10;
     void poll_audio(bool force = false);
+
+    // Profiler panel (View > Profiler) and the `profile` section of play sessions (fa/core/profiler.h). The profiler runs only while
+    // a play session records or the panel is open; profile_tick() runs once per UI frame after the engine frame.
+    ProfilerView profView_;
+    int profMemoryIn_ = 0;  // frames until the next memory sample
+    void profile_tick(std::uint64_t frameBefore);
 
     // toasts
     std::vector<Toast> toasts_;

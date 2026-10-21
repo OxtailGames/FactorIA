@@ -293,6 +293,8 @@ int run_app(const AppDesc& desc) {
 #endif
 }
 
+bool gfx_device_active() { return sg_isvalid(); }
+
 GfxEnvironment app_gfx_environment() {
     GfxEnvironment out{};
     sg_environment env = sglue_environment();
