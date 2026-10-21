@@ -1326,11 +1326,16 @@ void Editor::draw_toolbar() {
 
     const char* label = play_ == PlayState::Edit ? "EDIT" : play_ == PlayState::Playing ? "PLAYING" : "PAUSED";
     ImVec4 col = play_ == PlayState::Edit ? ImVec4(0.6f, 0.65f, 0.75f, 1) : play_ == PlayState::Playing ? ImVec4(0.4f, 0.9f, 0.5f, 1) : ImVec4(1, 0.8f, 0.3f, 1);
-    ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x - 20);
-    ImGui::TextColored(col, "%s", label);
-    if (play_ == PlayState::Playing) {  // the hint lives in the toolbar, never over the game picture
-        const char* hint = "F9 marks a problem";
-        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x - ImGui::CalcTextSize(hint).x - 40);
+    const float labelX = ImGui::GetWindowWidth() - ImGui::CalcTextSize(label).x - 20;
+    const float usedX = ImGui::GetCursorPosX();
+    if (usedX < labelX) {  // a narrow window: the Viewport title shows the mode too, so the label gives way
+        ImGui::SameLine(labelX);
+        ImGui::TextColored(col, "%s", label);
+    }
+    const char* hint = "F9 marks a problem";
+    const float hintX = labelX - ImGui::CalcTextSize(hint).x - 20;
+    if (play_ == PlayState::Playing && usedX < hintX) {  // the hint lives in the toolbar, never over the game picture
+        ImGui::SameLine(hintX);
         ImGui::TextDisabled("%s", hint);
         ImGui::SetItemTooltip("Pauses the game, takes a screenshot and asks for a one-line note.\nThe AI reads the notes of your last play session (AI panel: Attach last play session).");
     }
