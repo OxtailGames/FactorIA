@@ -58,6 +58,7 @@ Json play_session_json(const PlaySession& s) {
     for (const PlayMark& m : s.marks)
         marks.push_back(Json::object({{"n", ++n}, {"frame", m.frame}, {"time", round1(m.time)}, {"note", m.note}, {"screenshot", m.screenshot}}));
     j["marks"] = marks;
+    if (s.profile.is_object()) j["profile"] = s.profile;
     j["inputFile"] = "input.json";
     j["inputFrames"] = s.input.contains("frames") ? s.input["frames"].size() : 0;
     return j;
@@ -99,6 +100,10 @@ std::string play_session_summary(const Json& j) {
         }
     }
     out += ".";
+    if (j.contains("profile") && j["profile"].is_object() && j["profile"].contains("behaviours") && !j["profile"]["behaviours"].empty()) {
+        const Json& b = j["profile"]["behaviours"][0];
+        out += std::format(" Costliest behaviour: {} ({:.2f} ms per frame).", b.value("class", std::string("?")), b.value("avgMs", 0.0));
+    }
     if (j.contains("marks") && j["marks"].is_array() && !j["marks"].empty()) {
         out += " The player marked problems:";
         for (const Json& m : j["marks"]) out += std::format(" #{} (frame {}) \"{}\";", m.value("n", 0), m.value("frame", 0), m.value("note", std::string()));
@@ -160,7 +165,7 @@ void register_play_session_commands(Engine&, Engine::Impl& I) {
 
     I.commands.add({"play.report", "What happened while the user played: perf, spikes, warnings/errors, their problem marks and screenshots.",
            "Call it when the user says they played the game and saw problems (slow, ugly UI, bugs). Returns the session.json content "
-           "(perf: avg/p95/max frame ms and frames over 16.7/33 ms; spikes: slowest frames with entity count and render stats; logs: "
+           "(perf: avg/p95/max frame ms and frames over 16.7/33 ms; profile: where the time went, per engine system, per script behaviour class (ms and calls per frame, slowest first), GPU ms or null + reason, memory; spikes: slowest frames with entity count and render stats; logs: "
            "warnings and errors; marks: frame, time, note and screenshot path, 1-based `n`), `replay` (the input file, absolute path) "
            "and `replayHow`. The result carries ONE picture ($image): the screenshot of mark `mark` (default 1); call again with mark 2, "
            "3... to see the others. `session` defaults to the latest (see play.sessions). Example: play.report {\"mark\":2}",

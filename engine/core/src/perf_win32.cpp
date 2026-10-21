@@ -42,4 +42,11 @@ std::uint64_t peak_memory_bytes() {
     return std::uint64_t(pmc.PeakWorkingSetSize);
 }
 
+std::uint64_t current_memory_bytes() {
+    PROCESS_MEMORY_COUNTERS pmc{};
+    pmc.cb = sizeof(pmc);
+    if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return 0;
+    return std::uint64_t(pmc.WorkingSetSize);
+}
+
 }  // namespace fa

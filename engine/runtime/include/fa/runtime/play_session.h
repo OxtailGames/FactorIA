@@ -52,6 +52,7 @@ struct PlaySession {
     Json logs = Json::array();  // warnings and errors: {seq, frame, level, category, message}
     std::vector<PlayMark> marks;
     Json input = Json::object();  // {"frames": {"<n>": {...}}}
+    Json profile;                 // the profiler's summary of the session (ProfileSummary::to_json); null = not measured
 };
 Json play_session_json(const PlaySession& s);                                   // the content of session.json
 Result<void> write_play_session(const std::string& dir, const PlaySession& s);  // session.json + input.json

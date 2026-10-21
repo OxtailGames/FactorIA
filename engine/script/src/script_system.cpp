@@ -172,6 +172,7 @@ bool ScriptSystem::Impl::check_interrupt() {
 
 void ScriptSystem::Impl::run_jobs() {
     if (!rt) return;
+    ProfBehaviourScope prof(kProfOtherName, kProfNoPath);  // promise jobs (and flushing their rejections) belong to no behaviour
     for (int guardCount = 0; guardCount < 100000; ++guardCount) {
         JSContext* jctx = nullptr;
         int r = JS_ExecutePendingJob(rt, &jctx);
@@ -366,8 +367,10 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
     return r;
 }
 
+// `profile`: the behaviour the method belongs to; when the profiler is on, the call (only if the method exists) is charged to its class.
 JSValue ScriptSystem::Impl::call_method(const std::string& label, const std::string& entityId, JSValueConst obj,
-                                        const char* method, std::initializer_list<JSValue> args, bool* failed) {
+                                        const char* method, std::initializer_list<JSValue> args, bool* failed,
+                                        const Behaviour* profile) {
     if (failed) *failed = false;
     JSValue fn = JS_GetPropertyStr(ctx, obj, method);
     if (JS_IsException(fn)) {
@@ -380,6 +383,8 @@ JSValue ScriptSystem::Impl::call_method(const std::string& label, const std::str
         if (failed) *failed = false;
         return JS_UNDEFINED;
     }
+    std::optional<ProfBehaviourScope> prof;
+    if (profile) prof.emplace(profile->className, profile->path);
     JSValue r = call(label, entityId, fn, obj, args, failed);
     JS_FreeValue(ctx, fn);
     return r;
@@ -825,6 +830,7 @@ void ScriptSystem::dispatch_back() {
     bool consumed = false;
     if (I.initialized) {
         JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "back");
+        ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
         JSValue r = I.call("input.onBack", "", fn, I.hooks.get(), {});
         consumed = JS_ToBool(I.ctx, r) > 0;
         JS_FreeValue(I.ctx, r);
@@ -841,7 +847,10 @@ void ScriptSystem::update(float dt) {
     impl_->sync();
     float scaled = static_cast<float>(dt * impl_->timeScale);
     if (impl_->timeScale > 0.0) {
-        impl_->call_method("timers", "", impl_->hooks.get(), "tick", {JS_NewFloat64(impl_->ctx, scaled)});
+        {
+            ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
+            impl_->call_method("timers", "", impl_->hooks.get(), "tick", {JS_NewFloat64(impl_->ctx, scaled)});
+        }
         impl_->run_callbacks("onUpdate", scaled, false);
     } else {
         impl_->run_callbacks("onUpdate", dt, true);  // paused: only runWhilePaused behaviours, with the real dt

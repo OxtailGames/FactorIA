@@ -20,5 +20,8 @@ double process_cpu_seconds();
 bool cpu_time_is_wall_clock();
 // Peak resident memory of the process in bytes; 0 when the platform cannot say.
 std::uint64_t peak_memory_bytes();
+// Resident memory of the process right now in bytes (the profiler's memory curve); 0 when the platform cannot say.
+// Windows: WorkingSetSize; Linux/Android: /proc/self/statm; macOS/iOS: mach task_info; web: the wasm heap size.
+std::uint64_t current_memory_bytes();
 
 }  // namespace fa

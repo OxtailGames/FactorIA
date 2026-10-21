@@ -182,3 +182,74 @@ TEST_CASE("perf.baseline then perf.check on a tiny project (no GPU needed)") {
     CHECK(r.error["code"] == "perf_no_baseline");
     CHECK(r.error["message"].get<std::string>().find(runner) != std::string::npos);
 }
+
+TEST_CASE("perf.profile: where the time goes, on a small project with two behaviours") {
+    TempDir t;
+    auto made = create_project(t.str(), "2d-empty");
+    REQUIRE(made.ok());
+    const std::filesystem::path dir(t.str());
+    REQUIRE(fs::write_text((dir / "scripts/heavy.js").generic_string(),
+                           "import { Behaviour } from \"factoria\";\n"
+                           "export default class Heavy extends Behaviour {\n"
+                           "  onUpdate(dt) { let x = 0; for (let i = 0; i < 150000; i++) x += Math.sqrt(i); this.x = x; }\n}\n").ok());
+    REQUIRE(fs::write_text((dir / "scripts/light.js").generic_string(),
+                           "import { Behaviour } from \"factoria\";\n"
+                           "export default class Light extends Behaviour {\n  onUpdate(dt) {}\n}\n").ok());
+    REQUIRE(fs::write_text((dir / "scenes/main.scene.json").generic_string(), R"({
+      "format": "factoria.scene/1",
+      "entities": [
+        { "id": "cam", "components": { "Camera": { "primary": true } } },
+        { "id": "heavy", "components": { "Script": { "path": "scripts/heavy.js" } } },
+        { "id": "light", "components": { "Script": { "path": "scripts/light.js" } } }
+      ] })").ok());
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    REQUIRE(reg.has("perf.profile"));
+
+    CommandResult bad = reg.call("perf.profile", Json::object({{"frames", 0}}));
+    REQUIRE_FALSE(bad.ok);
+    CHECK_FALSE(bad.error["hint"].get<std::string>().empty());
+
+    CommandResult r = reg.call("perf.profile", Json::object({{"frames", 20}, {"warmup", 3}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK_FALSE(r.result["runner"].get<std::string>().empty());
+    const Json& p = r.result["profile"];
+    CHECK(p["frames"] == 20);
+    REQUIRE(p["behaviours"].size() >= 2);
+    CHECK(p["behaviours"][0]["class"] == "Heavy");  // the slowest first
+    const Json* light = nullptr;
+    for (const Json& b : p["behaviours"])
+        if (b["class"] == "Light") light = &b;
+    REQUIRE(light);  // (the bucket for timers and events may rank above it: both are almost free)
+    CHECK(p["behaviours"][0]["avgMs"].get<double>() > (*light)["avgMs"].get<double>());
+    CHECK(p["behaviours"][0]["callsPerFrame"].get<double>() == doctest::Approx(1.0));
+    CHECK(p["systems"].contains("scriptsUpdate"));
+    CHECK(p["systems"].contains("render"));
+    CHECK(p["gpu"].contains("reason"));
+}
+
+TEST_CASE("perf.profile and perf.measure from an engine that owns the GPU: a teaching error, not an abort") {
+    TempDir t;
+    REQUIRE(create_project(t.str(), "2d-empty").ok());
+    Engine host;  // stands for the editor / a window: this process now owns a graphics device (when the machine has one)
+    EngineConfig cfg;
+    cfg.projectDir = t.str();
+    cfg.headless = true;
+    cfg.hotReload = false;
+    cfg.memoryStorage = true;
+    std::string err;
+    REQUIRE_MESSAGE(host.init(cfg, nullptr, &err), err);
+    CommandRegistry reg;
+    register_tooling_commands(reg, t.str());
+    for (const char* name : {"perf.profile", "perf.measure"}) {
+        CommandResult r = reg.call(name, Json::object({{"frames", 3}}));
+        if (host.renderer()) {
+            REQUIRE_FALSE(r.ok);
+            CHECK(r.error["code"] == "gpu_busy");
+            CHECK(r.error["hint"].get<std::string>().find("--no-graphics") != std::string::npos);
+        } else {
+            CHECK(r.ok);  // no GPU on this machine: nothing to clash with
+        }
+    }
+    host.shutdown();
+}

@@ -5,6 +5,8 @@
 #include "engine_impl.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
+#include "fa/core/perf.h"
+#include "fa/core/profiler.h"
 #include "fa/core/strings.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
@@ -221,6 +223,7 @@ void Engine::Impl::draw(double dt) {
 
 void Engine::Impl::render(double dt) {
     if (!renderer) return;
+    ProfSystemScope prof(ProfSystem::Render);
     dt *= scripts.time_scale();  // particles and sprite animators follow time.scale: frozen while paused
     update_visuals(*renderer, world, float(dt));
     if (cfg.renderMode == RenderMode::OnDemand && !windowed) {
@@ -280,42 +283,82 @@ void Engine::Impl::poll_hot_reload(bool force) {
 }
 
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
+    const bool profiled = !inFrame;  // a nested frame (a script stepping the game) belongs to the outer one
+    if (profiled) Profiler::get().begin_frame();  // no-op unless the profiler is on (fa/core/profiler.h); measures only
     inFrame = true;
     set_log_frame(frame);
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
     // frame's survive until the next frame starts so a screenshot still shows them.
     if (renderStale && renderer) renderer->debug().clear();
     // Store answers and events reach scripts here, before anything else of the frame runs (never in the middle of a call).
-    platform.frame();
-    scripts.dispatch_platform();
-    scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
+    {
+        ProfSystemScope prof(ProfSystem::Platform);
+        platform.frame();
+        scripts.dispatch_platform();
+        scripts.dispatch_back();  // the Back button of this frame: input.onBack handlers, else quit
+    }
     const float fdt = float(fixedDt);
     for (int i = 0; i < fixedSteps; ++i) {
-        physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
-        scripts.fixed_update(fdt);
+        {
+            ProfSystemScope prof(ProfSystem::Physics);
+            physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
+        }
+        {
+            ProfSystemScope prof(ProfSystem::ScriptsFixedUpdate);
+            scripts.fixed_update(fdt);
+        }
         // time.scale (game.paused = 0) slows or freezes the simulation, not only the scripts.
         const double scale = scripts.time_scale();
         if (scale > 0.0) {
-            physics.step(world, float(fixedDt * scale));
+            {
+                ProfSystemScope prof(ProfSystem::Physics);
+                physics.step(world, float(fixedDt * scale));
+            }
+            ProfSystemScope prof(ProfSystem::Animation);
             update_animators(world, float(fixedDt * scale));  // skeletal animation + its events, before they are dispatched
         }
-        scripts.dispatch_events();
+        {
+            ProfSystemScope prof(ProfSystem::ScriptsEvents);
+            scripts.dispatch_events();
+        }
         world.advance_clock(fixedDt);
         ++fixedStep;
     }
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
-    ui.update(world, input, design_size(), float(dt), measure());
-    scripts.dispatch_events();
-    scripts.update(float(dt));
-    audio.update(world, float(dt));
-    if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
-    scripts.late_update(float(dt));
-    scripts.settle_activation();  // panels shown or hidden this frame: onStart / onEnable / onDisable before drawing
-    apply_localization();  // keys of entities scripts spawned or edited this frame
+    {
+        ProfSystemScope prof(ProfSystem::Ui);
+        ui.update(world, input, design_size(), float(dt), measure());
+    }
+    {
+        ProfSystemScope prof(ProfSystem::ScriptsEvents);
+        scripts.dispatch_events();
+    }
+    {
+        ProfSystemScope prof(ProfSystem::ScriptsUpdate);
+        scripts.update(float(dt));
+    }
+    {
+        ProfSystemScope prof(ProfSystem::Audio);
+        audio.update(world, float(dt));
+        if (!windowed || !cfg.audioDevice) audio.advance_null_device(dt);
+    }
+    {
+        ProfSystemScope prof(ProfSystem::ScriptsLateUpdate);
+        scripts.late_update(float(dt));
+        scripts.settle_activation();  // panels shown or hidden this frame: onStart / onEnable / onDisable before drawing
+    }
+    {
+        ProfSystemScope prof(ProfSystem::Localization);
+        apply_localization();  // keys of entities scripts spawned or edited this frame
+    }
     render(dt);
-    end_of_frame(dt);
+    {
+        ProfSystemScope prof(ProfSystem::EndOfFrame);
+        end_of_frame(dt);
+    }
     ++frame;
     inFrame = false;
+    if (profiled) Profiler::get().end_frame();
 }
 
 void Engine::Impl::end_of_frame(double dt) {
@@ -725,6 +768,29 @@ void Engine::request_scene_change(std::string_view scenePath) {
     impl_->hasPendingScene = true;
 }
 void Engine::request_quit() { impl_->quit = true; }
+ProfMemory Engine::profile_memory() {
+    Impl& I = *impl_;
+    ProfMemory m;
+    m.processBytes = current_memory_bytes();
+    m.peakProcessBytes = peak_memory_bytes();
+    m.entities = int(I.world.entity_count());
+    m.jsHeapBytes = std::uint64_t(I.scripts.stats().value("memoryBytes", 0LL));
+    if (I.renderer) m.textureBytes = I.renderer->texture_bytes();
+    m.audioDecodedBytes = std::uint64_t(I.audio.stats().value("decodedBytes", 0LL));
+    return m;
+}
+
+void Engine::profile_gpu(std::vector<double>& msOut, bool* supported, std::string* reason) {
+    Renderer* r = impl_->renderer.get();
+    if (!r) {
+        if (supported) *supported = false;
+        if (reason) *reason = "no graphics in this run (a logic-only engine draws nothing)";
+        return;
+    }
+    r->take_gpu_ms(msOut);
+    if (supported) *supported = r->gpu_timing_supported(reason);
+}
+
 void Engine::step_frames(int n) { step(n); }
 void Engine::set_text_scale(float scale) {  // the callers (ui.textScale, ui.set_text_scale) check the range
     ScriptHost::set_text_scale(scale);
