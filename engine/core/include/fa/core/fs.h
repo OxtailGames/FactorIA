@@ -74,10 +74,8 @@ std::filesystem::path resolve(std::string_view path);  // absolute host path (de
 // whether or not long paths are enabled on the machine; elsewhere, and for shorter paths, `p` as it is. For file system
 // calls only: show users the path itself.
 std::filesystem::path os_path(const std::filesystem::path& p);
-// std::filesystem::remove_all for a folder whose files may lie deeper than MAX_PATH. remove_all builds its children's
-// paths from the folder's, so on Windows a short folder path (which os_path leaves as it is) stops at the first long
-// child and leaves the folder behind; this goes through the \\?\ form of the folder even when it is short. Same return
-// value and error as remove_all.
+// std::filesystem::remove_all that also deletes files deeper than MAX_PATH: on Windows it always goes through the
+// \\?\ form of `dir`, since remove_all on a short folder path stops at its first long child. Same result and error.
 std::uintmax_t remove_tree(const std::filesystem::path& dir, std::error_code& ec);
 
 Result<std::string> read_text(std::string_view path);
