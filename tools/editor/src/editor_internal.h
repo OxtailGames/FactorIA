@@ -372,12 +372,10 @@ public:
         Vec3 pivot{};
         Vec3 local[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         Mat4 parentWorld;
-        bool hasParent = false, hud = false, threeD = false, wrote = false;
-        Vec2 anchor{};                 // HUD entities: design pixel = world xy + anchor
+        bool hasParent = false, wrote = false;
         Vec3 planeStart{};             // free move: where the mouse was on the drag plane
         AngleTracker angle;
         float sign = 1;
-        size_t undoBefore = 0;
         std::vector<Json> redoBefore;
         bool dirtyBefore = false;
     } gizmoDrag_;

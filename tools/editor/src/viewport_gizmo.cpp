@@ -194,11 +194,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
         const Entity par = w.parent(sel);
         d.hasParent = !par.is_null();
         d.parentWorld = d.hasParent ? w.world_matrix(par) : Mat4::identity();
-        d.hud = b.screenSpace;
-        d.threeD = threeD;
-        d.anchor = anchor;
         d.last = gizmoMode_ == GizmoMode::Move ? tr->position : gizmoMode_ == GizmoMode::Rotate ? tr->rotation : tr->scale;
-        d.undoBefore = undo_.size();
         d.redoBefore = redo_;
         d.dirtyBefore = dirty_;
         if (d.handle.kind == GizmoKind::MovePlane) d.planeStart = space.on_plane(mouse, pivotW).value_or(pivotW);
