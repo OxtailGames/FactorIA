@@ -161,6 +161,33 @@ Learn FactorIA
 - Searching the docs (`factoria docs search`, and your AI over MCP) shows the best section of each guide first, so a
   name like `onTriggerEnter` finds the scripting reference instead of many sections of one tutorial.
 
+Accessibility, speed checks and legal texts
+
+- Colour filters for players: `colorFilter` on the `Camera` turns the whole picture greyscale, raises the contrast, or
+  corrects the colours for players who cannot tell red from green (`protanopia`, `deuteranopia`) or blue from yellow
+  (`tritanopia`). Your options screen sets it from the player's choice.
+- See your game as a colour-blind player does: `factoria run --headless --screenshot-at 60 --screenshot-simulate
+  deuteranopia` (or `simulate` in `game.screenshot`) saves the screenshot that way without changing the game, so you or
+  your AI can check that hazards still stand out.
+- Read menus aloud: `ui.speak(text)` says a line with the computer's or phone's own voice, in the game's language, and
+  `ui.speechAvailable` tells whether the system can speak. Speak the button that has the focus and players who cannot
+  read the screen can use your menus. Tests check what would be said with `game.spoken()`, without sound.
+- Start from the player's own settings: `game.accessibility` tells you the text size the player set on their system,
+  and whether they asked for less motion, high contrast or use a screen reader. Use it to set your options on the first
+  run; what the player then chooses in your game wins.
+- Subtitles: add a `Captions` entity to your scene, then `audio.play("voice.wav", { caption: "Watch out!" })` shows the
+  line while the sound plays, and `ui.caption(text)` shows one with no sound. They follow the text size and the player's
+  language, and an option can turn them off. Tests list them with `game.captions()`.
+- `factoria docs read menus` shows each of these as an option of the ready-made menus, and the accessibility part of
+  `factoria docs read finishing` lists them all.
+- Speed and memory checks: `factoria call perf.baseline` measures how much CPU time and memory your game uses and how
+  many things it draws, and saves it in `perf.json`. `factoria call perf.check` then fails when the game got much
+  heavier, so you notice before your players do. `factoria docs read performance` explains how to use it in your own
+  checks.
+- Privacy policy and license: `factoria docs read legal` says what FactorIA sends from your game (nothing by itself),
+  gives a privacy policy you can copy for a game that collects nothing, the paragraphs to add when you use analytics,
+  ads, accounts or cloud saves, and when you need a license agreement of your own. It is not legal advice.
+
 Fixed while making Lantern Keep
 
 Lantern Keep showed what a complete game still had to work around. These are now in the engine, so your AI writes less

@@ -32,7 +32,8 @@ A baseline is only valid for the kind of machine it was measured on, so budget f
 
 Set `FACTORIA_PERF_RUNNER=name` to use your own id (a build machine of your own). A runner with no entry in a budget file is
 not an error: the check passes with status `no_baseline`, and its result carries `baselineEntry`, the exact JSON to add
-under `runners`.
+under `runners`. `{"requireBaseline":true}` makes it fail instead (error `perf_no_baseline`, with the same entry), so a CI
+job cannot pass without checking anything; the engine's own CI does this.
 
 ## Budget file
 

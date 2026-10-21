@@ -174,4 +174,9 @@ TEST_CASE("perf.baseline then perf.check on a tiny project (no GPU needed)") {
     REQUIRE(n.ok);
     CHECK(n.result["status"] == "no_baseline");
     CHECK(n.result["baselineEntry"].contains(runner));
+    // ...unless the caller requires one (the engine's CI): then it fails with the same entry to commit.
+    CommandResult r = reg.call("perf.check", Json::object({{"requireBaseline", true}}));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "perf_no_baseline");
+    CHECK(r.error["message"].get<std::string>().find(runner) != std::string::npos);
 }
