@@ -67,7 +67,7 @@ namespace {
 bool ray_box(Vec3 o, Vec3 d, Vec3 lo, Vec3 hi, float& tOut) {
     float t0 = 0, t1 = 1e30f;
     for (int i = 0; i < 3; ++i) {
-        const float oi = (&o.x)[i], di = (&d.x)[i], l = (&lo.x)[i], h = (&hi.x)[i];
+        const float oi = axis_value(o, i), di = axis_value(d, i), l = axis_value(lo, i), h = axis_value(hi, i);
         if (std::fabs(di) < 1e-8f) {
             if (oi < l || oi > h) return false;
         } else {

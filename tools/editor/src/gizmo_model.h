@@ -16,6 +16,13 @@ namespace fa::editor {
 enum class GizmoMode { Select, Move, Rotate, Scale };
 const char* gizmo_mode_name(GizmoMode mode);
 
+// World axis i (0 x, 1 y, 2 z) as a unit vector. Built from its components: writing through `(&v.x)[i]` past x is
+// undefined behaviour, and Apple Clang's Release build drops those stores (the y and z arrows went missing).
+Vec3 unit_axis(int i);
+// Component i of v, and v with component i replaced: the same reason, for reads and writes by index.
+float axis_value(Vec3 v, int i);
+Vec3 with_axis(Vec3 v, int i, float value);
+
 enum class GizmoKind { None, MoveAxis, MovePlane, RotateAxis, ScaleAxis, ScaleAll };
 struct GizmoHandle {
     GizmoKind kind = GizmoKind::None;
