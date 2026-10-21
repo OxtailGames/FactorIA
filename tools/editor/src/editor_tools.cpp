@@ -67,4 +67,34 @@ bool audio_play_visible(const AudioPlay& play, const AudioLogState& state) {
     return to_lower(play.path).find(to_lower(state.filter)) != std::string::npos;
 }
 
+void ProfilerView::add_frame(const ProfFrame& f) {
+    const double a = frames == 0 ? 1.0 : kSmooth;
+    ++frames;
+    frameMs.push_back(float(f.totalMs));
+    if (frameMs.size() > kHistory) frameMs.erase(frameMs.begin());
+    smoothFrameMs += (f.totalMs - smoothFrameMs) * a;
+    for (std::size_t i = 0; i < systemMs.size(); ++i) systemMs[i] += (f.systemMs[i] - systemMs[i]) * a;
+    // A class that did not run this frame decays towards 0 and disappears when it is negligible.
+    for (Row& r : rows) {
+        r.ms *= 1.0 - a;
+        r.calls *= 1.0 - a;
+    }
+    for (const ProfClassSample& c : f.classes) {
+        auto it = std::find_if(rows.begin(), rows.end(), [&](const Row& r) { return r.className == c.className && r.path == c.path; });
+        if (it == rows.end()) {
+            rows.push_back(Row{c.className, c.path, 0, 0});
+            it = rows.end() - 1;
+        }
+        it->ms += c.ms * a;
+        it->calls += double(c.calls) * a;
+    }
+    rows.erase(std::remove_if(rows.begin(), rows.end(), [](const Row& r) { return r.ms < 1e-4 && r.calls < 0.01; }), rows.end());
+    std::sort(rows.begin(), rows.end(), [](const Row& x, const Row& y) { return x.ms != y.ms ? x.ms > y.ms : x.className < y.className; });
+}
+
+void ProfilerView::add_gpu_ms(double ms) {
+    gpuMs = haveGpu ? gpuMs + (ms - gpuMs) * kSmooth : ms;
+    haveGpu = true;
+}
+
 }  // namespace fa::editor

@@ -312,6 +312,46 @@ void Editor::at_build_tools_script() {
         pendingFocus_ = "Console";
     });
 
+    // ----------------------------------------------------------------------------------- A2. Profiler panel (View menu)
+    // A behaviour on the player, then View > Profiler while the game plays: its class must show up as a row with time and calls.
+    step(2, [this, project_file] {
+        write_file(project_file("scripts/autotest_spinner.js"),
+                   "import { Behaviour } from \"factoria\";\n"
+                   "export default class AutotestSpinner extends Behaviour {\n"
+                   "  onUpdate(dt) { let x = 0; for (let i = 0; i < 4000; i++) x += Math.sqrt(i); this.sum = x; }\n"
+                   "}\n");
+        run_console_line("scene.set_component {\"id\":\"player\",\"component\":\"Script\",\"fields\":{\"path\":\"scripts/autotest_spinner.js\"}}");
+    });
+    click("menu:view");
+    step(3, [] {});
+    click("menu:profiler");
+    step(4, [this] {
+        at_check(showProfiler_, "View > Profiler shows the Profiler panel");
+        pendingFocus_ = "Profiler";
+        play();
+    });
+    step(40, [] {});
+    step(4, [this] {
+        at_check(profView_.frames > 10, "the Profiler panel measured the frames of the running game");
+        const auto row = std::find_if(profView_.rows.begin(), profView_.rows.end(),
+                                      [](const ProfilerView::Row& r) { return r.className == "AutotestSpinner"; });
+        at_check(row != profView_.rows.end(), "a row for the behaviour class AutotestSpinner appears");
+        if (row != profView_.rows.end()) {
+            at_check(row->ms > 0.0 && row->calls > 0.5, "...with milliseconds and about one onUpdate call per frame");
+            at_check(row->path == "scripts/autotest_spinner.js", "...and its script path");
+        }
+        at_check(profView_.systemMs[std::size_t(ProfSystem::ScriptsUpdate)] > 0.0, "the scriptsUpdate system has time");
+        pendingFocus_ = "Profiler";
+    });
+    snap("editor_profiler.png");
+    step(4, [this, project_file] {
+        stop();
+        showProfiler_ = false;
+        pendingFocus_ = "Console";
+        write_file(project_file(scenePath_), kFixtureScene);
+        reload_scene_from_disk();  // the fixture again, without the script
+    });
+
     // ---------------------------------------------------------- B. Commands that rebuild the open scene file (Console / AI)
     // A file import into the OPEN scene reloads it in the viewport, and Ctrl+Z still brings back what was on screen.
     step(2, [this] {

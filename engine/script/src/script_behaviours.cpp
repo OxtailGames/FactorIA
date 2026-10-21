@@ -39,12 +39,12 @@ void Impl::destroy_behaviour(Behaviour& b, bool callOnDestroy) {
     if (callOnDestroy && b.enabledState && !JS_IsUndefined(b.instance.get()) && host->world().alive(b.entity)) {
         b.enabledState = false;
         std::string id = host->world().id_of(b.entity);
-        JSValue r0 = call_method(b.path + "#onDisable", id, b.instance.get(), "onDisable", {});
+        JSValue r0 = call_method(b.path + "#onDisable", id, b.instance.get(), "onDisable", {}, nullptr, &b);
         JS_FreeValue(ctx, r0);
     }
     if (callOnDestroy && b.started && !JS_IsUndefined(b.instance.get()) && host->world().alive(b.entity)) {
         std::string id = host->world().id_of(b.entity);
-        JSValue r = call_method(b.path + "#onDestroy", id, b.instance.get(), "onDestroy", {});
+        JSValue r = call_method(b.path + "#onDestroy", id, b.instance.get(), "onDestroy", {}, nullptr, &b);
         JS_FreeValue(ctx, r);
     }
     JSValue h = JS_NewFloat64(ctx, static_cast<double>(b.entity.bits()));
@@ -158,7 +158,7 @@ void Impl::start_behaviour(Behaviour& b) {
     if (b.started || b.dead || b.loadFailed || JS_IsUndefined(b.instance.get())) return;
     b.started = true;
     std::string id = host->world().alive(b.entity) ? host->world().id_of(b.entity) : std::string();
-    JSValue r = call_method(b.path + "#onStart", id, b.instance.get(), "onStart", {});
+    JSValue r = call_method(b.path + "#onStart", id, b.instance.get(), "onStart", {}, nullptr, &b);
     JS_FreeValue(ctx, r);
 }
 
@@ -183,7 +183,7 @@ bool Impl::update_activation(Behaviour& b) {
     b.enabledState = now;
     std::string id = host->world().alive(b.entity) ? host->world().id_of(b.entity) : std::string();
     const char* method = now ? "onEnable" : "onDisable";
-    JSValue r = call_method(b.path + "#" + method, id, b.instance.get(), method, {});
+    JSValue r = call_method(b.path + "#" + method, id, b.instance.get(), method, {}, nullptr, &b);
     JS_FreeValue(ctx, r);
     return true;
 }
@@ -317,7 +317,7 @@ void Impl::run_callbacks(const char* method, float dt, bool pausedOnly) {
         }
         bool failed = false;
         std::string label = b.path + "#" + method;
-        JSValue r = call_method(label, W.id_of(b.entity), b.instance.get(), method, {JS_NewFloat64(ctx, dt)}, &failed);
+        JSValue r = call_method(label, W.id_of(b.entity), b.instance.get(), method, {JS_NewFloat64(ctx, dt)}, &failed, &b);
         JS_FreeValue(ctx, r);
         if (failed && lastCallTimedOut) {
             b.faulted = true;
@@ -337,7 +337,7 @@ void Impl::dispatch(const char* method, Entity self, std::initializer_list<JSVal
         if (s && s->enabled && W.active_in_hierarchy(self)) {
             update_activation(*b);
             if (b->dead) { for (JSValue a : args) JS_FreeValue(ctx, a); return; }
-            JSValue r = call_method(b->path + "#" + method, W.id_of(self), b->instance.get(), method, args);
+            JSValue r = call_method(b->path + "#" + method, W.id_of(self), b->instance.get(), method, args, nullptr, b);
             JS_FreeValue(ctx, r);
         }
     }
@@ -393,6 +393,7 @@ void ScriptSystem::dispatch_events() {
             JSValue name = JS_NewString(ctx, ge.name.c_str());
             {
                 JSValue fn = JS_GetPropertyStr(ctx, I.hooks.get(), "emit");
+                ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
                 JSValue r = I.call("world.on(" + ge.name + ")", "", fn, I.hooks.get(), {name, data, src});
                 JS_FreeValue(ctx, r);
                 JS_FreeValue(ctx, fn);

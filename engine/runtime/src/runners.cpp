@@ -392,6 +392,19 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
     int ran = 0;
     std::vector<double> cpuMs;  // CPU time of each frame (process CPU, not wall clock): report["perf"]
     int maxDrawCalls = 0, maxEntities = 0;
+    // Profiler (options.profile): measure the frames after the warm-up into report["profile"]; the setting is put back at the end.
+    struct ProfilerGuard {
+        bool was;
+        ~ProfilerGuard() { Profiler::get().set_enabled(was); }
+    } profilerGuard{Profiler::on()};
+    ProfileSummary profile;
+    std::vector<double> gpuMs;
+    bool gpuSupported = false;
+    std::string gpuReason = "the GPU time was not measured";
+    if (options.profile) {
+        Profiler::get().set_enabled(true);
+        profile.add_memory(engine.profile_memory());
+    }
     for (int f = 0; f < options.frames && !engine.quit_requested(); ++f) {
         if (auto it = replay.find(f); it != replay.end()) apply_replay_entry(I, it->second, replayProblems, f);
         const double cpu0 = process_cpu_seconds();
@@ -401,6 +414,15 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
             engine.step(1);
         }
         cpuMs.push_back((process_cpu_seconds() - cpu0) * 1000.0);
+        if (options.profile) {
+            engine.profile_gpu(gpuMs, &gpuSupported, &gpuReason);
+            if (f >= options.profileWarmup) {
+                profile.add_frame(Profiler::get().last());
+                for (double ms : gpuMs) profile.add_gpu_ms(ms);
+                if ((f - options.profileWarmup) % 30 == 0) profile.add_memory(engine.profile_memory());
+            }
+            gpuMs.clear();
+        }
         maxEntities = std::max(maxEntities, int(engine.world().entity_count()));
         if (Renderer* r = engine.renderer()) maxDrawCalls = std::max(maxDrawCalls, r->stats().drawCalls);  // OnDemand: the last drawn frame
         ++ran;
@@ -427,6 +449,13 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         }
     }
     engine.render_now();  // OnDemand: the last frame is drawn so renderStats / the final picture exist
+    if (options.profile) {
+        engine.profile_gpu(gpuMs, &gpuSupported, &gpuReason);
+        for (double ms : gpuMs) profile.add_gpu_ms(ms);  // the answers of the last frames, if they are ready
+        profile.set_gpu_status(gpuSupported, gpuReason);
+        profile.add_memory(engine.profile_memory());
+        report["profile"] = profile.to_json();
+    }
     report["frames"] = ran;
     report["screenshots"] = shotPaths;
     if (Renderer* r = engine.renderer()) maxDrawCalls = std::max(maxDrawCalls, r->stats().drawCalls);

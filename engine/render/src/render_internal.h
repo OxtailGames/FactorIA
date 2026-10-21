@@ -351,6 +351,7 @@ public:
     void reload(const std::string& path);
     void clear();
     Json report() const;
+    std::size_t texture_bytes() const;  // GPU memory of the loaded textures (packed ones are counted in their atlas)
     // Used by fonts for font-file failures.
     void note_failure(const std::string& kind, const std::string& path, const std::string& message, const std::string& hint);
     bool failure_logged(const std::string& kind, const std::string& path) const;
@@ -499,6 +500,25 @@ private:
 
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
 sg_image make_image(const sg_image_desc& desc);
+
+// GPU time of the drawing of a frame (profiler). One timer query in flight per frame in a small ring; results are read a few
+// frames later and never waited for. D3D11 (timestamp queries) and GLCORE (GL_TIME_ELAPSED) measure; the other backends
+// say why not (reason()). Backend specific: gpu_timer.cpp.
+class GpuTimer {
+public:
+    GpuTimer();
+    ~GpuTimer();
+    GpuTimer(const GpuTimer&) = delete;
+    GpuTimer& operator=(const GpuTimer&) = delete;
+    bool supported() const;         // false once it is known that this backend/device cannot time
+    std::string reason() const;     // why not, when !supported()
+    void begin();                   // before the first pass of the frame
+    void end();                     // after the last pass
+    void poll(std::vector<double>& out);  // appends the milliseconds of every frame whose result is ready
+private:
+    struct State;
+    std::unique_ptr<State> s_;
+};
 
 // GPU->CPU readback of an RGBA8 image (top row first). Backend specific.
 bool readback_rgba8(sg_image image, int width, int height, std::vector<std::uint8_t>& out, std::string* error);

@@ -7,6 +7,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
+#include "fa/core/profiler.h"
 #include "fa/platform/sokol_logging.h"
 #include "bloom.h"
 #include "shaders/colorfilter.glsl.h"
@@ -84,6 +85,7 @@ struct Renderer::Impl {
     float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
     int physW = 0, physH = 0;      // size of the GPU images
     Gpu gpu;
+    GpuTimer gpuTimer;
     std::unique_ptr<Assets> assets;
     std::unique_ptr<Fonts> fonts;
     float textScale = 1.0f;  // Renderer::set_text_scale
@@ -501,6 +503,22 @@ void Renderer::clear_asset_cache() {
     impl_->fonts->clear();
     impl_->assets->clear();
 }
+std::uint64_t Renderer::texture_bytes() const { return impl_ && impl_->assets ? impl_->assets->texture_bytes() : 0; }
+
+bool Renderer::gpu_timing_supported(std::string* reason) const {
+    if (!impl_) {
+        if (reason) *reason = "the renderer is not initialized";
+        return false;
+    }
+    const bool ok = impl_->gpuTimer.supported();
+    if (!ok && reason) *reason = impl_->gpuTimer.reason();
+    return ok;
+}
+
+void Renderer::take_gpu_ms(std::vector<double>& out) {
+    if (impl_ && Profiler::on()) impl_->gpuTimer.poll(out);
+}
+
 Json Renderer::asset_report() const {
     if (!impl_ || !impl_->assets) return Json::object();
     Json j = impl_->assets->report();
@@ -610,6 +628,7 @@ void Renderer::render_world(World& world, float dt) {
 
 void Renderer::Impl::render(World& world, float dt) {
     auto t0 = std::chrono::steady_clock::now();
+    if (Profiler::on()) gpuTimer.begin();
     stats = RenderStats{};
     anyFrameRendered = true;
 
@@ -1149,6 +1168,7 @@ void Renderer::Impl::render(World& world, float dt) {
     if (fr.cam.colorFilter != 0) stats.drawCalls += apply_color_filter(fr.cam.colorFilter);
 
     debug.clear();
+    gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
     auto t1 = std::chrono::steady_clock::now();
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
