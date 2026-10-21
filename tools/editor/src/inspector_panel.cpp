@@ -125,6 +125,10 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
     ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     const bool open = ImGui::CollapsingHeader(type.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
     at_track("insp:hdr:" + type.name);
+    if (inspScrollTo_ == type.name) {  // the autotest asks for a header low in a long list
+        ImGui::SetScrollHereY(0.0f);
+        inspScrollTo_.clear();
+    }
     if (removable)  // the x of the header, for the autotest
         at_track_at("insp:hdr:" + type.name + ":x", Vec2{ImGui::GetItemRectMax().x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
                                                            (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f});

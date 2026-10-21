@@ -1345,6 +1345,8 @@ void Editor::at_build_tools_script() {
 
         // 3. A value the command refuses changes nothing, and its message shows under the field.
         step(2, [this, he] { he->undo = undo_depth(); });
+        step(2, [this] { inspScrollTo_ = "Shape2D.thickness"; });  // a small window shows only the top of the Inspector
+        step(3, [] {});
         click("insp:Shape2D.thickness");
         type_text("-5");
         press_enter();
@@ -1362,6 +1364,8 @@ void Editor::at_build_tools_script() {
         click("insp:add");
         step(3, [this] { at_check(at_visible("insp:add:Sprite"), "the Add Component list offers the components the entity lacks"); });
         click("insp:add:Sprite");
+        step(2, [this] { inspScrollTo_ = "Sprite"; });
+        step(3, [] {});
         step(4, [this] {
             at_check(world().has<Sprite>(world().find_by_id("coin_2")), "choosing a component in the list adds it with its defaults");
             at_check(at_visible("insp:hdr:Sprite"), "...and the Inspector shows its header");
