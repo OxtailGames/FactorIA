@@ -199,6 +199,11 @@ int Editor::run() {
     d.title = windowTitle_;
     d.width = autotest_ ? 1600 : 1440;
     d.height = autotest_ ? 900 : 860;
+    if (autotest_)  // FA_EDITOR_AUTOTEST_SIZE=1024x642: try the autotest on a small display (the macOS CI runner)
+        if (const char* size = std::getenv("FA_EDITOR_AUTOTEST_SIZE")) {
+            int w = 0, h = 0;
+            if (std::sscanf(size, "%dx%d", &w, &h) == 2 && w > 0 && h > 0) { d.width = w; d.height = h; }
+        }
     d.vsync = !autotest_;
     d.highDpi = true;
     d.init = [this] { on_init(); };
@@ -1001,7 +1006,7 @@ void Editor::build_default_layout(unsigned dockId, ImVec2 size) {
     ImGuiID ai = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.32f, nullptr, &center);
     // Hand editing: the entity tree over the inspector, in a column left of the view.
     ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.30f, nullptr, &center);
-    ImGuiID inspector = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.70f, nullptr, &left);
+    ImGuiID inspector = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, nullptr, &left);
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("Inspector", inspector);

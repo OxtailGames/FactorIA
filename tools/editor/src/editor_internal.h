@@ -456,7 +456,7 @@ public:
     };
     std::map<std::string, JsonBox> inspJson_;     // Json fields, by field key
     std::string inspEntity_;                      // entity the inspector showed last frame (state resets when it changes)
-    std::string inspScrollTo_;                    // "Component.field": scroll the Inspector to that row (the autotest)
+    std::string inspScrollTo_;                    // "Component" or "Component.field": scroll the Inspector to that row (the autotest)
     struct MaterialInfoEntry {
         Json info;
         std::string error;    // material.info failed (the file is unreadable or invalid)
