@@ -1510,6 +1510,7 @@ void Editor::at_build_tools_script() {
             Vec2 grab{}, cur{};
             Vec3 pos{}, rot{}, scl{};
             size_t undo = 0;
+            double restUntil = 0;
         };
         auto g = std::make_shared<Gz>();
         auto tf = [this](const char* id) {
@@ -1732,12 +1733,18 @@ void Editor::at_build_tools_script() {
             select_id("player");
         });
 
-        // Esc in the middle of a drag: the start value is back and no undo step is left behind.
+        // Esc in the middle of a drag: the start value is back and no undo step is left behind. The mouse rests longer than the
+        // 0.8 s that merges edits into one undo step before it moves on: still one step, which Esc takes back.
         step(4, remember);
         grab("move:x");
         move_to([g] { return Vec2{g->grab.x + 45, g->grab.y}; });
+        step(1, [this, g] { g->restUntil = time_ + 1.0; });
+        wait_until([this, g] { return time_ > g->restUntil; });
+        step(2, [this, g] { gizmoDrag_.wrote = false; });
+        move_to([g] { return Vec2{g->grab.x + 70, g->grab.y}; });
         step(2, [this, g, tf] {
             at_check(tf("player").position.x != g->pos.x, "mid-drag the entity has moved");
+            at_check(undo_depth() == g->undo + 1, "a drag that rests mid-way is still one undo step");
             inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE);
         });
         step(4, [this, g, tf] {

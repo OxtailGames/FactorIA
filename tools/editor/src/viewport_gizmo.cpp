@@ -206,6 +206,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
     }
 
     if (d.active && !tookClick) {
+        if (lastEditKey_ == d.key) lastEditTime_ = time_;  // one drag, one undo step, however long the mouse rests
         if (!io.MouseDown[0]) {
             gizmo_end_drag(false);
         } else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
@@ -254,11 +255,9 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
             }
             value = {round4(value.x), round4(value.y), round4(value.z)};
             if (value.x != d.last.x || value.y != d.last.y || value.z != d.last.z) {
-                if (lastEditKey_ == d.key) lastEditTime_ = time_;  // one drag, one undo step, however still the mouse is
                 std::string err;
                 CommandResult res = edit_command(d.key, "scene.set_component",
                                                  field_edit_args(d.id, "Transform", field, Json::array({value.x, value.y, value.z})), &err);
-                if (lastEditKey_ == d.key) lastEditTime_ = time_;
                 if (!res.ok) {
                     notify("Could not change " + std::string(field) + ": " + err, 2);
                     d.active = false;
