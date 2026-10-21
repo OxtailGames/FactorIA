@@ -539,6 +539,7 @@ public:
     std::vector<std::string> atPendingShots_;
     std::thread atThread_;
     std::shared_ptr<CommandResult> atMarshalResult_;
+    std::atomic<bool> atMarshalDone_{false};
     Vec3 atOriginalPos_{};
     std::uint64_t atStepFrame_ = 0;
     void at_check(bool cond, const std::string& what);

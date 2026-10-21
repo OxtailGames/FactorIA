@@ -289,14 +289,21 @@ void Editor::autotest_pre_frame() {
         at_check(w.entity_count() == before, "undo removes the spawned entity");
         select_id("player");
     } else if (f == 16) {
-        // AI thread marshaling: a worker thread calls the PROXY registry; this thread must run it.
+        // AI thread marshaling: a worker thread calls the PROXY registry; this thread must run it. Hold the script until the
+        // call is back: joining while it still waits in the queue (a slow runner starts the thread late) waits forever.
         atMarshalResult_ = std::make_shared<CommandResult>();
+        atMarshalDone_ = false;
         auto proxy = make_proxy_registry();
         auto res = atMarshalResult_;
-        atThread_ = std::thread([proxy, res] { *res = proxy->call("scene.list_entities", Json::object()); });
+        atThread_ = std::thread([this, proxy, res] {
+            *res = proxy->call("scene.list_entities", Json::object());
+            atMarshalDone_ = true;
+        });
+        atWaitCount_ = 0;
+        atWaitUntil_ = [this] { return atMarshalDone_.load(); };
     } else if (f == 22) {
-        if (atThread_.joinable()) atThread_.join();
-        at_check(atMarshalResult_ && atMarshalResult_->ok, "agent-thread command ran on the main thread via the queue");
+        if (atMarshalDone_ && atThread_.joinable()) atThread_.join();
+        at_check(atMarshalDone_ && atMarshalResult_->ok, "agent-thread command ran on the main thread via the queue");
     } else if (f == 24) {
         at_check(save_scene_now() && !dirty(), "save scene clears the dirty flag");
         auto loaded = load_json_file(fs::join(projectDir_, scenePath_));
