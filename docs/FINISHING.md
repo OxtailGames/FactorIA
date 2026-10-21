@@ -292,7 +292,8 @@ run(fn) { this.chain = this.chain.then(() => fn()).catch(() => {}); return this.
   to the browser console); Android and iOS use their own crash logs (`adb logcat -s factoria`; see [MOBILE.md](MOBILE.md)).
   Make your own errors teach: `console.error` with what failed and what to do, never a silent `catch`.
 - **Privacy.** The engine collects nothing and connects to nothing by itself. If you add analytics, ads or accounts,
-  the store forms change ([MOBILE.md](MOBILE.md), "Store privacy forms").
+  the store forms change ([MOBILE.md](MOBILE.md), "Store privacy forms"). Privacy policy and EULA templates:
+  [LEGAL.md](LEGAL.md).
 
 ## 8. Tests that keep it finished
 
