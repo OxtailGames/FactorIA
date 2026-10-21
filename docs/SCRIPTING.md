@@ -562,6 +562,18 @@ the press is released over the same widget; a Slider follows the pointer while p
 - `scene.load(path)` (deferred to frame end) · `scene.reload()` · `scene.current`
 - `game.quit()` · `game.paused` (see `time`) · `game.project` (read-only factoria.json) · `game.screenSize` ·
   `game.platform` (`"windows"`, `"macos"`, `"linux"`, `"ios"`, `"android"` or `"web"`: e.g. no Quit button on phones)
+- `game.accessibility` (read-only, frozen) → `{ textScale, reduceMotion, highContrast, screenReader }`: the player's
+  operating system settings, for your options screen to start from (recipe: MENUS.md). `textScale` 1 = 100 %, clamped to
+  0.5 - 4; the others are booleans. Read when the game starts and again when the window regains focus or the app
+  resumes. The engine applies none of them: you apply them and save the player's own choice. Where each platform reads
+  them, and what it cannot: Windows (animations off, high contrast, screen reader, Text size setting), macOS (reduce
+  motion, increase contrast, VoiceOver; text size always 1), iOS (reduce motion, darker colours, VoiceOver, Dynamic Type),
+  Android (font scale, animator scale 0, high contrast text, TalkBack/touch exploration), Linux (GNOME settings through the
+  `gsettings` program; KDE, Xfce and other desktops give `1` / `false`), web (`prefers-reduced-motion`,
+  `prefers-contrast: more` or `forced-colors: active`; browsers do not tell the text size or a screen reader, so `1` and
+  `false`). Headless runs, `factoria test` and the editor always give `{ textScale: 1, reduceMotion: false, highContrast:
+  false, screenReader: false }`; tests change it with `game.setAccessibility({ textScale: 1.5, reduceMotion: true })`
+  (reset before every test).
 - `game.notices()` → `[{ name, url, license, usedFor }]`: the third-party software inside the runtime every game ships
   (FactorIA first), the parts whose license texts `factoria export` writes to `FACTORIA_NOTICES.txt`. For a credits
   screen.

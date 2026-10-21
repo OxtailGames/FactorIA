@@ -13,6 +13,7 @@
 
 #include <quickjs.h>
 
+#include "fa/platform/accessibility.h"
 #include "fa/script/script.h"
 #include "fa/services/platform.h"
 
@@ -147,6 +148,9 @@ struct ScriptSystem::Impl {
     StorageMode storageMode = StorageMode::Persistent;
     bool storageCorrupt = false;                 // the save data did not parse at the last load (storage.corrupt)
     std::optional<std::string> storageTextHook;  // game.setStorageText: what the next load reads instead of the file
+
+    // ---- game.accessibility: game.setAccessibility() in tests (windowless runs otherwise give the defaults)
+    AccessibilitySettings testAccessibility;
 
     // ---- test runner state
     bool inTestRun = false;
