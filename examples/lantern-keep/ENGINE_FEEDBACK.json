@@ -955,10 +955,12 @@
       "suggestion": "Camera.colorFilter enum (none, greyscale, protanopia, deuteranopia, tritanopia, high contrast) as a post-process that game.screenshot also applies, so players and AIs can use it.",
       "effort": "medium",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: Camera.colorFilter) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: Camera.colorFilter) in feedback/ROADMAP.md.",
+        "Fixed in 972974b (M22.2): Camera.colorFilter (none, greyscale, highContrast, protanopia, deuteranopia, tritanopia) is the last post-process of the frame, HUD included, so screenshots and videos show it; the simulate option of game.screenshot and factoria run --screenshot-simulate save a screenshot as a colour-blind player sees it without changing the game (Machado 2009). The menus kit has the option (docs/MENUS.md). Lantern Keep does not use it yet: its Pillow check and shape-and-outline hazards stay."
+      ],
+      "engineIssue": "#127"
     },
     {
       "id": "FB-0038",
@@ -976,10 +978,12 @@
       "suggestion": "Read-only platform.accessibility { textScale, reduceMotion, highContrast, screenReader }, plus ui.speak(text) or a focus-change event a screen reader plugin can use.",
       "effort": "large",
       "occurrences": 1,
-      "status": "open",
+      "status": "fixed-in-engine",
       "notes": [
-        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: platform.accessibility, screen-reader hooks) in feedback/ROADMAP.md."
-      ]
+        "2026-10-19 triage: confirmed open; work package of M22 (accessibility: platform.accessibility, screen-reader hooks) in feedback/ROADMAP.md.",
+        "Fixed in 8d40daa (M22.4) and 40ebbeb (M22.3): ui.speak(text) / ui.stopSpeaking() / ui.speechAvailable speak with the system's text to speech (game.spoken() in tests), and the ui.focus event gives the focused widget to speak; game.accessibility { textScale, reduceMotion, highContrast, screenReader } reads the system's settings in a game with its own window (the defaults in headless runs and tests; game.setAccessibility in tests). It is game.accessibility, not platform.accessibility: platform is the store services. The menus kit starts its options from it and reads menus aloud (docs/MENUS.md). Lantern Keep does not use them yet."
+      ],
+      "engineIssue": "#128, #131"
     },
     {
       "id": "FB-0039",

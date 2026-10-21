@@ -889,6 +889,55 @@ tools/make_screenshots.py).
   cheap or dear, how to cap it (`limits` in ai.json, `--max-turns`, `--max-cost`) and where to see what was spent (the
   editor's usage lines, the summary of `factoria ai run`, the run transcripts).
 
+## M22. Production quality and legal — DONE (PRs #126-#132 and the `m22/bookkeeping` PR)
+
+Closes Q-04, Q-05, the subtitles of Q-06, U-05 (text size was M14's) and LK/FB-0037 and LK/FB-0038. Planned in #126
+(2026-10-20, against `4553805`): versioned saves with migration and age ratings were already done (M21), the GDPR/COPPA
+consent screen moved to M12's ads with consent (the engine collects nothing), and the system's settings became
+`game.accessibility` because `platform` is the store services. Six worker packages, at most three building at once.
+LK/FB-0037 and LK/FB-0038 have a `Fixed in <commit>` note; Lantern Keep does not use the features yet, the menus fixture
+(tools/cli/tests/fixtures/menus) has an option for each.
+
+- Colour filters (M22.2, PR #127, `972974b`): `Camera.colorFilter` (`none`, `greyscale`, `highContrast`, `protanopia`,
+  `deuteranopia`, `tritanopia`) is the last post-process of the frame on every backend (shader `colorfilter.glsl`), HUD
+  included, so screenshots and `--record-video` show it. The colour-blind modes are daltonize corrections (Machado 2009
+  matrices, severity 1.0, then Fidaner's shift of the lost information). For checks, `simulate` of `game.screenshot` and
+  `factoria run --screenshot-simulate` save a screenshot as a colour-blind viewer sees it, on the CPU, without changing
+  the game. Goldens `2d_filter_*.png`; the menus fixture's Video tab cycles the filter.
+- Text to speech (M22.4, PR #128, `8d40daa`): `ui.speak(text, { interrupt })`, `ui.stopSpeaking()` and
+  `ui.speechAvailable`, in `i18n.language`: SAPI 5 on Windows, AVSpeechSynthesizer on macOS and iOS, TextToSpeech
+  through JNI on Android, speech-dispatcher loaded at run time on Linux, `speechSynthesis` on the web (voices on the
+  device first, #130). Also the commands `ui.speak` and `ui.stop_speaking`. Headless runs and tests speak nothing and
+  record the lines (`game.spoken()`). The menus fixture reads the focused widget aloud behind a "Read menus aloud" option
+  (`scripts/ui/read_aloud.js`, `tests/speech.test.js`).
+- Performance budgets (M22.1, PR #129, `441405b`): the headless run report has `perf` (process CPU time per frame avg,
+  p95 and max, peak memory, draw calls, entities, the graphics), and `perf.measure`, `perf.baseline` and `perf.check`
+  measure a project and compare it with a budget file keyed by runner (`<os>-<compiler>-<renderer>`). A limit is
+  `max(baseline * (1 + ratio), baseline + slack)`: CPU +100 % average and +150 % p95, memory +10 %, draw calls and
+  entities +10 %. ctest runs `example_<name>_perf` for each example against `tools/cli/tests/perf/` and
+  `perf_regression_detected`, which must fail. The bookkeeping PR added `requireBaseline`, so the engine's CI fails on a
+  runner with no baseline instead of passing unchecked. With it, the CI runners printed their own entries: macOS's are
+  new, and Windows's replace the ones measured on a PC with `FACTORIA_D3D11_WARP=1` (the runner's adapter, the Microsoft
+  Basic Render Driver, is WARP and now has that runner id). gem-roller's Linux entry also comes from the runner (#132):
+  GitHub's Linux runner uses about 25 MB more than WSL. docs/PERFORMANCE.md.
+- Privacy policy and EULA (M22.6, PR #130, `67fe125`): docs/LEGAL.md says what the engine sends (nothing by itself),
+  has a privacy policy template for a game that collects nothing and the paragraphs to add for analytics, ads, accounts,
+  cloud saves or crash uploads, when a game needs an EULA beyond the stores' own, and a checklist. It says it is not legal
+  advice; PUBLISHING.md, FINISHING.md, GETTING_STARTED.md and the README link it.
+- The system's accessibility settings (M22.3, PR #131, `40ebbeb`): read-only `game.accessibility` `{ textScale,
+  reduceMotion, highContrast, screenReader }`, read like the system language (`engine/platform/src/accessibility_*`:
+  Windows `SystemParametersInfo` and `TextScaleFactor`, macOS NSWorkspace, iOS UIAccessibility, Android through JNI,
+  Linux GNOME through `gsettings`, web `matchMedia`) when the game starts and again on focus or resume; `textScale` is
+  clamped to 0.5-4. Only a game in its own window reads the system; `game.setAccessibility` sets it in tests. The menus
+  fixture starts text size, reduced effects and "read menus aloud" from it on the first run.
+- Captions (M22.5, PR #132): a `Captions` UI component (a box like any widget, `maxLines`, text styled like `Text`, with
+  `ui.textScale`, the language's font chain and right to left), fed by `audio.play(path, { caption, captionKey, speaker,
+  captionSeconds })` while the sound plays and by `ui.caption(text, seconds, { key, speaker })` (commands `ui.caption`,
+  `ui.clear_captions`). A `key` follows a language change. `game.captions()` in tests; golden `2d_captions.png`; the menus
+  fixture has a "Subtitles" option and `scripts/dialogue.js`.
+- Bookkeeping (the `m22/bookkeeping` PR): docs/FINISHING.md section 5 lists the four features, CHANGELOG.md, this
+  section, and LK/FB-0037 and LK/FB-0038 marked fixed.
+
 ## Found and fixed while migrating the templates — DONE (`20e1e34`, `cc14514`)
 
 The templates have no ENGINE_FEEDBACK.json, so these three gaps are recorded here instead of as feedback entries.

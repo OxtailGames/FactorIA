@@ -72,6 +72,10 @@ endif()
 if(FA_BUILD_TESTS)
     # CONFIGURE_DEPENDS: a new example becomes a test at the next build, without a manual re-configure.
     file(GLOB FA_EXAMPLE_PROJECTS LIST_DIRECTORIES true CONFIGURE_DEPENDS ${FA_ROOT}/examples/*)
+    set(fa_perf_require false)
+    if(DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "" AND NOT "$ENV{CI}" STREQUAL "0" AND NOT "$ENV{CI}" STREQUAL "false")
+        set(fa_perf_require true)
+    endif()
     foreach(ex ${FA_EXAMPLE_PROJECTS})
         if(EXISTS ${ex}/factoria.json)
             get_filename_component(ex_name ${ex} NAME)
@@ -80,8 +84,10 @@ if(FA_BUILD_TESTS)
             set_tests_properties(example_${ex_name}_test PROPERTIES LABELS "gpu" TIMEOUT 300)
             # Performance budget (docs/PERFORMANCE.md): a fixed number of frames with the GPU renderer, compared with the
             # baseline of this runner in tests/perf/<example>.perf.json. Memory and draw calls fail always, a time only in CI
-            # (the CI environment variable); a runner with no baseline passes and prints the entry to commit.
-            file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json\"}")
+            # (the CI environment variable). A runner with no baseline fails in CI and prints the entry to commit; on a
+            # developer machine it passes.
+            file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
+                "{\"file\":\"${CMAKE_CURRENT_SOURCE_DIR}/tests/perf/${ex_name}.perf.json\",\"requireBaseline\":${fa_perf_require}}")
             add_test(NAME example_${ex_name}_perf
                 COMMAND factoria call --no-graphics --project ${ex} perf.check @${CMAKE_CURRENT_BINARY_DIR}/perf/${ex_name}.args.json
                 WORKING_DIRECTORY ${FA_ROOT})

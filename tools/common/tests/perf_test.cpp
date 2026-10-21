@@ -111,6 +111,8 @@ TEST_CASE("perf_runner_id: os-compiler-renderer, with an override") {
 #endif
     const std::string warp = perf_runner_id("D3D11 WARP software / Microsoft Basic Render Driver (feature level 0xb100)");
     CHECK(warp.find("d3d11-warp") != std::string::npos);
+    // A CI runner without a graphics card gets WARP as its "hardware" adapter: the same runner id.
+    CHECK(perf_runner_id("D3D11 hardware / Microsoft Basic Render Driver (feature level 0xb100)") == warp);
     CHECK(perf_runner_id("EGL surfaceless / llvmpipe (LLVM 19)").find("-llvmpipe") != std::string::npos);
     CHECK(perf_runner_id("Metal / Apple M1").find("-metal") != std::string::npos);
     CHECK(perf_runner_id("none").find("-nogpu") != std::string::npos);
@@ -174,4 +176,9 @@ TEST_CASE("perf.baseline then perf.check on a tiny project (no GPU needed)") {
     REQUIRE(n.ok);
     CHECK(n.result["status"] == "no_baseline");
     CHECK(n.result["baselineEntry"].contains(runner));
+    // ...unless the caller requires one (the engine's CI): then it fails with the same entry to commit.
+    CommandResult r = reg.call("perf.check", Json::object({{"requireBaseline", true}}));
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "perf_no_baseline");
+    CHECK(r.error["message"].get<std::string>().find(runner) != std::string::npos);
 }
