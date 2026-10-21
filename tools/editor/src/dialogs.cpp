@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "fa/core/fs.h"
 #include "sokol_app.h"
 
 namespace fa::editor {
@@ -39,13 +40,13 @@ static void scan_projects(std::vector<std::string>& out) {
 static std::string delete_project_folder(const std::string& dir) {
     std::error_code ec;
     if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) return "'" + dir + "' is not a FactorIA project (no " + std::string(kProjectFileName) + "); nothing was deleted.";
-    if (stdfs::remove_all(dir, ec) == static_cast<std::uintmax_t>(-1) || ec) {
+    if (fs::remove_tree(dir, ec) == static_cast<std::uintmax_t>(-1) || ec) {
         // Read-only files (a .git folder's objects) stop remove_all on Windows: make them writable and try again.
         std::error_code ec2;
         for (auto it = stdfs::recursive_directory_iterator(dir, ec2); !ec2 && it != stdfs::recursive_directory_iterator(); it.increment(ec2))
             stdfs::permissions(it->path(), stdfs::perms::owner_write, stdfs::perm_options::add, ec2);
         ec.clear();
-        stdfs::remove_all(dir, ec);
+        fs::remove_tree(dir, ec);
     }
     if (ec) return "Could not delete everything in '" + dir + "': " + ec.message() + ". Close the programs using files in it (a terminal, an editor, the game) and delete it again.";
     return {};

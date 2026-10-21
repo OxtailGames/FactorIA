@@ -9,6 +9,7 @@
 #include <filesystem>
 
 #include "editor_internal.h"
+#include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
 #include "fa/platform/sokol_entry.h"
@@ -257,7 +258,7 @@ void Editor::on_init() {
         // exception is FA_EDITOR_AUTOTEST_REAL_CMAKE=1, a manual end-to-end check of the CMake button; ctest never sets it).
         {
             const stdfs::path home = base / "factoria_home";
-            stdfs::remove_all(home, ec);
+            fs::remove_tree(home, ec);
             // That home would hide the shader compiler installed in the real one (`factoria setup shaders`, as CI does):
             // hand it over through SOKOL_SHDC, so the custom material of the autotest compiles as in the user's editor.
             const std::string shdc = std::getenv("SOKOL_SHDC") ? std::string() : find_sokol_shdc(SetupContext{});
@@ -295,7 +296,7 @@ void Editor::on_init() {
         // checkouts, deleted each other's project).
         const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
         stdfs::path proj = stdfs::temp_directory_path() / ("fa_editor_autotest_project_" + std::to_string(stamp));
-        stdfs::remove_all(proj, ec);
+        fs::remove_tree(proj, ec);
         auto r = atWelcome_ ? Result<ScaffoldResult>(Error{"welcome mode"}) : create_project(proj.string(), "2d-platformer", ScaffoldOptions{"Autotest Platformer"});
         if (atWelcome_) {
         } else if (!r) {
@@ -355,7 +356,7 @@ void Editor::on_cleanup() {
     }
     if (!atTempProject_.empty()) {
         std::error_code ec;
-        std::filesystem::remove_all(atTempProject_, ec);
+        fs::remove_tree(atTempProject_, ec);
     }
     if (restartAfterQuit_)
         if (auto r = start_editor_process(projectDir_); !r) FA_WARN("editor", "restart after the update: {}", r.error().to_string());

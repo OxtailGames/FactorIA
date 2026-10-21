@@ -152,12 +152,12 @@ Result<void> build_appimage(const ExportOptions& o, const Project& p, const AppI
     // Beside the export folder, not inside it: the folder is what gets listed and archived. Removed again whatever happens.
     const stdfs::path appDir = outRoot.parent_path() / ("." + slug + "-linux.AppDir");
     std::error_code ec;
-    stdfs::remove_all(os_path(appDir), ec);
+    fs::remove_tree(appDir, ec);
     struct Cleanup {
         stdfs::path dir;
         ~Cleanup() {
             std::error_code e;
-            stdfs::remove_all(os_path(dir), e);
+            fs::remove_tree(dir, e);
         }
     } cleanup{appDir};
 
