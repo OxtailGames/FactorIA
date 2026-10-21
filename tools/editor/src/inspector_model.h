@@ -40,6 +40,8 @@ std::string command_error_text(const Json& error);
 // Whether a project-relative file is of an asset type of FieldInfo::assetType ("texture", "mesh", "audio", "font", "script",
 // "scene", "prefab", "material", "any").
 bool asset_file_matches(std::string_view assetType, std::string_view relPath);
+// Folders the project listings never enter: hidden ones (.factoria, .git), build, node_modules, dist, export.
+bool skip_project_dir(std::string_view name);
 // The project's files of that type, sorted, with forward slashes (the build and hidden folders are skipped).
 std::vector<std::string> list_asset_files(const std::string& projectDir, std::string_view assetType, std::size_t limit = 2000);
 
